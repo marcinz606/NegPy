@@ -1546,6 +1546,57 @@ class TestAssetListModelFilter(unittest.TestCase):
         self.assertEqual(len(self.model._sorted_indices), 5)  # both cleared -- the full hand-off shows through
 
 
+class TestAssetListModelSceneSort(unittest.TestCase):
+    """Scene sort: each scene's frames as one block in scene order, frames in no scene last."""
+
+    def setUp(self):
+        self.state = AppState()
+        self.state.uploaded_files = [
+            {"name": "a.nef", "path": "/r/a.nef", "hash": "h1"},
+            {"name": "b.nef", "path": "/r/b.nef", "hash": "h2", "scene": (2, "s2", "Night")},
+            {"name": "c.nef", "path": "/r/c.nef", "hash": "h3", "scene": (1, "s1", "Beach")},
+            {"name": "d.nef", "path": "/r/d.nef", "hash": "h4", "scene": (2, "s2", "Night")},
+            {"name": "e.nef", "path": "/r/e.nef", "hash": "h5", "scene": (1, "s1", "Beach")},
+        ]
+        self.model = AssetListModel(self.state)
+        self.model.set_sort_order("scene")
+
+    def _names(self):
+        return [self.state.uploaded_files[i]["name"] for i in self.model._sorted_indices]
+
+    def test_scenes_in_order_then_frames_in_no_scene(self):
+        self.assertEqual(self._names(), ["c.nef", "e.nef", "b.nef", "d.nef", "a.nef"])
+        self.assertEqual(self.model.scene_runs(), [(1, 0, 1), (2, 2, 3), (None, 4, 4)])
+
+    def test_descending_reverses_scenes_and_names_but_keeps_no_scene_last(self):
+        self.model.set_sort_descending(True)
+        self.assertEqual(self._names(), ["d.nef", "b.nef", "e.nef", "c.nef", "a.nef"])
+
+    def test_reads_as_name_without_scenes_and_keeps_the_choice(self):
+        for f in self.state.uploaded_files:
+            f.pop("scene", None)
+        self.model.refresh()
+
+        self.assertEqual(self.model.effective_sort_order, "name")
+        self.assertEqual(self._names(), ["a.nef", "b.nef", "c.nef", "d.nef", "e.nef"])
+        self.assertEqual(self.model.scene_runs(), [])
+        self.assertEqual(self.model._sort_order, "scene")
+
+    def test_a_filter_keeps_the_blocks(self):
+        self.model.set_filter("[bcd]", regex=True)
+        self.assertEqual(self._names(), ["c.nef", "b.nef", "d.nef"])
+        self.assertEqual(self.model.scene_runs(), [(1, 0, 0), (2, 1, 2)])
+
+    def test_no_blocks_under_other_orders_or_a_semantic_query(self):
+        import numpy as np
+
+        self.model.set_sort_order("date")
+        self.assertEqual(self.model.scene_runs(), [])
+        self.model.set_sort_order("scene")
+        self.model._semantic_query = np.zeros(4)
+        self.assertEqual(self.model.scene_runs(), [])
+
+
 class TestNavButtonBoundaries(unittest.TestCase):
     """Regression for #407: Next/Prev enable must be computed in display space
     (sorted/filtered order), matching session.next_file/prev_file — not raw

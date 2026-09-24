@@ -9,6 +9,7 @@ from PyQt6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QPersistentModelIndex,
+    QPoint,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -17,7 +18,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtSlot,
 )
-from PyQt6.QtGui import QActionGroup, QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
+from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -89,17 +90,18 @@ _LIBRARY_SHARE, _FRAMES_SHARE = 1, 4
 
 class _ThumbnailDelegate(QStyledItemDelegate):
     """Contact-sheet rendering: scales each cached ~120px thumbnail into its cell and
-    draws a subtle 1px border hugging the image outline (no cell box). The selected
-    image is shown full-brightness with a white frame while the others are dimmed; a
-    dirty active file gets an accent line along the image's bottom edge. Triage marks
-    are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
-    top-right badge is the frame's scene number while Show Scenes is on; the bottom-left
-    badge says the frame was built from several files (stitch, HDR merge, RGB triplet,
-    half-frame split). Top-left holds the decode-failure badge, else a small dot saying
-    the bitmap shown predates a settings change (a bulk apply reaches the file before a
-    render reaches its thumbnail)."""
+    draws a subtle 1px border hugging the image outline (no cell box), 2px in the frame's
+    scene color while Show Scenes is on. The selected image is shown full-brightness
+    with the accent ring just outside that border, so both show at once; the others are
+    dimmed. A dirty active file gets an accent line along the image's bottom edge.
+    Triage marks are small bottom-right badges: check = keeper, cross + heavy dim =
+    rejected; the bottom-left badge says the frame was built from several files
+    (stitch, HDR merge, RGB triplet, half-frame split). Top-left holds the
+    decode-failure badge, else a small dot saying the bitmap shown predates a settings
+    change (a bulk apply reaches the file before a render reaches its thumbnail)."""
 
-    _MARGIN = 3
+    _MARGIN = 5  # room for the selection ring outside the picture
+    _SELECTION_OUTSET = 4  # the ring's outer edge, outside the picture edge
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
     _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
     # Neutral, not the triage red: red already means "you marked this" and "this failed".
@@ -233,22 +235,21 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
-    def _draw_scene_chip(self, painter: QPainter, img_rect: QRect, file_info: dict) -> None:
-        scene = file_info.get("scene")
-        if not (self._show_scenes and scene):
-            return
-        r = 9
-        cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
-        chip = QRect(cx - r, cy - r, 2 * r, 2 * r)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(scene_color(scene[0])))
-        painter.drawEllipse(chip)
-        font = QFont(painter.font())
-        font.setPixelSize(THEME.font_size_small)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QColor(THEME.text_on_accent))
-        painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, str(scene[0]))
+    def _draw_outline(self, painter: QPainter, img_rect: QRect, file_info: dict, selected: bool, hover: bool) -> None:
+        """The picture's edge line, 2px in its scene's color while Show Scenes is on, and
+        the selection ring outside it."""
+        scene = file_info.get("scene") if self._show_scenes else None
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if scene:
+            painter.setPen(QPen(QColor(scene_color(scene[0])), 2))
+            painter.drawRoundedRect(QRectF(img_rect).adjusted(1, 1, -2, -2), self._RADIUS, self._RADIUS)
+        else:
+            painter.setPen(self._border_pen(hover))
+            painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+        if selected:
+            out = self._SELECTION_OUTSET
+            painter.setPen(QPen(QColor(THEME.accent_primary), 2))
+            painter.drawRoundedRect(QRectF(img_rect).adjusted(1 - out, 1 - out, out - 2, out - 2), self._RADIUS + out, self._RADIUS + out)
 
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int) -> None:
         """Bottom-left mark: this frame was assembled from more than one file.
@@ -285,9 +286,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.fillRect(QRect(left, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
 
     @staticmethod
-    def _border_pen(selected: bool, hover: bool) -> QPen:
-        if selected:
-            return QPen(QColor(THEME.accent_primary), 2)
+    def _border_pen(hover: bool) -> QPen:
         if hover:
             return QPen(QColor(THEME.text_muted), 1)
         return QPen(QColor(THEME.border_color), 1)
@@ -304,16 +303,16 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
-        painter.setPen(self._border_pen(selected, hover))
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(20, 20, 20))
         painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
+        self._draw_outline(painter, area, file_info, selected, hover)
         if rejected:
             self._draw_mark_badge(painter, area, check=False)
         elif keeper:
             self._draw_mark_badge(painter, area, check=True)
         if failed:
             self._draw_failed_badge(painter, area)
-        self._draw_scene_chip(painter, area, file_info)
         if kind:
             self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
         painter.restore()
@@ -333,9 +332,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
             rejected = bool(file_info.get("excluded"))
             keeper = bool(file_info.get("keeper"))
-            painter.setPen(self._border_pen(selected, hover))
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(THEME.bg_header))
             painter.drawRoundedRect(img_rect, self._RADIUS, self._RADIUS)
+            self._draw_outline(painter, img_rect, file_info, selected, hover)
             glyph_side = min(32, min(img_rect.width(), img_rect.height()) // 3)
             glyph_rect = QRect(0, 0, glyph_side, glyph_side)
             glyph_rect.moveCenter(img_rect.center())
@@ -359,7 +359,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 self._draw_mark_badge(painter, img_rect, check=True)
             if failed:
                 self._draw_failed_badge(painter, img_rect)
-            self._draw_scene_chip(painter, img_rect, file_info)
             if kind:
                 self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
             painter.restore()
@@ -403,12 +402,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
         if not failed and self._is_stale_thumbnail(file_info):
             self._draw_stale_dot(painter, img_rect)
-        self._draw_scene_chip(painter, img_rect, file_info)
         painter.setClipping(False)
 
-        painter.setPen(self._border_pen(selected, hover))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+        self._draw_outline(painter, img_rect, file_info, selected, hover)
 
         if self._is_dirty(file_info):
             # Over the frame line, so it reads as the accent and not a blend with the border.
@@ -457,6 +453,10 @@ class ThumbnailGridView(QListView):
     """
 
     SPACING = 2
+    # Scene sort: the gap between two scenes' blocks, and each block's tinted band.
+    SCENE_GAP = THEME.space_lg
+    SCENE_BAND_ALPHA = 0.18
+    SCENE_BAND_RADIUS = 6
     # One notch scrolls one row of thumbnails. Qt's default, three "lines" a notch, advanced
     # several frames at a time in a single-column panel.
     WHEEL_ROWS_PER_NOTCH = 1.0
@@ -472,6 +472,8 @@ class ThumbnailGridView(QListView):
         self._range_anchor_row: Optional[int] = None
         self._ctrl_target: set[QPersistentModelIndex] = set()
         self._pre_press_selection: set[QPersistentModelIndex] = set()
+        self._placing_scenes = False
+        self._scene_bands: list[tuple[int, QRect]] = []
         # Reserve the vertical scrollbar permanently so the viewport width is stable. Otherwise
         # scaling toggles the scrollbar, which changes the width, flips the column count back
         # and flickers.
@@ -526,6 +528,54 @@ class ThumbnailGridView(QListView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout()
+
+    def updateGeometries(self) -> None:
+        super().updateGeometries()
+        if self._placing_scenes:
+            return
+        self._placing_scenes = True
+        try:
+            self._place_scene_runs()
+        finally:
+            self._placing_scenes = False
+
+    def _place_scene_runs(self) -> None:
+        """Scene sort: each scene's frames as their own block from a new row, SCENE_GAP apart,
+        frames in no scene last. Qt re-flows every cell on each layout, so this runs after
+        each one; every other order keeps Qt's own flow."""
+        model = self.model()
+        runs = model.scene_runs() if hasattr(model, "scene_runs") else []
+        self._scene_bands = []
+        if not runs:
+            return
+        grid, cell = self.gridSize(), self.iconSize()
+        cols = self.columns_for_width(self.viewport().width())
+        inset = (grid.width() - cell.width()) // 2  # Qt centers a cell in its grid square
+        pad = self.SCENE_GAP // 2 - 1
+        y = self.SCENE_GAP // 2
+        for ordinal, first, last in runs:
+            count = last - first + 1
+            for n in range(count):
+                position = QPoint(inset + (n % cols) * grid.width(), y + (n // cols) * grid.height())
+                self.setPositionForIndex(position, model.index(first + n, 0))
+            lines = (count - 1) // cols + 1
+            if ordinal is not None:
+                height = (lines - 1) * grid.height() + cell.height() + 2 * pad
+                self._scene_bands.append((ordinal, QRect(0, y - pad, min(count, cols) * grid.width(), height)))
+            y += lines * grid.height() + self.SCENE_GAP
+
+    def paintEvent(self, event) -> None:
+        if self._scene_bands:
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for ordinal, rect in self._scene_bands:
+                color = QColor(scene_color(ordinal))
+                color.setAlphaF(self.SCENE_BAND_ALPHA)
+                painter.setBrush(color)
+                painter.drawRoundedRect(QRectF(rect.translated(0, -self.verticalOffset())), self.SCENE_BAND_RADIUS, self.SCENE_BAND_RADIUS)
+            painter.end()
+        super().paintEvent(event)
 
     def _begin_click_selection(self, pre_press_current: QModelIndex) -> None:
         """Decides the gesture's mode and range anchor exactly once, from the modifiers and
@@ -800,7 +850,7 @@ class FileBrowser(QWidget):
 
         self.scenes_btn = QToolButton()
         self.scenes_btn.setCheckable(True)
-        self.scenes_btn.setToolTip(wrap_tooltip("Show Scenes — mark each frame with the number and color of its scene"))
+        self.scenes_btn.setToolTip(wrap_tooltip("Show Scenes — frame each picture in its scene's color"))
         self.scenes_btn.toggled.connect(self._apply_show_scenes)
 
         # Sheet filter dropdown
@@ -832,7 +882,9 @@ class FileBrowser(QWidget):
         self._order_group.setExclusive(True)
         self.act_sort_name = sort_menu.addAction("Name")
         self.act_sort_date = sort_menu.addAction("Date")
-        for act in (self.act_sort_name, self.act_sort_date):
+        self.act_sort_scene = sort_menu.addAction("Scene")
+        self.act_sort_scene.setVisible(False)
+        for act in (self.act_sort_name, self.act_sort_date, self.act_sort_scene):
             act.setCheckable(True)
             self._order_group.addAction(act)
         sort_menu.addSeparator()
@@ -845,6 +897,7 @@ class FileBrowser(QWidget):
             self._dir_group.addAction(act)
         self.act_sort_name.triggered.connect(lambda: self._apply_sort_order("name"))
         self.act_sort_date.triggered.connect(lambda: self._apply_sort_order("date"))
+        self.act_sort_scene.triggered.connect(lambda: self._apply_sort_order("scene"))
         self.act_sort_asc.triggered.connect(lambda: self._apply_sort_direction(False))
         self.act_sort_desc.triggered.connect(lambda: self._apply_sort_direction(True))
         self.sort_btn.setMenu(sort_menu)
@@ -1132,6 +1185,7 @@ class FileBrowser(QWidget):
         self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
+        self.controller.first_scene_created.connect(lambda: self._apply_sort_order("scene"))
         self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
         # Unloading the last frame leaves nothing to show, so fall back to the library rather
         # than an empty panel. Never prompts: the user asked to unload, not to load.
@@ -1175,6 +1229,7 @@ class FileBrowser(QWidget):
         # the selection to the next visible frame.
         if self.session.asset_model.sheet_filter != "all":
             self._prune_selection_to_visible()
+        self._sync_sort_menu()
         self.sync_ui()
 
     def _on_unload_clicked(self) -> None:
@@ -1332,11 +1387,10 @@ class FileBrowser(QWidget):
             self.session.state_changed.emit()
 
     def _apply_sort_order(self, order: str, save: bool = True) -> None:
-        self.act_sort_name.setChecked(order == "name")
-        self.act_sort_date.setChecked(order == "date")
         # AssetListModel's own reindex remaps every persistent index (Qt's selection and
         # current-index among them), so the view's selection needs no separate resync here.
         self.session.asset_model.set_sort_order(order)
+        self._sync_sort_menu()
         self.sort_changed.emit()
         if save:
             self.session.repo.save_global_setting("file_sort_order", order)
@@ -1349,7 +1403,18 @@ class FileBrowser(QWidget):
         if save:
             self.session.repo.save_global_setting("file_sort_descending", descending)
 
+    def _sync_sort_menu(self) -> None:
+        """Scene shows once the loaded roll has a scene. The ticks show the order the frames
+        are in, which is Name while a Scene choice waits for a roll with scenes."""
+        model = self.session.asset_model
+        self.act_sort_scene.setVisible(model.has_scenes)
+        order = model.effective_sort_order
+        self.act_sort_name.setChecked(order == "name")
+        self.act_sort_date.setChecked(order == "date")
+        self.act_sort_scene.setChecked(order == "scene")
+
     def sort_choice(self) -> tuple[str, bool]:
+        """The Library tree's sort. Rolls have no scenes, so Scene sort gives it Name."""
         return ("date" if self.act_sort_date.isChecked() else "name", self.act_sort_desc.isChecked())
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:

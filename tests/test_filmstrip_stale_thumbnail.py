@@ -4,7 +4,7 @@ reached the file without a render (a bulk apply, not the active canvas)."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QStyleOptionViewItem
 
@@ -28,9 +28,17 @@ def _paint(delegate, file_info: dict) -> QPixmap:
     return target
 
 
+def image_rect() -> QRect:
+    """Where _paint's 60x40 thumbnail lands in its 66x46 cell."""
+    m = _ThumbnailDelegate._MARGIN
+    area = QRect(m, m, 66 - 2 * m, 46 - 2 * m)
+    return _ThumbnailDelegate._fit_rect(area, QSize(60, 40).scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio))
+
+
 def _top_left_colour(pix: QPixmap) -> QColor:
-    # Dot center: image rect starts at margin 3, dot radius 4 offset by 4px from each edge.
-    return QColor(pix.toImage().pixel(3 + 4 + 4, 3 + 4 + 4))
+    # Dot center: radius 4, offset by 4px from the image's top-left corner.
+    r = image_rect()
+    return QColor(pix.toImage().pixel(r.left() + 4 + 4, r.top() + 4 + 4))
 
 
 def test_stale_frame_gets_a_dot(qapp):

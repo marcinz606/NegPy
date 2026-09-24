@@ -112,7 +112,7 @@ Below it are the toolbar, the search box and two collapsible sections: **Library
 <!-- panel:library -->
 ### Your library
 
-**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** re-reads each roll's frame count from disk, **Sort** orders by Name or Date, ascending or descending (the Film Strip follows), and **index** appears when Search by Meaning is on. Each row shows name and count ("36 photos").
+**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** re-reads each roll's frame count from disk, **Sort** orders by Name or Date, or by **Scene** once the loaded roll has one ([Scenes](#scenes)), ascending or descending (the Film Strip follows; the roll list keeps Name under Scene), and **index** appears when Search by Meaning is on. Each row shows name and count ("36 photos").
 
 Importing only recognizes a folder; nothing is decoded or hashed until you open the roll.
 
@@ -159,7 +159,7 @@ The Film Strip button row:
 *   **Roll Settings** (tag icon): tags gear, capture, place, process and scanning metadata for the frame, a selection or the whole roll (default when a roll is loaded). Fields start from the active frame; **Load** a metadata preset to fill and tick fields, then tick groups to write. With Analog Gear empty, it matches the folder name against your Gear library, as at import, and never overwrites tagged gear.
 *   **Save as Roll…** (red folder icon): keeps the loaded frames as a roll. See [Rolls that are not folders](#rolls-that-are-not-folders).
 *   **Unload…**: drops the active frame or selection. For the whole roll, use *Clear All…*.
-*   **Show Scenes** (layers icon): shows each frame's scene number on a colored disc, top-right. See [Scenes](#scenes).
+*   **Show Scenes** (layers icon): edges each frame in its scene's color, with the selection ring just outside it. See [Scenes](#scenes).
 *   **Sheet filter** (funnel): *All Frames*, *Keepers Only* or *Hide Rejected*, for every roll.
 
 Both of the last two are remembered between sessions.
@@ -245,7 +245,6 @@ Right-click a thumbnail, or use shortcuts, to mark frames (multi-selection works
 |---|---|---|
 | Bottom-right | check | keeper |
 | Bottom-right | cross, frame heavily dimmed | rejected |
-| Top-right | number on a colored disc | the frame's scene, while **Show Scenes** is on |
 | Bottom-left | *see below* | the frame was built from more than one file |
 | Top-left | exclamation | the file failed to decode; click to retry |
 | Top-left | small amber dot | the thumbnail predates a settings change (a bulk apply reached the file before a render reached its thumbnail); open the frame to refresh it |
@@ -278,6 +277,7 @@ The right-click menu also has:
 A scene is a group of frames in one roll shot in the same light (the beach half of a roll that is also a night walk). It has its own baseline, so its frames match each other, not the rest of the roll. Scenes need a roll: open one, or **Save as Roll…** first.
 
 *   **Scene** (right-click menu): **Group as Scene…** makes the selection a scene; **Add to** *name* and **Remove from Scene** move frames in and out. On a scene's frames, **Analyze Scene…** runs Scene Analysis; **Rename Scene…** and **Delete Scene…** manage it. A frame is in one scene at most; deleting a scene keeps edits and baselines.
+*   **Sort → Scene** (offered once the roll has a scene): each scene's frames as their own block, from a new row, on a band in the scene's color; frames in no scene come last. Grouping a roll's first scene switches to it.
 
 ---
 

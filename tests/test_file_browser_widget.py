@@ -1108,3 +1108,44 @@ def test_tooltip_names_the_scene(session):
     session.asset_model.refresh()
     tip = session.asset_model.data(session.asset_model.index(0), Qt.ItemDataRole.ToolTipRole)
     assert "Scene: Beach" in tip
+
+
+def _stamp_scenes(session, scenes) -> None:
+    for f, scene in zip(session.state.uploaded_files, scenes):
+        if scene:
+            f["scene"] = scene
+        else:
+            f.pop("scene", None)
+    session.asset_model.refresh()
+    session.files_changed.emit()
+
+
+def test_scene_sort_is_offered_only_while_the_roll_has_a_scene(browser, session):
+    assert not browser.act_sort_scene.isVisible()
+
+    _stamp_scenes(session, [(1, "s1", "Beach"), None, None, None])
+    assert browser.act_sort_scene.isVisible()
+
+    _stamp_scenes(session, [None] * 4)
+    assert not browser.act_sort_scene.isVisible()
+
+
+def test_the_first_scene_switches_the_strip_to_scene_sort(browser, session):
+    _stamp_scenes(session, [None, (1, "s1", "Beach"), None, (1, "s1", "Beach")])
+    switch = browser.controller.first_scene_created.connect.call_args[0][0]
+
+    switch()
+
+    assert session.asset_model.effective_sort_order == "scene"
+    assert browser.act_sort_scene.isChecked()
+    names = [session.state.uploaded_files[i]["name"] for i in session.asset_model.visible_actual_indices_ordered()]
+    assert names[:2] == ["IMG_0002.cr2", "note.txt"]
+    session.repo.save_global_setting.assert_any_call("file_sort_order", "scene")
+
+
+def test_scene_sort_gives_the_library_name_and_reads_as_name_without_scenes(browser, session):
+    browser._apply_sort_order("scene")
+
+    assert browser.sort_choice()[0] == "name"
+    assert browser.act_sort_name.isChecked()
+    assert not browser.act_sort_scene.isVisible()

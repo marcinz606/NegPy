@@ -378,6 +378,7 @@ class AppController(QObject):
     library_index_scan_requested = pyqtSignal(list)  # library_roots(), for whole-library indexing
     library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
     library_cleared = pyqtSignal()  # roots forgotten elsewhere — the panel must re-read them
+    first_scene_created = pyqtSignal()  # the loaded roll's first scene: the Film Strip sorts by scene
     stitch_requested = pyqtSignal(object)
     hdr_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
@@ -4352,7 +4353,11 @@ class AppController(QObject):
         hashes = self._selected_scene_hashes()
         if not hashes:
             return None
-        return self._edit_scenes(lambda roll_id: rolls.create_scene(self.session.repo, roll_id, name, hashes))
+        first = not rolls.roll_scenes(self.session.repo, self.state.active_roll_id)
+        scene_id = self._edit_scenes(lambda roll_id: rolls.create_scene(self.session.repo, roll_id, name, hashes))
+        if scene_id and first:
+            self.first_scene_created.emit()
+        return scene_id
 
     def request_add_to_scene(self, scene_id: str) -> None:
         hashes = self._selected_scene_hashes()

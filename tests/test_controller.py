@@ -3102,6 +3102,19 @@ class TestPresetExportSelected(unittest.TestCase):
         mock_create.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "Beach", ["h1", "h3"])
         self.mock_session_manager.refresh_scene_marks.assert_called_once()
 
+    def test_only_the_rolls_first_scene_announces_itself(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.state.selected_indices = [0]
+        fired = []
+        self.controller.first_scene_created.connect(lambda: fired.append(True))
+
+        with patch.object(rolls, "roll_scenes", return_value=[]), patch.object(rolls, "create_scene", return_value="s1"):
+            self.controller.request_group_as_scene("Beach")
+        with patch.object(rolls, "roll_scenes", return_value=[("s1", {})]), patch.object(rolls, "create_scene", return_value="s2"):
+            self.controller.request_group_as_scene("Night")
+
+        self.assertEqual(fired, [True])
+
     def test_apply_normalization_roll_is_a_noop_for_an_unanalyzed_roll(self):
         with patch.object(rolls, "roll_normalization", return_value=None):
             self.controller.apply_normalization_roll("roll-1")

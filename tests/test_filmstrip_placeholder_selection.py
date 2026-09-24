@@ -26,8 +26,8 @@ def _paint_placeholder(selected: bool) -> QPixmap:
 
 def _left_edge_colour(pix: QPixmap) -> QColor:
     img = pix.toImage()
-    # On the border stroke, just inside the margin, mid-height.
-    return QColor(img.pixel(3, 20))
+    # On the selection ring, which sits outside the placeholder's edge, mid-height.
+    return QColor(img.pixel(_ThumbnailDelegate._MARGIN - _ThumbnailDelegate._SELECTION_OUTSET + 1, 20))
 
 
 def test_selected_placeholder_shows_the_accent_border(qapp):

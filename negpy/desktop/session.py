@@ -376,7 +376,7 @@ class AssetListModel(QAbstractListModel):
         # Returns {asset hash: facts}. Without one, plain queries see file facts only
         # (name, ext, date), which is all a model built outside a session can know.
         self._facts_provider = facts_provider
-        self._sort_order = "name"  # "name" | "date"
+        self._sort_order = "name"  # "name" | "date" | "scene"
         self._sort_descending = False
         self._filter_text: str = ""
         self._filter_regex: bool = False
@@ -404,10 +404,13 @@ class AssetListModel(QAbstractListModel):
             self._sorted_indices = self._rank_by_similarity(indices, files)
             return
 
-        if self._sort_order == "name":
-            indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
-        else:
+        order = self.effective_sort_order
+        if order == "date":
             indices.sort(key=lambda i: _asset_mtime(files[i]), reverse=self._sort_descending)
+        else:
+            indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
+        if order == "scene":
+            indices.sort(key=lambda i: self._scene_rank(files[i]))
 
         if self._filter_text:
             if self._filter_pattern is not None:
@@ -487,6 +490,41 @@ class AssetListModel(QAbstractListModel):
     def set_sort_order(self, order: str) -> None:
         self._sort_order = order
         self._apply_reindex()
+
+    @property
+    def has_scenes(self) -> bool:
+        return any(f.get("scene") for f in self._state.uploaded_files)
+
+    @property
+    def effective_sort_order(self) -> str:
+        """The order the frames are in: Scene sort reads as Name while no loaded frame is in
+        a scene, so the choice survives a roll without scenes."""
+        if self._sort_order == "scene" and not self.has_scenes:
+            return "name"
+        return self._sort_order
+
+    def _scene_rank(self, file_info: dict) -> tuple:
+        """Scene sort's outer key. Frames in no scene come last in either direction."""
+        scene = file_info.get("scene")
+        if not scene:
+            return (1, 0)
+        return (0, -scene[0] if self._sort_descending else scene[0])
+
+    def scene_runs(self) -> list[tuple[Optional[int], int, int]]:
+        """``(scene ordinal or None, first row, last row)`` for each scene's block of display
+        rows, frames in no scene as the last block. Empty unless sorted by Scene."""
+        if self.effective_sort_order != "scene" or self._semantic_query is not None:
+            return []
+        files = self._state.uploaded_files
+        runs: list[tuple[Optional[int], int, int]] = []
+        for row, i in enumerate(self._sorted_indices):
+            scene = files[i].get("scene")
+            ordinal = scene[0] if scene else None
+            if runs and runs[-1][0] == ordinal:
+                runs[-1] = (ordinal, runs[-1][1], row)
+            else:
+                runs.append((ordinal, row, row))
+        return runs
 
     def set_sort_descending(self, descending: bool) -> None:
         self._sort_descending = descending

@@ -28,8 +28,8 @@ def _paint(delegate, path: str) -> QPixmap:
 
 def _bottom_edge_colour(pix: QPixmap) -> QColor:
     img = pix.toImage()
-    # One px above the rounded frame line, mid-width, inside the image rect (margin 3).
-    return QColor(img.pixel(33, 46 - 3 - 2))
+    # One px above the rounded frame line, mid-width, inside the image rect.
+    return QColor(img.pixel(33, 46 - _ThumbnailDelegate._MARGIN - 2))
 
 
 def test_active_dirty_frame_gets_an_accent_line(qapp):
