@@ -583,6 +583,17 @@ class TestAppController(unittest.TestCase):
 
         self.controller.set_status.assert_not_called()
 
+    def test_vram_capped_message_hidden_when_gpu_acceleration_is_off(self):
+        """A CPU render never touches the capped GPU texture, so the message is moot."""
+        self.controller._requested_file_path = "scan.arw"
+        self.controller.state.gpu_enabled = False
+        self.controller.session.repo.get_global_setting.return_value = True
+        self.controller.set_status = MagicMock()
+
+        self.controller._on_hq_preview_vram_capped("scan.arw", 6144)
+
+        self.controller.set_status.assert_not_called()
+
     def test_foreground_render_queue_blocks_neighbor_prefetch(self):
         self.controller._foreground_preview_generation = None
         self.controller._neighbor_prefetch_generation = self.controller._prefetch_gen

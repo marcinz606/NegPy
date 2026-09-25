@@ -2475,8 +2475,11 @@ class AppController(QObject):
         crashing (see preview_manager._load_from_open_raw). Non-blocking — the user can
         keep working at the reduced resolution or raise max_texture_size in Preferences.
         The downsampling itself always happens; only the status message is optional
-        (Preferences → Performance → Show GPU memory warning)."""
+        (Preferences → Performance → Show GPU memory warning), and only relevant with
+        GPU acceleration on, since a CPU render never touches the capped texture."""
         if self._requested_file_path != file_path:
+            return
+        if not self.state.gpu_enabled:
             return
         if not self.session.repo.get_global_setting("show_vram_capped_warning", default=True):
             return
