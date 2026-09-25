@@ -3,7 +3,7 @@ Transparency transfer curve — the E-6 render when Normalize is off.
 
 A slide is captured close to how it should look, so the render starts from the capture
 and the controls deviate from there. At default settings the scene stage is the exact
-inverse of the fixed-bounds normalization in `normalization.py` (see
+inverse of the fixed-bounds normalization in `processor.py` (see
 TRANSFER_DENSITY_RANGE), so nothing shapes the capture; the standard display rendering
 below is then applied to show it.
 

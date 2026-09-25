@@ -55,7 +55,7 @@ from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
-from negpy.features.exposure.transfer import (
+from negpy.features.transparency.logic import (
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
@@ -277,7 +277,7 @@ class GPUEngine:
             "geometry": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "transform.wgsl")),
             "normalization": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "normalization.wgsl")),
             "exposure": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "exposure.wgsl")),
-            "transfer": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "transfer.wgsl")),
+            "transfer": get_resource_path(os.path.join("negpy", "features", "transparency", "shaders", "transfer.wgsl")),
             "output_encode": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "output_encode.wgsl")),
             "autocrop": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "autocrop.wgsl")),
             "clahe_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_hist.wgsl")),
@@ -739,7 +739,7 @@ class GPUEngine:
         analysis_source = None
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         # The transparency curve reads working space, so its meter must too: the same
-        # camera matrix NormalizationProcessor._process_transparency applies, on the grid.
+        # camera matrix TransparencyBaseProcessor applies, on the grid.
         cam_m = (
             camera_to_working_matrix(
                 cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
@@ -1582,7 +1582,7 @@ class GPUEngine:
 
         # Transparency transfer uses the fixed window, deviated by White/Black Point as the
         # measured path above is. That nudge is user-driven rather than metered, so it keeps
-        # identity at wp3=bp3=0. Mirrors NormalizationProcessor._process_transparency.
+        # identity at wp3=bp3=0. Mirrors TransparencyBaseProcessor.
         if render_path(settings.process) is not RenderPath.PRINT:
             t_floors, t_ceils = transfer_bounds()
             adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
@@ -1642,7 +1642,7 @@ class GPUEngine:
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
 
-        # Transparency transfer params (mirrors transfer.py; inert on the print path).
+        # Transparency transfer params (mirrors transparency/logic.py; inert on the print path).
         tc = TRANSFER_CONSTANTS
         t_exp0, t_contrast0, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
         # Auto Density/Auto Grade, restated on this curve -- inert (None inputs) on a raw
@@ -1669,26 +1669,21 @@ class GPUEngine:
         )
         t_cast_gain, t_cast_off = neutral_axis_affine(t_axis, t_strength)
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
-        # the shader to skip display_rendering too. Matches transfer.py.
+        # the shader to skip display_rendering too. Matches transparency/logic.py.
         t_positive_source = bool(settings.process.positive_source)
         t_baseline_gain = 1.0 if t_positive_source else 2.0 ** float(tc["transfer_baseline_ev"])
         # Dye Separation on the transfer curve: same per-channel k3 as the print path,
         # applied directly since there is no paper matrix here (see
-        # transfer.py::apply_transfer_curve).
-        t_is_bw = settings.process.process_mode == ProcessMode.BW
-        t_sep_k3 = (
-            (1.0, 1.0, 1.0)
-            if t_is_bw
-            else per_channel_dye_separation(
-                settings.exposure.dye_separation,
-                (
-                    settings.exposure.dye_separation_trim_red,
-                    settings.exposure.dye_separation_trim_green,
-                    settings.exposure.dye_separation_trim_blue,
-                ),
-            )
+        # transparency/logic.py::apply_transfer_curve).
+        t_sep_k3 = per_channel_dye_separation(
+            settings.exposure.dye_separation,
+            (
+                settings.exposure.dye_separation_trim_red,
+                settings.exposure.dye_separation_trim_green,
+                settings.exposure.dye_separation_trim_blue,
+            ),
         )
-        t_sep_damping = 0.0 if t_is_bw else float(settings.exposure.separation_damping)
+        t_sep_damping = float(settings.exposure.separation_damping)
         tr_data = (
             struct.pack(
                 "ffffffff",

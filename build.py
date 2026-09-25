@@ -101,6 +101,7 @@ params = [
     "--add-data=negpy/features/lith/shaders:negpy/features/lith/shaders",
     "--add-data=negpy/features/cyanotype/shaders:negpy/features/cyanotype/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
+    "--add-data=negpy/features/transparency/shaders:negpy/features/transparency/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
     "--add-data=icc:icc",
     "--add-data=media:media",

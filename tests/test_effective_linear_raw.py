@@ -147,7 +147,7 @@ class TestDecodeAndMatrixAgree:
         of the agreement trace back to the one flag."""
         import inspect
 
-        from negpy.features.exposure import processor as cpu
+        from negpy.features.transparency import processor as cpu
         from negpy.services.rendering import image_processor as ip
 
         src = inspect.getsource(ip)

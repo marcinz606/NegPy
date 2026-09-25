@@ -1,6 +1,6 @@
 """The camera matrix that carries a transparency from sensor primaries to the working space.
 
-Only the E-6 as-captured path uses it (`NormalizationProcessor._process_transparency`, and
+Only the E-6 as-captured path uses it (`TransparencyBaseProcessor`, and
 the same rows uploaded to normalization.wgsl behind its `is_transfer` gate). The print path
 derives color from measured film density, so C-41 and B&W never touch this.
 

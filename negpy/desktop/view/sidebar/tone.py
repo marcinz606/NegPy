@@ -434,7 +434,7 @@ class ToneSidebar(BaseSidebar):
 
             # On the transfer path (an as-captured Slide, or any Positive frame) the render
             # starts from the capture, so the paper model has nothing to act on. Density,
-            # Grade, Toe and Shoulder drive the transfer curve instead (exposure/transfer.py).
+            # Grade, Toe and Shoulder drive the transfer curve instead (features/transparency/logic.py).
             from negpy.features.process.path import RenderPath, render_path
 
             proc = self.state.config.process
@@ -478,7 +478,7 @@ class ToneSidebar(BaseSidebar):
             self.sh_w_trim_slider.setVisible(not global_mode)
             # Dye Separation swaps the same way on both paths: the global slider in the
             # global view, the per-channel trim in a channel tab (see
-            # features/exposure/transfer.py). Separation Damping has no per-channel
+            # features/transparency/logic.py). Separation Damping has no per-channel
             # trim of its own, so it stays global-view-only on both paths too.
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)

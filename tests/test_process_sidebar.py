@@ -256,7 +256,7 @@ def test_white_black_point_retarget_and_sync(qapp):
 
 def test_white_black_point_stay_visible_on_the_transparency_transfer(qapp):
     """They deviate the transfer path's fixed window the same way they deviate a
-    measured one (NormalizationProcessor._process_transparency), unlike the metering
+    measured one (TransparencyBaseProcessor), unlike the metering
     controls above, which have nothing to act on there."""
     controller, sidebar = _sidebar()
 

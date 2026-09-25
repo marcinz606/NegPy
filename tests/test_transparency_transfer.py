@@ -20,8 +20,8 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.features.exposure.normalization import LogNegativeBounds, normalize_log_image
-from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
-from negpy.features.exposure.transfer import (
+from negpy.services.rendering.engine import base_processor, exposure_processor
+from negpy.features.transparency.logic import (
     TRANSFER_CONSTANTS,
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
@@ -75,8 +75,8 @@ def _run_stages(image, cfg, cam_xyz=CAM_XYZ, camera_wb=None):
         camera_wb=camera_wb,
         wants_uv_grid=False,
     )
-    norm = NormalizationProcessor(cfg.process, cfg.exposure.cast_removal_strength).process(image, ctx)
-    return np.asarray(PhotometricProcessor(cfg.exposure, cfg.local, cfg.process).process(norm, ctx)), ctx
+    norm = base_processor(cfg).process(image, ctx)
+    return np.asarray(exposure_processor(cfg).process(norm, ctx)), ctx
 
 
 def _rendered(scene_linear):
@@ -397,7 +397,7 @@ class TestControlsStayLive(unittest.TestCase):
         here, and the Shadows slider reached into the midtones on a slide. What has to
         match is the *position on the scale*, not the number."""
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
-        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, zone_geometry
+        from negpy.features.transparency.logic import TRANSFER_DENSITY_RANGE, zone_geometry
 
         sh_c, hi_c, k = zone_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
@@ -471,7 +471,7 @@ class TestControlsStayLive(unittest.TestCase):
         """Same contract as zone_geometry: the centre carries across by fraction of
         span, not by the print's raw density number."""
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
-        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, wb_split_geometry
+        from negpy.features.transparency.logic import TRANSFER_DENSITY_RANGE, wb_split_geometry
 
         centre, k = wb_split_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
@@ -579,7 +579,7 @@ class TestCaptureTogglesAreInert(unittest.TestCase):
 
 class TestWhiteBlackPointOnTheTransferPath(unittest.TestCase):
     """White/Black Point deviate the fixed window the same way they deviate a measured
-    one: additive, and inert at zero (NormalizationProcessor._process_transparency)."""
+    one: additive, and inert at zero (TransparencyBaseProcessor)."""
 
     def test_zero_offsets_leave_the_fixed_window_untouched(self):
         floors, ceils = transfer_bounds()
@@ -811,10 +811,8 @@ class TestNormalizationContract(unittest.TestCase):
             self.assertIn(key, ctx.metrics)
 
     def test_default_process_config_keeps_the_print_path(self):
-        """PhotometricProcessor's process_config defaults to a print; a missing argument
-        must never silently route an existing caller into the transfer. Asserted through
-        the mode test rather than the e6_normalize flag, which now defaults off — it is
-        the C-41 default process_mode that keeps a bare ProcessConfig on the print path."""
+        """The C-41 default process_mode keeps a bare ProcessConfig on the print path,
+        whatever the e6_normalize default is."""
         conf = ProcessConfig()
         self.assertEqual(conf.process_mode, ProcessMode.C41)
         self.assertIs(render_path(conf), RenderPath.PRINT)
@@ -822,7 +820,7 @@ class TestNormalizationContract(unittest.TestCase):
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
 class TestGpuTransferParity(unittest.TestCase):
-    """The transfer curve lives twice — transfer.py and transfer.wgsl. They must agree,
+    """The transfer curve lives twice — transparency/logic.py and transfer.wgsl. They must agree,
     or the preview drifts from the export."""
 
     def _render(self, processor, settings, img, prefer_gpu, cam_xyz=CAM_XYZ):
@@ -1037,7 +1035,7 @@ class TestGpuTransferParity(unittest.TestCase):
         from unittest.mock import patch
 
         with (
-            patch("negpy.features.exposure.transfer.ZONE_BLACK_TAPER", 1e-6),
+            patch("negpy.features.transparency.logic.ZONE_BLACK_TAPER", 1e-6),
             patch("negpy.services.rendering.gpu_engine.ZONE_BLACK_TAPER", 1e-6),
         ):
             flat_cpu, flat_gpu = both("off")
@@ -1126,7 +1124,6 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
 
     def _delta(self, mode, normalize, profile_process):
         from negpy.domain.interfaces import PipelineContext
-        from negpy.features.exposure.processor import NormalizationProcessor
 
         img = self._img()
         out = []
@@ -1140,7 +1137,7 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
                 crosstalk_process=profile_process,
             )
             ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=mode, cam_xyz=CAM_XYZ, wants_uv_grid=False)
-            out.append(np.asarray(NormalizationProcessor(proc).process(img.copy(), ctx)))
+            out.append(np.asarray(base_processor(replace(cfg, process=proc)).process(img.copy(), ctx)))
         return float(np.abs(out[0] - out[1]).max())
 
     def test_a_c41_profile_does_nothing_to_e6(self):

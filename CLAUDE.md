@@ -52,7 +52,7 @@ Migrations that rewrite *rows* rather than a config payload need a repository, s
 
 ### Pipeline
 
-- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default; when off, both engines skip it rather than run an identity pass.
+- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The base and exposure stages route on `process.path.render_path` (`base_processor` / `exposure_processor` in `engine.py`): `PRINT` runs the negative's processors in `features/exposure/`, `TRANSFER` and `POSITIVE` (a slide as captured, a Positive frame) run `features/transparency/`. The negative's processors hold no slide branch, and `features/exposure/` never imports `features/transparency/` (`tests/test_slide_separation.py`). The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default; when off, both engines skip it rather than run an identity pass.
 - **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — the same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
 - **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first and falls back to CPU. Export always runs full-res, with CPU stage caching off (`PipelineContext.cache_stages`). Linear DNG decode, CPU saturation and unsharp masking use row blocks to bound temporary storage. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi` and a `metrics` dict between stages.
 - **Embedded lens correction** (`features/lens`) is a single-file decode step shared by preview and export: flat-field, lens warp, then sensor unmix and user geometry. Its independent distortion and CA settings and flat-field token belong to the source identity. It is disabled for composite setup, composite assembly and RGB+IR sources.
@@ -70,7 +70,9 @@ Every feature lives in `negpy/features/<name>/`:
 - `processor.py` — thin wrapper with `process(img, context) -> ImageBuffer`
 - `shaders/<name>.wgsl` — optional GPU compute shader
 
-One exception: `features/altprocess/` holds only `models.py`. Lith and cyanotype are mutually exclusive, so they share the Alternative Processes panel and one `AltProcessConfig`; their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
+`features/transparency/` has no `models.py`: its controls are the Exposure and Process fields. Every new `ExposureConfig` field is classified in `tests/test_slide_separation.py` as transfer-live, Positive-only, print-only or routing.
+
+`features/altprocess/` holds only `models.py`. Lith and cyanotype are mutually exclusive, so they share the Alternative Processes panel and one `AltProcessConfig`; their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 
 `features/lens/warps.py` holds frozen lens models with `has_distortion`, `has_ca`, and
 `remap(...)`, as defined by `LensWarp` in `models.py`. `logic.py` applies their maps in

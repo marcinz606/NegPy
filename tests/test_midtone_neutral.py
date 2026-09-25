@@ -15,7 +15,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import per_channel_curve_params
-from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
+from negpy.services.rendering.engine import base_processor, exposure_processor
 from negpy.kernel.image.logic import rgb_to_lab_working
 from negpy.features.process.models import ProcessMode
 
@@ -45,12 +45,15 @@ def _negative(green_log: float | None = -0.22) -> np.ndarray:
 
 def _render(img: np.ndarray, cast_removal: bool, mode: str = ProcessMode.C41) -> np.ndarray:
     cfg = WorkspaceConfig()
-    process = replace(cfg.process, analysis_buffer=0.0)
-    ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
     strength = 1.0 if cast_removal else 0.0
-    norm = NormalizationProcessor(process, strength).process(img, ctx)
-    exp = replace(cfg.exposure, cast_removal_strength=strength)
-    return PhotometricProcessor(exp, process_config=process).process(norm, ctx)
+    cfg = replace(
+        cfg,
+        process=replace(cfg.process, analysis_buffer=0.0, process_mode=mode),
+        exposure=replace(cfg.exposure, cast_removal_strength=strength),
+    )
+    ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
+    norm = base_processor(cfg).process(img, ctx)
+    return exposure_processor(cfg).process(norm, ctx)
 
 
 def _neutral_ab(out: np.ndarray) -> tuple[float, float]:
