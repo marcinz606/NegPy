@@ -380,7 +380,9 @@ class SensorSidebar(BaseSidebar):
             from negpy.features.rgbscan.models import is_rgb_triplet
 
             e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
+            transfer = is_transfer_path(
+                conf.process_mode, conf.e6_normalize, conf.positive_source, self.state.config.exposure.render_intent
+            )
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
             self.linear_raw_btn.setEnabled((not transfer or conf.positive_source) and not triplet)

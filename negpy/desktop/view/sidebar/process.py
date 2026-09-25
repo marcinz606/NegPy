@@ -456,7 +456,9 @@ class ProcessSidebar(BaseSidebar):
             from negpy.features.exposure.transfer import is_transfer_path
 
             is_e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
+            transfer = is_transfer_path(
+                conf.process_mode, conf.e6_normalize, conf.positive_source, self.state.config.exposure.render_intent
+            )
 
             # Greyed on a merge, not hidden: the render already ignores it, since WorkspaceConfig
             # holds that invariant, and a control that vanishes teaches nothing about why.
