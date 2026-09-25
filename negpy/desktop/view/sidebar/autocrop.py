@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
@@ -78,9 +78,9 @@ class AutocropSidebar(BaseSidebar):
         )
         self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
 
-        trim_row = QHBoxLayout()
-        trim_row.addWidget(self.offset_slider, 1)
-        trim_row.addWidget(self.rebate_trim_slider, 1)
+        trim_row = QVBoxLayout()
+        trim_row.addWidget(self.offset_slider)
+        trim_row.addWidget(self.rebate_trim_slider)
         self.layout.addLayout(trim_row)
 
         self.auto_frame_btn = self._labeled_toggle(

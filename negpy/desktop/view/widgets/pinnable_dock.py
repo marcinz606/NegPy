@@ -5,6 +5,16 @@ from PyQt6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QToolButton, QWidg
 from negpy.desktop.view.styles.theme import THEME
 
 
+class _DockGrip(QWidget):
+    """Docked title bar; it ignores the mouse, so QDockWidget still drags the panel by it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFixedHeight(THEME.space_lg)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip("Drag to float this panel")
+
+
 class PinnableDockWidget(QDockWidget):
     """QDockWidget that shows a pin button in the title bar while floating."""
 
@@ -15,19 +25,22 @@ class PinnableDockWidget(QDockWidget):
         *,
         pin_tooltip: str,
         on_pin,
+        docked_title: QWidget | None = None,
     ) -> None:
         super().__init__(title, parent)
         self._pin_tooltip = pin_tooltip
         self._on_pin = on_pin
         self._floating_title: QWidget | None = None
         self._title_label: QLabel | None = None
+        self._docked_title = docked_title if docked_title is not None else _DockGrip()
+        self.setTitleBarWidget(self._docked_title)
         self.topLevelChanged.connect(self._on_top_level_changed)
 
     def _on_top_level_changed(self, floating: bool) -> None:
         if floating:
             self._show_pin_title_bar()
         else:
-            self.setTitleBarWidget(None)
+            self.setTitleBarWidget(self._docked_title)
 
     def _show_pin_title_bar(self) -> None:
         if self._floating_title is None:

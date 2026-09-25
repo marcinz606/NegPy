@@ -698,9 +698,9 @@ class ImageProcessor:
             + rgbscan_token(settings.rgbscan)
             + stitch_token(settings.stitch)
             + hdr_token(settings.hdr)
-            + linear_raw_token(settings.process, settings.exposure.render_intent)
+            + linear_raw_token(settings.process)
             + highlight_reconstruction_token(settings.process)
-            + highlight_reconstruction_bakes_wb_token(settings.process, settings.exposure.render_intent)
+            + highlight_reconstruction_bakes_wb_token(settings.process)
             + sensor_token(settings.process)
             + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
@@ -960,9 +960,9 @@ class ImageProcessor:
             file_path,
             mtime,
             lens_decode_token(metadata_lens_corrections(params), params.flatfield),
-            effective_linear_raw(params.process, params.exposure.render_intent),
+            effective_linear_raw(params.process),
             effective_highlight_reconstruction(params.process),
-            highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent),
+            highlight_reconstruction_bakes_wb(params.process),
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
             hdr_token(params.hdr),
@@ -1005,9 +1005,9 @@ class ImageProcessor:
         pins its own frames, but the *solve* reaches this method one frame at a time with
         `hdr` cleared, so it cannot: it passes the pin in from outside.
         """
-        linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+        linear_raw = effective_linear_raw(params.process)
         highlight_mode = effective_highlight_reconstruction(params.process)
-        bake_wb = highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent)
+        bake_wb = highlight_reconstruction_bakes_wb(params.process)
         demosaic = params.process.demosaic_export
         rgbcfg = params.rgbscan
         # A bracket wins over a triplet. The UI refuses the two together, and the export
@@ -1222,9 +1222,9 @@ class ImageProcessor:
             + rgbscan_token(params.rgbscan)
             + stitch_token(params.stitch)
             + hdr_token(params.hdr)
-            + linear_raw_token(params.process, params.exposure.render_intent)
+            + linear_raw_token(params.process)
             + highlight_reconstruction_token(params.process)
-            + highlight_reconstruction_bakes_wb_token(params.process, params.exposure.render_intent)
+            + highlight_reconstruction_bakes_wb_token(params.process)
             + sensor_token(params.process)
             + demosaic_token(params.process.demosaic_export)
             + ir_bake_token(params.retouch, ir_full is not None)
@@ -1678,9 +1678,9 @@ class ImageProcessor:
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
                 + hdr_token(params.hdr)
-                + linear_raw_token(params.process, params.exposure.render_intent)
+                + linear_raw_token(params.process)
                 + highlight_reconstruction_token(params.process)
-                + highlight_reconstruction_bakes_wb_token(params.process, params.exposure.render_intent)
+                + highlight_reconstruction_bakes_wb_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)

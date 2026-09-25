@@ -54,30 +54,23 @@ def test_mode_buttons_track_config_and_switch_mode(qapp):
 def test_lock_bounds_sits_in_the_analysis_row_and_hides_on_the_transparency_transfer(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
     assert sidebar.lock_bounds_btn.isHidden()
 
 
-def test_positive_is_slide_only_and_grays_out_with_normalize_on(qapp):
-    """Positive is a Slide-only fact, so it is hidden in the negative modes and steps
-    aside on Slide when Normalize's own metered stretch already decodes on the source's
-    own profile."""
+def test_positive_is_slide_only(qapp):
+    """Positive is a Slide-only fact, so it is hidden in the negative modes and always
+    live on Slide."""
     controller, sidebar = _sidebar()
     sidebar.sync_ui()
     assert sidebar.positive_source_btn.isHidden()
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
     assert not sidebar.positive_source_btn.isHidden()
     assert sidebar.positive_source_btn.isEnabled()
-
-    cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, e6_normalize=True))
-    sidebar.sync_ui()
-    assert not sidebar.positive_source_btn.isHidden()
-    assert not sidebar.positive_source_btn.isEnabled()
 
     cfg = controller.state.config
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
@@ -96,7 +89,7 @@ def test_positive_lives_in_mode_bar_not_the_normalization_body(qapp):
 def test_positive_toggle_reaches_the_controller(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
 
     sidebar.positive_source_btn.setChecked(True)
@@ -191,7 +184,7 @@ def test_average_toggles_sync_from_config(qapp):
 def test_average_toggles_hide_on_the_transparency_transfer(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
     assert sidebar.use_luma_avg_btn.isHidden()
     assert sidebar.use_color_avg_btn.isHidden()
@@ -256,12 +249,12 @@ def test_white_black_point_retarget_and_sync(qapp):
 
 def test_white_black_point_stay_visible_on_the_transparency_transfer(qapp):
     """They deviate the transfer path's fixed window the same way they deviate a
-    measured one (NormalizationProcessor._process_transparency), unlike the metering
+    measured one (TransparencyBaseProcessor), unlike the metering
     controls above, which have nothing to act on there."""
     controller, sidebar = _sidebar()
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
 
     assert not sidebar.white_point_slider.isHidden()
@@ -287,7 +280,7 @@ def test_white_black_point_ignore_the_lock_on_the_transparency_transfer(qapp):
     controller, sidebar = _sidebar()
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False, lock_bounds=True))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, lock_bounds=True))
     sidebar.sync_ui()
 
     assert sidebar.white_point_slider.isEnabled()

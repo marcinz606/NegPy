@@ -16,7 +16,6 @@ from negpy.features.exposure.normalization import (
     sorted_channel_grid,
     to_log_density,
 )
-from negpy.features.process.models import ProcessMode
 
 _QS = [0.0, 1e-5, 0.05, 0.35, 1.0, 2.5, 10.0, 33.3333, 49.999, 50.0, 66.6, 90.0, 99.65, 99.99999, 100.0]
 
@@ -48,25 +47,12 @@ class TestSortedGridMeters(unittest.TestCase):
     def test_bounds_and_shadow_refs_identical_with_and_without_the_sort(self):
         g = prefilter_log_grid(np.clip(_grid((600, 900, 3), seed=3, scale=0.4) + 0.5, 1e-4, 1.0), None, 0.0)
         srt = sorted_channel_grid(g)
-        for mode in (ProcessMode.C41, ProcessMode.E6):
-            for e6n in (True, False):
-                for luma_clip in (-0.5, 0.0, 0.35, 2.5):
-                    for color_clip in (0.0, 0.35, 5.0):
-                        slow = analyze_log_exposure_bounds_from_log(
-                            g, None, 0.0, process_mode=mode, e6_normalize=e6n, percentile_clip=luma_clip, color_clip=color_clip
-                        )
-                        fast = analyze_log_exposure_bounds_from_log(
-                            g,
-                            None,
-                            0.0,
-                            process_mode=mode,
-                            e6_normalize=e6n,
-                            percentile_clip=luma_clip,
-                            color_clip=color_clip,
-                            sorted_grid=srt,
-                        )
-                        self.assertEqual(slow.floors, fast.floors)
-                        self.assertEqual(slow.ceils, fast.ceils)
+        for luma_clip in (-0.5, 0.0, 0.35, 2.5):
+            for color_clip in (0.0, 0.35, 5.0):
+                slow = analyze_log_exposure_bounds_from_log(g, None, 0.0, percentile_clip=luma_clip, color_clip=color_clip)
+                fast = analyze_log_exposure_bounds_from_log(g, None, 0.0, percentile_clip=luma_clip, color_clip=color_clip, sorted_grid=srt)
+                self.assertEqual(slow.floors, fast.floors)
+                self.assertEqual(slow.ceils, fast.ceils)
         self.assertEqual(measure_shadow_refs_from_log(g, None, 0.0), measure_shadow_refs_from_log(g, None, 0.0, sorted_grid=srt))
 
     def test_sorted_grid_is_ignored_when_a_roi_still_has_to_be_applied(self):

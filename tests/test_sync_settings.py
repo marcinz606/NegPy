@@ -109,20 +109,20 @@ def test_apply_crosstalk_copies_strength_profile_and_matrix_together():
     assert out.process.crosstalk_matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 
-def test_normalize_and_average_rows_are_in_the_catalog():  # #1047: were missing entirely
-    for label in ("Normalize", "Use Average Luma", "Use Average Color"):
+def test_average_rows_are_in_the_catalog():  # #1047: were missing entirely
+    for label in ("Use Average Luma", "Use Average Color"):
         assert label in _ROWS
 
 
-def test_normalize_and_average_rows_apply_and_format_as_booleans():
+def test_average_rows_apply_and_format_as_booleans():
     c = WorkspaceConfig()
-    src = replace(c, process=replace(c.process, e6_normalize=True, use_luma_average=True, use_color_average=True))
-    rows = [_row("Normalize"), _row("Use Average Luma"), _row("Use Average Color")]
+    src = replace(c, process=replace(c.process, use_luma_average=True, use_color_average=True))
+    rows = [_row("Use Average Luma"), _row("Use Average Color")]
     out = apply_selected_fields(src, c, rows)
-    assert out.process.e6_normalize and out.process.use_luma_average and out.process.use_color_average
+    assert out.process.use_luma_average and out.process.use_color_average
 
     process_rows = dict((r.label, val) for _t, entries in catalog_sections(src) for r, val, _e in entries if r.section == "process")
-    for label in ("Normalize", "Use Average Luma", "Use Average Color"):
+    for label in ("Use Average Luma", "Use Average Color"):
         assert process_rows[label] == "on"
 
 
@@ -143,7 +143,6 @@ def _metered_target():
         "Color Clip",
         "Use Average Luma",
         "Use Average Color",
-        "Normalize",
         "Crosstalk",
         "Single-Shot Narrowband Calibration",
         "Crop",

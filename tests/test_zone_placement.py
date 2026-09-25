@@ -237,6 +237,19 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(self.controller.state.active_tool, ToolMode.ZONE_PLACE)
         self.assertEqual(self.controller.state.zone_arm_target, 5.0)
 
+    def test_arming_is_refused_on_the_transfer_path(self):
+        """Placement solves through the print curve, which a raw slide never renders with."""
+        from dataclasses import replace
+
+        from negpy.desktop.session import ToolMode
+        from negpy.features.process.models import ProcessMode
+
+        cfg = self.controller.state.config
+        self.controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+        self._arm(5.0)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+        self.assertIsNone(self.controller.state.zone_arm_target)
+
     def test_arming_the_same_zone_again_disarms_and_puts_the_tool_down(self):
         from negpy.desktop.session import ToolMode
 
@@ -321,6 +334,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 
         window = MagicMock()
+        window.light_table_active.return_value = False
         window.canvas.overlay.cancel_in_progress.return_value = False
         self._place(0.5, 0.2)
         self._arm(7.0)
@@ -400,6 +414,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 
         window = MagicMock()
+        window.light_table_active.return_value = False
         window.canvas.overlay.cancel_in_progress.return_value = False
         self._place(0.5, 0.2, zone=3.0)
         self.controller._is_rendering = False

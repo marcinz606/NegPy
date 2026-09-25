@@ -26,11 +26,12 @@ class TestPinnableDockWidget(unittest.TestCase):
         host.show()
         QApplication.processEvents()
 
-        self.assertIsNone(dock.titleBarWidget())
+        docked = dock.titleBarWidget()
+        self.assertIsNotNone(docked)
 
         dock.setFloating(True)
         QApplication.processEvents()
-        self.assertIsNotNone(dock.titleBarWidget())
+        self.assertIsNot(dock.titleBarWidget(), docked)
         self.assertTrue(dock.isFloating())
 
         bar = dock.titleBarWidget()
@@ -45,9 +46,11 @@ class TestPinnableDockWidget(unittest.TestCase):
 
         self.assertEqual(pinned["count"], 1)
         self.assertFalse(dock.isFloating())
-        self.assertIsNone(dock.titleBarWidget())
+        self.assertIs(dock.titleBarWidget(), docked)
 
-    def test_docked_title_bar_is_native(self):
+    def test_docked_title_bar_is_a_thin_grip_again_after_floating(self):
+        from negpy.desktop.view.styles.theme import THEME
+
         host = QMainWindow()
         dock = PinnableDockWidget("Session", host, pin_tooltip="Dock session panel", on_pin=lambda: None)
         host.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
@@ -59,7 +62,17 @@ class TestPinnableDockWidget(unittest.TestCase):
         dock.setFloating(False)
         QApplication.processEvents()
 
-        self.assertIsNone(dock.titleBarWidget())
+        self.assertEqual(dock.titleBarWidget().height(), THEME.space_lg)
+
+    def test_a_docked_title_widget_replaces_the_grip(self):
+        from PyQt6.QtWidgets import QLineEdit
+
+        host = QMainWindow()
+        field = QLineEdit()
+        dock = PinnableDockWidget("Controls", host, pin_tooltip="Dock", on_pin=lambda: None, docked_title=field)
+        host.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
+        self.assertIs(dock.titleBarWidget(), field)
 
 
 class TestDockRestoreState(unittest.TestCase):

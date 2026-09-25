@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QHBoxLayout
+from PyQt6.QtWidgets import QVBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
@@ -39,26 +39,26 @@ class ToningSidebar(BaseSidebar):
         self.vanadium_slider.setToolTip(
             "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W Negative only)"
         )
-        for left, right in (
-            (self.selenium_slider, self.sepia_slider),
-            (self.gold_slider, self.blue_slider),
-            (self.copper_slider, self.vanadium_slider),
+        for slider in (
+            self.selenium_slider,
+            self.sepia_slider,
+            self.gold_slider,
+            self.blue_slider,
+            self.copper_slider,
+            self.vanadium_slider,
         ):
-            row = QHBoxLayout()
-            row.addWidget(left)
-            row.addWidget(right)
-            self.layout.addLayout(row)
+            self.layout.addWidget(slider)
 
         self.layout.addWidget(section_subheader("SPLIT TONING"))
 
-        row_sh = QHBoxLayout()
+        row_sh = QVBoxLayout()
         self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
         self.shadow_str_slider = CompactSlider("Shadow Strength", 0.0, 1.0, conf.shadow_tint_strength)
         row_sh.addWidget(self.shadow_hue_slider)
         row_sh.addWidget(self.shadow_str_slider)
         self.layout.addLayout(row_sh)
 
-        row_hl = QHBoxLayout()
+        row_hl = QVBoxLayout()
         self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
         self.highlight_str_slider = CompactSlider("Highlight Strength", 0.0, 1.0, conf.highlight_tint_strength)
         row_hl.addWidget(self.highlight_hue_slider)

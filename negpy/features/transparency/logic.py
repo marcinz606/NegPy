@@ -1,9 +1,9 @@
 """
-Transparency transfer curve — the E-6 render when Normalize is off.
+Transparency transfer curve — the render of every slide.
 
 A slide is captured close to how it should look, so the render starts from the capture
 and the controls deviate from there. At default settings the scene stage is the exact
-inverse of the fixed-bounds normalization in `normalization.py` (see
+inverse of the fixed-bounds normalization in `processor.py` (see
 TRANSFER_DENSITY_RANGE), so nothing shapes the capture; the standard display rendering
 below is then applied to show it.
 
@@ -48,6 +48,7 @@ from negpy.features.exposure.logic import (
     separation_damping_gain_np,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
 from negpy.kernel.image.validation import ensure_image
 
 #: Log-density window the fixed-bounds normalization maps to [0, 1]. The floor is the
@@ -233,8 +234,7 @@ def transfer_auto_terms(
     folded onto the manual values -- single source for CPU and GPU. Mirrors the paper
     path's own anchor placement, effective_grade_range, Shadow Reach and Highlight
     Hold, restated on this curve's plain density-linear model instead of the paper's
-    toe/shoulder one. A None input (the toggle off, or a raw un-normalized slide,
-    which never meters -- see is_transfer_path) leaves every term at its manual value.
+    toe/shoulder one. A toggle off, or a None meter, leaves its terms at their manual values.
     """
     c = TRANSFER_CONSTANTS
     pivot = float(c["transfer_contrast_pivot"])
@@ -435,6 +435,13 @@ def apply_transfer_curve(
     return ensure_image(display_rendering(out * gain))
 
 
+def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """White/Black Point on the fixed window, negated: a positive reverses the floor/ceil
+    roles. Single source for the CPU base and the GPU uniform pack."""
+    wp3, bp3 = per_channel_point_offsets(process)
+    return (-wp3[0], -wp3[1], -wp3[2]), (-bp3[0], -bp3[1], -bp3[2])
+
+
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:
     """
     The fixed (floors, ceils) the transparency path normalizes with — the decoder's
@@ -443,21 +450,3 @@ def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tupl
     converge on the same render.
     """
     return (0.0, 0.0, 0.0), (-density_range, -density_range, -density_range)
-
-
-def is_transfer_path(process_mode: str, e6_normalize: bool, positive_source: bool = False, render_intent: Optional[str] = None) -> bool:
-    """Single source of truth for the mode test, so CPU/GPU/UI cannot drift apart.
-
-    True on an as-captured Slide (Normalize off), and on a frame marked Positive: a
-    file already positivized before NegPy saw it -- a scanned print, an export from
-    other software, a negative the scanner inverted itself -- has nothing left to meter
-    or invert. Only a Slide config carries Positive (ProcessConfig.__post_init__); the
-    flag is read here for callers that pass the fields apart."""
-    from negpy.features.exposure.models import RenderIntent
-    from negpy.features.process.models import ProcessMode
-
-    if render_intent == RenderIntent.FLAT:
-        return False
-    if process_mode == ProcessMode.E6:
-        return not e6_normalize
-    return positive_source

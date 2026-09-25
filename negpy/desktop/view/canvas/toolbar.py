@@ -18,7 +18,7 @@ from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.widgets.collapsible import roll_revert_icon
-from negpy.desktop.view.styles.templates import default_button_height, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, default_button_height, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 CANVAS_COLORS = [
@@ -262,6 +262,11 @@ class ActionToolbar(QWidget):
         # entries whenever a side panel toggle gave the row enough width to show them directly.
         # A checkable item carries no icon: the stylesheet puts a menu icon in the check
         # column, which hides the checkmark that says the view is on.
+        find_action = overflow_menu.addAction(qta.icon("fa5s.search", color=icon_color), "Find Control or Action…", self._show_palette)
+        self._label(find_action, "Find Control or Action…", "command_palette")
+        find_action.setToolTip("Find any slider, card or action by name, and open it")
+        overflow_menu.addSeparator()
+
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._tip(self._ov_hq_action, "Toggle high-quality (full-resolution) preview", "toggle_hq")
@@ -277,6 +282,10 @@ class ActionToolbar(QWidget):
             "so the framing is right and the detail is not.",
             "zoom_100",
         )
+        reference_action = overflow_menu.addAction("Reference View", self._toggle_reference)
+        self._tip(reference_action, "Reference view — pin this frame beside the canvas to match others to it", "toggle_reference")
+        light_table_action = overflow_menu.addAction("Light Table", self._show_light_table)
+        self._tip(light_table_action, "Light Table — the roll as a grid in place of the canvas", "toggle_light_table")
         self._ov_compare_action = overflow_menu.addAction("Before / After")
         self._ov_compare_action.setCheckable(True)
         self._tip(self._ov_compare_action, "Before / After — split against the auto baseline, drag the divider", "toggle_compare")
@@ -374,6 +383,11 @@ class ActionToolbar(QWidget):
         prefs_action.setToolTip("Interface, performance and storage settings for the whole app")
         overflow_menu.addSeparator()
 
+        self._update_action = overflow_menu.addAction(
+            qta.icon("fa5s.sync-alt", color=icon_color), "Check for Updates…", self._check_for_updates
+        )
+        about_action = overflow_menu.addAction(qta.icon("fa5s.info-circle", color=icon_color), "About NegPy…", self._show_about)
+        about_action.setToolTip("Version and project page")
         tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the Tour", self._show_tour)
         tour_action.setToolTip("Replay the guided feature tour")
         shortcuts_action = overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts", self._show_shortcuts)
@@ -618,6 +632,48 @@ class ActionToolbar(QWidget):
         win = self.window()
         if isinstance(win, MainWindow):
             win.show_tutorial()
+
+    def set_update_available(self, version: str) -> None:
+        if not hasattr(self, "_update_dot"):
+            self._update_dot = EditedDot(self.btn_overflow, color=THEME.status_success)
+        self._update_dot.set_active(True)
+        self._update_action.setIcon(qta.icon("fa5s.download", color=THEME.status_success))
+        self._update_action.setText(f"Update to v{version}…")
+
+    def _check_for_updates(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.session_panel.check_for_updates()
+
+    def _show_about(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.show_about()
+
+    def _toggle_reference(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.toggle_reference()
+
+    def _show_light_table(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.set_light_table(True)
+
+    def _show_palette(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.show_command_palette()
 
     def _show_shortcuts(self) -> None:
         from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay

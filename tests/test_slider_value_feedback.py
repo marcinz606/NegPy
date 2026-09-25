@@ -6,8 +6,7 @@ import pytest
 from conftest import FakeController as _Controller, FakeRepo as _Repo
 from negpy.desktop.view.keyboard_shortcuts import ShortcutManager
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
-from negpy.desktop.view.widgets.sliders import CompactSlider, apply_slider_value_visibility
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from negpy.desktop.view.widgets.sliders import CompactSlider
 
 
 @pytest.fixture(scope="module")
@@ -25,8 +24,7 @@ def _press(slider, action_id: str):
 
 
 def test_keyboard_adjust_reports_the_new_value(qapp):
-    """The slider may be on a hidden tab and its value box only opens on hover, so an
-    inc/dec shortcut used to change the image with no readable feedback at all."""
+    """The slider may be on a hidden tab, so an inc/dec shortcut must say what it did."""
     slider = CompactSlider("Print Density", -2.0, 2.0, 0.0, unit=" EV")
     window = SimpleNamespace(controller=MagicMock())
 
@@ -73,28 +71,3 @@ def test_keyboard_adjust_works_in_a_collapsed_section(controls):
         assert slider.value() != before
     finally:
         controls.color_section.toggle_button.setChecked(True)
-
-
-def test_pinning_opens_every_value_box(qapp):
-    root = QWidget()
-    layout = QVBoxLayout(root)
-    sliders = [CompactSlider("A", 0.0, 1.0, 0.5), CompactSlider("B", 0.0, 1.0, 0.5)]
-    for s in sliders:
-        layout.addWidget(s)
-
-    assert all(s.spin.maximumWidth() == 0 for s in sliders)
-
-    apply_slider_value_visibility(root, True)
-    assert all(s.spin.maximumWidth() > 0 for s in sliders)
-
-    apply_slider_value_visibility(root, False)
-    assert all(s.spin.maximumWidth() == 0 for s in sliders)
-
-
-def test_pinned_slider_keeps_its_value_box_after_the_pointer_leaves(qapp):
-    slider = CompactSlider("A", 0.0, 1.0, 0.5)
-    slider.set_value_pinned(True)
-
-    slider.leaveEvent(None)
-
-    assert slider.spin.maximumWidth() > 0

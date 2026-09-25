@@ -1,5 +1,5 @@
 """
-E-6 with Normalize off must render the capture, not a print of it.
+A slide must render the capture, not a print of it.
 
 The contract these tests pin down:
   - at default settings nothing shapes the capture: the scene stage is an exact identity,
@@ -20,13 +20,12 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.features.exposure.normalization import LogNegativeBounds, normalize_log_image
-from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
-from negpy.features.exposure.transfer import (
+from negpy.services.rendering.engine import base_processor, exposure_processor
+from negpy.features.transparency.logic import (
     TRANSFER_CONSTANTS,
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
     display_rendering,
-    is_transfer_path,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -36,7 +35,8 @@ from negpy.features.exposure.transfer import (
     transfer_widths,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_positive_source, cast_removal_for_mode
+from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.process.path import RenderPath, render_path
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 # A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
@@ -48,13 +48,15 @@ CAM_XYZ = [
 ]
 
 
-def _e6_config(normalize=False, positive_source=False, **exposure_overrides):
+def _e6_config(positive_source=False, **exposure_overrides):
     cfg = DEFAULT_WORKSPACE_CONFIG
-    process = replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize, positive_source=positive_source)
-    # The strength a slide actually starts at — the same rewrite every route into E-6
-    # applies. Without it these read the negative's default, which no slide ever carries.
+    process = replace(cfg.process, process_mode=ProcessMode.E6, positive_source=positive_source)
+    # The values a slide actually starts at — the same rewrite every route into E-6
+    # applies. Without it these read the negative's defaults, which no slide ever carries.
     overrides = {
         "cast_removal_strength": cast_removal_for_mode(ProcessMode.E6, cfg.exposure.cast_removal_strength),
+        "auto_exposure": auto_meter_for_mode(ProcessMode.E6, cfg.exposure.auto_exposure),
+        "auto_normalize_contrast": auto_meter_for_mode(ProcessMode.E6, cfg.exposure.auto_normalize_contrast),
         **exposure_overrides,
     }
     exposure = replace(cfg.exposure, **overrides)
@@ -75,8 +77,8 @@ def _run_stages(image, cfg, cam_xyz=CAM_XYZ, camera_wb=None):
         camera_wb=camera_wb,
         wants_uv_grid=False,
     )
-    norm = NormalizationProcessor(cfg.process, cfg.exposure.cast_removal_strength).process(image, ctx)
-    return np.asarray(PhotometricProcessor(cfg.exposure, cfg.local, cfg.process).process(norm, ctx)), ctx
+    norm = base_processor(cfg).process(image, ctx)
+    return np.asarray(exposure_processor(cfg).process(norm, ctx)), ctx
 
 
 def _rendered(scene_linear):
@@ -91,11 +93,13 @@ def _ramp(lo=1e-4, hi=0.6, n=512):
 
 
 class TestModeSelection(unittest.TestCase):
-    def test_e6_with_normalize_off_takes_the_transfer_path(self):
-        self.assertTrue(is_transfer_path(ProcessMode.E6, False))
-        self.assertFalse(is_transfer_path(ProcessMode.E6, True))
-        self.assertFalse(is_transfer_path(ProcessMode.C41, False))
-        self.assertFalse(is_transfer_path(ProcessMode.BW, False))
+    def test_e6_takes_the_transfer_path(self):
+        def path(mode):
+            return render_path(ProcessConfig(process_mode=mode))
+
+        self.assertIs(path(ProcessMode.E6), RenderPath.TRANSFER)
+        self.assertIs(path(ProcessMode.C41), RenderPath.PRINT)
+        self.assertIs(path(ProcessMode.BW), RenderPath.PRINT)
 
     def test_positive_source_is_slide_only(self):
         """A file already positivized before NegPy saw it has nothing left to meter or
@@ -104,14 +108,30 @@ class TestModeSelection(unittest.TestCase):
         for mode in (ProcessMode.C41, ProcessMode.BW):
             self.assertFalse(ProcessConfig(process_mode=mode, positive_source=True).positive_source)
         self.assertTrue(ProcessConfig(process_mode=ProcessMode.E6, positive_source=True).positive_source)
-        # On Slide, Normalize on still wins: a metered rescue stretch, not a raw passthrough.
-        self.assertFalse(is_transfer_path(ProcessMode.E6, True, positive_source=True))
+        self.assertIs(render_path(ProcessConfig(process_mode=ProcessMode.E6, positive_source=True)), RenderPath.POSITIVE)
 
-    def test_flat_intent_still_wins(self):
-        """FLAT is an explicit export master; it must not be hijacked by the transfer."""
+    def test_flat_render_of_a_raw_slide_folds_camera_wb_like_its_print(self):
+        """A Flat slide decodes like its print, without white balance, so the base stage
+        folds the as-shot multipliers back in."""
         from negpy.features.exposure.models import RenderIntent
+        from negpy.services.rendering.engine import DarkroomEngine
 
-        self.assertFalse(is_transfer_path(ProcessMode.E6, False, render_intent=RenderIntent.FLAT))
+        cfg = _e6_config(render_intent=RenderIntent.FLAT)
+        img = np.ascontiguousarray(np.broadcast_to(_ramp(1e-3, 0.5, 64), (8, 64, 3)).astype(np.float32))
+
+        def render(camera_wb):
+            ctx = PipelineContext(
+                original_size=img.shape[:2],
+                scale_factor=1.0,
+                process_mode=cfg.process.process_mode,
+                cam_xyz=CAM_XYZ,
+                camera_wb=camera_wb,
+                wants_uv_grid=False,
+                cache_stages=False,
+            )
+            return np.asarray(DarkroomEngine().process(img.copy(), cfg, "flat-wb", ctx))
+
+        self.assertGreater(float(np.abs(render(None) - render(CAMERA_WB)).max()), 1e-3)
 
 
 class TestIdentityAtDefaults(unittest.TestCase):
@@ -233,18 +253,6 @@ class TestPositiveSourceSkipsDisplayRendering(unittest.TestCase):
     def test_default_is_off_and_unaffected_frames_keep_the_camera_render(self):
         self.assertFalse(ProcessConfig().positive_source)
 
-    def test_stays_off_the_print_path_when_normalize_is_on(self):
-        """Positive only applies with Normalize off; a metered stretch already decodes
-        on the source's own profile, so it has nothing left to skip."""
-        rng = np.random.default_rng(5)
-        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
-        base_cfg = _e6_config(normalize=True)
-        on = replace(base_cfg, process=replace(base_cfg.process, positive_source=True))
-        off = replace(base_cfg, process=replace(base_cfg.process, positive_source=False))
-        out_on, _ = _run_stages(img, on)
-        out_off, _ = _run_stages(img, off)
-        self.assertLess(float(np.abs(np.asarray(out_on) - np.asarray(out_off)).max()), 1e-6)
-
     def test_a_negative_mode_frame_cannot_be_positive(self):
         """Positive is Slide-only: a C-41 or B&W config drops the flag, so the negative
         path renders identically whether it was asked for or not."""
@@ -271,34 +279,24 @@ class TestExposureFaithfulness(unittest.TestCase):
         self.assertEqual(ctx_dark.metrics["final_bounds"].floors, ctx_bright.metrics["final_bounds"].floors)
         self.assertEqual(ctx_dark.metrics["final_bounds"].ceils, ctx_bright.metrics["final_bounds"].ceils)
 
-    def _bracket_means(self, normalize):
+    def _bracket_means(self):
         base = _ramp(hi=0.4)
-        return [float(_run_stages((base * s).astype(np.float32), _e6_config(normalize=normalize))[0].mean()) for s in (0.25, 0.5, 1.0, 2.0)]
+        return [float(_run_stages((base * s).astype(np.float32), _e6_config())[0].mean()) for s in (0.25, 0.5, 1.0, 2.0)]
 
     def test_a_bracket_renders_as_a_bracket(self):
         """Measured bounds make exposures of one scene converge. A transparency must not.
 
-        Asserted against the competing behaviour rather than a fixed ratio: the display
-        rendering compresses, so a 2x scene change is deliberately less than 2x on screen
-        (every tone curve does this, Lightroom's included). What must hold is that each
-        exposure stays clearly, monotonically apart.
+        The display rendering compresses, so a 2x scene change is deliberately less than 2x
+        on screen (every tone curve does this, Lightroom's included). What must hold is that
+        each exposure stays clearly, monotonically apart.
         """
-        transfer = self._bracket_means(normalize=False)
-        converged = self._bracket_means(normalize=True)
+        transfer = self._bracket_means()
 
         self.assertEqual(transfer, sorted(transfer))
         for lo, hi in zip(transfer, transfer[1:]):
             self.assertGreater(hi / max(lo, 1e-9), 1.35)
         # An 8x scene range must survive as a wide output range, not collapse to one render.
-        transfer_spread = transfer[-1] / max(transfer[0], 1e-9)
-        converged_spread = converged[-1] / max(converged[0], 1e-9)
-        self.assertGreater(transfer_spread, 4.0)
-        self.assertGreater(transfer_spread, 4.0 * converged_spread)
-
-    def test_normalize_on_still_converges(self):
-        """The old behaviour has to survive untouched on the other side of the toggle."""
-        means = self._bracket_means(normalize=True)
-        self.assertLess(max(means) / max(min(means), 1e-9), 1.5)
+        self.assertGreater(transfer[-1] / max(transfer[0], 1e-9), 4.0)
 
 
 class TestControlsStayLive(unittest.TestCase):
@@ -370,7 +368,7 @@ class TestControlsStayLive(unittest.TestCase):
         here, and the Shadows slider reached into the midtones on a slide. What has to
         match is the *position on the scale*, not the number."""
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
-        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, zone_geometry
+        from negpy.features.transparency.logic import TRANSFER_DENSITY_RANGE, zone_geometry
 
         sh_c, hi_c, k = zone_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
@@ -444,7 +442,7 @@ class TestControlsStayLive(unittest.TestCase):
         """Same contract as zone_geometry: the centre carries across by fraction of
         span, not by the print's raw density number."""
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
-        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, wb_split_geometry
+        from negpy.features.transparency.logic import TRANSFER_DENSITY_RANGE, wb_split_geometry
 
         centre, k = wb_split_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
@@ -552,7 +550,7 @@ class TestCaptureTogglesAreInert(unittest.TestCase):
 
 class TestWhiteBlackPointOnTheTransferPath(unittest.TestCase):
     """White/Black Point deviate the fixed window the same way they deviate a measured
-    one: additive, and inert at zero (NormalizationProcessor._process_transparency)."""
+    one: additive, and inert at zero (TransparencyBaseProcessor)."""
 
     def test_zero_offsets_leave_the_fixed_window_untouched(self):
         floors, ceils = transfer_bounds()
@@ -598,18 +596,21 @@ class TestWhiteBlackPointOnTheTransferPath(unittest.TestCase):
         self.assertEqual(ctx_base.metrics["neutral_axis_refs"], ctx_moved.metrics["neutral_axis_refs"])
 
 
-class TestAutomaticGradingIsOff(unittest.TestCase):
-    """On a raw, un-normalized slide only -- TestAutoDensityGradeOnAPositiveFrame covers
-    the same two toggles doing real work on a Positive frame."""
+class TestAutomaticGradingOnARawSlide(unittest.TestCase):
+    def test_auto_density_and_auto_grade_start_off(self):
+        """A slide was exposed deliberately, so a switch into Slide turns both off."""
+        from negpy.features.process.models import with_process_mode
 
-    def test_auto_density_and_auto_grade_do_not_change_the_render(self):
-        """They meter the frame to pick a look, which is what this path exists to avoid
-        for a deliberate camera exposure -- see is_transfer_path's bracket guarantee."""
+        slide = with_process_mode(DEFAULT_WORKSPACE_CONFIG, ProcessMode.E6)
+        self.assertFalse(slide.exposure.auto_exposure)
+        self.assertFalse(slide.exposure.auto_normalize_contrast)
+
+    def test_auto_density_and_auto_grade_move_the_render_when_on(self):
         rng = np.random.default_rng(13)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
         on, _ = _run_stages(img, _e6_config(auto_exposure=True, auto_normalize_contrast=True))
-        off, _ = _run_stages(img, _e6_config(auto_exposure=False, auto_normalize_contrast=False))
-        self.assertLess(float(np.abs(on - off).max()), 1e-6)
+        off, _ = _run_stages(img, _e6_config())
+        self.assertGreater(float(np.abs(on - off).max()), 1e-4)
 
     def test_crosstalk_unmix_is_not_applied(self):
         """It models negative-film dye crosstalk and defaults to 0.5 — it would tint the
@@ -622,16 +623,13 @@ class TestAutomaticGradingIsOff(unittest.TestCase):
 
 
 class TestAutoDensityGradeOnAPositiveFrame(unittest.TestCase):
-    """A Positive frame carries no camera bracket to protect (it is already someone's
-    finished rendering decision), so Auto Density/Auto Grade meter it exactly as they
-    would a negative, restated on this curve by transfer_auto_terms."""
+    """Auto Density/Auto Grade meter a Positive frame exactly as they would a negative,
+    restated on this curve by transfer_auto_terms."""
 
     def _cfg(self, **overrides):
-        return _e6_config(positive_source=True, **overrides)
+        return _e6_config(positive_source=True, **{"auto_exposure": True, "auto_normalize_contrast": True, **overrides})
 
-    def test_metering_is_off_by_default_only_without_positive_source(self):
-        """Guards the boundary this whole feature turns on: positive_source is the only
-        thing that lets these two toggles reach the render on this path."""
+    def test_the_toggles_move_the_render(self):
         rng = np.random.default_rng(19)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
         pos, _ = _run_stages(img, self._cfg())
@@ -663,31 +661,29 @@ class TestAutoDensityGradeOnAPositiveFrame(unittest.TestCase):
             self.assertIn(key, ctx.metrics)
             self.assertIsNotNone(ctx.metrics[key])
 
-    def test_metering_stays_off_a_raw_slide_even_with_the_toggles_on(self):
-        """Guards the boundary from the other side: without positive_source, the same
-        auto_exposure/auto_normalize_contrast toggles publish nothing to meter from."""
+    def test_a_raw_slide_publishes_the_same_metrics(self):
         _, ctx = _run_stages(_ramp(), _e6_config())
         for key in ("metered_anchor", "textural_range", "shadow_point", "highlight_point"):
-            self.assertNotIn(key, ctx.metrics)
+            self.assertIsNotNone(ctx.metrics.get(key))
 
 
-class TestAutoMeterForPositiveSource(unittest.TestCase):
-    """auto_meter_for_positive_source: the boundary AppController.set_positive_source
-    rewrites Auto Density/Auto Grade through when the toggle is flipped."""
+class TestAutoMeterForMode(unittest.TestCase):
+    """auto_meter_for_mode: the rewrite with_process_mode applies to Auto Density/Auto
+    Grade on a Film Mode switch."""
 
-    def test_untouched_negative_default_turns_off_for_positive(self):
-        self.assertFalse(auto_meter_for_positive_source(True, current=True))
+    def test_untouched_negative_default_turns_off_entering_slide(self):
+        self.assertFalse(auto_meter_for_mode(ProcessMode.E6, current=True))
 
-    def test_already_off_stays_off_entering_positive(self):
-        # Already matches Positive's own target, whether that is a negative user's
-        # deliberate choice or Positive's own default reapplied -- either way, a no-op.
-        self.assertFalse(auto_meter_for_positive_source(True, current=False))
+    def test_already_off_stays_off_entering_slide(self):
+        self.assertFalse(auto_meter_for_mode(ProcessMode.E6, current=False))
 
-    def test_untouched_positive_default_turns_on_leaving_positive(self):
-        self.assertTrue(auto_meter_for_positive_source(False, current=False))
+    def test_untouched_slide_default_turns_on_leaving_slide(self):
+        for mode in (ProcessMode.C41, ProcessMode.BW):
+            with self.subTest(mode=mode):
+                self.assertTrue(auto_meter_for_mode(mode, current=False))
 
-    def test_already_on_stays_on_leaving_positive(self):
-        self.assertTrue(auto_meter_for_positive_source(False, current=True))
+    def test_already_on_stays_on_leaving_slide(self):
+        self.assertTrue(auto_meter_for_mode(ProcessMode.C41, current=True))
 
 
 class TestTransferAutoTerms(unittest.TestCase):
@@ -698,8 +694,7 @@ class TestTransferAutoTerms(unittest.TestCase):
         return replace(DEFAULT_WORKSPACE_CONFIG.exposure, **overrides)
 
     def test_none_inputs_leave_everything_manual(self):
-        """The exact guard the raw-slide identity/bracket tests depend on: metering
-        withheld (None) must win over the toggles being on."""
+        """A None meter must win over the toggles being on."""
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
         offset, contrast, hl_auto = transfer_auto_terms(exp, 0.3, 1.4, None, None, None, None)
         self.assertAlmostEqual(offset, 0.3)
@@ -784,18 +779,15 @@ class TestNormalizationContract(unittest.TestCase):
             self.assertIn(key, ctx.metrics)
 
     def test_default_process_config_keeps_the_print_path(self):
-        """PhotometricProcessor's process_config defaults to a print; a missing argument
-        must never silently route an existing caller into the transfer. Asserted through
-        the mode test rather than the e6_normalize flag, which now defaults off — it is
-        the C-41 default process_mode that keeps a bare ProcessConfig on the print path."""
+        """The C-41 default process_mode keeps a bare ProcessConfig on the print path."""
         conf = ProcessConfig()
         self.assertEqual(conf.process_mode, ProcessMode.C41)
-        self.assertFalse(is_transfer_path(conf.process_mode, conf.e6_normalize))
+        self.assertIs(render_path(conf), RenderPath.PRINT)
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
 class TestGpuTransferParity(unittest.TestCase):
-    """The transfer curve lives twice — transfer.py and transfer.wgsl. They must agree,
+    """The transfer curve lives twice — transparency/logic.py and transfer.wgsl. They must agree,
     or the preview drifts from the export."""
 
     def _render(self, processor, settings, img, prefer_gpu, cam_xyz=CAM_XYZ):
@@ -1010,7 +1002,7 @@ class TestGpuTransferParity(unittest.TestCase):
         from unittest.mock import patch
 
         with (
-            patch("negpy.features.exposure.transfer.ZONE_BLACK_TAPER", 1e-6),
+            patch("negpy.features.transparency.logic.ZONE_BLACK_TAPER", 1e-6),
             patch("negpy.services.rendering.gpu_engine.ZONE_BLACK_TAPER", 1e-6),
         ):
             flat_cpu, flat_gpu = both("off")
@@ -1033,13 +1025,13 @@ class TestGpuTransferParity(unittest.TestCase):
         """Auto Density/Auto Grade meter working-space, camera-matrix-applied grids on
         both engines (transfer_assumed_anchor, cam_prefiltered) -- the two places CPU
         and GPU build that grid independently and could drift apart."""
-        settings = _e6_config(positive_source=True)
+        settings = _e6_config(positive_source=True, auto_exposure=True, auto_normalize_contrast=True)
         cpu, gpu = self._both(settings)
         self._assert_parity(cpu, gpu)
 
         # Guard the guard: the toggles must actually be moving the render on both
         # engines, or parity here would pass for the wrong reason.
-        off_cpu, off_gpu = self._both(_e6_config(positive_source=True, auto_exposure=False, auto_normalize_contrast=False))
+        off_cpu, off_gpu = self._both(_e6_config(positive_source=True))
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "auto density/grade inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "auto density/grade inert on the GPU")
 
@@ -1097,9 +1089,8 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
         img = np.repeat(grad[None, :], 48, axis=0)
         return np.ascontiguousarray(np.stack([img, img * 0.7, img * 0.45], axis=-1) + rng.uniform(0, 0.01, (48, 48, 3)).astype(np.float32))
 
-    def _delta(self, mode, normalize, profile_process):
+    def _delta(self, mode, profile_process):
         from negpy.domain.interfaces import PipelineContext
-        from negpy.features.exposure.processor import NormalizationProcessor
 
         img = self._img()
         out = []
@@ -1108,26 +1099,23 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
             proc = replace(
                 cfg.process,
                 process_mode=mode,
-                e6_normalize=normalize,
                 crosstalk_strength=strength,
                 crosstalk_process=profile_process,
             )
             ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=mode, cam_xyz=CAM_XYZ, wants_uv_grid=False)
-            out.append(np.asarray(NormalizationProcessor(proc).process(img.copy(), ctx)))
+            out.append(np.asarray(base_processor(replace(cfg, process=proc)).process(img.copy(), ctx)))
         return float(np.abs(out[0] - out[1]).max())
 
     def test_a_c41_profile_does_nothing_to_e6(self):
-        self.assertEqual(self._delta(ProcessMode.E6, True, ProcessMode.C41), 0.0)
-        self.assertEqual(self._delta(ProcessMode.E6, False, ProcessMode.C41), 0.0)
+        self.assertEqual(self._delta(ProcessMode.E6, ProcessMode.C41), 0.0)
 
     def test_a_c41_profile_still_works_on_c41(self):
-        self.assertGreater(self._delta(ProcessMode.C41, True, ProcessMode.C41), 1e-4)
+        self.assertGreater(self._delta(ProcessMode.C41, ProcessMode.C41), 1e-4)
 
-    def test_an_e6_profile_applies_on_both_e6_paths(self):
+    def test_an_e6_profile_applies_on_a_slide(self):
         """The transfer path honours crosstalk rather than hard-skipping it: a
         rig-calibrated matrix is a capture correction, like Hue Trim."""
-        self.assertGreater(self._delta(ProcessMode.E6, True, ProcessMode.E6), 1e-4)
-        self.assertGreater(self._delta(ProcessMode.E6, False, ProcessMode.E6), 1e-4)
+        self.assertGreater(self._delta(ProcessMode.E6, ProcessMode.E6), 1e-4)
 
     def test_legacy_configs_without_the_field_stay_c41(self):
         from negpy.features.process.models import ProcessConfig
@@ -1136,7 +1124,7 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
 
 
 def test_normalization_shader_reads_the_transfer_decision_it_is_given():
-    """The WGSL must not re-derive is_transfer_path: it had no positive_source term,
+    """The WGSL must not re-derive render_path: it had no positive_source term,
     so a Positive frame took the print branch on the GPU and the transfer branch on
     the CPU."""
     from pathlib import Path

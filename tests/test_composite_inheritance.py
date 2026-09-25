@@ -21,6 +21,7 @@ class TestProcessModeOverlay(unittest.TestCase):
         cfg = WorkspaceConfig()  # process_mode defaults to C41
         out = resolve_asset_process_mode(cfg, {"process_mode": ProcessMode.E6})
         self.assertEqual(out.process.process_mode, ProcessMode.E6)
+        self.assertEqual(out.exposure.cast_removal_strength, 0.0, "a slide starts Cast Removal at 0")
 
     def test_absent_or_empty_leaves_the_config_alone(self):
         cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.BW))

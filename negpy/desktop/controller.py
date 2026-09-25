@@ -119,7 +119,6 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
@@ -133,13 +132,16 @@ from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.process.models import (
     ProcessConfig,
     ProcessMode,
-    auto_meter_for_positive_source,
-    cast_removal_for_mode,
     invalidate_local_bounds,
+    mode_aware_exposure_reset,
     scan_setup_values,
+    with_film_fields,
+    with_positive_source,
+    with_process_mode,
 )
 from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, FRAME_CARD_FIELDS, frame_card_rows, section_of_field, selected_flat_dict
 from negpy.services.assets.thumbnails import asset_thumbnail_key
@@ -154,7 +156,7 @@ from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
-from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 from negpy.services.rendering.preview_manager import PreviewManager
@@ -281,18 +283,12 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     while keeping process (mode + normalization bounds), geometry/crop, export and metadata,
     so it shows the un-graded auto conversion of the same framed image.
 
-    Cast Removal's default is mode-dependent (cast_removal_for_mode), not the bare
-    ExposureConfig default, or a transparency's 'before' would gray-balance a color the
-    live render never applies.
+    The exposure reset is the one a fresh file gets (mode_aware_exposure_reset over the
+    shipped defaults), or a transparency's 'before' would not be its as-captured render.
     """
-    baseline_exposure = ExposureConfig()
-    baseline_exposure = replace(
-        baseline_exposure,
-        cast_removal_strength=cast_removal_for_mode(config.process.process_mode, baseline_exposure.cast_removal_strength),
-    )
     return replace(
         config,
-        exposure=baseline_exposure,
+        exposure=mode_aware_exposure_reset(config.process.process_mode, DEFAULT_WORKSPACE_CONFIG.exposure),
         lab=LabConfig(),
         local=LocalAdjustmentsConfig(),
         toning=ToningConfig(),
@@ -1815,6 +1811,14 @@ class AppController(QObject):
 
     _HALF_FRAME_APPLY_SCOPE_KEY = "half_frame_apply_scope"
 
+    def _half_frame_process_mode(self, file_path: str, file_hash: str) -> str:
+        """The film process the split dialog previews with. The open frame's mode may be
+        unsaved (autodetect), and a split scan saves its edits under each half's hash."""
+        if file_path == self.state.current_file_path:
+            return str(self.state.config.process.process_mode)
+        stored = self.session.stored_process_mode
+        return stored({"hash": file_hash, "path": file_path}) or stored({"hash": half_hash(file_hash, 1), "path": file_path, "half": 1})
+
     def open_half_frame_dialog(
         self,
         file_path: str,
@@ -1858,6 +1862,7 @@ class AppController(QObject):
             initial_split=old_geom.split_x,
             initial_gutter=old_geom.gutter_thickness,
             initial_scope=saved_scope,
+            process_mode=self._half_frame_process_mode(file_path, file_hash),
             parent=None,
         )
         if not dialog.exec():
@@ -2366,13 +2371,7 @@ class AppController(QObject):
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
-            process = self.state.config.process
-            process = replace(
-                process,
-                process_mode=pending_import.process_mode,
-                **invalidate_local_bounds(process),
-            )
-            self.state.config = replace(self.state.config, process=process)
+            self.state.config = with_process_mode(self.state.config, pending_import.process_mode)
             self.state.is_dirty = True
         if pending_import is not None and (pending_import.capture_roll or pending_import.capture_frame is not None):
             meta = self.state.config.metadata
@@ -2402,11 +2401,11 @@ class AppController(QObject):
             PreviewLoadTask(
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
-                use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
+                use_camera_wb=not effective_linear_raw(self.state.config.process),
                 generation=self._prefetch_gen,
                 positive_source=self.state.config.process.positive_source,
                 highlight_mode=effective_highlight_reconstruction(self.state.config.process),
-                bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process, self.state.config.exposure.render_intent),
+                bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process),
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
@@ -2580,7 +2579,7 @@ class AppController(QObject):
         if not file_hash:
             return None
         saved = self.session.repo.load_file_settings(file_hash)
-        linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
+        linear_raw = effective_linear_raw(saved.process) if saved else False
         try:
             integrated_gpu = bool(self.state.gpu_enabled and GPUDevice.get().is_integrated)
         except Exception:
@@ -2592,7 +2591,7 @@ class AppController(QObject):
             generation=generation,
             positive_source=saved.process.positive_source if saved else False,
             highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
-            bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process, saved.exposure.render_intent) if saved else False),
+            bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process) if saved else False),
             full_resolution=False,
             file_hash=file_hash,
             use_splash=False,
@@ -2636,20 +2635,7 @@ class AppController(QObject):
         """
         if not detected_mode or detected_mode == self.state.config.process.process_mode:
             return
-        new_proc = replace(
-            self.state.config.process,
-            process_mode=ProcessMode(detected_mode),
-            **invalidate_local_bounds(self.state.config.process),
-        )
-        exp = self.state.config.exposure
-        self.state.config = replace(
-            self.state.config,
-            process=new_proc,
-            exposure=replace(
-                exp,
-                cast_removal_strength=cast_removal_for_mode(ProcessMode(detected_mode), exp.cast_removal_strength),
-            ),
-        )
+        self.state.config = with_process_mode(self.state.config, detected_mode)
         self.state.is_dirty = True
 
     def toggle_autodetect(self, enabled: bool) -> None:
@@ -2791,7 +2777,7 @@ class AppController(QObject):
     def arm_zone_target(self, zone: float) -> None:
         """Zone picked on the strip: the next canvas click prints that spot there.
         Picking the armed zone again disarms."""
-        if self.state.preview_raw is None:
+        if self.state.preview_raw is None or self._on_transfer_path():
             return
         if self.state.zone_arm_target == float(zone):
             self._disarm_zone_target()
@@ -2882,10 +2868,14 @@ class AppController(QObject):
             val_luma,
         )
 
+    def _on_transfer_path(self) -> bool:
+        """Placement inverts the print curve, which the transfer path never renders with."""
+        return render_path(self.state.config.process) is not RenderPath.PRINT
+
     def _solve_zone_placement(self) -> Optional[Any]:
         from negpy.features.exposure.placement import solve_placement
 
-        if not self.state.zone_pins:
+        if not self.state.zone_pins or self._on_transfer_path():
             return None
         return solve_placement(
             self.state.config.exposure,
@@ -4508,70 +4498,21 @@ class AppController(QObject):
             return
         rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash), card_key, diverged)
 
-    @staticmethod
-    def _with_process_mode(config: WorkspaceConfig, mode: str) -> WorkspaceConfig:
-        """*config* switched to Film Mode *mode*, with the Cast Removal default and the
-        Positive drop the switch carries."""
-        exp = config.exposure
-        strength = cast_removal_for_mode(mode, exp.cast_removal_strength)
-        new_exposure = replace(exp, cast_removal_strength=strength) if strength != exp.cast_removal_strength else exp
-        proc = config.process
-        # Leaving Slide drops Positive, and restores the autos as the toggle would.
-        drops_positive = proc.positive_source and mode != ProcessMode.E6
-        if drops_positive:
-            new_exposure = replace(
-                new_exposure,
-                auto_exposure=auto_meter_for_positive_source(False, new_exposure.auto_exposure),
-                auto_normalize_contrast=auto_meter_for_positive_source(False, new_exposure.auto_normalize_contrast),
-            )
-        new_process = replace(
-            proc,
-            process_mode=mode,
-            positive_source=proc.positive_source and not drops_positive,
-            **invalidate_local_bounds(proc),
-        )
-        return replace(config, process=new_process, exposure=new_exposure)
-
-    @staticmethod
-    def _with_positive_source(config: WorkspaceConfig, checked: bool) -> WorkspaceConfig:
-        """*config* with Positive set to *checked* and Auto Density/Auto Grade rewritten
-        to match. Unchanged outside Slide, where Positive does not apply."""
-        proc = config.process
-        if proc.process_mode != ProcessMode.E6:
-            return config
-        new_process = replace(
-            proc,
-            positive_source=checked,
-            **invalidate_local_bounds(proc),
-        )
-        exp = config.exposure
-        new_exposure = replace(
-            exp,
-            auto_exposure=auto_meter_for_positive_source(checked, exp.auto_exposure),
-            auto_normalize_contrast=auto_meter_for_positive_source(checked, exp.auto_normalize_contrast),
-        )
-        return replace(config, process=new_process, exposure=new_exposure)
-
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
         the roll the instant it changes and was not already -- same as any other
         Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out."""
-        self.apply_config(self._with_process_mode(self.state.config, mode), persist=True)
+        self.apply_config(with_process_mode(self.state.config, mode), persist=True)
         self._lock_roll_card("film")
 
     def set_positive_source(self, checked: bool) -> None:
         """Toggles Positive for the active frame, locking the "film" card away from
         the roll the instant it changes and was not already -- same treatment as
-        Film Mode, since both live on that one card.
-
-        Also rewrites Auto Density/Auto Grade to the mode being switched to
-        (auto_meter_for_positive_source): untouched, they carry whichever mode's
-        default they last matched, so this only moves them when the user never
-        touched them."""
+        Film Mode, since both live on that one card."""
         if self.state.config.process.process_mode != ProcessMode.E6:
-            # The shortcut still reaches the hidden button; the autos must not move.
+            # The shortcut still reaches the hidden button.
             return
-        self.apply_config(self._with_positive_source(self.state.config, checked), persist=True)
+        self.apply_config(with_positive_source(self.state.config, checked), persist=True)
         self._lock_roll_card("film")
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
@@ -4747,13 +4688,7 @@ class AppController(QObject):
         set, through the side effects a hand edit of that card carries."""
         values = {f: rolls.config_value(defaults[f]) for f in rolls.card_fields(card_key) if f in defaults}
         if card_key == "film":
-            mode = values.get("process_mode", config.process.process_mode)
-            if mode != config.process.process_mode:
-                config = self._with_process_mode(config, mode)
-            positive = values.get("positive_source", config.process.positive_source)
-            if positive != config.process.positive_source:
-                config = self._with_positive_source(config, positive)
-            return config
+            return with_film_fields(config, values)
         ratio = values.pop("autocrop_ratio", config.geometry.autocrop_ratio)
         if ratio != config.geometry.autocrop_ratio:
             config = self._with_crop_ratio(config, ratio)
@@ -5876,8 +5811,8 @@ class AppController(QObject):
             wants_uv_grid=False,
         )
         img = GeometryProcessor(geometry).process(source, context)
-        process, render_intent = self.state.config.process, self.state.config.exposure.render_intent
-        decoded_without_wb = effective_linear_raw(process, render_intent) and not highlight_reconstruction_bakes_wb(process, render_intent)
+        process = self.state.config.process
+        decoded_without_wb = effective_linear_raw(process) and not highlight_reconstruction_bakes_wb(process)
         matrix = camera_to_working_matrix(
             self.state.preview_cam_xyz,
             self.state.preview_camera_wb if decoded_without_wb else None,

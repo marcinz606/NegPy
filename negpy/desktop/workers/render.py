@@ -1365,7 +1365,7 @@ def _decode_asset_preview_with_meta(
     rgbscan = config.rgbscan
     stitch = config.stitch
     common = {
-        "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
+        "use_camera_wb": not effective_linear_raw(config.process),
         "full_resolution": False,
         "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         "demosaic": config.process.demosaic_preview,
@@ -1385,7 +1385,7 @@ def _decode_asset_preview_with_meta(
             hdr,
             workspace_color_space,
             highlight_mode=effective_highlight_reconstruction(config.process),
-            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
             **common,
         )
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
@@ -1398,7 +1398,7 @@ def _decode_asset_preview_with_meta(
             workspace_color_space,
             positive_source=config.process.positive_source,
             highlight_mode=effective_highlight_reconstruction(config.process),
-            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
             lens_corrections=metadata_lens_corrections(config),
             lens_flatfield=config.flatfield,
             **common,
@@ -1749,7 +1749,6 @@ class NormalizationWorker(QObject):
                     luma_range_clip = task.override_luma_range_clip
                     color_range_clip = task.override_color_range_clip
                     process_mode = params.process.process_mode
-                    e6_normalize = params.process.e6_normalize
                     geometry = params.geometry
 
                     # to_thread for the blocking load and analysis. decode_asset_preview picks
@@ -1787,8 +1786,6 @@ class NormalizationWorker(QObject):
                         transformed,
                         roi=roi,
                         analysis_buffer=buffer,
-                        process_mode=process_mode,
-                        e6_normalize=e6_normalize,
                         percentile_clip=luma_range_clip,
                         color_clip=color_range_clip,
                         unmix=unmix,

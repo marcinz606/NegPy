@@ -27,13 +27,13 @@ def source_token(config: WorkspaceConfig) -> str:
     """What the decode reads, folded into one string."""
     parts = [
         # Decides use_camera_wb, so it changes the decoded numbers themselves.
-        f"|lr{int(effective_linear_raw(config.process, config.exposure.render_intent))}",
+        f"|lr{int(effective_linear_raw(config.process))}",
         # Reconstruction level, resolved through the same gate the decode reads — changes
         # the decoded numbers on a slide's blown highlights.
         f"|hr{effective_highlight_reconstruction(config.process)}",
         # Whether that reconstruction bakes real white balance into the decode instead of
         # folding it downstream — changes the decoded numbers too, see should_fold_camera_wb.
-        f"|hrwb{int(highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent))}",
+        f"|hrwb{int(highlight_reconstruction_bakes_wb(config.process))}",
         # Preview only: folding the export choice in would re-decode the open frame whenever
         # an export setting moved.
         demosaic_token(config.process.demosaic_preview),

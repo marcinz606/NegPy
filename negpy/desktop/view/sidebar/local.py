@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtWidgets import QButtonGroup, QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
+from PyQt6.QtWidgets import QButtonGroup, QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -135,14 +135,14 @@ class LocalSidebar(BaseSidebar):
             "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
         )
 
-        slider_row = QHBoxLayout()
+        slider_row = QVBoxLayout()
         slider_row.addWidget(self.burn_slider)
         slider_row.addWidget(self.grade_slider)
         self.layout.addLayout(slider_row)
         self.layout.addWidget(self.feather_slider)
         self.layout.addWidget(section_subheader("Tone Limit"))
         self.layout.addLayout(tone_row)
-        key_row = QHBoxLayout()
+        key_row = QVBoxLayout()
         key_row.addWidget(self.key_zone_slider)
         key_row.addWidget(self.key_softness_slider)
         self.layout.addLayout(key_row)

@@ -47,6 +47,7 @@ def test_sync_scope_buttons_blank_summary_without_an_active_roll():
     ControlsPanel._sync_scope_buttons(panel)
 
     panel.roll_override_summary.setText.assert_called_once_with("")
+    panel.roll_override_summary.setVisible.assert_called_once_with(False)
 
 
 def test_every_card_reads_frame_with_no_roll_spanning_the_frames():
@@ -95,6 +96,7 @@ def test_sync_scope_buttons_names_every_overridden_card():
     ControlsPanel._sync_scope_buttons(panel)
 
     panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Metering")
+    panel.roll_override_summary.setVisible.assert_called_once_with(True)
 
 
 def test_sync_scope_buttons_names_film_mode_too():
@@ -223,10 +225,9 @@ def test_reset_process_fields_only_touches_the_given_fields():
     assert new_cfg.process.sensor_profile == "Custom"
 
 
-def test_reset_exposure_fields_turns_auto_off_for_a_positive_frame():
-    """Regression: Tone's reset used to restore ExposureConfig's own flat default
-    (on) regardless of Positive, so resetting a Positive frame turned Auto Density/
-    Auto Grade back on instead of to the value auto_meter_for_positive_source gives it."""
+def test_reset_exposure_fields_turns_auto_off_for_a_slide():
+    """Tone's reset restores Auto Density/Auto Grade to the mode's own default
+    (auto_meter_for_mode), not ExposureConfig's flat one."""
     panel = MagicMock()
     panel.controller.state = AppState()
     cfg = panel.controller.state.config

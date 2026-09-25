@@ -386,28 +386,26 @@ class WorkspaceConfig:
     export: ExportConfig = field(default_factory=ExportConfig)
 
     def __post_init__(self) -> None:
-        """A merged bracket never carries the Normalize stretch or Highlight Reconstruction.
+        """A merged bracket never carries Auto Density, Auto Grade or Highlight Reconstruction.
 
-        The two decide the same thing as a merge and the merge wins. Normalize meters the
-        buffer and stretches the measured range to full, which divides the render exposure's
-        scale straight back out — moving the anchor then changes nothing at all below the
-        point where its specular stops clipping. They do not want each other either:
-        Normalize rescues faded film, fading *compresses* density range, and a frame whose
-        range collapsed is not one that needed a bracket. Reconstruction guesses a clipped
-        pixel's color per frame independently, which the merge's own clip detection would
-        then trust as real signal instead of a genuine highlight recovered from a shorter,
-        unclipped exposure.
+        The three decide the same thing as a merge and the merge wins. The autos meter the
+        merged buffer and place its tones, which divides the render exposure's choice straight
+        back out. Reconstruction guesses a clipped pixel's color per frame independently, which
+        the merge's own clip detection would then trust as real signal instead of a genuine
+        highlight recovered from a shorter, unclipped exposure.
 
-        Held here rather than at the render, because both fields are read from
-        `is_transfer_path`/the decode down through both engines and the sidebars,
-        and a rule applied at some of those is the hidden-but-live trap the Calibration
-        panel already learned. Inert everywhere, from one place.
-
-        Not a migration: this must hold however the config was built — a merge created now,
-        a composite loaded from the DB, a `replace` that turns an ordinary frame into one.
+        Held here rather than at the render, because these fields are read down through both
+        engines, the decode and the sidebars, and a rule applied at some of those is the
+        hidden-but-live trap. Not a migration: this must hold however the config was built — a
+        merge created now, a composite loaded from the DB, a `replace` that turns an ordinary
+        frame into one.
         """
-        if hdr_active(self.hdr) and (self.process.e6_normalize or self.process.highlight_reconstruction):
-            object.__setattr__(self, "process", replace(self.process, e6_normalize=False, highlight_reconstruction=0))
+        if not hdr_active(self.hdr):
+            return
+        if self.process.highlight_reconstruction:
+            object.__setattr__(self, "process", replace(self.process, highlight_reconstruction=0))
+        if self.exposure.auto_exposure or self.exposure.auto_normalize_contrast:
+            object.__setattr__(self, "exposure", replace(self.exposure, auto_exposure=False, auto_normalize_contrast=False))
 
     def to_dict(self) -> Dict[str, Any]:
         """

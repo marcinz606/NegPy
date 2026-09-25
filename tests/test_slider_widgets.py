@@ -202,3 +202,27 @@ def test_kelvin_slider_default_roundtrips_exactly(qapp):
     assert abs(s.spin.value() - 5500.0) < 1e-6
     assert s.slider.value() == 1818
     s.timer.stop()
+
+
+def test_value_box_prints_a_point_and_reads_a_comma(qapp):
+    slider = CompactSlider("Print Density", -2.0, 2.0, 0.5)
+    assert slider.spin.text() == "0.50"
+    assert slider.spin.valueFromText("1,25") == 1.25
+
+
+def test_align_slider_columns_lines_up_label_and_value(qapp):
+    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+    from negpy.desktop.view.widgets.sliders import align_slider_columns
+
+    root = QWidget()
+    layout = QVBoxLayout(root)
+    short = CompactSlider("Toe", 0.0, 1.0, 0.5)
+    long = CompactSlider("Highlights Density", -1.0, 1.0, 0.0, unit=" st")
+    layout.addWidget(short)
+    layout.addWidget(long)
+
+    align_slider_columns(root)
+
+    assert short.label.minimumWidth() == long.label.minimumWidth() >= long.label.sizeHint().width()
+    assert short.spin.minimumWidth() == long.spin.minimumWidth() >= long.spin.sizeHint().width()

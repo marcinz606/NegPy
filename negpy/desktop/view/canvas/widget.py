@@ -337,6 +337,9 @@ class ImageCanvas(QWidget):
         """Forward the detected monitor ICC profile to the GPU display path."""
         self.gpu_widget.set_monitor_profile(monitor_icc_bytes)
 
+    def background_color(self) -> QColor:
+        return self._bg_color
+
     def set_background_color(self, r: float, g: float, b: float) -> None:
         """Update canvas background color (0–1 linear values)."""
         hex_color = "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))

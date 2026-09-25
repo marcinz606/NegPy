@@ -150,3 +150,37 @@ def test_reveal_section_ignores_an_unknown_section():
 
     panel._switch_group.assert_not_called()
     panel._switch_tab.assert_not_called()
+
+
+def test_scroll_to_centered_moves_a_row_already_in_view(qapp):
+    from PyQt6.QtWidgets import QApplication, QLabel, QScrollArea, QVBoxLayout, QWidget
+
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    body = QWidget()
+    layout = QVBoxLayout(body)
+    rows = [QLabel(f"row {i}") for i in range(60)]
+    for row in rows:
+        row.setFixedHeight(20)
+        layout.addWidget(row)
+    area.setWidget(body)
+    area.resize(200, 300)
+    area.show()
+    QApplication.processEvents()
+    target = rows[12]
+
+    RightPanel.scroll_to(MagicMock(), target, centered=True)
+
+    y = target.mapTo(area.viewport(), target.rect().topLeft()).y()
+    assert abs(y - area.viewport().height() // 3) <= 1
+
+
+def test_first_run_analysis_height_shrinks_on_a_short_screen():
+    from negpy.desktop.view.sidebar.right_panel import default_analysis_split
+
+    def screen(height):
+        return MagicMock(availableGeometry=lambda: MagicMock(height=lambda: height))
+
+    assert default_analysis_split(screen(1440))[0] == 320
+    assert default_analysis_split(screen(900))[0] == 270
+    assert default_analysis_split(None)[0] == 320

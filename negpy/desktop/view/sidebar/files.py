@@ -57,7 +57,7 @@ from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
 from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
-from negpy.desktop.view.shortcut_registry import label_with_shortcut
+from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
     TOOLBAR_BUTTON_HEIGHT,
@@ -785,6 +785,7 @@ class FileBrowser(QWidget):
 
     file_selected = pyqtSignal(str)
     library_requested = pyqtSignal(bool)  # reveal the library (arg: import a first roll if unset)
+    light_table_opened = pyqtSignal()
 
     def __init__(self, controller: AppController):
         super().__init__()
@@ -1000,15 +1001,10 @@ class FileBrowser(QWidget):
         self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.tally_label.setVisible(False)
 
-        self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
-        self.list_view.setModel(self.session.asset_model)
-        self._thumbnail_delegate = _ThumbnailDelegate(self.list_view, state=self.session.state)
-        self.list_view.setItemDelegate(self._thumbnail_delegate)
-        self.list_view.setViewMode(QListView.ViewMode.IconMode)
-        self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
-        self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
-        self.list_view.setAlternatingRowColors(False)
-        self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_view, self._thumbnail_delegate = self._make_grid(self.thumb_size_slider.value())
+        # The Light Table; MainWindow lays it out in the canvas's place.
+        self.light_table_view, self._light_table_delegate = self._make_grid(THUMB_CELL_MAX)
+        self.light_table_view.setSelectionModel(self.list_view.selectionModel())
         self._apply_sort_order(str(saved_sort), save=False)
         self._apply_sort_direction(bool(saved_desc), save=False)
 
@@ -1038,6 +1034,9 @@ class FileBrowser(QWidget):
         frames_layout.addWidget(self.list_view, 1)
         frames_layout.addWidget(self.empty_label, 1)
         self.frames_section = self._make_section("Film Strip", "frames", "fa5s.film", frames)
+        self.light_table_btn = self.frames_section.add_header_toggle(
+            "fa5s.th-large", tooltip_with_shortcut("Light Table — the roll as a grid in place of the canvas", "toggle_light_table")
+        )
 
         # Clearing the strip is how you start a roll you will build entirely by drag-drop,
         # so it lives on the section header rather than its own toolbar button -- the
@@ -1177,6 +1176,12 @@ class FileBrowser(QWidget):
         self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
+        self.light_table_view.clicked.connect(lambda index: self._on_item_clicked(index, self.light_table_view))
+        self.light_table_view.doubleClicked.connect(self._open_from_light_table)
+        open_key = QShortcut(QKeySequence(Qt.Key.Key_Return), self.light_table_view)
+        open_key.setContext(Qt.ShortcutContext.WidgetShortcut)
+        open_key.activated.connect(lambda: self._open_from_light_table(self.light_table_view.currentIndex()))
+        self.light_table_view.customContextMenuRequested.connect(lambda pos: self._show_context_menu(pos, self.light_table_view))
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
@@ -1184,6 +1189,7 @@ class FileBrowser(QWidget):
         self.session.files_changed.connect(self._on_files_changed)
         self.controller.first_scene_created.connect(lambda: self._apply_sort_order("scene"))
         self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
+        self.controller.thumbnail_activity_changed.connect(self._light_table_delegate.set_activity)
         # Unloading the last frame leaves nothing to show, so fall back to the library rather
         # than an empty panel. Never prompts: the user asked to unload, not to load.
         self.session.session_emptied.connect(lambda: self.library_requested.emit(False))
@@ -1199,9 +1205,27 @@ class FileBrowser(QWidget):
 
         # Delete unloads the selected frames, scoped to the thumbnail list so it does not fire
         # while typing in the filter box or editing elsewhere.
-        del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
-        del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
-        del_shortcut.activated.connect(self._on_delete_key)
+        for view in (self.list_view, self.light_table_view):
+            del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), view)
+            del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+            del_shortcut.activated.connect(self._on_delete_key)
+
+    def _open_from_light_table(self, index) -> None:
+        if index.isValid():
+            self._activate_file(index)
+            self.light_table_opened.emit()
+
+    def _make_grid(self, target_cell: int) -> tuple["ThumbnailGridView", "_ThumbnailDelegate"]:
+        view = ThumbnailGridView(target_cell=target_cell)
+        view.setModel(self.session.asset_model)
+        delegate = _ThumbnailDelegate(view, state=self.session.state)
+        view.setItemDelegate(delegate)
+        view.setViewMode(QListView.ViewMode.IconMode)
+        view.setResizeMode(QListView.ResizeMode.Adjust)
+        view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
+        view.setAlternatingRowColors(False)
+        view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        return view, delegate
 
     def search_library(self) -> None:
         """Run the box's query against the library folders instead of the loaded roll."""
@@ -1286,6 +1310,7 @@ class FileBrowser(QWidget):
 
         # Repaint for dirty underline
         self.list_view.viewport().update()
+        self.light_table_view.viewport().update()
 
         if current_actual == target_actual:
             return
@@ -1504,8 +1529,9 @@ class FileBrowser(QWidget):
 
     def _apply_show_scenes(self, on: bool, save: bool = True) -> None:
         self.scenes_btn.setIcon(qta.icon("fa5s.layer-group", color="white" if on else THEME.text_primary))
-        self._thumbnail_delegate.set_show_scenes(on)
-        self.list_view.viewport().update()
+        for delegate, view in ((self._thumbnail_delegate, self.list_view), (self._light_table_delegate, self.light_table_view)):
+            delegate.set_show_scenes(on)
+            view.viewport().update()
         if save:
             self.session.repo.save_global_setting("show_scenes", on)
 
@@ -1576,25 +1602,27 @@ class FileBrowser(QWidget):
         if actual >= 0 and actual != self.session.state.selected_file_idx:
             self.session.select_file(actual)
 
-    def _on_item_clicked(self, index) -> None:
+    def _on_item_clicked(self, index, view=None) -> None:
         # `clicked` fires from inside Qt's own mouseReleaseEvent, before ThumbnailGridView's
         # reapply runs — force it now so a plain click is told apart from a Shift/Ctrl one
         # (left to the selectionChanged handler) by the gesture's final, decided selection.
-        self.list_view._apply_pending_row(index.row())
-        selected = self.list_view.selectionModel().selectedIndexes()
+        view = view or self.list_view
+        view._apply_pending_row(index.row())
+        selected = view.selectionModel().selectedIndexes()
         if len(selected) == 1 and selected[0].row() == index.row():
             self._activate_file(index)
 
     def _on_item_double_clicked(self, index) -> None:
         self._activate_file(index)
 
-    def _show_context_menu(self, pos) -> None:
-        index = self.list_view.indexAt(pos)
+    def _show_context_menu(self, pos, view=None) -> None:
+        view = view or self.list_view
+        index = view.indexAt(pos)
         if not index.isValid():
             # Empty space carries the session-level tools, so they stay reachable without travelling
             # back to the toolbar at the top of the panel, and are discoverable at all when the
             # session is empty.
-            self._build_session_menu().exec(self.list_view.viewport().mapToGlobal(pos))
+            self._build_session_menu().exec(view.viewport().mapToGlobal(pos))
             return
         actual = self.session.asset_model.display_to_actual(index.row())
         if actual < 0:
@@ -1609,7 +1637,7 @@ class FileBrowser(QWidget):
             self.session.select_file(actual, selection_override=list(state.selected_indices))
 
         menu = self._build_context_menu()
-        menu.exec(self.list_view.viewport().mapToGlobal(pos))
+        menu.exec(view.viewport().mapToGlobal(pos))
 
     def _source_name(self) -> str:
         idx = self.session.state.selected_file_idx

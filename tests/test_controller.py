@@ -1163,7 +1163,7 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.roll_revert_cards(("process",)), set())
 
     def test_reset_to_roll_on_film_mode_carries_the_modes_cast_removal(self):
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.models import ProcessMode, with_process_mode
         from negpy.services.assets import rolls
 
         roll_id = self._roll_with_frame()
@@ -1172,7 +1172,7 @@ class TestAppController(unittest.TestCase):
         rolls.set_roll_defaults(repo, roll_id, process_mode=ProcessMode.E6)
         rolls.set_frame_override(repo, roll_id, "h1", "film", True)
         before = state.config.exposure.cast_removal_strength
-        expected = AppController._with_process_mode(state.config, ProcessMode.E6)
+        expected = with_process_mode(state.config, ProcessMode.E6)
 
         self.controller.revert_to_roll(("film",))
 
@@ -1634,7 +1634,7 @@ class TestAppController(unittest.TestCase):
 
     def test_narrowband_profile_suppressed_by_any_transparency(self):
         """The bundled profile describes narrowband capture of *negative* dyes, so it is
-        refused for a slide whatever Normalize says. Narrowband is a sticky setting, so
+        refused for a slide whatever Positive says. Narrowband is a sticky setting, so
         this must hold without the user touching it."""
         from negpy.features.process.models import ProcessMode
 
@@ -1642,15 +1642,15 @@ class TestAppController(unittest.TestCase):
         state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
         self.assertIsNotNone(self.controller.effective_input_icc())
 
-        for normalize in (True, False):
+        for positive in (True, False):
             state.config = replace(
                 state.config,
-                process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=normalize),
+                process=replace(state.config.process, process_mode=ProcessMode.E6, positive_source=positive),
             )
-            self.assertIsNone(self.controller.effective_input_icc(), f"e6_normalize={normalize}")
+            self.assertIsNone(self.controller.effective_input_icc(), f"positive_source={positive}")
             # ...and the preview must not claim a proof it no longer applies.
             state.soft_proof_enabled = False
-            self.assertFalse(self.controller.proof_active(), f"e6_normalize={normalize}")
+            self.assertFalse(self.controller.proof_active(), f"positive_source={positive}")
 
         # An explicit Input ICC is a deliberate choice about the source and still wins.
         state.icc_input_path = "/custom.icc"
@@ -1707,11 +1707,11 @@ class TestAppController(unittest.TestCase):
         )
 
     def test_a_flat_export_of_a_slide_still_refuses_the_narrowband_profile(self):
-        """A Flat render is not a transparency transfer, but the profile is refused for the
-        dye set, not for the render path — so flattening must not smuggle it back in."""
+        """The profile is refused for the dye set, not for the render, so flattening must not
+        smuggle it back in."""
         from negpy.features.process.models import ProcessMode
 
-        self.assertIsNone(self._export_icc_input(narrowband_scan=True, process_mode=ProcessMode.E6, e6_normalize=False))
+        self.assertIsNone(self._export_icc_input(narrowband_scan=True, process_mode=ProcessMode.E6))
 
     def test_proof_active_with_narrowband_scan(self):
         """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
@@ -3280,20 +3280,20 @@ class TestPresetExportSelected(unittest.TestCase):
 
         mock_lock.assert_not_called()
 
-    def test_set_positive_source_turns_off_auto_density_grade_when_untouched(self):
-        """A raw negative starts metered; a finished positive starts unmetered, same
-        as White/Black Point and every other per-shot control (auto_meter_for_positive_source)."""
+    def test_set_positive_source_leaves_auto_density_grade_on(self):
+        """Auto Density/Auto Grade meter a raw slide and a Positive frame alike, so the
+        toggle carries them over as they are."""
         self.mock_session_manager.state.active_roll_id = None
-        self.mock_session_manager.state.config = _slide_config(self.mock_session_manager.state.config)
-        cfg = self.mock_session_manager.state.config
-        self.assertTrue(cfg.exposure.auto_exposure)
-        self.assertTrue(cfg.exposure.auto_normalize_contrast)
+        cfg = _slide_config(self.mock_session_manager.state.config)
+        self.mock_session_manager.state.config = replace(
+            cfg, exposure=replace(cfg.exposure, auto_exposure=True, auto_normalize_contrast=True)
+        )
 
         self.controller.set_positive_source(True)
 
         passed = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(passed.exposure.auto_exposure)
-        self.assertFalse(passed.exposure.auto_normalize_contrast)
+        self.assertTrue(passed.exposure.auto_exposure)
+        self.assertTrue(passed.exposure.auto_normalize_contrast)
 
     def test_set_positive_source_leaves_a_deliberate_auto_choice_alone(self):
         self.mock_session_manager.state.active_roll_id = None
@@ -3308,19 +3308,19 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertFalse(passed.exposure.auto_exposure)
         self.assertFalse(passed.exposure.auto_normalize_contrast)
 
-    def test_set_positive_source_off_restores_auto_density_grade_when_untouched(self):
+    def test_set_positive_source_off_leaves_auto_density_grade_off(self):
         self.mock_session_manager.state.active_roll_id = None
         self.mock_session_manager.state.config = _positive_slide_config(self.mock_session_manager.state.config)
 
         self.controller.set_positive_source(False)
 
         passed = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertTrue(passed.exposure.auto_exposure)
-        self.assertTrue(passed.exposure.auto_normalize_contrast)
+        self.assertFalse(passed.exposure.auto_exposure)
+        self.assertFalse(passed.exposure.auto_normalize_contrast)
 
     def test_leaving_slide_drops_positive_and_restores_the_autos(self):
-        """Positive is Slide-only, so a mode switch away from Slide clears it and puts
-        Auto Density/Auto Grade back exactly as switching the toggle off would."""
+        """Positive is Slide-only, so a mode switch away from Slide clears it, and Auto
+        Density/Auto Grade go back to the negative's default (auto_meter_for_mode)."""
         from negpy.features.process.models import ProcessMode
 
         self.mock_session_manager.state.active_roll_id = None

@@ -1,9 +1,10 @@
 from typing import Any, Dict
 
 import numpy as np
-import qtawesome as qta
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import QPoint, Qt, QTimer
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
+    QApplication,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -19,10 +20,11 @@ from negpy.desktop.view.sidebar.export import ExportSidebar
 from negpy.desktop.view.sidebar.favourites import FavouritesSidebar
 from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
+from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
-from negpy.desktop.view.widgets.collapsible import make_section
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
@@ -47,6 +49,20 @@ _ROLL_SECTION_ATTRS = frozenset(
         "optics_section",
     }
 )
+
+
+def default_analysis_split(screen) -> list[int]:
+    height = screen.availableGeometry().height() if screen is not None else 1080
+    top = min(320, height * 3 // 10)
+    return [top, max(600, height - top)]
+
+
+def _tab_width(labels: list[str], pixel_size: int) -> int:
+    """Widest label at the checked weight, so a tab spills into » before its text clips."""
+    font = QFont(ui_font_family())
+    font.setPixelSize(pixel_size)
+    font.setWeight(QFont.Weight.DemiBold)
+    return max(QFontMetrics(font).horizontalAdvance(label) for label in labels) + 2 * THEME.space_md
 
 
 class RightPanel(QWidget):
@@ -91,33 +107,32 @@ class RightPanel(QWidget):
         self.scanlight_sidebar = ScanlightSidebar(self.controller)
         self.scan_page = self._build_scan_page()
 
-        # (key, icon_name, tooltip, content_widget)
+        # (key, label, content_widget)
         group_specs = [
-            ("roll", "mdi6.film", "Roll", roll_page),
-            ("frame", "fa5s.image", "Frame", frame_page),
-            ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar),
-            ("gear", "fa5s.toolbox", "Gear", self.gear_panel),
-            ("export", "fa5s.file-export", "Export", self.export_sidebar),
-            ("scan", "fa5s.camera-retro", "Scan", self.scan_page),
+            ("roll", "Roll", roll_page),
+            ("frame", "Frame", frame_page),
+            ("metadata", "Metadata", self.metadata_sidebar),
+            ("gear", "Gear", self.gear_panel),
+            ("export", "Export", self.export_sidebar),
+            ("scan", "Scan", self.scan_page),
         ]
 
-        # Icon-only tab switcher; spills into a » menu when the panel is narrowed
-        self.group_switcher = OverflowBar(tile=True, height=38, min_item=36)
+        # Spills into a » menu when the panel is narrowed
+        self.group_switcher = OverflowBar(
+            tile=True, height=38, min_item=_tab_width([spec[1] for spec in group_specs], THEME.font_size_base)
+        )
         self.group_stack = QStackedWidget()
         self.group_stack.setContentsMargins(0, 0, 0, 0)
 
         self._group_buttons: list[QPushButton] = []
         self._group_keys: list[str] = []
-        self._group_icons: list[str] = []
         self._group_tooltips: list[str] = []
         self._active_group = 0
         self._scan_group_index = -1
 
-        for i, (key, icon_name, tooltip, content) in enumerate(group_specs):
-            btn = QPushButton()
+        for i, (key, tooltip, content) in enumerate(group_specs):
+            btn = QPushButton(tooltip)
             btn.setObjectName("right_tab_btn")
-            btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary))
-            btn.setIconSize(QSize(18, 18))
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
             btn.setFixedHeight(38)
@@ -131,7 +146,6 @@ class RightPanel(QWidget):
             self.group_stack.addWidget(page)
             self._group_buttons.append(btn)
             self._group_keys.append(key)
-            self._group_icons.append(icon_name)
             self._group_tooltips.append(tooltip)
             if key == "scan":
                 self._scan_group_index = i
@@ -197,39 +211,34 @@ class RightPanel(QWidget):
         favourites_layout.addStretch(1)
 
         # Tab descriptors: the workflow control-group pages, then Favorites and History.
-        # (key, icon_name, tooltip, content_widget, [section_attrs])
-        tab_specs = [
-            (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
-        ]
+        # (key, label, tooltip, content_widget, [section_attrs])
+        tab_specs = [(page["key"], page["label"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages]
         self._frame_tab_headers = {page["key"]: page["header"] for page in self.controls_panel.pages if page["header"]}
         tab_specs += [
-            ("favourites", "fa5s.star", "Favorites", favourites_page, ["presets_section"]),
-            ("history", "fa5s.history", "History", self.history_panel, []),
+            ("favourites", "Favorites", "Favorites", favourites_page, ["presets_section"]),
+            ("history", "History", "History", self.history_panel, []),
         ]
 
-        # Icon-only tab switcher; spills into a » menu when the panel is narrowed
-        self.switcher = OverflowBar(tile=True, height=38, min_item=36)
+        # Spills into a » menu when the panel is narrowed
+        self.switcher = OverflowBar(tile=True, height=30, min_item=_tab_width([spec[1] for spec in tab_specs], THEME.font_size_small))
 
         self.stack = QStackedWidget()
         self.stack.setContentsMargins(0, 8, 0, 0)
 
         self._tab_buttons: list[QPushButton] = []
         self._tab_keys: list[str] = []
-        self._tab_icons: list[str] = []
         self._tab_tooltips: list[str] = []
         self._section_tab_index: dict[str, int] = {}
         self._tab_sections: dict[int, list[str]] = {}
         self._tab_edited: list[bool] = []
         self._active_index = 0
 
-        for i, (key, icon_name, tooltip, content, section_attrs) in enumerate(tab_specs):
-            btn = QPushButton()
-            btn.setObjectName("right_tab_btn")
-            btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary))
-            btn.setIconSize(QSize(18, 18))
+        for i, (key, label, tooltip, content, section_attrs) in enumerate(tab_specs):
+            btn = QPushButton(label)
+            btn.setObjectName("sub_tab_btn")
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
-            btn.setFixedHeight(38)
+            btn.setFixedHeight(30)
             btn.edited_dot = EditedDot(btn)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
             self.switcher.add_button(btn, tooltip)
@@ -237,7 +246,6 @@ class RightPanel(QWidget):
             self.stack.addWidget(wrap_scroll(content))
             self._tab_buttons.append(btn)
             self._tab_keys.append(key)
-            self._tab_icons.append(icon_name)
             self._tab_tooltips.append(tooltip)
             self._tab_edited.append(False)
             if section_attrs:
@@ -266,7 +274,7 @@ class RightPanel(QWidget):
         if isinstance(saved_sizes, list) and len(saved_sizes) == 2:
             self.splitter.setSizes([int(s) for s in saved_sizes])
         else:
-            self.splitter.setSizes([320, 600])
+            self.splitter.setSizes(default_analysis_split(QApplication.primaryScreen()))
         self.splitter.splitterMoved.connect(lambda *_: repo.save_global_setting("analysis_splitter_sizes", self.splitter.sizes()))
 
         # Collapsing the Analysis section hands its splitter space back to the tabs below and pins
@@ -417,12 +425,10 @@ class RightPanel(QWidget):
         """Mark control-group tabs whose sections have edits (corner dot, like edited sliders)."""
         for i, attrs in self._tab_sections.items():
             self._tab_edited[i] = any(getattr(getattr(self.controls_panel, a), "modified_count", 0) for a in attrs)
-        self._refresh_tab_icons()
+        self._refresh_tab_dots()
 
-    def _refresh_tab_icons(self) -> None:
+    def _refresh_tab_dots(self) -> None:
         for i, btn in enumerate(self._tab_buttons):
-            color = "white" if i == self._active_index else THEME.text_secondary
-            btn.setIcon(qta.icon(self._tab_icons[i], color=color))
             btn.edited_dot.set_active(self._tab_edited[i])
 
     def _switch_tab(self, index: int) -> None:
@@ -432,7 +438,6 @@ class RightPanel(QWidget):
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
         self.switcher.set_pinned(index)
-        self._refresh_tab_icons()
 
         # The heal and scratch tools live on the tab hosting the Retouch section. Navigating to
         # another tab suspends the active one, so clicks on the canvas do not keep placing heals
@@ -458,7 +463,6 @@ class RightPanel(QWidget):
         self.group_stack.setCurrentIndex(index)
         for i, btn in enumerate(self._group_buttons):
             btn.setChecked(i == index)
-            btn.setIcon(qta.icon(self._group_icons[i], color="white" if i == index else THEME.text_secondary))
         self.group_switcher.set_pinned(index)
 
         # Trigger device detection and a gating refresh when the Scan tab is selected. It hosts
@@ -491,12 +495,43 @@ class RightPanel(QWidget):
         self._switch_group(self._group_keys.index("gear"))
         self.gear_panel.show_section_by_key(key)
 
-    def scroll_to(self, widget: QWidget) -> None:
-        """Ensure *widget* is visible within its enclosing scroll area."""
+    def _pages_holding(self, widget: QWidget) -> list[tuple[QStackedWidget, int]]:
+        found = []
+        for stack in (self.group_stack, self.stack):
+            for i in range(stack.count()):
+                if stack.widget(i).isAncestorOf(widget):
+                    found.append((stack, i))
+        return found
+
+    def tab_path(self, widget: QWidget) -> list[str]:
+        return [
+            self._group_tooltips[i] if stack is self.group_stack else self._tab_buttons[i].text()
+            for stack, i in self._pages_holding(widget)
+        ]
+
+    def reveal_widget(self, widget: QWidget) -> None:
+        for stack, i in self._pages_holding(widget):
+            (self._switch_group if stack is self.group_stack else self._switch_tab)(i)
+        parent = widget
+        while parent is not None:
+            if isinstance(parent, CollapsibleSection):
+                parent.expand()
+            parent = parent.parentWidget()
+        # A card just opened has no geometry until the next layout pass.
+        QTimer.singleShot(0, lambda: self.scroll_to(widget, centered=True))
+
+    def scroll_to(self, widget: QWidget, centered: bool = False) -> None:
+        """Ensure *widget* is visible within its enclosing scroll area; centered puts it a third
+        of the way down, which ensureWidgetVisible never does for a widget already in view."""
         parent = widget.parent()
         while parent is not None:
             if isinstance(parent, QScrollArea):
-                parent.ensureWidgetVisible(widget)
+                if centered and parent.widget() is not None:
+                    bar = parent.verticalScrollBar()
+                    y = widget.mapTo(parent.widget(), QPoint(0, 0)).y()
+                    bar.setValue(max(0, min(bar.maximum(), y - parent.viewport().height() // 3)))
+                else:
+                    parent.ensureWidgetVisible(widget)
                 return
             parent = parent.parent()
 

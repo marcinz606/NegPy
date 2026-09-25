@@ -117,10 +117,8 @@ class ProcessSidebar(BaseSidebar):
                 "capture — a print, a scan already inverted by other software, or a "
                 "negative the scanner positivized itself. Decodes its embedded profile "
                 "(sRGB if it has none) instead of reading it as literal linear data, and "
-                "skips metering, negative inversion and the exposure lift a raw capture "
-                "needs, so the Print/tone controls shape the image directly.<br><br>"
-                "Slide only, and only with Normalize off: a metered stretch already "
-                "decodes on the source's own profile."
+                "skips the exposure lift and filmic roll-off a raw capture needs, so the "
+                "Print/tone controls shape the image directly. Slide only."
             ),
         )
         mode_col.addWidget(self.positive_source_btn)
@@ -164,7 +162,7 @@ class ProcessSidebar(BaseSidebar):
             region_row.addWidget(btn, 1)
         analysis_col.addLayout(region_row)
 
-        clip_row = QHBoxLayout()
+        clip_row = QVBoxLayout()
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
             "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
@@ -201,7 +199,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
         self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        wp_bp_row = QHBoxLayout()
+        wp_bp_row = QVBoxLayout()
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         analysis_col.addLayout(wp_bp_row)
@@ -263,41 +261,6 @@ class ProcessSidebar(BaseSidebar):
         self.render_ev_slider.valueCommitted.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v)))
         self.render_ev_slider.setVisible(False)
 
-        self.normalize_e6_btn = self._labeled_toggle(
-            "fa5s.magic",
-            " Normalize",
-            conf.e6_normalize,
-            (
-                "Normalize: stretch the histogram to the full dynamic range, metered per frame, "
-                "and print it through the paper model. This is a rescue tool for <b>faded or "
-                "expired slides</b>, where the dyes have lost their range and a per-frame stretch "
-                "puts it back. On a slide that was exposed as intended it stretches a range that is "
-                "mostly not picture, which reads washed out.<br><br>"
-                "Off (the default) renders the slide as the capture — the camera's own color matrix "
-                "and a fixed exposure window — so it opens looking like it does in any raw converter, "
-                "and a bracketed set stays a bracketed set. Print controls give way to a plain "
-                "transfer curve (Density, Grade, Toe, Shoulder)."
-            ),
-        )
-        self.layout.addWidget(self.normalize_e6_btn)
-
-        # Disabled widgets get no hover, so the detail hangs off the hint, not the button. Placed
-        # directly under Normalize's own row, not after the controls that follow — a hint two
-        # widgets away from the control it describes reads as being about whichever one is
-        # actually adjacent to it.
-        self.normalize_merged_hint = hint_label("Not applied to a merged bracket.")
-        self.normalize_merged_hint.setToolTip(
-            wrap_tooltip(
-                "A merge already places the tones: Render exposure picks which exposure it "
-                "prints at. Normalize would meter the merged frame and stretch it to full, "
-                "which divides that choice straight back out — the anchor would stop doing "
-                "anything. The two are not wanted together in any case: Normalize rescues "
-                "faded film, and fading compresses the density range a bracket exists to "
-                "capture. Unmerge the frame if you need the stretch."
-            )
-        )
-        self.normalize_merged_hint.setVisible(False)
-        self.layout.addWidget(self.normalize_merged_hint)
         self.layout.addWidget(self.render_ev_slider)
 
         self.layout.addStretch()
@@ -321,7 +284,6 @@ class ProcessSidebar(BaseSidebar):
         self.color_range_clip_slider.valueChanged.connect(lambda v: self._on_color_range_clip_changed(v, persist=False))
         self.color_range_clip_slider.valueCommitted.connect(lambda v: self._on_color_range_clip_changed(v, persist=True))
 
-        self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
         self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
@@ -358,13 +320,6 @@ class ProcessSidebar(BaseSidebar):
     def _on_mode_changed(self, mode: str) -> None:
         self.controller.set_process_mode(mode)
         self.sync_ui()
-
-    def _on_normalize_e6_toggled(self, checked: bool) -> None:
-        self.controller.set_roll_default(
-            "process",
-            e6_normalize=checked,
-            **invalidate_local_bounds(self.state.config.process),
-        )
 
     def _on_positive_source_toggled(self, checked: bool) -> None:
         self.controller.set_positive_source(checked)
@@ -453,22 +408,17 @@ class ProcessSidebar(BaseSidebar):
 
             # Transparency transfer: the stretch is a fixed window anchored to the decoder's white
             # level, so nothing that tunes a measured stretch has anything to act on.
-            from negpy.features.exposure.transfer import is_transfer_path
+            from negpy.features.process.path import RenderPath, render_path
 
             is_e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
+            transfer = render_path(conf) is not RenderPath.PRINT
 
             # Greyed on a merge, not hidden: the render already ignores it, since WorkspaceConfig
             # holds that invariant, and a control that vanishes teaches nothing about why.
             merged = hdr_active(self.state.config.hdr)
-            self.normalize_e6_btn.setVisible(is_e6)
-            self.normalize_e6_btn.setChecked(conf.e6_normalize)
-            self.normalize_e6_btn.setEnabled(not merged)
 
-            # Normalize's metered stretch already decodes on the source's own profile.
             self.positive_source_btn.setVisible(is_e6)
             self.positive_source_btn.setChecked(conf.positive_source)
-            self.positive_source_btn.setEnabled(not conf.e6_normalize)
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
@@ -485,7 +435,6 @@ class ProcessSidebar(BaseSidebar):
                 self.render_ev_slider.blockSignals(True)
                 self.render_ev_slider.setValue(ev)
                 self.render_ev_slider.blockSignals(False)
-            self.normalize_merged_hint.setVisible(is_e6 and merged)
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
@@ -561,7 +510,6 @@ class ProcessSidebar(BaseSidebar):
             self.use_cast_avg_btn,
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
-            self.normalize_e6_btn,
             self.positive_source_btn,
             self.ch_btn_group,
             self.ch_global_btn,

@@ -55,19 +55,6 @@ _MIN_RECT_H = 0.1
 _SPLIT_TOL = 0.04  # grab radius for the centerline, fraction of width
 
 
-def _preview_positive(rgb: np.ndarray) -> np.ndarray:
-    """Cheap negative->positive preview: per-channel invert + auto-level."""
-    a = rgb.astype(np.float32)
-    if a.ndim == 2:
-        a = a[:, :, None]
-    out = np.empty_like(a)
-    for c in range(a.shape[2]):
-        ch = a[..., c]
-        lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
-        out[..., c] = 0.0 if hi <= lo else np.clip((hi - ch) / (hi - lo), 0.0, 1.0) * 255.0
-    return out.astype(np.uint8)
-
-
 def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
@@ -318,6 +305,7 @@ class HalfFrameDialog(QDialog):
         initial_split: Optional[float] = None,
         initial_gutter: Optional[float] = None,
         initial_scope: str = "current",
+        process_mode: str = "",
         title: str = "Half Frame — split & crop",
         parent=None,
     ) -> None:
@@ -384,6 +372,7 @@ class HalfFrameDialog(QDialog):
         self._set_scope(initial_scope if initial_scope in APPLY_SCOPES else "current")
 
         self._preview_rgb = preview_rgb
+        self._process_mode = process_mode
         self._set_preview(preview_rgb)
         self._label.set_rect(initial_rect or (0.0, 0.0, 1.0, 1.0))
         self._label.set_split(initial_split if initial_split is not None else 0.5)
@@ -394,7 +383,12 @@ class HalfFrameDialog(QDialog):
     def _set_preview(self, rgb: np.ndarray) -> None:
         from PyQt6.QtGui import QImage
 
-        pos = _preview_positive(rgb)
+        from PIL import Image
+
+        from negpy.services.assets.thumbnails import preview_positive
+
+        src = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGB")
+        pos = np.asarray(preview_positive(src, self._process_mode).convert("RGB"))
         h, w = pos.shape[:2]
         max_dim = 1024
         if max(h, w) > max_dim:

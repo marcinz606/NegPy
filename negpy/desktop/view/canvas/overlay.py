@@ -104,6 +104,15 @@ _LOUPE_MAG = 2.0
 _LOUPE_BADGE_H = 22.0
 
 
+def draw_view_badge(painter: QPainter, text: str, x: float, y: float, width: float = 68.0) -> None:
+    badge = QRectF(x, y, width, 22)
+    painter.setBrush(QColor(0, 0, 0, 170))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(badge, 4, 4)
+    painter.setPen(QColor(THEME.accent_primary))
+    painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
+
+
 def loupe_src_rect(buf_w: int, buf_h: int, cx: float, cy: float, side: float) -> QRectF:
     """A `side`-square sample window on the buffer, centred on (cx, cy) and **shifted** to stay
     inside it — a partly out-of-bounds source rect blits garbage. Clamped to the buffer when
@@ -953,17 +962,9 @@ class CanvasOverlay(QWidget):
         painter.drawText(knob, Qt.AlignmentFlag.AlignCenter, "◂▸")
 
         if x - target.left() > 92:
-            self._draw_view_badge(painter, "BEFORE", target.left() + 12, target.top() + 12)
+            draw_view_badge(painter, "BEFORE", target.left() + 12, target.top() + 12)
         if target.right() - x > 92:
-            self._draw_view_badge(painter, "AFTER", target.right() - 80, target.top() + 12)
-
-    def _draw_view_badge(self, painter: QPainter, text: str, x: float, y: float, width: float = 68.0) -> None:
-        badge = QRectF(x, y, width, 22)
-        painter.setBrush(QColor(0, 0, 0, 170))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(badge, 4, 4)
-        painter.setPen(QColor(THEME.accent_primary))
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
+            draw_view_badge(painter, "AFTER", target.right() - 80, target.top() + 12)
 
     def _draw_peek_badge(self, painter: QPainter) -> None:
         """Name the peek on the canvas. Otherwise only the toolbar says the view is on."""
@@ -972,7 +973,7 @@ class CanvasOverlay(QWidget):
         if rect.isEmpty():
             return
         width = painter.fontMetrics().horizontalAdvance(text) + 24.0
-        self._draw_view_badge(painter, text, rect.left() + 12, rect.top() + 12, width)
+        draw_view_badge(painter, text, rect.left() + 12, rect.top() + 12, width)
 
     def _draw_brush(self, painter: QPainter, fill: Optional[str] = None) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)

@@ -108,3 +108,31 @@ class TestTitle:
     def test_default_title(self):
         d = _dialog()
         assert d.windowTitle() == "Half Frame — split & crop"
+
+
+class TestPreviewPolarity:
+    def _shown(self, d: HalfFrameDialog) -> np.ndarray:
+        img = d._label._pixmap.toImage().convertToFormat(d._label._pixmap.toImage().Format.Format_RGB888)
+        ptr = img.constBits()
+        ptr.setsize(img.sizeInBytes())
+        return (
+            np.frombuffer(ptr, np.uint8)
+            .reshape(img.height(), img.bytesPerLine())[:, : img.width() * 3]
+            .reshape(img.height(), img.width(), 3)
+        )
+
+    def test_a_slide_is_shown_as_is(self):
+        buf = np.tile(np.linspace(20, 230, 48, dtype=np.uint8)[None, :, None], (32, 1, 3))
+        shown = self._shown(HalfFrameDialog(buf, process_mode="Transparency"))
+        assert shown[0, 0, 0] < shown[0, -1, 0]
+
+    def test_a_negative_is_inverted(self):
+        buf = np.tile(np.linspace(20, 230, 48, dtype=np.uint8)[None, :, None], (32, 1, 3))
+        shown = self._shown(HalfFrameDialog(buf, process_mode="Color Negative"))
+        assert shown[0, 0, 0] > shown[0, -1, 0]
+
+    def test_a_grayscale_slide_preview_is_shown_as_rgb(self):
+        buf = np.tile(np.linspace(20, 230, 48, dtype=np.uint8)[None, :], (32, 1))
+        shown = self._shown(HalfFrameDialog(buf, process_mode="Transparency"))
+        assert shown.shape == (32, 48, 3)
+        assert shown[0, 0, 0] < shown[0, -1, 0]

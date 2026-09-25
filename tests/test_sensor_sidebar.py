@@ -176,16 +176,16 @@ def test_capture_row_stays_visible_and_greys_out_per_reason():
     assert w.capture_hint.isHidden()
 
     # Transparency transfer: Narrowband refused for the film, Linear RAW inert here.
-    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
+    _to_mode(w, process_mode=ProcessMode.E6)
     for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
         assert not widget.isHidden()
     assert not w.narrowband_scan_btn.isEnabled()
     assert not w.linear_raw_btn.isEnabled()
     assert not w.capture_hint.isHidden()
 
-    # Normalize on meters a stretch again, so Linear RAW decides the decode once more —
-    # but Narrowband is refused for the dye set, which Normalize does not change.
-    _to_mode(w, e6_normalize=True)
+    # Positive decodes on the source's own profile, so Linear RAW decides the decode once
+    # more — but Narrowband is refused for the dye set, which Positive does not change.
+    _to_mode(w, positive_source=True)
     assert w.linear_raw_btn.isEnabled()
     assert not w.narrowband_scan_btn.isEnabled()
     assert not w.capture_hint.isHidden()
@@ -202,7 +202,7 @@ def test_linear_raw_unlocks_on_the_transfer_with_positive_source_on():
     silently defeat Positive's own decode. Must be live, not greyed, so the user can see
     and clear it — the old \"inert either way\" reasoning stopped being true."""
     w = _sidebar(linear_raw=True)
-    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
+    _to_mode(w, process_mode=ProcessMode.E6)
     assert not w.linear_raw_btn.isEnabled()
 
     _to_mode(w, positive_source=True)
@@ -237,7 +237,7 @@ def test_linear_raw_locks_for_an_rgb_scan_triplet():
 def test_unmix_is_refused_on_a_transparency_whatever_linear_raw_says():
     """A sticky profile from a negative rig must not stay live when the frame is a slide."""
     w = _sidebar(linear_raw=True)
-    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=True)
+    _to_mode(w, process_mode=ProcessMode.E6, positive_source=True)
 
     assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
     assert not w.sensor_combo.isEnabled()

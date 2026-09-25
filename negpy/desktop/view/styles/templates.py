@@ -212,19 +212,19 @@ def dialog_pane_qss() -> str:
 
 
 def labeled_toggle_qss() -> str:
-    """Segmented/selector toggle (channel rows, intent rows): base type, 8px padding."""
-    return f"font-size: {THEME.font_size_base}px; padding: 8px;"
+    """Segmented/selector toggle. Vertical padding matches default_button_height()'s reference, or descenders clip."""
+    return f"font-size: {THEME.font_size_base}px; padding: 6px 8px;"
 
 
 class EditedDot(QLabel):
     """Red dot marking an edited (non-default) control. Standalone for layouts;
     pass overlay_on to pin it to a widget's top-right corner instead."""
 
-    def __init__(self, overlay_on: QWidget | None = None, margin: int = 4) -> None:
+    def __init__(self, overlay_on: QWidget | None = None, margin: int = 4, color: str = THEME.channel_red) -> None:
         super().__init__(overlay_on)
         self._margin = margin
         self.setFixedSize(8, 8)
-        self.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
+        self.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
         self.hide()
         if overlay_on is not None:
             overlay_on.installEventFilter(self)
@@ -362,6 +362,16 @@ def tool_toggle_qss(icon_only: bool = False) -> str:
 
 def slider_label_qss(color: str) -> str:
     return f"font-size: {THEME.font_size_base}px; color: {color};"
+
+
+def slider_value_qss() -> str:
+    return (
+        f"QDoubleSpinBox {{font-size: {THEME.font_size_base}px; color: {THEME.text_primary}; background: transparent;"
+        " border: none; border-bottom: 1px solid transparent; padding: 0px;}"
+        f"QDoubleSpinBox:hover {{border-bottom: 1px solid {THEME.border_hover};}}"
+        f"QDoubleSpinBox:focus {{border-bottom: 1px solid {THEME.accent_primary};}}"
+        f"QDoubleSpinBox:disabled {{color: {THEME.text_muted};}}"
+    )
 
 
 def slider_handle_qss(color: str) -> str:

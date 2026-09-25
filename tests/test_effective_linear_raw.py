@@ -11,41 +11,34 @@ from dataclasses import replace
 import pytest
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.models import RenderIntent
 from negpy.features.process.logic import effective_linear_raw, linear_raw_token, narrowband_profile_active, should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def cfg(mode=ProcessMode.C41, normalize=False, linear_raw=False, positive_source=False) -> ProcessConfig:
-    return replace(ProcessConfig(), process_mode=mode, e6_normalize=normalize, linear_raw=linear_raw, positive_source=positive_source)
+def cfg(mode=ProcessMode.C41, linear_raw=False, positive_source=False) -> ProcessConfig:
+    return replace(ProcessConfig(), process_mode=mode, linear_raw=linear_raw, positive_source=positive_source)
 
 
 class TestEffectiveLinearRaw:
     def test_transfer_path_decodes_neutral_even_with_the_flag_off(self):
         """The reported fault: the flag is hidden on this path but was still obeyed."""
-        assert effective_linear_raw(cfg(ProcessMode.E6, normalize=False, linear_raw=False))
+        assert effective_linear_raw(cfg(ProcessMode.E6, linear_raw=False))
 
     def test_the_user_flag_still_wins_everywhere_else(self):
         assert effective_linear_raw(cfg(ProcessMode.C41, linear_raw=True))
         assert effective_linear_raw(cfg(ProcessMode.BW, linear_raw=True))
-        assert effective_linear_raw(cfg(ProcessMode.E6, normalize=True, linear_raw=True))
+        assert effective_linear_raw(cfg(ProcessMode.E6, linear_raw=True, positive_source=True))
 
-    @pytest.mark.parametrize(
-        "mode,normalize",
-        [(ProcessMode.C41, False), (ProcessMode.C41, True), (ProcessMode.BW, False), (ProcessMode.E6, True)],
-    )
-    def test_nothing_else_is_forced(self, mode, normalize):
-        """Only the transparency transfer is affected — a metered E-6 render and every
-        negative path keep the decode they had."""
-        assert not effective_linear_raw(cfg(mode, normalize=normalize, linear_raw=False))
-
-    def test_the_flat_intent_is_not_the_transfer_path(self):
-        assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=False), RenderIntent.FLAT)
+    @pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
+    def test_nothing_else_is_forced(self, mode):
+        """Only the transparency transfer is affected — every negative path keeps the
+        decode it had."""
+        assert not effective_linear_raw(cfg(mode, linear_raw=False))
 
     def test_the_token_follows_the_effective_value(self):
         """Caches key on this. Keying on the stored flag would serve a buffer decoded the
         other way round, which is invisible until the colors are wrong."""
-        transfer = cfg(ProcessMode.E6, normalize=False, linear_raw=False)
+        transfer = cfg(ProcessMode.E6, linear_raw=False)
         assert linear_raw_token(transfer) == linear_raw_token(cfg(ProcessMode.C41, linear_raw=True))
         assert linear_raw_token(transfer) != linear_raw_token(cfg(ProcessMode.C41, linear_raw=False))
 
@@ -57,16 +50,14 @@ class TestPositiveSource:
     """
 
     def test_exempts_the_transfer_path(self):
-        assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=False, positive_source=True))
+        assert not effective_linear_raw(cfg(ProcessMode.E6, positive_source=True))
 
     def test_the_linear_raw_flag_still_wins(self):
         """An explicit request for literal linear data overrides Positive too."""
-        assert effective_linear_raw(cfg(ProcessMode.E6, normalize=False, linear_raw=True, positive_source=True))
+        assert effective_linear_raw(cfg(ProcessMode.E6, linear_raw=True, positive_source=True))
 
     def test_has_no_effect_off_the_transfer_path(self):
-        """Nowhere else reads positive_source, so it must not change a metered E-6 render
-        or either negative path."""
-        assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=True, positive_source=True))
+        """Nowhere else reads positive_source, so it must not change either negative path."""
         assert not effective_linear_raw(cfg(ProcessMode.C41, positive_source=True))
         assert not effective_linear_raw(cfg(ProcessMode.BW, positive_source=True))
 
@@ -84,10 +75,10 @@ class TestNarrowbandProfileActive:
     profile recovers it. Refused for E-6 rather than approximated.
     """
 
-    @pytest.mark.parametrize("normalize", [True, False])
-    def test_a_slide_never_takes_the_profile(self, normalize):
-        """Normalize changes the render path, not the dye set."""
-        assert not narrowband_profile_active(replace(cfg(ProcessMode.E6, normalize=normalize), narrowband_scan=True))
+    @pytest.mark.parametrize("positive_source", [True, False])
+    def test_a_slide_never_takes_the_profile(self, positive_source):
+        """Positive changes the render path, not the dye set."""
+        assert not narrowband_profile_active(replace(cfg(ProcessMode.E6, positive_source=positive_source), narrowband_scan=True))
 
     @pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
     def test_every_negative_keeps_it(self, mode):
@@ -104,7 +95,7 @@ class TestShouldFoldCameraWb:
     """
 
     def test_folds_for_an_ordinary_transfer(self):
-        assert should_fold_camera_wb(cfg(ProcessMode.E6, normalize=False, linear_raw=False))
+        assert should_fold_camera_wb(cfg(ProcessMode.E6, linear_raw=False))
 
     def test_folds_when_the_user_flag_is_on(self):
         assert should_fold_camera_wb(cfg(ProcessMode.C41, linear_raw=True))
@@ -116,7 +107,7 @@ class TestShouldFoldCameraWb:
         """The flag is remembered across a mode switch and greyed out on a slide, where no
         narrowband correction applies (narrowband_profile_active). Skipping the fold there
         renders the slide unbalanced, the same tint the fold exists to prevent."""
-        assert should_fold_camera_wb(replace(cfg(ProcessMode.E6, normalize=False), narrowband_scan=True))
+        assert should_fold_camera_wb(replace(cfg(ProcessMode.E6), narrowband_scan=True))
 
     def test_narrowband_does_not_matter_when_the_decode_already_carries_wb(self):
         """Nothing to un-fold: the decode applied WB itself, so the matrix must stay out
@@ -127,7 +118,7 @@ class TestShouldFoldCameraWb:
         """An active reconstruction on the transfer path bakes real white balance into the
         decode itself (see highlight_reconstruction_bakes_wb); folding it again here would
         double-apply it, even though effective_linear_raw alone still reads True."""
-        transfer_with_reconstruction = replace(cfg(ProcessMode.E6, normalize=False, linear_raw=False), highlight_reconstruction=5)
+        transfer_with_reconstruction = replace(cfg(ProcessMode.E6, linear_raw=False), highlight_reconstruction=5)
         assert effective_linear_raw(transfer_with_reconstruction)
         assert not should_fold_camera_wb(transfer_with_reconstruction)
 
@@ -147,7 +138,7 @@ class TestDecodeAndMatrixAgree:
         of the agreement trace back to the one flag."""
         import inspect
 
-        from negpy.features.exposure import processor as cpu
+        from negpy.features.transparency import processor as cpu
         from negpy.services.rendering import image_processor as ip
 
         src = inspect.getsource(ip)
@@ -191,6 +182,6 @@ class TestSourceIdentity:
         from negpy.services.rendering.source_identity import source_token
 
         base = WorkspaceConfig()
-        slide = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, e6_normalize=False))
+        slide = replace(base, process=replace(base.process, process_mode=ProcessMode.E6))
         negative = replace(base, process=replace(base.process, process_mode=ProcessMode.C41))
         assert source_token(slide) != source_token(negative)

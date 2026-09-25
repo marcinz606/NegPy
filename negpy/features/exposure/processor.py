@@ -14,7 +14,6 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
-    neutral_axis_affine,
     split_grade_deltas,
     local_ev_scale,
     local_grade_factor_map,
@@ -44,20 +43,8 @@ from negpy.features.exposure.normalization import (
     effective_crosstalk_matrix,
     unmix_log_image,
 )
-from negpy.features.exposure.transfer import (
-    TRANSFER_DENSITY_RANGE,
-    apply_transfer_curve,
-    is_transfer_path,
-    transfer_assumed_anchor,
-    transfer_auto_terms,
-    transfer_bounds,
-    transfer_curve_params,
-    transfer_widths,
-)
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.kernel.image.logic import get_luminance
 
@@ -67,16 +54,11 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
-    def __init__(self, config: ProcessConfig, cast_strength: float = 0.0):
+    def __init__(self, config: ProcessConfig):
         self.config = config
-        # The transparency branch meters nothing else, so its neutral axis is measured
-        # only when Cast Removal can use it. `base_key` in engine.py carries the gate.
-        self.cast_strength = cast_strength
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        if is_transfer_path(context.process_mode, self.config.e6_normalize, self.config.positive_source):
-            return self._process_transparency(image, context)
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
         # above 1.0 occur only with flat-field gain and must match the GPU.
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
@@ -95,7 +77,6 @@ class NormalizationProcessor:
         def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
             cached_rect = context.metrics.get("log_bounds_rect_val")
-            cached_norm = context.metrics.get("log_bounds_norm_val")
             cached_mode = context.metrics.get("log_bounds_mode_val")
 
             cached_clip = context.metrics.get("log_bounds_clip_val")
@@ -110,7 +91,6 @@ class NormalizationProcessor:
                 or abs(cached_clip - self.config.luma_range_clip) > 1e-6
                 or cached_color_clip is None
                 or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
-                or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
                 or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix, self.config.crosstalk_process)
             )
@@ -122,8 +102,6 @@ class NormalizationProcessor:
                 prefiltered,
                 None,
                 0.0,
-                process_mode=context.process_mode,
-                e6_normalize=self.config.e6_normalize,
                 percentile_clip=self.config.luma_range_clip,
                 color_clip=self.config.color_range_clip,
             )
@@ -132,7 +110,6 @@ class NormalizationProcessor:
             context.metrics["log_bounds_rect_val"] = self.config.analysis_rect
             context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
-            context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
             context.metrics["log_bounds_mode_val"] = context.process_mode
             context.metrics["log_bounds_crosstalk_val"] = (
                 self.config.crosstalk_strength,
@@ -174,7 +151,7 @@ class NormalizationProcessor:
                     self.config.crosstalk_process,
                 )
 
-        wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
+        wp3, bp3 = per_channel_point_offsets(self.config)
         if any(v != 0.0 for v in wp3 + bp3):
             adj_floors = (
                 bounds.floors[0] + wp3[0],
@@ -211,87 +188,6 @@ class NormalizationProcessor:
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         return res
 
-    def _process_transparency(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        """
-        Transparency normalization: camera primaries -> working space, then a FIXED
-        log-density window.
-
-        No meter shapes the window itself. Measured bounds are exactly what makes two
-        exposures of one slide render alike, and a raw slide was exposed deliberately
-        — so the window is anchored to the decoder's white level, identical for every
-        frame, and a brighter capture stays brighter. A Positive frame carries no such
-        bracket to protect, so it is metered for Auto Density/Auto Grade exactly like a
-        negative is (PhotometricProcessor._process_transparency reads the metrics
-        stored below).
-        """
-        epsilon = 1e-6
-        # Linear RAW decodes without white balance, which the row-normalized camera matrix
-        # assumes. Folding the as-shot multipliers back in makes this render independent of which
-        # decode produced the buffer, so the toggle cannot cast the image here — except under
-        # narrowband light, where the fold never runs: an as-shot WB estimate describes a
-        # continuous-spectrum scene, and there is no such scene to describe (see
-        # should_fold_camera_wb).
-        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
-        linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
-
-        img_log = np.log10(np.clip(linear, epsilon, None))
-        # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
-        # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
-        # default, so the as-captured render is unperturbed.
-        unmix = effective_crosstalk_matrix(self.config, context.process_mode)
-        img_log = unmix_log_image(img_log, unmix)
-        floors, ceils = transfer_bounds()
-        pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
-        # White/Black Point manually deviate the fixed window, same technique as the measured
-        # path below: a user-driven nudge, not a meter, so it does not reopen what the fixed
-        # window exists to prevent (see is_transfer_path's docstring).
-        wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
-        if any(v != 0.0 for v in wp3 + bp3):
-            floors = (floors[0] + wp3[0], floors[1] + wp3[1], floors[2] + wp3[2])
-            ceils = (ceils[0] + bp3[0], ceils[1] + bp3[1], ceils[2] + bp3[2])
-        bounds = LogNegativeBounds(floors=floors, ceils=ceils)
-        res = normalize_log_image(img_log, bounds)
-
-        # Shared prefilter for the neutral axis and, on a Positive frame, Auto Density/
-        # Grade's four meters -- working-space (post camera matrix) and post-unmix, since
-        # that is what this curve itself consumes.
-        needs_axis = self.cast_strength > 0.0 and context.process_mode != ProcessMode.BW
-        prefiltered = None
-        if needs_axis or self.config.positive_source:
-            an_roi, an_buffer = resolve_analysis_region(
-                linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
-            )
-            prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
-
-        # Cast Removal's neutral axis is metered on the working-space log image the curve
-        # consumes, since the camera matrix above would leave a meter reading a different
-        # space than the GPU's. Pre-trim bounds, so a White/Black Point nudge cannot
-        # perturb it.
-        if needs_axis:
-            assert prefiltered is not None
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
-
-        # Auto Density and Auto Grade meter against the same fixed pre-trim window. A raw
-        # un-normalized slide never reaches here: is_transfer_path preserves its bracket
-        # only while these stay unmeasured.
-        if self.config.positive_source:
-            assert prefiltered is not None
-            context.metrics["metered_anchor"] = measure_anchor_from_log(
-                prefiltered, pre_trim_bounds, None, 0.0, assumed=transfer_assumed_anchor()
-            )
-            context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
-            context.metrics["shadow_point"] = measure_shadow_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
-            context.metrics["highlight_point"] = measure_highlight_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
-
-        context.metrics["log_bounds"] = bounds
-        context.metrics["log_bounds_base"] = bounds
-        context.metrics["final_bounds"] = bounds
-        context.metrics["norm_density_range"] = luminance_density_range(bounds)
-        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
-        context.metrics["normalized_log"] = res
-        context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
-        return res
-
 
 class PhotometricProcessor:
     """
@@ -303,13 +199,9 @@ class PhotometricProcessor:
         self,
         config: ExposureConfig,
         local_config: Optional[LocalAdjustmentsConfig] = None,
-        process_config: Optional[ProcessConfig] = None,
     ):
         self.config = config
         self.local_config = local_config
-        # Absent means the print path: only the transparency transfer needs to know whether
-        # Normalize is off, and every other caller renders a print.
-        self.process_config = process_config or ProcessConfig()
 
     def _build_local_maps(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
         if self.local_config is None or not self.local_config.masks:
@@ -333,10 +225,6 @@ class PhotometricProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         if self.config.render_intent == RenderIntent.FLAT:
             return self._process_flat(image, context)
-        if is_transfer_path(
-            context.process_mode, self.process_config.e6_normalize, self.process_config.positive_source, self.config.render_intent
-        ):
-            return self._process_transparency(image, context)
 
         paper = effective_paper_profile(self.config.paper_profile, context.process_mode)
         d_min = paper.d_min if self.config.paper_dmin else 0.0
@@ -496,96 +384,6 @@ class PhotometricProcessor:
             res = get_luminance(img_pos)
             res = np.stack([res, res, res], axis=-1)
             return res
-
-        return img_pos
-
-    def _process_transparency(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        """
-        Transparency transfer: the exact inverse of the fixed-bounds normalization,
-        deviated only by what the user has actually moved -- plus Auto Density/Auto
-        Grade, restated on this curve (transfer_auto_terms).
-
-        A raw un-normalized slide never reaches here with metered inputs: reading the
-        frame to decide a look is the opposite of starting from the capture, which is
-        why is_transfer_path exists, and transfer_auto_terms is inert on a None input.
-        A Positive frame carries no such bracket to protect, so it runs exactly as it
-        does on a negative. Cast Removal runs either way, starting at 0 on a slide: what
-        it corrects here is a faded original's crossover, and a deliberate colour cast
-        is the photograph.
-        """
-        exposure_offset, contrast, toe3, sh3 = transfer_curve_params(self.config)
-        exposure_offset, contrast, highlight_auto = transfer_auto_terms(
-            self.config,
-            exposure_offset,
-            contrast,
-            context.metrics.get("textural_range"),
-            context.metrics.get("metered_anchor"),
-            context.metrics.get("shadow_point"),
-            context.metrics.get("highlight_point"),
-        )
-        final_bounds = context.metrics.get("final_bounds")
-        cmy_offsets = filtration_offsets(
-            (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
-            final_bounds,
-        )
-        cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
-        shadow_cmy = (
-            self.config.shadow_cyan * cmy_max,
-            self.config.shadow_magenta * cmy_max,
-            self.config.shadow_yellow * cmy_max,
-        )
-        highlight_cmy = (
-            self.config.highlight_cyan * cmy_max,
-            self.config.highlight_magenta * cmy_max,
-            self.config.highlight_yellow * cmy_max,
-        )
-        # Shadow refs stay out: the P98 tie is calibrated for a negative. With no neutral
-        # axis this solves to the identity and the capture passes through.
-        strength, _shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
-            final_bounds,
-            None,
-            context.metrics.get("neutral_axis_refs"),
-            self.config.cast_removal_strength,
-        )
-        cast_gain, cast_offset_norm = neutral_axis_affine(neutral_axis_norm, strength)
-        cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
-
-        is_bw = context.process_mode == ProcessMode.BW
-        if is_bw:
-            lum = get_luminance(image)
-            image = np.stack([lum, lum, lum], axis=-1)
-
-        tw3, sw3 = transfer_widths(self.config)
-        img_pos = apply_transfer_curve(
-            image,
-            exposure_offset,
-            contrast,
-            toe3,
-            sh3,
-            cmy_offsets,
-            tw3,
-            sw3,
-            shadow_density=self.config.shadow_density,
-            highlight_density=self.config.highlight_density + highlight_auto,
-            shadow_cmy=shadow_cmy,
-            highlight_cmy=highlight_cmy,
-            cast_gain=cast_gain,
-            cast_offset=cast_offset,
-            positive_source=self.process_config.positive_source,
-            separation=1.0 if is_bw else self.config.dye_separation,
-            separation_trims=(0.0, 0.0, 0.0)
-            if is_bw
-            else (
-                self.config.dye_separation_trim_red,
-                self.config.dye_separation_trim_green,
-                self.config.dye_separation_trim_blue,
-            ),
-            damping=0.0 if is_bw else self.config.separation_damping,
-        )
-
-        if is_bw:
-            res = get_luminance(img_pos)
-            return np.stack([res, res, res], axis=-1)
 
         return img_pos
 

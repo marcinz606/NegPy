@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 from negpy.features.exposure.normalization import analyze_log_exposure_bounds
-from negpy.features.process.models import ProcessMode
 
 
 def _gradient_image() -> np.ndarray:
@@ -43,15 +42,6 @@ class TestLumaRangeMargin(unittest.TestCase):
         for ch in range(3):
             self.assertGreater(clipped.floors[ch], base.floors[ch])
             self.assertLess(clipped.ceils[ch], base.ceils[ch])
-
-    def test_negative_clip_expands_outward_e6(self):
-        """E6 maps f > c; outward expansion must grow |delta|, not shrink it."""
-        margin = 0.5
-        base = analyze_log_exposure_bounds(self.img, process_mode=ProcessMode.E6, percentile_clip=0.0)
-        ext = analyze_log_exposure_bounds(self.img, process_mode=ProcessMode.E6, percentile_clip=-margin)
-        for ch in range(3):
-            self.assertAlmostEqual(ext.floors[ch], base.floors[ch] + margin, places=5)
-            self.assertAlmostEqual(ext.ceils[ch], base.ceils[ch] - margin, places=5)
 
 
 if __name__ == "__main__":

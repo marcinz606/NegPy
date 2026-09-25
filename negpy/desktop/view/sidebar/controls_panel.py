@@ -13,7 +13,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
-from negpy.features.process.models import auto_meter_for_positive_source, cast_removal_for_mode
+from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -82,7 +82,6 @@ _METERING_FIELDS = (
     "lock_bounds",
     "luma_range_clip",
     "color_range_clip",
-    "e6_normalize",
     "white_point_offset",
     "black_point_offset",
     "white_point_trim_red",
@@ -118,14 +117,13 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {"optics": ("lens", "flatfield")}
 
 
-def _default_exposure_field(field: str, positive_source: bool, process_mode: str):
-    """The value *field* defaults to on this frame. Auto Density/Auto Grade default
-    differently on a Positive frame (auto_meter_for_positive_source) and Cast Removal
-    differently per mode (cast_removal_for_mode); every other ExposureConfig field has
-    one flat default."""
+def _default_exposure_field(field: str, process_mode: str):
+    """The value *field* defaults to on this frame. Auto Density/Auto Grade
+    (auto_meter_for_mode) and Cast Removal (cast_removal_for_mode) default per mode;
+    every other ExposureConfig field has one flat default."""
     default = getattr(_DEFAULT_EXPOSURE, field)
     if field in _AUTO_METER_FIELDS:
-        return auto_meter_for_positive_source(positive_source, default)
+        return auto_meter_for_mode(process_mode, default)
     if field == "cast_removal_strength":
         return cast_removal_for_mode(process_mode, default)
     return default
@@ -273,10 +271,11 @@ class ControlsPanel(QWidget):
         # (if any) this frame overrides. RightPanel places
         # it above every Roll-tab card; _sync_roll_locks keeps it current.
         self.roll_override_summary = hint_label("", "muted")
+        self.roll_override_summary.setVisible(False)
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
-        # "Filtration", not "Color", which names the Lab & Toning tab. The persisted "color"
+        # "Filtration", not "Color", which names the Color tab. The persisted "color"
         # section key stays.
         self.color_section = self._make_section(
             "Filtration",
@@ -344,14 +343,13 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.paint-brush",
         )
 
-        # Group the sections into workflow pages (each becomes an icon tab in RightPanel). Calibration,
+        # Group the sections into workflow pages (each becomes a tab in RightPanel). Calibration,
         # Demosaic, Roll Analysis and Normalization are roll-wide facts, not per-frame edits --
         # RightPanel builds them into its own top-level Roll tab instead of a page here, and
         # places Presets on its Favorites tab.
         groups = [
             (
                 "geometry",
-                "fa5s.crop",
                 "Geometry",
                 "Geometry",
                 [self.geometry_section],
@@ -359,7 +357,6 @@ class ControlsPanel(QWidget):
             ),
             (
                 "tone",
-                "fa5s.sun",
                 "Exposure — Filtration, Tone, Dodge & Burn",
                 "Exposure",
                 [self.color_section, self.tone_section, self.local_section],
@@ -367,15 +364,13 @@ class ControlsPanel(QWidget):
             ),
             (
                 "color",
-                "fa5s.flask",
-                "Lab & Toning",
-                "Lab & Toning",
+                "Color — Lab, Alternative Processes, Toning",
+                "Color",
                 [self.lab_section, self.altproc_section, self.toning_section],
                 ["lab_section", "altproc_section", "toning_section"],
             ),
             (
                 "finish",
-                "fa5s.brush",
                 "Finish — Retouch, Finishing",
                 "Finish",
                 [self.retouch_section, self.finish_section],
@@ -385,7 +380,7 @@ class ControlsPanel(QWidget):
 
         self.pages = []
         self.tab_headers: list[TabHeader] = []
-        for key, icon_name, tooltip, title, sections, section_attrs in groups:
+        for key, tooltip, title, sections, section_attrs in groups:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
@@ -402,7 +397,7 @@ class ControlsPanel(QWidget):
             self.pages.append(
                 {
                     "key": key,
-                    "icon_name": icon_name,
+                    "label": title,
                     "tooltip": tooltip,
                     "widget": page,
                     "sections": section_attrs,
@@ -738,7 +733,7 @@ class ControlsPanel(QWidget):
                 "Pushes density apart before decode. On a print, in the same matrix slot as the "
                 "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
                 "curve is already compressed at toe and shoulder, and takes per-layer R/G/B trims. On a "
-                "slide with Normalize off, applied directly with no paper matrix or trims. Chroma in "
+                "slide, applied directly with no paper matrix or trims. Chroma in "
                 "Color is the flat version: an even a*/b* scale after decode. 1.0 = off/identity",
                 ["dye_separation_inc", "dye_separation_dec"],
             )
@@ -977,6 +972,7 @@ class ControlsPanel(QWidget):
             self.roll_override_summary.setText(f"This frame overrides: {', '.join(overridden)}")
         else:
             self.roll_override_summary.setText("")
+        self.roll_override_summary.setVisible(bool(overridden))
 
     def revert_cards_to_roll(self, section_keys) -> None:
         """Every live card among *section_keys* back to the roll, as one undo step. A card
@@ -1066,7 +1062,7 @@ class ControlsPanel(QWidget):
 
         cfg = self.controller.state.config
         exp = cfg.exposure
-        defaults = {f: _default_exposure_field(f, cfg.process.positive_source, cfg.process.process_mode) for f in fields}
+        defaults = {f: _default_exposure_field(f, cfg.process.process_mode) for f in fields}
         new_exp = replace(exp, **defaults)
         new_config = replace(cfg, exposure=new_exp)
         self.controller.session.update_config(new_config, persist=True)
@@ -1082,10 +1078,9 @@ class ControlsPanel(QWidget):
         _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
-        positive_source = cfg.process.positive_source
         mode = cfg.process.process_mode
-        color_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in COLOR_FIELDS)
-        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in TONE_FIELDS)
+        color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in COLOR_FIELDS)
+        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(

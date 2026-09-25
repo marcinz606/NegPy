@@ -14,6 +14,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, HEADER_HEIGHT, HEADER_ICON_SIZE, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import align_slider_columns
 import qtawesome as qta
 
 # Said by every card's Roll half where no roll spans the loaded frames, so the disabled
@@ -207,6 +208,7 @@ class CollapsibleSection(QWidget):
         # rule forces it transparent either way.
         widget.setObjectName("collapsible_content_body")
         self.content_layout.addWidget(widget)
+        align_slider_columns(widget)
 
     def _update_chevron(self, expanded: bool) -> None:
         if self.chevron_label is None:
@@ -269,6 +271,12 @@ class CollapsibleSection(QWidget):
     def set_expanded(self, expanded: bool) -> None:
         if self.collapsible:
             self.toggle_button.setChecked(expanded)
+
+    def add_header_toggle(self, icon_name: str, tooltip: str) -> QPushButton:
+        btn = self._header_button(qta.icon(icon_name, color=THEME.text_muted, color_on=THEME.text_on_accent), tooltip)
+        btn.setCheckable(True)
+        self._header_row.insertWidget(self._header_row.count() - 1, btn)
+        return btn
 
     def set_actions_menu(self, menu: QMenu, tooltip: str) -> None:
         """An always-visible header menu button, for section-level actions that reach

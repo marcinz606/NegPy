@@ -20,8 +20,8 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.exposure.logic import neutral_axis_affine
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
-from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
-from negpy.features.exposure.transfer import TRANSFER_CONSTANTS, display_rendering
+from negpy.services.rendering.engine import base_processor, exposure_processor
+from negpy.features.transparency.logic import TRANSFER_CONSTANTS, display_rendering
 from negpy.features.process.models import ProcessMode, cast_removal_for_mode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
@@ -84,12 +84,12 @@ class TestAffineSolve(unittest.TestCase):
             self.assertGreaterEqual(gain[ch], 1.0 / gain_max - 1e-6)
 
 
-def _slide_config(strength, normalize=False):
+def _slide_config(strength):
     cfg = DEFAULT_WORKSPACE_CONFIG
     return replace(
         cfg,
-        process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize),
-        exposure=replace(cfg.exposure, cast_removal_strength=strength),
+        process=replace(cfg.process, process_mode=ProcessMode.E6),
+        exposure=replace(cfg.exposure, cast_removal_strength=strength, auto_exposure=False, auto_normalize_contrast=False),
     )
 
 
@@ -103,8 +103,8 @@ def _render(image, cfg):
         camera_wb=None,
         wants_uv_grid=False,
     )
-    norm = NormalizationProcessor(cfg.process, cfg.exposure.cast_removal_strength).process(image, ctx)
-    return np.asarray(PhotometricProcessor(cfg.exposure, cfg.local, cfg.process).process(norm, ctx)), ctx
+    norm = base_processor(cfg).process(image, ctx)
+    return np.asarray(exposure_processor(cfg).process(norm, ctx)), ctx
 
 
 def _cast_slide(seed=5, cast=(1.0, 0.82, 0.62)):
@@ -139,15 +139,8 @@ class TestSlideRender(unittest.TestCase):
 
         self.assertLess(spread(on), spread(off))
 
-    def test_normalize_on_also_meters_an_axis(self):
-        """The print-curve slide path shares the negative's solve, so it needs the meter."""
-        _, ctx = _render(_cast_slide(), _slide_config(1.0, normalize=True))
-        self.assertIsNotNone(ctx.metrics.get("neutral_axis_refs"))
-        # The P98 shadow tie stays negative-only.
-        self.assertNotIn("shadow_log_refs", ctx.metrics)
-
     def test_bw_never_meters_an_axis(self):
-        cfg = _slide_config(1.0, normalize=True)
+        cfg = _slide_config(1.0)
         cfg = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
         _, ctx = _render(_cast_slide(), cfg)
         self.assertNotIn("neutral_axis_refs", ctx.metrics)

@@ -1,8 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+
+if TYPE_CHECKING:
+    from negpy.domain.models import WorkspaceConfig
 
 
 class ProcessMode(StrEnum):
@@ -58,31 +61,31 @@ def cast_removal_for_mode(mode: str, strength: float) -> float:
     return default if strength == 0.0 else strength
 
 
-def auto_meter_for_positive_source(positive_source: bool, current: bool) -> bool:
-    """The value Auto Density/Auto Grade's toggle carries after Positive is switched.
+def auto_meter_for_mode(mode: str, current: bool) -> bool:
+    """The value Auto Density/Auto Grade's toggle carries after a switch into Film Mode *mode*.
 
-    A negative starts metered (True): its exposure has no meaning until printed,
-    so a meter is what makes it printable at all. A finished positive starts
-    unmetered (False): reading it to decide a look is the opposite of trusting an
-    already-finished rendering decision, so it starts the way White/Black Point and
-    every other per-shot control already do -- neutral until touched. Only the other
-    setting's own default is rewritten, so a toggle the user chose survives the
-    switch (mirrors cast_removal_for_mode).
+    A negative starts metered (True): its exposure has no meaning until printed, so a meter
+    is what makes it printable at all. A slide starts unmetered (False): it was exposed
+    deliberately, and a meter would make a bracket converge. Only the other mode's default is
+    rewritten, so a toggle the user chose survives the switch (mirrors cast_removal_for_mode).
     """
-    negative_default, positive_default = True, False
-    if positive_source:
-        return positive_default if current == negative_default else current
-    return negative_default if current == positive_default else current
+    negative_default, slide_default = True, False
+    if mode == ProcessMode.E6:
+        return slide_default if current == negative_default else current
+    return negative_default if current == slide_default else current
 
 
 def mode_aware_exposure_reset(mode: str, base: ExposureConfig) -> ExposureConfig:
-    """`base` (typically the shipped default exposure section) with cast_removal_strength
-    replaced by its own mode-aware neutral point (cast_removal_for_mode) instead of the
-    flat value `base` always carries. Single source for every reset path that resets a
-    whole exposure section rather than one field at a time."""
-    from dataclasses import replace
-
-    return replace(base, cast_removal_strength=cast_removal_for_mode(mode, base.cast_removal_strength))
+    """`base` (typically the shipped default exposure section) with Cast Removal and Auto
+    Density/Auto Grade at *mode*'s own defaults instead of the flat values `base` carries.
+    Single source for every reset path that resets a whole exposure section rather than one
+    field at a time."""
+    return replace(
+        base,
+        cast_removal_strength=cast_removal_for_mode(mode, base.cast_removal_strength),
+        auto_exposure=auto_meter_for_mode(mode, base.auto_exposure),
+        auto_normalize_contrast=auto_meter_for_mode(mode, base.auto_normalize_contrast),
+    )
 
 
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
@@ -104,7 +107,7 @@ class ProcessConfig:
     # scanner's own positive) rather than a raw capture. Slide only, held in __post_init__.
     # It decodes on its embedded profile, sRGB when untagged, instead of as literal linear
     # data, and skips metering, negative inversion, the baseline lift and the filmic curve.
-    # See effective_linear_raw and is_transfer_path.
+    # See effective_linear_raw and path.render_path.
     positive_source: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
@@ -122,10 +125,6 @@ class ProcessConfig:
     # the per-channel balance clip (orange-mask cast removal).
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
-    # Off by default. A slide's density runs to Dmax but only its top decades carry
-    # picture, so a per-frame stretch crushes the picture into the top of the print
-    # curve. Off renders the capture as shot; turn it on for faded film.
-    e6_normalize: bool = False
     # Roll-wide baseline applied independently per axis: luma (span) and color (cast).
     use_luma_average: bool = False
     use_color_average: bool = False
@@ -234,6 +233,45 @@ def invalidate_local_bounds(process: ProcessConfig) -> dict:
     return {"local_floors": (0.0, 0.0, 0.0), "local_ceils": (0.0, 0.0, 0.0)}
 
 
+def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig":
+    """*config* switched to Film Mode *mode*: the Cast Removal and Auto Density/Auto Grade
+    defaults move with it, and leaving Slide drops Positive. Every path that sets a frame's mode
+    goes through here. The same mode returns *config* unchanged, since the default rewrites
+    would read a slide's deliberate negative-default value as untouched."""
+    proc, exp = config.process, config.exposure
+    mode = ProcessMode(mode)
+    if mode == proc.process_mode:
+        return config
+    exp = replace(
+        exp,
+        cast_removal_strength=cast_removal_for_mode(mode, exp.cast_removal_strength),
+        auto_exposure=auto_meter_for_mode(mode, exp.auto_exposure),
+        auto_normalize_contrast=auto_meter_for_mode(mode, exp.auto_normalize_contrast),
+    )
+    proc = replace(
+        proc, process_mode=mode, positive_source=proc.positive_source and mode == ProcessMode.E6, **invalidate_local_bounds(proc)
+    )
+    return replace(config, process=proc, exposure=exp)
+
+
+def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig":
+    """*config* with Positive set to *checked*. Unchanged outside Slide, where Positive does not apply."""
+    proc = config.process
+    if proc.process_mode != ProcessMode.E6 or proc.positive_source == checked:
+        return config
+    return replace(config, process=replace(proc, positive_source=checked, **invalidate_local_bounds(proc)))
+
+
+def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
+    """*config* with the Film card's fields in *fields* applied through with_process_mode and
+    with_positive_source, popping them from *fields* so the caller overlays only the rest."""
+    if "process_mode" in fields:
+        config = with_process_mode(config, fields.pop("process_mode"))
+    if "positive_source" in fields:
+        config = with_positive_source(config, fields.pop("positive_source"))
+    return config
+
+
 def scan_setup_values(capture: str, light: str) -> tuple[bool, bool]:
     """(linear_raw, narrowband_scan) for a scanning rig — capture is "camera"/"scanner",
     light is "white"/"narrowband". A camera under white light is the only combination that
@@ -241,21 +279,20 @@ def scan_setup_values(capture: str, light: str) -> tuple[bool, bool]:
     return not (capture == "camera" and light == "white"), light == "narrowband"
 
 
-def per_channel_point_offsets(process: ProcessConfig, e6: bool) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+def per_channel_point_offsets(process: ProcessConfig) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """
-    Signed per-channel white/black point offsets: global + per-layer trim.
-    E6 negates (positive film reverses the floor/ceil roles). Single source of
-    truth for the CPU normalization and the GPU uniform pack.
+    Per-channel white/black point offsets: global + per-layer trim. Single source of truth
+    for the CPU normalization and the GPU uniform pack; a slide negates them
+    (transparency.logic.transfer_point_offsets).
     """
-    sign = -1.0 if e6 else 1.0
     wp3 = (
-        sign * (process.white_point_offset + process.white_point_trim_red),
-        sign * (process.white_point_offset + process.white_point_trim_green),
-        sign * (process.white_point_offset + process.white_point_trim_blue),
+        process.white_point_offset + process.white_point_trim_red,
+        process.white_point_offset + process.white_point_trim_green,
+        process.white_point_offset + process.white_point_trim_blue,
     )
     bp3 = (
-        sign * (process.black_point_offset + process.black_point_trim_red),
-        sign * (process.black_point_offset + process.black_point_trim_green),
-        sign * (process.black_point_offset + process.black_point_trim_blue),
+        process.black_point_offset + process.black_point_trim_red,
+        process.black_point_offset + process.black_point_trim_green,
+        process.black_point_offset + process.black_point_trim_blue,
     )
     return wp3, bp3

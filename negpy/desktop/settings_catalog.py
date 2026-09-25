@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
-from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.process.models import invalidate_local_bounds, with_film_fields
 from negpy.services.assets.presets import preset_fields
 
 
@@ -100,7 +100,6 @@ def _fmt_gear(values: tuple) -> str:
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Film Mode", (
         _row("Film Mode", "process", "process_mode", sticky=True),
-        _row("Normalize", "process", "e6_normalize", sticky=True),
         _row("Positive", "process", "positive_source", sticky=True),
     )),
     ("Metering", (
@@ -314,7 +313,6 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "color_range_clip",
         "use_luma_average",
         "use_color_average",
-        "e6_normalize",
         "crosstalk_strength",
         "crosstalk_profile",
         "crosstalk_matrix",
@@ -502,6 +500,8 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
         for f in row.fields:
             changes[f] = getattr(src_section, f)
     out = target
+    # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
+    out = with_film_fields(out, by_section.get("process", {}))
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
     if any(f in BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):

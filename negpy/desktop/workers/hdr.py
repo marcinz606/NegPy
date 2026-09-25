@@ -94,8 +94,8 @@ class HdrWorker(QObject):
                     # The same expression as merge_bracket's, so the solve and the render pin alike. There is
                     # nothing to share on a neutral decode, which carries no as-shot gains and leaves every
                     # later frame neutral too — unless reconstruction bakes real white balance into it.
-                    linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
-                    bake_wb = highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent)
+                    linear_raw = effective_linear_raw(params.process)
+                    bake_wb = highlight_reconstruction_bakes_wb(params.process)
                     bracket_wb = self._processor.camera_wb_for(f["path"]) if (bake_wb or not linear_raw) else None
                 frames.append(f32)
 

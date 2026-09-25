@@ -163,13 +163,16 @@ QSlider#yellow_slider::handle:horizontal { background: @filter_yellow; }
 QSlider#yellow_slider::sub-page:horizontal { background: @border_hover; }
 
 QSlider::handle:horizontal {
-    background: @accent_primary;
+    background: @text_secondary;
     border: none;
     width: 12px;
     height: 12px;
     margin: -3px 0;
     border-radius: 6px;
 }
+
+QSlider::handle:horizontal:hover { background: @text_primary; }
+QSlider::handle:horizontal:pressed { background: @accent_primary; }
 
 QSlider::sub-page:horizontal {
     background: @border_hover;
@@ -464,7 +467,7 @@ QFrame#shortcut_editor_row {
     background: transparent;
 }
 
-QFrame#shortcut_editor_row[highlighted="true"] {
+QFrame#shortcut_editor_row[highlighted="true"], QFrame#reveal_flash {
     background-color: rgba(183, 28, 28, 0.12);
     border-left: 2px solid @accent_primary;
 }
@@ -501,22 +504,33 @@ QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     color: @text_muted;
 }
 
-/* Right-panel tab strip (see sidebar/right_panel.py). */
-QPushButton#right_tab_btn {
-    background-color: @bg_dark;
+/* Right-panel tabs (see sidebar/right_panel.py). */
+QPushButton#right_tab_btn, QPushButton#sub_tab_btn {
+    background-color: transparent;
+    color: @text_secondary;
     border: none;
     border-bottom: 1px solid @border_primary;
-    border-right: 1px solid @border_primary;
     border-radius: 0;
+    padding: 0px;
 }
 
-QPushButton#right_tab_btn:hover {
-    background-color: @border_primary;
+QPushButton#sub_tab_btn {
+    font-size: @font_size_smallpx;
 }
 
-QPushButton#right_tab_btn:checked {
-    background-color: @bg_selected;
-    border-bottom: none;
+QPushButton#right_tab_btn:hover, QPushButton#sub_tab_btn:hover {
+    color: @text_primary;
+}
+
+QPushButton#right_tab_btn:pressed, QPushButton#sub_tab_btn:pressed {
+    background-color: transparent;
+}
+
+QPushButton#right_tab_btn:checked, QPushButton#sub_tab_btn:checked {
+    background-color: transparent;
+    color: @text_primary;
+    border-bottom: 2px solid @accent_primary;
+    font-weight: 600;
 }
 
 /* Collapsible section header (see widgets/collapsible.py). [overlay="true"] =
@@ -738,4 +752,28 @@ QSlider::handle:horizontal:focus {
     height: 8px;
     margin: -3px 0;
     border-radius: 6px;
+}
+
+/* Find (see widgets/command_palette.py). */
+QDialog#command_palette {
+    border: 1px solid @border_hover;
+}
+
+QListWidget#palette_results {
+    border: none;
+    background: transparent;
+}
+
+QListWidget#palette_results::item {
+    border: none;
+    margin: 0px;
+    padding: 0px;
+}
+
+QListWidget#palette_results::item:selected {
+    background-color: @bg_menu_selected;
+}
+
+QWidget#palette_row, QListWidget#palette_results QSlider {
+    background: transparent;
 }

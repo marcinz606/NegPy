@@ -22,11 +22,16 @@ KNOWN_NORITSU_DIMS: list[tuple[int, int]] = [
     (9972, 5028),
     (10379, 5028),
     (3859, 5028),
+    (6787, 5028),
+    (6476, 5028),
+    (7274, 5028),
+    (7682, 5028),
     (7158, 4502),
     (3551, 4502),
     (12681, 4502),
     (11348, 4502),
     (4042, 6391),
+    # (2087, 3307): listed for an unidentified format, unconfirmed. Its height would join tier-2 detection.
 ]
 
 KNOWN_NORITSU_HEIGHTS: list[int] = sorted({h for _, h in KNOWN_NORITSU_DIMS})

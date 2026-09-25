@@ -372,18 +372,19 @@ class SensorSidebar(BaseSidebar):
             # Three reasons, three gates. Narrowband is refused for any transparency, because the
             # bundled profile describes narrowband capture of negative dyes. Linear RAW is inert
             # on the *transfer*, where the camera matrix folds the as-shot multipliers back in
-            # (with Normalize on, or Positive on, it decides the decode again, so it stays live
-            # there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
+            # (with Positive on it decides the decode again, so it stays live there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
             # scene for a WB gain to describe in the first place — every exposure decodes neutral
             # regardless.
-            from negpy.features.exposure.transfer import is_transfer_path
+            from negpy.features.process.logic import narrowband_allowed
+            from negpy.features.process.path import RenderPath, render_path
             from negpy.features.rgbscan.models import is_rgb_triplet
 
-            e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
+            e6 = not narrowband_allowed(conf)
+            path = render_path(conf)
+            transfer = path is not RenderPath.PRINT
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
-            self.linear_raw_btn.setEnabled((not transfer or conf.positive_source) and not triplet)
+            self.linear_raw_btn.setEnabled(path is not RenderPath.TRANSFER and not triplet)
             self.scan_setup_btn.setEnabled(not e6)
             self.capture_hint.setVisible(e6 or triplet)
             if e6:

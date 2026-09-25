@@ -23,6 +23,8 @@ def qapp():
 
     app = QApplication.instance()
     if not app:
+        # rendercanvas forces xcb at import on Wayland, which would open real windows.
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
         app = QApplication(sys.argv)
     yield app
     app.quit()

@@ -21,7 +21,7 @@ from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
-from negpy.features.process.models import neutral_axis_tuple
+from negpy.features.process.models import neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts
 
 if TYPE_CHECKING:
@@ -404,7 +404,6 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     "process": (
         "process",
         (
-            "e6_normalize",
             "analysis_buffer",
             "luma_range_clip",
             "color_range_clip",
@@ -547,6 +546,7 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
         for name in field_names:
             if name in defaults:
                 by_section.setdefault(section, {})[name] = defaults[name]
+    config = with_film_fields(config, by_section.get("process", {}))
     for section, updates in by_section.items():
         config = replace(config, **{section: replace(getattr(config, section), **updates)})
     return config

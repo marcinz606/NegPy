@@ -8,7 +8,7 @@ frames prints as inconsistent color where the merge should recover a real highli
 shorter, unclipped exposure instead.
 
 The invariant is held in WorkspaceConfig, the same place and for the same reason as the
-Normalize/merge exclusion (see test_normalize_on_merges.py).
+Auto Density/Auto Grade exclusion (see test_autos_on_merges.py).
 """
 
 import sys
@@ -56,14 +56,6 @@ class Invariant(unittest.TestCase):
         """Paths without the enable flag are a dissolved merge, not a live one."""
         seeded = replace(_slide(5), hdr=HdrConfig(hdr_enabled=False, hdr_paths=("/x/b.nef",)))
         self.assertEqual(seeded.process.highlight_reconstruction, 5)
-
-    def test_normalize_and_reconstruction_both_drop_together(self):
-        """One merge, one invariant pass: neither field survives it, whichever combination
-        of the two a frame carried before it merged."""
-        merged = replace(_slide(5, hdr_enabled=False), process=replace(_slide().process, e6_normalize=True, highlight_reconstruction=5))
-        merged = replace(merged, hdr=_MERGE)
-        self.assertFalse(merged.process.e6_normalize)
-        self.assertEqual(merged.process.highlight_reconstruction, 0)
 
 
 class Panel(unittest.TestCase):

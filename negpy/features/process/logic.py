@@ -12,11 +12,11 @@ from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def effective_linear_raw(process: ProcessConfig) -> bool:
     """Whether the decode skips the camera's as-shot white balance.
 
-    True when the user asked for Linear RAW, and **always** on an as-captured Slide
-    (Normalize off). That render applies the camera's own matrix, which folds the
+    True when the user asked for Linear RAW, and **always** on an as-captured Slide.
+    That render applies the camera's own matrix, which folds the
     as-shot multipliers back in itself (`camera_to_working_matrix`), and the
     Calibration panel already documents Linear RAW as inert there — but the decode
     was reading the stored flag regardless, so a hidden, stale toggle silently decided
@@ -36,15 +36,12 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     absorb the difference: that bracket's shortest link solved to 0.75 EV instead of 1.00,
     which prints as contour rings around a blown highlight.
     """
-    from negpy.features.exposure.transfer import is_transfer_path
+    from negpy.features.process.path import RenderPath, render_path
 
-    if process.linear_raw:
-        return True
-    transfer = is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
-    return transfer and not process.positive_source
+    return process.linear_raw or render_path(process) is RenderPath.TRANSFER
 
 
-def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
+def linear_raw_token(process: ProcessConfig) -> str:
     """Decode-mode identity, folded into the render source hash so the auto-meter
     re-runs when Linear RAW toggles (the decode changes the source pixels).
 
@@ -52,7 +49,7 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     whatever the stored flag says, so keying on the flag alone would serve a buffer decoded
     the other way.
     """
-    return f"|lr:{int(effective_linear_raw(process, render_intent))}"
+    return f"|lr:{int(effective_linear_raw(process))}"
 
 
 def demosaic_token(mode: str) -> str:
@@ -61,7 +58,7 @@ def demosaic_token(mode: str) -> str:
     return f"|dm:{mode}"
 
 
-def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def should_fold_camera_wb(process: ProcessConfig) -> bool:
     """Whether `camera_to_working_matrix` should fold the as-shot multipliers back in.
 
     True when the decode skipped white balance (`effective_linear_raw`) *and* the capture
@@ -83,9 +80,9 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     Every site that folds `camera_wb` into the capture matrix must ask this one question,
     the same way every decode asks `effective_linear_raw`.
     """
-    if highlight_reconstruction_bakes_wb(process, render_intent):
+    if highlight_reconstruction_bakes_wb(process):
         return False
-    return effective_linear_raw(process, render_intent) and not narrowband_profile_active(process)
+    return effective_linear_raw(process) and not narrowband_profile_active(process)
 
 
 VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})
@@ -126,7 +123,7 @@ def highlight_reconstruction_token(process: ProcessConfig) -> str:
     return f"|hr:{effective_highlight_reconstruction(process)}"
 
 
-def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def highlight_reconstruction_bakes_wb(process: ProcessConfig) -> bool:
     """Whether an active reconstruction should decode with the real white balance baked
     in, instead of the transfer path's usual neutral decode plus downstream matrix fold.
 
@@ -139,12 +136,11 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
     clips.
 
     Only overrides the *default* reason for a neutral decode: being on the transfer path
-    itself (`is_transfer_path`). An explicit Linear RAW request stays neutral
+    itself (`render_path`). An explicit Linear RAW request stays neutral
     regardless — that toggle is the user asking for it directly, and reconstruction must
     not reach around it. `positive_source` has no camera matrix to fold in the first
     place, so there is nothing to bake either. False whenever
-    `effective_highlight_reconstruction` resolves to 0, including the E-6-with-Normalize
-    path, which already decodes with real white balance and needs no override.
+    `effective_highlight_reconstruction` resolves to 0.
 
     Every site that decides whether to bake real white balance into a decode must ask
     this one question, the same discipline `effective_linear_raw` and
@@ -154,12 +150,12 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
         return False
     if not effective_highlight_reconstruction(process):
         return False
-    from negpy.features.exposure.transfer import is_transfer_path
+    from negpy.features.process.path import RenderPath, render_path
 
-    return is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
+    return render_path(process) is not RenderPath.PRINT
 
 
-def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
+def highlight_reconstruction_bakes_wb_token(process: ProcessConfig) -> str:
     """Cache-key identity for `highlight_reconstruction_bakes_wb`, distinct from
     `linear_raw_token`: an explicit Linear RAW request and the transfer path's own default
     neutral decode both read as `effective_linear_raw() == True`, so `linear_raw_token`
@@ -167,7 +163,7 @@ def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_inten
     where it stays neutral because the user asked for it — yet the two decode differently
     once reconstruction is active. See `highlight_reconstruction_bakes_wb`.
     """
-    return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process, render_intent))}"
+    return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process))}"
 
 
 def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highlight_mode: int) -> float:
@@ -192,21 +188,26 @@ def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highligh
     return max(values) / min(values)
 
 
-def narrowband_profile_active(process: ProcessConfig) -> bool:
-    """Whether the bundled RGBScan input profile applies.
+def narrowband_allowed(process: ProcessConfig) -> bool:
+    """Whether narrowband capture applies to this film at all. Never to a transparency.
 
-    Never to a transparency. The profile characterises narrowband capture of *negative*
-    dyes; E-6 is a different dye set, so on a slide it is a fixed 3x3 derived from the
-    wrong film — an approximate correction for dyes that are not there, which is worse
-    than none. Narrowband's real payoffs (defeating the orange mask, clean separation
-    ahead of a high-gain inversion) belong to negatives, and a slide has neither.
+    The bundled profile characterises narrowband capture of *negative* dyes; E-6 is a
+    different dye set, so on a slide it is a fixed 3x3 derived from the wrong film — an
+    approximate correction for dyes that are not there, which is worse than none.
+    Narrowband's real payoffs (defeating the orange mask, clean separation ahead of a
+    high-gain inversion) belong to negatives, and a slide has neither.
 
-    Single source of truth for the rule: the sidebar greys the toggle on it and
-    `effective_input_icc` suppresses the profile on it, so the two cannot drift. An
-    explicit Input ICC is a deliberate choice about the user's own source and still wins
-    — that decision is not made here.
+    Single source of truth for the rule: the sensor panel greys Narrowband and the scan
+    setup on it, `narrowband_profile_active` and `unmix_block_reason` refuse on it.
     """
-    return process.narrowband_scan and process.process_mode != ProcessMode.E6
+    return process.process_mode != ProcessMode.E6
+
+
+def narrowband_profile_active(process: ProcessConfig) -> bool:
+    """Whether the bundled RGBScan input profile applies (`effective_input_icc` reads it).
+    An explicit Input ICC is a deliberate choice about the user's own source and still
+    wins — that decision is not made here."""
+    return process.narrowband_scan and narrowband_allowed(process)
 
 
 # Tuned against real sample scans; see tests/test_process_detect.py.

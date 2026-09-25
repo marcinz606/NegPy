@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader
@@ -21,7 +21,7 @@ class LabSidebar(BaseSidebar):
         self.saturation_slider = CompactSlider("Chroma", 0.0, 2.0, conf.saturation, has_neutral=True)
         self.layout.addWidget(self.saturation_slider)
 
-        row1 = QHBoxLayout()
+        row1 = QVBoxLayout()
         self.skin_protection_slider = CompactSlider("Skin Protection", 0.0, 1.0, conf.skin_protection)
         self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
         row1.addWidget(self.skin_protection_slider)
@@ -42,7 +42,7 @@ class LabSidebar(BaseSidebar):
         self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
 
-        row_sharpen = QHBoxLayout()
+        row_sharpen = QVBoxLayout()
         self.sharpen_radius_slider = CompactSlider("Radius", 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
         row_sharpen.addWidget(self.sharpen_radius_slider)
@@ -56,7 +56,7 @@ class LabSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("EFFECTS"))
 
-        row4 = QHBoxLayout()
+        row4 = QVBoxLayout()
         self.glow_slider = CompactSlider("Glow", 0.0, 1.0, conf.glow_amount)
         self.halation_slider = CompactSlider("Halation", 0.0, 1.0, conf.halation_strength)
         row4.addWidget(self.glow_slider)

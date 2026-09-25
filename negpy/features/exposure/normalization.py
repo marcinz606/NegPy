@@ -204,7 +204,6 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
     profile that predates the field actually is.
     """
-    from negpy.features.process.models import ProcessMode
 
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
     if process_mode is not None and profile_mode != str(process_mode):
@@ -454,7 +453,7 @@ def luminance_density_range(bounds: LogNegativeBounds) -> float:
     per-channel ranges. Replaces the green-only range so frames with a strong
     single-channel cast don't swing the slope as hard, while green still
     dominates so calibrated grade behaviour barely shifts. abs() keeps it
-    sign-safe for E6's reversed (f > c) bounds.
+    sign-safe for a slide's reversed (f > c) window.
     """
     rr = abs(bounds.ceils[0] - bounds.floors[0])
     rg = abs(bounds.ceils[1] - bounds.floors[1])
@@ -732,8 +731,6 @@ def _sample_log_bounds(
     img_log: np.ndarray,
     percentile_clip: float,
     base: float,
-    process_mode: str,
-    e6_normalize: bool,
     sorted_grid: Optional[np.ndarray] = None,
 ) -> tuple[list, list]:
     """
@@ -750,11 +747,6 @@ def _sample_log_bounds(
         clip = base
         margin = -percentile_clip
     p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
-    fixed_range = 3.0
-
-    if process_mode == ProcessMode.E6:
-        p_low, p_high = p_high, p_low
-        fixed_range = -3.0
 
     def _pct(p) -> list:
         if sorted_grid is not None:
@@ -762,14 +754,10 @@ def _sample_log_bounds(
         return [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
 
     floors = _pct(p_low)
-
-    if process_mode != ProcessMode.E6 or e6_normalize:
-        ceils = _pct(p_high)
-    else:
-        ceils = [floors[ch] + fixed_range for ch in range(3)]
+    ceils = _pct(p_high)
 
     if margin > 0.0:
-        # Expand outward; per-channel sign handles both f < c and f > c (E6).
+        # Expand outward; per-channel sign handles both f < c and f > c.
         for ch in range(3):
             if ceils[ch] >= floors[ch]:
                 floors[ch] -= margin
@@ -855,8 +843,6 @@ def analyze_log_exposure_bounds(
     image: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
-    process_mode: str = ProcessMode.C41,
-    e6_normalize: bool = True,
     percentile_clip: float = 0.0,
     color_clip: float = 0.0,
     unmix: Optional[np.ndarray] = None,
@@ -881,15 +867,13 @@ def analyze_log_exposure_bounds(
     """
     img_log = to_log_density(image)
     img_log = unmix_log_image(img_log, unmix)
-    return analyze_log_exposure_bounds_from_log(img_log, roi, analysis_buffer, process_mode, e6_normalize, percentile_clip, color_clip)
+    return analyze_log_exposure_bounds_from_log(img_log, roi, analysis_buffer, percentile_clip, color_clip)
 
 
 def analyze_log_exposure_bounds_from_log(
     img_log: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
-    process_mode: str = ProcessMode.C41,
-    e6_normalize: bool = True,
     percentile_clip: float = 0.0,
     color_clip: float = 0.0,
     sorted_grid: Optional[np.ndarray] = None,
@@ -915,15 +899,15 @@ def analyze_log_exposure_bounds_from_log(
 
     base_luma = float(EXPOSURE_CONSTANTS["base_luma_clip"])
 
-    floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize, sorted_grid)
+    floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, sorted_grid)
 
     # Color pass: per-channel deviations recombined onto the luma mean centre and span. The
     # ceils (thin end, base-anchored) come from per-channel percentiles at color_clip. The
     # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs and fall
     # back to the percentile pass when the band holds no trustworthy neutrals, and always for
-    # E-6 and margin-mode clips.
-    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize, sorted_grid)
-    if process_mode != ProcessMode.E6 and color_clip >= 0:
+    # margin-mode clips.
+    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, sorted_grid)
+    if color_clip >= 0:
         sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)
         if sp is not None:
             c_floors = [sp[0], sp[1], sp[2]]

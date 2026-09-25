@@ -1,5 +1,5 @@
-// Transparency transfer curve — GPU mirror of features/exposure/transfer.py.
-// Replaces the print curve (exposure.wgsl) when E-6 runs with Normalize off.
+// Transparency transfer curve — GPU mirror of features/transparency/logic.py.
+// Replaces the print curve (exposure.wgsl) for every slide.
 // Every term vanishes at its neutral value so the default render is an exact
 // pass-through of the capture, matching the CPU path bit-for-bit closely enough
 // for test_transparency_transfer.py's parity bound.
@@ -40,14 +40,14 @@ struct TransferUniforms {
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: TransferUniforms;
 
-// width * log(1 + exp(x / width)), overflow-safe — mirrors transfer.py::_softplus.
+// width * log(1 + exp(x / width)), overflow-safe — mirrors logic.py::_softplus.
 fn softplus(x: f32, width: f32) -> f32 {
     let t = x / width;
     return width * (log(1.0 + exp(-abs(t))) + max(t, 0.0));
 }
 
 // Scene-linear -> display-linear: Narkowicz's closed-form fit to the ACES RRT + sRGB
-// ODT. Mirrors transfer.py::display_rendering — a published filmic curve with a real
+// ODT. Mirrors logic.py::display_rendering — a published filmic curve with a real
 // toe and shoulder, so highlights roll off to display white instead of stopping at
 // wherever the sensor's white level fell.
 fn display_rendering(v: f32) -> f32 {
@@ -157,7 +157,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var ch = 0; ch < 3; ch++) {
         // Baseline + display rendering last: the controls above shape the scene. A
         // positive source skips both (baseline_gain arrives as 1.0), matching
-        // transfer.py::apply_transfer_curve.
+        // logic.py::apply_transfer_curve.
         let scene = pow(10.0, -dens[ch]) * params.baseline_gain;
         if (params.zone_taper.y != 0.0) {
             res[ch] = oetf_encode(clamp(scene, 0.0, 1.0));
