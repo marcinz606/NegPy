@@ -79,7 +79,6 @@ class TestGpuFinishParity(unittest.TestCase):
         self._assert_parity(settings)
 
     def test_filed_carrier_paper_black(self):
-        """The rebate prints at the paper's lifted D-max through the tone table."""
         settings = WorkspaceConfig()
         settings = replace(
             settings,

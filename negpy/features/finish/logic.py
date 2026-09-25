@@ -12,18 +12,14 @@ CARRIER_JITTER = 0.24
 CARRIER_INNER_ROUGH = 0.2
 CARRIER_OUTER_JITTER = 0.4
 CARRIER_CORNER = 1.4
-# A camera gate's corners are machined with a small fixed radius; Corners rounds the filed ones.
 CARRIER_GATE_CORNER = 0.2
-# The film never sits centered in the carrier: the aperture is off the picture by this much,
-# up and left, so the rebate prints wider at the top and left than at the bottom and right.
+# The film never sits centered in the carrier.
 CARRIER_OFFSET_X = -0.2
 CARRIER_OFFSET_Y = -0.25
 CARRIER_MARGIN = 0.7
 # The gate prints soft; filed metal is a hard stop, which is what reads as filed.
 CARRIER_SOFT = 0.22
 CARRIER_FILED_SOFT = 0.06
-# Flare is light off the filed bevel onto the paper: an exposure fraction added outside
-# the aperture, so it prints through the tone table like the penumbra.
 CARRIER_FLARE_DEPTH = 0.25
 CARRIER_FLARE_GAIN = 0.6
 CARRIER_FLARE_BASE = 0.35
@@ -35,11 +31,9 @@ CARRIER_NOISE_CELL = 0.35
 CARRIER_NOISE_OCTAVES = 4
 CARRIER_NOISE_OUTER = 0.12
 CARRIER_NOISE_INNER = 0.02
-# Rebate tone table: print color over the exposure fraction t that reaches the paper,
-# sampled at t = u**POWER so the toe, where the fringe hue lives, gets most entries.
+# Tone table sampled at t = u**POWER, dense in the toe.
 CARRIER_TONE_SAMPLES = 64
 CARRIER_TONE_POWER = 3.0
-# Pixels per CPU block: bounds temporary storage without paying per-block setup on narrow strips.
 _CARRIER_BLOCK_PIXELS = 1 << 19
 _carrier_cache: np.ndarray | None = None
 
@@ -58,12 +52,7 @@ def _norm(rows: np.ndarray) -> np.ndarray:
 
 
 def _filed_edge(rng: np.random.Generator) -> np.ndarray:
-    """
-    One hand-filed edge: straight file strokes meeting at small angles, sparse nicks and
-    spurs where the file slipped or stopped short, most of them near the corners, where
-    a file cannot reach squarely. Nicks open the aperture (black bulges into the paper)
-    more often than spurs close it.
-    """
+    """Straight file strokes plus nicks and spurs, crowded toward the corners."""
     i = np.arange(CARRIER_SAMPLES, dtype=np.float32)
     knots = np.concatenate([[0.0], np.cumsum(rng.uniform(80.0, 320.0, 24))])
     knots = knots[knots < CARRIER_SAMPLES]
@@ -72,7 +61,6 @@ def _filed_edge(rng: np.random.Generator) -> np.ndarray:
     corner = 1.0 + 2.0 * np.exp(-ends / 0.05)
     marks = np.zeros(CARRIER_SAMPLES, dtype=np.float32)
     for _ in range(14):
-        # Drawn toward the ends as often as along the run.
         at = rng.uniform(0.0, 0.12) if rng.random() < 0.5 else rng.uniform(0.0, 0.5)
         centre = (at if rng.random() < 0.5 else 1.0 - at) * CARRIER_SAMPLES
         half = rng.uniform(10.0, 26.0)
@@ -137,18 +125,18 @@ def carrier_noise(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def carrier_tone_exposures() -> np.ndarray:
-    """Exposure fraction t of each tone-table entry, 0 (bare paper) to 1 (full rebate)."""
+    """Exposure fraction of each tone-table entry, 0 (bare paper) to 1 (full rebate)."""
     return np.linspace(0.0, 1.0, CARRIER_TONE_SAMPLES, dtype=np.float32) ** np.float32(CARRIER_TONE_POWER)
 
 
 def linear_carrier_tone() -> np.ndarray:
-    """Tone table with no print model behind it: plain light, paper to black."""
+    """Plain light, paper to black."""
     return np.repeat((1.0 - carrier_tone_exposures())[:, None], 3, axis=1).astype(np.float32)
 
 
 def carrier_tone_lookup(tone: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """(..., 3) paper-relative color at exposure fraction t. Linear between entries, as the shader."""
-    # cbrt is the inverse of CARRIER_TONE_POWER = 3, and much cheaper than a float power.
+    """(..., 3) paper-relative color at exposure fraction t."""
+    # cbrt inverts CARRIER_TONE_POWER = 3.
     u = np.cbrt(np.clip(t, 0.0, 1.0)) * np.float32(CARRIER_TONE_SAMPLES - 1)
     grid = np.arange(CARRIER_TONE_SAMPLES, dtype=np.float32)
     return np.stack([np.interp(u, grid, tone[:, c]).astype(np.float32) for c in range(3)], axis=-1)
@@ -164,14 +152,9 @@ def apply_carrier(
     tone: np.ndarray | None = None,
 ) -> ImageBuffer:
     """
-    Filed-out negative carrier: the clear rebate prints between the film gate and the
-    filed aperture, with a margin of unexposed paper outside it.
-
-    rough ragges the aperture, corner rounds it, flare exposes the paper just outside it.
-    paper is the bare-paper color in scene-linear, so the margin meets the mat with no
-    seam. tone is the rebate tone table (rebate_tone); the filed edge's penumbra and the
-    flare are exposure, read through it.
-    Evaluated per pixel over the border frame, as finish.wgsl does.
+    Filed-out negative carrier: the rebate prints between the film gate and the filed
+    aperture, inside a margin of bare paper (scene-linear, matching the mat). The filed
+    edge's penumbra and the flare are exposure, read through tone (rebate_tone).
     """
     if width_px <= 0.0:
         return img
@@ -200,7 +183,7 @@ def apply_carrier(
     if 2 * band >= h or 2 * band >= w:
         regions = [(0, h, 0, w, (0, 1, 2, 3))]
     else:
-        # An edge's effect ends within `band`, so each region evaluates only the edges that reach it.
+        # An edge's effect ends within `band`.
         hb, wb = h - band, w - band
         regions = [
             (0, band, 0, band, (0, 2)),
@@ -248,7 +231,6 @@ def _carrier_block(
     sy = (py + 0.5) / np.float32(h)
     end_x = np.minimum(px, (w - 1.0) - px)
     end_y = np.minimum(py, (h - 1.0) - py)
-    # The filed edge in the aperture's own frame.
     qx = px - np.float32(width_px * CARRIER_OFFSET_X)
     qy = py - np.float32(width_px * CARRIER_OFFSET_Y)
     fend_x = np.minimum(qx, (w - 1.0) - qx)
@@ -259,15 +241,13 @@ def _carrier_block(
         return profiles[row, np.minimum((s * CARRIER_SAMPLES).astype(np.int32), CARRIER_SAMPLES - 1)]
 
     def arc(r: float, at: float, end: np.ndarray) -> np.ndarray | np.float32:
-        """Corner retreat of a boundary `at` px from the print edge. Measured from that
-        boundary's own corner, or most of the arc is spent outside it."""
+        """Corner retreat of a boundary `at` px from the print edge, from its own corner."""
         if r <= 0.0:
             return np.float32(0.0)
         x = np.clip(r - (end - at), 0.0, r)
         return r - np.sqrt(np.maximum(r * r - x * x, 0.0))
 
     def bounds(edge: int, s: np.ndarray, end: np.ndarray, fend: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """(filed, gate) boundary: the filed one px from the aperture frame's edge, the gate px from the print's."""
         outer = margin + width_px * rough * (CARRIER_OUTER_JITTER * prof(edge + 4, s) + CARRIER_NOISE_OUTER * n2)
         wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * prof(edge, s) + CARRIER_NOISE_INNER * n2
         inner = margin + width_px * (1.0 + wobble) + arc(gate_radius, margin + width_px, end)
@@ -294,13 +274,12 @@ def _carrier_block(
         gates.append(np.clip(1.0 + (fd - outer) / reach, 0.0, 1.0))
     lit = np.float32(0.0)
     if flare > 0.0:
-        # An edge's bevel spans only the aperture, so the other three edges gate its flare.
+        # The bevel spans only the aperture, so the other edges gate each edge's flare.
         for e in range(len(peaks)):
             lit = lit + peaks[e] * np.prod([gates[k] for k in range(len(gates)) if k != e] or [np.float32(1.0)], axis=0)
         lit = flare_amp * lit
 
     rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out + lit)
-    # The aperture passes the picture too: filed short of the gate, it prints bare paper.
     shown = (a_in * a_out)[..., None]
     return img * shown + rebate * (1.0 - shown)
 

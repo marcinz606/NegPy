@@ -158,8 +158,7 @@ class TestCarrier(unittest.TestCase):
 
         def edges(a: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             """Per-column row of the paper->black and black->picture boundaries along the top edge."""
-            # Clear of the left/right bands, but along most of the edge: a filed edge runs
-            # straight between marks, so a short stretch may hold none.
+            # Most of the edge: a filed edge runs straight between marks.
             cut = a[:80, 40:360, 0]
             paper = np.argmax(cut < 0.5, axis=0)
             gate = 80 - np.argmax((cut < 0.25)[::-1], axis=0)
@@ -188,7 +187,6 @@ class TestCarrier(unittest.TestCase):
         self.assertGreater(min(rho), 0.99)
 
     def test_filed_marks_crowd_the_corners(self) -> None:
-        """A file cannot reach squarely into a corner, so the marks gather at the edge ends."""
         m = np.abs(carrier_profiles()[4:])
         n = CARRIER_SAMPLES // 20
         ends = np.concatenate([m[:, :n], m[:, -n:]], axis=1).mean()
@@ -202,8 +200,6 @@ class TestCarrier(unittest.TestCase):
         )
 
     def test_flare_exposes_the_paper_outside_the_aperture(self) -> None:
-        """Bevel light adds exposure beside the filed edge: the paper darkens there, while
-        the rebate, already at full exposure, and the picture stay put."""
         img = self._image()
         # rough=0 keeps the filed edge straight, so a row index is either margin or band.
         plain = apply_carrier(img, width_px=8.0, rough=0.0)
@@ -212,7 +208,6 @@ class TestCarrier(unittest.TestCase):
         self.assertLess(float(lit[paper].min()), 0.98)
         np.testing.assert_array_equal(lit[plain.max(axis=-1) == 0.0], plain[plain.max(axis=-1) == 0.0])
         np.testing.assert_array_equal(lit[30:70, 30:120], plain[30:70, 30:120])
-        # Only near the aperture: the outermost paper row is untouched.
         np.testing.assert_array_equal(lit[0, 20:130], plain[0, 20:130])
 
     def test_flare_takes_the_tone_tables_hue(self) -> None:
@@ -239,17 +234,13 @@ class TestCarrier(unittest.TestCase):
         self.assertGreater(corner_paper(round_), corner_paper(square) * 1.05)
 
     def test_corner_slider_leaves_the_gate_corner(self) -> None:
-        """The picture's corner is the camera gate's, whatever the filed aperture does."""
         img = np.full((300, 400, 3), 0.5, dtype=np.float32)
         square = apply_carrier(img, width_px=16.0, rough=0.0, corner=0.0)
         round_ = apply_carrier(img, width_px=16.0, rough=0.0, corner=1.0)
-        # From just inside the filed edge's reach to past the gate corner and its penumbra.
         np.testing.assert_array_equal(round_[26:60, 26:60], square[26:60, 26:60])
         self.assertLess(float(square[26, 26].max()), 0.05)
 
     def test_film_sits_off_center_in_the_carrier(self) -> None:
-        """Top and left print wider rebates than bottom and right, and every side keeps one,
-        even at full roughness and round corners."""
         img = np.full((300, 400, 3), 0.5, dtype=np.float32)
 
         def rebates(a: np.ndarray) -> list[int]:

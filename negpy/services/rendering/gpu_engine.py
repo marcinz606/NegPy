@@ -1845,8 +1845,7 @@ class GPUEngine:
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
 
-        # The metrics this render publishes, so the tone-limited masks key the pixels the CPU
-        # kernel and the canvas tint pick, and the carrier's rebate prints on the same curves.
+        # The metrics this render publishes, shared by the tone-limited masks and the carrier.
         curve_metrics = {
             "final_bounds": LogNegativeBounds(adj_floors, adj_ceils),
             "norm_density_range": lum_range,

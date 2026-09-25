@@ -20,7 +20,7 @@ struct FinishUniforms {
 @group(0) @binding(2) var<uniform> params: FinishUniforms;
 // (8, CARRIER_SAMPLES) from carrier_profiles(): rows 0-3 gate wobble, rows 4-7 filed edge.
 @group(0) @binding(3) var<storage, read> carrier_prof: array<f32>;
-// (CARRIER_TONE_SAMPLES, 3) from rebate_tone(): print color over the exposure fraction.
+// (CARRIER_TONE_SAMPLES, 3) from rebate_tone().
 @group(0) @binding(4) var<storage, read> carrier_tone: array<f32>;
 
 // Every CARRIER_* below mirrors logic.py — keep in sync or preview drifts from export.
@@ -99,16 +99,14 @@ fn carrier_prof_at(row: i32, s: f32) -> f32 {
     return carrier_prof[row * CARRIER_SAMPLES + idx];
 }
 
-/// Corner retreat of a boundary `at` px from the print edge, `end` px from the edge's
-/// nearer end. Measured from that boundary's own corner, or most of the arc is spent outside it.
+/// Corner retreat of a boundary `at` px from the print edge, from its own corner.
 fn carrier_arc(r: f32, at: f32, end: f32) -> f32 {
     if (r <= 0.0) { return 0.0; }
     let x = clamp(r - (end - at), 0.0, r);
     return r - sqrt(max(r * r - x * x, 0.0));
 }
 
-/// x = filed boundary, px from the aperture frame's edge (`fend` in that frame);
-/// y = film-gate boundary, px from the print edge.
+/// x = filed boundary (aperture frame), y = gate boundary (print frame).
 fn carrier_bounds(edge: i32, s: f32, end: f32, fend: f32, n2: f32) -> vec2<f32> {
     let w = params.carrier_width_px;
     let margin = w * CARRIER_MARGIN;
@@ -119,7 +117,7 @@ fn carrier_bounds(edge: i32, s: f32, end: f32, fend: f32, n2: f32) -> vec2<f32> 
     return vec2<f32>(outer, inner);
 }
 
-/// x = flare peak about the filed edge, y = gate on the other edges' flares.
+/// x = flare peak, y = gate on the other edges' flares.
 fn carrier_flare(d: f32, outer: f32) -> vec2<f32> {
     let reach = max(1.0, params.carrier_width_px * CARRIER_FLARE_DEPTH);
     let t = clamp(1.0 - abs(d - outer) / reach, 0.0, 1.0);
@@ -165,7 +163,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let d_r = full.x - 1.0 - px.x;
         let end_x = min(px.x, full.x - 1.0 - px.x);
         let end_y = min(px.y, full.y - 1.0 - px.y);
-        // The filed edge in the aperture's own frame.
         let q = px - params.carrier_width_px * vec2<f32>(CARRIER_OFFSET_X, CARRIER_OFFSET_Y);
         let f_dt = q.y;
         let f_db = full.y - 1.0 - q.y;
@@ -196,14 +193,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             let f_b = carrier_flare(f_db, b_b.x);
             let f_l = carrier_flare(f_dl, b_l.x);
             let f_r = carrier_flare(f_dr, b_r.x);
-            // An edge's bevel spans only the aperture, so the other three edges gate its flare.
+            // The bevel spans only the aperture, so the other edges gate each edge's flare.
             lit = amp * (f_t.x * f_b.y * f_l.y * f_r.y + f_b.x * f_t.y * f_l.y * f_r.y
                 + f_l.x * f_t.y * f_b.y * f_r.y + f_r.x * f_t.y * f_b.y * f_l.y);
         }
         let a_out = out_t * out_b * out_l * out_r;
         let paper = vec3<f32>(params.paper_r, params.paper_g, params.paper_b);
         let rebate = paper * carrier_tone_at(a_out + lit);
-        // The aperture passes the picture too: filed short of the gate, it prints bare paper.
         let shown = in_t * in_b * in_l * in_r * a_out;
         color = color * shown + rebate * (1.0 - shown);
     }

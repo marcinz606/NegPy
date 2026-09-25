@@ -61,12 +61,11 @@ class TestFinishProcessor(unittest.TestCase):
 
 @lru_cache(maxsize=None)
 def _metrics(mode: ProcessMode) -> dict:
-    """Metrics a real CPU render publishes, off a smooth synthetic negative."""
     from negpy.services.rendering.engine import DarkroomEngine
 
     grad = np.linspace(0.08, 0.7, 96, dtype=np.float32)
     img = np.repeat(grad[None, :], 64, axis=0)
-    # Layers of different contrast, as on a real negative, so the per-channel ranges differ.
+    # Layers of different contrast, so the per-channel ranges differ.
     img = np.ascontiguousarray(np.stack([img, 0.8 * img**1.25, 0.6 * img**1.5], axis=-1))
     settings = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=mode))
     ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=mode)
@@ -84,7 +83,6 @@ class TestRebateTone(unittest.TestCase):
         self.assertEqual(tone.shape, (CARRIER_TONE_SAMPLES, 3))
         np.testing.assert_array_equal(tone[0], [1.0, 1.0, 1.0])
         self.assertLess(float(tone[-1].max()), 0.01)
-        # Monotone in exposure: more light through the aperture, more dye.
         self.assertTrue(np.all(np.diff(tone.mean(axis=1)) <= 1e-6))
 
     def test_color_print_puts_a_hue_in_the_toe(self) -> None:
@@ -97,7 +95,6 @@ class TestRebateTone(unittest.TestCase):
         np.testing.assert_allclose(tone[:, 0], tone[:, 2], atol=1e-6)
 
     def test_paper_black_lifts_the_rebate(self) -> None:
-        """The rebate is the negative's clearest area: it cannot print past paper D-max."""
         m = _metrics(ProcessMode.C41)
         bpc = rebate_tone(self._settings(paper_black=False), m)
         dmax = rebate_tone(self._settings(paper_black=True), m)
@@ -117,7 +114,6 @@ class TestRebateTone(unittest.TestCase):
         paper = (0.9, 0.85, 0.8)
         res = apply_carrier(img, width_px=16.0, rough=0.0, paper=paper, tone=tone)
         np.testing.assert_allclose(res[0, 200], paper, atol=1e-6)
-        # Mid-rebate, clear of both penumbras.
         np.testing.assert_allclose(res[int(16 * 0.7 + 8), 200], np.asarray(paper) * tone[-1], atol=1e-6)
 
 

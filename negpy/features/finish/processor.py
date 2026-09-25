@@ -17,8 +17,7 @@ from negpy.features.toning.processor import ToningProcessor
 if TYPE_CHECKING:
     from negpy.domain.models import WorkspaceConfig
 
-# log10 transmittance by which the film base is clearer than the frame's deepest shadow
-# (the normalization's thin-end bound), so the rebate prints at the paper's black.
+# log10 by which the film base is clearer than the normalization's thin bound.
 REBATE_BASE_MARGIN = 0.15
 
 
@@ -29,12 +28,9 @@ def carrier_width_px(carrier_width_mm: float, print_size_cm: float, long_edge_px
 
 def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
     """
-    (CARRIER_TONE_SAMPLES, 3) print color, relative to bare paper, of the light that reaches
-    the paper through the rebate at each exposure fraction of carrier_tone_exposures(). A
-    neutral density step off the film base, printed by this frame's own curves, saturation
-    and toning; the paper layers' different contrasts and the filtration give it its hue.
-    Only a negative print has a clear base behind its picture; anything else prints the
-    rebate as plain light.
+    (CARRIER_TONE_SAMPLES, 3) paper-relative print color of a neutral density ramp off the
+    film base, through this frame's curves, saturation and toning. Plain light where there
+    is no negative print model.
     """
     mode = settings.process.process_mode
     bounds = metrics.get("final_bounds")
@@ -49,7 +45,6 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
     floors = np.asarray(bounds.floors, dtype=np.float32)
     ceils = np.asarray(bounds.ceils, dtype=np.float32)
     t = np.maximum(carrier_tone_exposures(), np.float32(1e-6))
-    # Normalized-log, where 1 is the thin (print-black) bound.
     strip = 1.0 + (REBATE_BASE_MARGIN + np.log10(t)[:, None]) / np.maximum(ceils - floors, 1e-6)[None, :]
     ctx = PipelineContext(original_size=(1, len(t)), scale_factor=1.0, process_mode=mode, metrics=dict(metrics))
     exposure = replace(settings.exposure, contrast_mask=0.0)
