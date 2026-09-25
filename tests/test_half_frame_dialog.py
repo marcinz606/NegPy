@@ -115,10 +115,12 @@ class TestPreviewPolarity:
         img = d._label._pixmap.toImage().convertToFormat(d._label._pixmap.toImage().Format.Format_RGB888)
         ptr = img.constBits()
         ptr.setsize(img.sizeInBytes())
+        # np.frombuffer views Qt-owned memory that img releases when this returns.
         return (
             np.frombuffer(ptr, np.uint8)
             .reshape(img.height(), img.bytesPerLine())[:, : img.width() * 3]
             .reshape(img.height(), img.width(), 3)
+            .copy()
         )
 
     def test_a_slide_is_shown_as_is(self):
