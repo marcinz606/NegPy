@@ -189,21 +189,26 @@ def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highligh
     return max(values) / min(values)
 
 
-def narrowband_profile_active(process: ProcessConfig) -> bool:
-    """Whether the bundled RGBScan input profile applies.
+def narrowband_allowed(process: ProcessConfig) -> bool:
+    """Whether narrowband capture applies to this film at all. Never to a transparency.
 
-    Never to a transparency. The profile characterises narrowband capture of *negative*
-    dyes; E-6 is a different dye set, so on a slide it is a fixed 3x3 derived from the
-    wrong film — an approximate correction for dyes that are not there, which is worse
-    than none. Narrowband's real payoffs (defeating the orange mask, clean separation
-    ahead of a high-gain inversion) belong to negatives, and a slide has neither.
+    The bundled profile characterises narrowband capture of *negative* dyes; E-6 is a
+    different dye set, so on a slide it is a fixed 3x3 derived from the wrong film — an
+    approximate correction for dyes that are not there, which is worse than none.
+    Narrowband's real payoffs (defeating the orange mask, clean separation ahead of a
+    high-gain inversion) belong to negatives, and a slide has neither.
 
-    Single source of truth for the rule: the sidebar greys the toggle on it and
-    `effective_input_icc` suppresses the profile on it, so the two cannot drift. An
-    explicit Input ICC is a deliberate choice about the user's own source and still wins
-    — that decision is not made here.
+    Single source of truth for the rule: the sensor panel greys Narrowband and the scan
+    setup on it, `narrowband_profile_active` and `unmix_block_reason` refuse on it.
     """
-    return process.narrowband_scan and process.process_mode != ProcessMode.E6
+    return process.process_mode != ProcessMode.E6
+
+
+def narrowband_profile_active(process: ProcessConfig) -> bool:
+    """Whether the bundled RGBScan input profile applies (`effective_input_icc` reads it).
+    An explicit Input ICC is a deliberate choice about the user's own source and still
+    wins — that decision is not made here."""
+    return process.narrowband_scan and narrowband_allowed(process)
 
 
 # Tuned against real sample scans; see tests/test_process_detect.py.

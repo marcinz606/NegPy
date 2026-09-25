@@ -457,9 +457,8 @@ class ToneSidebar(BaseSidebar):
             # Auto Density and Auto Grade meter the frame to pick a look, which a raw
             # un-normalized slide exists to avoid for a deliberate exposure. A Positive
             # frame has no such bracket to protect, so they run (transfer_auto_terms).
-            auto_hidden = transfer and not proc.positive_source
             for w in (self.auto_density_btn, self.auto_grade_btn):
-                w.setVisible(not auto_hidden)
+                w.setVisible(render_path(proc, conf.render_intent) is not RenderPath.TRANSFER)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
             is_bw = mode == ProcessMode.BW
             if is_bw and self._channel_index() != 0:
