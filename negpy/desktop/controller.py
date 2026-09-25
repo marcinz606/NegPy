@@ -119,7 +119,6 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.exposure.models import ExposureConfig
 from negpy.features.exposure.transfer import is_transfer_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
@@ -140,6 +139,7 @@ from negpy.features.process.models import (
     auto_meter_for_positive_source,
     cast_removal_for_mode,
     invalidate_local_bounds,
+    mode_aware_exposure_reset,
     scan_setup_values,
 )
 from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, FRAME_CARD_FIELDS, frame_card_rows, section_of_field, selected_flat_dict
@@ -155,7 +155,7 @@ from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
-from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 from negpy.services.rendering.preview_manager import PreviewManager
@@ -282,18 +282,12 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     while keeping process (mode + normalization bounds), geometry/crop, export and metadata,
     so it shows the un-graded auto conversion of the same framed image.
 
-    Cast Removal's default is mode-dependent (cast_removal_for_mode), not the bare
-    ExposureConfig default, or a transparency's 'before' would gray-balance a color the
-    live render never applies.
+    The exposure reset is the one a fresh file gets (mode_aware_exposure_reset over the
+    shipped defaults), or a transparency's 'before' would not be its as-captured render.
     """
-    baseline_exposure = ExposureConfig()
-    baseline_exposure = replace(
-        baseline_exposure,
-        cast_removal_strength=cast_removal_for_mode(config.process.process_mode, baseline_exposure.cast_removal_strength),
-    )
     return replace(
         config,
-        exposure=baseline_exposure,
+        exposure=mode_aware_exposure_reset(config.process.process_mode, DEFAULT_WORKSPACE_CONFIG.exposure),
         lab=LabConfig(),
         local=LocalAdjustmentsConfig(),
         toning=ToningConfig(),
