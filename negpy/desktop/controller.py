@@ -119,7 +119,6 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.exposure.transfer import is_transfer_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
@@ -133,6 +132,7 @@ from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.process.models import (
     ProcessConfig,
     ProcessMode,
@@ -2873,8 +2873,7 @@ class AppController(QObject):
 
     def _on_transfer_path(self) -> bool:
         """Placement inverts the print curve, which the transfer path never renders with."""
-        proc, exp = self.state.config.process, self.state.config.exposure
-        return is_transfer_path(proc.process_mode, proc.e6_normalize, proc.positive_source, exp.render_intent)
+        return render_path(self.state.config.process, self.state.config.exposure.render_intent) is not RenderPath.PRINT
 
     def _solve_zone_placement(self) -> Optional[Any]:
         from negpy.features.exposure.placement import solve_placement

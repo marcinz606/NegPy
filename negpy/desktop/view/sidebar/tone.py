@@ -435,10 +435,10 @@ class ToneSidebar(BaseSidebar):
             # On the transfer path (an as-captured Slide, or any Positive frame) the render
             # starts from the capture, so the paper model has nothing to act on. Density,
             # Grade, Toe and Shoulder drive the transfer curve instead (exposure/transfer.py).
-            from negpy.features.exposure.transfer import is_transfer_path
+            from negpy.features.process.path import RenderPath, render_path
 
             proc = self.state.config.process
-            transfer = is_transfer_path(mode, proc.e6_normalize, proc.positive_source, conf.render_intent)
+            transfer = render_path(proc, conf.render_intent) is not RenderPath.PRINT
             # Shadows and Highlights Density stay live on the transfer path: the curve implements
             # Zone Density with the print's own weights, and they are the only controls there that
             # open shadows without moving the whole scale. Split Grade does not, because it rotates

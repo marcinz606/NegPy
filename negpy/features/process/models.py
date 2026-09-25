@@ -104,7 +104,7 @@ class ProcessConfig:
     # scanner's own positive) rather than a raw capture. Slide only, held in __post_init__.
     # It decodes on its embedded profile, sRGB when untagged, instead of as literal linear
     # data, and skips metering, negative inversion, the baseline lift and the filmic curve.
-    # See effective_linear_raw and is_transfer_path.
+    # See effective_linear_raw and path.render_path.
     positive_source: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO

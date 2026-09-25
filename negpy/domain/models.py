@@ -399,7 +399,7 @@ class WorkspaceConfig:
         unclipped exposure.
 
         Held here rather than at the render, because both fields are read from
-        `is_transfer_path`/the decode down through both engines and the sidebars,
+        `render_path`/the decode down through both engines and the sidebars,
         and a rule applied at some of those is the hidden-but-live trap the Calibration
         panel already learned. Inert everywhere, from one place.
 

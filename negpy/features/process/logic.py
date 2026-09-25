@@ -36,12 +36,9 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     absorb the difference: that bracket's shortest link solved to 0.75 EV instead of 1.00,
     which prints as contour rings around a blown highlight.
     """
-    from negpy.features.exposure.transfer import is_transfer_path
+    from negpy.features.process.path import RenderPath, render_path
 
-    if process.linear_raw:
-        return True
-    transfer = is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
-    return transfer and not process.positive_source
+    return process.linear_raw or render_path(process, render_intent) is RenderPath.TRANSFER
 
 
 def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
@@ -139,7 +136,7 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
     clips.
 
     Only overrides the *default* reason for a neutral decode: being on the transfer path
-    itself (`is_transfer_path`). An explicit Linear RAW request stays neutral
+    itself (`render_path`). An explicit Linear RAW request stays neutral
     regardless — that toggle is the user asking for it directly, and reconstruction must
     not reach around it. `positive_source` has no camera matrix to fold in the first
     place, so there is nothing to bake either. False whenever
@@ -154,9 +151,9 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
         return False
     if not effective_highlight_reconstruction(process):
         return False
-    from negpy.features.exposure.transfer import is_transfer_path
+    from negpy.features.process.path import RenderPath, render_path
 
-    return is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
+    return render_path(process, render_intent) is not RenderPath.PRINT
 
 
 def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:

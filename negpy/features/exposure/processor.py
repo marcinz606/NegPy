@@ -47,7 +47,6 @@ from negpy.features.exposure.normalization import (
 from negpy.features.exposure.transfer import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
-    is_transfer_path,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -59,6 +58,7 @@ from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets, pooled_neutral_axis
+from negpy.features.process.path import RenderPath, render_path
 from negpy.kernel.image.logic import get_luminance
 
 
@@ -77,7 +77,7 @@ class NormalizationProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        if is_transfer_path(context.process_mode, self.config.e6_normalize, self.config.positive_source, self.render_intent):
+        if render_path(self.config, self.render_intent) is not RenderPath.PRINT:
             return self._process_transparency(image, context)
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
         # above 1.0 occur only with flat-field gain and must match the GPU.
@@ -248,7 +248,7 @@ class NormalizationProcessor:
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
         # path below: a user-driven nudge, not a meter, so it does not reopen what the fixed
-        # window exists to prevent (see is_transfer_path's docstring).
+        # window exists to prevent (see render_path).
         wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
         if any(v != 0.0 for v in wp3 + bp3):
             floors = (floors[0] + wp3[0], floors[1] + wp3[1], floors[2] + wp3[2])
@@ -276,7 +276,7 @@ class NormalizationProcessor:
             context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
         # Auto Density and Auto Grade meter against the same fixed pre-trim window. A raw
-        # un-normalized slide never reaches here: is_transfer_path preserves its bracket
+        # un-normalized slide never reaches here: render_path keeps its bracket
         # only while these stay unmeasured.
         if self.config.positive_source:
             assert prefiltered is not None
@@ -337,9 +337,7 @@ class PhotometricProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         if self.config.render_intent == RenderIntent.FLAT:
             return self._process_flat(image, context)
-        if is_transfer_path(
-            context.process_mode, self.process_config.e6_normalize, self.process_config.positive_source, self.config.render_intent
-        ):
+        if render_path(self.process_config, self.config.render_intent) is not RenderPath.PRINT:
             return self._process_transparency(image, context)
 
         paper = effective_paper_profile(self.config.paper_profile, context.process_mode)
@@ -511,7 +509,7 @@ class PhotometricProcessor:
 
         A raw un-normalized slide never reaches here with metered inputs: reading the
         frame to decide a look is the opposite of starting from the capture, which is
-        why is_transfer_path exists, and transfer_auto_terms is inert on a None input.
+        why render_path separates TRANSFER from POSITIVE, and transfer_auto_terms is inert on a None input.
         A Positive frame carries no such bracket to protect, so it runs exactly as it
         does on a negative. Cast Removal runs either way, starting at 0 on a slide: what
         it corrects here is a faded original's crossover, and a deliberate colour cast

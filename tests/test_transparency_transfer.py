@@ -26,7 +26,6 @@ from negpy.features.exposure.transfer import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
     display_rendering,
-    is_transfer_path,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -37,6 +36,7 @@ from negpy.features.exposure.transfer import (
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_positive_source, cast_removal_for_mode
+from negpy.features.process.path import RenderPath, render_path
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 # A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
@@ -92,10 +92,13 @@ def _ramp(lo=1e-4, hi=0.6, n=512):
 
 class TestModeSelection(unittest.TestCase):
     def test_e6_with_normalize_off_takes_the_transfer_path(self):
-        self.assertTrue(is_transfer_path(ProcessMode.E6, False))
-        self.assertFalse(is_transfer_path(ProcessMode.E6, True))
-        self.assertFalse(is_transfer_path(ProcessMode.C41, False))
-        self.assertFalse(is_transfer_path(ProcessMode.BW, False))
+        def path(mode, normalize):
+            return render_path(ProcessConfig(process_mode=mode, e6_normalize=normalize))
+
+        self.assertIs(path(ProcessMode.E6, False), RenderPath.TRANSFER)
+        self.assertIs(path(ProcessMode.E6, True), RenderPath.PRINT)
+        self.assertIs(path(ProcessMode.C41, False), RenderPath.PRINT)
+        self.assertIs(path(ProcessMode.BW, False), RenderPath.PRINT)
 
     def test_positive_source_is_slide_only(self):
         """A file already positivized before NegPy saw it has nothing left to meter or
@@ -105,13 +108,14 @@ class TestModeSelection(unittest.TestCase):
             self.assertFalse(ProcessConfig(process_mode=mode, positive_source=True).positive_source)
         self.assertTrue(ProcessConfig(process_mode=ProcessMode.E6, positive_source=True).positive_source)
         # On Slide, Normalize on still wins: a metered rescue stretch, not a raw passthrough.
-        self.assertFalse(is_transfer_path(ProcessMode.E6, True, positive_source=True))
+        self.assertIs(render_path(ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True, positive_source=True)), RenderPath.PRINT)
+        self.assertIs(render_path(ProcessConfig(process_mode=ProcessMode.E6, positive_source=True)), RenderPath.POSITIVE)
 
     def test_flat_intent_still_wins(self):
         """FLAT is an explicit export master; it must not be hijacked by the transfer."""
         from negpy.features.exposure.models import RenderIntent
 
-        self.assertFalse(is_transfer_path(ProcessMode.E6, False, render_intent=RenderIntent.FLAT))
+        self.assertIs(render_path(ProcessConfig(process_mode=ProcessMode.E6), RenderIntent.FLAT), RenderPath.PRINT)
 
     def test_flat_render_of_a_raw_slide_does_not_fold_camera_wb(self):
         """A FLAT decode applies camera WB (effective_linear_raw is False), so the base stage
@@ -627,7 +631,7 @@ class TestAutomaticGradingIsOff(unittest.TestCase):
 
     def test_auto_density_and_auto_grade_do_not_change_the_render(self):
         """They meter the frame to pick a look, which is what this path exists to avoid
-        for a deliberate camera exposure -- see is_transfer_path's bracket guarantee."""
+        for a deliberate camera exposure -- see render_path's bracket guarantee."""
         rng = np.random.default_rng(13)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
         on, _ = _run_stages(img, _e6_config(auto_exposure=True, auto_normalize_contrast=True))
@@ -813,7 +817,7 @@ class TestNormalizationContract(unittest.TestCase):
         the C-41 default process_mode that keeps a bare ProcessConfig on the print path."""
         conf = ProcessConfig()
         self.assertEqual(conf.process_mode, ProcessMode.C41)
-        self.assertFalse(is_transfer_path(conf.process_mode, conf.e6_normalize))
+        self.assertIs(render_path(conf), RenderPath.PRINT)
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
@@ -1159,7 +1163,7 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
 
 
 def test_normalization_shader_reads_the_transfer_decision_it_is_given():
-    """The WGSL must not re-derive is_transfer_path: it had no positive_source term,
+    """The WGSL must not re-derive render_path: it had no positive_source term,
     so a Positive frame took the print branch on the GPU and the transfer branch on
     the CPU."""
     from pathlib import Path

@@ -59,7 +59,6 @@ from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
-    is_transfer_path,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -71,6 +70,7 @@ from negpy.features.exposure.transfer import (
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
+from negpy.features.process.path import RenderPath, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -708,11 +708,11 @@ class GPUEngine:
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
-        transfer = is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source)
-        # A raw un-normalized slide never meters -- these four stay unmeasured for it,
-        # the same guarantee is_transfer_path exists to give a bracket. A Positive frame
-        # carries no such bracket, so it meters exactly like a negative.
-        transfer_meters_ok = not transfer or settings.process.positive_source
+        path = render_path(settings.process)
+        transfer = path is not RenderPath.PRINT
+        # A raw un-normalized slide never meters -- these four stay unmeasured for it, to
+        # keep a bracket a bracket. A Positive frame carries no bracket, so it meters.
+        transfer_meters_ok = path is not RenderPath.TRANSFER
         # Measure the anchor for the render when Auto Density is on, and for the
         # Analysis-panel stats on every preview whatever the toggle says. The render only
         # *uses* it when auto_exposure is on (see uniforms).
@@ -1157,7 +1157,7 @@ class GPUEngine:
                         tex_local_key.upload(planes)
                     # A tiled export passes a per-tile slice, which is not reusable.
                     self._local_ev_key = None if tiled_maps else ev_key
-            if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
+            if render_path(settings.process) is not RenderPath.PRINT:
                 # The transfer curve takes no dodge/burn map: local EV is a print-exposure
                 # input, and this path replaces the print.
                 self._dispatch_pass(
@@ -1583,7 +1583,7 @@ class GPUEngine:
         # Transparency transfer uses the fixed window, deviated by White/Black Point as the
         # measured path above is. That nudge is user-driven rather than metered, so it keeps
         # identity at wp3=bp3=0. Mirrors NormalizationProcessor._process_transparency.
-        if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
+        if render_path(settings.process) is not RenderPath.PRINT:
             t_floors, t_ceils = transfer_bounds()
             adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
             adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
@@ -1611,11 +1611,7 @@ class GPUEngine:
             + struct.pack(
                 "IIff",
                 mode_val,
-                (
-                    1
-                    if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source)
-                    else 0
-                ),
+                0 if render_path(settings.process) is RenderPath.PRINT else 1,
                 0.0,
                 0.0,
             )
@@ -2573,8 +2569,9 @@ class GPUEngine:
 
         # The meters follow process_to_texture's: the transfer curve reads working space
         # against the fixed window, and a raw slide never meters Auto Density/Auto Grade.
-        transfer = is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source)
-        transfer_meters_ok = not transfer or settings.process.positive_source
+        path = render_path(settings.process)
+        transfer = path is not RenderPath.PRINT
+        transfer_meters_ok = path is not RenderPath.TRANSFER
         transfer_grid: Optional[np.ndarray] = None
 
         def _meter_grid() -> np.ndarray:

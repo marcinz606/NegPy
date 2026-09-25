@@ -376,13 +376,11 @@ class SensorSidebar(BaseSidebar):
             # there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
             # scene for a WB gain to describe in the first place — every exposure decodes neutral
             # regardless.
-            from negpy.features.exposure.transfer import is_transfer_path
+            from negpy.features.process.path import RenderPath, render_path
             from negpy.features.rgbscan.models import is_rgb_triplet
 
             e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transfer_path(
-                conf.process_mode, conf.e6_normalize, conf.positive_source, self.state.config.exposure.render_intent
-            )
+            transfer = render_path(conf, self.state.config.exposure.render_intent) is not RenderPath.PRINT
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
             self.linear_raw_btn.setEnabled((not transfer or conf.positive_source) and not triplet)
