@@ -158,7 +158,9 @@ class TestCarrier(unittest.TestCase):
 
         def edges(a: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             """Per-column row of the paper->black and black->picture boundaries along the top edge."""
-            cut = a[:80, 120:280, 0]
+            # Clear of the left/right bands, but along most of the edge: a filed edge runs
+            # straight between marks, so a short stretch may hold none.
+            cut = a[:80, 40:360, 0]
             paper = np.argmax(cut < 0.5, axis=0)
             gate = 80 - np.argmax((cut < 0.25)[::-1], axis=0)
             return paper, gate
@@ -184,6 +186,13 @@ class TestCarrier(unittest.TestCase):
         # Marks at file scale, not per-sample teeth: neighbouring samples stay correlated.
         rho = [float(np.corrcoef(r[:-1], r[1:])[0, 1]) for r in p[4:]]
         self.assertGreater(min(rho), 0.99)
+
+    def test_filed_marks_crowd_the_corners(self) -> None:
+        """A file cannot reach squarely into a corner, so the marks gather at the edge ends."""
+        m = np.abs(carrier_profiles()[4:])
+        n = CARRIER_SAMPLES // 20
+        ends = np.concatenate([m[:, :n], m[:, -n:]], axis=1).mean()
+        self.assertGreater(float(ends), 1.5 * float(m[:, 4 * n : -4 * n].mean()))
 
     def test_flare_off_by_default(self) -> None:
         img = self._image()

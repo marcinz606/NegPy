@@ -10,7 +10,7 @@ _CARRIER_SEED = 1898
 CARRIER_SAMPLES = 2048
 CARRIER_JITTER = 0.24
 CARRIER_INNER_ROUGH = 0.2
-CARRIER_OUTER_JITTER = 0.225
+CARRIER_OUTER_JITTER = 0.4
 CARRIER_CORNER = 1.4
 CARRIER_MARGIN = 0.7
 # The gate prints soft; filed metal is a hard stop, which is what reads as filed.
@@ -25,10 +25,10 @@ CARRIER_FLARE_BASE = 0.35
 # displacing the distance field is what makes the edge read as torn metal. Hash noise
 # rather than a library, because WGSL has to reproduce it bit for bit.
 CARRIER_NOISE_SEED = 0x51ED270B
-CARRIER_NOISE_CELL = 1.5
+CARRIER_NOISE_CELL = 0.35
 CARRIER_NOISE_OCTAVES = 4
-CARRIER_NOISE_OUTER = 0.275
-CARRIER_NOISE_INNER = 0.07
+CARRIER_NOISE_OUTER = 0.12
+CARRIER_NOISE_INNER = 0.02
 # Rebate tone table: print color over the exposure fraction t that reaches the paper,
 # sampled at t = u**POWER so the toe, where the fringe hue lives, gets most entries.
 CARRIER_TONE_SAMPLES = 64
@@ -50,6 +50,31 @@ def _norm(rows: np.ndarray) -> np.ndarray:
     return rows / np.max(np.abs(rows), axis=1, keepdims=True)
 
 
+def _filed_edge(rng: np.random.Generator) -> np.ndarray:
+    """
+    One hand-filed edge: straight file strokes meeting at small angles, sparse nicks and
+    spurs where the file slipped or stopped short, most of them near the corners, where
+    a file cannot reach squarely. Nicks open the aperture (black bulges into the paper)
+    more often than spurs close it.
+    """
+    i = np.arange(CARRIER_SAMPLES, dtype=np.float32)
+    knots = np.concatenate([[0.0], np.cumsum(rng.uniform(80.0, 320.0, 24))])
+    knots = knots[knots < CARRIER_SAMPLES]
+    strokes = np.interp(i, np.append(knots, CARRIER_SAMPLES), rng.normal(0.0, 0.25, len(knots) + 1))
+    ends = np.minimum(i, CARRIER_SAMPLES - 1.0 - i) / CARRIER_SAMPLES
+    corner = 1.0 + 2.0 * np.exp(-ends / 0.05)
+    marks = np.zeros(CARRIER_SAMPLES, dtype=np.float32)
+    for _ in range(14):
+        # Drawn toward the ends as often as along the run.
+        at = rng.uniform(0.0, 0.12) if rng.random() < 0.5 else rng.uniform(0.0, 0.5)
+        centre = (at if rng.random() < 0.5 else 1.0 - at) * CARRIER_SAMPLES
+        half = rng.uniform(10.0, 26.0)
+        depth = rng.uniform(0.4, 1.0) * (-1.0 if rng.random() < 0.7 else 0.6)
+        x = np.clip(np.abs(i - centre) / half, 0.0, 1.0)
+        marks += depth * 0.5 * (1.0 + np.cos(np.pi * x))
+    return ((strokes + marks) * corner).astype(np.float32)
+
+
 def carrier_profiles() -> np.ndarray:
     """
     (8, CARRIER_SAMPLES) float32 profiles in [-1, 1]: rows 0-3 per-edge film-gate
@@ -62,9 +87,7 @@ def carrier_profiles() -> np.ndarray:
         rng = np.random.default_rng(_CARRIER_SEED)
         raw = rng.standard_normal((8, CARRIER_SAMPLES)).astype(np.float32)
         gate = _blur(raw[:4], 60.0)
-        bite = _norm(_blur(raw[4:], 6.0))
-        # Grit + sparse gouges (squared) + uneven overall cut.
-        filed = 0.3 * bite + 0.4 * np.sign(bite) * bite**2 + 0.3 * _norm(_blur(raw[4:], 100.0))
+        filed = np.stack([_filed_edge(rng) for _ in range(4)])
         _carrier_cache = np.ascontiguousarray(_norm(np.concatenate([gate, filed])), dtype=np.float32)
     return _carrier_cache
 
