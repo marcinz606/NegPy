@@ -1,5 +1,5 @@
 """The slide renders: a Slide as captured and a Positive frame. The engine routes here by
-process.path.render_path; a Slide with Normalize on renders through the negative's print."""
+process.path.render_path."""
 
 import numpy as np
 
@@ -25,7 +25,7 @@ from negpy.features.exposure.normalization import (
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
-from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
+from negpy.features.process.models import ProcessConfig
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
@@ -33,6 +33,7 @@ from negpy.features.transparency.logic import (
     transfer_auto_terms,
     transfer_bounds,
     transfer_curve_params,
+    transfer_point_offsets,
     transfer_widths,
 )
 
@@ -42,8 +43,8 @@ class TransparencyBaseProcessor:
 
     def __init__(self, config: ProcessConfig, cast_strength: float = 0.0):
         self.config = config
-        # Nothing else is metered on a raw slide, so the neutral axis is measured only when
-        # Cast Removal can use it. `base_key` in engine.py carries the gate.
+        # The neutral axis is measured only when Cast Removal can use it. `base_key` in
+        # engine.py carries the gate.
         self.cast_strength = cast_strength
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -53,9 +54,9 @@ class TransparencyBaseProcessor:
         No meter shapes the window itself. Measured bounds are exactly what makes two
         exposures of one slide render alike, and a raw slide was exposed deliberately
         — so the window is anchored to the decoder's white level, identical for every
-        frame, and a brighter capture stays brighter. A Positive frame carries no such
-        bracket to protect, so it is metered for Auto Density/Auto Grade exactly like a
-        negative is (TransferProcessor reads the metrics stored below).
+        frame, and a brighter capture stays brighter. The meters Auto Density/Auto Grade
+        read are stored below; they move the render only when those toggles are on, and a
+        slide starts with both off (auto_meter_for_mode).
         """
         epsilon = 1e-6
         # Linear RAW decodes without white balance, which the row-normalized camera matrix
@@ -78,43 +79,35 @@ class TransparencyBaseProcessor:
         # White/Black Point manually deviate the fixed window, same technique as the measured
         # path below: a user-driven nudge, not a meter, so it does not reopen what the fixed
         # window exists to prevent (see render_path).
-        wp3, bp3 = per_channel_point_offsets(self.config, True)
+        wp3, bp3 = transfer_point_offsets(self.config)
         if any(v != 0.0 for v in wp3 + bp3):
             floors = (floors[0] + wp3[0], floors[1] + wp3[1], floors[2] + wp3[2])
             ceils = (ceils[0] + bp3[0], ceils[1] + bp3[1], ceils[2] + bp3[2])
         bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         res = normalize_log_image(img_log, bounds)
 
-        # Shared prefilter for the neutral axis and, on a Positive frame, Auto Density/
-        # Grade's four meters -- working-space (post camera matrix) and post-unmix, since
-        # that is what this curve itself consumes.
-        needs_axis = self.cast_strength > 0.0
-        prefiltered = None
-        if needs_axis or self.config.positive_source:
-            an_roi, an_buffer = resolve_analysis_region(
-                linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
-            )
-            prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
+        # Shared prefilter for the neutral axis and Auto Density/Grade's four meters --
+        # working-space (post camera matrix) and post-unmix, since that is what this curve
+        # itself consumes.
+        an_roi, an_buffer = resolve_analysis_region(
+            linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
+        )
+        prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different
         # space than the GPU's. Pre-trim bounds, so a White/Black Point nudge cannot
         # perturb it.
-        if needs_axis:
-            assert prefiltered is not None
+        if self.cast_strength > 0.0:
             context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
-        # Auto Density and Auto Grade meter against the same fixed pre-trim window. A raw
-        # un-normalized slide never reaches here: render_path keeps its bracket
-        # only while these stay unmeasured.
-        if self.config.positive_source:
-            assert prefiltered is not None
-            context.metrics["metered_anchor"] = measure_anchor_from_log(
-                prefiltered, pre_trim_bounds, None, 0.0, assumed=transfer_assumed_anchor()
-            )
-            context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
-            context.metrics["shadow_point"] = measure_shadow_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
-            context.metrics["highlight_point"] = measure_highlight_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
+        # Auto Density and Auto Grade meter against the same fixed pre-trim window.
+        context.metrics["metered_anchor"] = measure_anchor_from_log(
+            prefiltered, pre_trim_bounds, None, 0.0, assumed=transfer_assumed_anchor()
+        )
+        context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
+        context.metrics["shadow_point"] = measure_shadow_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
+        context.metrics["highlight_point"] = measure_highlight_point_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
         context.metrics["log_bounds"] = bounds
         context.metrics["log_bounds_base"] = bounds
@@ -139,13 +132,10 @@ class TransferProcessor:
         deviated only by what the user has actually moved -- plus Auto Density/Auto
         Grade, restated on this curve (transfer_auto_terms).
 
-        A raw un-normalized slide never reaches here with metered inputs: reading the
-        frame to decide a look is the opposite of starting from the capture, which is
-        why render_path separates TRANSFER from POSITIVE, and transfer_auto_terms is inert on a None input.
-        A Positive frame carries no such bracket to protect, so it runs exactly as it
-        does on a negative. Cast Removal runs either way, starting at 0 on a slide: what
-        it corrects here is a faded original's crossover, and a deliberate colour cast
-        is the photograph.
+        The autos follow their toggles, which a slide starts with off: reading the frame to
+        decide a look is the opposite of starting from the capture. Cast Removal starts at 0
+        on a slide too: what it corrects here is a faded original's crossover, and a
+        deliberate colour cast is the photograph.
         """
         exposure_offset, contrast, toe3, sh3 = transfer_curve_params(self.config)
         exposure_offset, contrast, highlight_auto = transfer_auto_terms(

@@ -274,7 +274,7 @@ class TestConfigDeserialization(unittest.TestCase):
 
         base_key = (
             reloaded.process.process_mode,
-            reloaded.process.e6_normalize,
+            reloaded.process.positive_source,
             reloaded.geometry,
             reloaded.process.analysis_buffer,
             reloaded.process.luma_range_clip,

@@ -150,7 +150,7 @@ class TestTiffEncodingAssumptions:
 
 
 class TestPositiveSourceOnTheTransferPath:
-    """An already-positive TIFF loaded as Transparency (Normalize off) is not a raw
+    """An already-positive TIFF loaded as Transparency is not a raw
     scanner capture: Positive must reach the loader through effective_linear_raw
     so its sRGB tag decodes instead of being read as literal linear data."""
 
@@ -161,7 +161,7 @@ class TestPositiveSourceOnTheTransferPath:
             path = os.path.join(tmpdir, "positivized.tif")
             tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
 
-            process = ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=False, positive_source=True)
+            process = ProcessConfig(process_mode=ProcessMode.E6, positive_source=True)
             f32, metadata = _load(path, linear_raw=effective_linear_raw(process))
             np.testing.assert_allclose(f32, srgb_to_linear(data.astype(np.float32) / 65535.0), atol=1e-6)
             assert metadata["color_space"] == ColorSpace.SRGB.value
@@ -174,7 +174,7 @@ class TestPositiveSourceOnTheTransferPath:
             path = os.path.join(tmpdir, "positivized.tif")
             tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
 
-            process = ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=False, positive_source=False)
+            process = ProcessConfig(process_mode=ProcessMode.E6, positive_source=False)
             f32, metadata = _load(path, linear_raw=effective_linear_raw(process))
             np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
             assert metadata["color_space"] is None

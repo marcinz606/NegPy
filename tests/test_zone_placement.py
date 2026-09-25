@@ -245,7 +245,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         from negpy.features.process.models import ProcessMode
 
         cfg = self.controller.state.config
-        self.controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+        self.controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
         self._arm(5.0)
         self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
         self.assertIsNone(self.controller.state.zone_arm_target)

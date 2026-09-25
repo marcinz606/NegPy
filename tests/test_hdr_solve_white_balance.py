@@ -7,8 +7,8 @@ different ones per frame — and `pair_ratio` absorbs the spread into the exposu
 rather than measuring it.
 
 It stayed hidden because the default slide path is a transparency transfer, which forces a
-neutral decode for every frame anyway. Turning Normalize on for a bracket leaves that path
-and puts the solve straight onto per-file auto white balance, with nothing said about it.
+neutral decode for every frame anyway. A Positive bracket leaves that path and puts the
+solve straight onto per-file auto white balance, with nothing said about it.
 
 How badly that reads out depends on which multipliers moved (see WhenItMatters). The pin
 is not justified by the worst case: it is justified by the solve and the render having to
@@ -66,9 +66,9 @@ def _run(params: WorkspaceConfig):
 
 class SolvePin(unittest.TestCase):
     def test_a_camera_wb_bracket_is_pinned_to_the_first_frame(self):
-        """Normalize on leaves the transfer path, so the decode carries as-shot gains —
-        the case that has to be pinned."""
-        overrides = _run(_slide(e6_normalize=True, linear_raw=False))
+        """Positive leaves the transfer path's neutral decode, so the decode carries as-shot
+        gains — the case that has to be pinned."""
+        overrides = _run(_slide(positive_source=True, linear_raw=False))
 
         self.assertIsNone(overrides[0], "the first frame supplies the pin, it cannot take one")
         self.assertEqual(overrides[1:], [list(_WB), list(_WB)])
@@ -76,19 +76,19 @@ class SolvePin(unittest.TestCase):
     def test_a_neutral_bracket_pins_nothing(self):
         """Linear RAW decodes with unity multipliers, so there are no as-shot gains to
         share and every frame is already on one basis."""
-        self.assertEqual(_run(_slide(e6_normalize=True, linear_raw=True)), [None, None, None])
+        self.assertEqual(_run(_slide(positive_source=True, linear_raw=True)), [None, None, None])
 
     def test_the_transfer_path_needs_no_pin_either(self):
-        """Normalize off forces a neutral decode whatever Linear RAW says, which is why
+        """A raw slide forces a neutral decode whatever Linear RAW says, which is why
         this went unnoticed: the default slide bracket was never exposed to it."""
-        self.assertEqual(_run(_slide(e6_normalize=False, linear_raw=False)), [None, None, None])
+        self.assertEqual(_run(_slide(linear_raw=False)), [None, None, None])
 
     def test_a_reconstruction_bracket_pins_nothing(self):
         """A merged bracket never carries reconstruction (WorkspaceConfig.__post_init__),
         and the solve zeroes it explicitly for the same reason before the merge exists to
         trigger that invariant -- so there is no baked white balance here to pin siblings
         to, the same as the plain transfer path above."""
-        self.assertEqual(_run(_slide(e6_normalize=False, linear_raw=False, highlight_reconstruction=3)), [None, None, None])
+        self.assertEqual(_run(_slide(linear_raw=False, highlight_reconstruction=3)), [None, None, None])
 
 
 class WhenItMatters(unittest.TestCase):

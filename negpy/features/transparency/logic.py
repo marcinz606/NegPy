@@ -1,5 +1,5 @@
 """
-Transparency transfer curve — the E-6 render when Normalize is off.
+Transparency transfer curve — the render of every slide.
 
 A slide is captured close to how it should look, so the render starts from the capture
 and the controls deviate from there. At default settings the scene stage is the exact
@@ -48,6 +48,7 @@ from negpy.features.exposure.logic import (
     separation_damping_gain_np,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
 from negpy.kernel.image.validation import ensure_image
 
 #: Log-density window the fixed-bounds normalization maps to [0, 1]. The floor is the
@@ -233,8 +234,7 @@ def transfer_auto_terms(
     folded onto the manual values -- single source for CPU and GPU. Mirrors the paper
     path's own anchor placement, effective_grade_range, Shadow Reach and Highlight
     Hold, restated on this curve's plain density-linear model instead of the paper's
-    toe/shoulder one. A None input (the toggle off, or a raw un-normalized slide,
-    which never meters -- see process.path.render_path) leaves every term at its manual value.
+    toe/shoulder one. A toggle off, or a None meter, leaves its terms at their manual values.
     """
     c = TRANSFER_CONSTANTS
     pivot = float(c["transfer_contrast_pivot"])
@@ -433,6 +433,13 @@ def apply_transfer_curve(
         return ensure_image(np.clip(out, 0.0, 1.0))
     gain = np.float32(2.0 ** float(c["transfer_baseline_ev"]))
     return ensure_image(display_rendering(out * gain))
+
+
+def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """White/Black Point on the fixed window, negated: a positive reverses the floor/ceil
+    roles. Single source for the CPU base and the GPU uniform pack."""
+    wp3, bp3 = per_channel_point_offsets(process)
+    return (-wp3[0], -wp3[1], -wp3[2]), (-bp3[0], -bp3[1], -bp3[2])
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

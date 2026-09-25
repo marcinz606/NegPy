@@ -404,7 +404,6 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     "process": (
         "process",
         (
-            "e6_normalize",
             "analysis_buffer",
             "luma_range_clip",
             "color_range_clip",

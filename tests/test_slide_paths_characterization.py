@@ -1,4 +1,4 @@
-"""Characterization of the three slide renders — Normalize on, as captured, Positive —
+"""Characterization of the two slide renders — as captured and Positive —
 with every live control moved at once. The CPU goldens pin the render so a refactor of
 the slide path cannot move it silently; the GPU cases pin the two engines together on
 the same configs, since a parity case with a control left neutral agrees trivially."""
@@ -21,22 +21,15 @@ CAM_XYZ = [
 
 E6_MATRIX = (1.0, -0.05, -0.002, -0.29, 1.0, -0.05, -0.09, -0.19, 1.0)
 
+# Per sub-path: Positive, then Auto Density and Auto Grade.
 SUB_PATHS = {
-    "normalize": dict(e6_normalize=True, positive_source=False),
-    "as_captured": dict(e6_normalize=False, positive_source=False),
-    "positive": dict(e6_normalize=False, positive_source=True),
+    "as_captured": (False, False),
+    "positive": (True, True),
 }
 
 # Per sub-path: per-channel mean, then the pixels at SAMPLES, all of the CPU render.
 SAMPLES = ((4, 4), (20, 40), (40, 70), (60, 90))
 GOLDEN = {
-    "normalize": [
-        [0.4627, 0.4843, 0.4635],
-        [0.1293, 0.0931, 0.094],
-        [0.1132, 0.2133, 0.2284],
-        [0.6056, 0.656, 0.6079],
-        [0.9999, 0.9994, 0.9989],
-    ],
     "as_captured": [
         [0.3753, 0.3461, 0.2733],
         [0.0863, 0.0371, 0.0453],
@@ -56,6 +49,7 @@ GOLDEN = {
 
 def _config(sub_path: str):
     cfg = DEFAULT_WORKSPACE_CONFIG
+    positive_source, autos = SUB_PATHS[sub_path]
     process = replace(
         cfg.process,
         process_mode=ProcessMode.E6,
@@ -66,10 +60,12 @@ def _config(sub_path: str):
         crosstalk_strength=1.0,
         crosstalk_process=ProcessMode.E6,
         crosstalk_matrix=E6_MATRIX,
-        **SUB_PATHS[sub_path],
+        positive_source=positive_source,
     )
     exposure = replace(
         cfg.exposure,
+        auto_exposure=autos,
+        auto_normalize_contrast=autos,
         cast_removal_strength=0.6,
         density=1.2,
         grade=85.0,
@@ -137,9 +133,15 @@ def test_cpu_render_is_pinned(sub_path):
 def test_every_moved_control_is_live(sub_path):
     """Guards the goldens: a config whose controls do nothing would pin the wrong thing."""
     shipped = DEFAULT_WORKSPACE_CONFIG.exposure
+    autos = SUB_PATHS[sub_path][1]
     neutral = replace(
         _config(sub_path),
-        exposure=replace(shipped, cast_removal_strength=cast_removal_for_mode(ProcessMode.E6, shipped.cast_removal_strength)),
+        exposure=replace(
+            shipped,
+            cast_removal_strength=cast_removal_for_mode(ProcessMode.E6, shipped.cast_removal_strength),
+            auto_exposure=autos,
+            auto_normalize_contrast=autos,
+        ),
     )
     img = _image()
     ctx = PipelineContext(

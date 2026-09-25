@@ -119,19 +119,17 @@ def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
     img = np.stack([v, v * 0.9, v * 0.78], -1)
     img = np.ascontiguousarray(img + rng.uniform(0, 1e-4, img.shape).astype(np.float32))
 
-    for mode, normalize in ((ProcessMode.C41, True), (ProcessMode.E6, True), (ProcessMode.E6, False), (ProcessMode.BW, True)):
+    for mode in (ProcessMode.C41, ProcessMode.E6, ProcessMode.BW):
         s = WorkspaceConfig()
-        base = replace(s, process=replace(s.process, process_mode=mode, e6_normalize=normalize))
+        base = replace(s, process=replace(s.process, process_mode=mode))
         renders = [
-            DarkroomEngine().process(
-                img, replace(base, exposure=replace(base.exposure, cast_removal_strength=v)), f"cast_{mode}_{normalize}_{v}"
-            )
+            DarkroomEngine().process(img, replace(base, exposure=replace(base.exposure, cast_removal_strength=v)), f"cast_{mode}_{v}")
             for v in (0.0, 1.0)
         ]
         render_honours_it = not np.allclose(renders[0], renders[1])
 
         cfg = controller.state.config
-        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode, e6_normalize=normalize))
+        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
         sidebar.sync_ui()
         visible = not sidebar.cast_removal_slider.isHidden()
-        assert visible == render_honours_it, f"{mode} normalize={normalize}"
+        assert visible == render_honours_it, mode

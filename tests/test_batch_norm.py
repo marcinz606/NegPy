@@ -84,18 +84,14 @@ class TestBatchNormalization(unittest.TestCase):
         res_b = NormalizationProcessor(p_equivalent).process(img, self.context)
         np.testing.assert_allclose(res_a[..., 0], res_b[..., 0], atol=1e-7)
 
-    def test_e6_negates_trims(self):
-        img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
-        ctx_e6 = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.E6)
-        p_neutral = replace(self._neutral_process(), e6_normalize=True)
-        res_neutral = NormalizationProcessor(p_neutral).process(img, ctx_e6)
+    def test_a_slide_negates_trims(self):
+        from negpy.features.process.models import per_channel_point_offsets
+        from negpy.features.transparency.logic import transfer_point_offsets
 
-        p_trim = replace(p_neutral, white_point_trim_red=0.1)
-        res_trim = NormalizationProcessor(p_trim).process(img, ctx_e6)
-
-        # Negated sign: the red channel must move the opposite way to C41.
-        self.assertGreater(float(np.mean(res_trim[..., 0])), float(np.mean(res_neutral[..., 0])))
-        np.testing.assert_allclose(res_trim[..., 1:], res_neutral[..., 1:], atol=1e-7)
+        p_trim = replace(self._neutral_process(), process_mode=ProcessMode.E6, white_point_trim_red=0.1, black_point_trim_blue=0.05)
+        wp3, bp3 = per_channel_point_offsets(p_trim)
+        self.assertEqual(transfer_point_offsets(p_trim), (tuple(-v for v in wp3), tuple(-v for v in bp3)))
+        self.assertGreater(wp3[0], 0.0)
 
     def test_photometric_processor_is_independent_of_roll_average(self):
         """

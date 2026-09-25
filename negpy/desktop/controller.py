@@ -2401,11 +2401,11 @@ class AppController(QObject):
             PreviewLoadTask(
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
-                use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
+                use_camera_wb=not effective_linear_raw(self.state.config.process),
                 generation=self._prefetch_gen,
                 positive_source=self.state.config.process.positive_source,
                 highlight_mode=effective_highlight_reconstruction(self.state.config.process),
-                bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process, self.state.config.exposure.render_intent),
+                bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process),
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
@@ -2572,7 +2572,7 @@ class AppController(QObject):
         if not file_hash:
             return None
         saved = self.session.repo.load_file_settings(file_hash)
-        linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
+        linear_raw = effective_linear_raw(saved.process) if saved else False
         try:
             integrated_gpu = bool(self.state.gpu_enabled and GPUDevice.get().is_integrated)
         except Exception:
@@ -2584,7 +2584,7 @@ class AppController(QObject):
             generation=generation,
             positive_source=saved.process.positive_source if saved else False,
             highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
-            bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process, saved.exposure.render_intent) if saved else False),
+            bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process) if saved else False),
             full_resolution=False,
             file_hash=file_hash,
             use_splash=False,
@@ -2863,7 +2863,7 @@ class AppController(QObject):
 
     def _on_transfer_path(self) -> bool:
         """Placement inverts the print curve, which the transfer path never renders with."""
-        return render_path(self.state.config.process, self.state.config.exposure.render_intent) is not RenderPath.PRINT
+        return render_path(self.state.config.process) is not RenderPath.PRINT
 
     def _solve_zone_placement(self) -> Optional[Any]:
         from negpy.features.exposure.placement import solve_placement
@@ -4501,14 +4501,9 @@ class AppController(QObject):
     def set_positive_source(self, checked: bool) -> None:
         """Toggles Positive for the active frame, locking the "film" card away from
         the roll the instant it changes and was not already -- same treatment as
-        Film Mode, since both live on that one card.
-
-        Also rewrites Auto Density/Auto Grade to the mode being switched to
-        (auto_meter_for_positive_source): untouched, they carry whichever mode's
-        default they last matched, so this only moves them when the user never
-        touched them."""
+        Film Mode, since both live on that one card."""
         if self.state.config.process.process_mode != ProcessMode.E6:
-            # The shortcut still reaches the hidden button; the autos must not move.
+            # The shortcut still reaches the hidden button.
             return
         self.apply_config(with_positive_source(self.state.config, checked), persist=True)
         self._lock_roll_card("film")
@@ -5809,8 +5804,8 @@ class AppController(QObject):
             wants_uv_grid=False,
         )
         img = GeometryProcessor(geometry).process(source, context)
-        process, render_intent = self.state.config.process, self.state.config.exposure.render_intent
-        decoded_without_wb = effective_linear_raw(process, render_intent) and not highlight_reconstruction_bakes_wb(process, render_intent)
+        process = self.state.config.process
+        decoded_without_wb = effective_linear_raw(process) and not highlight_reconstruction_bakes_wb(process)
         matrix = camera_to_working_matrix(
             self.state.preview_cam_xyz,
             self.state.preview_camera_wb if decoded_without_wb else None,

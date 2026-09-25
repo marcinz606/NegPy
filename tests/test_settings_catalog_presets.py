@@ -42,16 +42,6 @@ def test_positive_source_row_is_catalogued():
     assert data == {"positive_source": True}
 
 
-def test_normalize_row_is_catalogued():
-    """Regression: a capture-mode toggle with no catalog row can't be copied, cloned
-    onto a selection, or saved into a preset -- Normalize needs one to batch onto
-    a roll of faded slides rather than being set one frame at a time."""
-    base = WorkspaceConfig()
-    cfg = replace(base, process=replace(base.process, e6_normalize=True))
-    data = selected_flat_dict(cfg, [_row("Normalize")])
-    assert data == {"e6_normalize": True}
-
-
 def test_overlay_apply_preserves_unrelated_edits():
     base = WorkspaceConfig()
     cfg = replace(base, lab=replace(base.lab, saturation=1.4))

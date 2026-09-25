@@ -141,9 +141,9 @@ _CAM_WB = [1856.0, 1024.0, 1744.0]
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
 class TestGpuTiledTransferParity(unittest.TestCase):
-    """The transparency transfer curve meters apart from the print path: a raw slide
-    takes no Auto Density/Auto Grade terms, and a Positive frame meters working space
-    against the fixed window. Auto Density and Auto Grade are on by default."""
+    """The transparency transfer curve meters apart from the print path: a raw slide and a
+    Positive frame both meter working space against the fixed window. Auto Density and Auto
+    Grade are on here, so their terms reach the render."""
 
     def setUp(self):
         self.engine = GPUEngine()
@@ -166,14 +166,14 @@ class TestGpuTiledTransferParity(unittest.TestCase):
         s = WorkspaceConfig()
         return replace(
             s,
-            process=replace(s.process, process_mode=ProcessMode.E6, e6_normalize=False, **process),
+            process=replace(s.process, process_mode=ProcessMode.E6, **process),
             export=replace(s.export, export_resolution_mode="original"),
         )
 
-    def test_tiled_raw_slide_takes_no_auto_terms(self):
+    def test_tiled_raw_slide_meters_like_the_preview(self):
         settings = self._slide()
         self.assertTrue(settings.exposure.auto_exposure and settings.exposure.auto_normalize_contrast)
-        self._assert_parity(settings, "Tiled export metered a raw slide")
+        self._assert_parity(settings, "Tiled export metered a raw slide differently")
 
     def test_tiled_positive_meters_like_the_preview(self):
         self._assert_parity(self._slide(positive_source=True), "Tiled export metered a Positive frame differently")

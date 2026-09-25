@@ -12,11 +12,11 @@ from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def effective_linear_raw(process: ProcessConfig) -> bool:
     """Whether the decode skips the camera's as-shot white balance.
 
-    True when the user asked for Linear RAW, and **always** on an as-captured Slide
-    (Normalize off). That render applies the camera's own matrix, which folds the
+    True when the user asked for Linear RAW, and **always** on an as-captured Slide.
+    That render applies the camera's own matrix, which folds the
     as-shot multipliers back in itself (`camera_to_working_matrix`), and the
     Calibration panel already documents Linear RAW as inert there — but the decode
     was reading the stored flag regardless, so a hidden, stale toggle silently decided
@@ -38,10 +38,10 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     """
     from negpy.features.process.path import RenderPath, render_path
 
-    return process.linear_raw or render_path(process, render_intent) is RenderPath.TRANSFER
+    return process.linear_raw or render_path(process) is RenderPath.TRANSFER
 
 
-def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
+def linear_raw_token(process: ProcessConfig) -> str:
     """Decode-mode identity, folded into the render source hash so the auto-meter
     re-runs when Linear RAW toggles (the decode changes the source pixels).
 
@@ -49,7 +49,7 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     whatever the stored flag says, so keying on the flag alone would serve a buffer decoded
     the other way.
     """
-    return f"|lr:{int(effective_linear_raw(process, render_intent))}"
+    return f"|lr:{int(effective_linear_raw(process))}"
 
 
 def demosaic_token(mode: str) -> str:
@@ -58,7 +58,7 @@ def demosaic_token(mode: str) -> str:
     return f"|dm:{mode}"
 
 
-def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def should_fold_camera_wb(process: ProcessConfig) -> bool:
     """Whether `camera_to_working_matrix` should fold the as-shot multipliers back in.
 
     True when the decode skipped white balance (`effective_linear_raw`) *and* the capture
@@ -80,9 +80,9 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     Every site that folds `camera_wb` into the capture matrix must ask this one question,
     the same way every decode asks `effective_linear_raw`.
     """
-    if highlight_reconstruction_bakes_wb(process, render_intent):
+    if highlight_reconstruction_bakes_wb(process):
         return False
-    return effective_linear_raw(process, render_intent) and not narrowband_profile_active(process)
+    return effective_linear_raw(process) and not narrowband_profile_active(process)
 
 
 VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})
@@ -123,7 +123,7 @@ def highlight_reconstruction_token(process: ProcessConfig) -> str:
     return f"|hr:{effective_highlight_reconstruction(process)}"
 
 
-def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+def highlight_reconstruction_bakes_wb(process: ProcessConfig) -> bool:
     """Whether an active reconstruction should decode with the real white balance baked
     in, instead of the transfer path's usual neutral decode plus downstream matrix fold.
 
@@ -140,8 +140,7 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
     regardless — that toggle is the user asking for it directly, and reconstruction must
     not reach around it. `positive_source` has no camera matrix to fold in the first
     place, so there is nothing to bake either. False whenever
-    `effective_highlight_reconstruction` resolves to 0, including the E-6-with-Normalize
-    path, which already decodes with real white balance and needs no override.
+    `effective_highlight_reconstruction` resolves to 0.
 
     Every site that decides whether to bake real white balance into a decode must ask
     this one question, the same discipline `effective_linear_raw` and
@@ -153,10 +152,10 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
         return False
     from negpy.features.process.path import RenderPath, render_path
 
-    return render_path(process, render_intent) is not RenderPath.PRINT
+    return render_path(process) is not RenderPath.PRINT
 
 
-def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
+def highlight_reconstruction_bakes_wb_token(process: ProcessConfig) -> str:
     """Cache-key identity for `highlight_reconstruction_bakes_wb`, distinct from
     `linear_raw_token`: an explicit Linear RAW request and the transfer path's own default
     neutral decode both read as `effective_linear_raw() == True`, so `linear_raw_token`
@@ -164,7 +163,7 @@ def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_inten
     where it stays neutral because the user asked for it — yet the two decode differently
     once reconstruction is active. See `highlight_reconstruction_bakes_wb`.
     """
-    return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process, render_intent))}"
+    return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process))}"
 
 
 def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highlight_mode: int) -> float:

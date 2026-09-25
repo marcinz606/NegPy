@@ -1,5 +1,5 @@
 // Transparency transfer curve — GPU mirror of features/transparency/logic.py.
-// Replaces the print curve (exposure.wgsl) when E-6 runs with Normalize off.
+// Replaces the print curve (exposure.wgsl) for every slide.
 // Every term vanishes at its neutral value so the default render is an exact
 // pass-through of the capture, matching the CPU path bit-for-bit closely enough
 // for test_transparency_transfer.py's parity bound.

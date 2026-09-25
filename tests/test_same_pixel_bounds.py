@@ -16,7 +16,6 @@ from negpy.features.exposure.normalization import (
     _sample_log_bounds,
     analyze_log_exposure_bounds_from_log,
 )
-from negpy.features.process.models import ProcessMode
 
 _H, _W = 400, 300
 _BASE = (-0.10, -0.22, -0.32)
@@ -31,12 +30,12 @@ def _ramp() -> np.ndarray:
     return log
 
 
-def _old_color_recombined(img_log: np.ndarray, mode: str = ProcessMode.C41, color_clip: float = 1.0):
+def _old_color_recombined(img_log: np.ndarray, color_clip: float = 1.0):
     """The pre-change recombination (independent per-channel percentiles)."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-    floors, ceils = _sample_log_bounds(img_log, 0.0, float(EXPOSURE_CONSTANTS["base_luma_clip"]), mode, True)
-    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, mode, True)
+    floors, ceils = _sample_log_bounds(img_log, 0.0, float(EXPOSURE_CONSTANTS["base_luma_clip"]))
+    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0)
     mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
     mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
     return (
@@ -89,16 +88,6 @@ def test_no_neutral_dense_end_falls_back_bit_exact():
 
     bounds = analyze_log_exposure_bounds_from_log(log, color_clip=1.0)
     old_floors, old_ceils = _old_color_recombined(log)
-    np.testing.assert_allclose(bounds.floors, old_floors, atol=1e-9)
-    np.testing.assert_allclose(bounds.ceils, old_ceils, atol=1e-9)
-
-
-def test_e6_gated_to_percentile_pass():
-    log = _ramp()
-    block = slice(0, int(0.08 * _W))
-    log[:, block, 0] = _BASE[0] - 0.95
-    bounds = analyze_log_exposure_bounds_from_log(log, process_mode=ProcessMode.E6, e6_normalize=True, color_clip=1.0)
-    old_floors, old_ceils = _old_color_recombined(log, mode=ProcessMode.E6)
     np.testing.assert_allclose(bounds.floors, old_floors, atol=1e-9)
     np.testing.assert_allclose(bounds.ceils, old_ceils, atol=1e-9)
 

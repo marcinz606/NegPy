@@ -77,7 +77,6 @@ class NormalizationProcessor:
         def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
             cached_rect = context.metrics.get("log_bounds_rect_val")
-            cached_norm = context.metrics.get("log_bounds_norm_val")
             cached_mode = context.metrics.get("log_bounds_mode_val")
 
             cached_clip = context.metrics.get("log_bounds_clip_val")
@@ -92,7 +91,6 @@ class NormalizationProcessor:
                 or abs(cached_clip - self.config.luma_range_clip) > 1e-6
                 or cached_color_clip is None
                 or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
-                or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
                 or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix, self.config.crosstalk_process)
             )
@@ -104,8 +102,6 @@ class NormalizationProcessor:
                 prefiltered,
                 None,
                 0.0,
-                process_mode=context.process_mode,
-                e6_normalize=self.config.e6_normalize,
                 percentile_clip=self.config.luma_range_clip,
                 color_clip=self.config.color_range_clip,
             )
@@ -114,7 +110,6 @@ class NormalizationProcessor:
             context.metrics["log_bounds_rect_val"] = self.config.analysis_rect
             context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
-            context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
             context.metrics["log_bounds_mode_val"] = context.process_mode
             context.metrics["log_bounds_crosstalk_val"] = (
                 self.config.crosstalk_strength,
@@ -156,7 +151,7 @@ class NormalizationProcessor:
                     self.config.crosstalk_process,
                 )
 
-        wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
+        wp3, bp3 = per_channel_point_offsets(self.config)
         if any(v != 0.0 for v in wp3 + bp3):
             adj_floors = (
                 bounds.floors[0] + wp3[0],

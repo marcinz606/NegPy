@@ -372,8 +372,7 @@ class SensorSidebar(BaseSidebar):
             # Three reasons, three gates. Narrowband is refused for any transparency, because the
             # bundled profile describes narrowband capture of negative dyes. Linear RAW is inert
             # on the *transfer*, where the camera matrix folds the as-shot multipliers back in
-            # (with Normalize on, or Positive on, it decides the decode again, so it stays live
-            # there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
+            # (with Positive on it decides the decode again, so it stays live there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
             # scene for a WB gain to describe in the first place — every exposure decodes neutral
             # regardless.
             from negpy.features.process.logic import narrowband_allowed
@@ -381,7 +380,7 @@ class SensorSidebar(BaseSidebar):
             from negpy.features.rgbscan.models import is_rgb_triplet
 
             e6 = not narrowband_allowed(conf)
-            path = render_path(conf, self.state.config.exposure.render_intent)
+            path = render_path(conf)
             transfer = path is not RenderPath.PRINT
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)

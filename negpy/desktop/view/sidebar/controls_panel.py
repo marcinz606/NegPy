@@ -13,7 +13,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
-from negpy.features.process.models import auto_meter_for_positive_source, cast_removal_for_mode
+from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -82,7 +82,6 @@ _METERING_FIELDS = (
     "lock_bounds",
     "luma_range_clip",
     "color_range_clip",
-    "e6_normalize",
     "white_point_offset",
     "black_point_offset",
     "white_point_trim_red",
@@ -118,14 +117,13 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {"optics": ("lens", "flatfield")}
 
 
-def _default_exposure_field(field: str, positive_source: bool, process_mode: str):
-    """The value *field* defaults to on this frame. Auto Density/Auto Grade default
-    differently on a Positive frame (auto_meter_for_positive_source) and Cast Removal
-    differently per mode (cast_removal_for_mode); every other ExposureConfig field has
-    one flat default."""
+def _default_exposure_field(field: str, process_mode: str):
+    """The value *field* defaults to on this frame. Auto Density/Auto Grade
+    (auto_meter_for_mode) and Cast Removal (cast_removal_for_mode) default per mode;
+    every other ExposureConfig field has one flat default."""
     default = getattr(_DEFAULT_EXPOSURE, field)
     if field in _AUTO_METER_FIELDS:
-        return auto_meter_for_positive_source(positive_source, default)
+        return auto_meter_for_mode(process_mode, default)
     if field == "cast_removal_strength":
         return cast_removal_for_mode(process_mode, default)
     return default
@@ -738,7 +736,7 @@ class ControlsPanel(QWidget):
                 "Pushes density apart before decode. On a print, in the same matrix slot as the "
                 "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
                 "curve is already compressed at toe and shoulder, and takes per-layer R/G/B trims. On a "
-                "slide with Normalize off, applied directly with no paper matrix or trims. Chroma in "
+                "slide, applied directly with no paper matrix or trims. Chroma in "
                 "Color is the flat version: an even a*/b* scale after decode. 1.0 = off/identity",
                 ["dye_separation_inc", "dye_separation_dec"],
             )
@@ -1066,7 +1064,7 @@ class ControlsPanel(QWidget):
 
         cfg = self.controller.state.config
         exp = cfg.exposure
-        defaults = {f: _default_exposure_field(f, cfg.process.positive_source, cfg.process.process_mode) for f in fields}
+        defaults = {f: _default_exposure_field(f, cfg.process.process_mode) for f in fields}
         new_exp = replace(exp, **defaults)
         new_config = replace(cfg, exposure=new_exp)
         self.controller.session.update_config(new_config, persist=True)
@@ -1082,10 +1080,9 @@ class ControlsPanel(QWidget):
         _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
-        positive_source = cfg.process.positive_source
         mode = cfg.process.process_mode
-        color_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in COLOR_FIELDS)
-        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in TONE_FIELDS)
+        color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in COLOR_FIELDS)
+        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(

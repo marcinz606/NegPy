@@ -84,12 +84,12 @@ class TestAffineSolve(unittest.TestCase):
             self.assertGreaterEqual(gain[ch], 1.0 / gain_max - 1e-6)
 
 
-def _slide_config(strength, normalize=False):
+def _slide_config(strength):
     cfg = DEFAULT_WORKSPACE_CONFIG
     return replace(
         cfg,
-        process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize),
-        exposure=replace(cfg.exposure, cast_removal_strength=strength),
+        process=replace(cfg.process, process_mode=ProcessMode.E6),
+        exposure=replace(cfg.exposure, cast_removal_strength=strength, auto_exposure=False, auto_normalize_contrast=False),
     )
 
 
@@ -139,15 +139,8 @@ class TestSlideRender(unittest.TestCase):
 
         self.assertLess(spread(on), spread(off))
 
-    def test_normalize_on_also_meters_an_axis(self):
-        """The print-curve slide path shares the negative's solve, so it needs the meter."""
-        _, ctx = _render(_cast_slide(), _slide_config(1.0, normalize=True))
-        self.assertIsNotNone(ctx.metrics.get("neutral_axis_refs"))
-        # The P98 shadow tie stays negative-only.
-        self.assertNotIn("shadow_log_refs", ctx.metrics)
-
     def test_bw_never_meters_an_axis(self):
-        cfg = _slide_config(1.0, normalize=True)
+        cfg = _slide_config(1.0)
         cfg = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
         _, ctx = _render(_cast_slide(), cfg)
         self.assertNotIn("neutral_axis_refs", ctx.metrics)

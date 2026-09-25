@@ -73,6 +73,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # Optical-removal exclusions became strokes (dust_exclusion_strokes); the loose
         # patch list they replaced cannot be unpacked as one.
         "dust_exclusions",
+        # Slide Normalize (a metered stretch through the print curve) was retired: every slide
+        # renders through the transfer curve (migrate_flat_config reads it before this pop).
+        "e6_normalize",
     }
 )
 
@@ -104,6 +107,15 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     for old_key, new_key in KEY_RENAMES.items():
         if old_key in data:
             data[new_key] = data.pop(old_key)
+
+    # Slide Normalize retired. A normalized slide keeps a metered render: Auto Density and
+    # Auto Grade on, on the transfer curve. On a raw slide both were inert, so they start off
+    # as a slide now does. The key goes on the next save, so this runs once per row.
+    if "e6_normalize" in data and str(data.get("process_mode", "")) in ("Transparency", "E-6"):
+        if bool(data["e6_normalize"]):
+            data["auto_exposure"] = data["auto_normalize_contrast"] = True
+        elif not data.get("positive_source"):
+            data["auto_exposure"] = data["auto_normalize_contrast"] = False
 
     # True Black (BPC on) renamed to Paper Black with inverted polarity.
     if "true_black" in data:

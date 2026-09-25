@@ -37,14 +37,14 @@ logger = get_logger(__name__)
 
 def base_processor(settings: WorkspaceConfig) -> Any:
     """The base stage's normalization: the negative's measured stretch, or a slide's fixed window."""
-    if render_path(settings.process, settings.exposure.render_intent) is RenderPath.PRINT:
+    if render_path(settings.process) is RenderPath.PRINT:
         return NormalizationProcessor(settings.process)
     return TransparencyBaseProcessor(settings.process, settings.exposure.cast_removal_strength)
 
 
 def exposure_processor(settings: WorkspaceConfig) -> Any:
-    """The exposure stage's curve: the print (or the Flat master), or a slide's transfer."""
-    if render_path(settings.process, settings.exposure.render_intent) is RenderPath.PRINT:
+    """The exposure stage's curve: the print or a slide's transfer, or the Flat master on either base."""
+    if settings.exposure.render_intent == RenderIntent.FLAT or render_path(settings.process) is RenderPath.PRINT:
         return PhotometricProcessor(settings.exposure, settings.local)
     return TransferProcessor(settings.exposure, settings.process.positive_source)
 
@@ -149,8 +149,6 @@ class DarkroomEngine:
             settings.process.process_mode,
             # Routes the base and exposure stages (render_path); a change re-runs both.
             settings.process.positive_source,
-            settings.process.e6_normalize,
-            settings.exposure.render_intent,
             geometry_key,
             settings.process.analysis_buffer,
             settings.process.analysis_rect,

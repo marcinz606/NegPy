@@ -212,21 +212,17 @@ def test_channel_selector_hidden_in_bw(qapp):
     assert sidebar.dye_separation_trim_slider.isHidden()
 
 
-def test_auto_density_grade_hide_on_a_raw_slide_but_stay_on_a_positive(qapp):
-    """They meter the frame to pick a look, which the transfer path exists to avoid for
-    a deliberate camera exposure -- but a Positive frame carries no such bracket, so
-    they run there exactly as on a negative (transfer_auto_terms)."""
+def test_auto_density_grade_stay_on_a_raw_slide_and_a_positive(qapp):
+    """Both meter a slide on the transfer curve (transfer_auto_terms), raw or Positive."""
     controller = MagicMock()
     controller.state = AppState()
     sidebar = ToneSidebar(controller)
 
     cfg = controller.state.config
-    controller.state.config = replace(
-        cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False, positive_source=False)
-    )
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, positive_source=False))
     sidebar.sync_ui()
-    assert sidebar.auto_density_btn.isHidden()
-    assert sidebar.auto_grade_btn.isHidden()
+    assert not sidebar.auto_density_btn.isHidden()
+    assert not sidebar.auto_grade_btn.isHidden()
     # The rest of the paper-model controls stay hidden either way.
     assert sidebar.paper_dmin_btn.isHidden()
 
@@ -246,7 +242,7 @@ def test_dye_separation_trim_swaps_per_channel_on_transfer_too(qapp):
     cfg = controller.state.config
     controller.state.config = replace(
         cfg,
-        process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False),
+        process=replace(cfg.process, process_mode=ProcessMode.E6),
         exposure=replace(cfg.exposure, dye_separation=1.3, dye_separation_trim_red=0.25),
     )
     sidebar = ToneSidebar(controller)

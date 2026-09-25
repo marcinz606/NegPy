@@ -23,7 +23,6 @@ def cfg(
     mode=ProcessMode.C41,
     level=0,
     narrowband_scan=False,
-    e6_normalize=False,
     positive_source=False,
     linear_raw=False,
 ) -> ProcessConfig:
@@ -32,7 +31,6 @@ def cfg(
         process_mode=mode,
         highlight_reconstruction=level,
         narrowband_scan=narrowband_scan,
-        e6_normalize=e6_normalize,
         positive_source=positive_source,
         linear_raw=linear_raw,
     )
@@ -73,7 +71,7 @@ class TestEffectiveHighlightReconstruction:
 
 
 class TestHighlightReconstructionBakesWb:
-    """The transfer path ('as captured', Normalize off) decodes neutral and folds white
+    """The transfer path ('as captured') decodes neutral and folds white
     balance back in downstream. Libraw's own reconstruction reads the decode's per-channel
     multipliers to decide what is clipped, which are all 1.0 on that neutral decode, so its
     threshold sits at the raw ADC ceiling and the clipping this feature targets — which only
@@ -98,10 +96,6 @@ class TestHighlightReconstructionBakesWb:
     def test_off_for_a_positive_source(self):
         """No camera matrix to fold in the first place, so nothing to bake either."""
         assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, positive_source=True))
-
-    def test_off_with_normalize_on(self):
-        """That path already decodes with real white balance and needs no override."""
-        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, e6_normalize=True))
 
     @pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
     def test_off_on_a_negative(self, mode):

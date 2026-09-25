@@ -745,7 +745,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, crop_rect=(0, 0, 1, 1)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -755,7 +755,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[]),
-            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -802,7 +802,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -812,7 +812,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[(0.5, 0.5, 3)]),
-            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 

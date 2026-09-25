@@ -30,8 +30,8 @@ TRANSFER = (
     | _with_trims("toe", "shoulder", "toe_width", "shoulder_width", "dye_separation")
     | {"separation_damping"}
 )
-# Metered only where there is no bracket to keep.
-POSITIVE_ONLY = {"auto_exposure", "auto_normalize_contrast"}
+# Meter the frame on a raw slide and on a Positive frame alike; a slide starts with both off.
+METERS = {"auto_exposure", "auto_normalize_contrast"}
 # The paper model's own controls; the transfer curve has no paper to apply them to.
 PRINT_ONLY = (
     {"contrast_mask", "mask_spacer", "paper_dmin", "paper_black", "paper_profile"}
@@ -44,7 +44,7 @@ ROUTING = {"render_intent"}
 
 def test_every_exposure_control_declares_its_slide_behaviour():
     fields = {f.name for f in dataclasses.fields(ExposureConfig)}
-    groups = (TRANSFER, POSITIVE_ONLY, PRINT_ONLY, ROUTING)
+    groups = (TRANSFER, METERS, PRINT_ONLY, ROUTING)
     assert set().union(*groups) == fields, "classify the new field in this module"
     assert sum(len(g) for g in groups) == len(fields), "a field sits in two groups"
 
@@ -111,9 +111,9 @@ def test_transfer_controls_move_a_slide(field):
     assert _delta(field, positive=False) > 1e-4
 
 
-@pytest.mark.parametrize("field", sorted(POSITIVE_ONLY))
-def test_meters_move_only_a_positive_frame(field):
-    assert _delta(field, positive=False) == 0.0
+@pytest.mark.parametrize("field", sorted(METERS))
+def test_meters_move_a_raw_slide_and_a_positive_frame(field):
+    assert _delta(field, positive=False) > 1e-4
     assert _delta(field, positive=True) > 1e-4
 
 

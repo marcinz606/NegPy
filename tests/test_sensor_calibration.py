@@ -100,9 +100,9 @@ def test_a_transparency_refuses_the_unmix():
     on = replace(WorkspaceConfig().process, sensor_matrix=matrix, linear_raw=True)
     assert effective_sensor_matrix(on) == matrix
 
-    for normalize in (True, False):
-        slide = replace(on, process_mode=ProcessMode.E6, e6_normalize=normalize)
-        assert effective_sensor_matrix(slide) is None, f"e6_normalize={normalize}"
+    for positive in (True, False):
+        slide = replace(on, process_mode=ProcessMode.E6, positive_source=positive)
+        assert effective_sensor_matrix(slide) is None, f"positive_source={positive}"
         assert unmix_block_reason(slide) == "transparency"
         # The token must agree, or the render cache would key two identical renders apart.
         assert sensor_token(slide) == ""

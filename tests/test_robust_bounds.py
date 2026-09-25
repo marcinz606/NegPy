@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 from negpy.features.exposure.normalization import analyze_log_exposure_bounds
-from negpy.features.process.models import ProcessMode
 
 
 def _gradient_image(h: int, w: int, lo: float = 0.01, hi: float = 0.5) -> np.ndarray:
@@ -96,13 +95,6 @@ class TestRobustBounds(unittest.TestCase):
         for ch in range(3):
             self.assertAlmostEqual(wide.floors[ch], base.floors[ch] - 0.1, delta=0.02)
             self.assertAlmostEqual(wide.ceils[ch], base.ceils[ch] + 0.1, delta=0.02)
-
-    def test_e6_reversed_bounds(self):
-        """E6 keeps reversed mapping (floors on the thin side) with robust analysis."""
-        img = _gradient_image(1024, 768)
-        bounds = analyze_log_exposure_bounds(img, process_mode=ProcessMode.E6, e6_normalize=True)
-        for ch in range(3):
-            self.assertGreater(bounds.floors[ch], bounds.ceils[ch])
 
 
 if __name__ == "__main__":

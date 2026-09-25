@@ -420,11 +420,11 @@ Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** 
 
 *   **Print Density** (0.0 to 2.0): overall brightness (enlarger time). Lower is brighter.
 *   **ISO-R Grade** (50 to 180): contrast as paper ISO-R. R110 is about grade 2; **lower R is harder**. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
-*   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken only the shadow or highlight zone, bounded by paper black and white. The ranges differ because the same ΔD looks smaller near paper black. They also work in Transparency with **Normalize off**, where they are the only controls that spare the midtones.
+*   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken only the shadow or highlight zone, bounded by paper black and white. The ranges differ because the same ΔD looks smaller near paper black. They also work in Transparency, where they are the only controls that spare the midtones.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): local contrast in the deep shadows or highlights.
 *   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive (a positive mask) compresses the range by (1 − gamma) so a harder grade fits the paper, keeping fine detail; use it on a scene too contrasty for your grade, then lower Grade in R. Past about 0.4 edges get a soft halo. Negative expands the range by (1 + gamma) without steepening grain, and works on a negative too flat for Grade; past about −0.4 highlights clip (see the Clipping row).
 *   **Mask Spacer** (2 to 6%, no effect without a mask): the gap between mask and negative, as percent of the frame. Thick masks only broad masses; thin reaches into detail, bites harder, and hazes shadows next to bright areas. 4% is a conservative default. Both mask controls read only your crop and gray out in R/G/B mode.
-*   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, applied before decode in the paper's crosstalk matrix, so it follows the paper profile and eases off at toe and shoulder. On a slide with Normalize off it applies to density directly. Below 1.0 pulls toward neutral; 1.0 is off. **Chroma** (Color tab) instead scales color evenly after decode.
+*   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, applied before decode in the paper's crosstalk matrix, so it follows the paper profile and eases off at toe and shoulder. On a slide it applies to density directly. Below 1.0 pulls toward neutral; 1.0 is off. **Chroma** (Color tab) instead scales color evenly after decode.
 *   **Separation Damping** (0 to 1, hidden in B&W Negative): where the Dye Separation push lands. Higher keeps the full push on muted color and reduces it on saturated color; below 1.0 separation, pastels go gray first. Grays out **at Dye Separation 1.0**.
 
 **Paper Response**:
@@ -656,7 +656,7 @@ The card's **Roll** button pushes this frame's value to the roll, and the frame 
 
 Always expanded and first, because it decides which cards apply: **Color** (C-41 color negative), **B&W** (panchromatic negative) or **Slide** (transparency/reversal, E-6 and similar). Each changes the conversion math and re-runs the pipeline. The wand button **auto-detects** the mode when a file loads.
 
-**Positive** (default off, shown on **Slide** only) is for a source that is already a positive (a scanned print, another app's export, a negative the scanner positivized), not a raw capture. NegPy decodes its embedded profile (sRGB if none) and skips metering, inversion, the exposure lift and the filmic roll-off, so the Print/tone controls in Metering (§10.6) shape the image directly and its bounds and clip controls hide. It applies only with Normalize off. Leaving Slide turns it off. It turns Auto Density/Auto Grade (§5.2) off if they were at their negative default and restores them when turned off; your own setting stays.
+**Positive** (default off, shown on **Slide** only) is for a source that is already a positive (a scanned print, another app's export, a negative the scanner positivized), not a raw capture. NegPy decodes its embedded profile (sRGB if none) and skips metering, inversion, the exposure lift and the filmic roll-off, so the Print/tone controls in Metering (§10.6) shape the image directly and its bounds and clip controls hide. Leaving Slide turns it off.
 
 <!-- panel:assembly -->
 ### 10.2 Frame Assembly
@@ -730,7 +730,7 @@ Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) a
 
 #### Narrowband and slides
 
-**Narrowband and Single-Shot Narrowband Calibration do not apply to Transparency**, with or without Normalize. They stay visible and grayed, keep their values, and return on a negative. The bundled profile describes negative dyes, and a narrowband light cannot be calibrated against a slide render. For slides on a narrowband rig, use **Hue Trim** to correct the light's hue rotation.
+**Narrowband and Single-Shot Narrowband Calibration do not apply to Transparency**. They stay visible and grayed, keep their values, and return on a negative. The bundled profile describes negative dyes, and a narrowband light cannot be calibrated against a slide render. For slides on a narrowband rig, use **Hue Trim** to correct the light's hue rotation.
 
 <!-- panel:autocrop -->
 ### 10.4 Crop
@@ -771,22 +771,14 @@ Meter the roll once and share the result, so frames of one film match. The **Use
 
 How this frame is measured into a positive's tonal bounds. The film mode is in §10.1, the capture corrections in **Calibration** (§10.3), where the bounds come from in **Roll Analysis** (§10.5). The whole card follows the scope pair ([§10](#10-roll-tab)).
 
-**Normalize** (Transparency only):
+**Slides** (Transparency) render **as captured**, with the camera's color matrix and a tonal window fixed to the decoder's white level, as in Photoshop, Preview, Affinity or Darktable. A bracket keeps each exposure's own brightness.
 
-*   **On**: stretches the histogram per frame and prints it through the paper model like a negative. A **rescue tool for faded or expired slides**; exposures of one slide converge on a similar render. A well-exposed slide looks washed out, since only its top ~1.5 decades of density carry picture.
-*   **Off** (default): renders the slide **as captured**, with the camera's color matrix and a tonal window fixed to the decoder's white level, as in Photoshop, Preview, Affinity or Darktable. A bracket keeps each exposure's own brightness.
-
-    The paper controls hide (paper profile, Paper White/Black, split grade), as does the normalization tuning. What stays is a transfer curve, neutral at defaults: **Print Density**, **ISO-R Grade**, **Toe** / **Shoulder** and their **Width** sliders, **Shadows Density** / **Highlights Density** (§5.2), the per-layer R/G/B trims and white balance; Lab, Toning and Finish work as usual. **Auto Density** and **Auto Grade** hide on a raw slide, to leave a bracket alone. On a **Positive** frame they stay but start off: Positive turns them off if at the negative default and restores them when turned off, unless you changed them. **Dye Separation**, its R/G/B trims and **Separation Damping** apply directly to density.
-
-    **On a merged bracket, Normalize is grayed out**: **Render exposure** already picks the print exposure, and a stretch would cancel it. Unmerge to use it.
-
-    Lightroom mapping: **Exposure** → Print Density (lower is brighter), **Contrast** → ISO-R Grade (180 is softest), **Shadows** → Shadows Density, **Highlights** → Highlights Density. *Positive adds density*, so negative Shadows Density opens shadows. **Whites** and **Blacks** have no equivalent, because the window is fixed.
-
-    A source with no camera matrix (a scanner TIFF, a JPEG) passes straight through.
-
-    **Linear RAW** is grayed out here (the as-shot multipliers are folded back in, so the render is identical) but stays visible. It is live with **Normalize** on and with **Positive** on. An explicit Input ICC in Export replaces the camera's primaries rotation; the as-shot white balance still applies.
-
-    **Narrowband** and **Single-Shot Narrowband Calibration** are grayed out for *any* transparency ([Narrowband and slides](#narrowband-and-slides)): narrowband light samples three isolated wavelengths, and no profile recovers the rest of the spectrum.
+*   The paper controls hide (paper profile, Paper White/Black, split grade), as does the normalization tuning. What stays is a transfer curve, neutral at defaults: **Print Density**, **ISO-R Grade**, **Toe** / **Shoulder** and their **Width** sliders, **Shadows Density** / **Highlights Density** (§5.2), the per-layer R/G/B trims and white balance; Lab, Toning and Finish work as usual. **Dye Separation**, its R/G/B trims and **Separation Damping** apply directly to density.
+*   **Auto Density** and **Auto Grade** start off on a slide, to leave a bracket alone: entering Slide turns them off if they were at the negative default and leaving restores them, unless you changed them. Turn them on to meter a faded or expired slide. On a merged bracket they are grayed out, since **Render exposure** already picks the print exposure.
+*   Lightroom mapping: **Exposure** → Print Density (lower is brighter), **Contrast** → ISO-R Grade (180 is softest), **Shadows** → Shadows Density, **Highlights** → Highlights Density. *Positive adds density*, so negative Shadows Density opens shadows. **Whites** and **Blacks** have no equivalent, because the window is fixed.
+*   A source with no camera matrix (a scanner TIFF, a JPEG) passes straight through.
+*   **Linear RAW** is grayed out (the as-shot multipliers are folded back in, so the render is identical) but stays visible. It is live with **Positive** on. An explicit Input ICC in Export replaces the camera's primaries rotation; the as-shot white balance still applies.
+*   **Narrowband** and **Single-Shot Narrowband Calibration** are grayed out for *any* transparency ([Narrowband and slides](#narrowband-and-slides)): narrowband light samples three isolated wavelengths, and no profile recovers the rest of the spectrum.
 
 **Analysis** sets where the black and white points are metered.
 
@@ -800,7 +792,7 @@ How this frame is measured into a positive's tonal bounds. The film mode is in �
 *   **Luma Range Clip** (-100 to 100): how tightly the black/white-point span is set. Neutral applies a small robust clip. Positive tightens it, for dense or fogged negatives; negative pushes the bounds *outward*, for lifted blacks and unclipped highlights.
 *   **Color Clip** (-100 to 100): the per-channel color-balance clip (orange-mask removal). Positive tightens; negative samples nearer the extremes.
 
-**White / Black Point** (-0.25 to 0.25), with a **Global** / **R** / **G** / **B** selector: offsets on the detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B they are per-layer Dmin and Dmax trims, a fact of the film stock, so they are roll defaults like the rest of the card. On the Transparency transfer path (Normalize off) they offset its fixed window; elsewhere **Lock Bounds** disables them.
+**White / Black Point** (-0.25 to 0.25), with a **Global** / **R** / **G** / **B** selector: offsets on the detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B they are per-layer Dmin and Dmax trims, a fact of the film stock, so they are roll defaults like the rest of the card. On a slide they offset its fixed window; elsewhere **Lock Bounds** disables them.
 
 <!-- panel:demosaic -->
 ### 10.7 Raw Decode: turning the sensor mosaic into pixels

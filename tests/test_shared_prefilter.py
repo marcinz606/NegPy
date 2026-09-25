@@ -15,7 +15,6 @@ from negpy.features.exposure.normalization import (
     measure_textural_range_from_log,
     prefilter_log_grid,
 )
-from negpy.features.process.models import ProcessMode
 
 
 def _scene(h: int = 900, w: int = 1200) -> np.ndarray:
@@ -42,8 +41,8 @@ class TestSharedPrefilter(unittest.TestCase):
         self.prefiltered = prefilter_log_grid(self.img, None, 0.0)
 
     def test_bounds_match(self):
-        ref = analyze_log_exposure_bounds(self.img, process_mode=ProcessMode.C41)
-        got = analyze_log_exposure_bounds_from_log(self.prefiltered, None, 0.0, process_mode=ProcessMode.C41)
+        ref = analyze_log_exposure_bounds(self.img)
+        got = analyze_log_exposure_bounds_from_log(self.prefiltered, None, 0.0)
         np.testing.assert_allclose(ref.floors, got.floors, rtol=0, atol=1e-6)
         np.testing.assert_allclose(ref.ceils, got.ceils, rtol=0, atol=1e-6)
 
@@ -53,7 +52,7 @@ class TestSharedPrefilter(unittest.TestCase):
         np.testing.assert_allclose(ref, got, rtol=0, atol=1e-6)
 
     def test_anchor_and_textural_match(self):
-        bounds = analyze_log_exposure_bounds(self.img, process_mode=ProcessMode.C41)
+        bounds = analyze_log_exposure_bounds(self.img)
         self.assertAlmostEqual(
             measure_anchor(self.img, bounds),
             measure_anchor_from_log(self.prefiltered, bounds, None, 0.0),
@@ -66,7 +65,7 @@ class TestSharedPrefilter(unittest.TestCase):
         )
 
     def test_neutral_axis_match(self):
-        bounds = analyze_log_exposure_bounds(self.img, process_mode=ProcessMode.C41)
+        bounds = analyze_log_exposure_bounds(self.img)
         ref = measure_neutral_axis(self.img, bounds)
         got = measure_neutral_axis_from_log(self.prefiltered, bounds, None, 0.0)
         self.assertEqual(ref is None, got is None)

@@ -100,7 +100,6 @@ def _fmt_gear(values: tuple) -> str:
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Film Mode", (
         _row("Film Mode", "process", "process_mode", sticky=True),
-        _row("Normalize", "process", "e6_normalize", sticky=True),
         _row("Positive", "process", "positive_source", sticky=True),
     )),
     ("Metering", (
@@ -314,7 +313,6 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "color_range_clip",
         "use_luma_average",
         "use_color_average",
-        "e6_normalize",
         "crosstalk_strength",
         "crosstalk_profile",
         "crosstalk_matrix",

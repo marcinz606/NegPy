@@ -390,8 +390,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "and Narrowband from the answer. It opens by itself once this tour is done.<br><br>"
                 "In the <b>Normalization</b> panel, <b>Lock Bounds</b> freezes this frame's analysed "
                 "bounds, so cropping or moving a slider no longer re-meters it. Lock in once the "
-                "conversion looks right. In Slide mode a <b>Normalize</b> button appears at the "
-                "bottom, stretching a faded or expired slide back to the full range."
+                "conversion looks right."
             ),
             target=_mode,
         ),
