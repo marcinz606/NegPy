@@ -55,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
+_EDGE_HANDLE_LENGTH_PX = 14.0
+_EDGE_HANDLE_THICKNESS_PX = 4.0
 _CROP_MIN_SCREEN_PX = 24.0
 # Drag distance required before an outside-the-rect press starts redrawing an
 # existing crop (stray-click guard).
@@ -246,10 +248,11 @@ class CanvasOverlay(QWidget):
         self._current_size: Optional[Tuple[int, int]] = None
         self._content_rect: Optional[Tuple[int, int, int, int]] = None
 
-        # Crop tool interaction state: corner-resize, interior move, edge-handle
-        # rotate, or fresh draw (when the click lands outside the existing rect).
+        # Crop tool interaction state: corner or single-edge resize, interior move,
+        # edge-midpoint rotate, or fresh draw (outside the existing rect).
         self._crop_rect_norm: Optional[Tuple[float, float, float, float]] = None
-        self._crop_drag_mode: Optional[str] = None  # "corner" | "move" | "rotate" | "draw"
+        self._crop_drag_mode: Optional[str] = None  # "corner" | "edge" | "move" | "rotate" | "draw"
+        self._crop_edge_which: Optional[str] = None
         self._crop_anchor_screen: Optional[QPointF] = None
         self._crop_press_norm: Optional[Tuple[float, float]] = None
         self._crop_orig_rect: Optional[Tuple[float, float, float, float]] = None
@@ -525,6 +528,7 @@ class CanvasOverlay(QWidget):
         self._crop_draw_armed = False
         self._crop_draw_p1 = None
         self._crop_draw_p2 = None
+        self._crop_edge_which = None
         self._rotate_center = None
         self._rotate_press = None
         self._rotate_current = None
@@ -1643,6 +1647,30 @@ class CanvasOverlay(QWidget):
                 return name
         return None
 
+    def _crop_edge_midpoint_screen_points(self) -> Optional[Dict[str, QPointF]]:
+        if (
+            self._crop_rect_norm is None
+            or self._view_rect.isEmpty()
+            or self.state.config.geometry.autocrop_ratio != "Free"
+        ):
+            return None
+        corners = self._crop_corner_screen_points()
+        if corners is None:
+            return None
+        return {
+            "top": (corners["tl"] + corners["tr"]) / 2.0,
+            "bottom": (corners["bl"] + corners["br"]) / 2.0,
+            "left": (corners["tl"] + corners["bl"]) / 2.0,
+            "right": (corners["tr"] + corners["br"]) / 2.0,
+        }
+
+    def _hit_test_crop_edge(self, pos: QPointF, edges: Dict[str, QPointF]) -> Optional[str]:
+        for name, pt in edges.items():
+            dx, dy = pos.x() - pt.x(), pos.y() - pt.y()
+            if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
+                return name
+        return None
+
     def _crop_rotation_handle_points(self) -> Optional[Dict[str, QPointF]]:
         """Screen positions of the four rotation handles: one per crop-box edge,
         centered on the edge midpoint and offset outward (outside the crop area).
@@ -1699,6 +1727,11 @@ class CanvasOverlay(QWidget):
         corner = self._hit_test_crop_corner(pos, corners) if corners else None
         if corner is not None:
             self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
+            return
+        edges = self._crop_edge_midpoint_screen_points()
+        edge = self._hit_test_crop_edge(pos, edges) if edges else None
+        if edge is not None:
+            self.setCursor(Qt.CursorShape.SizeHorCursor if edge in ("left", "right") else Qt.CursorShape.SizeVerCursor)
             return
         if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -1818,6 +1851,25 @@ class CanvasOverlay(QWidget):
         painter.setBrush(QColor(THEME.accent_primary))
         for pt in corners.values():
             painter.drawRect(QRectF(pt.x() - 5, pt.y() - 5, 10, 10))
+
+        edges = self._crop_edge_midpoint_screen_points()
+        if edges is not None:
+            for name, pt in edges.items():
+                if name in ("top", "bottom"):
+                    rect = QRectF(
+                        pt.x() - _EDGE_HANDLE_LENGTH_PX / 2.0,
+                        pt.y() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
+                        _EDGE_HANDLE_LENGTH_PX,
+                        _EDGE_HANDLE_THICKNESS_PX,
+                    )
+                else:
+                    rect = QRectF(
+                        pt.x() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
+                        pt.y() - _EDGE_HANDLE_LENGTH_PX / 2.0,
+                        _EDGE_HANDLE_THICKNESS_PX,
+                        _EDGE_HANDLE_LENGTH_PX,
+                    )
+                painter.drawRect(rect)
 
         self._draw_rotation_handles(painter, corners)
 
@@ -2371,6 +2423,14 @@ class CanvasOverlay(QWidget):
             self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
             return
 
+        edges = self._crop_edge_midpoint_screen_points()
+        edge = self._hit_test_crop_edge(pos, edges) if edges else None
+        if edge is not None:
+            self._crop_drag_mode = "edge"
+            self._crop_edge_which = edge
+            self.setCursor(Qt.CursorShape.SizeHorCursor if edge in ("left", "right") else Qt.CursorShape.SizeVerCursor)
+            return
+
         if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
             self._crop_drag_mode = "move"
             self._crop_press_norm = self._screen_to_norm(pos)
@@ -2559,6 +2619,34 @@ class CanvasOverlay(QWidget):
             rect = self._apply_aspect_and_min(self._crop_anchor_screen, cur_screen)
             self._crop_rect_norm = rect
             self.crop_rect_changed.emit(*rect, False)
+            self.update()
+            event.accept()
+            return
+
+        if (
+            self._crop_drag_mode == "edge"
+            and self._crop_edge_which is not None
+            and self._crop_rect_norm is not None
+            and not self._view_rect.isEmpty()
+        ):
+            cur_screen = QPointF(
+                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            cursor_nx, cursor_ny = self._screen_to_norm(cur_screen)
+            x1, y1, x2, y2 = self._crop_rect_norm
+            min_w = min(_CROP_MIN_SCREEN_PX / self._view_rect.width(), 1.0)
+            min_h = min(_CROP_MIN_SCREEN_PX / self._view_rect.height(), 1.0)
+            if self._crop_edge_which == "left":
+                new_rect = (float(np.clip(cursor_nx, 0.0, max(0.0, x2 - min_w))), y1, x2, y2)
+            elif self._crop_edge_which == "right":
+                new_rect = (x1, y1, float(np.clip(cursor_nx, min(1.0, x1 + min_w), 1.0)), y2)
+            elif self._crop_edge_which == "top":
+                new_rect = (x1, float(np.clip(cursor_ny, 0.0, max(0.0, y2 - min_h))), x2, y2)
+            else:
+                new_rect = (x1, y1, x2, float(np.clip(cursor_ny, min(1.0, y1 + min_h), 1.0)))
+            self._crop_rect_norm = new_rect
+            self.crop_rect_changed.emit(*new_rect, False)
             self.update()
             event.accept()
             return
@@ -2981,7 +3069,7 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        if self._crop_drag_mode in ("corner", "move"):
+        if self._crop_drag_mode in ("corner", "move", "edge"):
             if self._crop_rect_norm is not None:
                 self.crop_rect_changed.emit(*self._crop_rect_norm, True)
             self._end_crop_drag()
