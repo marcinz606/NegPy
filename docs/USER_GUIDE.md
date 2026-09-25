@@ -1091,6 +1091,7 @@ Application-wide settings: canvas **⋯** menu → **Preferences…**, `Ctrl + ,
 *   **HQ buffers**: full-resolution preview buffers kept (a 60 MP scan is about 700 MB each).
 *   **Rendered frames**: frames kept for going back without a re-render.
 *   **GPU texture cap**: largest texture dimension. 0 lets the hardware decide (integrated GPUs get a conservative default). Lower it if exports run out of GPU memory.
+*   **Show GPU memory warning**: the status message when an HQ preview is downsampled for exceeding the texture cap above. Off only hides the message — the downsampling itself still happens.
 
 Rows from **Preview size** down need a restart. A value in `override.toml` wins and grays out its row.
 

@@ -563,6 +563,26 @@ class TestAppController(unittest.TestCase):
         self.controller._schedule_prefetch_neighbors.assert_not_called()
         self.assertEqual(self.controller._neighbor_prefetch_generation, self.controller._prefetch_gen)
 
+    def test_vram_capped_message_shown_when_the_setting_is_on(self):
+        self.controller._requested_file_path = "scan.arw"
+        self.controller.session.repo.get_global_setting.return_value = True
+        self.controller.set_status = MagicMock()
+
+        self.controller._on_hq_preview_vram_capped("scan.arw", 6144)
+
+        self.controller.set_status.assert_called_once()
+
+    def test_vram_capped_message_hidden_when_the_setting_is_off(self):
+        """The status message is optional; the downsampling that triggered it (see
+        preview_manager._load_from_open_raw) is not affected by this setting at all."""
+        self.controller._requested_file_path = "scan.arw"
+        self.controller.session.repo.get_global_setting.return_value = False
+        self.controller.set_status = MagicMock()
+
+        self.controller._on_hq_preview_vram_capped("scan.arw", 6144)
+
+        self.controller.set_status.assert_not_called()
+
     def test_foreground_render_queue_blocks_neighbor_prefetch(self):
         self.controller._foreground_preview_generation = None
         self.controller._neighbor_prefetch_generation = self.controller._prefetch_gen

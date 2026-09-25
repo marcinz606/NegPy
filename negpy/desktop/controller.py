@@ -2473,8 +2473,12 @@ class AppController(QObject):
     def _on_hq_preview_vram_capped(self, file_path: str, capped_long_edge: int) -> None:
         """An HQ load exceeded the GPU's VRAM budget and was downsampled instead of
         crashing (see preview_manager._load_from_open_raw). Non-blocking — the user can
-        keep working at the reduced resolution or raise max_texture_size in Preferences."""
+        keep working at the reduced resolution or raise max_texture_size in Preferences.
+        The downsampling itself always happens; only the status message is optional
+        (Preferences → Performance → Show GPU memory warning)."""
         if self._requested_file_path != file_path:
+            return
+        if not self.session.repo.get_global_setting("show_vram_capped_warning", default=True):
             return
         self.set_status(
             f"Scan too large for available GPU memory — showing a {capped_long_edge}px preview instead of full resolution.",

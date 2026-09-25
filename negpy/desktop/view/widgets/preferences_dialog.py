@@ -380,6 +380,17 @@ class PreferencesDialog(QDialog):
             grid.addWidget(hint_label(note), row, 0, 1, 2)
             row += 1
 
+        self.vram_warning_box = self._add_checkbox(
+            grid,
+            row,
+            "Show GPU memory warning",
+            bool(self.repo.get_global_setting("show_vram_capped_warning", default=True)),
+            "Status message when a scan is downsampled because it is larger than the GPU texture "
+            "cap above. Turning this off does not change the downsampling itself.",
+        )
+        self.vram_warning_box.toggled.connect(self._on_vram_warning_changed)
+        row += 1
+
         return host
 
     def _build_storage(self) -> QWidget:
@@ -479,6 +490,9 @@ class PreferencesDialog(QDialog):
     def _on_low_vram_tiling_changed(self, checked: bool) -> None:
         APP_CONFIG.low_vram_export_tiling = bool(checked)
         self.repo.save_global_setting("low_vram_export_tiling", bool(checked))
+
+    def _on_vram_warning_changed(self, checked: bool) -> None:
+        self.repo.save_global_setting("show_vram_capped_warning", bool(checked))
 
     def _open_shortcut_editor(self) -> None:
         manager = getattr(self._window, "shortcut_manager", None)

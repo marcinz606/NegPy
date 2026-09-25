@@ -30,6 +30,14 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg.slider_values_box.setChecked(True)
         self.assertIs(dlg.repo.data["show_slider_values"], True)
 
+    def test_vram_warning_box_defaults_on(self):
+        self.assertTrue(_dlg().vram_warning_box.isChecked())
+
+    def test_vram_warning_toggle_is_persisted(self):
+        dlg = _dlg()
+        dlg.vram_warning_box.setChecked(False)
+        self.assertIs(dlg.repo.data["show_vram_capped_warning"], False)
+
     def test_canvas_background_pills_cover_every_colour(self):
         from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 
