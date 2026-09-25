@@ -30,6 +30,8 @@ const CARRIER_INNER_ROUGH: f32 = 0.2;
 const CARRIER_OUTER_JITTER: f32 = 0.4;
 const CARRIER_CORNER: f32 = 1.4;
 const CARRIER_GATE_CORNER: f32 = 0.2;
+const CARRIER_OFFSET_X: f32 = -0.2;
+const CARRIER_OFFSET_Y: f32 = -0.25;
 const CARRIER_MARGIN: f32 = 0.7;
 const CARRIER_SOFT: f32 = 0.22;
 const CARRIER_FILED_SOFT: f32 = 0.06;
@@ -105,12 +107,13 @@ fn carrier_arc(r: f32, at: f32, end: f32) -> f32 {
     return r - sqrt(max(r * r - x * x, 0.0));
 }
 
-/// x = filed boundary, y = film-gate boundary, px from the print edge.
-fn carrier_bounds(edge: i32, s: f32, end: f32, n2: f32) -> vec2<f32> {
+/// x = filed boundary, px from the aperture frame's edge (`fend` in that frame);
+/// y = film-gate boundary, px from the print edge.
+fn carrier_bounds(edge: i32, s: f32, end: f32, fend: f32, n2: f32) -> vec2<f32> {
     let w = params.carrier_width_px;
     let margin = w * CARRIER_MARGIN;
     let jitter = CARRIER_OUTER_JITTER * carrier_prof_at(edge + 4, s) + CARRIER_NOISE_OUTER * n2;
-    let outer = margin + w * params.carrier_rough * jitter + carrier_arc(w * CARRIER_CORNER * params.carrier_corner, margin, end);
+    let outer = margin + w * params.carrier_rough * jitter + carrier_arc(w * CARRIER_CORNER * params.carrier_corner, margin, fend);
     let wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * carrier_prof_at(edge, s) + CARRIER_NOISE_INNER * n2;
     let inner = margin + w * (1.0 + wobble) + carrier_arc(w * CARRIER_GATE_CORNER, margin + w, end);
     return vec2<f32>(outer, inner);
@@ -162,37 +165,47 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let d_r = full.x - 1.0 - px.x;
         let end_x = min(px.x, full.x - 1.0 - px.x);
         let end_y = min(px.y, full.y - 1.0 - px.y);
+        // The filed edge in the aperture's own frame.
+        let q = px - params.carrier_width_px * vec2<f32>(CARRIER_OFFSET_X, CARRIER_OFFSET_Y);
+        let f_dt = q.y;
+        let f_db = full.y - 1.0 - q.y;
+        let f_dl = q.x;
+        let f_dr = full.x - 1.0 - q.x;
+        let fend_x = min(q.x, full.x - 1.0 - q.x);
+        let fend_y = min(q.y, full.y - 1.0 - q.y);
         let cell = max(1.0, params.carrier_width_px * CARRIER_NOISE_CELL);
         let n2 = carrier_noise(px.x / cell, px.y / cell);
-        let b_t = carrier_bounds(0, sx, end_x, n2);
-        let b_b = carrier_bounds(1, sx, end_x, n2);
-        let b_l = carrier_bounds(2, sy, end_y, n2);
-        let b_r = carrier_bounds(3, sy, end_y, n2);
+        let b_t = carrier_bounds(0, sx, end_x, fend_x, n2);
+        let b_b = carrier_bounds(1, sx, end_x, fend_x, n2);
+        let b_l = carrier_bounds(2, sy, end_y, fend_y, n2);
+        let b_r = carrier_bounds(3, sy, end_y, fend_y, n2);
         let in_t = clamp((d_t - b_t.y) / soft + 0.5, 0.0, 1.0);
         let in_b = clamp((d_b - b_b.y) / soft + 0.5, 0.0, 1.0);
         let in_l = clamp((d_l - b_l.y) / soft + 0.5, 0.0, 1.0);
         let in_r = clamp((d_r - b_r.y) / soft + 0.5, 0.0, 1.0);
         let soft_filed = max(1.0, params.carrier_width_px * CARRIER_FILED_SOFT);
-        let out_t = clamp((d_t - b_t.x) / soft_filed + 0.5, 0.0, 1.0);
-        let out_b = clamp((d_b - b_b.x) / soft_filed + 0.5, 0.0, 1.0);
-        let out_l = clamp((d_l - b_l.x) / soft_filed + 0.5, 0.0, 1.0);
-        let out_r = clamp((d_r - b_r.x) / soft_filed + 0.5, 0.0, 1.0);
+        let out_t = clamp((f_dt - b_t.x) / soft_filed + 0.5, 0.0, 1.0);
+        let out_b = clamp((f_db - b_b.x) / soft_filed + 0.5, 0.0, 1.0);
+        let out_l = clamp((f_dl - b_l.x) / soft_filed + 0.5, 0.0, 1.0);
+        let out_r = clamp((f_dr - b_r.x) / soft_filed + 0.5, 0.0, 1.0);
         var lit = 0.0;
         if (params.carrier_flare > 0.0) {
             // Floored |noise|, not a one-sided gate: that left whole edges with no flare.
             let amp = params.carrier_flare * CARRIER_FLARE_GAIN * (CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * abs(n2));
-            let f_t = carrier_flare(d_t, b_t.x);
-            let f_b = carrier_flare(d_b, b_b.x);
-            let f_l = carrier_flare(d_l, b_l.x);
-            let f_r = carrier_flare(d_r, b_r.x);
+            let f_t = carrier_flare(f_dt, b_t.x);
+            let f_b = carrier_flare(f_db, b_b.x);
+            let f_l = carrier_flare(f_dl, b_l.x);
+            let f_r = carrier_flare(f_dr, b_r.x);
             // An edge's bevel spans only the aperture, so the other three edges gate its flare.
             lit = amp * (f_t.x * f_b.y * f_l.y * f_r.y + f_b.x * f_t.y * f_l.y * f_r.y
                 + f_l.x * f_t.y * f_b.y * f_r.y + f_r.x * f_t.y * f_b.y * f_l.y);
         }
+        let a_out = out_t * out_b * out_l * out_r;
         let paper = vec3<f32>(params.paper_r, params.paper_g, params.paper_b);
-        let rebate = paper * carrier_tone_at(out_t * out_b * out_l * out_r + lit);
-        let a_in = in_t * in_b * in_l * in_r;
-        color = color * a_in + rebate * (1.0 - a_in);
+        let rebate = paper * carrier_tone_at(a_out + lit);
+        // The aperture passes the picture too: filed short of the gate, it prints bare paper.
+        let shown = in_t * in_b * in_l * in_r * a_out;
+        color = color * shown + rebate * (1.0 - shown);
     }
 
     textureStore(output_tex, coords, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));

@@ -14,6 +14,10 @@ CARRIER_OUTER_JITTER = 0.4
 CARRIER_CORNER = 1.4
 # A camera gate's corners are machined with a small fixed radius; Corners rounds the filed ones.
 CARRIER_GATE_CORNER = 0.2
+# The film never sits centered in the carrier: the aperture is off the picture by this much,
+# up and left, so the rebate prints wider at the top and left than at the bottom and right.
+CARRIER_OFFSET_X = -0.2
+CARRIER_OFFSET_Y = -0.25
 CARRIER_MARGIN = 0.7
 # The gate prints soft; filed metal is a hard stop, which is what reads as filed.
 CARRIER_SOFT = 0.22
@@ -176,7 +180,16 @@ def apply_carrier(
     band = (
         int(
             np.ceil(
-                width_px * (CARRIER_MARGIN + CARRIER_CORNER * corner + 1.0 + CARRIER_JITTER + CARRIER_NOISE_OUTER + CARRIER_NOISE_INNER)
+                width_px
+                * (
+                    CARRIER_MARGIN
+                    + CARRIER_CORNER * corner
+                    + 1.0
+                    + CARRIER_JITTER
+                    + CARRIER_NOISE_OUTER
+                    + CARRIER_NOISE_INNER
+                    + max(abs(CARRIER_OFFSET_X), abs(CARRIER_OFFSET_Y))
+                )
                 + max(1.0, width_px * CARRIER_SOFT)
             )
         )
@@ -220,6 +233,11 @@ def _carrier_block(
     sy = (py + 0.5) / np.float32(h)
     end_x = np.minimum(px, (w - 1.0) - px)
     end_y = np.minimum(py, (h - 1.0) - py)
+    # The filed edge in the aperture's own frame.
+    qx = px - np.float32(width_px * CARRIER_OFFSET_X)
+    qy = py - np.float32(width_px * CARRIER_OFFSET_Y)
+    fend_x = np.minimum(qx, (w - 1.0) - qx)
+    fend_y = np.minimum(qy, (h - 1.0) - qy)
     n2 = carrier_noise(px / cell, py / cell)
 
     def prof(row: int, s: np.ndarray) -> np.ndarray:
@@ -233,26 +251,32 @@ def _carrier_block(
         x = np.clip(r - (end - at), 0.0, r)
         return r - np.sqrt(np.maximum(r * r - x * x, 0.0))
 
-    def bounds(edge: int, s: np.ndarray, end: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """(filed, gate) boundary, px from the print edge."""
+    def bounds(edge: int, s: np.ndarray, end: np.ndarray, fend: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(filed, gate) boundary: the filed one px from the aperture frame's edge, the gate px from the print's."""
         outer = margin + width_px * rough * (CARRIER_OUTER_JITTER * prof(edge + 4, s) + CARRIER_NOISE_OUTER * n2)
         wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * prof(edge, s) + CARRIER_NOISE_INNER * n2
         inner = margin + width_px * (1.0 + wobble) + arc(gate_radius, margin + width_px, end)
-        return outer + arc(radius, margin, end), inner
+        return outer + arc(radius, margin, fend), inner
 
-    edges = ((0, sx, end_x, py), (1, sx, end_x, (h - 1.0) - py), (2, sy, end_y, px), (3, sy, end_y, (w - 1.0) - px))
+    # (edge, profile position, gate end, filed end, gate distance, filed distance)
+    edges = (
+        (0, sx, end_x, fend_x, py, qy),
+        (1, sx, end_x, fend_x, (h - 1.0) - py, (h - 1.0) - qy),
+        (2, sy, end_y, fend_y, px, qx),
+        (3, sy, end_y, fend_y, (w - 1.0) - px, (w - 1.0) - qx),
+    )
     reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)
     # Floored |noise|, not a one-sided gate: that left whole edges with no flare.
     flare_amp = flare * CARRIER_FLARE_GAIN * (CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * np.abs(n2))
     a_in = np.ones(img.shape[:2], dtype=np.float32)
     a_out = np.ones(img.shape[:2], dtype=np.float32)
     peaks, gates = [], []
-    for e, s, end, d in edges:
-        outer, inner = bounds(e, s, end)
+    for e, s, end, fend, d, fd in edges:
+        outer, inner = bounds(e, s, end, fend)
         a_in = a_in * np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
-        a_out = a_out * np.clip((d - outer) / soft_filed + 0.5, 0.0, 1.0)
-        peaks.append(np.clip(1.0 - np.abs(d - outer) / reach, 0.0, 1.0) ** 2)
-        gates.append(np.clip(1.0 + (d - outer) / reach, 0.0, 1.0))
+        a_out = a_out * np.clip((fd - outer) / soft_filed + 0.5, 0.0, 1.0)
+        peaks.append(np.clip(1.0 - np.abs(fd - outer) / reach, 0.0, 1.0) ** 2)
+        gates.append(np.clip(1.0 + (fd - outer) / reach, 0.0, 1.0))
     lit = np.float32(0.0)
     if flare > 0.0:
         # An edge's bevel spans only the aperture, so the other three edges gate its flare.
@@ -261,8 +285,9 @@ def _carrier_block(
         lit = flare_amp * lit
 
     rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out + lit)
-    a_in = a_in[..., None]
-    return img * a_in + rebate * (1.0 - a_in)
+    # The aperture passes the picture too: filed short of the gate, it prints bare paper.
+    shown = (a_in * a_out)[..., None]
+    return img * shown + rebate * (1.0 - shown)
 
 
 def apply_vignette(img: ImageBuffer, stops: float, size: float, roundness: float = 0.0) -> ImageBuffer:

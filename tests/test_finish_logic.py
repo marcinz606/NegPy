@@ -247,6 +247,21 @@ class TestCarrier(unittest.TestCase):
         np.testing.assert_array_equal(round_[26:60, 26:60], square[26:60, 26:60])
         self.assertLess(float(square[26, 26].max()), 0.05)
 
+    def test_film_sits_off_center_in_the_carrier(self) -> None:
+        """Top and left print wider rebates than bottom and right, and every side keeps one,
+        even at full roughness and round corners."""
+        img = np.full((300, 400, 3), 0.5, dtype=np.float32)
+
+        def rebates(a: np.ndarray) -> list[int]:
+            black = a.max(axis=-1) < 0.05
+            return [int(black[:80, 200].sum()), int(black[-80:, 200].sum()), int(black[150, :80].sum()), int(black[150, -80:].sum())]
+
+        top, bottom, left, right = rebates(apply_carrier(img, width_px=16.0, rough=0.0))
+        self.assertGreater(top, bottom)
+        self.assertGreater(left, right)
+        rough = apply_carrier(img, width_px=16.0, rough=1.0, corner=1.0)
+        self.assertGreater(min(rebates(rough)), 0)
+
     def test_flare_deterministic(self) -> None:
         img = self._image()
         a = apply_carrier(img, width_px=8.0, rough=1.0, flare=0.7)
