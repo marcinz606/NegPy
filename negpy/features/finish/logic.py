@@ -25,7 +25,7 @@ CARRIER_FILED_SOFT = 0.06
 # Flare is light off the filed bevel onto the paper: an exposure fraction added outside
 # the aperture, so it prints through the tone table like the penumbra.
 CARRIER_FLARE_DEPTH = 0.25
-CARRIER_FLARE_GAIN = 0.3
+CARRIER_FLARE_GAIN = 0.6
 CARRIER_FLARE_BASE = 0.35
 # A 1-D profile is a height field, so it cannot overhang or shed a fleck. The 2-D field
 # displacing the distance field is what makes the edge read as torn metal. Hash noise
