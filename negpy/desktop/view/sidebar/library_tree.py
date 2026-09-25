@@ -1,3 +1,5 @@
+import os
+
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
@@ -6,11 +8,13 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHeaderView,
+    QInputDialog,
     QMenu,
     QMessageBox,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QVBoxLayout,
     QWidget,
 )
@@ -33,16 +37,19 @@ from negpy.services.assets.library import folder_counts, folder_label, summarize
 from negpy.services.assets.presets import is_valid_preset_name
 
 _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
+_MISSING_ROLE = Qt.ItemDataRole.UserRole + 1
+_NAME_ROLE = Qt.ItemDataRole.UserRole + 2
+_FOLDER_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
 class LibraryTree(QWidget):
-    """The library: every Roll imported or built, in one flat, flat-colored list.
+    """The library: every Roll imported or built, in one flat-colored tree.
 
     A folder is only ever an import source, never something browsed live: importing
-    recognizes it (or, for a parent full of scan folders, recognizes each immediate
-    subfolder as its own roll in one pass), and from then on the roll -- not the path
-    -- is what is opened, renamed or deleted. NegPy owns nothing on disk here;
-    re-importing after Finder reorganizes a folder just re-reads its count.
+    recognizes it (or, for a parent full of scan folders, recognizes each folder
+    with images under it as its own roll in one pass), and from then on the roll -- not the path
+    -- is what is opened, renamed or deleted. NegPy owns nothing on disk here.
+    Refresh finds new roll folders under those parents and marks rolls whose folder is gone.
 
     Click selects, double-click or Enter opens a roll -- opening is the expensive
     step, so it waits for the second click.
@@ -80,8 +87,10 @@ class LibraryTree(QWidget):
 
         self.refresh_btn = QToolButton()
         self.refresh_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-        self.refresh_btn.setToolTip(wrap_tooltip("Re-read every roll's frame count from disk"))
-        self.refresh_btn.clicked.connect(self.reload)
+        self.refresh_btn.setToolTip(
+            wrap_tooltip("Find new rolls in folders imported as subfolders, and re-read every roll's frame count from disk")
+        )
+        self.refresh_btn.clicked.connect(self.refresh)
 
         # Opt-in (Preferences); hidden until then. Decodes and embeds every photo
         # under library_roots once, so search by meaning can rank the whole library,
@@ -96,7 +105,12 @@ class LibraryTree(QWidget):
         self.sort_btn.order_selected.connect(lambda order: self.set_sort(order, self._sort_descending, save=True))
         self.sort_btn.direction_selected.connect(lambda descending: self.set_sort(self._sort_order, descending, save=True))
 
-        for btn in (self.import_btn, self.refresh_btn, self.index_btn, self.sort_btn):
+        self.filters_btn = QToolButton()
+        self.filters_btn.setIcon(qta.icon("fa5s.filter", color=THEME.text_primary))
+        self.filters_btn.setToolTip(wrap_tooltip("Discovery Filters — folder names that importing subfolders and Refresh skip"))
+        self.filters_btn.clicked.connect(self.edit_discovery_filters)
+
+        for btn in (self.import_btn, self.refresh_btn, self.index_btn, self.filters_btn, self.sort_btn):
             btn.setIconSize(QSize(TOOLBAR_ICON_SIZE, TOOLBAR_ICON_SIZE))
             btn.setFixedHeight(TOOLBAR_BUTTON_HEIGHT)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -105,6 +119,7 @@ class LibraryTree(QWidget):
             (self.import_btn, "Import"),
             (self.refresh_btn, "Refresh"),
             (self.index_btn, "Index Library"),
+            (self.filters_btn, "Discovery Filters…"),
             (self.sort_btn, "Sort"),
         ):
             self.toolbar.add_button(widget, label)
@@ -116,10 +131,6 @@ class LibraryTree(QWidget):
         self.tree.setColumnCount(2)
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
-        # Every roll is a top-level item, never a child -- the branch/twisty gutter Qt
-        # reserves by default has nothing to show and only pushes the icon right.
-        self.tree.setRootIsDecorated(False)
-        self.tree.setIndentation(0)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.header().setStretchLastSection(False)
@@ -159,8 +170,7 @@ class LibraryTree(QWidget):
         self.repo.save_global_setting("last_open_folder", path)
         images, _ = folder_counts(path)
         if not images:
-            self.controller.set_status(f"No images directly in “{folder_label(path)}”", 4000)
-            return False
+            return self.import_subfolders(path)
         if not confirm_load_roll(self, self.repo, images, folder_label(path)):
             return False
         is_new = rolls.folder_roll_id_for_path(self.repo, path) is None
@@ -172,21 +182,38 @@ class LibraryTree(QWidget):
         return True
 
     def prompt_import_subfolders(self) -> bool:
-        """Import Subfolders as Rolls: every immediate subfolder of a chosen parent
-        becomes its own roll, one level only, without opening any of them."""
+        """Import Subfolders as Rolls: every folder with images under a chosen parent,
+        at any depth, becomes its own roll without opening any of them."""
         start = self.repo.get_global_setting("last_open_folder", "") or ""
         parent = QFileDialog.getExistingDirectory(self, "Import Subfolders as Rolls", start)
         if not parent:
             return False
         self.repo.save_global_setting("last_open_folder", parent)
+        return self.import_subfolders(parent)
+
+    def import_subfolders(self, parent: str) -> bool:
+        """Recognize every roll folder under *parent*, without opening any of them."""
         roll_ids = self.controller.import_subfolders_as_rolls(parent)
         if not roll_ids:
-            self.controller.set_status(f"No subfolders found in “{folder_label(parent)}”", 4000)
+            self.controller.set_status(f"No folders with images found in “{folder_label(parent)}”", 4000)
             return False
-        self.controller.set_status(f"Imported {count_of(len(roll_ids), 'roll')}", 3000)
+        self.controller.set_status(f"Imported {count_of(len(roll_ids), 'roll')} from “{folder_label(parent)}”", 3000)
         self.reload()
         self.rolls_changed.emit()
         return True
+
+    def edit_discovery_filters(self) -> bool:
+        """Edit the folder-name filters discovery skips, one per line."""
+        text, ok = QInputDialog.getMultiLineText(
+            self,
+            "Discovery Filters",
+            "Skip folders whose name contains a line.\nA line with * must match the whole name (raw_*).",
+            "\n".join(rolls.discovery_filters(self.repo)),
+        )
+        if ok:
+            rolls.set_discovery_filters(self.repo, text.splitlines())
+            self.refresh()
+        return ok
 
     # --- rolls -----------------------------------------------------------------
 
@@ -226,26 +253,100 @@ class LibraryTree(QWidget):
         self.toolbar.set_button_visible(self.index_btn, enabled)
         self.index_btn.setEnabled(enabled and semantic_model.clip_model_ready())
 
+    def refresh(self) -> None:
+        """Refresh: rediscover rolls under the imported parents, then re-read every count."""
+        found, dropped = self.controller.rediscover_rolls()
+        self.reload()
+        if found or dropped:
+            parts = [f"Found {count_of(found, 'new roll')}"] if found else []
+            parts += [f"removed {count_of(dropped, 'filtered roll')}"] if dropped else []
+            self.controller.set_status(" · ".join(parts).capitalize(), 3000)
+            self.rolls_changed.emit()
+
     def reload(self) -> None:
         selected = self._selected_roll_id()
+        collapsed = {item.data(0, _FOLDER_ROLE) for item in self._folder_items() if not item.isExpanded()}
         self.tree.clear()
         entries = self._sorted(rolls.all_rolls_sorted(self.repo))
         self.empty_label.setVisible(not entries)
+        # A folder roll named "a/b/c" sits under folder rows "a" and "a/b", placed where
+        # their first roll falls in the sort.
+        folders: dict[str, QTreeWidgetItem] = {}
         for roll_id, entry in entries:
-            self.tree.addTopLevelItem(self._make_item(roll_id, entry))
+            parts = entry.get("name", "").split(rolls.ROLL_PATH_SEP) if entry.get("kind") == "folder" else [entry.get("name", "")]
+            parent = self.tree.invisibleRootItem()
+            for depth in range(1, len(parts)):
+                key = rolls.ROLL_PATH_SEP.join(parts[:depth])
+                if key not in folders:
+                    folder_path = entry.get("folder_path", "")
+                    for _ in range(len(parts) - depth):
+                        folder_path = os.path.dirname(folder_path)
+                    folders[key] = self._make_folder_item(parts[depth - 1], folder_path)
+                    parent.addChild(folders[key])
+                parent = folders[key]
+            parent.addChild(self._make_item(roll_id, entry, parts[-1]))
+        for item in folders.values():
+            item.setText(1, count_of(self._leaf_count(item), "roll"))
+            item.setExpanded(item.data(0, _FOLDER_ROLE) not in collapsed)
         if selected:
             self._select_roll(selected)
 
-    def _make_item(self, roll_id: str, entry: dict) -> QTreeWidgetItem:
+    @staticmethod
+    def _make_folder_item(name: str, folder_path: str) -> QTreeWidgetItem:
+        """A folder row: groups rolls, is not a roll itself, so it opens and selects nothing."""
+        item = QTreeWidgetItem([name, ""])
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        item.setData(0, _FOLDER_ROLE, folder_path)
+        item.setToolTip(0, folder_path)
+        item.setIcon(0, qta.icon("fa5s.folder-open", color=THEME.text_secondary))
+        item.setForeground(1, QColor(THEME.text_muted))
+        return item
+
+    def _leaf_count(self, item: QTreeWidgetItem) -> int:
+        return sum(
+            self._leaf_count(child) if child.data(0, _ROLL_ID_ROLE) is None else 1
+            for child in (item.child(i) for i in range(item.childCount()))
+        )
+
+    def _all_items(self) -> list[QTreeWidgetItem]:
+        items = []
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            items.append(it.value())
+            it += 1
+        return items
+
+    def _roll_items(self) -> list[QTreeWidgetItem]:
+        return [item for item in self._all_items() if item.data(0, _ROLL_ID_ROLE) is not None]
+
+    def _folder_items(self) -> list[QTreeWidgetItem]:
+        return [item for item in self._all_items() if item.data(0, _FOLDER_ROLE)]
+
+    def _make_item(self, roll_id: str, entry: dict, label: str) -> QTreeWidgetItem:
         is_folder = entry.get("kind") == "folder"
-        item = QTreeWidgetItem([entry.get("name", ""), summarize_counts(self._frame_count(entry), 0)])
+        folder_path = entry.get("folder_path", "")
+        missing = is_folder and not os.path.isdir(folder_path)
+        count = "folder missing" if missing else summarize_counts(self._frame_count(entry), 0)
+        item = QTreeWidgetItem([label, count])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
+        item.setData(0, _NAME_ROLE, entry.get("name", ""))
+        item.setData(0, _MISSING_ROLE, missing)
         # Roll kind reads off the icon's shape: a folder roll is a folder, a virtual one
         # the search it was built from. Colour is spoken for elsewhere (film mode, channels).
         item.setIcon(0, qta.icon("fa5s.folder" if is_folder else "fa5s.search", color=THEME.text_secondary))
-        item.setForeground(1, QColor(THEME.text_muted))
-        item.setToolTip(0, entry.get("folder_path", "") if is_folder else "Built from a search or a hand-picked set of frames")
+        item.setForeground(1, QColor(self._count_color(item)))
+        if missing:
+            item.setToolTip(0, f"Folder not found on disk: {folder_path}")
+            item.setToolTip(1, "Folder not found on disk — move it back, or delete the roll")
+        else:
+            item.setToolTip(0, folder_path if is_folder else "Built from a search or a hand-picked set of frames")
         return item
+
+    @staticmethod
+    def _count_color(item: QTreeWidgetItem) -> str:
+        if item.isSelected():
+            return THEME.text_on_accent
+        return THEME.warn_amber if item.data(0, _MISSING_ROLE) else THEME.text_muted
 
     def _frame_count(self, entry: dict) -> int:
         if entry.get("kind") == "folder":
@@ -258,8 +359,7 @@ class LibraryTree(QWidget):
         return item.data(0, _ROLL_ID_ROLE) if item is not None else None
 
     def _select_roll(self, roll_id) -> None:
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
+        for item in self._roll_items():
             if item.data(0, _ROLL_ID_ROLE) == roll_id:
                 item.setSelected(True)
                 self.tree.setCurrentItem(item)
@@ -268,35 +368,43 @@ class LibraryTree(QWidget):
     def _recolor_counts(self) -> None:
         # A per-item brush is out of a stylesheet's reach, so the count column has to be repainted
         # by hand or it stays grey on the accent red.
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
-            item.setForeground(1, QColor(THEME.text_on_accent) if item.isSelected() else QColor(THEME.text_muted))
+        for item in self._roll_items():
+            item.setForeground(1, QColor(self._count_color(item)))
 
     # --- opening -----------------------------------------------------------
 
     def _on_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        self.controller.open_roll(item.data(0, _ROLL_ID_ROLE))
+        roll_id = item.data(0, _ROLL_ID_ROLE)
+        if roll_id is not None:
+            self.controller.open_roll(roll_id)
 
     def open_selection(self) -> None:
         """Enter: open the current roll."""
         item = self.tree.currentItem()
-        if item is not None:
+        if item is not None and item.data(0, _ROLL_ID_ROLE) is not None:
             self.controller.open_roll(item.data(0, _ROLL_ID_ROLE))
 
     def _selected_roll_items(self) -> list[tuple]:
-        return [(item.data(0, _ROLL_ID_ROLE), item.text(0)) for item in self.tree.selectedItems()]
+        return [
+            (item.data(0, _ROLL_ID_ROLE), item.data(0, _NAME_ROLE))
+            for item in self.tree.selectedItems()
+            if item.data(0, _ROLL_ID_ROLE) is not None
+        ]
 
     def _show_context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        if item is not None:
+        if item is not None and item.data(0, _FOLDER_ROLE):
+            menu.addAction("Delete…").triggered.connect(lambda: self._delete_folder(item.data(0, _FOLDER_ROLE), item.text(0)))
+            menu.addSeparator()
+        elif item is not None and item.data(0, _ROLL_ID_ROLE) is not None:
             roll_id = item.data(0, _ROLL_ID_ROLE)
             selection = self._selected_roll_items()
             if len(selection) > 1 and roll_id in dict(selection):
                 menu.addAction(f"Delete {len(selection)} Rolls…").triggered.connect(lambda: self._delete_rolls(selection))
             else:
-                name = item.text(0)
+                name = item.data(0, _NAME_ROLE)
                 menu.addAction("Open").triggered.connect(lambda: self.controller.open_roll(roll_id))
                 is_active = roll_id == self.controller.state.active_roll_id
                 analyze_action = menu.addAction("Roll Analysis")
@@ -313,6 +421,10 @@ class LibraryTree(QWidget):
     def _rename_roll(self, roll_id: str, current_name: str) -> None:
         entry = rolls.roll_for_id(self.repo, roll_id)
         is_folder = bool(entry) and entry.get("kind") == "folder"
+        # Rename changes the roll's own folder name; the folder rows above it stay.
+        prefix = ""
+        if is_folder and rolls.ROLL_PATH_SEP in current_name:
+            prefix, current_name = current_name.rsplit(rolls.ROLL_PATH_SEP, 1)
 
         dlg = RenameRollDialog(current_name, self, folder_backed=is_folder)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -334,8 +446,7 @@ class LibraryTree(QWidget):
                     "and that you have permission to rename it here.",
                 )
                 return
-        else:
-            rolls.rename_roll(self.repo, roll_id, name)
+        rolls.rename_roll(self.repo, roll_id, f"{prefix}{rolls.ROLL_PATH_SEP}{name}" if prefix else name)
 
         self.reload()
         self.rolls_changed.emit()
@@ -343,6 +454,12 @@ class LibraryTree(QWidget):
     def _delete_roll(self, roll_id: str, name: str) -> None:
         if confirm_delete_named(self, "Roll", name, informative="This only forgets the roll — nothing on disk is touched."):
             rolls.delete_roll(self.repo, roll_id)
+            self.reload()
+            self.rolls_changed.emit()
+
+    def _delete_folder(self, folder_path: str, name: str) -> None:
+        if confirm_delete_named(self, "Folder", name, informative="This forgets every roll in it — nothing on disk is touched."):
+            rolls.delete_folder_rolls(self.repo, folder_path)
             self.reload()
             self.rolls_changed.emit()
 

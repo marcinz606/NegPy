@@ -27,6 +27,12 @@ from negpy.services.assets.rolls import (
     fork_edit,
     folder_roll_id_for_path,
     frame_override_cards,
+    delete_folder_rolls,
+    discovery_filters,
+    import_sources,
+    matches_discovery_filter,
+    prune_filtered_rolls,
+    set_discovery_filters,
     import_subfolders_as_rolls,
     is_forked,
     recognize_folder,
@@ -201,23 +207,63 @@ def test_all_rolls_sorted_lists_every_kind_by_name():
     assert names == ["apple", "Zebra"]
 
 
-def test_import_subfolders_as_rolls_recognizes_each_immediate_subfolder(tmp_path):
-    (tmp_path / "roll_a").mkdir()
-    (tmp_path / "roll_b").mkdir()
-    (tmp_path / ".hidden").mkdir()
-    (tmp_path / "roll_a" / "nested").mkdir()
+def _roll_dir(path, *images):
+    path.mkdir(parents=True, exist_ok=True)
+    for name in images or ("f1.tif",):
+        (path / name).write_bytes(b"x")
+    return path
+
+
+def test_import_subfolders_as_rolls_finds_nested_roll_folders(tmp_path):
+    tmp_path = tmp_path / "scans"
+    _roll_dir(tmp_path / "2024" / "roll_a")
+    _roll_dir(tmp_path / "2024" / "summer" / "roll_b")
+    _roll_dir(tmp_path / ".hidden")
+    (tmp_path / "empty").mkdir()
     repo = _repo()
 
     roll_ids = import_subfolders_as_rolls(repo, str(tmp_path))
 
     names = sorted(roll_for_id(repo, rid)["name"] for rid in roll_ids)
-    assert names == ["roll_a", "roll_b"]
-    # One level only: "nested" inside roll_a is not recognized on its own.
-    assert folder_roll_id_for_path(repo, str(tmp_path / "roll_a" / "nested")) is None
+    assert names == ["scans/2024/roll_a", "scans/2024/summer/roll_b"]
+    # A folder with no images of its own is not a roll.
+    assert folder_roll_id_for_path(repo, str(tmp_path / "2024")) is None
+
+
+def test_import_subfolders_as_rolls_does_not_walk_into_a_roll_folder(tmp_path):
+    _roll_dir(tmp_path / "roll_a")
+    _roll_dir(tmp_path / "roll_a" / "TIFF", "f1_export.tif")
+    repo = _repo()
+
+    import_subfolders_as_rolls(repo, str(tmp_path))
+
+    assert folder_roll_id_for_path(repo, str(tmp_path / "roll_a")) is not None
+    assert folder_roll_id_for_path(repo, str(tmp_path / "roll_a" / "TIFF")) is None
+
+
+def test_import_subfolders_as_rolls_names_each_roll_by_its_path_from_the_picked_folder(tmp_path):
+    day = tmp_path / "20260901"
+    _roll_dir(day / "kentmere_400_1")
+    _roll_dir(day / "kentmere_400_2")
+    repo = _repo()
+
+    roll_ids = import_subfolders_as_rolls(repo, str(day))
+
+    names = sorted(roll_for_id(repo, rid)["name"] for rid in roll_ids)
+    assert names == ["20260901/kentmere_400_1", "20260901/kentmere_400_2"]
+
+
+def test_import_subfolders_as_rolls_names_a_picked_roll_folder_by_its_own_name(tmp_path):
+    roll = _roll_dir(tmp_path / "kentmere_400_1")
+    repo = _repo()
+
+    [roll_id] = import_subfolders_as_rolls(repo, str(roll))
+
+    assert roll_for_id(repo, roll_id)["name"] == "kentmere_400_1"
 
 
 def test_import_subfolders_as_rolls_is_idempotent_per_subfolder(tmp_path):
-    (tmp_path / "roll_a").mkdir()
+    _roll_dir(tmp_path / "roll_a")
     repo = _repo()
 
     first = import_subfolders_as_rolls(repo, str(tmp_path))
@@ -227,9 +273,45 @@ def test_import_subfolders_as_rolls_is_idempotent_per_subfolder(tmp_path):
     assert len(saved_rolls(repo)) == 1
 
 
+def test_import_subfolders_as_rolls_remembers_the_parent_as_a_source(tmp_path):
+    _roll_dir(tmp_path / "roll_a")
+    repo = _repo()
+
+    import_subfolders_as_rolls(repo, str(tmp_path))
+    import_subfolders_as_rolls(repo, str(tmp_path))
+
+    assert import_sources(repo) == [str(tmp_path)]
+
+
+def test_import_subfolders_as_rolls_can_skip_a_deleted_folder_roll(tmp_path):
+    roll_a = _roll_dir(tmp_path / "roll_a")
+    _roll_dir(tmp_path / "roll_b")
+    repo = _repo()
+    import_subfolders_as_rolls(repo, str(tmp_path))
+    delete_roll(repo, folder_roll_id_for_path(repo, str(roll_a)))
+
+    import_subfolders_as_rolls(repo, str(tmp_path), skip_dismissed=True)
+    assert folder_roll_id_for_path(repo, str(roll_a)) is None
+    assert len(saved_rolls(repo)) == 1
+
+    import_subfolders_as_rolls(repo, str(tmp_path))
+    assert folder_roll_id_for_path(repo, str(roll_a)) is not None
+
+
+def test_recognizing_a_deleted_folder_by_hand_lets_discovery_find_it_again(tmp_path):
+    roll_a = _roll_dir(tmp_path / "roll_a")
+    repo = _repo()
+    import_subfolders_as_rolls(repo, str(tmp_path))
+    delete_roll(repo, folder_roll_id_for_path(repo, str(roll_a)))
+    roll_id = recognize_folder(repo, str(roll_a))
+
+    assert import_subfolders_as_rolls(repo, str(tmp_path), skip_dismissed=True) == [roll_id]
+
+
 def test_import_subfolders_as_rolls_on_a_missing_parent_returns_nothing():
     repo = _repo()
     assert import_subfolders_as_rolls(repo, "/does/not/exist") == []
+    assert import_sources(repo) == []
 
 
 def test_roll_edit_hash_suffixes_the_roll_id():
@@ -762,3 +844,87 @@ def test_same_value_reads_a_stored_list_as_the_tuple_it_was():
     assert not same_value((0.1, 0.9), [0.1, 0.8])
     assert same_value("C41", "C41")
     assert config_value([[1.0, 0.1], [0.0, 1.0]]) == matrix
+
+
+def test_folder_roll_lookup_matches_windows_spellings_of_one_folder(monkeypatch):
+    """A folder dialog on Windows gives "C:/Scans/Roll", a walk gives "C:\\scans\\roll"."""
+    import ntpath
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("negpy.services.assets.rolls.os", SimpleNamespace(path=ntpath, sep="\\"))
+    repo = _repo()
+    roll_id = recognize_folder(repo, "C:/Scans/Roll")
+
+    assert folder_roll_id_for_path(repo, "C:\\scans\\roll") == roll_id
+    assert recognize_folder(repo, "C:\\Scans\\Roll\\") == roll_id
+    assert len(saved_rolls(repo)) == 1
+
+
+def test_discovery_filters_default_to_export_and_can_be_replaced():
+    repo = _repo()
+    assert discovery_filters(repo) == ["export"]
+
+    set_discovery_filters(repo, ["  raw_* ", "", "tmp"])
+
+    assert discovery_filters(repo) == ["raw_*", "tmp"]
+
+
+def test_discovery_filter_matches_a_phrase_anywhere_or_a_wildcard_on_the_whole_name():
+    assert matches_discovery_filter("Exports_TIFF", ["export"])
+    assert matches_discovery_filter("raw_scans", ["raw_*"])
+    assert not matches_discovery_filter("my_raw_scans", ["raw_*"])
+    assert not matches_discovery_filter("roll01", ["export", "raw_*"])
+
+
+def test_import_subfolders_as_rolls_skips_filtered_folders_and_their_subfolders(tmp_path):
+    _roll_dir(tmp_path / "roll_a")
+    _roll_dir(tmp_path / "Export")
+    _roll_dir(tmp_path / "Export" / "nested_roll")
+    repo = _repo()
+
+    import_subfolders_as_rolls(repo, str(tmp_path))
+
+    assert [e["folder_path"] for e in saved_rolls(repo).values()] == [str(tmp_path / "roll_a")]
+
+
+def test_a_filter_never_skips_the_picked_folder(tmp_path):
+    picked = _roll_dir(tmp_path / "export_best")
+    repo = _repo()
+
+    assert import_subfolders_as_rolls(repo, str(picked)) != []
+
+
+def test_prune_filtered_rolls_drops_rolls_a_new_filter_catches_and_a_rescan_restores_them(tmp_path):
+    _roll_dir(tmp_path / "roll_a")
+    _roll_dir(tmp_path / "scratch" / "roll_b")
+    repo = _repo()
+    import_subfolders_as_rolls(repo, str(tmp_path))
+    assert len(saved_rolls(repo)) == 2
+
+    set_discovery_filters(repo, ["scratch"])
+    assert prune_filtered_rolls(repo) == 1
+    assert [e["folder_path"] for e in saved_rolls(repo).values()] == [str(tmp_path / "roll_a")]
+
+    set_discovery_filters(repo, [])
+    import_subfolders_as_rolls(repo, str(tmp_path), skip_dismissed=True)
+    assert len(saved_rolls(repo)) == 2
+
+
+def test_prune_filtered_rolls_leaves_rolls_outside_import_sources(tmp_path):
+    repo = _repo()
+    recognize_folder(repo, str(_roll_dir(tmp_path / "export_by_hand")))
+
+    assert prune_filtered_rolls(repo) == 0
+
+
+def test_delete_folder_rolls_forgets_rolls_and_the_source_under_it(tmp_path):
+    _roll_dir(tmp_path / "day" / "roll_a")
+    _roll_dir(tmp_path / "day" / "roll_b")
+    repo = _repo()
+    other = recognize_folder(repo, str(_roll_dir(tmp_path / "elsewhere")))
+    import_subfolders_as_rolls(repo, str(tmp_path / "day"))
+
+    delete_folder_rolls(repo, str(tmp_path / "day"))
+
+    assert list(saved_rolls(repo)) == [other]
+    assert import_sources(repo) == []

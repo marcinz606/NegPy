@@ -231,6 +231,7 @@ class ShortcutManager:
             "focus_search": self.window.session_panel.file_browser.focus_search,
             "search_library": self.window.session_panel.file_browser.search_library,
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
+            "library_discovery_filters": self.window.session_panel.library_tree.edit_discovery_filters,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
             "toggle_sticky_settings": lambda: controller.session.set_sticky_settings_enabled(

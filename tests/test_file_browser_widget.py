@@ -1148,3 +1148,13 @@ def test_scene_sort_reads_as_name_without_scenes(browser, session):
 
     assert browser.act_sort_name.isChecked()
     assert not browser.act_sort_scene.isVisible()
+
+
+def test_adding_a_folder_without_images_imports_its_roll_folders(browser, tmp_path):
+    (tmp_path / "kentmere_400_1").mkdir()
+    browser.controller.import_subfolders_as_rolls.return_value = ["id1"]
+
+    browser.open_or_browse(str(tmp_path))
+
+    browser.controller.import_subfolders_as_rolls.assert_called_once_with(str(tmp_path))
+    browser.controller.request_asset_discovery.assert_not_called()

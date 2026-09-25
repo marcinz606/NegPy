@@ -203,6 +203,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "search_library": ShortcutEntry("Ctrl+Shift+F", "Search the whole library and load the matches", "Navigation"),
     "toggle_semantic_search": ShortcutEntry("", "Toggle search by meaning", "Navigation"),
     "toggle_library_tree": ShortcutEntry("", "Show/hide the library", "View"),
+    "library_discovery_filters": ShortcutEntry("", "Edit the folder names library discovery skips", "View"),
     "toggle_immersive_canvas": ShortcutEntry("", "Immersive canvas (toolbar overlaps image)", "View"),
     "toggle_sticky_zoom": ShortcutEntry("", "Sticky zoom (keep zoom level when switching images)", "View"),
     "toggle_sticky_settings": ShortcutEntry("", "Carry settings between frames (apply Persistent Settings to a new file)", "View"),

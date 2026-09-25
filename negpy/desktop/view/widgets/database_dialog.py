@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import human_bytes
-from negpy.services.assets.rolls import ROLLS_KEY, saved_rolls
+from negpy.services.assets.rolls import DISMISSED_FOLDERS_KEY, IMPORT_SOURCES_KEY, ROLLS_KEY, saved_rolls
 
 # (stat key, display label). The order is the display order, and a separator sits between
 # the per-image group and the reusable-tooling group.
@@ -231,6 +231,8 @@ class DatabaseDialog(QDialog):
         try:
             self.repo.save_global_setting("library_roots", [])
             self.repo.save_global_setting(ROLLS_KEY, {})
+            self.repo.save_global_setting(IMPORT_SOURCES_KEY, [])
+            self.repo.save_global_setting(DISMISSED_FOLDERS_KEY, [])
         except Exception as exc:
             QMessageBox.critical(self, "Clear Failed", f"Could not clear the library:\n{exc}")
         self.controller.library_cleared.emit()

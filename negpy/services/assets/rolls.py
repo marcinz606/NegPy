@@ -17,15 +17,22 @@ import os
 import time
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from fnmatch import fnmatchcase
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
 from negpy.features.process.models import neutral_axis_tuple
+from negpy.services.assets.library import folder_counts
 
 if TYPE_CHECKING:
     from negpy.domain.models import WorkspaceConfig
 
 ROLLS_KEY = "rolls_by_id"
+IMPORT_SOURCES_KEY = "roll_import_sources"
+DISMISSED_FOLDERS_KEY = "dismissed_folder_rolls"
+ROLL_PATH_SEP = "/"
+DISCOVERY_FILTERS_KEY = "roll_discovery_filters"
+DEFAULT_DISCOVERY_FILTERS = ("export",)
 _FORK_SEP = "#roll:"
 
 
@@ -47,10 +54,16 @@ def roll_for_id(repo: Any, roll_id: str) -> Optional[dict]:
     return _read(repo).get(roll_id)
 
 
+def _folder_key(path: str) -> str:
+    """*path* in the form two spellings of one folder share: separators, case on Windows."""
+    return os.path.normcase(os.path.normpath(path))
+
+
 def folder_roll_id_for_path(repo: Any, path: str) -> Optional[str]:
     """The id of the roll recognizing *path*, or None if not yet recognized."""
+    key = _folder_key(path)
     for roll_id, entry in _read(repo).items():
-        if entry.get("kind") == "folder" and entry.get("folder_path") == path:
+        if entry.get("kind") == "folder" and _folder_key(entry.get("folder_path") or "") == key:
             return roll_id
     return None
 
@@ -58,6 +71,10 @@ def folder_roll_id_for_path(repo: Any, path: str) -> Optional[str]:
 def recognize_folder(repo: Any, path: str, name: str = "") -> str:
     """Mark *path* as a recognized folder roll. Idempotent: returns the existing id
     when the folder is already recognized, without touching its stored name."""
+    dismissed = _dismissed_folders(repo)
+    kept = [p for p in dismissed if _folder_key(p) != _folder_key(path)]
+    if kept != dismissed:
+        repo.save_global_setting(DISMISSED_FOLDERS_KEY, kept)
     existing = folder_roll_id_for_path(repo, path)
     if existing:
         return existing
@@ -74,18 +91,114 @@ def recognize_folder(repo: Any, path: str, name: str = "") -> str:
     return roll_id
 
 
-def import_subfolders_as_rolls(repo: Any, parent_path: str) -> List[str]:
-    """Recognize every immediate subfolder of *parent_path* as its own folder roll.
+def _dismissed_folders(repo: Any) -> List[str]:
+    saved = repo.get_global_setting(DISMISSED_FOLDERS_KEY, default=None)
+    return [p for p in saved if isinstance(p, str)] if isinstance(saved, list) else []
 
-    One level only: a subfolder's own children are not walked. Idempotent per
-    subfolder, so re-running over a parent that already has some rolls recognized
-    only creates the missing ones.
+
+def import_sources(repo: Any) -> List[str]:
+    """Parents imported with Import Subfolders as Rolls, which a Library refresh walks again."""
+    saved = repo.get_global_setting(IMPORT_SOURCES_KEY, default=None)
+    return [p for p in saved if isinstance(p, str)] if isinstance(saved, list) else []
+
+
+def discovery_filters(repo: Any) -> List[str]:
+    """Folder-name filters discovery skips, with their subfolders."""
+    saved = repo.get_global_setting(DISCOVERY_FILTERS_KEY, default=None)
+    if not isinstance(saved, list):
+        return list(DEFAULT_DISCOVERY_FILTERS)
+    return [p for p in saved if isinstance(p, str)]
+
+
+def set_discovery_filters(repo: Any, filters: List[str]) -> None:
+    repo.save_global_setting(DISCOVERY_FILTERS_KEY, [f.strip() for f in filters if f.strip()])
+
+
+def matches_discovery_filter(name: str, filters: Sequence[str]) -> bool:
+    """A filter with ``*`` matches the whole name, one without matches any part; case is ignored."""
+    name = name.casefold()
+    return any(fnmatchcase(name, f.casefold()) if "*" in f else f.casefold() in name for f in filters)
+
+
+def discover_roll_folders(parent_path: str, filters: Sequence[str]) -> List[str]:
+    """Every folder at or under *parent_path* that holds images directly.
+
+    The walk does not enter a roll folder, so its own subfolders (export output, for
+    one) never become rolls. Hidden folders and folders matching *filters* are skipped.
     """
-    try:
-        entries = sorted(e.path for e in os.scandir(parent_path) if e.is_dir() and not e.name.startswith("."))
-    except OSError:
+    found = []
+    for dirpath, dirnames, _filenames in os.walk(os.path.normpath(parent_path)):
+        if folder_counts(dirpath)[0]:
+            found.append(dirpath)
+            dirnames[:] = []
+        else:
+            dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and not matches_discovery_filter(d, filters))
+    return found
+
+
+def import_subfolders_as_rolls(repo: Any, parent_path: str, *, skip_dismissed: bool = False) -> List[str]:
+    """Recognize every roll folder under *parent_path* and remember it as an import source.
+
+    Idempotent per folder, so a re-run only creates the missing rolls. A roll is named by
+    its path from the folder that holds *parent_path* ("20260901/kentmere_400_1").
+    *skip_dismissed* leaves out folders whose roll was deleted.
+    """
+    parent_path = os.path.normpath(parent_path)
+    paths = discover_roll_folders(parent_path, discovery_filters(repo))
+    if not paths:
         return []
-    return [recognize_folder(repo, path) for path in entries]
+    sources = import_sources(repo)
+    if _folder_key(parent_path) not in {_folder_key(p) for p in sources}:
+        repo.save_global_setting(IMPORT_SOURCES_KEY, [*sources, parent_path])
+    if skip_dismissed:
+        dismissed = {_folder_key(p) for p in _dismissed_folders(repo)}
+        paths = [p for p in paths if _folder_key(p) not in dismissed]
+    # The name is a label, so it joins with "/" on every OS; ROLL_PATH_SEP splits it back.
+    base = os.path.dirname(parent_path)
+    return [recognize_folder(repo, path, ROLL_PATH_SEP.join(os.path.relpath(path, base).split(os.sep))) for path in paths]
+
+
+def _under(key: str, folder_key: str) -> bool:
+    return key == folder_key or key.startswith(folder_key.rstrip(os.sep) + os.sep)
+
+
+def prune_filtered_rolls(repo: Any) -> int:
+    """Drop folder rolls under an import source whose path from it matches a discovery
+    filter; returns how many. Not a delete, so removing the filter brings them back."""
+    filters = discovery_filters(repo)
+    sources = [_folder_key(p) for p in import_sources(repo)]
+    store = _read(repo)
+    dropped = []
+    for roll_id, entry in store.items():
+        if entry.get("kind") != "folder":
+            continue
+        key = _folder_key(entry.get("folder_path") or "")
+        for source in sources:
+            if key != source and _under(key, source):
+                if any(matches_discovery_filter(part, filters) for part in os.path.relpath(key, source).split(os.sep)):
+                    dropped.append(roll_id)
+                break
+    for roll_id in dropped:
+        del store[roll_id]
+    if dropped:
+        _write(repo, store)
+    return len(dropped)
+
+
+def delete_folder_rolls(repo: Any, folder: str) -> None:
+    """Delete every folder roll at or under *folder*, and forget import sources there."""
+    key = _folder_key(folder)
+    ids = [
+        roll_id
+        for roll_id, entry in _read(repo).items()
+        if entry.get("kind") == "folder" and _under(_folder_key(entry.get("folder_path") or ""), key)
+    ]
+    for roll_id in ids:
+        delete_roll(repo, roll_id)
+    sources = import_sources(repo)
+    kept = [p for p in sources if not _under(_folder_key(p), key)]
+    if kept != sources:
+        repo.save_global_setting(IMPORT_SOURCES_KEY, kept)
 
 
 def create_virtual_roll(repo: Any, name: str, member_paths: List[str]) -> str:
@@ -233,10 +346,17 @@ def rename_folder_roll_disk(repo: Any, roll_id: str, new_name: str) -> Optional[
 
 
 def delete_roll(repo: Any, roll_id: str) -> None:
+    """Forget a roll. A deleted folder roll is not recognized again by a Library refresh."""
     store = _read(repo)
-    if roll_id in store:
-        del store[roll_id]
-        _write(repo, store)
+    entry = store.pop(roll_id, None)
+    if entry is None:
+        return
+    _write(repo, store)
+    path = entry.get("folder_path")
+    if entry.get("kind") == "folder" and path:
+        dismissed = _dismissed_folders(repo)
+        if _folder_key(path) not in {_folder_key(p) for p in dismissed}:
+            repo.save_global_setting(DISMISSED_FOLDERS_KEY, [*dismissed, path])
 
 
 def all_rolls_sorted(repo: Any) -> List[tuple]:

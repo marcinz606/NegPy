@@ -112,7 +112,7 @@ Below it are the toolbar, the search box and two collapsible sections: **Library
 <!-- panel:library -->
 ### Your library
 
-**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** re-reads each roll's frame count from disk, **Sort** orders the roll list by Name or Date, ascending or descending, apart from the Film Strip's own Sort, and **index** appears when Search by Meaning is on. Each row shows name and count ("36 photos").
+**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** finds new roll folders under each parent imported with **Import Subfolders as Rolls…** and re-reads each roll's frame count from disk, **Discovery Filters…** lists folder names that importing subfolders and **↻** skip, with everything inside them, one per line (default `export`): a line matches any part of a name, ignoring case, and a line with `*` must match the whole name (`raw_*`). Saving runs **↻**, which also drops rolls a filter now catches; removing the filter brings them back. **Sort** orders the roll list by Name or Date, ascending or descending, apart from the Film Strip's own Sort, and **index** appears when Search by Meaning is on. Each row shows name and count ("36 photos"). A roll whose folder is gone from disk shows **folder missing** in amber.
 
 Importing only recognizes a folder; nothing is decoded or hashed until you open the roll.
 
@@ -120,8 +120,8 @@ Importing only recognizes a folder; nothing is decoded or hashed until you open 
 
 **+** (or the list's right-click menu) offers:
 
-*   **Import Folder as a Roll…**: the folder becomes one roll and opens. If its name matches a camera or film stock in your Gear library (a word, or a run like "penf" for "Pen F"), Roll Settings opens pre-filled and ticked; Apply keeps it, Cancel skips it.
-*   **Import Subfolders as Rolls…**: each folder directly inside the chosen parent becomes a roll, without opening. Only one level deep.
+*   **Import Folder as a Roll…**: the folder becomes one roll and opens. A folder with no images of its own imports its subfolders as with **Import Subfolders as Rolls…**. If its name matches a camera or film stock in your Gear library (a word, or a run like "penf" for "Pen F"), Roll Settings opens pre-filled and ticked; Apply keeps it, Cancel skips it.
+*   **Import Subfolders as Rolls…**: each folder under the chosen parent, at any depth, that holds images becomes a roll, without opening. NegPy does not look inside a roll folder, so its subfolders (for example export output) do not become rolls. Each roll is named by its path from the chosen folder, for example "20260901/kentmere_400_1", and the list shows it under a **20260901** folder row with its roll count. A folder row only groups rolls; it does not open. Right-click it for **Delete…**, which forgets every roll in it.
 
 NegPy never creates, renames, moves or deletes anything in the folder. Reorganize on disk, then re-import (or **↻**). Edits are keyed to image content, so a moved file keeps its edit, history and keep/reject mark.
 
@@ -131,8 +131,8 @@ NegPy never creates, renames, moves or deletes anything in the folder. Reorganiz
 
 Right-click a roll for:
 
-*   **Rename…**: a folder roll also offers **Also rename the folder on disk** (unticked by default, asked each time). NegPy refuses with a warning if a sibling has that name or permission is missing. Inside a cloud-sync folder (Dropbox, iCloud, OneDrive), the sync can treat a rename as delete and re-upload.
-*   **Delete…**: forgets the roll record only; folder, images and edits stay. **Clear Library** in *Manage Database* forgets all rolls.
+*   **Rename…**: renames the roll, not the folder rows above it. A folder roll also offers **Also rename the folder on disk** (unticked by default, asked each time). NegPy refuses with a warning if a sibling has that name or permission is missing. Inside a cloud-sync folder (Dropbox, iCloud, OneDrive), the sync can treat a rename as delete and re-upload.
+*   **Delete…**: forgets the roll record only; folder, images and edits stay. **↻** does not bring it back; **Import Folder as a Roll…** restores it. **Clear Library** in *Manage Database* forgets all rolls.
 *   **Roll Analysis** (**loaded** roll only): runs Roll Analysis on every frame outside a scene ([§10.5](#105-roll-analysis)) and stores it as the roll's baseline, for any frame's **Use average** toggles, in this roll or another.
 
 #### Rolls that are not folders
@@ -152,7 +152,7 @@ The **⋮** menu on the Film Strip header, beside its ⓘ guide:
 
 The Film Strip button row:
 
-*   **Add** (import icon): **Add Files…** or **Add Folder…**. A folder with only subfolders points you to **Import Subfolders as Rolls…**. Dropping a folder on the window does the same as Add Folder.
+*   **Add** (import icon): **Add Files…** or **Add Folder…**. A folder with no images of its own imports its subfolders into Library as rolls. Dropping a folder on the window does the same as Add Folder.
 *   **Hot Folder**: loads new files as they appear in the current folder, for a scanner or tethering app. The "Working…" popup stays hidden; the status line reports each import.
 *   **Trichrome Mode** and **Half Frame Mode** are on the Roll tab's Frame Assembly card ([§10.2](#102-frame-assembly)).
 *   **Apply (clone)**: copies the current frame's settings, aspects chosen in a dialog, to selected frames or the whole roll. Crop and rotation stay per-image.

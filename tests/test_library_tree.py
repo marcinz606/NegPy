@@ -2,10 +2,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import QPoint
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
-from negpy.desktop.view.sidebar.library_tree import LibraryTree
+from negpy.desktop.view.sidebar.library_tree import _FOLDER_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.rolls import create_virtual_roll, recognize_folder, roll_for_id
@@ -496,6 +496,7 @@ def test_import_folder_with_no_images_reports_status_without_opening(widget, tre
     empty = tree_dirs / "empty"
     empty.mkdir()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(empty)))
+    widget.controller.import_subfolders_as_rolls.return_value = []
 
     imported = widget.prompt_import_folder()
 
@@ -523,7 +524,8 @@ def test_import_subfolders_delegates_to_the_controller(widget, tree_dirs, monkey
 
 
 def test_import_subfolders_with_none_found_reports_status(widget, tree_dirs, monkeypatch):
-    empty = tree_dirs / "roll_a"  # holds only files, no subfolders
+    empty = tree_dirs / "empty"
+    empty.mkdir()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(empty)))
     widget.controller.import_subfolders_as_rolls.return_value = []
 
@@ -531,6 +533,46 @@ def test_import_subfolders_with_none_found_reports_status(widget, tree_dirs, mon
 
     assert imported is False
     widget.controller.set_status.assert_called_once()
+
+
+def test_refresh_discovers_new_rolls_then_rereads_counts(widget, tree_dirs):
+    widget.controller.rediscover_rolls.side_effect = lambda: (recognize_folder(widget.repo, str(tree_dirs / "roll_a")) and 1, 0)
+    changed = []
+    widget.rolls_changed.connect(lambda: changed.append(True))
+
+    widget.refresh()
+
+    assert _names(widget) == ["roll_a"]
+    assert changed == [True]
+    widget.controller.set_status.assert_called_once()
+
+
+def test_refresh_without_new_rolls_stays_quiet(widget):
+    widget.controller.rediscover_rolls.return_value = (0, 0)
+
+    widget.refresh()
+
+    widget.controller.set_status.assert_not_called()
+
+
+def test_a_roll_whose_folder_is_gone_is_marked_missing(widget, tmp_path):
+    recognize_folder(widget.repo, str(tmp_path / "gone"))
+    widget.reload()
+
+    item = widget.tree.topLevelItem(0)
+    assert item.text(1) == "folder missing"
+    assert item.foreground(1).color().name() == QColor(THEME.warn_amber).name()
+
+
+def test_importing_a_folder_without_images_imports_its_subfolders(widget, tree_dirs, monkeypatch):
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(tree_dirs)))
+    widget.controller.import_subfolders_as_rolls.return_value = ["id1", "id2"]
+
+    imported = widget.prompt_import_folder()
+
+    assert imported is True
+    widget.controller.import_subfolders_as_rolls.assert_called_once_with(str(tree_dirs))
+    widget.controller.open_library_folder.assert_not_called()
 
 
 # --- Index Library ----------------------------------------------------------
@@ -569,3 +611,121 @@ def test_clicking_index_calls_the_controller(widget):
     # it fired is the point of this test.
     widget.index_btn.click()
     widget.controller.index_library.assert_called_once()
+
+
+def test_nested_rolls_sit_under_their_folder_row(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+    recognize_folder(widget.repo, str(tree_dirs / "roll_b"), name="20260901/kentmere_400_2")
+    create_virtual_roll(widget.repo, "portra", [])
+    widget.reload()
+
+    assert _names(widget) == ["20260901", "portra"]
+    folder = widget.tree.topLevelItem(0)
+    assert [folder.child(i).text(0) for i in range(folder.childCount())] == ["kentmere_400_1", "kentmere_400_2"]
+    assert folder.text(1) == "2 rolls"
+    assert folder.isExpanded()
+
+
+def test_a_folder_row_opens_nothing(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+    widget.reload()
+
+    widget._on_double_clicked(widget.tree.topLevelItem(0), 0)
+
+    widget.controller.open_roll.assert_not_called()
+
+
+def test_a_collapsed_folder_row_stays_collapsed_across_reload(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+    widget.reload()
+    widget.tree.topLevelItem(0).setExpanded(False)
+
+    widget.reload()
+
+    assert not widget.tree.topLevelItem(0).isExpanded()
+
+
+def test_a_nested_roll_can_be_selected_after_reload(widget, tree_dirs):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+    widget.reload()
+    widget._select_roll(roll_id)
+
+    widget.reload()
+
+    assert widget._selected_roll_id() == roll_id
+
+
+def test_rename_starts_from_the_folder_name_not_the_path(widget, tree_dirs, monkeypatch):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+    seen = []
+
+    class _Dialog:
+        def __init__(self, current, *_a, **_k):
+            seen.append(current)
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.RenameRollDialog", _Dialog)
+    widget._rename_roll(roll_id, "20260901/kentmere_400_1")
+
+    assert seen == ["kentmere_400_1"]
+
+
+def test_rename_keeps_the_roll_under_its_folder_row(widget, tree_dirs, monkeypatch):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+
+    class _Dialog:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def exec(self):
+            return 1
+
+        def name(self):
+            return "kentmere_best"
+
+        def rename_folder(self):
+            return False
+
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.RenameRollDialog", _Dialog)
+    widget._rename_roll(roll_id, "20260901/kentmere_400_1")
+
+    assert roll_for_id(widget.repo, roll_id)["name"] == "20260901/kentmere_best"
+
+
+def test_discovery_filters_popup_saves_one_filter_per_line(widget, monkeypatch):
+    seen = []
+
+    def _ask(_parent, _title, _label, text):
+        seen.append(text)
+        return "export\nraw_*\n", True
+
+    monkeypatch.setattr(QInputDialog, "getMultiLineText", staticmethod(_ask))
+    widget.controller.rediscover_rolls.return_value = (0, 2)
+
+    assert widget.edit_discovery_filters() is True
+    assert seen == ["export"]
+    assert widget.repo.get_global_setting("roll_discovery_filters") == ["export", "raw_*"]
+    widget.controller.rediscover_rolls.assert_called_once()
+
+
+def test_cancelling_the_discovery_filters_popup_keeps_them(widget, monkeypatch):
+    monkeypatch.setattr(QInputDialog, "getMultiLineText", staticmethod(lambda *a: ("", False)))
+
+    assert widget.edit_discovery_filters() is False
+    assert widget.repo.get_global_setting("roll_discovery_filters") is None
+
+
+def test_deleting_a_folder_row_forgets_every_roll_under_it(widget, tree_dirs, monkeypatch):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+    recognize_folder(widget.repo, str(tree_dirs / "roll_b"), name="scans/roll_b")
+    create_virtual_roll(widget.repo, "portra", [])
+    widget.reload()
+    folder = widget.tree.topLevelItem(_names(widget).index("scans"))
+    assert folder.data(0, _FOLDER_ROLE) == str(tree_dirs)
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
+
+    widget._delete_folder(str(tree_dirs), "scans")
+
+    assert _names(widget) == ["portra"]

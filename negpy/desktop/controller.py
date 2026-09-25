@@ -1436,12 +1436,22 @@ class AppController(QObject):
         return bool(rolls.saved_rolls(self.session.repo))
 
     def import_subfolders_as_rolls(self, parent_path: str) -> List[str]:
-        """Recognize every immediate subfolder of *parent_path* as its own roll, and
+        """Recognize every roll folder under *parent_path* as its own roll, and
         register it as a search root -- nothing is opened or loaded."""
         roll_ids = rolls.import_subfolders_as_rolls(self.session.repo, parent_path)
         if roll_ids:
             self._register_library_roots([parent_path])
         return roll_ids
+
+    def rediscover_rolls(self) -> tuple[int, int]:
+        """Walk every Import Subfolders source again under the current discovery filters;
+        returns (new rolls, rolls dropped by a filter)."""
+        repo = self.session.repo
+        dropped = rolls.prune_filtered_rolls(repo)
+        before = len(rolls.saved_rolls(repo))
+        for source in rolls.import_sources(repo):
+            rolls.import_subfolders_as_rolls(repo, source, skip_dismissed=True)
+        return len(rolls.saved_rolls(repo)) - before, dropped
 
     def open_library_folder(self, folder: str, add_to_session: bool = False) -> None:
         self.open_library_folders([folder], add_to_session=add_to_session)

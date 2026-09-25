@@ -5799,12 +5799,8 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_import_subfolders_as_rolls_recognizes_each_one_and_registers_the_parent(self):
         self._dict_repo()
-        # MagicMock's own `name` kwarg sets its repr, not an attribute -- set it after.
-        entry_a = MagicMock(path="/scans/roll_a", is_dir=lambda: True)
-        entry_a.name = "roll_a"
-        entry_b = MagicMock(path="/scans/roll_b", is_dir=lambda: True)
-        entry_b.name = "roll_b"
-        with patch("negpy.services.assets.rolls.os.scandir", return_value=iter([entry_a, entry_b])):
+        found = ["/scans/roll_a", "/scans/2024/roll_b"]
+        with patch("negpy.services.assets.rolls.discover_roll_folders", return_value=found):
             roll_ids = self.controller.import_subfolders_as_rolls("/scans")
 
         self.assertEqual(len(roll_ids), 2)
@@ -5812,11 +5808,22 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_import_subfolders_as_rolls_with_none_found_registers_nothing(self):
         self._dict_repo()
-        with patch("negpy.services.assets.rolls.os.scandir", return_value=iter([])):
+        with patch("negpy.services.assets.rolls.discover_roll_folders", return_value=[]):
             roll_ids = self.controller.import_subfolders_as_rolls("/scans")
 
         self.assertEqual(roll_ids, [])
         self.assertEqual(self.controller.library_roots(), [])
+
+    def test_rediscover_rolls_walks_every_import_source_again(self):
+        self._dict_repo()
+        found = {"/scans": ["/scans/roll_a"]}
+        with patch("negpy.services.assets.rolls.discover_roll_folders", side_effect=lambda p, _filters: found[p]):
+            self.controller.import_subfolders_as_rolls("/scans")
+            found["/scans"] = ["/scans/roll_a", "/scans/roll_b"]
+            new, dropped = self.controller.rediscover_rolls()
+
+        self.assertEqual((new, dropped), (1, 0))
+        self.assertTrue(self.controller.has_rolls())
 
 
 class TestSplashPreviewRaceGuard(unittest.TestCase):

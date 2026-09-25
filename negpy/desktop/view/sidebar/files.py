@@ -1561,19 +1561,13 @@ class FileBrowser(QWidget):
             self.open_or_browse(folder)
 
     def open_or_browse(self, folder: str) -> None:
-        """Load a folder's images into the session, or point at Library's own import
-        when it only holds subfolders: the importer looks in the folder, not through it."""
-        images, subfolders = folder_counts(folder)
+        """Load a folder's images into the session, or import the roll folders under it
+        into Library when it holds none directly."""
+        images, _ = folder_counts(folder)
         if images:
             self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True)
-        elif subfolders:
-            self.controller.set_status(
-                f"No images directly in “{folder_label(folder)}” — use Library's Import Subfolders as Rolls for its "
-                f"{count_of(subfolders, 'subfolder')}",
-                5000,
-            )
-        else:
-            self.controller.set_status("That folder has no images in it", 4000)
+        elif self.library_tree.import_subfolders(folder):
+            self.library_section.expand()
 
     def _activate_file(self, index) -> None:
         """Load a thumbnail into the main viewer, skipping a redundant reload of the
