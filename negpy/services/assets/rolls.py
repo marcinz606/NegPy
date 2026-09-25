@@ -21,7 +21,7 @@ from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
-from negpy.features.process.models import neutral_axis_tuple, with_positive_source, with_process_mode
+from negpy.features.process.models import neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts
 
 if TYPE_CHECKING:
@@ -547,12 +547,7 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
         for name in field_names:
             if name in defaults:
                 by_section.setdefault(section, {})[name] = defaults[name]
-    # Film Mode and Positive carry their own side effects (Cast Removal, the autos).
-    film = by_section.get("process", {})
-    if "process_mode" in film:
-        config = with_process_mode(config, film.pop("process_mode"))
-    if "positive_source" in film:
-        config = with_positive_source(config, film.pop("positive_source"))
+    config = with_film_fields(config, by_section.get("process", {}))
     for section, updates in by_section.items():
         config = replace(config, **{section: replace(getattr(config, section), **updates)})
     return config

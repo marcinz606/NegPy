@@ -147,6 +147,8 @@ class DarkroomEngine:
 
         base_key = (
             settings.process.process_mode,
+            # Routes the base and exposure stages (render_path); a change re-runs both.
+            settings.process.positive_source,
             settings.process.e6_normalize,
             settings.exposure.render_intent,
             geometry_key,

@@ -130,3 +130,9 @@ class TestPreviewPolarity:
         buf = np.tile(np.linspace(20, 230, 48, dtype=np.uint8)[None, :, None], (32, 1, 3))
         shown = self._shown(HalfFrameDialog(buf, process_mode="Color Negative"))
         assert shown[0, 0, 0] > shown[0, -1, 0]
+
+    def test_a_grayscale_slide_preview_is_shown_as_rgb(self):
+        buf = np.tile(np.linspace(20, 230, 48, dtype=np.uint8)[None, :], (32, 1))
+        shown = self._shown(HalfFrameDialog(buf, process_mode="Transparency"))
+        assert shown.shape == (32, 48, 3)
+        assert shown[0, 0, 0] < shown[0, -1, 0]

@@ -275,6 +275,16 @@ def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "Workspace
     )
 
 
+def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
+    """*config* with the Film card's fields in *fields* applied through with_process_mode and
+    with_positive_source, popping them from *fields* so the caller overlays only the rest."""
+    if "process_mode" in fields:
+        config = with_process_mode(config, fields.pop("process_mode"))
+    if "positive_source" in fields:
+        config = with_positive_source(config, fields.pop("positive_source"))
+    return config
+
+
 def scan_setup_values(capture: str, light: str) -> tuple[bool, bool]:
     """(linear_raw, narrowband_scan) for a scanning rig — capture is "camera"/"scanner",
     light is "white"/"narrowband". A camera under white light is the only combination that

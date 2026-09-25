@@ -387,7 +387,8 @@ class HalfFrameDialog(QDialog):
 
         from negpy.services.assets.thumbnails import preview_positive
 
-        pos = np.asarray(preview_positive(Image.fromarray(np.ascontiguousarray(rgb, dtype=np.uint8)), self._process_mode))
+        src = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGB")
+        pos = np.asarray(preview_positive(src, self._process_mode).convert("RGB"))
         h, w = pos.shape[:2]
         max_dim = 1024
         if max(h, w) > max_dim:

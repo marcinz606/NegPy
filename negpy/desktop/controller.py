@@ -139,6 +139,7 @@ from negpy.features.process.models import (
     invalidate_local_bounds,
     mode_aware_exposure_reset,
     scan_setup_values,
+    with_film_fields,
     with_positive_source,
     with_process_mode,
 )
@@ -1810,6 +1811,14 @@ class AppController(QObject):
 
     _HALF_FRAME_APPLY_SCOPE_KEY = "half_frame_apply_scope"
 
+    def _half_frame_process_mode(self, file_path: str, file_hash: str) -> str:
+        """The film process the split dialog previews with. The open frame's mode may be
+        unsaved (autodetect), and a split scan saves its edits under each half's hash."""
+        if file_path == self.state.current_file_path:
+            return str(self.state.config.process.process_mode)
+        stored = self.session.stored_process_mode
+        return stored({"hash": file_hash, "path": file_path}) or stored({"hash": half_hash(file_hash, 1), "path": file_path, "half": 1})
+
     def open_half_frame_dialog(
         self,
         file_path: str,
@@ -1853,7 +1862,7 @@ class AppController(QObject):
             initial_split=old_geom.split_x,
             initial_gutter=old_geom.gutter_thickness,
             initial_scope=saved_scope,
-            process_mode=self.session.stored_process_mode({"hash": file_hash, "path": file_path}),
+            process_mode=self._half_frame_process_mode(file_path, file_hash),
             parent=None,
         )
         if not dialog.exec():
@@ -4677,13 +4686,7 @@ class AppController(QObject):
         set, through the side effects a hand edit of that card carries."""
         values = {f: rolls.config_value(defaults[f]) for f in rolls.card_fields(card_key) if f in defaults}
         if card_key == "film":
-            mode = values.get("process_mode", config.process.process_mode)
-            if mode != config.process.process_mode:
-                config = with_process_mode(config, mode)
-            positive = values.get("positive_source", config.process.positive_source)
-            if positive != config.process.positive_source:
-                config = with_positive_source(config, positive)
-            return config
+            return with_film_fields(config, values)
         ratio = values.pop("autocrop_ratio", config.geometry.autocrop_ratio)
         if ratio != config.geometry.autocrop_ratio:
             config = self._with_crop_ratio(config, ratio)
