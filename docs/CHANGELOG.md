@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.61.0
+
+- New: **Nested roll discovery** — Import Subfolders as Rolls finds roll folders at any depth and shows them in a tree under their parent folders; Refresh finds new folders and marks rolls whose folder is gone; Discovery Filters (default `export`) skip folders by name; a folder with no images of its own imports its subfolders.
+- New: **Sort the Film Strip by scene** — each scene's frames form their own block on a band in the scene's color, and Show Scenes edges each frame in its scene color. @s6stkurz
+- New: **Exposure lock for nkscan roll scanning** — Meter Frame… on the Scan panel fixes the exposure for every frame of a roll, so frames at the strip ends match the rest; needs nkscan 0.12, which also retries an incomplete frame pass.
+- Fix: **HQ preview and export of a large slide match the preview** — the transfer curve is metered the same way in tiled renders. @thetalkingdrum
+
 ## 0.60.0
 
 - New: **Rolls and the Roll tab** — the Library is a list of rolls: folder rolls, color-coded, and virtual rolls built from any frames. A photo in more than one roll can get its own edit per roll. The Roll tab holds roll-wide defaults for Film Mode, Frame Assembly (Trichrome, Half Frame with per-roll auto-detect), Calibration, Crop, Raw Decode, Optics, Roll Analysis, Metering and Metadata. Every card header has a Frame/Roll switch, and a frame you change is locked on that card until Apply pushes it back. Presets move to Favorites, and the export destination defaults to a subfolder of the roll. @PabloRuizCuevas
