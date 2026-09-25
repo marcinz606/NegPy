@@ -334,6 +334,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 
         window = MagicMock()
+        window.light_table_active.return_value = False
         window.canvas.overlay.cancel_in_progress.return_value = False
         self._place(0.5, 0.2)
         self._arm(7.0)
@@ -413,6 +414,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 
         window = MagicMock()
+        window.light_table_active.return_value = False
         window.canvas.overlay.cancel_in_progress.return_value = False
         self._place(0.5, 0.2, zone=3.0)
         self.controller._is_rendering = False

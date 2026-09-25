@@ -23,7 +23,6 @@ from negpy.desktop.view.styles.templates import default_button_height, field_lab
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.semantic_download_dialog import ClipDownloadDialog
-from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
 from negpy.domain.types import AppConfig
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.system.config import APP_CONFIG
@@ -261,16 +260,6 @@ class PreferencesDialog(QDialog):
         self.invert_zoom_box.toggled.connect(self.session.set_invert_zoom_scroll)
         row += 1
 
-        self.slider_values_box = self._add_checkbox(
-            grid,
-            row,
-            "Show slider values",
-            bool(self.repo.get_global_setting("show_slider_values", default=False)),
-            "Keep every slider's value box open, instead of revealing it on hover",
-        )
-        self.slider_values_box.toggled.connect(self._on_slider_values_changed)
-        row += 1
-
         interface_row, _ = _button_row(
             (
                 ("Customize Shortcuts…", "fa5s.keyboard", self._open_shortcut_editor),
@@ -448,11 +437,6 @@ class PreferencesDialog(QDialog):
         if canvas is not None:
             _, (r, g, b), _ = _canvas_colors()[index]
             canvas.set_background_color(r, g, b)
-
-    def _on_slider_values_changed(self, checked: bool) -> None:
-        self.repo.save_global_setting("show_slider_values", bool(checked))
-        if self._window is not None:
-            apply_slider_value_visibility(self._window, bool(checked))
 
     def _on_gpu_changed(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:

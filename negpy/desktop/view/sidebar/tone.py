@@ -1,5 +1,5 @@
 import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
+from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout, QVBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -134,12 +134,12 @@ class ToneSidebar(BaseSidebar):
         )
         self.shadow_density_slider = CompactSlider("Shadows Density", -0.9, 0.9, conf.shadow_density)
         self.highlight_density_slider = CompactSlider("Highlights Density", -0.5, 0.5, conf.highlight_density)
-        zone_density_row = QHBoxLayout()
+        zone_density_row = QVBoxLayout()
         zone_density_row.addWidget(self.shadow_density_slider)
         zone_density_row.addWidget(self.highlight_density_slider)
         self.layout.addLayout(zone_density_row)
 
-        grade_row = QHBoxLayout()
+        grade_row = QVBoxLayout()
         grade_row.addWidget(self.grade_slider)
         grade_row.addWidget(self.grade_trim_slider)
         self.layout.addLayout(grade_row)
@@ -148,7 +148,7 @@ class ToneSidebar(BaseSidebar):
         self.highlight_grade_slider = CompactSlider(
             "Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
         )
-        split_grade_row = QHBoxLayout()
+        split_grade_row = QVBoxLayout()
         split_grade_row.addWidget(self.shadow_grade_slider)
         split_grade_row.addWidget(self.highlight_grade_slider)
         self.layout.addLayout(split_grade_row)
@@ -172,7 +172,7 @@ class ToneSidebar(BaseSidebar):
             "that sit next to something bright, which is the mask line on the sheet. "
             "Inert with no mask."
         )
-        contrast_mask_row = QHBoxLayout()
+        contrast_mask_row = QVBoxLayout()
         contrast_mask_row.addWidget(self.contrast_mask_slider)
         contrast_mask_row.addWidget(self.mask_spacer_slider)
         self.layout.addLayout(contrast_mask_row)
@@ -189,7 +189,7 @@ class ToneSidebar(BaseSidebar):
         # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
         # it is disabled there rather than reading as broken.
         self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
-        dye_sep_row = QHBoxLayout()
+        dye_sep_row = QVBoxLayout()
         dye_sep_row.addWidget(self.dye_separation_slider)
         dye_sep_row.addWidget(self.dye_separation_trim_slider)
         dye_sep_row.addWidget(self.separation_damping_slider)
@@ -225,7 +225,7 @@ class ToneSidebar(BaseSidebar):
         snap_row.addWidget(self.midtone_gamma_slider)
         self.layout.addLayout(snap_row)
 
-        toe_row = QHBoxLayout()
+        toe_row = QVBoxLayout()
         self.toe_w_slider = CompactSlider("Toe Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_trim_slider = CompactSlider("Toe Width", -2.0, 2.0, 0.0)
         self.toe_w_trim_slider.setToolTip(
@@ -239,7 +239,7 @@ class ToneSidebar(BaseSidebar):
         toe_row.addWidget(self.toe_w_trim_slider)
         self.layout.addLayout(toe_row)
 
-        sh_row = QHBoxLayout()
+        sh_row = QVBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_trim_slider = CompactSlider("Shoulder Width", -2.0, 2.0, 0.0)

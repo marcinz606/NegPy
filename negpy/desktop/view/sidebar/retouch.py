@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
@@ -60,7 +60,7 @@ class RetouchSidebar(BaseSidebar):
         optical_row.addWidget(self.auto_dust_btn, 1)
         optical_row.addWidget(self.right_click_btn)
         self.layout.addLayout(optical_row)
-        auto_row = QHBoxLayout()
+        auto_row = QVBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
         self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
         auto_row.addWidget(self.threshold_slider)
@@ -82,9 +82,9 @@ class RetouchSidebar(BaseSidebar):
         self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
         self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
         self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
-        ir_row = QHBoxLayout()
-        ir_row.addWidget(self.ir_dust_btn, stretch=1)
-        ir_row.addWidget(self.ir_threshold_slider, stretch=1)
+        ir_row = QVBoxLayout()
+        ir_row.addWidget(self.ir_dust_btn)
+        ir_row.addWidget(self.ir_threshold_slider)
         self.layout.addLayout(ir_row)
 
         # Restored whenever the scan has IR (never let a stale "No IR channel" tip linger).

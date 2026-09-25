@@ -59,6 +59,9 @@ def _context_cancel(controller, window) -> None:
     the before/after split — then the grain focuser loupe, then an armed zone, then
     in-progress tool geometry (polyline points, straighten line, zone pins), then the tool
     itself."""
+    if window.light_table_active():
+        window.set_light_table(False)
+        return
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
         return
@@ -122,14 +125,6 @@ class ShortcutManager:
         self._shortcuts: list[QShortcut] = []
         self._actions = self._build_actions()
         self.apply_bindings(self.bindings)
-
-    def _toggle_slider_values(self) -> None:
-        from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
-
-        repo = self.window.controller.session.repo
-        pinned = not bool(repo.get_global_setting("show_slider_values", default=False))
-        repo.save_global_setting("show_slider_values", pinned)
-        apply_slider_value_visibility(self.window, pinned)
 
     def _slider_adjuster(self, getter: Callable[[], object], action_id: str) -> Callable[[], None]:
         group = SLIDER_GROUP_BY_ACTION[action_id]
@@ -240,7 +235,6 @@ class ShortcutManager:
             "toggle_sticky_settings": lambda: controller.session.set_sticky_settings_enabled(
                 not controller.session.state.sticky_settings_enabled
             ),
-            "toggle_slider_values": self._toggle_slider_values,
             "toggle_invert_zoom_scroll": lambda: controller.session.set_invert_zoom_scroll(not controller.session.state.invert_zoom_scroll),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
@@ -290,8 +284,13 @@ class ShortcutManager:
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
+            "command_palette": self.window.show_command_palette,
+            "toggle_side_panels": self.window.toggle_side_panels,
+            "toggle_reference": self.window.toggle_reference,
+            "toggle_light_table": lambda: self.window.set_light_table(not self.window.light_table_active()),
             "show_analysis_help": self.window.right_panel.show_analysis_help,
             "check_for_updates": lambda: self.window.session_panel.check_for_updates(),
+            "show_about": self.window.show_about,
             # Button clicks, so the shortcut runs the same gating and toast the mouse gets.
             "toggle_hq": toolbar.btn_hq.click,
             "toggle_optical_removal": controls.retouch_sidebar.auto_dust_btn.click,

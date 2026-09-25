@@ -15,14 +15,22 @@ If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\
 ### Screen layout
 
 *   **Left, the film strip**: your frames as a contact sheet, with import, sorting and triage tools.
-*   **Center, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) work by clicking on it. Scroll or pinch to zoom, drag to pan. The bottom toolbar holds Fit/**1:1** zoom (one scan pixel per screen pixel; below **HQ** a **preview res · HQ off** pill shows the preview is scaled up), undo/redo, rotate/flip and more. Rotate 90° and flip act on every selected frame. Items that do not fit go into the **⋯** menu, which holds every action, including **Preferences…** (all app-wide settings, §15), **Edit Toolbar…** and **Persistent Settings…**. Right-click the image for **Reset View**, **Sticky Zoom** (keep the zoom across frames), the pickers, copy/paste settings and **Unload** (remove the frame from the session, keep its edit). An empty canvas shows **Load some scans to get started**; click it for **Add Files** / **Add Folder**.
-*   **Right, Edit**: tabs **Edit** / **Export** / **Metadata** / **Gear** / **Scan**. **Edit** has a pinned **Analysis** readout and its own tab bar, and holds everything that changes the render. The other tabs do not touch the render.
+*   **Center, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) work by clicking on it. Scroll or pinch to zoom, drag to pan. The bottom toolbar holds Fit/**1:1** zoom (one scan pixel per screen pixel; below **HQ** a **preview res · HQ off** pill shows the preview is scaled up), undo/redo, rotate/flip and more. Rotate 90° and flip act on every selected frame. Items that do not fit go into the **⋯** menu, which holds every action, including **Preferences…** (all app-wide settings, §15), **Edit Toolbar…** and **Persistent Settings…**. Right-click the image for **Reset View**, **Sticky Zoom** (keep the zoom across frames), the pickers, copy/paste settings and **Unload** (remove the frame from the session, keep its edit). An empty canvas shows **Load some scans to get started**; click it for **Import Folder as a Roll…** (the folder becomes a roll and opens, as in Library) or **Add Files…**.
+*   **Right, the controls**: tabs **Roll** / **Frame** / **Metadata** / **Gear** / **Export** / **Scan**. **Frame** has a pinned **Analysis** readout and its own row of tabs below it. Roll and Frame change the render; the other tabs do not.
 
-Drag a panel by its title bar to float it; its pin button docks it again. NegPy remembers the layout. **Reset Panel Layout** in the **⋯** menu restores the default layout.
+Drag a panel by its top edge (the thin strip above Session, the margin around the Controls panel's **Find** box) to float it; its pin button docks it again. **Shift+H** hides both panels, and brings both back. NegPy remembers the layout. **Reset Panel Layout** in the **⋯** menu restores the default layout.
+
+### Find
+
+**Ctrl+K**, or **Find Control or Action…** in the **⋯** menu, opens one box for every slider, card and action. Type a name, or another editor's word for the job: *contrast* finds **ISO-R Grade**, *white balance* **Filtration**, *exposure* **Print Density**. Up and Down pick a row and Enter opens it on its tab. A slider row is the live control, so you can drag it without leaving the list.
 
 ### Before / After
 
 **◑** on the toolbar (or `\`) splits the canvas. The left side is the auto baseline: same film process, crop and rotation, with every creative control (exposure, tone, Lab, dodge/burn, toning, retouch and finishing) at default. The right side is your edit. Drag the divider or its knob. The split stays up while you edit; `\`, `Esc`, a frame change, Peek Negative, Peek Flat Scan or the test strip close it.
+
+### Reference view
+
+**Shift+R**, or **Reference View** in the **⋯** menu, pins the frame on the canvas to a pane beside it; open other frames to match them to it. The pane keeps the frame as it looked when pinned, so press **Shift+R** twice to pin again. Drag the divider to share the width; **✕** or **Shift+R** closes it.
 
 ### Peek Negative
 
@@ -38,31 +46,31 @@ During a peek the canvas shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** bad
 
 **Roll** holds what the whole roll shares:
 
-| Tab | Icon | Panels | What it is for |
-|-----|------|--------|---------------|
-| **Roll** | film | Film Mode · Frame Assembly · Calibration · Crop · Roll Analysis · Metering · Raw Decode · Optics | Film type, capture color, crop shape, roll baselines, negative→positive metering, the scanning rig |
+| Tab | Panels | What it is for |
+|-----|--------|---------------|
+| **Roll** | Film Mode · Frame Assembly · Calibration · Crop · Roll Analysis · Metering · Raw Decode · Optics | Film type, capture color, crop shape, roll baselines, negative→positive metering, the scanning rig |
 
 **Frame** tabs follow the pipeline order:
 
-| Tab | Icon | Panels | What it is for |
-|-----|------|--------|---------------|
-| **Geometry** | crop | Geometry | Crop, straighten, easel movements |
-| **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, density, contrast, curve, local burns |
-| **Color** | palette | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
-| **Finish** | brush | Retouch · Finishing | Dust, vignette, border, carrier |
-| **Favorites** | star | Your chosen sliders · Presets | Most-used controls, saved edits |
-| **History** | clock | Work prints · Edit history | Named versions, undo trail |
+| Tab | Panels | What it is for |
+|-----|--------|---------------|
+| **Geometry** | Geometry | Crop, straighten, easel movements |
+| **Exposure** | Filtration · Tone · Dodge & Burn | White balance, density, contrast, curve, local burns |
+| **Color** | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
+| **Finish** | Retouch · Finishing | Dust, vignette, border, carrier |
+| **Favorites** | Your chosen sliders · Presets | Most-used controls, saved edits |
+| **History** | Work prints · Edit history | Named versions, undo trail |
 
 Tabs that do not change the render:
 
-| Tab | Icon | Panels | What it is for |
-|-----|------|--------|---------------|
-| **Export** | file | Export settings | Format, size, color, batch |
-| **Metadata** | tags | Archival metadata | Camera, lens, film |
-| **Gear** | toolbox | Gear library | Cameras, lenses, films, processes, scan setups |
-| **Scan** | camera | Scanner · Camera Scanning | Direct capture (Linux/macOS) |
+| Tab | Panels | What it is for |
+|-----|--------|---------------|
+| **Export** | Export settings | Format, size, color, batch |
+| **Metadata** | Archival metadata | Camera, lens, film |
+| **Gear** | Gear library | Cameras, lenses, films, processes, scan setups |
+| **Scan** | Scanner · Camera Scanning | Direct capture (Linux/macOS) |
 
-A **dot** on a panel header or tab icon marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there. In a narrow panel, tabs that do not fit move into a **»** menu; the current tab stays visible.
+A slider row reads name, track and value: click the value to type one, drag the name to scrub (**Shift** for finer steps), and double-click or **Ctrl**+click the track to reset. A **dot** on a panel header or tab marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there. In a narrow panel, tabs that do not fit move into a **»** menu; the current tab stays visible.
 
 ### What carries to the next frame
 
@@ -84,7 +92,7 @@ On a **frame** card (Geometry, Filtration, Tone, Lab, Alternative Processes, Ton
 
 ### The tab header
 
-Tabs with several cards (Roll, Exposure, Lab & Toning, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), **Reset to Roll** (appears once a card differs from the roll, one undo step), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
+Tabs with several cards (Roll, Exposure, Color, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), **Reset to Roll** (appears once a card differs from the roll, one undo step), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
 
 ### Menu bar (macOS)
 
@@ -105,7 +113,7 @@ Menus show only `⌘` keys. Plain-key shortcuts such as `?` for Keyboard Shortcu
 <!-- panel:frames -->
 ## 2. Film strip (left panel)
 
-The header shows the logo and version. The **↻** button beside the version checks GitHub for a newer release; when one is out it turns into a green **⬇**, and a green **⬇ Update Available** line appears under the version. Click either to see the changes and install ([§16](#16-updating-negpy)). The chevron at the top-right folds the header away.
+When a newer release is out, a green **⬇ Update Available** line tops the panel and a green dot marks the **⋯** menu, whose **Check for Updates…** item then reads **Update to vX.Y.Z…**. Click either to see the changes and install ([§16](#16-updating-negpy)). **About NegPy…** in the **⋯** menu shows the version.
 
 Below it are the toolbar, the search box and two collapsible sections: **Library** (imported rolls) and **Film Strip** (open frames). Click a heading to fold its section; drag the handle between them to resize. NegPy remembers both.
 
@@ -149,6 +157,8 @@ The **⋮** menu on the Film Strip header, beside its ⓘ guide:
 
 *   **New Roll…**: clears the film strip so you can drag in frames and keep them with **Save as Roll…**. Same as **Clear All…**.
 *   **Reset Roll to Defaults…**: **Reset Settings** on every visible frame. Asks first; each reset is an undo step.
+
+The grid button on the same header opens the **Light Table** (`Shift+G`): the roll as a grid in place of the canvas, to cull and pick frames with the same selection, marks and menus. Double-click or **Enter** opens a frame on the canvas; **Esc** or `Shift+G` goes back. The controls panel steps aside while it shows.
 
 The Film Strip button row:
 
@@ -1070,7 +1080,6 @@ Application-wide settings: canvas **⋯** menu → **Preferences…**, `Ctrl + ,
 *   **Immersive canvas**: toolbar floats over the image.
 *   **Sticky zoom**: keep the zoom when you switch frames.
 *   **Reverse scroll zoom**: scroll up zooms out.
-*   **Show slider values**: value boxes always open.
 *   **Customize Shortcuts…**, **Edit Toolbar…**, **Reset Panel Layout**: shortcut editor, canvas toolbar picker, default panel layout.
 
 ### Performance
@@ -1118,7 +1127,7 @@ For crashes on launch or rendering glitches. NegPy creates `Documents/NegPy/over
 
 ## 16. Updating NegPy
 
-At startup NegPy checks GitHub once. A new release shows a green **⬇ Update Available: vX.Y.Z** line under the logo; click it for the release notes, download size and install button. To check by hand, press **↻** next to the version number, or run the **Check for updates** action (no default key).
+At startup NegPy checks GitHub once. A new release shows a green **⬇ Update Available: vX.Y.Z** line at the top of the left panel and a green dot on the **⋯** menu; click the line, or **Update to vX.Y.Z…** in the menu, for the release notes, download size and install button. To check by hand, use **Check for Updates…** in the **⋯** menu, or run the **Check for updates** action (no default key).
 
 **Install Update** downloads the build for this install type, closes NegPy, installs and reopens. Nothing is replaced until NegPy exits, so a failure leaves your install as it was.
 

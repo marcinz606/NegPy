@@ -101,3 +101,23 @@ def test_show_message_kind_colours_the_toast(qapp):
     hud.showMessage("Could not write /tmp/x.tif", kind="error")
     assert hud.toast.styleSheet() != info_qss
     assert "D32F2F" in hud.toast.styleSheet().upper()
+
+
+def test_frame_position_follows_the_film_strip_order_and_filter(qapp):
+    from negpy.desktop.session import AppState, AssetListModel
+    from negpy.desktop.view.main_window import frame_position
+
+    state = AppState()
+    state.uploaded_files = [
+        {"name": "c.tif", "path": "/r/c.tif", "hash": "h3"},
+        {"name": "a.tif", "path": "/r/a.tif", "hash": "h1"},
+        {"name": "b.tif", "path": "/r/b.tif", "hash": "h2"},
+    ]
+    model = AssetListModel(state)
+
+    assert frame_position(model, 1) == "1 / 3"
+    model.set_sort_descending(True)
+    assert frame_position(model, 1) == "3 / 3"
+    model.set_filter("b", regex=False)
+    assert frame_position(model, 1) == ""
+    assert frame_position(model, 2) == ""

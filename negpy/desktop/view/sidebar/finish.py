@@ -1,5 +1,5 @@
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import default_button_height, section_subheader, wrap_tooltip
@@ -19,7 +19,7 @@ class FinishSidebar(BaseSidebar):
         self.vignette_burn_slider = CompactSlider("Burn", -2.0, 2.0, conf.vignette_stops, unit=" st")
         self.layout.addWidget(self.vignette_burn_slider)
 
-        row1 = QHBoxLayout()
+        row1 = QVBoxLayout()
         self.vignette_size_slider = CompactSlider("Size", 0.0, 1.0, conf.vignette_size)
         self.vignette_roundness_slider = CompactSlider("Roundness", 0.0, 1.0, conf.vignette_roundness)
         row1.addWidget(self.vignette_size_slider)
@@ -34,7 +34,7 @@ class FinishSidebar(BaseSidebar):
             "How raggedly the aperture was filed — the paper-side edge of the black frame. "
             "The picture-side edge is the camera's film gate and only ever wobbles slightly."
         )
-        row_carrier = QHBoxLayout()
+        row_carrier = QVBoxLayout()
         row_carrier.addWidget(self.carrier_width_slider)
         row_carrier.addWidget(self.carrier_rough_slider)
         self.layout.addLayout(row_carrier)
@@ -46,14 +46,14 @@ class FinishSidebar(BaseSidebar):
         )
         self.carrier_corner_slider = CompactSlider("Corners", 0.0, 1.0, conf.carrier_corner)
         self.carrier_corner_slider.setToolTip("How far the filed aperture's corners round off — no file cuts a sharp inside corner")
-        row_carrier2 = QHBoxLayout()
+        row_carrier2 = QVBoxLayout()
         row_carrier2.addWidget(self.carrier_flare_slider)
         row_carrier2.addWidget(self.carrier_corner_slider)
         self.layout.addLayout(row_carrier2)
 
         self.layout.addWidget(section_subheader("BORDER"))
 
-        row2 = QHBoxLayout()
+        row2 = QVBoxLayout()
         self.border_slider = CompactSlider("Width", 0.0, 2.5, conf.border_size)
         self.bottom_weight_slider = CompactSlider("Bottom Weight", 1.0, 2.0, conf.border_bottom_weight)
         self.bottom_weight_slider.setToolTip(

@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QVBoxLayout,
 )
 
 from negpy.desktop.session import ToolMode
@@ -109,7 +110,7 @@ class GeometrySidebar(BaseSidebar):
             "wall shot from one side, or a copy stand not square to the film. Positive stretches "
             "the left edge."
         )
-        converge_row = QHBoxLayout()
+        converge_row = QVBoxLayout()
         converge_row.addWidget(self.converge_v_slider)
         converge_row.addWidget(self.converge_h_slider)
         self.layout.addLayout(converge_row)

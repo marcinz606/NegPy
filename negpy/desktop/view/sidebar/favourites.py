@@ -8,7 +8,7 @@ from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.favourites_dialog import FavouritesDialog
-from negpy.desktop.view.widgets.sliders import clone_slider
+from negpy.desktop.view.widgets.sliders import align_slider_columns, clone_slider
 
 _SETTING_KEY = "favourite_sliders"
 
@@ -87,6 +87,7 @@ class FavouritesSidebar(BaseSidebar):
             self._mirrors.append((clone, src))
 
         self.empty_hint.setVisible(not self._mirrors)
+        align_slider_columns(self._container)
         self.sync_ui()
 
     def sync_ui(self) -> None:

@@ -271,10 +271,11 @@ class ControlsPanel(QWidget):
         # (if any) this frame overrides. RightPanel places
         # it above every Roll-tab card; _sync_roll_locks keeps it current.
         self.roll_override_summary = hint_label("", "muted")
+        self.roll_override_summary.setVisible(False)
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
-        # "Filtration", not "Color", which names the Lab & Toning tab. The persisted "color"
+        # "Filtration", not "Color", which names the Color tab. The persisted "color"
         # section key stays.
         self.color_section = self._make_section(
             "Filtration",
@@ -342,14 +343,13 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.paint-brush",
         )
 
-        # Group the sections into workflow pages (each becomes an icon tab in RightPanel). Calibration,
+        # Group the sections into workflow pages (each becomes a tab in RightPanel). Calibration,
         # Demosaic, Roll Analysis and Normalization are roll-wide facts, not per-frame edits --
         # RightPanel builds them into its own top-level Roll tab instead of a page here, and
         # places Presets on its Favorites tab.
         groups = [
             (
                 "geometry",
-                "fa5s.crop",
                 "Geometry",
                 "Geometry",
                 [self.geometry_section],
@@ -357,7 +357,6 @@ class ControlsPanel(QWidget):
             ),
             (
                 "tone",
-                "fa5s.sun",
                 "Exposure — Filtration, Tone, Dodge & Burn",
                 "Exposure",
                 [self.color_section, self.tone_section, self.local_section],
@@ -365,15 +364,13 @@ class ControlsPanel(QWidget):
             ),
             (
                 "color",
-                "fa5s.flask",
-                "Lab & Toning",
-                "Lab & Toning",
+                "Color — Lab, Alternative Processes, Toning",
+                "Color",
                 [self.lab_section, self.altproc_section, self.toning_section],
                 ["lab_section", "altproc_section", "toning_section"],
             ),
             (
                 "finish",
-                "fa5s.brush",
                 "Finish — Retouch, Finishing",
                 "Finish",
                 [self.retouch_section, self.finish_section],
@@ -383,7 +380,7 @@ class ControlsPanel(QWidget):
 
         self.pages = []
         self.tab_headers: list[TabHeader] = []
-        for key, icon_name, tooltip, title, sections, section_attrs in groups:
+        for key, tooltip, title, sections, section_attrs in groups:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
@@ -400,7 +397,7 @@ class ControlsPanel(QWidget):
             self.pages.append(
                 {
                     "key": key,
-                    "icon_name": icon_name,
+                    "label": title,
                     "tooltip": tooltip,
                     "widget": page,
                     "sections": section_attrs,
@@ -975,6 +972,7 @@ class ControlsPanel(QWidget):
             self.roll_override_summary.setText(f"This frame overrides: {', '.join(overridden)}")
         else:
             self.roll_override_summary.setText("")
+        self.roll_override_summary.setVisible(bool(overridden))
 
     def revert_cards_to_roll(self, section_keys) -> None:
         """Every live card among *section_keys* back to the roll, as one undo step. A card

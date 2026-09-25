@@ -152,7 +152,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Work runs from the roll inward. The <b>Roll</b> tab holds what the whole roll "
                 "shares (film type, calibration, normalization); the <b>Frame</b> tabs beside it "
                 "follow the pipeline for one picture:<br><br>"
-                "<b>Geometry → Exposure → Lab &amp; Toning → Finish → Export</b><br><br>"
+                "<b>Geometry → Exposure → Color → Finish → Export</b><br><br>"
+                f"{_k('command_palette')} finds any slider, card or action by name. "
                 "Everything runs on the GPU for near-instant previews. "
                 "All edits are stored in a local database keyed by file hash, so you can "
                 "move or rename files freely without losing your work."
@@ -224,7 +225,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="The Tab Header",
             body=(
-                "A tab holding more than one card, Roll, Exposure, Lab &amp; Toning, Finish and "
+                "A tab holding more than one card, Roll, Exposure, Color, Finish and "
                 "Metadata, carries one bar above them all. It reads <b>3 of 5 cards edited</b>, "
                 "and its buttons act on every card at once: the <b>reset arrow</b> (which appears "
                 "once something is edited, and asks first), the <b>roll button</b>, which offers "

@@ -47,6 +47,7 @@ def test_sync_scope_buttons_blank_summary_without_an_active_roll():
     ControlsPanel._sync_scope_buttons(panel)
 
     panel.roll_override_summary.setText.assert_called_once_with("")
+    panel.roll_override_summary.setVisible.assert_called_once_with(False)
 
 
 def test_every_card_reads_frame_with_no_roll_spanning_the_frames():
@@ -95,6 +96,7 @@ def test_sync_scope_buttons_names_every_overridden_card():
     ControlsPanel._sync_scope_buttons(panel)
 
     panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Metering")
+    panel.roll_override_summary.setVisible.assert_called_once_with(True)
 
 
 def test_sync_scope_buttons_names_film_mode_too():

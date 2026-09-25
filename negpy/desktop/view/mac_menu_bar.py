@@ -101,12 +101,10 @@ class MacMenuBar(QMenuBar):
         return action
 
     def _build_app(self) -> QMenu:
-        """Holds only Preferences, which macOS then moves into the application menu.
-
-        PreferencesRole is the one place the NoRole rule above must not apply: the item
-        belongs in the application menu, and only that role puts it there with ⌘,.
-        """
+        """About and Preferences, which macOS moves into the application menu. Their roles are
+        the exception to the NoRole rule above."""
         menu = self._menu("NegPy")
+        self._add(menu, "About NegPy", action_id="show_about", role=QAction.MenuRole.AboutRole)
         self._add(menu, "Preferences…", action_id="open_preferences", role=QAction.MenuRole.PreferencesRole)
         return menu
 

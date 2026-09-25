@@ -162,7 +162,7 @@ class ProcessSidebar(BaseSidebar):
             region_row.addWidget(btn, 1)
         analysis_col.addLayout(region_row)
 
-        clip_row = QHBoxLayout()
+        clip_row = QVBoxLayout()
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
             "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
@@ -199,7 +199,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
         self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        wp_bp_row = QHBoxLayout()
+        wp_bp_row = QVBoxLayout()
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         analysis_col.addLayout(wp_bp_row)

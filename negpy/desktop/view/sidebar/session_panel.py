@@ -6,9 +6,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.update_dialog import UpdateDialog, start_update_check
@@ -22,10 +21,13 @@ class SessionPanel(QWidget):
     tree) and the update check.
     """
 
+    update_found = pyqtSignal(str)
+
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
         self.update_info: Optional[UpdateInfo] = None
+        self._checking = False
 
         self._init_ui()
         self._connect_signals()
@@ -34,13 +36,6 @@ class SessionPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        repo = self.controller.session.repo
-        persisted = repo.get_global_setting("section_expanded_app_header")
-        self.header = SidebarHeader(self.controller, expanded=bool(persisted) if persisted is not None else True)
-        self.header.expanded_changed.connect(lambda v: repo.save_global_setting("section_expanded_app_header", v))
-        self.header.check_requested.connect(self.check_for_updates)
-        layout.addWidget(self.header)
 
         self.update_label = QLabel("")
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -91,7 +86,7 @@ class SessionPanel(QWidget):
         if info is None:
             return
         self.update_info = info
-        self.header.set_update_state(True)
+        self.update_found.emit(info.version)
         self.update_label.setText(
             f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">⬇ Update Available: v{info.version}</a>'
         )
@@ -109,16 +104,18 @@ class SessionPanel(QWidget):
         UpdateDialog(self.update_info, self).exec()
 
     def check_for_updates(self) -> None:
-        """Re-run the release check on demand and report either way."""
+        """Re-run the release check on demand and report either way; one check at a time."""
         if self.update_info is not None:
             self.show_update_dialog()
             return
-        self.header.set_checking()
+        if self._checking:
+            return
+        self._checking = True
         start_update_check(self._on_manual_check)
 
     def _on_manual_check(self, info: Optional[UpdateInfo]) -> None:
+        self._checking = False
         if info is None:
-            self.header.set_update_state(False)
             QMessageBox.information(self, "NegPy", f"NegPy {get_app_version()} is up to date.")
             return
         self._on_update_checked(info)

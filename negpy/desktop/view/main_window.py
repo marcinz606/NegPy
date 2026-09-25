@@ -7,10 +7,13 @@ from PyQt6.QtCore import QByteArray, Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
+    QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -19,6 +22,8 @@ from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+from negpy.desktop.converters import ImageConverter
+from negpy.desktop.view.canvas.reference_pane import ReferencePane
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
@@ -27,10 +32,10 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.command_palette import CommandPalette, FindField
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
-from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
 from negpy.domain.models import AspectRatio
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -64,6 +69,13 @@ def _clamp_geometry(
     return x, y, w, h
 
 
+def frame_position(model, actual_idx: int) -> str:
+    """n / total in the Film Strip's order and filter, the one Next and Previous follow."""
+    total = model.rowCount()
+    row = model.actual_to_display(actual_idx)
+    return f"{row + 1} / {total}" if total > 1 and row >= 0 else ""
+
+
 def _read_screen_icc(screen: object) -> Optional[bytes]:
     """Monitor ICC profile bytes for a QScreen, or None (treat the display as sRGB).
 
@@ -86,7 +98,7 @@ class _EmptyStateOverlay(QWidget):
     """
 
     add_files_requested = pyqtSignal()
-    add_folder_requested = pyqtSignal()
+    import_roll_requested = pyqtSignal()
     tour_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget) -> None:
@@ -121,8 +133,8 @@ class _EmptyStateOverlay(QWidget):
 
     def _show_load_menu(self) -> None:
         menu = QMenu(self)
+        menu.addAction("Import Folder as a Roll…").triggered.connect(self.import_roll_requested)
         menu.addAction("Add Files…").triggered.connect(self.add_files_requested)
-        menu.addAction("Add Folder…").triggered.connect(self.add_folder_requested)
         menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
 
     def eventFilter(self, obj, event) -> bool:
@@ -156,9 +168,6 @@ class MainWindow(QMainWindow):
         # no-op. After the shortcut manager, whose actions the menu items dispatch through.
         self.mac_menus = install_mac_menus(self)
         self._update_title()
-
-        if self.controller.session.repo.get_global_setting("show_slider_values", default=False):
-            apply_slider_value_visibility(self, True)
 
         from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay
 
@@ -272,7 +281,7 @@ class MainWindow(QMainWindow):
         self.empty_state.tour_requested.connect(self.show_tutorial)
         # session_panel is built further down; resolve the browser lazily.
         self.empty_state.add_files_requested.connect(lambda: self.session_panel.file_browser.prompt_add_files())
-        self.empty_state.add_folder_requested.connect(lambda: self.session_panel.file_browser.prompt_add_folder())
+        self.empty_state.import_roll_requested.connect(lambda: self.session_panel.library_tree.prompt_import_folder())
         self.empty_state.raise_()
 
         self.loading_overlay = LoadingOverlay(self.canvas)
@@ -288,7 +297,17 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-        self.central_layout.addWidget(self.canvas, stretch=1)
+        self.central_stack = QStackedWidget()
+        self.central_stack.addWidget(self.canvas)
+        self.reference_pane = ReferencePane(self.canvas.background_color)
+        self.reference_pane.closed.connect(self.close_reference)
+        self.reference_pane.hide()
+        self.central_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.central_splitter.addWidget(self.reference_pane)
+        self.central_splitter.addWidget(self.central_stack)
+        self.central_splitter.setCollapsible(1, False)
+        self.central_layout.addWidget(self.central_splitter, stretch=1)
+        self._controls_before_light_table = True
 
         self.setCentralWidget(self.central_widget)
 
@@ -297,6 +316,7 @@ class MainWindow(QMainWindow):
             self,
             pin_tooltip=tooltip_with_shortcut("Dock controls panel to right", "toggle_right_panel"),
             on_pin=self.dock_controls_panel,
+            docked_title=FindField(self.show_command_palette),
         )
         self.drawer.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
@@ -320,6 +340,7 @@ class MainWindow(QMainWindow):
         self.session_panel = SessionPanel(self.controller)
         self.session_dock.setWidget(self.session_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
+        self.central_stack.addWidget(self.session_panel.file_browser.light_table_view)
 
         # Snapshot the pristine layout, with both docked at their home edges at default widths,
         # so the pin and Reset Panel Layout restore the true original position and size rather
@@ -368,6 +389,27 @@ class MainWindow(QMainWindow):
         # menu does not ask again.
         if repo.get_global_setting("scan_setup") is None:
             QTimer.singleShot(0, self.show_scan_setup)
+
+    def show_about(self) -> None:
+        from negpy.kernel.system.version import GITHUB_REPO, get_app_version
+
+        box = QMessageBox(self)
+        box.setWindowTitle("About NegPy")
+        box.setIconPixmap(self.windowIcon().pixmap(64, 64))
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(
+            f"<b>NegPy</b> {get_app_version()}<br>Film negatives printed through a virtual darkroom.<br>"
+            f'<a href="https://github.com/{GITHUB_REPO}">github.com/{GITHUB_REPO}</a>'
+        )
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        label = box.findChild(QLabel, "qt_msgbox_label")
+        if label is not None:
+            label.setOpenExternalLinks(True)
+        box.setStandardButtons(QMessageBox.StandardButton.Close)
+        box.exec()
+
+    def show_command_palette(self) -> None:
+        CommandPalette(self).exec()
 
     def show_scan_setup(self) -> None:
         from negpy.desktop.view.widgets.scan_setup_dialog import ScanSetupDialog
@@ -418,6 +460,68 @@ class MainWindow(QMainWindow):
         self.drawer.setVisible(visible)
         self.controller.session.repo.save_global_setting("panel_right_visible", visible)
 
+    def toggle_side_panels(self) -> None:
+        show = not (self.session_dock.isVisible() or self.drawer.isVisible())
+        for dock, key in ((self.session_dock, "panel_left_visible"), (self.drawer, "panel_right_visible")):
+            if dock.isFloating():
+                continue
+            dock.setVisible(show)
+            self.controller.session.repo.save_global_setting(key, show)
+
+    def toggle_reference(self) -> None:
+        if self.reference_pane.isVisible():
+            self.close_reference()
+            return
+        image = self._reference_snapshot()
+        if image is None:
+            self.canvas.hud.showMessage("Open a frame to pin it as the reference", 3000)
+            return
+        self.reference_pane.set_reference(image, os.path.basename(self.state.current_file_path))
+        self.reference_pane.show()
+        half = self.central_splitter.width() // 2
+        self.central_splitter.setSizes([half, self.central_splitter.width() - half])
+
+    def close_reference(self) -> None:
+        self.reference_pane.hide()
+        self.reference_pane.set_reference(None)
+
+    def _reference_snapshot(self):
+        """The frame on the canvas as displayed now; the pane keeps it until pinned again."""
+        metrics = self.state.last_metrics
+        buffer = metrics.get("base_positive")
+        if not self.state.current_file_path or buffer is None or metrics.get("splash"):
+            return None
+        if isinstance(buffer, GPUTexture):
+            buffer = buffer.readback()[:, :, :3]
+        display_cs, monitor, proof = self.controller.display_transform_params(proofed=bool(metrics.get("proof", True)))
+        return ImageConverter.to_qimage(np.ascontiguousarray(buffer, dtype=np.float32), display_cs, monitor, proof)
+
+    def light_table_active(self) -> bool:
+        return self.central_stack.currentIndex() == 1
+
+    def set_light_table(self, on: bool) -> None:
+        """The controls panel hides while the grid shows; its saved visibility is untouched."""
+        browser = self.session_panel.file_browser
+        browser.light_table_btn.blockSignals(True)
+        browser.light_table_btn.setChecked(on)
+        browser.light_table_btn.blockSignals(False)
+        if on == self.light_table_active():
+            return
+        view = browser.light_table_view
+        if on:
+            self._controls_before_light_table = self.drawer.isVisible() and not self.drawer.isFloating()
+            if self._controls_before_light_table:
+                self.drawer.setVisible(False)
+            self.central_stack.setCurrentIndex(1)
+            row = self.controller.session.asset_model.actual_to_display(self.state.selected_file_idx)
+            if row >= 0:
+                view.scrollTo(self.controller.session.asset_model.index(row, 0))
+            view.setFocus()
+        else:
+            self.central_stack.setCurrentIndex(0)
+            if self._controls_before_light_table:
+                self.drawer.setVisible(True)
+
     def reset_panel_layout(self) -> None:
         """Restore both side panels to their original edges, widths and visibility."""
         self._restore_default_dock_state()
@@ -431,6 +535,10 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
+        browser = self.session_panel.file_browser
+        browser.light_table_btn.toggled.connect(self.set_light_table)
+        browser.light_table_opened.connect(lambda: self.set_light_table(False))
+        self.session_panel.update_found.connect(self.toolbar.set_update_available)
         self.controller.session.state_changed.connect(self._update_title)
         self.controller.session.state_changed.connect(self._on_immersive_changed)
 
@@ -453,6 +561,7 @@ class MainWindow(QMainWindow):
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
         self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
+        self.controller.session.asset_model.layoutChanged.connect(lambda *_: self._refresh_image_info())
         self.controller.session.session_emptied.connect(self._on_session_emptied)
 
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
@@ -628,9 +737,7 @@ class MainWindow(QMainWindow):
         edits_str = f"Edits: {self.state.undo_index}"
 
         tool_label = self.TOOL_LABELS.get(self.state.active_tool, "")
-        total = len(self.state.uploaded_files)
-        idx = self.state.selected_file_idx
-        file_pos = f"{idx + 1} / {total}" if total > 1 and idx >= 0 else ""
+        file_pos = frame_position(self.controller.session.asset_model, self.state.selected_file_idx)
 
         self.canvas.hud.update_info(filename, res_str, mode_str, edits_str, tool_label, file_pos)
 

@@ -3,16 +3,15 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget,
-    QVBoxLayout,
     QHBoxLayout,
     QSlider,
     QLabel,
     QDoubleSpinBox,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent, QLocale
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, slider_handle_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
 
 
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
@@ -95,6 +94,20 @@ class _NoScrollSlider(QSlider):
 
 
 class _NoScrollSpinBox(QDoubleSpinBox):
+    """Always prints a decimal point; a typed comma is read as one."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        locale = QLocale.c()
+        locale.setNumberOptions(QLocale.NumberOption.OmitGroupSeparator)
+        self.setLocale(locale)
+
+    def validate(self, text: str, pos: int):
+        return super().validate(text.replace(",", "."), pos)
+
+    def valueFromText(self, text: str) -> float:
+        return super().valueFromText(text.replace(",", "."))
+
     def wheelEvent(self, event) -> None:
         if self.hasFocus():
             super().wheelEvent(event)
@@ -273,10 +286,7 @@ class BaseSlider(QWidget):
 
 
 class CompactSlider(BaseSlider):
-    """
-    Compact slider with label and value in a header row, slider below.
-    Spin-box is hidden at rest; revealed on hover or keyboard focus.
-    """
+    """One row: label, track, value; click the value to type one."""
 
     def __init__(
         self,
@@ -296,21 +306,19 @@ class CompactSlider(BaseSlider):
 
         self._label_color = color if color else THEME.text_secondary
 
-        layout = QVBoxLayout(self)
-        # Bias the row's dead space below the groove, so the near-miss grab band (see _GRAB_PAD)
-        # has room underneath. Drop the header-to-slider gap and move it below the slider. The
-        # net row height is unchanged, and the groove sits slightly closer to its label.
-        layout.setContentsMargins(2, 2, 2, 4)
-        layout.setSpacing(0)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 0, 2, 0)
+        layout.setSpacing(THEME.space_md)
 
-        header = QHBoxLayout()
-        header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        header.setSpacing(2)  # explicit: the VBox spacing (0) would otherwise collapse the label<->edited-dot gap
         self.label = QLabel(label)
         self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.setToolTip(label)
 
+        # Keeps its slot while hidden, so the track does not shift.
         self._edited_dot = EditedDot()
+        dot_policy = self._edited_dot.sizePolicy()
+        dot_policy.setRetainSizeWhenHidden(True)
+        self._edited_dot.setSizePolicy(dot_policy)
 
         self.spin.setSingleStep(step)
         # The slider's own arrow-key step lives in its internal precision-scaled int
@@ -324,13 +332,9 @@ class CompactSlider(BaseSlider):
         if unit:
             self.spin.setSuffix(unit)
 
-        self._value_pinned = False
-        self._spin_full_width = 60 if unit else 50
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.spin.setMinimumWidth(0)
-        self.spin.setMaximumWidth(0)  # collapsed at rest; expanded on hover/focus
-        self.spin.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px; background: transparent; border: none; font-weight: bold;")
+        self.spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.spin.setStyleSheet(slider_value_qss())
 
         # Label-scrub: drag the label horizontally to change value
         self.label.setCursor(Qt.CursorShape.SizeHorCursor)
@@ -340,13 +344,13 @@ class CompactSlider(BaseSlider):
         self._scrub_start_val = 0.0
         self._band_drag = False
 
-        header.addWidget(self.label)
-        header.addWidget(self._edited_dot)
-        header.addStretch()
-        header.addWidget(self.spin)
-
-        layout.addLayout(header)
-        layout.addWidget(self.slider)
+        label_cell = QHBoxLayout()
+        label_cell.setSpacing(THEME.space_xs)
+        label_cell.addWidget(self.label)
+        label_cell.addWidget(self._edited_dot)
+        layout.addLayout(label_cell)
+        layout.addWidget(self.slider, 1)
+        layout.addWidget(self.spin)
 
     def setToolTip(self, text: str) -> None:
         """Mirror onto the label: a child with its own tooltip shadows the parent's, and
@@ -355,20 +359,15 @@ class CompactSlider(BaseSlider):
         super().setToolTip(text)
         self.label.setToolTip(self.toolTip())
 
-    def set_value_pinned(self, pinned: bool) -> None:
-        """Keep the value box open at rest. Off by default — hover reveals it — but a
-        panel of hidden numbers is unreadable if you work by the numbers."""
-        self._value_pinned = pinned
-        self.spin.setMaximumWidth(self._spin_full_width if pinned else 0)
+    def natural_column_widths(self) -> tuple[int, int]:
+        self.label.ensurePolished()
+        self.spin.ensurePolished()
+        return self.label.sizeHint().width(), self.spin.sizeHint().width()
 
-    def enterEvent(self, event) -> None:
-        self.spin.setMaximumWidth(self._spin_full_width)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        if not (self._value_pinned or self.spin.hasFocus()):
-            self.spin.setMaximumWidth(0)
-        super().leaveEvent(event)
+    def set_column_widths(self, label_width: int, value_width: int) -> None:
+        """Minimums, so a label that grows at runtime (a channel suffix) widens its row, not clips."""
+        self.label.setMinimumWidth(label_width)
+        self.spin.setMinimumWidth(value_width)
 
     # Extra clickable px above and below the thin slider, so a near-miss on the handle still
     # grabs it. The slider widget's own rect is only as tall as the handle, so these clicks
@@ -432,14 +431,6 @@ class CompactSlider(BaseSlider):
         self._edited_dot.setVisible(abs(self.spin.value() - self._default) > 1e-6)
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self.spin:
-            et = event.type()
-            if et == QEvent.Type.FocusIn:
-                self.spin.setMaximumWidth(self._spin_full_width)
-            elif et == QEvent.Type.FocusOut:
-                if not self.underMouse():
-                    self.spin.setMaximumWidth(0)
-
         if obj is self.label:
             et = event.type()
             if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -560,7 +551,6 @@ class KelvinSlider(CompactSlider):
 
     def __init__(self, label: str, parent=None):
         super().__init__(label, 3000.0, 12000.0, 5500.0, step=50.0, precision=1, unit="K", parent=parent)
-        self._spin_full_width = 68  # room for "12000K"
         self._apply_temp(5500.0)
 
     def _to_int(self, value: float) -> int:
@@ -728,8 +718,13 @@ class RangeSlider(QWidget):
         self.rangeCommitted.emit(0.0, 1.0)
 
 
-def apply_slider_value_visibility(root: QWidget, pinned: bool) -> None:
-    """Pin or unpin every CompactSlider under a widget tree, so the preference reaches
-    panels built long before it was toggled."""
-    for slider in root.findChildren(CompactSlider):
-        slider.set_value_pinned(pinned)
+def align_slider_columns(root: QWidget) -> None:
+    """Give every CompactSlider under root the widest label and value among them."""
+    sliders = root.findChildren(CompactSlider)
+    if not sliders:
+        return
+    widths = [slider.natural_column_widths() for slider in sliders]
+    label_width = max(w[0] for w in widths)
+    value_width = max(w[1] for w in widths)
+    for slider in sliders:
+        slider.set_column_widths(label_width, value_width)

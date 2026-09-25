@@ -19,6 +19,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Left` | Previous file |
 | `Right` | Next file |
 | `Ctrl + L` | Open the library |
+| `Ctrl + K` | Find a control, card or action |
 | `Ctrl + F` | Focus the film strip search box |
 | `Ctrl + Shift + F` | Search the whole library and load the matches |
 
@@ -38,7 +39,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Shift + S` | Toggle scratch tool |
 | `Shift + K` | Toggle transport-scratch line tool |
 | `Shift + B` | Toggle dodge & burn mask draw |
-| `Shift + R` | Toggle analysis region draw |
+| `Ctrl + R` | Toggle analysis region draw |
 | `M` | Peek flat scan (digital intermediate) |
 | `N` | Peek negative (source as loaded) |
 | `P` | Peek the camera's embedded preview |
@@ -70,6 +71,9 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Ctrl + [` | Toggle session panel (re-docks when floating) |
 | `Ctrl + ]` | Toggle controls panel (re-docks when floating) |
 | `Ctrl + Shift + L` | Dock session and controls panels |
+| `Shift + H` | Hide or show both side panels |
+| `Shift + G` | Light Table: the roll as a grid in place of the canvas |
+| `Shift + R` | Reference view: pin this frame beside the canvas to match others to it |
 | `0` | Fit to window |
 | `1` | Zoom 100% |
 | `2` | Zoom 200% |
@@ -149,8 +153,8 @@ Actions with no default key are not listed; every one of them can still be bound
 |-----|--------|
 | `Ctrl + 1` | Roll tab |
 | `Ctrl + 2` | Geometry tab |
-| `Ctrl + 3` | Tone tab |
-| `Ctrl + 4` | Lab & Toning tab |
+| `Ctrl + 3` | Exposure tab |
+| `Ctrl + 4` | Color tab |
 | `Ctrl + 5` | Finish tab |
 | `Ctrl + 6` | History tab |
 | `Ctrl + 7` | Export tab |

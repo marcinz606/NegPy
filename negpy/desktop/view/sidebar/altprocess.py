@@ -87,7 +87,7 @@ class AltProcessSidebar(BaseSidebar):
         )
 
         col.addWidget(self.exposure_slider)
-        row_dev = QHBoxLayout()
+        row_dev = QVBoxLayout()
         row_dev.addWidget(self.snatch_slider)
         row_dev.addWidget(self.abruptness_slider)
         col.addLayout(row_dev)
@@ -136,12 +136,12 @@ class AltProcessSidebar(BaseSidebar):
             "Bleach first for a full brown, on its own for a split blue-brown"
         )
 
-        row_exp = QHBoxLayout()
+        row_exp = QVBoxLayout()
         row_exp.addWidget(self.cyano_exposure_slider)
         row_exp.addWidget(self.cyano_scale_slider)
         col.addLayout(row_exp)
 
-        row_tone = QHBoxLayout()
+        row_tone = QVBoxLayout()
         row_tone.addWidget(self.cyano_bleach_slider)
         row_tone.addWidget(self.cyano_tannin_slider)
         col.addLayout(row_tone)
