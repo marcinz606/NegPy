@@ -16,11 +16,11 @@ CARRIER_MARGIN = 0.7
 # The gate prints soft; filed metal is a hard stop, which is what reads as filed.
 CARRIER_SOFT = 0.22
 CARRIER_FILED_SOFT = 0.06
-CARRIER_FLARE_DEPTH = 0.35
-CARRIER_FLARE_SPILL = 0.7
-CARRIER_FLARE_GAIN = 0.55
+# Flare is light off the filed bevel onto the paper: an exposure fraction added outside
+# the aperture, so it prints through the tone table like the penumbra.
+CARRIER_FLARE_DEPTH = 0.25
+CARRIER_FLARE_GAIN = 0.3
 CARRIER_FLARE_BASE = 0.35
-CARRIER_FLARE_HUE = 1.0
 # A 1-D profile is a height field, so it cannot overhang or shed a fleck. The 2-D field
 # displacing the distance field is what makes the edge read as torn metal. Hash noise
 # rather than a library, because WGSL has to reproduce it bit for bit.
@@ -124,18 +124,11 @@ def carrier_tone_lookup(tone: np.ndarray, t: np.ndarray) -> np.ndarray:
     return tone[i0] * (1.0 - f) + tone[i0 + 1] * f
 
 
-def flare_tint(theta: np.ndarray) -> np.ndarray:
-    """Hue drift of the bevel reflection: (..., 3) channel gains in [0, 1]."""
-    phase = np.array([0.0, 2.0 * np.pi / 3.0, 4.0 * np.pi / 3.0], dtype=np.float32)
-    return 0.5 + 0.5 * np.cos(theta[..., None] + phase)
-
-
 def apply_carrier(
     img: ImageBuffer,
     width_px: float,
     rough: float,
     flare: float = 0.0,
-    bw: bool = False,
     corner: float = 0.0,
     paper: tuple[float, float, float] = (1.0, 1.0, 1.0),
     tone: np.ndarray | None = None,
@@ -144,10 +137,10 @@ def apply_carrier(
     Filed-out negative carrier: the clear rebate prints between the film gate and the
     filed aperture, with a margin of unexposed paper outside it.
 
-    rough ragges the aperture, corner rounds it. flare lerps both sides of the filed
-    edge toward the bevel's reflection (neutral when bw). paper is the bare-paper color
-    in scene-linear, so the margin meets the mat with no seam. tone is the rebate tone
-    table (rebate_tone); the filed edge's penumbra is exposure, read through it.
+    rough ragges the aperture, corner rounds it, flare exposes the paper just outside it.
+    paper is the bare-paper color in scene-linear, so the margin meets the mat with no
+    seam. tone is the rebate tone table (rebate_tone); the filed edge's penumbra and the
+    flare are exposure, read through it.
     Evaluated per pixel over the border frame, as finish.wgsl does.
     """
     if width_px <= 0.0:
@@ -172,7 +165,7 @@ def apply_carrier(
     for y0, y1, x0, x1 in regions:
         for b0 in range(y0, y1, _CARRIER_BLOCK_ROWS):
             b1 = min(b0 + _CARRIER_BLOCK_ROWS, y1)
-            out[b0:b1, x0:x1] = _carrier_block(img[b0:b1, x0:x1], b0, x0, h, w, width_px, rough, flare, bw, corner, paper, tone)
+            out[b0:b1, x0:x1] = _carrier_block(img[b0:b1, x0:x1], b0, x0, h, w, width_px, rough, flare, corner, paper, tone)
     return ensure_image(np.clip(out, 0.0, 1.0))
 
 
@@ -185,7 +178,6 @@ def _carrier_block(
     width_px: float,
     rough: float,
     flare: float,
-    bw: bool,
     corner: float,
     paper: tuple[float, float, float],
     tone: np.ndarray,
@@ -219,33 +211,28 @@ def _carrier_block(
         return outer, margin + width_px * (1.0 + wobble) + cut
 
     edges = ((0, sx, end_x, py), (1, sx, end_x, (h - 1.0) - py), (2, sy, end_y, px), (3, sy, end_y, (w - 1.0) - px))
+    reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)
+    # Floored |noise|, not a one-sided gate: that left whole edges with no flare.
+    flare_amp = flare * CARRIER_FLARE_GAIN * (CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * np.abs(n2))
     a_in = np.ones(img.shape[:2], dtype=np.float32)
     a_out = np.ones(img.shape[:2], dtype=np.float32)
-    per_edge = []
+    peaks, gates = [], []
     for e, s, end, d in edges:
         outer, inner = bounds(e, s, end)
-        e_in = np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
-        a_in = a_in * e_in
+        a_in = a_in * np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
         a_out = a_out * np.clip((d - outer) / soft_filed + 0.5, 0.0, 1.0)
-        per_edge.append((e, s, d, outer, e_in))
-
-    rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out)
-    a_in = a_in[..., None]
-    res = img * a_in + rebate * (1.0 - a_in)
-
+        peaks.append(np.clip(1.0 - np.abs(d - outer) / reach, 0.0, 1.0) ** 2)
+        gates.append(np.clip(1.0 + (d - outer) / reach, 0.0, 1.0))
+    lit = np.float32(0.0)
     if flare > 0.0:
-        reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)
-        # Floored |noise|, not a one-sided gate: that left whole edges with no flare.
-        n = CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * np.abs(n2)
-        # Lerp, not add: it glows on the black and stains the paper. Order-dependent, so the
-        # shader walks the edges in this same order.
-        for e, s, d, outer, e_in in per_edge:
-            off = d - outer
-            t = np.clip(1.0 - np.maximum(off, 0.0) / reach + np.minimum(off, 0.0) / (reach * CARRIER_FLARE_SPILL), 0.0, 1.0)
-            amp = (flare * CARRIER_FLARE_GAIN * t * t * n * (1.0 - e_in))[..., None]
-            tint = np.ones(3, dtype=np.float32) if bw else flare_tint(CARRIER_FLARE_HUE * prof(e, s))
-            res = res * (1.0 - amp) + amp * tint
-    return res
+        # An edge's bevel spans only the aperture, so the other three edges gate its flare.
+        for e in range(4):
+            lit = lit + peaks[e] * np.prod([gates[k] for k in range(4) if k != e], axis=0)
+        lit = flare_amp * lit
+
+    rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out + lit)
+    a_in = a_in[..., None]
+    return img * a_in + rebate * (1.0 - a_in)
 
 
 def apply_vignette(img: ImageBuffer, stops: float, size: float, roundness: float = 0.0) -> ImageBuffer:

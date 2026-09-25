@@ -2081,7 +2081,7 @@ class GPUEngine:
             self._buffers["carrier_t"].upload(rebate_tone(settings, curve_metrics).ravel())
         paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
         f_data = struct.pack(
-            "fffffffffffffff",
+            "ffffffffffffff",
             float(settings.finish.vignette_stops),
             float(settings.finish.vignette_size),
             float(settings.finish.vignette_roundness),
@@ -2092,7 +2092,6 @@ class GPUEngine:
             float(carrier_px),
             float(settings.finish.carrier_rough),
             float(settings.finish.carrier_flare),
-            float(is_bw),
             float(settings.finish.carrier_corner),
             float(paper[0]),
             float(paper[1]),

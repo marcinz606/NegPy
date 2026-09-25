@@ -83,7 +83,6 @@ class FinishProcessor:
                 width,
                 self.config.carrier_rough,
                 self.config.carrier_flare,
-                context.process_mode == ProcessMode.BW,
                 self.config.carrier_corner,
                 self.paper,
                 self.tone,

@@ -1,12 +1,12 @@
 import unittest
 import numpy as np
 from negpy.features.finish.logic import (
-    CARRIER_MARGIN,
     CARRIER_SAMPLES,
     apply_carrier,
     apply_vignette,
     carrier_noise,
     carrier_profiles,
+    linear_carrier_tone,
 )
 
 
@@ -192,38 +192,31 @@ class TestCarrier(unittest.TestCase):
             apply_carrier(img, width_px=5.0, rough=0.5, flare=0.0),
         )
 
-    def _rebate_mask(self, plain: np.ndarray) -> np.ndarray:
-        """Pixels the rebate multiplied to black, taken off a flare-free render."""
-        return plain.max(axis=-1) == 0.0
-
-    def test_flare_rides_the_filed_edge(self) -> None:
+    def test_flare_exposes_the_paper_outside_the_aperture(self) -> None:
+        """Bevel light adds exposure beside the filed edge: the paper darkens there, while
+        the rebate, already at full exposure, and the picture stay put."""
         img = self._image()
         # rough=0 keeps the filed edge straight, so a row index is either margin or band.
         plain = apply_carrier(img, width_px=8.0, rough=0.0)
         lit = apply_carrier(img, width_px=8.0, rough=0.0, flare=1.0)
-        black = self._rebate_mask(plain)
-
-        self.assertGreater(float(lit.max(axis=-1)[black].max()), 0.05)
-        np.testing.assert_array_equal(lit[30:70, 30:120], plain[30:70, 30:120])
-        # Top edge, corners excluded: the effect straddles the filed edge rather than
-        # sitting on the picture-side gate.
-        delta = np.abs(lit - plain).max(axis=-1)[:20, 20:130].mean(axis=1)
-        filed, gate = 8.0 * CARRIER_MARGIN, 8.0 * CARRIER_MARGIN + 8.0
-        peak = int(np.argmax(delta))
-        self.assertLess(abs(peak - filed), abs(peak - gate))
-
-    def test_flare_stains_the_paper_margin(self) -> None:
-        """The reflection exposes the paper outside the aperture, so the white picks up a cast."""
-        img = self._image()
-        plain = apply_carrier(img, width_px=8.0, rough=0.0)
-        lit = apply_carrier(img, width_px=8.0, rough=0.0, flare=1.0)
         paper = plain.min(axis=-1) == 1.0
-        self.assertTrue(paper.any())
-        # Some of that paper is now both darker and no longer neutral.
         self.assertLess(float(lit[paper].min()), 0.98)
-        self.assertGreater(float(np.abs(np.diff(lit[paper], axis=-1)).max()), 1e-3)
-        # ...but only near the aperture: the outermost paper row is untouched.
+        np.testing.assert_array_equal(lit[plain.max(axis=-1) == 0.0], plain[plain.max(axis=-1) == 0.0])
+        np.testing.assert_array_equal(lit[30:70, 30:120], plain[30:70, 30:120])
+        # Only near the aperture: the outermost paper row is untouched.
         np.testing.assert_array_equal(lit[0, 20:130], plain[0, 20:130])
+
+    def test_flare_takes_the_tone_tables_hue(self) -> None:
+        img = self._image()
+        tone = linear_carrier_tone()
+        tone[:, 2] = np.sqrt(tone[:, 2])
+        plain = apply_carrier(img, width_px=8.0, rough=0.0, tone=tone)
+        lit = apply_carrier(img, width_px=8.0, rough=0.0, flare=1.0, tone=tone)
+        paper = plain.min(axis=-1) == 1.0
+        stain = lit[paper]
+        self.assertGreater(float((stain[:, 2] - stain[:, 0]).max()), 1e-3)
+        mono = apply_carrier(img, width_px=8.0, rough=0.0, flare=1.0)
+        self.assertEqual(float(np.abs(np.diff(mono, axis=-1)).max()), 0.0)
 
     def test_corner_slider_rounds_the_corners(self) -> None:
         """You cannot file a sharp inside corner, so Corners pulls the aperture back there."""
@@ -235,15 +228,6 @@ class TestCarrier(unittest.TestCase):
             return int((a[:60, :60].min(axis=-1) == 1.0).sum())
 
         self.assertGreater(corner_paper(round_), corner_paper(square) * 1.05)
-
-    def test_flare_color_vs_bw(self) -> None:
-        img = self._image()
-        plain = apply_carrier(img, width_px=8.0, rough=0.4)
-        color = apply_carrier(img, width_px=8.0, rough=0.4, flare=1.0)
-        mono = apply_carrier(img, width_px=8.0, rough=0.4, flare=1.0, bw=True)
-        black = self._rebate_mask(plain)
-        self.assertGreater(float(np.abs(np.diff(color[black], axis=-1)).max()), 1e-3)
-        self.assertEqual(float(np.abs(np.diff(mono[black], axis=-1)).max()), 0.0)
 
     def test_flare_deterministic(self) -> None:
         img = self._image()

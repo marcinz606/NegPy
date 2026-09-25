@@ -41,8 +41,8 @@ class FinishSidebar(BaseSidebar):
 
         self.carrier_flare_slider = CompactSlider("Flare", 0.0, 1.0, conf.carrier_flare)
         self.carrier_flare_slider.setToolTip(
-            "Light reflected off the bared metal of the filed bevel: a glow that lifts the black just inside "
-            "the filed edge and stains the paper just outside it. Colored on color film, neutral in B&W. 0 = off"
+            "Light reflected off the bared metal of the filed bevel exposes the paper just outside the filed edge. "
+            "It prints in the paper's own toe color under this frame's filtration, neutral in B&W. 0 = off"
         )
         self.carrier_corner_slider = CompactSlider("Corners", 0.0, 1.0, conf.carrier_corner)
         self.carrier_corner_slider.setToolTip("How far the filed aperture's corners round off — no file cuts a sharp inside corner")

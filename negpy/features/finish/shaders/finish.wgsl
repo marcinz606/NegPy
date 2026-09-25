@@ -9,7 +9,6 @@ struct FinishUniforms {
     carrier_width_px: f32,   // 0 = off
     carrier_rough: f32,
     carrier_flare: f32,      // 0 = off
-    carrier_bw: f32,         // 1 = neutral flare (B&W process)
     carrier_corner: f32,     // aperture corner roundness
     paper_r: f32,            // bare-paper color, scene-linear (matches the mat)
     paper_g: f32,
@@ -33,11 +32,9 @@ const CARRIER_CORNER: f32 = 1.4;
 const CARRIER_MARGIN: f32 = 0.7;
 const CARRIER_SOFT: f32 = 0.22;
 const CARRIER_FILED_SOFT: f32 = 0.06;
-const CARRIER_FLARE_DEPTH: f32 = 0.35;
-const CARRIER_FLARE_SPILL: f32 = 0.7;
-const CARRIER_FLARE_GAIN: f32 = 0.55;
+const CARRIER_FLARE_DEPTH: f32 = 0.25;
+const CARRIER_FLARE_GAIN: f32 = 0.3;
 const CARRIER_FLARE_BASE: f32 = 0.35;
-const CARRIER_FLARE_HUE: f32 = 1.0;
 const CARRIER_NOISE_SEED: u32 = 0x51ED270Bu;
 const CARRIER_NOISE_CELL: f32 = 1.5;
 const CARRIER_NOISE_OCTAVES: i32 = 4;
@@ -118,20 +115,11 @@ fn carrier_bounds(edge: i32, s: f32, end: f32, n2: f32) -> vec2<f32> {
     return vec2<f32>(outer, inner);
 }
 
-/// x = flare weight, yzw = weight * tint.
-fn carrier_flare(edge: i32, s: f32, d: f32, outer: f32, a_in: f32, n2: f32) -> vec4<f32> {
+/// x = flare peak about the filed edge, y = gate on the other edges' flares.
+fn carrier_flare(d: f32, outer: f32) -> vec2<f32> {
     let reach = max(1.0, params.carrier_width_px * CARRIER_FLARE_DEPTH);
-    let off = d - outer;
-    let t = clamp(1.0 - max(off, 0.0) / reach + min(off, 0.0) / (reach * CARRIER_FLARE_SPILL), 0.0, 1.0);
-    // Floored |noise|, not a one-sided gate: that left whole edges with no flare.
-    let n = CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * abs(n2);
-    let amp = params.carrier_flare * CARRIER_FLARE_GAIN * t * t * n * (1.0 - a_in);
-    var tint = vec3<f32>(1.0);
-    if (params.carrier_bw == 0.0) {
-        let theta = CARRIER_FLARE_HUE * carrier_prof_at(edge, s);
-        tint = 0.5 + 0.5 * cos(vec3<f32>(theta) + vec3<f32>(0.0, 2.0943951, 4.1887902));
-    }
-    return vec4<f32>(amp, amp * tint);
+    let t = clamp(1.0 - abs(d - outer) / reach, 0.0, 1.0);
+    return vec2<f32>(t * t, clamp(1.0 + (d - outer) / reach, 0.0, 1.0));
 }
 
 @compute @workgroup_size(8, 8)
@@ -188,22 +176,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let out_b = clamp((d_b - b_b.x) / soft_filed + 0.5, 0.0, 1.0);
         let out_l = clamp((d_l - b_l.x) / soft_filed + 0.5, 0.0, 1.0);
         let out_r = clamp((d_r - b_r.x) / soft_filed + 0.5, 0.0, 1.0);
+        var lit = 0.0;
+        if (params.carrier_flare > 0.0) {
+            // Floored |noise|, not a one-sided gate: that left whole edges with no flare.
+            let amp = params.carrier_flare * CARRIER_FLARE_GAIN * (CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * abs(n2));
+            let f_t = carrier_flare(d_t, b_t.x);
+            let f_b = carrier_flare(d_b, b_b.x);
+            let f_l = carrier_flare(d_l, b_l.x);
+            let f_r = carrier_flare(d_r, b_r.x);
+            // An edge's bevel spans only the aperture, so the other three edges gate its flare.
+            lit = amp * (f_t.x * f_b.y * f_l.y * f_r.y + f_b.x * f_t.y * f_l.y * f_r.y
+                + f_l.x * f_t.y * f_b.y * f_r.y + f_r.x * f_t.y * f_b.y * f_l.y);
+        }
         let paper = vec3<f32>(params.paper_r, params.paper_g, params.paper_b);
-        let rebate = paper * carrier_tone_at(out_t * out_b * out_l * out_r);
+        let rebate = paper * carrier_tone_at(out_t * out_b * out_l * out_r + lit);
         let a_in = in_t * in_b * in_l * in_r;
         color = color * a_in + rebate * (1.0 - a_in);
-
-        // Edge order must match apply_carrier()'s slabs — the lerp is order-dependent.
-        if (params.carrier_flare > 0.0) {
-            let f_t = carrier_flare(0, sx, d_t, b_t.x, in_t, n2);
-            color = color * (1.0 - f_t.x) + f_t.yzw;
-            let f_b = carrier_flare(1, sx, d_b, b_b.x, in_b, n2);
-            color = color * (1.0 - f_b.x) + f_b.yzw;
-            let f_l = carrier_flare(2, sy, d_l, b_l.x, in_l, n2);
-            color = color * (1.0 - f_l.x) + f_l.yzw;
-            let f_r = carrier_flare(3, sy, d_r, b_r.x, in_r, n2);
-            color = color * (1.0 - f_r.x) + f_r.yzw;
-        }
     }
 
     textureStore(output_tex, coords, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
