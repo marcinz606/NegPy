@@ -752,7 +752,11 @@ class TestPresetNames:
     def test_load_tooltip_follows_a_rebinding(self, sidebar: MetadataSidebar, monkeypatch) -> None:
         import negpy.desktop.view.shortcut_registry as registry
 
-        assert "Ctrl+Shift+L" not in sidebar.metadata_preset_load_btn.toolTip()
+        # display_key renders the portable binding the way the platform does (e.g. "⇧⌘L" on
+        # macOS, literally "Ctrl+Shift+L" elsewhere), so the tooltip must be checked through
+        # it too, not against the portable string itself.
+        rebound = registry.display_key("Ctrl+Shift+L")
+        assert rebound not in sidebar.metadata_preset_load_btn.toolTip()
         monkeypatch.setattr(
             registry,
             "key_for",
@@ -761,7 +765,7 @@ class TestPresetNames:
 
         sidebar.apply_shortcut_tooltips()
 
-        assert "Ctrl+Shift+L" in sidebar.metadata_preset_load_btn.toolTip()
+        assert rebound in sidebar.metadata_preset_load_btn.toolTip()
 
 
 class TestEditingPresetValuesInTheLibrary:
