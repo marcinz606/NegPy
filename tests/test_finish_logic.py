@@ -238,6 +238,15 @@ class TestCarrier(unittest.TestCase):
 
         self.assertGreater(corner_paper(round_), corner_paper(square) * 1.05)
 
+    def test_corner_slider_leaves_the_gate_corner(self) -> None:
+        """The picture's corner is the camera gate's, whatever the filed aperture does."""
+        img = np.full((300, 400, 3), 0.5, dtype=np.float32)
+        square = apply_carrier(img, width_px=16.0, rough=0.0, corner=0.0)
+        round_ = apply_carrier(img, width_px=16.0, rough=0.0, corner=1.0)
+        # From just inside the filed edge's reach to past the gate corner and its penumbra.
+        np.testing.assert_array_equal(round_[26:60, 26:60], square[26:60, 26:60])
+        self.assertLess(float(square[26, 26].max()), 0.05)
+
     def test_flare_deterministic(self) -> None:
         img = self._image()
         a = apply_carrier(img, width_px=8.0, rough=1.0, flare=0.7)

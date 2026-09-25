@@ -12,6 +12,8 @@ CARRIER_JITTER = 0.24
 CARRIER_INNER_ROUGH = 0.2
 CARRIER_OUTER_JITTER = 0.4
 CARRIER_CORNER = 1.4
+# A camera gate's corners are machined with a small fixed radius; Corners rounds the filed ones.
+CARRIER_GATE_CORNER = 0.2
 CARRIER_MARGIN = 0.7
 # The gate prints soft; filed metal is a hard stop, which is what reads as filed.
 CARRIER_SOFT = 0.22
@@ -210,6 +212,7 @@ def _carrier_block(
     soft_filed = max(1.0, width_px * CARRIER_FILED_SOFT)
     margin = width_px * CARRIER_MARGIN
     radius = width_px * CARRIER_CORNER * corner
+    gate_radius = width_px * CARRIER_GATE_CORNER
     cell = max(1.0, width_px * CARRIER_NOISE_CELL)
     py = np.arange(y0, y0 + img.shape[0], dtype=np.float32)[:, None]
     px = np.arange(x0, x0 + img.shape[1], dtype=np.float32)[None, :]
@@ -222,16 +225,20 @@ def _carrier_block(
     def prof(row: int, s: np.ndarray) -> np.ndarray:
         return profiles[row, np.minimum((s * CARRIER_SAMPLES).astype(np.int32), CARRIER_SAMPLES - 1)]
 
+    def arc(r: float, at: float, end: np.ndarray) -> np.ndarray | np.float32:
+        """Corner retreat of a boundary `at` px from the print edge. Measured from that
+        boundary's own corner, or most of the arc is spent outside it."""
+        if r <= 0.0:
+            return np.float32(0.0)
+        x = np.clip(r - (end - at), 0.0, r)
+        return r - np.sqrt(np.maximum(r * r - x * x, 0.0))
+
     def bounds(edge: int, s: np.ndarray, end: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """(filed, gate) boundary, px from the print edge. Both take the same corner arc,
-        measured from the aperture corner, or most of it is spent inside the paper margin."""
-        cut = np.float32(0.0)
-        if radius > 0.0:
-            x = np.clip(radius - (end - margin), 0.0, radius)
-            cut = radius - np.sqrt(np.maximum(radius * radius - x * x, 0.0))
-        outer = margin + width_px * rough * (CARRIER_OUTER_JITTER * prof(edge + 4, s) + CARRIER_NOISE_OUTER * n2) + cut
+        """(filed, gate) boundary, px from the print edge."""
+        outer = margin + width_px * rough * (CARRIER_OUTER_JITTER * prof(edge + 4, s) + CARRIER_NOISE_OUTER * n2)
         wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * prof(edge, s) + CARRIER_NOISE_INNER * n2
-        return outer, margin + width_px * (1.0 + wobble) + cut
+        inner = margin + width_px * (1.0 + wobble) + arc(gate_radius, margin + width_px, end)
+        return outer + arc(radius, margin, end), inner
 
     edges = ((0, sx, end_x, py), (1, sx, end_x, (h - 1.0) - py), (2, sy, end_y, px), (3, sy, end_y, (w - 1.0) - px))
     reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)

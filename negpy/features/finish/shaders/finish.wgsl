@@ -29,6 +29,7 @@ const CARRIER_JITTER: f32 = 0.24;
 const CARRIER_INNER_ROUGH: f32 = 0.2;
 const CARRIER_OUTER_JITTER: f32 = 0.4;
 const CARRIER_CORNER: f32 = 1.4;
+const CARRIER_GATE_CORNER: f32 = 0.2;
 const CARRIER_MARGIN: f32 = 0.7;
 const CARRIER_SOFT: f32 = 0.22;
 const CARRIER_FILED_SOFT: f32 = 0.06;
@@ -96,22 +97,22 @@ fn carrier_prof_at(row: i32, s: f32) -> f32 {
     return carrier_prof[row * CARRIER_SAMPLES + idx];
 }
 
-/// x = filed boundary, y = film-gate boundary, px from the print edge. `end` = distance to
-/// the nearer end of this edge. Both boundaries take the same corner arc, so the band
-/// keeps its width around a corner; the arc runs from the aperture corner, not the print
-/// edge, or most of it is spent inside the paper margin.
+/// Corner retreat of a boundary `at` px from the print edge, `end` px from the edge's
+/// nearer end. Measured from that boundary's own corner, or most of the arc is spent outside it.
+fn carrier_arc(r: f32, at: f32, end: f32) -> f32 {
+    if (r <= 0.0) { return 0.0; }
+    let x = clamp(r - (end - at), 0.0, r);
+    return r - sqrt(max(r * r - x * x, 0.0));
+}
+
+/// x = filed boundary, y = film-gate boundary, px from the print edge.
 fn carrier_bounds(edge: i32, s: f32, end: f32, n2: f32) -> vec2<f32> {
-    let margin = params.carrier_width_px * CARRIER_MARGIN;
-    let radius = params.carrier_width_px * CARRIER_CORNER * params.carrier_corner;
-    var cut = 0.0;
-    if (radius > 0.0) {
-        let x = clamp(radius - (end - margin), 0.0, radius);
-        cut = radius - sqrt(max(radius * radius - x * x, 0.0));
-    }
+    let w = params.carrier_width_px;
+    let margin = w * CARRIER_MARGIN;
     let jitter = CARRIER_OUTER_JITTER * carrier_prof_at(edge + 4, s) + CARRIER_NOISE_OUTER * n2;
-    let outer = margin + params.carrier_width_px * params.carrier_rough * jitter + cut;
+    let outer = margin + w * params.carrier_rough * jitter + carrier_arc(w * CARRIER_CORNER * params.carrier_corner, margin, end);
     let wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * carrier_prof_at(edge, s) + CARRIER_NOISE_INNER * n2;
-    let inner = margin + params.carrier_width_px * (1.0 + wobble) + cut;
+    let inner = margin + w * (1.0 + wobble) + carrier_arc(w * CARRIER_GATE_CORNER, margin + w, end);
     return vec2<f32>(outer, inner);
 }
 
