@@ -153,6 +153,9 @@ def _apply_print_curve_kernel(
     r0: float,
     r_min: float,
     r_max: float,
+    flash: float,
+    flash_v: float,
+    flash_gamma: float,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -174,6 +177,8 @@ def _apply_print_curve_kernel(
     key_alpha/key_params: tone-limited masks when use_key is set (see
     apply_characteristic_curve). Their grade adds to grade_deltas in ISO-R space about r0,
     which then replaces grade_map.
+    flash/flash_v/flash_gamma: preflash as a fraction of the threshold exposure (see
+    preflash_value).
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -265,6 +270,8 @@ def _apply_print_curve_kernel(
                 # gfac is the local grade, a slope rotation about this channel's pivot, so the
                 # region's own midtone holds. The cast-removal curvature stays global.
                 v = slopes[ch] * gfac * (val - pivots[ch]) + curvatures[ch] * val * val
+                if flash > 0.0:
+                    v = flash_v + flash_gamma * np.log10(10.0 ** ((v - flash_v) / flash_gamma) + flash)
 
                 # Variable-gamma paper S-curve: extra local gamma at the midtone centre
                 # (v_star), easing to zero toward the toe and shoulder. Centred on v_star, so
@@ -360,12 +367,16 @@ class CharacteristicCurve:
         shadow_grade_delta: float = 0.0,
         highlight_grade_delta: float = 0.0,
         curvature: float = 0.0,
+        preflash: float = 0.0,
+        grade: float = 115.0,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
         self.k = float(contrast)
         self.x0 = float(pivot)
         self.curvature = float(curvature)
+        self.flash = max(float(preflash), 0.0)
+        self.flash_v, self.flash_gamma = preflash_params(grade, d_min, paper)
         self.d_min = float(d_min)
         self.v_star = _reference_linear_value(d_min, paper)
         self.midtone_gamma = float(c["paper_midtone_gamma"]) if midtone_gamma is None else float(midtone_gamma)
@@ -402,6 +413,8 @@ class CharacteristicCurve:
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
         xv = np.asarray(x, dtype=np.float64)
         v = self.k * (xv - self.x0) + self.curvature * xv * xv
+        if self.flash > 0.0:
+            v = preflash_value(v, self.flash_v, self.flash, self.flash_gamma)
         if self.midtone_gamma != 0.0:
             v = v + self.midtone_gamma * self.gamma_width * np.tanh((v - self.v_star) / self.gamma_width)
         if self.shadow_grade_delta != 0.0 or self.highlight_grade_delta != 0.0:
@@ -472,6 +485,8 @@ def print_curve(
         shadow_grade_delta=sg[0] if shadow_grade_delta is None else shadow_grade_delta,
         highlight_grade_delta=hg[0] if highlight_grade_delta is None else highlight_grade_delta,
         curvature=curvature,
+        preflash=exposure.preflash,
+        grade=exposure.grade,
     )
 
 
@@ -619,7 +634,8 @@ def apply_characteristic_curve(
     key_alpha: Optional[np.ndarray] = None,
     key_params: Optional[np.ndarray] = None,
     grade_deltas: Optional[np.ndarray] = None,
-    frame_grade: float = 0.0,
+    frame_grade: float = 115.0,
+    preflash: float = 0.0,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -630,6 +646,9 @@ def apply_characteristic_curve(
     key_edges) adds K tone-limited masks, each weighted by a smoothstep from 0 at e0 to 1
     at e1 on the pixel's own luma. With them the local grade is summed in ISO-R space
     about frame_grade from grade_deltas (the unlimited masks' ISO-R plane), not grade_map.
+
+    preflash: a uniform flash as a fraction of the threshold exposure, on the paper gamma
+    of frame_grade (preflash_params).
 
     dye_separation(_trims): density-domain saturation, composed into the
     dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
@@ -671,6 +690,7 @@ def apply_characteristic_curve(
 
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
     tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
+    flash_v, flash_gamma = preflash_params(frame_grade, d_min, paper)
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
@@ -719,6 +739,9 @@ def apply_characteristic_curve(
         r0=min(max(float(frame_grade), r_min), r_max),
         r_min=r_min,
         r_max=r_max,
+        flash=max(float(preflash), 0.0),
+        flash_v=flash_v,
+        flash_gamma=flash_gamma,
         bpc=bool(bpc),
     )
     return ensure_image(res)
@@ -962,6 +985,25 @@ def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = 
     return float(d_min + _inv_softplus_np(a_hl * (v1 - d_min)) / a_hl)
 
 
+def preflash_params(grade: float, d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> Tuple[float, float]:
+    """(v_th, gamma) for preflash_value. v_th is the straight-line value that prints the paper's
+    threshold, d_min + preflash_threshold_density (where the ISO R range starts). gamma is the
+    paper's density per log10 exposure at `grade`, so the flash is a paper exposure and does
+    not depend on the scan's log range."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = effective_constants(paper)
+    v_th = _reference_linear_value(d_min, paper, target=d_min + float(c["preflash_threshold_density"]))
+    er = min(max(float(grade), EXPOSURE_CONSTANTS["iso_r_min"]), EXPOSURE_CONSTANTS["iso_r_max"]) / 100.0
+    return v_th, float(EXPOSURE_CONSTANTS["grade_contrast_scale"]) / er
+
+
+def preflash_value(v: Any, v_th: float, flash: float, gamma: float) -> Any:
+    """Straight-line value `v` after a uniform flash of `flash` × the threshold exposure.
+    Exposures add, so the flash lifts tones near threshold and barely moves tones far above it."""
+    return v_th + gamma * np.log10(10.0 ** ((v - v_th) / gamma) + flash)
+
+
 def shadow_reach_slope(slope: float, anchor: float, shadow_point: float, d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> float:
     """
     Auto Grade floor on the slope: the textured dark tail at `shadow_point` must print
@@ -979,19 +1021,29 @@ def shadow_reach_slope(slope: float, anchor: float, shadow_point: float, d_min: 
 
 
 def highlight_hold_offset(
-    slope: float, pivot: float, highlight_point: float, d_min: float = 0.0, paper: Optional[PaperProfile] = None
+    slope: float,
+    pivot: float,
+    highlight_point: float,
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+    preflash: float = 0.0,
+    grade: float = 115.0,
 ) -> float:
     """
     Auto Grade's soft exposure: the highlight zone burn (a highlight_density term) that
     lands the textured bright tail at `highlight_point` on highlight_hold_density when the
     straight line would print it brighter. Solved against the kernel's own zone weight at
     that tone, so the burn stays under the shoulder. Never lifts; 0 when the tone holds.
+    Measured after the preflash, so the burn only tops up what the flash leaves.
     """
     c = effective_constants(paper)
     target = float(c["highlight_hold_density"])
     if target <= 0.0:
         return 0.0
     v = float(slope) * (float(highlight_point) - float(pivot))
+    if preflash > 0.0:
+        v_th, gamma = preflash_params(grade, d_min, paper)
+        v = float(preflash_value(v, v_th, preflash, gamma))
     v_hold = _reference_linear_value(d_min, paper, target=target)
     if v >= v_hold:
         return 0.0
@@ -1011,7 +1063,9 @@ def auto_highlight_from_metrics(exposure: Any, process_mode: Optional[str], metr
     profile = effective_paper_profile(exposure.paper_profile, process_mode)
     d_min = profile.d_min if exposure.paper_dmin else 0.0
     slopes, pivots, _ = curve_params_from_metrics(exposure, process_mode, metrics)
-    return highlight_hold_offset(slopes[1], pivots[1], float(point), d_min=d_min, paper=profile)
+    return highlight_hold_offset(
+        slopes[1], pivots[1], float(point), d_min=d_min, paper=profile, preflash=exposure.preflash, grade=exposure.grade
+    )
 
 
 def compute_pivot(

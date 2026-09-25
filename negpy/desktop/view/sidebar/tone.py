@@ -220,6 +220,9 @@ class ToneSidebar(BaseSidebar):
         paper_toggle_row.addWidget(self.paper_dmin_btn, 1)
         self.layout.addLayout(paper_toggle_row)
 
+        self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
+        self.layout.addWidget(self.preflash_slider)
+
         self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
         snap_row = QHBoxLayout()
         snap_row.addWidget(self.midtone_gamma_slider)
@@ -364,6 +367,7 @@ class ToneSidebar(BaseSidebar):
             (self.separation_damping_slider, "separation_damping"),
             (self.contrast_mask_slider, "contrast_mask"),
             (self.mask_spacer_slider, "mask_spacer"),
+            (self.preflash_slider, "preflash"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -464,6 +468,7 @@ class ToneSidebar(BaseSidebar):
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
                 self.contrast_mask_slider,
                 self.mask_spacer_slider,
+                self.preflash_slider,
             ):
                 w.setVisible(not transfer)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
@@ -535,6 +540,7 @@ class ToneSidebar(BaseSidebar):
             self.separation_damping_slider.setValue(conf.separation_damping)
             self.contrast_mask_slider.setValue(conf.contrast_mask)
             self.mask_spacer_slider.setValue(conf.mask_spacer)
+            self.preflash_slider.setValue(conf.preflash)
             # Out of _global_only: that tuple means enabled exactly when global.
             self.mask_spacer_slider.setEnabled(global_mode and conf.contrast_mask != 0.0)
             # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
@@ -579,6 +585,7 @@ class ToneSidebar(BaseSidebar):
             self.highlight_grade_slider,
             self.contrast_mask_slider,
             self.mask_spacer_slider,
+            self.preflash_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.auto_density_btn,

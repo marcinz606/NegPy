@@ -144,6 +144,9 @@ def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish
     if exposure.midtone_gamma:
         lines.append(f"Snap {exposure.midtone_gamma:+.2f}")
 
+    if exposure.preflash:
+        lines.append(f"Preflash {exposure.preflash:.2f} of threshold")
+
     if finish.vignette_stops:
         lines.append(f"Edge burn {stops_label(finish.vignette_stops)} stop")
 

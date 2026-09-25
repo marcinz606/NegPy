@@ -86,6 +86,8 @@ class ExposureConfig:
     midtone_gamma_trim_red: float = 0.0
     midtone_gamma_trim_green: float = 0.0
     midtone_gamma_trim_blue: float = 0.0
+    # Uniform paper pre-exposure as a fraction of the threshold exposure. [0, 1]; 0 = off.
+    preflash: float = 0.0
     cast_removal_strength: float = 1.0
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
@@ -251,6 +253,8 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "highlight_hold_percentile": 2.0,
     "highlight_hold_density": 0.10,
     "highlight_hold_max": 0.5,
+    # Preflash threshold: the density above paper white that the ISO R range starts at.
+    "preflash_threshold_density": 0.04,
     # Flat / digital-intermediate master (RenderIntent.FLAT). A log-video master:
     # the normalized log signal becomes the code value directly, with no 10^-D
     # decode and no sRGB OETF, so it stays flat and fully invertible.

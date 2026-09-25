@@ -119,6 +119,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "contrast_mask_inc": ShortcutEntry("", "Contrast Mask up", "Exposure"),
     "mask_spacer_dec": ShortcutEntry("", "Mask Spacer down", "Exposure"),
     "mask_spacer_inc": ShortcutEntry("", "Mask Spacer up", "Exposure"),
+    "preflash_dec": ShortcutEntry("", "Preflash down", "Exposure"),
+    "preflash_inc": ShortcutEntry("", "Preflash up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
     "reanalyze_frame": ShortcutEntry("", "Reanalyze this frame's bounds", "Process"),
     "cast_average_toggle": ShortcutEntry("", "Toggle cast average", "Process"),

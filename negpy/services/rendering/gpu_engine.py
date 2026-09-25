@@ -1612,6 +1612,7 @@ class GPUEngine:
             per_channel_curve_params,
             per_channel_midtone_gamma,
             per_channel_widths,
+            preflash_params,
             split_grade_deltas,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -1747,7 +1748,7 @@ class GPUEngine:
             shadow_point=shadow_point,
         )
         hl_auto = (
-            highlight_hold_offset(slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper)
+            highlight_hold_offset(slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper, preflash=exp.preflash, grade=exp.grade)
             if exp.auto_normalize_contrast and highlight_point is not None
             else 0.0
         )
@@ -1898,8 +1899,14 @@ class GPUEngine:
             # carry Separation Damping's green and blue k.
             + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])
             + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
-            # Hue Trim in radians (x; yzw pad). The shader rotates before its encode.
-            + struct.pack("ffff", math.radians(float(settings.process.hue_trim)), 0.0, 0.0, 0.0)
+            # Hue Trim in radians (x), then the preflash fraction, threshold value and paper
+            # gamma (yzw). The shader rotates before its encode.
+            + struct.pack(
+                "ffff",
+                math.radians(float(settings.process.hue_trim)),
+                max(exp.preflash, 0.0),
+                *preflash_params(exp.grade, d_min, paper),
+            )
             # Contrast Mask: stops per unit of plane (0 = off), then the printed frame's
             # origin and span in rotated pixels. The shader does the upscale.
             + struct.pack("ffff", *(contrast_mask[:3] if contrast_mask else (0.0, 0.0, 0.0)), 0.0)

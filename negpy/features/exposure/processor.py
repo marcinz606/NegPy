@@ -255,7 +255,9 @@ class PhotometricProcessor:
         context.metrics["print_slopes"] = slopes
         hl_point = context.metrics.get("highlight_point")
         hl_auto = (
-            highlight_hold_offset(slopes[1], pivots[1], hl_point, d_min=d_min, paper=paper)
+            highlight_hold_offset(
+                slopes[1], pivots[1], hl_point, d_min=d_min, paper=paper, preflash=self.config.preflash, grade=self.config.grade
+            )
             if self.config.auto_normalize_contrast and hl_point is not None
             else 0.0
         )
@@ -321,7 +323,6 @@ class PhotometricProcessor:
                 "key_alpha": local_maps[:, :, 2:],
                 "key_params": limited_mask_params(self.local_config, self.config, context.process_mode, context.metrics),
                 "grade_deltas": local_maps[:, :, 1],
-                "frame_grade": self.config.grade,
             }
 
         img_pos = apply_characteristic_curve(
@@ -377,6 +378,8 @@ class PhotometricProcessor:
                 self.config.dye_separation_trim_blue,
             ),
             separation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.separation_damping,
+            frame_grade=self.config.grade,
+            preflash=self.config.preflash,
             **key_kw,
         )
 

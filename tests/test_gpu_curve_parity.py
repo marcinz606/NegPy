@@ -112,6 +112,32 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_preflash(self):
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(0)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        base = WorkspaceConfig()
+        settings = replace(base, exposure=replace(base.exposure, preflash=0.8, wb_magenta=0.1))
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+        unflashed = self._render(processor, base, img, prefer_gpu=False)
+
+        self.assertGreater(float(np.max(np.abs(cpu - unflashed))), 0.02, "preflash must move the render")
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
     def test_cpu_gpu_match_dye_separation(self):
         """Dye Separation composes into the same dye_mix slot as the paper's
         real crosstalk -- uses Kodak Endura (a real, non-identity dye matrix) so

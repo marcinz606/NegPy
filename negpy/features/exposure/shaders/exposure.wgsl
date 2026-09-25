@@ -48,8 +48,8 @@ struct ExposureUniforms {
     // These rows push the block past 256B: exposure spans two UBO slots.
     split_sh: vec4<f32>,
     split_hi: vec4<f32>,
-    // Hue Trim: x = rotation in radians, yzw pad. Costs no slot; 288B already
-    // spanned two.
+    // Hue Trim: x = rotation in radians; yzw = preflash fraction (0 = off), threshold
+    // value and paper gamma (preflash_params). Costs no slot; 288B already spanned two.
     hue: vec4<f32>,
     // Contrast Mask: x = stops per unit of plane (contrast_mask_scale; 0 gates
     // mask_tex off), yz = the printed frame's origin in rotated pixels, w pad.
@@ -250,6 +250,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // gfac is the local grade: a slope rotation about this channel's pivot, so a
         // masked region's own midtone holds. Curvature stays global.
         var v = params.slopes[ch] * gfac * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
+        // Preflash: the flash exposure adds to the image exposure (preflash_value).
+        if (params.hue.y > 0.0) {
+            v = params.hue.z + params.hue.w * log(pow(10.0, (v - params.hue.z) / params.hue.w) + params.hue.y) / 2.302585;
+        }
 
         // Variable-gamma paper S-curve: extra local gamma at the midtone centre
         // (v_star), easing to zero toward toe/shoulder. Mirrors the CPU kernel.

@@ -214,3 +214,16 @@ def test_mask_band_is_off_for_the_flat_master(qapp):
     w = PhotometricCurveWidget()
     w.update_curve(ExposureConfig(contrast_mask=0.4), slope=0.65, pivot=0.10, flat=True, mask_centre=0.5)
     assert w._mask_pts == []
+
+
+def test_preflash_curve_matches_the_kernel():
+    from negpy.features.exposure.logic import apply_characteristic_curve
+
+    slope, pivot, grade = 2.9, 0.21, 90.0
+    x = np.linspace(-0.4, 1.0, 64, dtype=np.float32)
+    img = np.ascontiguousarray(np.repeat(x[None, :, None], 3, axis=2))
+    for preflash in (0.4, 0.9):
+        out = apply_characteristic_curve(img, (pivot, slope), (pivot, slope), (pivot, slope), frame_grade=grade, preflash=preflash)
+        kernel = -np.log10(np.maximum(np.asarray(out)[0, :, 1], 1e-9))
+        curve = CharacteristicCurve(slope, pivot, preflash=preflash, grade=grade)
+        np.testing.assert_allclose(kernel, np.asarray(curve(x)).ravel(), atol=1e-4)

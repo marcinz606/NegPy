@@ -34,7 +34,7 @@ TRANSFER = (
 METERS = {"auto_exposure", "auto_normalize_contrast"}
 # The paper model's own controls; the transfer curve has no paper to apply them to.
 PRINT_ONLY = (
-    {"contrast_mask", "mask_spacer", "paper_dmin", "paper_black", "paper_profile"}
+    {"contrast_mask", "mask_spacer", "paper_dmin", "paper_black", "paper_profile", "preflash"}
     | {n + t for n in ("grade",) for t in _TRIMS}
     | _with_trims("shadow_grade", "highlight_grade", "midtone_gamma")
 )
@@ -68,6 +68,8 @@ def _moved(field: str, value):
         return value + 15.0
     if field in ("toe_width", "shoulder_width", "mask_spacer"):
         return value + 1.5
+    if field == "preflash":
+        return 0.8
     return value + 0.25
 
 

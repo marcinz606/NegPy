@@ -747,6 +747,14 @@ class ControlsPanel(QWidget):
                 ["separation_damping_inc", "separation_damping_dec"],
             )
         )
+        exp.preflash_slider.setToolTip(
+            tooltip_with_shortcut(
+                "A flash of plain light over the whole sheet, as a fraction of the paper's threshold exposure. It adds "
+                "to the image exposure, so it pulls highlight detail off paper white and moves the shadows "
+                "little; the print gets softer, which a harder grade gives back. Bare paper stays white up to 1.0. 0 = off",
+                ["preflash_inc", "preflash_dec"],
+            )
+        )
         lab.clahe_slider.setToolTip(
             tooltip_with_shortcut(
                 "Local contrast (CLAHE) without blowing global highlights or crushing shadows. Use sparingly — near 1.0 can look cartoonish",
