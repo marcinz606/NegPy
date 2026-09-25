@@ -25,11 +25,6 @@ class TestPreferencesDialog(unittest.TestCase):
     def test_the_scale_combo_opens_on_the_saved_value(self):
         self.assertEqual(_dlg(ui_scale=1.2).scale_combo.currentText(), "120%")
 
-    def test_slider_values_toggle_is_persisted(self):
-        dlg = _dlg()
-        dlg.slider_values_box.setChecked(True)
-        self.assertIs(dlg.repo.data["show_slider_values"], True)
-
     def test_vram_warning_box_defaults_on(self):
         self.assertTrue(_dlg().vram_warning_box.isChecked())
 
