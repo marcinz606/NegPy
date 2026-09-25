@@ -410,15 +410,7 @@ class NkscanBackend:
             rect = _shift_frame(rect, _offset_units(params.frame_offset_mm, int(session.capabilities.optical_dpi)))
             lock = self.locks_white_balance(params.film_type)
             with self._mapped_errors():
-                meter_frame = getattr(session, "meter_frame", None)
-                if meter_frame is not None:
-                    exposures = meter_frame(rect, infrared=True, lock_white_balance=lock, progress=report)
-                else:
-                    # ponytail: nkscan < 0.12 meters only inside a scan, so take the smallest one.
-                    lowest = int(session.capabilities.x_dpi_range[0])
-                    exposures = self.scan_frame(
-                        session, rect, dpi=lowest, infrared=True, lock_white_balance=lock, progress=report
-                    ).exposures
+                exposures = session.meter_frame(rect, infrared=True, lock_white_balance=lock, progress=report)
         finally:
             with suppress(Exception):
                 session.close()
@@ -440,7 +432,10 @@ class NkscanBackend:
         superfine ordering, and asking for the fast one is refused before the stage moves.
         """
         want = bool(superfine) or not bool(session.capabilities.multi_line)
-        return session.scan_frame(rect, superfine=want, **options)
+        result = session.scan_frame(rect, superfine=want, **options)
+        if not result.complete:
+            raise TransientScanError(f"The pass ended early: {result.blocks} blocks arrived")
+        return result
 
     def locks_white_balance(self, film_type: str) -> bool:
         """nkscan's own metering default for this film.
@@ -475,6 +470,9 @@ class NkscanBackend:
         """Measure the loaded film, cache the rects, and return nkscan's Discovery."""
         with self._mapped_errors():
             discovery = session.discover_frames(format=film_format, progress=progress)
+        # A short thumbnail pass reads as film ending early, so its fit miscounts the frames.
+        if discovery.thumbnail_complete is False:
+            raise TransientScanError(f"The thumbnail pass ended early: {discovery.thumbnail_blocks} blocks arrived")
         self._frames[device_id] = [tuple(int(v) for v in rect) for rect in discovery.frames]
         thumbnail = getattr(discovery, "thumbnail", None)
         if thumbnail:

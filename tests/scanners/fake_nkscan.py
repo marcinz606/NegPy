@@ -94,6 +94,8 @@ class FakeDiscovery:
     frames: list[tuple[int, int, int, int]]
     thumbnail: dict[str, np.ndarray] | None = None
     addresses_per_column: float | None = None
+    thumbnail_complete: bool | None = None
+    thumbnail_blocks: int | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,8 @@ class FakeScanResult:
     cols: int
     exposures: dict[str, int]
     cleaned: int | None
+    complete: bool = True
+    blocks: int = 1
 
 
 @dataclass
@@ -124,6 +128,7 @@ class FakeNkscanModule:
     # Not the caps' 4000 / 250, as on a real pass.
     addresses_per_column: float = 16.3
     scan_error: Exception | None = None
+    short_pass: bool = False  # the next pass, thumbnail or frame, stops before its last block
     discover_error: Exception | None = None
     open_error: Exception | None = None
     probe_error: Exception | None = None
@@ -227,6 +232,8 @@ class FakeSession:
             frames=list(module.frames),
             thumbnail=thumbnail,
             addresses_per_column=module.addresses_per_column if thumbnail else None,
+            thumbnail_complete=not module.short_pass if thumbnail else None,
+            thumbnail_blocks=(1 - module.short_pass) if thumbnail else None,
         )
 
     def scan_frame(
@@ -277,6 +284,8 @@ class FakeSession:
             cols=cols,
             exposures={"red": 1, "green": 2, "blue": 3},
             cleaned=7 if clean else None,
+            complete=not module.short_pass,
+            blocks=1 - module.short_pass,
         )
 
     def meter_frame(

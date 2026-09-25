@@ -568,24 +568,19 @@ def test_metering_reads_the_whole_detected_frame_with_its_offset_but_not_the_win
     assert session.closed
 
 
-def test_metering_without_meter_frame_takes_the_smallest_scan(monkeypatch) -> None:
-    monkeypatch.delattr(fake_nkscan.FakeSession, "meter_frame")
+def test_a_short_pass_is_a_transient_error_so_the_scan_is_retried() -> None:
     backend, module = make_backend()
-
-    exposures = _meter(backend, dataclasses.replace(_PARAMS, frame=2))
-
-    scan = module.opened[-1].scans[-1]
-    assert (scan["frame"], scan["dpi"], scan["samples"], scan["infrared"], scan["clean"]) == (FRAMES[1], 500, 1, True, False)
-    assert exposures == {"red": 1, "green": 2, "blue": 3}
+    backend.detect_frames(DEVICE_ID)
+    module.short_pass = True
+    with pytest.raises(TransientScanError, match="pass ended early: 0 blocks"):
+        _scan(backend)
 
 
-def test_metering_without_meter_frame_still_works_on_a_unit_with_no_fast_read(monkeypatch) -> None:
-    monkeypatch.delattr(fake_nkscan.FakeSession, "meter_frame")
-    backend, module = make_backend(caps=FakeCapabilities(multi_line=False))
-
-    _meter(backend)
-
-    assert module.opened[-1].scans[-1]["superfine"] is True
+def test_a_short_thumbnail_pass_caches_no_frames() -> None:
+    backend, _ = make_backend(short_pass=True)
+    with pytest.raises(TransientScanError, match="thumbnail"):
+        backend.detect_frames(DEVICE_ID)
+    assert backend.frames(DEVICE_ID) == []
 
 
 def test_a_held_device_refuses_a_stateless_meter() -> None:

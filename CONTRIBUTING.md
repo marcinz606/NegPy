@@ -34,6 +34,8 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you hav
 
 - **Plustek USB** (Windows/macOS/Linux) — optional [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (8200i SE and 8100 V2): `uv sync --group plustek` or `pip install negpy[plustek]`. Windows installs `libusb-package` via pyopticfilm (bundled in release builds). On Windows, bind WinUSB with Zadig for the scanner's USB id (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2) before scanning (vendor/SilverFast drivers conflict). See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
 
+- **Nikon Coolscan** (Windows/macOS/Linux) — [nkscan](https://github.com/activexray/nkscan) 0.12 or newer, shipped as wheels: `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux, USB needs a udev rule for vendor `04b0`; FireWire/SCSI needs the `sg` module.
+
 
 ### 2. Python Environment
 The `Makefile` handles synchronization via `uv`. Run this to set up your environment:
