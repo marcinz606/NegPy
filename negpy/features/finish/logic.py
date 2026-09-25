@@ -39,7 +39,8 @@ CARRIER_NOISE_INNER = 0.02
 # sampled at t = u**POWER so the toe, where the fringe hue lives, gets most entries.
 CARRIER_TONE_SAMPLES = 64
 CARRIER_TONE_POWER = 3.0
-_CARRIER_BLOCK_ROWS = 64
+# Pixels per CPU block: bounds temporary storage without paying per-block setup on narrow strips.
+_CARRIER_BLOCK_PIXELS = 1 << 19
 _carrier_cache: np.ndarray | None = None
 
 
@@ -212,8 +213,9 @@ def apply_carrier(
             (band, hb, wb, w, (3,)),
         ]
     for y0, y1, x0, x1, sides in regions:
-        for b0 in range(y0, y1, _CARRIER_BLOCK_ROWS):
-            b1 = min(b0 + _CARRIER_BLOCK_ROWS, y1)
+        rows = max(1, _CARRIER_BLOCK_PIXELS // max(1, x1 - x0))
+        for b0 in range(y0, y1, rows):
+            b1 = min(b0 + rows, y1)
             block = img[b0:b1, x0:x1]
             out[b0:b1, x0:x1] = _carrier_block(block, b0, x0, h, w, width_px, rough, flare, corner, paper, tone, sides)
     return ensure_image(np.clip(out, 0.0, 1.0))
