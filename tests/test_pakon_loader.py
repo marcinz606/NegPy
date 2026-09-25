@@ -86,3 +86,18 @@ def test_header_that_disagrees_with_file_size_is_ignored(tmp_path):
 
     assert PakonLoader.read_header(str(p)) is None
     assert not PakonLoader.can_handle(str(p))
+
+
+def test_portrait_header_beats_the_size_table(tmp_path):
+    # TLX writes a frame rotated 90 degrees as 2000x3000: the same file size as the F135 table entry, rows swapped.
+    h, w = 3000, 2000
+    rows = np.broadcast_to(np.arange(h, dtype="<u2")[:, None], (h, w))
+    planes = np.stack([rows, rows + 1, rows + 2])
+    p = tmp_path / "portrait.raw"
+    _write_headered(p, planes)
+
+    wrapper, _ = PakonLoader().load(str(p))
+    img = wrapper.data
+    assert img.shape == (h, w, 3)
+    np.testing.assert_allclose(img[:, -1, 0] * 65535.0, np.arange(h), atol=0.5)
+    assert PakonLoader().load_bounded_preview(str(p), 300).size == (200, 300)
