@@ -1859,6 +1859,7 @@ class AppController(QObject):
             initial_split=old_geom.split_x,
             initial_gutter=old_geom.gutter_thickness,
             initial_scope=saved_scope,
+            process_mode=self.session.stored_process_mode({"hash": file_hash, "path": file_path}),
             parent=None,
         )
         if not dialog.exec():
