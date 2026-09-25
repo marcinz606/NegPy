@@ -1,10 +1,15 @@
 import unittest
+from dataclasses import replace
+from functools import lru_cache
 
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.altprocess.models import AltProcess
+from negpy.features.finish.logic import CARRIER_TONE_SAMPLES, apply_carrier, linear_carrier_tone
 from negpy.features.finish.models import FinishConfig
-from negpy.features.finish.processor import FinishProcessor
+from negpy.features.finish.processor import FinishProcessor, rebate_tone
 from negpy.features.process.models import ProcessMode
 
 
@@ -52,6 +57,68 @@ class TestFinishProcessor(unittest.TestCase):
         self.assertEqual(res.dtype, np.float32)
         self.assertGreaterEqual(float(res.min()), 0.0)
         self.assertLessEqual(float(res.max()), 1.0)
+
+
+@lru_cache(maxsize=None)
+def _metrics(mode: ProcessMode) -> dict:
+    """Metrics a real CPU render publishes, off a smooth synthetic negative."""
+    from negpy.services.rendering.engine import DarkroomEngine
+
+    grad = np.linspace(0.08, 0.7, 96, dtype=np.float32)
+    img = np.repeat(grad[None, :], 64, axis=0)
+    # Layers of different contrast, as on a real negative, so the per-channel ranges differ.
+    img = np.ascontiguousarray(np.stack([img, 0.8 * img**1.25, 0.6 * img**1.5], axis=-1))
+    settings = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=mode))
+    ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=mode)
+    DarkroomEngine().process(img, settings, f"tone-{mode}", ctx)
+    return ctx.metrics
+
+
+class TestRebateTone(unittest.TestCase):
+    def _settings(self, mode: ProcessMode = ProcessMode.C41, **exposure) -> WorkspaceConfig:
+        s = WorkspaceConfig()
+        return replace(s, process=replace(s.process, process_mode=mode), exposure=replace(s.exposure, **exposure))
+
+    def test_bare_paper_is_exact_and_rebate_prints_dark(self) -> None:
+        tone = rebate_tone(self._settings(), _metrics(ProcessMode.C41))
+        self.assertEqual(tone.shape, (CARRIER_TONE_SAMPLES, 3))
+        np.testing.assert_array_equal(tone[0], [1.0, 1.0, 1.0])
+        self.assertLess(float(tone[-1].max()), 0.01)
+        # Monotone in exposure: more light through the aperture, more dye.
+        self.assertTrue(np.all(np.diff(tone.mean(axis=1)) <= 1e-6))
+
+    def test_color_print_puts_a_hue_in_the_toe(self) -> None:
+        tone = rebate_tone(self._settings(), _metrics(ProcessMode.C41))
+        self.assertGreater(float(np.ptp(tone, axis=1).max()), 0.02)
+
+    def test_bw_print_is_neutral(self) -> None:
+        tone = rebate_tone(self._settings(ProcessMode.BW), _metrics(ProcessMode.BW))
+        np.testing.assert_allclose(tone[:, 0], tone[:, 1], atol=1e-6)
+        np.testing.assert_allclose(tone[:, 0], tone[:, 2], atol=1e-6)
+
+    def test_paper_black_lifts_the_rebate(self) -> None:
+        """The rebate is the negative's clearest area: it cannot print past paper D-max."""
+        m = _metrics(ProcessMode.C41)
+        bpc = rebate_tone(self._settings(paper_black=False), m)
+        dmax = rebate_tone(self._settings(paper_black=True), m)
+        self.assertGreater(float(dmax[-1].mean()), float(bpc[-1].mean()))
+
+    def test_no_print_model_falls_back_to_plain_light(self) -> None:
+        m = _metrics(ProcessMode.C41)
+        s = self._settings()
+        np.testing.assert_array_equal(rebate_tone(s, {}), linear_carrier_tone())
+        np.testing.assert_array_equal(rebate_tone(self._settings(ProcessMode.E6), m), linear_carrier_tone())
+        lith = replace(s, altproc=replace(s.altproc, alt_process=AltProcess.LITH))
+        np.testing.assert_array_equal(rebate_tone(lith, m), linear_carrier_tone())
+
+    def test_carrier_prints_the_rebate_through_the_table(self) -> None:
+        tone = rebate_tone(self._settings(paper_black=True), _metrics(ProcessMode.C41))
+        img = np.full((300, 400, 3), 0.5, dtype=np.float32)
+        paper = (0.9, 0.85, 0.8)
+        res = apply_carrier(img, width_px=16.0, rough=0.0, paper=paper, tone=tone)
+        np.testing.assert_allclose(res[0, 200], paper, atol=1e-6)
+        # Mid-rebate, clear of both penumbras.
+        np.testing.assert_allclose(res[int(16 * 0.7 + 8), 200], np.asarray(paper) * tone[-1], atol=1e-6)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,8 @@ struct FinishUniforms {
 @group(0) @binding(2) var<uniform> params: FinishUniforms;
 // (8, CARRIER_SAMPLES) from carrier_profiles(): rows 0-3 gate wobble, rows 4-7 filed edge.
 @group(0) @binding(3) var<storage, read> carrier_prof: array<f32>;
+// (CARRIER_TONE_SAMPLES, 3) from rebate_tone(): print color over the exposure fraction.
+@group(0) @binding(4) var<storage, read> carrier_tone: array<f32>;
 
 // Every CARRIER_* below mirrors logic.py — keep in sync or preview drifts from export.
 const CARRIER_SAMPLES: i32 = 2048;
@@ -41,6 +43,8 @@ const CARRIER_NOISE_CELL: f32 = 1.5;
 const CARRIER_NOISE_OCTAVES: i32 = 4;
 const CARRIER_NOISE_OUTER: f32 = 0.275;
 const CARRIER_NOISE_INNER: f32 = 0.07;
+const CARRIER_TONE_SAMPLES: i32 = 64;
+const CARRIER_TONE_POWER: f32 = 3.0;
 
 // u32 wrap-around only, so numpy lands on the same lattice values.
 fn hash_lattice(ix: u32, iy: u32) -> f32 {
@@ -79,6 +83,15 @@ fn carrier_noise(x: f32, y: f32) -> f32 {
         freq *= 2.0;
     }
     return total / norm;
+}
+
+fn carrier_tone_at(t: f32) -> vec3<f32> {
+    let u = pow(clamp(t, 0.0, 1.0), 1.0 / CARRIER_TONE_POWER) * f32(CARRIER_TONE_SAMPLES - 1);
+    let i0 = min(i32(u), CARRIER_TONE_SAMPLES - 2);
+    let f = u - f32(i0);
+    let a = vec3<f32>(carrier_tone[i0 * 3], carrier_tone[i0 * 3 + 1], carrier_tone[i0 * 3 + 2]);
+    let b = vec3<f32>(carrier_tone[i0 * 3 + 3], carrier_tone[i0 * 3 + 4], carrier_tone[i0 * 3 + 5]);
+    return mix(a, b, f);
 }
 
 fn carrier_prof_at(row: i32, s: f32) -> f32 {
@@ -149,8 +162,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = color * exp2(-params.vignette_stops * factor);
     }
 
-    // Filed-carrier rebate: multiply toward black inside the jittered frame,
-    // mirroring apply_carrier() in logic.py.
+    // Filed-carrier rebate, mirroring apply_carrier() in logic.py.
     if (params.carrier_width_px > 0.0) {
         let soft = max(1.0, params.carrier_width_px * CARRIER_SOFT);
         let sx = (px.x + 0.5) / full.x;
@@ -176,10 +188,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let out_b = clamp((d_b - b_b.x) / soft_filed + 0.5, 0.0, 1.0);
         let out_l = clamp((d_l - b_l.x) / soft_filed + 0.5, 0.0, 1.0);
         let out_r = clamp((d_r - b_r.x) / soft_filed + 0.5, 0.0, 1.0);
-        // Products here == the CPU's sequential per-edge slab mixes.
         let paper = vec3<f32>(params.paper_r, params.paper_g, params.paper_b);
-        let a_out = out_t * out_b * out_l * out_r;
-        color = color * (in_t * in_b * in_l * in_r) * a_out + paper * (1.0 - a_out);
+        let rebate = paper * carrier_tone_at(out_t * out_b * out_l * out_r);
+        let a_in = in_t * in_b * in_l * in_r;
+        color = color * a_in + rebate * (1.0 - a_in);
 
         // Edge order must match apply_carrier()'s slabs — the lerp is order-dependent.
         if (params.carrier_flare > 0.0) {

@@ -11,8 +11,8 @@ import wgpu  # type: ignore
 
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
 from negpy.features.exposure.analysis import COLOR_HIST_BINS, DENSITY_HIST_BINS
-from negpy.features.finish.logic import carrier_profiles
-from negpy.features.finish.processor import carrier_width_px
+from negpy.features.finish.logic import carrier_profiles, linear_carrier_tone
+from negpy.features.finish.processor import carrier_width_px, rebate_tone
 from negpy.features.exposure import models as exposure_models
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
@@ -524,6 +524,7 @@ class GPUEngine:
         # Filed-carrier jitter profiles are a fixed table, so upload once.
         self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
+        self._buffers["carrier_t"] = GPUBuffer(linear_carrier_tone().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["metrics"] = GPUBuffer(
             METRICS_BUFFER_SIZE,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
@@ -1341,6 +1342,7 @@ class GPUEngine:
                     (1, tex_finish.view),
                     (2, self._get_uniform_binding("finish")),
                     (3, self._buffers["carrier_s"]),
+                    (4, self._buffers["carrier_t"]),
                 ],
                 crop_w,
                 crop_h,
@@ -1843,23 +1845,19 @@ class GPUEngine:
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
 
-        # Tone-limited masks keyed from the same metrics this render publishes, so the CPU
-        # kernel and the canvas tint pick the same pixels.
-        key_params = limited_mask_params(
-            settings.local,
-            exp,
-            settings.process.process_mode,
-            {
-                "final_bounds": LogNegativeBounds(adj_floors, adj_ceils),
-                "norm_density_range": lum_range,
-                "metered_anchor": metered_anchor,
-                "textural_range": textural_range,
-                "shadow_point": shadow_point,
-                "highlight_point": highlight_point,
-                "shadow_log_refs": shadow_refs,
-                "neutral_axis_refs": neutral_axis_refs,
-            },
-        )
+        # The metrics this render publishes, so the tone-limited masks key the pixels the CPU
+        # kernel and the canvas tint pick, and the carrier's rebate prints on the same curves.
+        curve_metrics = {
+            "final_bounds": LogNegativeBounds(adj_floors, adj_ceils),
+            "norm_density_range": lum_range,
+            "metered_anchor": metered_anchor,
+            "textural_range": textural_range,
+            "shadow_point": shadow_point,
+            "highlight_point": highlight_point,
+            "shadow_log_refs": shadow_refs,
+            "neutral_axis_refs": neutral_axis_refs,
+        }
+        key_params = limited_mask_params(settings.local, exp, settings.process.process_mode, curve_metrics)
         key_rows = np.zeros((MAX_KEYED_MASKS, 4), dtype=np.float32)
         if key_params is not None:
             key_rows[: len(key_params)] = key_params
@@ -2080,6 +2078,7 @@ class GPUEngine:
                 settings.export.export_print_size,
                 float(max(v_full_w, v_full_h)),
             )
+            self._buffers["carrier_t"].upload(rebate_tone(settings, curve_metrics).ravel())
         paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
         f_data = struct.pack(
             "fffffffffffffff",

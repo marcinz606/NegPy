@@ -26,7 +26,7 @@ from negpy.features.lith.processor import LithProcessor
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
-from negpy.features.finish.processor import FinishProcessor
+from negpy.features.finish.processor import FinishProcessor, rebate_tone
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
@@ -255,7 +255,8 @@ class DarkroomEngine:
             from negpy.services.export.print import PrintService
 
             paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
-            current_img = FinishProcessor(settings.finish, settings.export.export_print_size, paper).process(current_img, context)
+            tone = rebate_tone(settings, context.metrics) if settings.finish.carrier_width > 0.0 else None
+            current_img = FinishProcessor(settings.finish, settings.export.export_print_size, paper, tone).process(current_img, context)
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
 

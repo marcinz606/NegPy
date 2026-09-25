@@ -29,6 +29,11 @@ CARRIER_NOISE_CELL = 1.5
 CARRIER_NOISE_OCTAVES = 4
 CARRIER_NOISE_OUTER = 0.275
 CARRIER_NOISE_INNER = 0.07
+# Rebate tone table: print color over the exposure fraction t that reaches the paper,
+# sampled at t = u**POWER so the toe, where the fringe hue lives, gets most entries.
+CARRIER_TONE_SAMPLES = 64
+CARRIER_TONE_POWER = 3.0
+_CARRIER_BLOCK_ROWS = 64
 _carrier_cache: np.ndarray | None = None
 
 
@@ -101,6 +106,24 @@ def carrier_noise(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return total / norm
 
 
+def carrier_tone_exposures() -> np.ndarray:
+    """Exposure fraction t of each tone-table entry, 0 (bare paper) to 1 (full rebate)."""
+    return np.linspace(0.0, 1.0, CARRIER_TONE_SAMPLES, dtype=np.float32) ** np.float32(CARRIER_TONE_POWER)
+
+
+def linear_carrier_tone() -> np.ndarray:
+    """Tone table with no print model behind it: plain light, paper to black."""
+    return np.repeat((1.0 - carrier_tone_exposures())[:, None], 3, axis=1).astype(np.float32)
+
+
+def carrier_tone_lookup(tone: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """(..., 3) paper-relative color at exposure fraction t. Linear between entries, as the shader."""
+    u = np.power(np.clip(t, 0.0, 1.0), np.float32(1.0 / CARRIER_TONE_POWER)) * np.float32(CARRIER_TONE_SAMPLES - 1)
+    i0 = np.minimum(u.astype(np.int32), CARRIER_TONE_SAMPLES - 2)
+    f = (u - i0)[..., None]
+    return tone[i0] * (1.0 - f) + tone[i0 + 1] * f
+
+
 def flare_tint(theta: np.ndarray) -> np.ndarray:
     """Hue drift of the bevel reflection: (..., 3) channel gains in [0, 1]."""
     phase = np.array([0.0, 2.0 * np.pi / 3.0, 4.0 * np.pi / 3.0], dtype=np.float32)
@@ -115,101 +138,114 @@ def apply_carrier(
     bw: bool = False,
     corner: float = 0.0,
     paper: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    tone: np.ndarray | None = None,
 ) -> ImageBuffer:
     """
-    Filed-out negative carrier: the clear rebate prints max black between the film gate
-    and the filed aperture, with a margin of unexposed paper outside it.
+    Filed-out negative carrier: the clear rebate prints between the film gate and the
+    filed aperture, with a margin of unexposed paper outside it.
 
     rough ragges the aperture, corner rounds it. flare lerps both sides of the filed
     edge toward the bevel's reflection (neutral when bw). paper is the bare-paper color
-    in scene-linear, so the margin meets the mat with no seam.
+    in scene-linear, so the margin meets the mat with no seam. tone is the rebate tone
+    table (rebate_tone); the filed edge's penumbra is exposure, read through it.
+    Evaluated per pixel over the border frame, as finish.wgsl does.
     """
     if width_px <= 0.0:
         return img
 
     h, w = img.shape[:2]
+    tone = linear_carrier_tone() if tone is None else np.asarray(tone, dtype=np.float32)
+    band = (
+        int(
+            np.ceil(
+                width_px * (CARRIER_MARGIN + CARRIER_CORNER * corner + 1.0 + CARRIER_JITTER + CARRIER_NOISE_OUTER + CARRIER_NOISE_INNER)
+                + max(1.0, width_px * CARRIER_SOFT)
+            )
+        )
+        + 1
+    )
+    out = img.copy()
+    if 2 * band >= h or 2 * band >= w:
+        regions = [(0, h, 0, w)]
+    else:
+        regions = [(0, band, 0, w), (h - band, h, 0, w), (band, h - band, 0, band), (band, h - band, w - band, w)]
+    for y0, y1, x0, x1 in regions:
+        for b0 in range(y0, y1, _CARRIER_BLOCK_ROWS):
+            b1 = min(b0 + _CARRIER_BLOCK_ROWS, y1)
+            out[b0:b1, x0:x1] = _carrier_block(img[b0:b1, x0:x1], b0, x0, h, w, width_px, rough, flare, bw, corner, paper, tone)
+    return ensure_image(np.clip(out, 0.0, 1.0))
+
+
+def _carrier_block(
+    img: np.ndarray,
+    y0: int,
+    x0: int,
+    h: int,
+    w: int,
+    width_px: float,
+    rough: float,
+    flare: float,
+    bw: bool,
+    corner: float,
+    paper: tuple[float, float, float],
+    tone: np.ndarray,
+) -> np.ndarray:
     profiles = carrier_profiles()
     soft = max(1.0, width_px * CARRIER_SOFT)
     soft_filed = max(1.0, width_px * CARRIER_FILED_SOFT)
     margin = width_px * CARRIER_MARGIN
     radius = width_px * CARRIER_CORNER * corner
     cell = max(1.0, width_px * CARRIER_NOISE_CELL)
-    paper_rgb = np.asarray(paper, dtype=np.float32)
-    band = min(
-        int(np.ceil(margin + radius + width_px * (1.0 + CARRIER_JITTER + CARRIER_NOISE_OUTER + CARRIER_NOISE_INNER) + soft)) + 1,
-        h,
-        w,
-    )
-    d = np.arange(band, dtype=np.float32)[:, None]
+    py = np.arange(y0, y0 + img.shape[0], dtype=np.float32)[:, None]
+    px = np.arange(x0, x0 + img.shape[1], dtype=np.float32)[None, :]
+    sx = (px + 0.5) / np.float32(w)
+    sy = (py + 0.5) / np.float32(h)
+    end_x = np.minimum(px, (w - 1.0) - px)
+    end_y = np.minimum(py, (h - 1.0) - py)
+    n2 = carrier_noise(px / cell, py / cell)
 
-    def edge_idx(count: int) -> np.ndarray:
-        s = ((np.arange(count, dtype=np.float32) + 0.5) / np.float32(count)).astype(np.float32)
-        return np.minimum((s * CARRIER_SAMPLES).astype(np.int32), CARRIER_SAMPLES - 1)
+    def prof(row: int, s: np.ndarray) -> np.ndarray:
+        return profiles[row, np.minimum((s * CARRIER_SAMPLES).astype(np.int32), CARRIER_SAMPLES - 1)]
 
-    def corner_cut(count: int) -> np.ndarray:
-        """Aperture retreat near an edge's ends. Arc measured from the aperture corner,
-        not the print edge, or most of it is spent inside the paper margin."""
-        if radius <= 0.0:
-            return np.zeros(count, dtype=np.float32)
-        i = np.arange(count, dtype=np.float32)
-        x = np.clip(radius - (np.minimum(i, count - 1.0 - i) - margin), 0.0, radius)
-        return radius - np.sqrt(np.maximum(radius * radius - x * x, 0.0))
+    def bounds(edge: int, s: np.ndarray, end: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(filed, gate) boundary, px from the print edge. Both take the same corner arc,
+        measured from the aperture corner, or most of it is spent inside the paper margin."""
+        cut = np.float32(0.0)
+        if radius > 0.0:
+            x = np.clip(radius - (end - margin), 0.0, radius)
+            cut = radius - np.sqrt(np.maximum(radius * radius - x * x, 0.0))
+        outer = margin + width_px * rough * (CARRIER_OUTER_JITTER * prof(edge + 4, s) + CARRIER_NOISE_OUTER * n2) + cut
+        wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * prof(edge, s) + CARRIER_NOISE_INNER * n2
+        return outer, margin + width_px * (1.0 + wobble) + cut
 
-    def edge_alphas(edge: int, idx: np.ndarray, count: int, gx: np.ndarray, gy: np.ndarray) -> tuple[np.ndarray, ...]:
-        """(a_in, a_out, outer, n2), (band, count) each; axis 0 runs inward from the print edge.
-        Both boundaries take the same arc, so the band keeps its width around a corner."""
-        cut = corner_cut(count)
-        n2 = carrier_noise(gx / cell, gy / cell)
-        jitter = CARRIER_OUTER_JITTER * profiles[edge + 4, idx] + CARRIER_NOISE_OUTER * n2
-        outer = margin + width_px * rough * jitter + cut
-        wobble = CARRIER_JITTER * CARRIER_INNER_ROUGH * profiles[edge, idx] + CARRIER_NOISE_INNER * n2
-        inner = margin + width_px * (1.0 + wobble) + cut
-        a_in = np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
-        a_out = np.clip((d - outer) / soft_filed + 0.5, 0.0, 1.0)
-        return a_in, a_out, outer, n2
+    edges = ((0, sx, end_x, py), (1, sx, end_x, (h - 1.0) - py), (2, sy, end_y, px), (3, sy, end_y, (w - 1.0) - px))
+    a_in = np.ones(img.shape[:2], dtype=np.float32)
+    a_out = np.ones(img.shape[:2], dtype=np.float32)
+    per_edge = []
+    for e, s, end, d in edges:
+        outer, inner = bounds(e, s, end)
+        e_in = np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
+        a_in = a_in * e_in
+        a_out = a_out * np.clip((d - outer) / soft_filed + 0.5, 0.0, 1.0)
+        per_edge.append((e, s, d, outer, e_in))
 
-    def edge_flare(edge: int, idx: np.ndarray, a_in: np.ndarray, outer: np.ndarray, n2: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """(weight, weight*tint) as (band, count, 1|3); peaks on the filed edge, falls off both ways."""
-        reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)
-        off = d - outer
-        t = np.clip(1.0 - np.maximum(off, 0.0) / reach + np.minimum(off, 0.0) / (reach * CARRIER_FLARE_SPILL), 0.0, 1.0)
-        # Floored |noise|, not a one-sided gate: that left whole edges with no flare.
-        n = CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * np.abs(n2)
-        amp = flare * CARRIER_FLARE_GAIN * t * t * n * (1.0 - a_in)
-        tint = np.ones(3, dtype=np.float32) if bw else flare_tint(CARRIER_FLARE_HUE * profiles[edge, idx])
-        return amp[..., None], amp[..., None] * tint
-
-    ix_w, ix_h = edge_idx(w), edge_idx(h)
-    cols, rows = np.arange(w, dtype=np.float32)[None, :], np.arange(h, dtype=np.float32)[None, :]
-    # (edge, profile index, edge length, slab, orient, noise x, noise y). Noise coords are
-    # global, so a corner pixel gets one field value from either slab, as the shader does.
-    edges = (
-        (0, ix_w, w, np.s_[:band], lambda a: a, cols, d),
-        (1, ix_w, w, np.s_[h - band :], lambda a: a[::-1], cols, (h - 1.0) - d),
-        (2, ix_h, h, np.s_[:, :band], lambda a: a.swapaxes(0, 1), d, rows),
-        (3, ix_h, h, np.s_[:, w - band :], lambda a: a.swapaxes(0, 1)[:, ::-1], (w - 1.0) - d, rows),
-    )
-    alphas = [(sl, orient, *edge_alphas(e, idx, count, gx, gy)) for e, idx, count, sl, orient, gx, gy in edges]
-
-    out = img.copy()
-    # Sequential mixes compose to out*A_in*A_out + paper*(1 - A_out) whatever the order, so
-    # corners land on the value the shader computes from the products.
-    for sl, orient, a_in, *_ in alphas:
-        out[sl] *= orient(a_in)[..., None]
-    for sl, orient, _, a_out, *_ in alphas:
-        a = orient(a_out)[..., None]
-        out[sl] *= a
-        out[sl] += (1.0 - a) * paper_rgb
+    rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out)
+    a_in = a_in[..., None]
+    res = img * a_in + rebate * (1.0 - a_in)
 
     if flare > 0.0:
-        # Lerp, not add: it glows on the black and stains the paper. Order-dependent, unlike the
-        # mixes above, so the shader must walk the edges in this same order.
-        for (sl, orient, a_in, _, outer, n2), (e, idx, *_) in zip(alphas, edges):
-            amp, lift = edge_flare(e, idx, a_in, outer, n2)
-            out[sl] *= 1.0 - orient(amp)
-            out[sl] += orient(lift)
-
-    return ensure_image(np.clip(out, 0.0, 1.0))
+        reach = max(1.0, width_px * CARRIER_FLARE_DEPTH)
+        # Floored |noise|, not a one-sided gate: that left whole edges with no flare.
+        n = CARRIER_FLARE_BASE + (1.0 - CARRIER_FLARE_BASE) * np.abs(n2)
+        # Lerp, not add: it glows on the black and stains the paper. Order-dependent, so the
+        # shader walks the edges in this same order.
+        for e, s, d, outer, e_in in per_edge:
+            off = d - outer
+            t = np.clip(1.0 - np.maximum(off, 0.0) / reach + np.minimum(off, 0.0) / (reach * CARRIER_FLARE_SPILL), 0.0, 1.0)
+            amp = (flare * CARRIER_FLARE_GAIN * t * t * n * (1.0 - e_in))[..., None]
+            tint = np.ones(3, dtype=np.float32) if bw else flare_tint(CARRIER_FLARE_HUE * prof(e, s))
+            res = res * (1.0 - amp) + amp * tint
+    return res
 
 
 def apply_vignette(img: ImageBuffer, stops: float, size: float, roundness: float = 0.0) -> ImageBuffer:

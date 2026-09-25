@@ -78,6 +78,17 @@ class TestGpuFinishParity(unittest.TestCase):
         )
         self._assert_parity(settings)
 
+    def test_filed_carrier_paper_black(self):
+        """The rebate prints at the paper's lifted D-max through the tone table."""
+        settings = WorkspaceConfig()
+        settings = replace(
+            settings,
+            exposure=replace(settings.exposure, paper_black=True),
+            finish=replace(settings.finish, carrier_width=3.0, carrier_rough=0.6),
+            export=replace(settings.export, export_print_size=3.0),
+        )
+        self._assert_parity(settings)
+
     def test_layout_mat_bottom_weight(self):
         """GPU layout pass: bottom-weighted mat matches CPU dims."""
         from negpy.services.rendering.image_processor import ImageProcessor
