@@ -1274,6 +1274,23 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), {"sensor"})
         self.assertTrue(self.controller.roll_card_locked("sensor"))
 
+    def test_switching_film_mode_on_a_roll_with_no_frame_loaded(self):
+        """A lock belongs to a physical frame. An active roll holding no loaded frame
+        still reaches every card edit, so the settle must find nothing to lock rather
+        than key a lock on a missing hash."""
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.current_file_hash = None
+
+        self.controller.set_process_mode("c41")
+        self.controller.set_roll_default("sensor", hue_trim=4.0)
+
+        self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, ""), set())
+
     def test_thumbnail_miss_does_not_mark_source_unreadable(self):
         from PIL import Image
 

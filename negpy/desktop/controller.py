@@ -4476,9 +4476,10 @@ class AppController(QObject):
         then editing it back to what the roll already says is not a divergence, so the
         card must not stay marked This Frame Only just because it was touched. Shared
         tail of set_roll_default and set_process_mode/set_positive_source (the "film"
-        card). No-op with no active roll."""
+        card). No-op with no active roll, or with no frame to lock: a lock belongs to a
+        physical frame, so an empty roll has nothing to record it against."""
         roll_id = self.state.active_roll_id
-        if roll_id is None:
+        if roll_id is None or not self.state.current_file_hash:
             return
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
         # A field the roll has never set at all cannot "match" -- there is nothing yet
