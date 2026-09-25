@@ -441,7 +441,10 @@ def _pakon_spec_desc(file_path: str) -> str:
     try:
         file_size = os.path.getsize(file_path)
         spec = next((s for s in PakonLoader.PAKON_SPECS if abs(file_size - s["size"]) < 1024), None)
-        return spec["desc"] if spec else "Unknown"
+        if spec:
+            return spec["desc"]
+        header = PakonLoader.read_header(file_path)
+        return f"{header[1]}x{header[0]}" if header else "Unknown"
     except OSError:
         return "Unknown"
 

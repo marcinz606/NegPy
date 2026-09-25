@@ -39,3 +39,50 @@ def test_headerless_still_decodes(tmp_path):
     col0 = _load_col0(p)
     expected = np.array([0, 100, 200], dtype="<u2").astype(np.float32) / 65535.0
     np.testing.assert_allclose(col0, np.broadcast_to(expected, (H, 3)), atol=1e-6)
+
+
+def _write_headered(path, planes: np.ndarray, header=None) -> None:
+    _, h, w = planes.shape
+    with open(path, "wb") as f:
+        np.array(header or [16, w, h, 48], dtype="<u4").tofile(f)
+        planes.astype("<u2").tofile(f)
+
+
+def test_header_dimensions_open_a_size_outside_the_table(tmp_path):
+    # Base 8 on an F135 writes 2250x1500; scaled down, keeping a non-square, non-table size.
+    h, w = 150, 225
+    planes = np.stack([np.full((h, w), v, dtype="<u2") for v in (1000, 2000, 3000)])
+    planes[0, 0, :] = np.arange(w)
+    p = tmp_path / "base8.raw"
+    _write_headered(p, planes)
+
+    assert PakonLoader.can_handle(str(p))
+    wrapper, _ = PakonLoader().load(str(p))
+    img = wrapper.data
+    assert img.shape == (h, w, 3)
+    np.testing.assert_allclose(img[0, :, 0] * 65535.0, np.arange(w), atol=0.5)
+    np.testing.assert_allclose(img[1, 0] * 65535.0, [1000, 2000, 3000], atol=0.5)
+
+
+def test_header_skips_the_layout_guess(tmp_path):
+    # A period-3 texture at the start of the red plane makes the guess read planar data as interleaved.
+    h, w = 40, 60
+    planes = np.stack([np.full((h, w), v, dtype="<u2") for v in (40000, 20000, 8000)])
+    planes[0, :2] = np.tile([0, 30000, 60000], w // 3 * 2).reshape(2, w)
+    assert PakonLoader._looks_interleaved(planes.reshape(-1))
+    p = tmp_path / "texture.raw"
+    _write_headered(p, planes)
+
+    wrapper, _ = PakonLoader().load(str(p))
+    np.testing.assert_allclose(wrapper.data[-1, -1] * 65535.0, [40000, 20000, 8000], atol=0.5)
+    preview = np.asarray(PakonLoader().load_bounded_preview(str(p), 60))
+    assert preview[-1, -1, 0] > preview[-1, -1, 1] > preview[-1, -1, 2]
+
+
+def test_header_that_disagrees_with_file_size_is_ignored(tmp_path):
+    planes = np.zeros((3, 40, 60), dtype="<u2")
+    p = tmp_path / "wrong.raw"
+    _write_headered(p, planes, header=[16, 61, 40, 48])
+
+    assert PakonLoader.read_header(str(p)) is None
+    assert not PakonLoader.can_handle(str(p))
