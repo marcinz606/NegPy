@@ -201,11 +201,6 @@ def main() -> None:
     setup_logging(level=override_cfg.log_level_int)
     _install_exception_hook()  # log unhandled slot exceptions to negpy.log instead of aborting
 
-    if getattr(sys, "frozen", False):
-        log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write("\n--- Booting NegPy ---\n")
-
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
@@ -297,15 +292,9 @@ def main() -> None:
         controller.cleanup()
         repo.save_global_setting("clean_shutdown", True)
         sys.exit(exit_code)
-    except Exception as e:
-        if getattr(sys, "frozen", False):
-            import traceback
-
-            log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"CRASH: {str(e)}\n")
-                f.write(traceback.format_exc())
-        raise e
+    except Exception:
+        logger.critical("NegPy stopped on an unhandled exception", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":
