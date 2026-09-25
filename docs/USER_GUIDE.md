@@ -585,12 +585,12 @@ How the print is presented. Applied at the end of the pipeline.
 *   **Size** (0.0 to 1.0): falloff radius, from tight in the corners to spread into the frame.
 *   **Roundness** (0.0 to 1.0): 0 is radial (lens-like), 1 is a rectangular card burn along the print edges.
 
-**Filed Carrier**: the clear rebate of a filed-out carrier prints max black, framed by unexposed paper.
+**Filed Carrier**: the clear rebate of a filed-out carrier prints at the paper's black, framed by unexposed paper. It prints through the frame's own curves and filtration, so the filed edge's fringe takes the paper's toe color and, with **Paper Black** on, the rebate stops at the paper's D-max. The film sits off center, so the top and left rebates print wider than the bottom and right.
 
 *   **Width** (0.0 to 5.0 mm): black frame thickness. 0 is off.
-*   **Roughness** (0.0 to 1.0): how raggedly the paper-side edge was filed. The picture-side edge (the film gate) wobbles only slightly.
-*   **Flare** (0.0 to 1.0): light off the filed bevel lifts the black inside the edge and stains the paper outside it. Colored on color film, with the hue drifting along the edge (the stray light skips the orange mask); neutral in B&W. 0 is off.
-*   **Corners** (0.0 to 1.0): how far the aperture's corners round off.
+*   **Roughness** (0.0 to 1.0): how raggedly the paper-side edge was filed: straight file strokes with nicks, most of them near the corners. The picture-side edge (the film gate) wobbles only slightly.
+*   **Flare** (0.0 to 1.0): light off the filed bevel exposes the paper just outside the edge, in the same toe color as the fringe; neutral in B&W. 0 is off.
+*   **Corners** (0.0 to 1.0): how far the filed aperture's corners round off. The picture's corners are the camera gate's and stay nearly square.
 
 The paper margin takes the mat color, so it joins the border with no seam.
 
