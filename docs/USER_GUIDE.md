@@ -341,7 +341,7 @@ Drag a pin to move it (the cursor becomes a hand); it keeps its target and its c
 
 An unreachable target shows an amber `→ lands …` with the closest zone the print can make. With three pins, amber also shows when the targets cannot all be met, with where they settle.
 
-Pins are proofs, not edits: any other edit or a frame change removes them. They read through the print curve, so later stages (Lab, toning) can still change the pixel the hover probe reads.
+Pins are proofs, not edits: any other edit or a frame change removes them. They read through the print curve, so later stages (Lab, toning) can still change the pixel the hover probe reads. Zone placement is off on an as-captured slide or a Positive frame, which print through no paper curve.
 
 #### Negative stats
 

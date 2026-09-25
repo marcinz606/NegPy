@@ -120,6 +120,7 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.transfer import is_transfer_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
@@ -2784,7 +2785,7 @@ class AppController(QObject):
     def arm_zone_target(self, zone: float) -> None:
         """Zone picked on the strip: the next canvas click prints that spot there.
         Picking the armed zone again disarms."""
-        if self.state.preview_raw is None:
+        if self.state.preview_raw is None or self._on_transfer_path():
             return
         if self.state.zone_arm_target == float(zone):
             self._disarm_zone_target()
@@ -2875,10 +2876,15 @@ class AppController(QObject):
             val_luma,
         )
 
+    def _on_transfer_path(self) -> bool:
+        """Placement inverts the print curve, which the transfer path never renders with."""
+        proc, exp = self.state.config.process, self.state.config.exposure
+        return is_transfer_path(proc.process_mode, proc.e6_normalize, proc.positive_source, exp.render_intent)
+
     def _solve_zone_placement(self) -> Optional[Any]:
         from negpy.features.exposure.placement import solve_placement
 
-        if not self.state.zone_pins:
+        if not self.state.zone_pins or self._on_transfer_path():
             return None
         return solve_placement(
             self.state.config.exposure,
