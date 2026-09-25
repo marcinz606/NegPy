@@ -113,6 +113,29 @@ class TestModeSelection(unittest.TestCase):
 
         self.assertFalse(is_transfer_path(ProcessMode.E6, False, render_intent=RenderIntent.FLAT))
 
+    def test_flat_render_of_a_raw_slide_does_not_fold_camera_wb(self):
+        """A FLAT decode applies camera WB (effective_linear_raw is False), so the base stage
+        must not fold the as-shot multipliers in a second time."""
+        from negpy.features.exposure.models import RenderIntent
+        from negpy.services.rendering.engine import DarkroomEngine
+
+        cfg = _e6_config(render_intent=RenderIntent.FLAT)
+        img = np.ascontiguousarray(np.broadcast_to(_ramp(1e-3, 0.5, 64), (8, 64, 3)).astype(np.float32))
+
+        def render(camera_wb):
+            ctx = PipelineContext(
+                original_size=img.shape[:2],
+                scale_factor=1.0,
+                process_mode=cfg.process.process_mode,
+                cam_xyz=CAM_XYZ,
+                camera_wb=camera_wb,
+                wants_uv_grid=False,
+                cache_stages=False,
+            )
+            return np.asarray(DarkroomEngine().process(img.copy(), cfg, "flat-wb", ctx))
+
+        np.testing.assert_allclose(render(None), render(CAMERA_WB), atol=1e-6)
+
 
 class TestIdentityAtDefaults(unittest.TestCase):
     """Defaults must not shape the capture; the display rendering on top is fixed."""

@@ -111,7 +111,9 @@ class DarkroomEngine:
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
-            return NormalizationProcessor(settings.process, settings.exposure.cast_removal_strength).process(img_in, ctx)
+            return NormalizationProcessor(
+                settings.process, settings.exposure.cast_removal_strength, settings.exposure.render_intent
+            ).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection fields
         # (crop_rect, autocrop_offset) only feed context.active_roi, which is itself unused
@@ -132,6 +134,7 @@ class DarkroomEngine:
         base_key = (
             settings.process.process_mode,
             settings.process.e6_normalize,
+            settings.exposure.render_intent,
             geometry_key,
             settings.process.analysis_buffer,
             settings.process.analysis_rect,

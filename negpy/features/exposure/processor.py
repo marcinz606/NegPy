@@ -67,15 +67,17 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
-    def __init__(self, config: ProcessConfig, cast_strength: float = 0.0):
+    def __init__(self, config: ProcessConfig, cast_strength: float = 0.0, render_intent: Optional[str] = None):
         self.config = config
         # The transparency branch meters nothing else, so its neutral axis is measured
         # only when Cast Removal can use it. `base_key` in engine.py carries the gate.
         self.cast_strength = cast_strength
+        # The decode chose its white balance with this intent, so the route here must agree.
+        self.render_intent = render_intent
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        if is_transfer_path(context.process_mode, self.config.e6_normalize, self.config.positive_source):
+        if is_transfer_path(context.process_mode, self.config.e6_normalize, self.config.positive_source, self.render_intent):
             return self._process_transparency(image, context)
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
         # above 1.0 occur only with flat-field gain and must match the GPU.
@@ -231,7 +233,9 @@ class NormalizationProcessor:
         # narrowband light, where the fold never runs: an as-shot WB estimate describes a
         # continuous-spectrum scene, and there is no such scene to describe (see
         # should_fold_camera_wb).
-        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
+        matrix = camera_to_working_matrix(
+            context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config, self.render_intent) else None
+        )
         linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
 
         img_log = np.log10(np.clip(linear, epsilon, None))
