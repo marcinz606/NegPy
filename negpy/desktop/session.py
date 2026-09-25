@@ -24,7 +24,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.geometry.logic import flip_geometry_and_analysis, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset
+from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -675,7 +675,7 @@ def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> Workspac
     mode = asset.get("process_mode")
     if not mode:
         return params
-    return replace(params, process=replace(params.process, process_mode=str(mode)))
+    return with_process_mode(params, str(mode))
 
 
 def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:

@@ -1132,7 +1132,7 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.roll_revert_cards(("process",)), set())
 
     def test_reset_to_roll_on_film_mode_carries_the_modes_cast_removal(self):
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.models import ProcessMode, with_process_mode
         from negpy.services.assets import rolls
 
         roll_id = self._roll_with_frame()
@@ -1141,7 +1141,7 @@ class TestAppController(unittest.TestCase):
         rolls.set_roll_defaults(repo, roll_id, process_mode=ProcessMode.E6)
         rolls.set_frame_override(repo, roll_id, "h1", "film", True)
         before = state.config.exposure.cast_removal_strength
-        expected = AppController._with_process_mode(state.config, ProcessMode.E6)
+        expected = with_process_mode(state.config, ProcessMode.E6)
 
         self.controller.revert_to_roll(("film",))
 

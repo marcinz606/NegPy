@@ -1,8 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+
+if TYPE_CHECKING:
+    from negpy.domain.models import WorkspaceConfig
 
 
 class ProcessMode(StrEnum):
@@ -232,6 +235,44 @@ def invalidate_local_bounds(process: ProcessConfig) -> dict:
     if process.lock_bounds:
         return {}
     return {"local_floors": (0.0, 0.0, 0.0), "local_ceils": (0.0, 0.0, 0.0)}
+
+
+def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig":
+    """*config* switched to Film Mode *mode*: the Cast Removal default moves with it, and leaving
+    Slide drops Positive and restores the autos as the Positive toggle would. Every path that sets
+    a frame's mode goes through here. The same mode returns *config* unchanged, since
+    cast_removal_for_mode would read a slide's deliberate negative-default strength as untouched."""
+    proc, exp = config.process, config.exposure
+    mode = ProcessMode(mode)
+    if mode == proc.process_mode:
+        return config
+    exp = replace(exp, cast_removal_strength=cast_removal_for_mode(mode, exp.cast_removal_strength))
+    drops_positive = proc.positive_source and mode != ProcessMode.E6
+    if drops_positive:
+        exp = replace(
+            exp,
+            auto_exposure=auto_meter_for_positive_source(False, exp.auto_exposure),
+            auto_normalize_contrast=auto_meter_for_positive_source(False, exp.auto_normalize_contrast),
+        )
+    proc = replace(proc, process_mode=mode, positive_source=proc.positive_source and not drops_positive, **invalidate_local_bounds(proc))
+    return replace(config, process=proc, exposure=exp)
+
+
+def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig":
+    """*config* with Positive set to *checked* and Auto Density/Auto Grade rewritten to match.
+    Unchanged outside Slide, where Positive does not apply."""
+    proc, exp = config.process, config.exposure
+    if proc.process_mode != ProcessMode.E6 or proc.positive_source == checked:
+        return config
+    return replace(
+        config,
+        process=replace(proc, positive_source=checked, **invalidate_local_bounds(proc)),
+        exposure=replace(
+            exp,
+            auto_exposure=auto_meter_for_positive_source(checked, exp.auto_exposure),
+            auto_normalize_contrast=auto_meter_for_positive_source(checked, exp.auto_normalize_contrast),
+        ),
+    )
 
 
 def scan_setup_values(capture: str, light: str) -> tuple[bool, bool]:

@@ -427,6 +427,21 @@ class TestRollDefaults:
         assert resolved.process.linear_raw is True
         assert resolved.process.narrowband_scan is True
 
+    def test_a_slide_roll_default_carries_the_slide_cast_removal_default(self):
+        from negpy.features.process.models import ProcessMode, cast_removal_for_mode
+
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Velvia", [])
+        set_roll_defaults(repo, roll_id, process_mode=ProcessMode.E6, positive_source=True)
+        frame = WorkspaceConfig()
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
+
+        assert resolved.process.process_mode == ProcessMode.E6
+        assert resolved.process.positive_source is True
+        assert resolved.exposure.cast_removal_strength == cast_removal_for_mode(ProcessMode.E6, frame.exposure.cast_removal_strength)
+        assert resolved.exposure.auto_exposure is False
+
     def test_no_roll_id_leaves_the_frame_alone(self):
         repo = _repo()
         assert resolve_roll_config(repo, None, "h1", WorkspaceConfig()) == WorkspaceConfig()

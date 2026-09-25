@@ -136,11 +136,11 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.features.process.models import (
     ProcessConfig,
     ProcessMode,
-    auto_meter_for_positive_source,
-    cast_removal_for_mode,
     invalidate_local_bounds,
     mode_aware_exposure_reset,
     scan_setup_values,
+    with_positive_source,
+    with_process_mode,
 )
 from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, FRAME_CARD_FIELDS, frame_card_rows, section_of_field, selected_flat_dict
 from negpy.services.assets.thumbnails import asset_thumbnail_key
@@ -2362,13 +2362,7 @@ class AppController(QObject):
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
-            process = self.state.config.process
-            process = replace(
-                process,
-                process_mode=pending_import.process_mode,
-                **invalidate_local_bounds(process),
-            )
-            self.state.config = replace(self.state.config, process=process)
+            self.state.config = with_process_mode(self.state.config, pending_import.process_mode)
             self.state.is_dirty = True
         if pending_import is not None and (pending_import.capture_roll or pending_import.capture_frame is not None):
             meta = self.state.config.metadata
@@ -2625,20 +2619,7 @@ class AppController(QObject):
         """
         if not detected_mode or detected_mode == self.state.config.process.process_mode:
             return
-        new_proc = replace(
-            self.state.config.process,
-            process_mode=ProcessMode(detected_mode),
-            **invalidate_local_bounds(self.state.config.process),
-        )
-        exp = self.state.config.exposure
-        self.state.config = replace(
-            self.state.config,
-            process=new_proc,
-            exposure=replace(
-                exp,
-                cast_removal_strength=cast_removal_for_mode(ProcessMode(detected_mode), exp.cast_removal_strength),
-            ),
-        )
+        self.state.config = with_process_mode(self.state.config, detected_mode)
         self.state.is_dirty = True
 
     def toggle_autodetect(self, enabled: bool) -> None:
@@ -4501,55 +4482,11 @@ class AppController(QObject):
             return
         rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash), card_key, diverged)
 
-    @staticmethod
-    def _with_process_mode(config: WorkspaceConfig, mode: str) -> WorkspaceConfig:
-        """*config* switched to Film Mode *mode*, with the Cast Removal default and the
-        Positive drop the switch carries."""
-        exp = config.exposure
-        strength = cast_removal_for_mode(mode, exp.cast_removal_strength)
-        new_exposure = replace(exp, cast_removal_strength=strength) if strength != exp.cast_removal_strength else exp
-        proc = config.process
-        # Leaving Slide drops Positive, and restores the autos as the toggle would.
-        drops_positive = proc.positive_source and mode != ProcessMode.E6
-        if drops_positive:
-            new_exposure = replace(
-                new_exposure,
-                auto_exposure=auto_meter_for_positive_source(False, new_exposure.auto_exposure),
-                auto_normalize_contrast=auto_meter_for_positive_source(False, new_exposure.auto_normalize_contrast),
-            )
-        new_process = replace(
-            proc,
-            process_mode=mode,
-            positive_source=proc.positive_source and not drops_positive,
-            **invalidate_local_bounds(proc),
-        )
-        return replace(config, process=new_process, exposure=new_exposure)
-
-    @staticmethod
-    def _with_positive_source(config: WorkspaceConfig, checked: bool) -> WorkspaceConfig:
-        """*config* with Positive set to *checked* and Auto Density/Auto Grade rewritten
-        to match. Unchanged outside Slide, where Positive does not apply."""
-        proc = config.process
-        if proc.process_mode != ProcessMode.E6:
-            return config
-        new_process = replace(
-            proc,
-            positive_source=checked,
-            **invalidate_local_bounds(proc),
-        )
-        exp = config.exposure
-        new_exposure = replace(
-            exp,
-            auto_exposure=auto_meter_for_positive_source(checked, exp.auto_exposure),
-            auto_normalize_contrast=auto_meter_for_positive_source(checked, exp.auto_normalize_contrast),
-        )
-        return replace(config, process=new_process, exposure=new_exposure)
-
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
         the roll the instant it changes and was not already -- same as any other
         Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out."""
-        self.apply_config(self._with_process_mode(self.state.config, mode), persist=True)
+        self.apply_config(with_process_mode(self.state.config, mode), persist=True)
         self._lock_roll_card("film")
 
     def set_positive_source(self, checked: bool) -> None:
@@ -4564,7 +4501,7 @@ class AppController(QObject):
         if self.state.config.process.process_mode != ProcessMode.E6:
             # The shortcut still reaches the hidden button; the autos must not move.
             return
-        self.apply_config(self._with_positive_source(self.state.config, checked), persist=True)
+        self.apply_config(with_positive_source(self.state.config, checked), persist=True)
         self._lock_roll_card("film")
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
@@ -4742,10 +4679,10 @@ class AppController(QObject):
         if card_key == "film":
             mode = values.get("process_mode", config.process.process_mode)
             if mode != config.process.process_mode:
-                config = self._with_process_mode(config, mode)
+                config = with_process_mode(config, mode)
             positive = values.get("positive_source", config.process.positive_source)
             if positive != config.process.positive_source:
-                config = self._with_positive_source(config, positive)
+                config = with_positive_source(config, positive)
             return config
         ratio = values.pop("autocrop_ratio", config.geometry.autocrop_ratio)
         if ratio != config.geometry.autocrop_ratio:
