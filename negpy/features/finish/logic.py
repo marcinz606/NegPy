@@ -147,10 +147,10 @@ def linear_carrier_tone() -> np.ndarray:
 
 def carrier_tone_lookup(tone: np.ndarray, t: np.ndarray) -> np.ndarray:
     """(..., 3) paper-relative color at exposure fraction t. Linear between entries, as the shader."""
-    u = np.power(np.clip(t, 0.0, 1.0), np.float32(1.0 / CARRIER_TONE_POWER)) * np.float32(CARRIER_TONE_SAMPLES - 1)
-    i0 = np.minimum(u.astype(np.int32), CARRIER_TONE_SAMPLES - 2)
-    f = (u - i0)[..., None]
-    return tone[i0] * (1.0 - f) + tone[i0 + 1] * f
+    # cbrt is the inverse of CARRIER_TONE_POWER = 3, and much cheaper than a float power.
+    u = np.cbrt(np.clip(t, 0.0, 1.0)) * np.float32(CARRIER_TONE_SAMPLES - 1)
+    grid = np.arange(CARRIER_TONE_SAMPLES, dtype=np.float32)
+    return np.stack([np.interp(u, grid, tone[:, c]).astype(np.float32) for c in range(3)], axis=-1)
 
 
 def apply_carrier(
@@ -197,13 +197,25 @@ def apply_carrier(
     )
     out = img.copy()
     if 2 * band >= h or 2 * band >= w:
-        regions = [(0, h, 0, w)]
+        regions = [(0, h, 0, w, (0, 1, 2, 3))]
     else:
-        regions = [(0, band, 0, w), (h - band, h, 0, w), (band, h - band, 0, band), (band, h - band, w - band, w)]
-    for y0, y1, x0, x1 in regions:
+        # An edge's effect ends within `band`, so each region evaluates only the edges that reach it.
+        hb, wb = h - band, w - band
+        regions = [
+            (0, band, 0, band, (0, 2)),
+            (0, band, wb, w, (0, 3)),
+            (hb, h, 0, band, (1, 2)),
+            (hb, h, wb, w, (1, 3)),
+            (0, band, band, wb, (0,)),
+            (hb, h, band, wb, (1,)),
+            (band, hb, 0, band, (2,)),
+            (band, hb, wb, w, (3,)),
+        ]
+    for y0, y1, x0, x1, sides in regions:
         for b0 in range(y0, y1, _CARRIER_BLOCK_ROWS):
             b1 = min(b0 + _CARRIER_BLOCK_ROWS, y1)
-            out[b0:b1, x0:x1] = _carrier_block(img[b0:b1, x0:x1], b0, x0, h, w, width_px, rough, flare, corner, paper, tone)
+            block = img[b0:b1, x0:x1]
+            out[b0:b1, x0:x1] = _carrier_block(block, b0, x0, h, w, width_px, rough, flare, corner, paper, tone, sides)
     return ensure_image(np.clip(out, 0.0, 1.0))
 
 
@@ -219,6 +231,7 @@ def _carrier_block(
     corner: float,
     paper: tuple[float, float, float],
     tone: np.ndarray,
+    sides: tuple[int, ...],
 ) -> np.ndarray:
     profiles = carrier_profiles()
     soft = max(1.0, width_px * CARRIER_SOFT)
@@ -271,7 +284,7 @@ def _carrier_block(
     a_in = np.ones(img.shape[:2], dtype=np.float32)
     a_out = np.ones(img.shape[:2], dtype=np.float32)
     peaks, gates = [], []
-    for e, s, end, fend, d, fd in edges:
+    for e, s, end, fend, d, fd in (edges[k] for k in sides):
         outer, inner = bounds(e, s, end, fend)
         a_in = a_in * np.clip((d - inner) / soft + 0.5, 0.0, 1.0)
         a_out = a_out * np.clip((fd - outer) / soft_filed + 0.5, 0.0, 1.0)
@@ -280,8 +293,8 @@ def _carrier_block(
     lit = np.float32(0.0)
     if flare > 0.0:
         # An edge's bevel spans only the aperture, so the other three edges gate its flare.
-        for e in range(4):
-            lit = lit + peaks[e] * np.prod([gates[k] for k in range(4) if k != e], axis=0)
+        for e in range(len(peaks)):
+            lit = lit + peaks[e] * np.prod([gates[k] for k in range(len(gates)) if k != e] or [np.float32(1.0)], axis=0)
         lit = flare_amp * lit
 
     rebate = np.asarray(paper, dtype=np.float32) * carrier_tone_lookup(tone, a_out + lit)
