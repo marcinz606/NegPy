@@ -1089,8 +1089,16 @@ class FileBrowser(QWidget):
         return make_section(self.session.repo, title, key, content, icon, default_expanded=True)
 
     def _on_sections_splitter_moved(self, *_args) -> None:
-        self._section_sizes = self.sections_splitter.sizes()
-        self.session.repo.save_global_setting("session_sections_splitter_sizes", self._section_sizes)
+        self._remember_section_sizes()
+        self.session.repo.save_global_setting("session_sections_splitter_sizes", list(self._section_sizes))
+
+    def _remember_section_sizes(self) -> None:
+        """Record each open pane's size. A collapsed pane keeps the size it had open, which
+        is what it reopens to; its live size is only its header."""
+        sizes = self.sections_splitter.sizes()
+        for i, section in enumerate((self.library_section, self.frames_section)):
+            if section.toggle_button.isChecked():
+                self._section_sizes[i] = sizes[i]
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1141,7 +1149,7 @@ class FileBrowser(QWidget):
         new_sizes[index] = want
         new_sizes[other] = other_want
         self.sections_splitter.setSizes(new_sizes)
-        self._section_sizes = self.sections_splitter.sizes()
+        self._remember_section_sizes()
 
     def _rebalance_splitter_sizes(self) -> None:
         """Reassert the split on a window resize: a collapsed pane stays pinned to its

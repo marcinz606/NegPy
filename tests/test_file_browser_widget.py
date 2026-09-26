@@ -1158,3 +1158,36 @@ def test_adding_a_folder_without_images_imports_its_roll_folders(browser, tmp_pa
 
     browser.controller.import_subfolders_as_rolls.assert_called_once_with(str(tmp_path))
     browser.controller.request_asset_discovery.assert_not_called()
+
+
+def _shown(browser, qapp):
+    browser.resize(300, 900)
+    browser.show()
+    qapp.processEvents()
+    return browser.sections_splitter
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_a_collapsed_section_reopens_at_its_open_size(browser, qapp, index):
+    splitter = _shown(browser, qapp)
+    button = (browser.library_section, browser.frames_section)[index].toggle_button
+    before = splitter.sizes()
+    button.click()
+    qapp.processEvents()
+    assert splitter.sizes()[index] == button.height()
+    button.click()
+    qapp.processEvents()
+    assert splitter.sizes() == before
+
+
+def test_a_drag_while_collapsed_keeps_the_open_size_for_reopen_and_restart(browser, qapp, session):
+    splitter = _shown(browser, qapp)
+    open_size = splitter.sizes()[1]
+    browser.frames_section.toggle_button.click()
+    qapp.processEvents()
+    browser._on_sections_splitter_moved()
+    saved = session.repo.save_global_setting.call_args_list[-1].args
+    assert saved == ("session_sections_splitter_sizes", [splitter.sizes()[0], open_size])
+    browser.frames_section.toggle_button.click()
+    qapp.processEvents()
+    assert splitter.sizes()[1] == open_size
