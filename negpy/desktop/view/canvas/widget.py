@@ -714,6 +714,8 @@ class ImageCanvas(QWidget):
         act_sync_bounds = menu.addAction(label_with_shortcut("Sync Bounds…", "sync_bounds"))
         act_sync_bounds.triggered.connect(lambda: open_sync_bounds_dialog(self, self._controller.session))  # type: ignore[union-attr]
         menu.addSeparator()
+        self._add_reset_actions(menu)
+        menu.addSeparator()
         act_reset = menu.addAction("Reset View")
         act_reset.triggered.connect(self.fit_to_window)
         act_sticky_zoom = menu.addAction("Sticky Zoom")
@@ -724,6 +726,15 @@ class ImageCanvas(QWidget):
         act_unload = menu.addAction("Unload…")
         act_unload.triggered.connect(self._unload_current_file)
         menu.exec(global_pos)
+
+    def _add_reset_actions(self, menu: QMenu) -> None:
+        """The Film Strip's frame resets, for the frame on the canvas."""
+        controller = self._controller
+        assert controller is not None
+        menu.addAction("Reset Settings").triggered.connect(controller.session.reset_settings)
+        act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
+        act_roll.triggered.connect(controller.revert_frame_to_roll)
+        act_roll.setEnabled(controller.can_revert_frame_to_roll())
 
     def _add_exclude_action(self, menu: QMenu, pos: QPointF) -> None:
         """Adds the exclude item for the patch under the cursor, on the menus a right-click
