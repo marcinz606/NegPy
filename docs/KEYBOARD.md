@@ -154,7 +154,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Ctrl + 1` | Roll tab |
 | `Ctrl + 2` | Geometry tab |
 | `Ctrl + 3` | Exposure tab |
-| `Ctrl + 4` | Color tab |
+| `Ctrl + 4` | Look tab |
 | `Ctrl + 5` | Finish tab |
 | `Ctrl + 6` | History tab |
 | `Ctrl + 7` | Export tab |

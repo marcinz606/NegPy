@@ -275,8 +275,7 @@ class ControlsPanel(QWidget):
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
-        # "Filtration", not "Color", which names the Color tab. The persisted "color"
-        # section key stays.
+        # Titled "Filtration"; the persisted "color" section key stays.
         self.color_section = self._make_section(
             "Filtration",
             "color",
@@ -364,8 +363,8 @@ class ControlsPanel(QWidget):
             ),
             (
                 "color",
-                "Color — Lab, Alternative Processes, Toning",
-                "Color",
+                "Look — Lab, Alternative Processes, Toning",
+                "Look",
                 [self.lab_section, self.altproc_section, self.toning_section],
                 ["lab_section", "altproc_section", "toning_section"],
             ),

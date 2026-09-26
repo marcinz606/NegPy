@@ -56,7 +56,7 @@ During a peek the canvas shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** bad
 |-----|--------|---------------|
 | **Geometry** | Geometry | Crop, straighten, easel movements |
 | **Exposure** | Filtration · Tone · Dodge & Burn | White balance, density, contrast, curve, local burns |
-| **Color** | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
+| **Look** | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
 | **Finish** | Retouch · Finishing | Dust, vignette, border, carrier |
 | **Favorites** | Your chosen sliders · Presets | Most-used controls, saved edits |
 | **History** | Work prints · Edit history | Named versions, undo trail |
@@ -434,7 +434,7 @@ Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** 
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): local contrast in the deep shadows or highlights.
 *   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive (a positive mask) compresses the range by (1 − gamma) so a harder grade fits the paper, keeping fine detail; use it on a scene too contrasty for your grade, then lower Grade in R. Past about 0.4 edges get a soft halo. Negative expands the range by (1 + gamma) without steepening grain, and works on a negative too flat for Grade; past about −0.4 highlights clip (see the Clipping row).
 *   **Mask Spacer** (2 to 6%, no effect without a mask): the gap between mask and negative, as percent of the frame. Thick masks only broad masses; thin reaches into detail, bites harder, and hazes shadows next to bright areas. 4% is a conservative default. Both mask controls read only your crop and gray out in R/G/B mode.
-*   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, applied before decode in the paper's crosstalk matrix, so it follows the paper profile and eases off at toe and shoulder. On a slide it applies to density directly. Below 1.0 pulls toward neutral; 1.0 is off. **Chroma** (Color tab) instead scales color evenly after decode.
+*   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, applied before decode in the paper's crosstalk matrix, so it follows the paper profile and eases off at toe and shoulder. On a slide it applies to density directly. Below 1.0 pulls toward neutral; 1.0 is off. **Chroma** (Look tab) instead scales color evenly after decode.
 *   **Separation Damping** (0 to 1, hidden in B&W Negative): where the Dye Separation push lands. Higher keeps the full push on muted color and reduces it on saturated color; below 1.0 separation, pastels go gray first. Grays out **at Dye Separation 1.0**.
 
 **Paper Response**:
@@ -477,7 +477,7 @@ Masks with a hidden outline stay on the map; disabled masks do not. The overlay 
 
 ---
 
-## 6. Color tab
+## 6. Look tab
 
 <!-- panel:lab -->
 ### 6.1 Lab: polish and detail

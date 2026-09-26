@@ -222,7 +222,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "tab_roll": ShortcutEntry("Ctrl+1", "Roll tab", "Tabs"),
     "tab_geometry": ShortcutEntry("Ctrl+2", "Geometry tab", "Tabs"),
     "tab_tone": ShortcutEntry("Ctrl+3", "Exposure tab", "Tabs"),
-    "tab_color": ShortcutEntry("Ctrl+4", "Color tab", "Tabs"),
+    "tab_color": ShortcutEntry("Ctrl+4", "Look tab", "Tabs"),
     "tab_finish": ShortcutEntry("Ctrl+5", "Finish tab", "Tabs"),
     "tab_history": ShortcutEntry("Ctrl+6", "History tab", "Tabs"),
     "tab_export": ShortcutEntry("Ctrl+7", "Export tab", "Tabs"),
