@@ -4,9 +4,9 @@
 
 - Change: **UX pass**
   - **Find** — Ctrl+K or the Controls panel's title box reaches every slider, card and action by name or by a common synonym ("contrast" finds ISO-R Grade); a slider hit is a live control.
-  - **Light Table** — Shift+G shows the roll as a grid in place of the canvas.
+  - **Light Table** — Shift+G shows the roll as a grid across the whole window.
   - **Reference view** — Shift+R pins a frame beside the canvas to match the roll to it; Draw Region moves to Ctrl+R.
-  - **Compact panels** — sliders are one row (label, track, value) with values always shown, and related sliders sit together behind a rail; the Show slider values preference is retired.
+  - **Compact panels** — sliders are one row (label, track, value) with values always shown, and a slider's modifiers sit under it behind a rail; a row of either-or buttons becomes one dropdown, and small tools sit on the section headers. Cast Removal moves to the Roll tab's Calibration card, Protect Original Metadata to the Metadata tab, and Tone's auto helpers into one Auto menu; Sync Metadata to Batch, Filtration's Roll Lock and the Show slider values preference are retired.
   - **Labeled tabs** — tabs carry text labels, and the Color tab is now Look.
   - **More room for the canvas** — the logo header is gone (About and updates are in the ⋯ menu), and Shift+H hides both side panels.
   - **Edit Toolbar** can place the actions that were only in the ⋯ menu.

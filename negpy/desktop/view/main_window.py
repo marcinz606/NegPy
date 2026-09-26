@@ -307,7 +307,7 @@ class MainWindow(QMainWindow):
         self.central_splitter.addWidget(self.central_stack)
         self.central_splitter.setCollapsible(1, False)
         self.central_layout.addWidget(self.central_splitter, stretch=1)
-        self._controls_before_light_table = True
+        self._panels_before_light_table: list = []
 
         self.setCentralWidget(self.central_widget)
 
@@ -500,7 +500,8 @@ class MainWindow(QMainWindow):
         return self.central_stack.currentIndex() == 1
 
     def set_light_table(self, on: bool) -> None:
-        """The controls panel hides while the grid shows; its saved visibility is untouched."""
+        """Both side panels hide while the grid shows, so it has the whole window; their saved
+        visibility is untouched. Esc, Shift+G or opening a frame leaves it."""
         browser = self.session_panel.file_browser
         browser.light_table_btn.blockSignals(True)
         browser.light_table_btn.setChecked(on)
@@ -509,9 +510,9 @@ class MainWindow(QMainWindow):
             return
         view = browser.light_table_view
         if on:
-            self._controls_before_light_table = self.drawer.isVisible() and not self.drawer.isFloating()
-            if self._controls_before_light_table:
-                self.drawer.setVisible(False)
+            self._panels_before_light_table = [d for d in (self.session_dock, self.drawer) if d.isVisible() and not d.isFloating()]
+            for dock in self._panels_before_light_table:
+                dock.setVisible(False)
             self.central_stack.setCurrentIndex(1)
             row = self.controller.session.asset_model.actual_to_display(self.state.selected_file_idx)
             if row >= 0:
@@ -519,8 +520,8 @@ class MainWindow(QMainWindow):
             view.setFocus()
         else:
             self.central_stack.setCurrentIndex(0)
-            if self._controls_before_light_table:
-                self.drawer.setVisible(True)
+            for dock in self._panels_before_light_table:
+                dock.setVisible(True)
 
     def reset_panel_layout(self) -> None:
         """Restore both side panels to their original edges, widths and visibility."""
