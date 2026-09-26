@@ -141,7 +141,7 @@ def test_the_tonal_range_header_opens_the_clip_and_point_controls(qapp):
 def test_the_region_buttons_carry_their_names(qapp):
     _, sidebar = _sidebar()
     assert sidebar.analysis_region_btn.text().strip() == "Draw Region"
-    assert sidebar.clear_analysis_region_btn.text().strip() == "Clear Region"
+    assert sidebar.clear_analysis_region_btn.text() == "", "an icon beside the tool it clears"
 
 
 def test_average_toggles_ride_the_baseline_bar_not_the_analysis(qapp):

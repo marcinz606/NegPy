@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
+from negpy.desktop.view.styles.templates import FIELD_LABEL_WIDTH, field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.features.hdr.models import hdr_active
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import DemosaicMode, ProcessMode
@@ -18,7 +18,9 @@ _TIP = (
     "<b>DCB</b> more fine detail than AHD, can ring on texture. "
     "<b>DHT</b> the most detail, and the most willing to turn grain into a maze pattern. "
     "<b>AAHD</b> anti-aliased AHD, softer edges and fewer artifacts.<br><br>"
-    "Judge these on grain: the detail-seeking algorithms read film grain as structure."
+    "Judge these on grain: the detail-seeking algorithms read film grain as structure. "
+    "Auto and Linear are the fastest for the preview.<br><br>"
+    "Bayer and X-Trans RAW only: a scanner TIFF or a linear DNG arrives already de-mosaiced."
     "</td></tr></table>"
 )
 
@@ -73,23 +75,28 @@ class DemosaicSidebar(BaseSidebar):
         self.export_combo.addItems(modes)
         self.export_combo.setToolTip(_TIP)
 
+        self.layout.addWidget(section_subheader("DEMOSAIC"))
         for label, combo in (("Preview", self.preview_combo), ("Export", self.export_combo)):
             row = QHBoxLayout()
-            row.addWidget(field_label(label))
+            lbl = field_label(label)
+            lbl.setFixedWidth(FIELD_LABEL_WIDTH)
+            row.addWidget(lbl)
             row.addWidget(combo, 1)
             self.layout.addLayout(row)
 
-        self.hint = hint_label(
-            "Bayer and X-Trans RAW only — a scanner TIFF or a linear DNG arrives already de-mosaiced. "
-            "Auto and Linear are the fastest for the preview."
-        )
+        # Shown only on a frame these do not reach; the general note lives in the tooltip.
+        self.hint = hint_label("This frame is not a Bayer or X-Trans RAW, so it arrives already de-mosaiced.")
+        self.hint.setVisible(False)
         self.layout.addWidget(self.hint)
 
         self.preview_combo.setCurrentText(str(DemosaicMode(conf.demosaic_preview)))
         self.export_combo.setCurrentText(str(DemosaicMode(conf.demosaic_export)))
 
+        self.highlight_header = section_subheader("HIGHLIGHTS")
+        self.layout.addWidget(self.highlight_header)
         highlight_row = QHBoxLayout()
-        self.highlight_label = field_label("Highlight Recovery")
+        self.highlight_label = field_label("Recovery")
+        self.highlight_label.setFixedWidth(FIELD_LABEL_WIDTH)
         highlight_row.addWidget(self.highlight_label)
         self.highlight_combo = QComboBox()
         self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
@@ -140,6 +147,9 @@ class DemosaicSidebar(BaseSidebar):
             # already-rendered file), and on a merge, which the hint explains.
             is_e6 = conf.process_mode == ProcessMode.E6
             merged = hdr_active(self.state.config.hdr)
+            # No camera matrix: not a camera RAW decode, so nothing here is demosaiced.
+            self.hint.setVisible(bool(self.state.current_file_hash) and self.state.preview_cam_xyz is None)
+            self.highlight_header.setVisible(is_e6)
             self.highlight_label.setVisible(is_e6)
             self.highlight_combo.setVisible(is_e6)
             self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None and not merged)

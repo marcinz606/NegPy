@@ -3,7 +3,7 @@ from dataclasses import replace
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.lens.models import LensMetadata
 from negpy.infrastructure.loaders.lens_metadata import read_lens_metadata
@@ -29,9 +29,6 @@ class LensSidebar(BaseSidebar):
                 "Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference."
             )
         )
-        self.layout.addWidget(self.distortion_slider)
-
-        self.layout.addWidget(section_subheader("EMBEDDED PROFILE"))
 
         self.metadata_distortion_btn = self._labeled_toggle(
             "fa5s.camera",
@@ -45,14 +42,18 @@ class LensSidebar(BaseSidebar):
             conf.lens_ca_from_metadata,
             "Apply embedded lateral chromatic aberration correction. Can be used with manual distortion.",
         )
+        # The file's own profile first: its distortion replaces the manual slider below.
         btn_row = QHBoxLayout()
+        btn_row.addWidget(field_label("Embedded"))
         btn_row.addWidget(self.metadata_distortion_btn, 1)
         btn_row.addWidget(self.metadata_ca_btn, 1)
         self.layout.addLayout(btn_row)
 
         self.lens_hint = hint_label("")
         self.lens_hint.setWordWrap(True)
+        self.lens_hint.setVisible(False)
         self.layout.addWidget(self.lens_hint)
+        self.layout.addWidget(self.distortion_slider)
 
     def _connect_signals(self) -> None:
         self.metadata_distortion_btn.toggled.connect(lambda enabled: self._set_metadata_lens("lens_distortion_from_metadata", enabled))
@@ -86,7 +87,9 @@ class LensSidebar(BaseSidebar):
             button.setChecked(enabled)
             button.setEnabled(available or enabled)
             button.edited_dot.set_active(enabled)
-        self.lens_hint.setText(lens.description if lens.available else f"Unavailable: {lens.reason}")
+        text = lens.description if lens.available else f"Unavailable: {lens.reason}"
+        self.lens_hint.setText(text)
+        self.lens_hint.setVisible(bool(text))
         self.distortion_slider.setEnabled(not config.geometry.lens_distortion_from_metadata)
 
     def sync_ui(self) -> None:

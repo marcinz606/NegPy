@@ -30,15 +30,13 @@ class GeometrySidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
 
-        self.manual_crop_btn = self._labeled_toggle("fa5s.crop-alt", " Crop", False, "Draw the crop by hand on the canvas")
-        self.reset_crop_btn = self._labeled_toggle("fa5s.magic", " Auto", False, "Find the frame edges and crop to them")
+        # Icons on the header, like the Roll tab's Crop card.
+        self.manual_crop_btn = self._tool_toggle("fa5s.crop-alt", "", "Crop: draw the crop by hand on the canvas")
+        self.reset_crop_btn = self._tool_toggle("fa5s.magic", "", "Auto: find the frame edges and crop to them")
+        for btn in (self.manual_crop_btn, self.reset_crop_btn):
+            btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.clear_crop_btn = self._icon_action("fa5s.undo", "Reset crop: clear the manual crop and disable auto crop")
-        self.layout.addLayout(header_row(section_subheader("CROP"), self.clear_crop_btn))
-
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(self.manual_crop_btn, 1)
-        btn_row.addWidget(self.reset_crop_btn, 1)
-        self.layout.addLayout(btn_row)
+        self.layout.addLayout(header_row(section_subheader("CROP"), self.manual_crop_btn, self.reset_crop_btn, self.clear_crop_btn))
 
         # The same roll field as the Crop card's Ratio: the crop tool snaps to it.
         ratio_row = QHBoxLayout()

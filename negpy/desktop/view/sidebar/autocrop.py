@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, header_row, section_subheader, wrap_tooltip
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.geometry.models import AutocropMode
 
 
@@ -39,7 +39,19 @@ class AutocropSidebar(BaseSidebar):
 
         self.layout.addLayout(ratio_row)
 
-        self.layout.addWidget(section_subheader("AUTO CROP"))
+        # Run actions, not a scope: the card header's own Frame/Roll pair means something else.
+        self.auto_frame_btn = self._small_toggle(
+            "fa5s.magic", "", conf.crop_from_auto, "Auto-crop this frame: find its edges and crop to them; off clears the crop"
+        )
+        self.auto_frame_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        roll_tip = (
+            "Auto-crop the roll: analyze all visible landscape frames as one roll. Confident frames calibrate "
+            "weak ones; manual and ambiguous crops are preserved. Runs before Roll Analysis."
+        )
+        self.auto_crop_all_btn = self._icon_action("fa5s.layer-group", roll_tip)
+        self.auto_crop_all_btn.plain_tooltip = roll_tip
+        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+        self.layout.addLayout(header_row(section_subheader("AUTO CROP"), self.auto_frame_btn, self.auto_crop_all_btn))
 
         mode_row = QHBoxLayout()
         mode_row.addWidget(self._field_label("Mode"))
@@ -78,23 +90,7 @@ class AutocropSidebar(BaseSidebar):
         )
         self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
 
-        self.layout.addWidget(self.offset_slider)
-        self.layout.addWidget(self.rebate_trim_slider)
-
-        self.auto_frame_btn = self._labeled_toggle(
-            "fa5s.magic", " Frame", conf.crop_from_auto, "Find this frame's edges and crop to them; off clears the crop"
-        )
-        self.auto_crop_all_btn = self._labeled_action(
-            "fa5s.layer-group",
-            " Roll",
-            "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
-            "manual and ambiguous crops are preserved. Runs before Roll Analysis.",
-        )
-        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        run_row = QHBoxLayout()
-        run_row.addWidget(self.auto_frame_btn, 1)
-        run_row.addWidget(self.auto_crop_all_btn, 1)
-        self.layout.addLayout(run_row)
+        self.layout.addWidget(SliderGroup(self.offset_slider, self.rebate_trim_slider))
 
     def _connect_signals(self) -> None:
         self.ratio_combo.currentTextChanged.connect(self.controller.set_crop_ratio)

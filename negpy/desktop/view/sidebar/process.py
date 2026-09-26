@@ -129,6 +129,8 @@ class ProcessSidebar(BaseSidebar):
         # ControlsPanel places it on the Metering card, so it sits outside self.layout --
         # the same reason mode_bar sits above every Roll-tab card.
         self.analysis_bar = QWidget()
+        # Nested in a card body, so it takes the body's transparent rule, not the global QWidget fill.
+        self.analysis_bar.setObjectName("collapsible_content_body")
         analysis_col = QVBoxLayout(self.analysis_bar)
         analysis_col.setContentsMargins(0, 0, 0, 0)
         analysis_col.setSpacing(THEME.space_sm)
@@ -147,12 +149,12 @@ class ProcessSidebar(BaseSidebar):
             "Draw a freehand analysis region on the image — the meters read exactly that area "
             "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
-        self.clear_analysis_region_btn = self._labeled_action(
-            "fa5s.times", " Clear Region", "Clear the freehand analysis region (fall back to the Analysis Buffer)"
+        self.clear_analysis_region_btn = self._icon_action(
+            "fa5s.times", "Clear Region: clear the freehand analysis region (fall back to the Analysis Buffer)"
         )
         region_row = QHBoxLayout()
-        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn):
-            region_row.addWidget(btn, 1)
+        region_row.addWidget(self.analysis_region_btn, 1)
+        region_row.addWidget(self.clear_analysis_region_btn)
         analysis_col.addLayout(region_row)
 
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
@@ -185,6 +187,8 @@ class ProcessSidebar(BaseSidebar):
         # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
         # own analysis. ControlsPanel places it at the top of the Roll Analysis card.
         self.baseline_bar = QWidget()
+        # Nested in a card body, so it takes the body's transparent rule, not the global QWidget fill.
+        self.baseline_bar.setObjectName("collapsible_content_body")
         baseline_col = QVBoxLayout(self.baseline_bar)
         baseline_col.setContentsMargins(0, 0, 0, 0)
         baseline_col.setSpacing(THEME.space_sm)

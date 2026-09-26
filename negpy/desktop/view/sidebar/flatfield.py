@@ -43,14 +43,11 @@ class FlatFieldSidebar(BaseSidebar):
 
         self.add_btn = self._icon_action("fa5s.plus", "Pick a reference image and save it as a named profile")
         self.delete_btn = self._icon_action("fa5s.trash", "Remove the selected profile")
-        row.addWidget(self.add_btn)
-        row.addWidget(self.delete_btn)
+        # add_btn and delete_btn go on the card's FLAT FIELD CORRECTION header (ControlsPanel).
         self.layout.addLayout(row)
 
         self.hint = hint_label("Add a scan of the bare light source to enable.")
         self.layout.addWidget(self.hint)
-
-        self.layout.addStretch()
         self._refresh_profiles()
 
     def _connect_signals(self) -> None:

@@ -6,7 +6,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -181,7 +181,9 @@ class ControlsPanel(QWidget):
         optics_layout.setSpacing(THEME.space_sm)
         optics_layout.addWidget(section_subheader("LENS CORRECTION"))
         optics_layout.addWidget(self.lens_sidebar)
-        optics_layout.addWidget(section_subheader("FLAT FIELD CORRECTION"))
+        optics_layout.addLayout(
+            header_row(section_subheader("FLAT FIELD CORRECTION"), self.flatfield_sidebar.add_btn, self.flatfield_sidebar.delete_btn)
+        )
         optics_layout.addWidget(self.flatfield_sidebar)
         self.optics_section = self._make_section(
             "Optics",
@@ -217,15 +219,15 @@ class ControlsPanel(QWidget):
             icon_name="mdi.view-split-vertical",
         )
 
-        # Where this frame's bounds come from: the Use Luma/Color Average switches, then the
-        # roll and scene baselines they read.
+        # Where this frame's bounds come from: the roll and scene baselines, then the Use
+        # Luma/Color Average switches that read them.
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         baseline_body = QWidget()
         baseline_layout = QVBoxLayout(baseline_body)
         baseline_layout.setContentsMargins(0, 0, 0, 0)
         baseline_layout.setSpacing(4)
-        baseline_layout.addWidget(self.process_sidebar.baseline_bar)
         baseline_layout.addWidget(self.roll_sidebar)
+        baseline_layout.addWidget(self.process_sidebar.baseline_bar)
         self.baseline_section = self._make_section(
             "Roll Analysis",
             "baseline",
@@ -623,7 +625,7 @@ class ControlsPanel(QWidget):
 
         geo.manual_crop_btn.setToolTip(
             tooltip_with_shortcut(
-                "Draw a crop rectangle on the canvas — drag to set, constrained by the current aspect ratio",
+                "Crop: draw a crop rectangle on the canvas — drag to set, constrained by the current aspect ratio",
                 "manual_crop",
             )
         )

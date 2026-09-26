@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.confirm import confirm_assembly_mode, confirm_undiptych
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, wrap_tooltip
+from negpy.desktop.view.widgets.sliders import SliderGroup
 
 _NO_ROLL_HINT = "Half Frame is a roll-wide setting, and this isn't one roll. Open the roll itself to split its scans."
 
@@ -20,6 +21,7 @@ class HalfFrameSidebar(BaseSidebar):
             "Half Frame Mode",
             self.controller.half_frame_mode_for_roll(self.state.active_roll_id),
             "",
+            align_left=True,
         )
         self.layout.addWidget(self.enable_btn)
 
@@ -41,10 +43,8 @@ class HalfFrameSidebar(BaseSidebar):
         btn_row = QHBoxLayout()
         for btn in (self.adjust_btn, self.auto_btn, self.unsplit_btn):
             btn_row.addWidget(btn, 1)
-        self.layout.addLayout(btn_row)
-
         self.hint = hint_label("", "warning")
-        self.layout.addWidget(self.hint)
+        self.layout.addWidget(SliderGroup(btn_row, self.hint))
 
     def _connect_signals(self) -> None:
         self.enable_btn.toggled.connect(self._on_toggled)

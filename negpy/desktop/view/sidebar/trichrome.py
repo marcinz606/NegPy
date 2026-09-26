@@ -1,5 +1,7 @@
 import os
 
+from PyQt6.QtWidgets import QHBoxLayout
+
 from negpy.desktop.view.confirm import confirm_assembly_mode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, wrap_tooltip
@@ -24,15 +26,15 @@ class TrichromeSidebar(BaseSidebar):
                 "Assemble each frame from its red, green and blue exposures. A folder is grouped into "
                 "triplets in capture order on load; the mode applies to every roll you open."
             ),
+            align_left=True,
         )
-        self.layout.addWidget(self.enable_btn)
-
-        self.edit_btn = self._labeled_action(
-            "fa5s.pen",
-            " Edit Triplet…",
-            wrap_tooltip("Assign this frame's three exposures by hand, for a frame the grouping got wrong"),
+        self.edit_btn = self._icon_action(
+            "fa5s.pen", "Edit Triplet…: assign this frame's three exposures by hand, for a frame the grouping got wrong"
         )
-        self.layout.addWidget(self.edit_btn)
+        row = QHBoxLayout()
+        row.addWidget(self.enable_btn, 1)
+        row.addWidget(self.edit_btn)
+        self.layout.addLayout(row)
 
         self.hint = hint_label("")
         self.layout.addWidget(self.hint)

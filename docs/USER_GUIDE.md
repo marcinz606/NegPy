@@ -373,9 +373,9 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 **Crop:**
 
-*   **Auto**: detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.4](#104-crop)).
+*   **Auto** (magic wand on the CROP header): detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.4](#104-crop)).
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card; the crop tool snaps to it.
-*   **Crop** tool: draw a crop rectangle; when **Ratio** is **Free**, drag an edge midpoint to resize one axis. It opens on the current crop, including one **Auto** found; after a manual change nothing re-detects over it. **Reset** (undo icon on the CROP header) clears it and turns auto-crop off.
+*   **Crop** tool (crop icon on the CROP header): draw a crop rectangle; when **Ratio** is **Free**, drag an edge midpoint to resize one axis. It opens on the current crop, including one **Auto** found; after a manual change nothing re-detects over it. **Reset** (undo icon on the CROP header) clears it and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides with orientations (spiral 8, triangles 2).
 
 **Alignment:**
@@ -673,7 +673,7 @@ How the files become frames. Neither toggle has a scope pair.
 #### Trichrome
 
 *   **Trichrome Mode** (three-exposure narrowband capture, also called trichromatic capture): assembles each frame from a red, green and blue exposure. Shots are grouped by the capture time in the files, so shoot each frame's three exposures back to back; filenames need no convention. With no capture time, filename order is used. Three shots are assembled only if they are one of each color *and* show the same frame; otherwise they stay separate for pairing by hand. An assembled frame has the three-dot badge (see [Triage](#triage-culling-the-roll)).
-*   **Edit Triplet…**: the film strip's right-click **Edit RGB Triplet…** dialog, for the current frame. Its **Align channels (sub-pixel)** registers green and blue to red, which removes color fringing from capture drift.
+*   **Edit Triplet…** (pen icon beside Trichrome Mode): the film strip's right-click **Edit RGB Triplet…** dialog, for the current frame. Its **Align channels (sub-pixel)** registers green and blue to red, which removes color fringing from capture drift.
 
 The line under the buttons names the two exposures the frame is assembled from. The toggle is one rig-wide flag, so it has no scope pair and applies to every roll.
 
@@ -754,8 +754,8 @@ The shape every frame is cut to and what the frame detector looks for, roll-wide
 *   **Mode**: *Image only* (exposed area) or *Film edge* (full film, including rebate and sprockets).
 *   **Crop Offset** (-5 to 100 px): inset the detected edge; negative bleeds slightly outside.
 *   **Rebate Trim** (0 to 150%): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border. *Image only*; applies to **Frame** and **Roll**.
-*   **Frame**: detect this frame's edge and crop to it, the same toggle as **Auto** in Geometry. Off clears the crop.
-*   **Roll**: crops all visible landscape frames as a roll, calibrating weak detections from confident ones. Portrait frames are cropped alone, as with **Frame**. With no readable film edge anywhere (film overfills the sensor), each frame trims its own border; a roll of only a few frames, including an RGB triplet, trims by the edges brighter than the picture. Runs in the background with progress and cancel. Manual, Film-edge and ambiguous frames are left alone. *Image only* mode only.
+*   **Auto-crop this frame** (magic wand on the AUTO CROP header): detect this frame's edge and crop to it, the same toggle as **Auto** in Geometry. Off clears the crop.
+*   **Auto-crop the roll** (layers icon on the AUTO CROP header): crops all visible landscape frames as a roll, calibrating weak detections from confident ones. Portrait frames are cropped alone, as with **Auto-crop this frame**. With no readable film edge anywhere (film overfills the sensor), each frame trims its own border; a roll of only a few frames, including an RGB triplet, trims by the edges brighter than the picture. Runs in the background with progress and cancel. Manual, Film-edge and ambiguous frames are left alone. *Image only* mode only.
 *   **Mixing scans**: allowed. A frame that reads its own edge keeps its crop; a frame with no edge takes the roll's width and tilt. Frames from one camera, holder and format pool best.
 *   **When auto-crop leaves a frame alone**: the scanner bed must be the brightest thing in the scan. A slide with highlights as bright as the bed, sprocket-exposed film, or a neighbor frame filling more than a tenth of one side stays uncropped. Crop by hand, or use *Film edge* and trim in.
 
@@ -808,9 +808,12 @@ How this frame is measured into a positive's tonal bounds. The film mode is in �
 
 A color sensor records one color per photosite; the demosaic algorithm fills in the other two, which affects sharpness and grain. Bayer and X-Trans RAW only (a scanner TIFF, a Pakon scan or a linear DNG is already de-mosaiced), and only algorithms in your LibRaw build are listed.
 
-*   **Preview** / **Export** (sticky, default **Auto**): *Auto* is a fast half-size decode on screen and AHD for export. For the preview, Auto and Linear are fastest; the others decode at full size. **AHD** is balanced, **VNG** smooth, **PPG** fast with clean edges, **DCB** and **DHT** favor fine detail, **AAHD** softens edges to suppress artifacts.
+**Demosaic**:
 
-**Highlight Recovery** (Transparency only, default **Off**): recovers a clipped highlight on a camera RAW. **Off** leaves it flat, or magenta if one channel clipped first. **Blend** recovers a plausible neutral from the unclipped channels, right for sun, sky, chrome or glass. **Reconstruct** is libraw's more aggressive level and can misjudge a saturated-color highlight. Greyed out on a scanner TIFF, JPEG or other rendered file and on a merged bracket (the merge recovers highlights itself), hidden outside Transparency, inert under Narrowband.
+*   **Preview** / **Export** (sticky, default **Auto**): *Auto* is a fast half-size decode on screen and AHD for export. For the preview, Auto and Linear are fastest; the others decode at full size. **AHD** is balanced, **VNG** smooth, **PPG** fast with clean edges, **DCB** and **DHT** favor fine detail, **AAHD** softens edges to suppress artifacts.
+*   A hint under them says so when the open frame is not a Bayer or X-Trans RAW.
+
+**Highlights: Recovery** (Transparency only, default **Off**): recovers a clipped highlight on a camera RAW. **Off** leaves it flat, or magenta if one channel clipped first. **Blend** recovers a plausible neutral from the unclipped channels, right for sun, sky, chrome or glass. **Reconstruct** is libraw's more aggressive level and can misjudge a saturated-color highlight. Greyed out on a scanner TIFF, JPEG or other rendered file and on a merged bracket (the merge recovers highlights itself), hidden outside Transparency, inert under Narrowband.
 
 <!-- panel:optics -->
 ### 10.8 Optics
@@ -819,16 +822,16 @@ The scanning optics: one lens correction and one light correction for every fram
 
 #### Lens Correction
 
-*   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing.
-*   **Embedded Profile**, from lens data in the file (enabled when the file has it):
+*   **Embedded** (the file's own lens profile, enabled when the file has one):
     *   **Distortion**: straightens curved lines, replacing manual distortion correction. Set it before cropping or retouching.
     *   **CA**: reduces color fringes. Works with or without **Distortion** and manual correction.
+*   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing. Grayed out while the embedded **Distortion** is on.
 
 #### Flat Field Correction: even out the light
 
 Corrects uneven illumination (vignetting, falloff) from a copy-stand or scanner light, using a shot of the bare light source.
 
-*   **Profile** dropdown, **+** and **trash**: **+** reads a reference image once and bakes it into a named profile in NegPy's `flatfield` folder, so the reference file can then be moved or deleted. **Trash** asks first: the gain map is lost, and every frame using it loses its correction.
+*   **Profile** dropdown, with **+** and **trash** on the FLAT FIELD CORRECTION header: **+** reads a reference image once and bakes it into a named profile in NegPy's `flatfield` folder, so the reference file can then be moved or deleted. **Trash** asks first: the gain map is lost, and every frame using it loses its correction.
 *   **Apply Flat Field** (bulb toggle beside the dropdown): apply the selected profile to this roll, enabled once a profile exists.
 
 A newly chosen profile becomes the rig's default for the next roll.
