@@ -639,7 +639,7 @@ class CanvasOverlay(QWidget):
         buf = self._host_buffer()
         if buf is None:
             return None
-        key = (id(buf), self._display_cs, self._proof)
+        key = (id(buf), self._display_cs, self._monitor_icc_bytes, self._proof)
         if self._host_qimage_cache is not None and self._host_qimage_cache[0] == key:
             return self._host_qimage_cache[1]
         img = ImageConverter.to_qimage(buf, self._display_cs, self._monitor_icc_bytes, self._proof)
@@ -917,7 +917,7 @@ class CanvasOverlay(QWidget):
         buf = self.state.compare_before
         if not isinstance(buf, np.ndarray):
             return None
-        key = (id(buf), self._display_cs, self._proof)
+        key = (id(buf), self._display_cs, self._monitor_icc_bytes, self._proof)
         if self._compare_qimage_cache is not None and self._compare_qimage_cache[0] == key:
             return self._compare_qimage_cache[1]
         img = ImageConverter.to_qimage(buf, self._display_cs, self._monitor_icc_bytes, self._proof)
@@ -1300,7 +1300,7 @@ class CanvasOverlay(QWidget):
         mosaic = self.state.test_strip_mosaic
         if mosaic is None:
             return None
-        key = (id(mosaic), self._display_cs, self._proof)
+        key = (id(mosaic), self._display_cs, self._monitor_icc_bytes, self._proof)
         if self._strip_cache is not None and self._strip_cache[0] == key:
             return self._strip_cache[1]
         img = ImageConverter.to_qimage(mosaic, self._display_cs, self._monitor_icc_bytes, self._proof)

@@ -648,7 +648,13 @@ class ImageCanvas(QWidget):
             self.gpu_widget.set_display_transform(color_space, monitor_icc_bytes, proof)
             self.gpu_widget.update_texture(buffer)
             self.overlay.update_buffer(
-                None, color_space, content_rect, gpu_size=(buffer.width, buffer.height), proof=proof, gpu_texture=buffer
+                None,
+                color_space,
+                content_rect,
+                gpu_size=(buffer.width, buffer.height),
+                monitor_icc_bytes=monitor_icc_bytes,
+                proof=proof,
+                gpu_texture=buffer,
             )
             self.overlay.show()
             self.overlay.raise_()
