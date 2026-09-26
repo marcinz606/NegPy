@@ -171,6 +171,7 @@ class ImageCanvas(QWidget):
         self.root_layout.addWidget(self.overlay)
 
         self.overlay.clicked.connect(self.clicked.emit)
+        self.overlay.pan_requested.connect(self.pan_by_viewport_delta)
         self.overlay.crop_rect_changed.connect(self.crop_rect_changed.emit)
         self.overlay.crop_rotation_changed.connect(self.crop_rotation_changed.emit)
         self.overlay.crop_confirmed.connect(self.crop_confirmed.emit)
@@ -604,11 +605,17 @@ class ImageCanvas(QWidget):
         if self._is_panning:
             delta = event.position() - self._last_mouse_pos
             self._last_mouse_pos = event.position()
-            self.pan_offset += QPointF(delta.x() / self.width(), delta.y() / self.height())
-            self._sync_transform()
+            self.pan_by_viewport_delta(delta.x(), delta.y())
             event.accept()
         else:
             super().mouseMoveEvent(event)
+
+    def pan_by_viewport_delta(self, dx: float, dy: float) -> None:
+        """Move the displayed image by a canvas-relative pixel delta."""
+        if self.width() <= 0 or self.height() <= 0:
+            return
+        self.pan_offset += QPointF(dx / self.width(), dy / self.height())
+        self._sync_transform()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._is_panning:

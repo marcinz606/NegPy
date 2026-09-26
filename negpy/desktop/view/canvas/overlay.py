@@ -2,14 +2,15 @@ import logging
 import math
 import os
 import sys
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import qtawesome as qta
-from PyQt6.QtCore import QLineF, QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QLineF, QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
@@ -57,6 +58,11 @@ _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
 _EDGE_HANDLE_LENGTH_PX = 14.0
 _EDGE_HANDLE_THICKNESS_PX = 4.0
+_AUTO_PAN_EDGE_ZONE_FRACTION = 0.02
+_AUTO_PAN_INTERVAL_MS = 16
+_AUTO_PAN_MAX_SPEED_PX_S = 1200.0
+_AUTO_PAN_SPEED_MULTIPLIER = 4.0
+_AUTO_PAN_MAX_TICK_S = 0.05
 _CROP_MIN_SCREEN_PX = 24.0
 # Drag distance required before an outside-the-rect press starts redrawing an
 # existing crop (stray-click guard).
@@ -232,6 +238,7 @@ class CanvasOverlay(QWidget):
     """
 
     clicked = pyqtSignal(float, float)
+    pan_requested = pyqtSignal(float, float)
     crop_rect_changed = pyqtSignal(float, float, float, float, bool)
     crop_rotation_changed = pyqtSignal(float, bool)  # (fine_rotation_deg, persist)
     crop_confirmed = pyqtSignal()
@@ -344,6 +351,10 @@ class CanvasOverlay(QWidget):
         self._straighten_p1: Optional[QPointF] = None
         self._straighten_p2: Optional[QPointF] = None
 
+        self._auto_pan_active = False
+        self._auto_pan_pointer: Optional[QPointF] = None
+        self._auto_pan_last_tick: Optional[float] = None
+
         # Zone-placement pin being dragged (the controller re-reads the tone as it moves).
         self._pin_drag_index: Optional[int] = None
 
@@ -388,6 +399,12 @@ class CanvasOverlay(QWidget):
         self._line_hover_timer = QTimer(self)
         self._line_hover_timer.setSingleShot(True)
         self._line_hover_timer.timeout.connect(self._trace_line_hover)
+
+        # Continues panning while the pointer rests in an active edge zone.
+        self._auto_pan_timer = QTimer(self)
+        self._auto_pan_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._auto_pan_timer.setInterval(_AUTO_PAN_INTERVAL_MS)
+        self._auto_pan_timer.timeout.connect(self._auto_pan_tick)
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -475,6 +492,8 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
+        if mode != self._tool_mode:
+            self._stop_auto_pan()
         self._tool_mode = mode
         if mode == ToolMode.CROP_MANUAL:
             self._crop_rect_norm = self.state.config.geometry.crop_rect
@@ -530,6 +549,7 @@ class CanvasOverlay(QWidget):
         self._local_muted_masks = frozenset()
 
     def _end_crop_drag(self) -> None:
+        self._stop_auto_pan()
         self._crop_drag_mode = None
         self._crop_anchor_screen = None
         self._crop_press_norm = None
@@ -568,6 +588,7 @@ class CanvasOverlay(QWidget):
             self.update()
             return True
         if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            self._stop_auto_pan()
             self._straighten_p1 = None
             self._straighten_p2 = None
             self.update()
@@ -707,6 +728,177 @@ class CanvasOverlay(QWidget):
             self._straighten_p1 = remap(self._straighten_p1)
         if self._straighten_p2 is not None:
             self._straighten_p2 = remap(self._straighten_p2)
+        if self._crop_anchor_screen is not None:
+            self._crop_anchor_screen = remap(self._crop_anchor_screen)
+        if self._crop_draw_p1 is not None:
+            self._crop_draw_p1 = remap(self._crop_draw_p1)
+        if self._crop_draw_p2 is not None:
+            self._crop_draw_p2 = remap(self._crop_draw_p2)
+
+    def _begin_auto_pan(self, pos: QPointF) -> None:
+        self._auto_pan_active = True
+        self._auto_pan_pointer = QPointF(pos)
+        self._auto_pan_last_tick = time.monotonic()
+        self._refresh_auto_pan_timer()
+
+    def _track_auto_pan_pointer(self, pos: QPointF) -> None:
+        if not self._auto_pan_active:
+            return
+        self._auto_pan_pointer = QPointF(pos)
+        self._refresh_auto_pan_timer()
+
+    def _stop_auto_pan(self) -> None:
+        self._auto_pan_active = False
+        self._auto_pan_pointer = None
+        self._auto_pan_last_tick = None
+        self._auto_pan_timer.stop()
+
+    def _auto_pan_velocity(self) -> QPointF:
+        """Return the viewport-pixel velocity for a clipped image edge zone."""
+        if not self._auto_pan_active or self._auto_pan_pointer is None:
+            return QPointF()
+        width, height = float(self.width()), float(self.height())
+        if width <= 0.0 or height <= 0.0 or self._view_rect.isEmpty():
+            return QPointF()
+
+        pos = self._auto_pan_pointer
+        zone_x = width * _AUTO_PAN_EDGE_ZONE_FRACTION
+        zone_y = height * _AUTO_PAN_EDGE_ZONE_FRACTION
+        excess_x = excess_y = 0.0
+        direction_x = direction_y = 0.0
+
+        if self._view_rect.left() < 0.0 and pos.x() < zone_x:
+            excess_x = zone_x - pos.x()
+            direction_x = 1.0
+        if self._view_rect.right() > width and pos.x() > width - zone_x:
+            excess_x = pos.x() - (width - zone_x)
+            direction_x = -1.0
+        if self._view_rect.top() < 0.0 and pos.y() < zone_y:
+            excess_y = zone_y - pos.y()
+            direction_y = 1.0
+        if self._view_rect.bottom() > height and pos.y() > height - zone_y:
+            excess_y = pos.y() - (height - zone_y)
+            direction_y = -1.0
+
+        ratio_x, ratio_y = excess_x / width, excess_y / height
+        if ratio_x <= 0.0 and ratio_y <= 0.0:
+            return QPointF()
+
+        if ratio_x >= ratio_y:
+            speed = min(_AUTO_PAN_MAX_SPEED_PX_S * _AUTO_PAN_SPEED_MULTIPLIER * ratio_x, _AUTO_PAN_MAX_SPEED_PX_S)
+            return QPointF(direction_x * speed, 0.0)
+        speed = min(_AUTO_PAN_MAX_SPEED_PX_S * _AUTO_PAN_SPEED_MULTIPLIER * ratio_y, _AUTO_PAN_MAX_SPEED_PX_S)
+        return QPointF(0.0, direction_y * speed)
+
+    def _refresh_auto_pan_timer(self) -> None:
+        if not self._auto_pan_active:
+            return
+        if self._auto_pan_velocity().isNull():
+            self._auto_pan_timer.stop()
+            self._auto_pan_last_tick = None
+        elif not self._auto_pan_timer.isActive():
+            self._auto_pan_last_tick = time.monotonic()
+            self._auto_pan_timer.start()
+
+    def _auto_pan_tick(self, now: Optional[float] = None) -> None:
+        current = time.monotonic() if now is None else now
+        velocity = self._auto_pan_velocity()
+        if velocity.isNull() or self._auto_pan_pointer is None:
+            self._auto_pan_timer.stop()
+            self._auto_pan_last_tick = None
+            return
+
+        previous = self._auto_pan_last_tick if self._auto_pan_last_tick is not None else current
+        elapsed = min(max(current - previous, 0.0), _AUTO_PAN_MAX_TICK_S)
+        self._auto_pan_last_tick = current
+        if elapsed <= 0.0:
+            return
+
+        self.pan_requested.emit(velocity.x() * elapsed, velocity.y() * elapsed)
+        self._update_tracked_gesture(self._auto_pan_pointer, QApplication.keyboardModifiers())
+
+    def _update_tracked_gesture(self, pos: QPointF, modifiers: Qt.KeyboardModifier) -> bool:
+        if self._crop_drag_mode == "corner" and self._crop_anchor_screen is not None:
+            cur_screen = QPointF(
+                float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            rect = self._apply_aspect_and_min(self._crop_anchor_screen, cur_screen)
+            self._crop_rect_norm = rect
+            self.crop_rect_changed.emit(*rect, False)
+            self.update()
+            return True
+
+        if (
+            self._crop_drag_mode == "edge"
+            and self._crop_edge_which is not None
+            and self._crop_rect_norm is not None
+            and not self._view_rect.isEmpty()
+        ):
+            cur_screen = QPointF(
+                float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            cursor_nx, cursor_ny = self._screen_to_norm(cur_screen)
+            x1, y1, x2, y2 = self._crop_rect_norm
+            min_w = min(_CROP_MIN_SCREEN_PX / self._view_rect.width(), 1.0)
+            min_h = min(_CROP_MIN_SCREEN_PX / self._view_rect.height(), 1.0)
+            if self._crop_edge_which == "left":
+                new_rect = (float(np.clip(cursor_nx, 0.0, max(0.0, x2 - min_w))), y1, x2, y2)
+            elif self._crop_edge_which == "right":
+                new_rect = (x1, y1, float(np.clip(cursor_nx, min(1.0, x1 + min_w), 1.0)), y2)
+            elif self._crop_edge_which == "top":
+                new_rect = (x1, float(np.clip(cursor_ny, 0.0, max(0.0, y2 - min_h))), x2, y2)
+            else:
+                new_rect = (x1, y1, x2, float(np.clip(cursor_ny, min(1.0, y1 + min_h), 1.0)))
+            self._crop_rect_norm = new_rect
+            self.crop_rect_changed.emit(*new_rect, False)
+            self.update()
+            return True
+
+        if self._crop_drag_mode == "move" and self._crop_press_norm is not None and self._crop_orig_rect is not None:
+            curr_norm = self._screen_to_norm(pos)
+            fine = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+            sensitivity = 0.5 if fine else 1.0
+            dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
+            dy = (curr_norm[1] - self._crop_press_norm[1]) * sensitivity
+            new_rect = translate_normalized_rect(self._crop_orig_rect, dx, dy)
+            if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_norm or new_rect)):
+                self._crop_rect_norm = new_rect
+                self.crop_rect_changed.emit(*new_rect, False)
+                self.update()
+            return True
+
+        if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            self._straighten_p2 = QPointF(
+                float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            self.update()
+            return True
+
+        if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
+            mx = float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right()))
+            my = float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom()))
+            if not self._crop_draw_armed:
+                if (QPointF(mx, my) - self._crop_draw_p1).manhattanLength() < _CROP_REDRAW_SLOP_PX:
+                    return True
+                self._crop_draw_armed = True
+
+            dx = mx - self._crop_draw_p1.x()
+            dy = my - self._crop_draw_p1.y()
+            target_ratio = self._oriented_target_ratio(dx, dy)
+            if target_ratio is None:
+                self._crop_draw_p2 = QPointF(mx, my)
+            else:
+                if abs(dx) > abs(dy) * target_ratio:
+                    dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
+                else:
+                    dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
+                self._crop_draw_p2 = QPointF(self._crop_draw_p1.x() + dx, self._crop_draw_p1.y() + dy)
+            self.update()
+            return True
+        return False
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -2307,6 +2499,7 @@ class CanvasOverlay(QWidget):
                 if self._view_rect.contains(event.position()):
                     self._straighten_p1 = event.position()
                     self._straighten_p2 = event.position()
+                    self._begin_auto_pan(event.position())
                     self.update()
                 event.accept()
                 return
@@ -2339,6 +2532,8 @@ class CanvasOverlay(QWidget):
             -_CROP_HANDLE_PX, -_CROP_HANDLE_PX, _CROP_HANDLE_PX, _CROP_HANDLE_PX
         ).contains(event.position()):
             self._start_crop_drag(event.position())
+            if self._crop_drag_mode in ("corner", "edge", "move", "draw"):
+                self._begin_auto_pan(event.position())
 
         if coords is not None or self._crop_drag_mode is not None:
             self.update()
@@ -2446,6 +2641,7 @@ class CanvasOverlay(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
+        self._track_auto_pan_pointer(event.position())
 
         # An exclusion drag owns the mouse like the divider does below: it is painting, and a
         # tool or a pan reading the same motion would act on it twice. Sampled at half the
@@ -2608,93 +2804,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        if self._crop_drag_mode == "corner" and self._crop_anchor_screen is not None:
-            cur_screen = QPointF(
-                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
-                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
-            )
-            rect = self._apply_aspect_and_min(self._crop_anchor_screen, cur_screen)
-            self._crop_rect_norm = rect
-            self.crop_rect_changed.emit(*rect, False)
-            self.update()
+        if self._update_tracked_gesture(event.position(), event.modifiers()):
             event.accept()
-            return
-
-        if (
-            self._crop_drag_mode == "edge"
-            and self._crop_edge_which is not None
-            and self._crop_rect_norm is not None
-            and not self._view_rect.isEmpty()
-        ):
-            cur_screen = QPointF(
-                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
-                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
-            )
-            cursor_nx, cursor_ny = self._screen_to_norm(cur_screen)
-            x1, y1, x2, y2 = self._crop_rect_norm
-            min_w = min(_CROP_MIN_SCREEN_PX / self._view_rect.width(), 1.0)
-            min_h = min(_CROP_MIN_SCREEN_PX / self._view_rect.height(), 1.0)
-            if self._crop_edge_which == "left":
-                new_rect = (float(np.clip(cursor_nx, 0.0, max(0.0, x2 - min_w))), y1, x2, y2)
-            elif self._crop_edge_which == "right":
-                new_rect = (x1, y1, float(np.clip(cursor_nx, min(1.0, x1 + min_w), 1.0)), y2)
-            elif self._crop_edge_which == "top":
-                new_rect = (x1, float(np.clip(cursor_ny, 0.0, max(0.0, y2 - min_h))), x2, y2)
-            else:
-                new_rect = (x1, y1, x2, float(np.clip(cursor_ny, min(1.0, y1 + min_h), 1.0)))
-            self._crop_rect_norm = new_rect
-            self.crop_rect_changed.emit(*new_rect, False)
-            self.update()
-            event.accept()
-            return
-
-        if self._crop_drag_mode == "move" and self._crop_press_norm is not None and self._crop_orig_rect is not None:
-            curr_norm = self._screen_to_norm(event.position())
-            # Normalized coords track the cursor 1:1, so a plain drag moves the crop with the
-            # mouse. Shift halves it for fine placement.
-            fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            sensitivity = 0.5 if fine else 1.0
-            dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
-            dy = (curr_norm[1] - self._crop_press_norm[1]) * sensitivity
-            new_rect = translate_normalized_rect(self._crop_orig_rect, dx, dy)
-            if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_norm or new_rect)):
-                self._crop_rect_norm = new_rect
-                self.crop_rect_changed.emit(*new_rect, False)
-                self.update()
-            event.accept()
-            return
-
-        if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
-            self._straighten_p2 = QPointF(
-                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
-                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
-            )
-            self.update()
-            event.accept()
-            return
-
-        if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
-            mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
-            my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
-
-            if not self._crop_draw_armed:
-                if (QPointF(mx, my) - self._crop_draw_p1).manhattanLength() < _CROP_REDRAW_SLOP_PX:
-                    return
-                self._crop_draw_armed = True
-
-            dx = mx - self._crop_draw_p1.x()
-            dy = my - self._crop_draw_p1.y()
-            target_ratio = self._oriented_target_ratio(dx, dy)
-            if target_ratio is None:
-                self._crop_draw_p2 = QPointF(mx, my)
-            else:
-                if abs(dx) > abs(dy) * target_ratio:
-                    dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
-                else:
-                    dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
-
-                self._crop_draw_p2 = QPointF(self._crop_draw_p1.x() + dx, self._crop_draw_p1.y() + dy)
-            self.update()
             return
 
         self.update()
@@ -3048,6 +3159,7 @@ class CanvasOverlay(QWidget):
 
         if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
             p1, p2 = self._straighten_p1, self._straighten_p2 or self._straighten_p1
+            self._stop_auto_pan()
             self._straighten_p1 = None
             self._straighten_p2 = None
             dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
@@ -3124,6 +3236,24 @@ class CanvasOverlay(QWidget):
         self._mouse_pos = QPointF(-1.0, -1.0)
         self.update()
         super().leaveEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._stop_auto_pan()
+        super().hideEvent(event)
+
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
+            self._stop_auto_pan()
+        super().changeEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        self._stop_auto_pan()
+        super().focusOutEvent(event)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.UngrabMouse:
+            self._stop_auto_pan()
+        return super().event(event)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.update()
