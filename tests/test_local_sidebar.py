@@ -228,3 +228,9 @@ def test_a_limited_mask_among_four_stays_editable(qapp):
     sidebar.sync_ui()
 
     assert sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+
+
+def test_the_masks_header_counts_the_frames_masks(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0), LocalMask(vertices=SQUARE, stops=-0.5))
+    sidebar.sync_ui()
+    assert sidebar.masks_header.text() == "MASKS · 2"

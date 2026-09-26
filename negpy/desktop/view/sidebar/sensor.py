@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
 from negpy.services.assets.crosstalk import CrosstalkProfiles
@@ -21,7 +21,6 @@ class SensorSidebar(BaseSidebar):
         conf = self.state.config.process
 
         self.capture_header = section_subheader("CAPTURE")
-        self.layout.addWidget(self.capture_header)
 
         self.linear_raw_btn = self._small_toggle(
             "fa5s.sliders-h",
@@ -40,12 +39,11 @@ class SensorSidebar(BaseSidebar):
         self.scan_setup_btn = self._icon_action(
             "mdi6.lightbulb-on-outline",
             "Scanning setup — set Linear RAW and Narrowband from your camera/scanner and its light source",
-            width=28,
         )
+        self.layout.addLayout(header_row(self.capture_header, self.scan_setup_btn))
         capture_row = QHBoxLayout()
         capture_row.addWidget(self.linear_raw_btn, 1)
         capture_row.addWidget(self.narrowband_scan_btn, 1)
-        capture_row.addWidget(self.scan_setup_btn)
         self.layout.addLayout(capture_row)
 
         # Greyed rather than hidden: these are sticky settings, so a hidden one is a setting the
@@ -55,8 +53,33 @@ class SensorSidebar(BaseSidebar):
         self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
         self.layout.addWidget(self.capture_hint)
 
+        row = QHBoxLayout()
+        self.sensor_label = field_label("Profile")
+        self.sensor_combo = QComboBox()
+        self.sensor_combo.addItems(SensorProfiles.list_profiles())
+        self.sensor_combo.setToolTip(
+            "<table width='280'><tr><td>"
+            "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
+            "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
+            "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
+            "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
+            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
+            "scanned with narrowband light. Re-run Roll Analysis after changing this."
+            "</td></tr></table>"
+        )
+        self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures")
+        self.layout.addLayout(header_row(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"), self.calibrate_sensor_btn))
+        row.addWidget(self.sensor_label)
+        row.addWidget(self.sensor_combo, 1)
+        self.layout.addLayout(row)
+
+        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
+        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
+        # per reason in _apply_gate.
+        self.sensor_hint = hint_label("Requires Linear RAW.")
+        self.layout.addWidget(self.sensor_hint)
+
         self.crosstalk_header = section_subheader("CROSSTALK")
-        self.layout.addWidget(self.crosstalk_header)
 
         matrix_row = QHBoxLayout()
         self.crosstalk_label = field_label("Matrix")
@@ -89,11 +112,11 @@ class SensorSidebar(BaseSidebar):
             "</td></tr></table>"
         )
         self.manage_crosstalk_btn = self._icon_action(
-            "fa5s.sliders-h", "Open the crosstalk matrix editor — view, copy and edit density-unmix profiles", width=32
+            "fa5s.sliders-h", "Open the crosstalk matrix editor — view, copy and edit density-unmix profiles"
         )
+        self.layout.addLayout(header_row(self.crosstalk_header, self.manage_crosstalk_btn))
         matrix_row.addWidget(self.crosstalk_label)
         matrix_row.addWidget(self.crosstalk_combo, 1)
-        matrix_row.addWidget(self.manage_crosstalk_btn)
         self.layout.addLayout(matrix_row)
 
         # Shown when the film process has no matrices yet. Muted, not a warning: it is the normal
@@ -108,35 +131,23 @@ class SensorSidebar(BaseSidebar):
         self.layout.addWidget(self.crosstalk_hint)
 
         self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
-        self.layout.addWidget(self.crosstalk_strength_slider)
+        self.crosstalk_strength_rail = SliderGroup(self.crosstalk_strength_slider)
+        self.layout.addWidget(self.crosstalk_strength_rail)
 
-        self.layout.addWidget(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"))
-
-        row = QHBoxLayout()
-        self.sensor_label = field_label("Profile")
-        self.sensor_combo = QComboBox()
-        self.sensor_combo.addItems(SensorProfiles.list_profiles())
-        self.sensor_combo.setToolTip(
-            "<table width='280'><tr><td>"
-            "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
-            "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
-            "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
-            "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
-            "scanned with narrowband light. Re-run Roll Analysis after changing this."
-            "</td></tr></table>"
+        # Balances each dye layer against the frame's own grays: a fact of the stock, so it is a
+        # roll default like the crosstalk above (the "cast_removal" card).
+        self.cast_removal_header = section_subheader("DYE BALANCE")
+        self.layout.addWidget(self.cast_removal_header)
+        self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, self.state.config.exposure.cast_removal_strength)
+        self.cast_removal_slider.setToolTip(
+            "Cast Removal: balances each color layer against the frame's own grays, so neutrals stay "
+            "neutral from deep shadows through highlights. 0 = off, 1 = full."
+            "<br><br>On a color negative it defeats the orange mask and starts at 1. On a slide it "
+            "starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
+            "photograph, so ask for it rather than getting it. Hidden for B&W Negative, which "
+            "collapses to one density and has no layers to balance."
         )
-        self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
-        row.addWidget(self.sensor_label)
-        row.addWidget(self.sensor_combo, 1)
-        row.addWidget(self.calibrate_sensor_btn)
-        self.layout.addLayout(row)
-
-        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
-        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
-        # per reason in _apply_gate.
-        self.sensor_hint = hint_label("Requires Linear RAW.")
-        self.layout.addWidget(self.sensor_hint)
+        self.layout.addWidget(self.cast_removal_slider)
 
         self.layout.addWidget(section_subheader("LIGHT SOURCE"))
 
@@ -240,6 +251,9 @@ class SensorSidebar(BaseSidebar):
         self.manage_crosstalk_btn.clicked.connect(self._open_crosstalk_editor)
         self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
         self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
+
+        self.cast_removal_slider.valueChanged.connect(lambda v: self._on_cast_removal_changed(v, persist=False))
+        self.cast_removal_slider.valueCommitted.connect(lambda v: self._on_cast_removal_changed(v, persist=True))
 
         self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
         self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
@@ -359,6 +373,9 @@ class SensorSidebar(BaseSidebar):
             )
         self.sync_ui()
 
+    def _on_cast_removal_changed(self, val: float, persist: bool = True) -> None:
+        self.controller.set_roll_default("cast_removal", cast_removal_strength=val, persist=persist, readback_metrics=persist)
+
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
         # Sticky on commit only, so a drag doesn't write every intermediate value.
         self.controller.set_roll_default("sensor", hue_trim=val, persist=persist, readback_metrics=persist)
@@ -446,7 +463,12 @@ class SensorSidebar(BaseSidebar):
             has_profiles = bool(CrosstalkProfiles.grouped_profiles(conf.process_mode))
             for w in (self.crosstalk_header, self.crosstalk_label, self.crosstalk_combo, self.manage_crosstalk_btn):
                 w.setVisible(not is_bw)
-            self.crosstalk_strength_slider.setVisible(not is_bw)
+            self.crosstalk_strength_rail.setVisible(not is_bw)
+            # Colour only, in the render as well as here: B&W collapses to a single density
+            # before the curve, so the solve has nothing to balance. Safe to hide rather than disable.
+            self.cast_removal_slider.setValue(self.state.config.exposure.cast_removal_strength)
+            for w in (self.cast_removal_header, self.cast_removal_slider):
+                w.setVisible(not is_bw)
             self.crosstalk_hint.setVisible(not is_bw and not has_profiles)
             self.crosstalk_combo.setEnabled(has_profiles)
             self.crosstalk_strength_slider.setEnabled(has_profiles)
@@ -462,6 +484,7 @@ class SensorSidebar(BaseSidebar):
             self.sensor_combo,
             self.crosstalk_combo,
             self.crosstalk_strength_slider,
+            self.cast_removal_slider,
             self.hue_trim_slider,
         ):
             w.blockSignals(blocked)

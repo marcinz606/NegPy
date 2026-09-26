@@ -18,7 +18,11 @@ from negpy.services.assets.gear import GearProfiles
 from negpy.services.assets.migrations.gear_presets import migrate_gear_presets
 from negpy.services.assets.migrations.normalization_roll import migrate_legacy_normalization_rolls
 from negpy.services.assets.migrations.positive_auto import migrate_auto_meter_for_positive_frames
-from negpy.services.assets.migrations.roll_fields import migrate_baseline_card_split, migrate_new_roll_field_locks
+from negpy.services.assets.migrations.roll_fields import (
+    migrate_baseline_card_split,
+    migrate_cast_removal_roll_locks,
+    migrate_new_roll_field_locks,
+)
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
@@ -255,6 +259,7 @@ def main() -> None:
         migrate_legacy_slide_cast_removal(repo)
         migrate_baseline_card_split(repo)
         migrate_new_roll_field_locks(repo)
+        migrate_cast_removal_roll_locks(repo)
 
         scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
         scale = max(0.8, min(1.2, scale))

@@ -111,7 +111,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.roll_sidebar.roll_combo
 
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.color_sidebar.cast_removal_slider
+        return w.controls_panel.sensor_sidebar.cast_removal_slider
 
     def _auto_targets(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.auto_btn
@@ -649,11 +649,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "shadows through highlights rather than at one point only.<br><br>"
                 "Its strength adapts per frame to how confidently the neutral grays read. "
                 "Clean grays get the full correction and few-neutral scenes get a gentler one, "
-                "and the slider trims on top. 0 turns it off. It starts at 0.5 on a color negative "
+                "and the slider trims on top. 0 turns it off. It starts at 1 on a color negative "
                 "and at 0 on a slide, where a cast can be the photograph."
             ),
             target=_cast_removal,
-            section_attr="color_section",
+            section_attr="sensor_section",
         ),
         TutorialStep(
             title="Exposure: Paper Profiles",

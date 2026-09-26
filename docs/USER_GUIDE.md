@@ -375,7 +375,7 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 *   **Auto**: detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.4](#104-crop)).
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card; the crop tool snaps to it.
-*   **Crop** tool: draw a crop rectangle; when **Ratio** is **Free**, drag an edge midpoint to resize one axis. It opens on the current crop, including one **Auto** found; after a manual change nothing re-detects over it. **Reset** clears it and turns auto-crop off.
+*   **Crop** tool: draw a crop rectangle; when **Ratio** is **Free**, drag an edge midpoint to resize one axis. It opens on the current crop, including one **Auto** found; after a manual change nothing re-detects over it. **Reset** (undo icon on the CROP header) clears it and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides with orientations (spiral 8, triangles 2).
 
 **Alignment:**
@@ -404,8 +404,9 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **Pick WB** (eyedropper, right of the region selector): click a pixel that should be neutral gray; NegPy solves the CMY filtration for the selected region.
 *   **Temperature**: warm-to-cool lever on the magenta/yellow pair; cyan stays put.
 *   **Cyan / Magenta / Yellow** (-1 to 1): Cyan↔Red, Magenta↔Green, Yellow↔Blue.
-*   **Cast Removal** (0.0 to 1.0, **color only**): balances each layer against the frame's own grays so neutrals stay neutral from shadows to highlights; strength scales with how many clean near-neutrals the frame has. On Color Negative it removes the **orange mask** and starts at 1.0. On Transparency it starts at 0 and corrects a faded slide's crossover (a slide's cast can be the photograph). For other slide color use **Temperature**, the CMY sliders or **Hue Trim** (§10.3). Hidden for B&W Negative.
 *   **Ring-around** (target icon, at the right end of the row, or `Shift+F`): a 5×5 mosaic in 2cc steps to ±4cc on magenta and yellow, centered on neutral, so rings compare across frames. Each patch renders the part of the frame it covers; click one to keep its filtration. `Escape` or a second press clears it; any edit drops it. See **Rotating a proof** below.
+
+**Cast Removal** is on the Roll tab's Calibration card ([§10.3](#103-calibration-what-your-rig-does-to-the-colors)).
 
 <!-- panel:tone -->
 ### 5.2 Tone: density, contrast and the print curve
@@ -430,6 +431,7 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **ISO-R Grade** (50 to 180): contrast as paper ISO-R. R110 is about grade 2; **lower R is harder**. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
 *   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken only the shadow or highlight zone, bounded by paper black and white. The ranges differ because the same ΔD looks smaller near paper black. They also work in Transparency, where they are the only controls that spare the midtones.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): local contrast in the deep shadows or highlights.
+*   **Preflash** (0 to 1): an even flash of light over the whole sheet, as a fraction of the paper's threshold exposure. It pulls highlight detail off paper white and softens the print a little overall; a harder Grade gives the contrast back. Bare paper stays white. Hidden on slides.
 *   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive (a positive mask) compresses the range by (1 − gamma) so a harder grade fits the paper, keeping fine detail; use it on a scene too contrasty for your grade, then lower Grade in R. Past about 0.4 edges get a soft halo. Negative expands the range by (1 + gamma) without steepening grain, and works on a negative too flat for Grade; past about −0.4 highlights clip (see the Clipping row).
 *   **Mask Spacer** (2 to 6%, no effect without a mask): the gap between mask and negative, as percent of the frame. Thick masks only broad masses; thin reaches into detail, bites harder, and hazes shadows next to bright areas. 4% is a conservative default. Both mask controls read only your crop and gray out in R/G/B mode.
 *   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, applied before decode in the paper's crosstalk matrix, so it follows the paper profile and eases off at toe and shoulder. On a slide it applies to density directly. Below 1.0 pulls toward neutral; 1.0 is off. **Chroma** (Look tab) instead scales color evenly after decode.
@@ -440,7 +442,6 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **Paper profile**: a bundled paper profile (RA4 in Color Negative, tonal B&W papers in B&W Negative) that sets the curve baseline; the other controls trim on top. *Neutral* gives the defaults. Each B&W paper has its own lith color path: Fomatone warm and colorful, *Neutral* and Ilford Multigrade nearly colorless.
 *   **Paper White** (page icon, on the PAPER RESPONSE header): simulate paper base density, so whites print at about 0.93.
 *   **Paper Black** (circle icon, on the PAPER RESPONSE header): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
-*   **Preflash** (0 to 1): an even flash of light over the whole sheet, as a fraction of the paper's threshold exposure. It pulls highlight detail off paper white and softens the print a little overall; a harder Grade gives the contrast back. Bare paper stays white. Hidden on slides.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.
 *   **Shoulder** (-1 to 1) + **Shoulder Width** (0.1 to 5): highlight roll-off. Positive compresses highlights; negative extends them and can clip.
@@ -450,16 +451,17 @@ In R/G/B mode these become per-layer trims: **Grade** (±30 ISO-R), **Toe** / **
 <!-- panel:local -->
 ### 5.3 Dodge & Burn: local exposure
 
-Draw masks and lighten or darken only those areas:
+Draw masks and lighten or darken only those areas. The **MASKS** header shows how many the frame has:
 
-*   **Draw Mask** (the cut card): click to place vertices; double-click, Enter or click near the start to close; Esc cancels. To edit, select the mask, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete it.
+*   **Draw** (Draw Mask, the cut card): click to place vertices; double-click, Enter or click near the start to close; Esc cancels. To edit, select the mask, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete it.
 *   **Oval** (the hole in the card, or a dodging wand): drag out an oval. The center handle moves it; the other two set each axis, so you can stretch and tilt it.
-*   **Card Edge** (the graduated burn): drag from the full-exposure edge (solid line) to where it fades out (dashed). The gap is the softness, so **Feather does nothing on this shape**.
+*   **Card** (Card Edge, the graduated burn): drag from the full-exposure edge (solid line) to where it fades out (dashed). The gap is the softness, so **Feather does nothing on this shape**.
 
 Handles can go into the gray area outside the frame. A tilted Card Edge usually must start past the corner it burns.
 
 *   **Mask list**: shape icon, Dodge (lighten), Burn (darken) or Grade (contrast only), and values. Click the shape icon to enable or disable the mask (its row grays out). The yin-yang inverts the mask, so it acts everywhere except inside its shape (red while on). The eye toggles the outline; the trash deletes it.
 *   The canvas tint of the current mask, and of masks that **intersect** it, goes while you hold **Burn**, **Feather** or **Grade** or drag a vertex. A Card Edge or an inverted mask intersects anything on its side.
+*   **SELECTED MASK**: the controls below act on the mask selected in the list, and gray out with none selected.
 *   **Burn** (-2 to 2 stops, default 0): **positive burns** (darker), **negative dodges** (brighter), like Print Density and the Finishing edge burn.
 *   **Feather** (0.0 to 0.15): edge softness, as a fraction of the frame's short side.
 *   **Grade** (-40 to 40 R): the mask's own contrast, in ISO-R points off the frame's Grade, negative harder (burn a sky at −20 R, dodge a face at +15 R). It rotates about the region's midtone, so with Burn 0 only contrast changes. Overlapping grades add, clamped to R50…R180.
@@ -488,15 +490,12 @@ What a lab scanner (Frontier or Noritsu) does automatically.
 *   **Skin Protection** (0.0 to 1.0, default 0.5): holds skin-hued chroma under a ceiling; it only lowers chroma, independent of Chroma. 0.5 catches excessive chroma, 1.0 leaves skin matte, 0 is off. The mask needs warm hue, skin-level chroma and mid lightness, so red coats, sunsets and brick stay out; wood, tan leather and sand soften with it. A strong sunburn is only partly caught: use Chroma or the Filtration panel.
 *   **Chroma Denoise** (0.0 to 5.0): smooths color noise, mainly in shadows; luminance grain stays.
 
-**Sharpen:**
-
-*   **Method**: *Unsharp Mask* (edge contrast) or *Deconvolution* (Richardson-Lucy, reverses the scanner's blur; set Radius to the blur width).
-*   **Sharpening** (0.0 to 1.0): amount, on the L (lightness) channel, so no color halos.
-*   **Radius** (0.5 to 3.0 px): blur width in output pixels. It acts on export pixels, so judge it at 1:1 with the loupe or at 100% zoom.
-*   **Masking** (0.0 to 1.0): limit sharpening to edges to protect sky, skin and grain. The deepest shadows always get a third of the amount.
-
 **Detail:**
 
+*   **Sharpening** (0.0 to 1.0): amount, on the L (lightness) channel, so no color halos.
+    *   **Method**: *Unsharp Mask* (edge contrast) or *Deconvolution* (Richardson-Lucy, reverses the scanner's blur; set Radius to the blur width).
+    *   **Radius** (0.5 to 3.0 px): blur width in output pixels. It acts on export pixels, so judge it at 1:1 with the loupe or at 100% zoom.
+    *   **Masking** (0.0 to 1.0): limit sharpening to edges to protect sky, skin and grain. The deepest shadows always get a third of the amount.
 *   **CLAHE** (0.0 to 1.0): local contrast without blowing highlights or crushing shadows. Near 1.0 it can look cartoonish. Runs before dust removal.
 
 **Effects:**
@@ -607,8 +606,7 @@ The paper margin takes the mat color, so it joins the border with no seam.
 
 *   **Width** (0.0 to 2.5): thickness as a fraction of the image. 0 is no border.
 *   **Bottom Weight** (1.0 to 2.0): thickens the bottom, for window-mat proportions.
-*   **Color swatch**: click to pick a border color.
-*   **Paper White**: use the toned paper-white instead of the picked color.
+*   **Color** (*Paper White* or *Custom*): *Paper White* tints the mat with the toned paper white; *Custom* uses the color from the swatch button beside it, which picks it and is live only for *Custom*.
 
 ---
 
@@ -700,7 +698,7 @@ These controls correct the *capture*, not the look: the camera's color filters, 
 
 **Capture**:
 
-*   **Scanning setup** (bulb button): a wizard (*how do you scan?*, *what light source?*) that sets Linear RAW and Narrowband. It runs once after the first-launch tour; reopen it when your rig changes.
+*   **Scanning setup** (bulb icon on the CAPTURE header): a wizard (*how do you scan?*, *what light source?*) that sets Linear RAW and Narrowband. It runs once after the first-launch tour; reopen it when your rig changes.
 *   **Linear RAW** (default off): decodes RAW with neutral multipliers; off uses the camera's as-shot white balance. Toggling it reloads the file. **Locked on for a Trichrome triplet**, since a narrowband exposure has no scene white balance; it stays visible and remembered.
 *   **Narrowband**: corrects the oversaturation of narrowband (RGB-LED) capture with a bundled input profile. Leave it off for broadband light. An explicit Input ICC in Export overrides it. **Grayed out on Transparency** (see *Narrowband and slides*).
 
@@ -715,6 +713,13 @@ What the wizard sets:
 
 Applying it sets the defaults for new files and rewrites the open frame and every edited frame in the session, undoable per frame with Ctrl+Z.
 
+**Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where the sensor's filters overlap the light's bands and each color leaks into the others. The leak belongs to sensor and light, so it is corrected on the linear capture before inversion.
+
+*   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
+*   **Calibrate** (vials icon on the header): build a profile from three bare-light R/G/B exposures.
+
+Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) and on **Transparency**; skipped for RGB-triplet assets. The selection is remembered. **Re-run Roll Analysis** after changing it.
+
 **Crosstalk** (hidden in B&W Negative): a channel unmix on the raw densities before inversion. The dropdown lists only matrices for the current film process; a mismatched stored profile gives no correction. The dyes, your light's spectrum and your sensor's filters all mix the channels the same way in density, so a matrix describes *your whole scanning setup*, and may not suit another rig with the same stock.
 
 *   **Matrix**: grouped by source (measured, tuned on a rig, or from spec sheets). *Generic C41* is built in; custom `.toml` matrices go in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, with **Type** (the source) and **Process** (which film the numbers describe, and so where the matrix appears and applies; a slide matrix needs E-6). A matrix made with **+** gets the current process. With no matrix for the current process, the dropdown and **Strength** are disabled with a hint; the editor button stays live.
@@ -726,12 +731,7 @@ Applying it sets the defaults for new files and rewrites the open frame and ever
 
 To tune a matrix, adjust its six off-diagonal terms in the editor and save it as your own, named after the *combination* ("Gold 200 + Spectracolor"). Working profiles are welcome [upstream](CROSSTALK.md#contributing-a-matrix).
 
-**Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where the sensor's filters overlap the light's bands and each color leaks into the others. The leak belongs to sensor and light, so it is corrected on the linear capture before inversion.
-
-*   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
-*   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
-
-Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) and on **Transparency**; skipped for RGB-triplet assets. The selection is remembered. **Re-run Roll Analysis** after changing it.
+**Dye balance: Cast Removal** (0.0 to 1.0, **color only**, roll-wide with the rest of this card): balances each layer against the frame's own grays so neutrals stay neutral from shadows to highlights; strength scales with how many clean near-neutrals the frame has. On Color Negative it removes the **orange mask** and starts at 1.0. On Transparency it starts at 0 and corrects a faded slide's crossover (a slide's cast can be the photograph). For other slide color use **Temperature** and the CMY sliders in Filtration (§5.1), or **Hue Trim** below. Hidden for B&W Negative.
 
 **Light source:**
 

@@ -77,3 +77,30 @@ def test_a_normalization_lock_becomes_both_halves_of_the_split(repo):
 
     assert rolls.frame_override_cards(repo, roll, "a") == {"process", "baseline"}
     assert rolls.frame_override_cards(repo, roll, "b") == {"lens"}
+
+
+def test_cast_removal_locks_only_a_strength_off_its_modes_default(repo):
+    from negpy.features.process.models import ProcessMode
+    from negpy.services.assets.migrations.roll_fields import migrate_cast_removal_roll_locks
+
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif", "/r/c.tif"])
+
+    def cfg(mode, strength):
+        base = WorkspaceConfig()
+        return replace(
+            base,
+            process=replace(base.process, process_mode=mode),
+            exposure=replace(base.exposure, cast_removal_strength=strength),
+        )
+
+    repo.save_file_settings("a", cfg(ProcessMode.C41, 0.4), file_path="/r/a.tif")
+    repo.save_file_settings("b", cfg(ProcessMode.C41, 1.0), file_path="/r/b.tif")
+    repo.save_file_settings("c", cfg(ProcessMode.E6, 0.0), file_path="/r/c.tif")
+
+    migrate_cast_removal_roll_locks(repo)
+    repo.save_file_settings("b", cfg(ProcessMode.C41, 0.2), file_path="/r/b.tif")
+    migrate_cast_removal_roll_locks(repo)
+
+    assert rolls.frame_override_cards(repo, roll, "a") == {"cast_removal"}
+    assert rolls.frame_override_cards(repo, roll, "b") == set(), "runs once"
+    assert rolls.frame_override_cards(repo, roll, "c") == set()

@@ -1,5 +1,5 @@
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import hint_label, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider, SliderGroup
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
@@ -18,6 +18,10 @@ class ToningSidebar(BaseSidebar):
             "Toners apply as sequential baths in the order shown — silver toned by an earlier bath is locked to the later ones"
         )
         self.layout.addWidget(self.chemical_header)
+        # Disabled sliders get no hover, so the reason an alternative process grays them hangs here.
+        self.alt_process_hint = hint_label("")
+        self.alt_process_hint.setVisible(False)
+        self.layout.addWidget(self.alt_process_hint)
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength)
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
@@ -157,6 +161,12 @@ class ToningSidebar(BaseSidebar):
                 w.setEnabled(alt == AltProcess.NONE)
             for w in (self.selenium_slider, self.gold_slider):
                 w.setEnabled(not cyano_on)
+            hint = {
+                AltProcess.LITH: "Lith: only Selenium and Gold change the print.",
+                AltProcess.CYANOTYPE: "Cyanotype: no silver for a toner to act on. Use Bleach and Tannin.",
+            }.get(alt, "")
+            self.alt_process_hint.setText(hint)
+            self.alt_process_hint.setVisible(bool(hint))
         finally:
             self.block_signals(False)
 

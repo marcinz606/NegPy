@@ -11,7 +11,8 @@ import json
 import sqlite3
 from contextlib import closing
 
-from negpy.features.process.models import ProcessConfig
+from negpy.features.exposure.models import ExposureConfig
+from negpy.features.process.models import ProcessConfig, cast_removal_for_mode
 from negpy.kernel.system.logging import get_logger
 from negpy.services.assets import rolls
 
@@ -19,6 +20,7 @@ logger = get_logger(__name__)
 
 _DONE_FLAG = "roll_field_locks_migrated_v1"
 _BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
+_CAST_REMOVAL_FLAG = "cast_removal_roll_card_v1"
 
 NEW_ROLL_FIELDS = {
     "process": (
@@ -86,3 +88,34 @@ def migrate_baseline_card_split(repo) -> None:
     except Exception:
         logger.exception("Roll Analysis card split migration failed; continuing without it")
     repo.save_global_setting(_BASELINE_SPLIT_FLAG, True)
+
+
+def migrate_cast_removal_roll_locks(repo) -> None:
+    """Cast Removal became a roll default (the ``cast_removal`` card). Locks that card on
+    every frame whose saved strength differs from its own film mode's default, so the
+    first Roll push does not overwrite a strength set by hand. Same guards as
+    migrate_new_roll_field_locks."""
+    if repo.get_global_setting(_CAST_REMOVAL_FLAG):
+        return
+    try:
+        default_mode = ProcessConfig().process_mode
+        default_strength = float(ExposureConfig.cast_removal_strength)
+        locks = []
+        with closing(sqlite3.connect(repo.edits_db_path)) as conn:
+            for file_hash, settings_json, file_path in conn.execute("SELECT file_hash, settings_json, file_path FROM file_settings"):
+                try:
+                    data = json.loads(settings_json) if settings_json else {}
+                except (ValueError, TypeError):
+                    continue
+                if "cast_removal_strength" not in data:
+                    continue
+                mode_default = cast_removal_for_mode(data.get("process_mode", default_mode), default_strength)
+                if float(data["cast_removal_strength"]) == mode_default:
+                    continue
+                for roll_id in _rolls_for_row(repo, file_hash, file_path):
+                    locks.append((roll_id, rolls.unforked_hash(file_hash)))
+        for roll_id, file_hash in locks:
+            rolls.set_frame_override(repo, roll_id, file_hash, "cast_removal", True)
+    except Exception:
+        logger.exception("Cast Removal roll-card lock migration failed; continuing without it")
+    repo.save_global_setting(_CAST_REMOVAL_FLAG, True)

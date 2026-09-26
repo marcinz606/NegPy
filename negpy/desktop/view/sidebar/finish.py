@@ -1,8 +1,10 @@
+import qtawesome as qta
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import default_button_height, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 
 
@@ -52,22 +54,21 @@ class FinishSidebar(BaseSidebar):
         self.layout.addWidget(self.border_slider)
 
         row3 = QHBoxLayout()
-        self.color_btn = QPushButton()
-        self.color_btn.setFixedHeight(default_button_height())
-        self.color_btn.setToolTip("Click to pick a border color")
-        self._update_color_btn(conf.border_color)
-
-        self.match_paper_btn = self._small_toggle(
-            "fa5s.file", "Paper White", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked color"
+        self.border_color_btn = ChoiceButton(
+            (("fa5s.file", "Paper White"), ("fa5s.palette", "Custom")),
+            "Border color: Paper White tints the mat with the toned paper white; Custom uses the picked color",
         )
-        row3.addWidget(self.match_paper_btn, 1)
-        row3.addWidget(self.color_btn, 1)
+        self.border_color_btn.setCurrentIndex(0 if conf.border_match_paper else 1)
+        self.color_btn = self._icon_action("fa5s.square", "Pick the custom border color…")
+        self._update_color_btn(conf.border_color)
+        row3.addWidget(self.border_color_btn, 1)
+        row3.addWidget(self.color_btn)
         self.layout.addWidget(SliderGroup(self.bottom_weight_slider, row3))
 
         self.layout.addStretch()
 
     def _update_color_btn(self, hex_color: str) -> None:
-        self.color_btn.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #555;")
+        self.color_btn.setIcon(qta.icon("fa5s.square", color=hex_color))
 
     def _connect_signals(self) -> None:
         self.vignette_burn_slider.valueChanged.connect(
@@ -130,8 +131,8 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_bottom_weight=v)
         )
 
-        self.match_paper_btn.toggled.connect(
-            lambda checked: self.update_config_section("finish", persist=True, border_match_paper=bool(checked))
+        self.border_color_btn.currentChanged.connect(
+            lambda i: self.update_config_section("finish", persist=True, border_match_paper=i == 0)
         )
 
         self.color_btn.clicked.connect(self._on_color_clicked)
@@ -156,7 +157,7 @@ class FinishSidebar(BaseSidebar):
             self.carrier_corner_slider.setValue(conf.carrier_corner)
             self.border_slider.setValue(conf.border_size)
             self.bottom_weight_slider.setValue(conf.border_bottom_weight)
-            self.match_paper_btn.setChecked(conf.border_match_paper)
+            self.border_color_btn.setCurrentIndex(0 if conf.border_match_paper else 1)
             self._update_color_btn(conf.border_color)
             self.color_btn.setEnabled(not conf.border_match_paper)
         finally:
@@ -173,7 +174,7 @@ class FinishSidebar(BaseSidebar):
             self.carrier_corner_slider,
             self.border_slider,
             self.bottom_weight_slider,
-            self.match_paper_btn,
+            self.border_color_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

@@ -10,6 +10,7 @@ see, which is how a negative rig's narrowband pair followed a frame into Transpa
 import os
 import sys
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -123,7 +124,7 @@ def test_crosstalk_hidden_on_bw(tmp_path, monkeypatch):
     w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     w.sync_ui()
 
-    for widget in (w.crosstalk_header, w.crosstalk_combo, w.manage_crosstalk_btn, w.crosstalk_strength_slider):
+    for widget in (w.crosstalk_header, w.crosstalk_combo, w.manage_crosstalk_btn, w.crosstalk_strength_rail):
         assert widget.isHidden()
     assert w.crosstalk_hint.isHidden()
 
@@ -273,3 +274,54 @@ def test_capture_toggles_reach_the_controller():
     args, kwargs = w.controller.set_roll_default.call_args
     assert args[0] == "sensor"
     assert kwargs["linear_raw"] is True
+
+
+def test_cast_removal_is_colour_only(qapp):
+    """Both colour processes solve against a neutral axis, so both show the slider. B&W
+    collapses to one density before the curve and has nothing to balance."""
+    sidebar = _sidebar()
+    controller = SimpleNamespace(state=sidebar.state)
+
+    for mode in (ProcessMode.C41, ProcessMode.E6):
+        cfg = controller.state.config
+        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
+        sidebar.sync_ui()
+        assert not sidebar.cast_removal_slider.isHidden(), mode
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
+    sidebar.sync_ui()
+    assert sidebar.cast_removal_slider.isHidden()
+
+
+def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
+    """Pins the two halves together: a visible slider that the render ignores is a dead
+    control, and a hidden one the render honours strands a live setting. Asserted against
+    the render, not a repeated mode list. The frame carries greys across the meter's three
+    luma bands, so every mode that *can* solve does."""
+    import numpy as np
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.engine import DarkroomEngine
+
+    sidebar = _sidebar()
+    controller = SimpleNamespace(state=sidebar.state)
+    rng = np.random.default_rng(4)
+    v = np.geomspace(5e-4, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
+    img = np.stack([v, v * 0.9, v * 0.78], -1)
+    img = np.ascontiguousarray(img + rng.uniform(0, 1e-4, img.shape).astype(np.float32))
+
+    for mode in (ProcessMode.C41, ProcessMode.E6, ProcessMode.BW):
+        s = WorkspaceConfig()
+        base = replace(s, process=replace(s.process, process_mode=mode))
+        renders = [
+            DarkroomEngine().process(img, replace(base, exposure=replace(base.exposure, cast_removal_strength=v)), f"cast_{mode}_{v}")
+            for v in (0.0, 1.0)
+        ]
+        render_honours_it = not np.allclose(renders[0], renders[1])
+
+        cfg = controller.state.config
+        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
+        sidebar.sync_ui()
+        visible = not sidebar.cast_removal_slider.isHidden()
+        assert visible == render_honours_it, mode

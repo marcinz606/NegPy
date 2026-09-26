@@ -425,6 +425,10 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     "baseline": ("process", ("use_luma_average", "use_color_average", "use_cast_average")),
     # The film edge, the rebate width and the format's shape are properties of the roll,
     # not of one frame. The rect autocrop finds from them is not: it stays each frame's own.
+    # The Calibration card's second half: how strongly the stock's own cast is balanced out
+    # is a fact of the film, like its crosstalk. It lives on ExposureConfig, so it is its
+    # own card, driven by the Calibration section alongside "sensor".
+    "cast_removal": ("exposure", ("cast_removal_strength",)),
     "autocrop": ("geometry", ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio")),
     "lens": ("geometry", ("distortion_k1", "lens_distortion_from_metadata", "lens_ca_from_metadata")),
     # profile_id also has a rig-global fallback, applied upstream of roll defaults, so a

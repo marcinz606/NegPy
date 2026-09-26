@@ -10,7 +10,7 @@ from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
 
 class ColorSidebar(BaseSidebar):
-    """White balance (region CMY + Pick WB) and Cast Removal."""
+    """White balance: region CMY, Temperature and Pick WB."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
@@ -53,17 +53,6 @@ class ColorSidebar(BaseSidebar):
         for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
             self.layout.addWidget(slider)
 
-        self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
-        self.cast_removal_slider.setToolTip(
-            "Cast Removal: balances each color layer against the frame's own grays, so neutrals stay "
-            "neutral from deep shadows through highlights. 0 = off, 1 = full."
-            "<br><br>On a color negative it defeats the orange mask and starts at 0.5. On a slide it "
-            "starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
-            "photograph, so ask for it rather than getting it. Hidden for B&W Negative, which "
-            "collapses to one density and has no layers to balance."
-        )
-        self.layout.addWidget(self.cast_removal_slider)
-
         self.layout.addStretch()
 
     _REGION_FIELDS = (
@@ -103,12 +92,6 @@ class ColorSidebar(BaseSidebar):
         self.ring_btn.clicked.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
         # Session state, not config, so the button follows the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_ring_btn)
-        self.cast_removal_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, cast_removal_strength=v)
-        )
-        self.cast_removal_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal_strength=v)
-        )
 
     @staticmethod
     def _ring_tooltip(printing: bool = False) -> str:
@@ -176,13 +159,6 @@ class ColorSidebar(BaseSidebar):
                 self.region_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
-            self.cast_removal_slider.setValue(conf.cast_removal_strength)
-            # Colour only, in the render as well as here: B&W collapses to a single density
-            # before the curve, so the solve has nothing to balance and the slider would move
-            # a value that never reaches the arithmetic. Safe to hide rather than disable.
-            from negpy.features.process.models import ProcessMode
-
-            self.cast_removal_slider.setVisible(self.state.config.process.process_mode != ProcessMode.BW)
         finally:
             self.block_signals(False)
 
@@ -195,6 +171,5 @@ class ColorSidebar(BaseSidebar):
             self.yellow_slider,
             self.pick_wb_btn,
             self.ring_btn,
-            self.cast_removal_slider,
         ):
             w.blockSignals(blocked)

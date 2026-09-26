@@ -148,6 +148,9 @@ class ToneSidebar(BaseSidebar):
             "that sit next to something bright, which is the mask line on the sheet. "
             "Inert with no mask."
         )
+        # Light given to the paper, not the shape of its curve, so it sits with the exposure controls.
+        self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
+        self.layout.addWidget(self.preflash_slider)
         self.layout.addWidget(self.contrast_mask_slider)
         self.layout.addWidget(SliderGroup(self.mask_spacer_slider))
 
@@ -188,9 +191,6 @@ class ToneSidebar(BaseSidebar):
         self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.layout.addLayout(header_row(paper_header, self.paper_black_btn, self.paper_dmin_btn))
         self.layout.addWidget(self.paper_combo)
-
-        self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
-        self.layout.addWidget(self.preflash_slider)
 
         self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
         snap_row = QHBoxLayout()

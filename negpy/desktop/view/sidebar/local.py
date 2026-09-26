@@ -5,7 +5,7 @@ from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.logic import limited_indices
 from negpy.features.local.models import MAX_KEYED_MASKS, MaskKey, MaskShape
@@ -53,8 +53,8 @@ class LocalSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.draw_btn = self._tool_toggle(
             "fa5s.draw-polygon",
-            "Draw Mask",
-            "Draw a new mask: click to place vertices; double-click, Enter, or a click near "
+            "Draw",
+            "Draw Mask: draw a new mask: click to place vertices; double-click, Enter, or a click near "
             "the start closes; Esc cancels. Select a mask from the list to edit it (no need to "
             "re-enter this tool): drag a vertex to move it, click an edge '+' dot to add a point, "
             "right-click a vertex to delete it.",
@@ -62,20 +62,21 @@ class LocalSidebar(BaseSidebar):
         self.oval_btn = self._tool_toggle(
             "fa5s.circle",
             "Oval",
-            "Burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
+            "Oval: burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
             "handles move it (center) and set each axis, so it can be stretched and tilted.",
         )
         self.gradient_btn = self._tool_toggle(
             "fa5s.grip-lines",
-            "Card Edge",
-            "The graduated burn a printer makes by moving a card across the paper: drag from the "
+            "Card",
+            "Card Edge: the graduated burn a printer makes by moving a card across the paper: drag from the "
             "full-exposure edge (solid line) to where it fades out (dashed). The distance between "
             "the two handles is the softness, so Feather does nothing here.",
         )
+        self.masks_header = section_subheader("MASKS · 0")
+        self.layout.addWidget(self.masks_header)
         tool_row = QHBoxLayout()
-        tool_row.addWidget(self.draw_btn)
-        tool_row.addWidget(self.oval_btn)
-        tool_row.addWidget(self.gradient_btn)
+        for btn in (self.draw_btn, self.oval_btn, self.gradient_btn):
+            tool_row.addWidget(btn, 1)
         self.layout.addLayout(tool_row)
 
         self.mask_list = QListWidget()
@@ -128,15 +129,13 @@ class LocalSidebar(BaseSidebar):
             "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
         )
 
+        self.layout.addWidget(section_subheader("SELECTED MASK"))
         self.layout.addWidget(self.burn_slider)
         self.layout.addWidget(self.grade_slider)
         self.layout.addWidget(self.feather_slider)
         self.layout.addWidget(section_subheader("Tone Limit"))
         self.layout.addWidget(self.tone_btn)
         self.layout.addWidget(SliderGroup(self.key_zone_slider, self.key_softness_slider))
-
-        self.mask_count_label = field_label("0 masks")
-        self.layout.addWidget(self.mask_count_label)
 
         self.layout.addStretch()
 
@@ -249,7 +248,7 @@ class LocalSidebar(BaseSidebar):
                 btn.setChecked(self.state.active_tool == mode)
 
             n = len(conf.masks)
-            self.mask_count_label.setText(f"{n} mask{'s' if n != 1 else ''}")
+            self.masks_header.setText(f"MASKS · {n}")
 
             idx = self.state.local_selected_mask
             has_selection = 0 <= idx < n

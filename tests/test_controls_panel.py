@@ -170,10 +170,14 @@ def test_the_optics_pair_drives_both_of_its_cards():
 def test_a_roll_card_routes_both_halves_to_the_controller():
     """Roll-tab cards share one entry point with the Metadata tab's, so the two panels
     cannot drift on what a click means."""
-    panel = _panel_stub(locked_cards={"sensor"})
+    panel = _panel_stub(locked_cards={"demosaic"})
 
+    ControlsPanel._on_scope_selected(panel, "demosaic", "roll")
+    panel.controller.set_card_scope.assert_called_once_with("demosaic", "roll")
+
+    panel.controller.set_card_scope.reset_mock()
     ControlsPanel._on_scope_selected(panel, "sensor", "roll")
-    panel.controller.set_card_scope.assert_called_once_with("sensor", "roll")
+    panel.controller.set_card_scope.assert_called_once_with(("sensor", "cast_removal"), "roll")
 
     panel.controller.set_card_scope.reset_mock()
     ControlsPanel._on_scope_selected(panel, "process", "frame")

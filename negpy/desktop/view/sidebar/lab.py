@@ -28,7 +28,10 @@ class LabSidebar(BaseSidebar):
         row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)
 
-        self.layout.addWidget(section_subheader("SHARPEN"))
+        self.layout.addWidget(section_subheader("DETAIL"))
+
+        self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
+        self.layout.addWidget(self.sharpen_slider)
 
         method_row = QHBoxLayout()
         method_row.addWidget(field_label("Method"))
@@ -37,16 +40,9 @@ class LabSidebar(BaseSidebar):
         self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
         self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
         method_row.addWidget(self.sharpen_method_combo, 1)
-        self.layout.addLayout(method_row)
-
-        self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
-        self.layout.addWidget(self.sharpen_slider)
-
         self.sharpen_radius_slider = CompactSlider("Radius", 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
-        self.layout.addWidget(SliderGroup(self.sharpen_radius_slider, self.sharpen_masking_slider))
-
-        self.layout.addWidget(section_subheader("DETAIL"))
+        self.layout.addWidget(SliderGroup(method_row, self.sharpen_radius_slider, self.sharpen_masking_slider))
 
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
         self.layout.addWidget(self.clahe_slider)

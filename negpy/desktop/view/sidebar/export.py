@@ -36,7 +36,7 @@ from negpy.desktop.view.styles.templates import (
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import make_section
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
@@ -72,11 +72,13 @@ class ExportSidebar(BaseSidebar):
         self._add_proof_controls()
         self._add_export_section()
 
-        self._add_soft_proof_section()
+        # Nearest the export first: another way to export, then the export's proof, then
+        # other outputs, and last the edits rather than the images.
         self._add_presets_section()
-        self._add_sidecars_section()
+        self._add_soft_proof_section()
         self._add_contact_sheet_section()
         self._add_printing_notes_section()
+        self._add_sidecars_section()
         self._sync_flat_enabled()
 
         self.layout.addStretch()
@@ -529,14 +531,11 @@ class ExportSidebar(BaseSidebar):
         """Output-intent override: Print (default) or Flat digital intermediate."""
         self.layout.addWidget(section_subheader("OUTPUT INTENT"))
 
-        # Contain the whole intent block (toggle, format, peek/bake, hints) so it reads as one
-        # unit. objectName-scoped, so the border does not cascade.
-        container = QWidget()
-        container.setObjectName("flat_intent_box")
-        container.setStyleSheet(f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: transparent; }}")
-        box = QVBoxLayout(container)
-        box.setContentsMargins(6, 6, 6, 6)
-        box.setSpacing(6)
+        # What Flat and Linear turn on rides a rail under the choice; Print has none.
+        rail_body = QWidget()
+        box = QVBoxLayout(rail_body)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(THEME.space_md)
 
         self.intent_btn = ChoiceButton(
             (("", "Print"), ("", "Flat"), ("", "Linear")),
@@ -550,7 +549,7 @@ class ExportSidebar(BaseSidebar):
             "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files.",
         )
         self.intent_btn.setCurrentIndex(self._state_intent())
-        box.addWidget(self.intent_btn)
+        self.layout.addWidget(self.intent_btn)
 
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
@@ -681,7 +680,8 @@ class ExportSidebar(BaseSidebar):
         self.linear_corrections_hint.setVisible(False)
         box.addWidget(self.linear_corrections_hint)
 
-        self.layout.addWidget(container)
+        self.intent_rail = SliderGroup(rail_body)
+        self.layout.addWidget(self.intent_rail)
 
     def _sync_flat_enabled(self) -> None:
         flat_on = self.intent_btn.currentIndex() == 1
@@ -691,6 +691,7 @@ class ExportSidebar(BaseSidebar):
             # Linear keeps DESTINATION and drops the rest; set_flat_mode reruns the format
             # rows, so the linear pass has to come second or FORMAT reappears.
             self.form.set_linear_mode(linear_on)
+        self.intent_rail.setVisible(flat_on or linear_on)
         self.flat_hint_label.setVisible(flat_on)
         self.flat_peek_btn.setVisible(flat_on)
         self.linear_hint_label.setVisible(linear_on)
