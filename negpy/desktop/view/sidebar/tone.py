@@ -127,7 +127,8 @@ class ToneSidebar(BaseSidebar):
         self.highlight_grade_slider = CompactSlider(
             "Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
         )
-        self.layout.addWidget(SliderGroup(self.shadow_grade_slider, self.highlight_grade_slider))
+        self.split_grade_rail = SliderGroup(self.shadow_grade_slider, self.highlight_grade_slider)
+        self.layout.addWidget(self.split_grade_rail)
 
         # Inverted like ISO-R Grade, so dragging right hardens on both controls.
         self.contrast_mask_slider = CompactSlider("Contrast Mask", -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
@@ -152,7 +153,8 @@ class ToneSidebar(BaseSidebar):
         self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
         self.layout.addWidget(self.preflash_slider)
         self.layout.addWidget(self.contrast_mask_slider)
-        self.layout.addWidget(SliderGroup(self.mask_spacer_slider))
+        self.mask_spacer_rail = SliderGroup(self.mask_spacer_slider)
+        self.layout.addWidget(self.mask_spacer_rail)
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
@@ -166,16 +168,14 @@ class ToneSidebar(BaseSidebar):
         # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
         # it is disabled there rather than reading as broken.
         self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
-        self.layout.addWidget(self.dye_separation_slider)
-        self.layout.addWidget(self.dye_separation_trim_slider)
-        self.layout.addWidget(SliderGroup(self.separation_damping_slider))
 
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
             "The paper's characteristic (Hurter–Driffield) curve: how print density responds to "
             "exposure. Snap bends the midtone gamma, Toe shapes the shadow roll-off into paper "
             "black, Shoulder the highlight roll-off into paper white — each knee with its own "
-            "Width, per dye layer via the Global/R/G/B selector."
+            "Width, per dye layer via the Global/R/G/B selector. Dye Separation sets how far its "
+            "dyes separate."
         )
 
         self.paper_combo = QComboBox()
@@ -191,6 +191,11 @@ class ToneSidebar(BaseSidebar):
         self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.layout.addLayout(header_row(paper_header, self.paper_black_btn, self.paper_dmin_btn))
         self.layout.addWidget(self.paper_combo)
+        # The paper's dyes, not the exposure: the profile sets the crosstalk this pushes against.
+        self.layout.addWidget(self.dye_separation_slider)
+        self.layout.addWidget(self.dye_separation_trim_slider)
+        self.separation_damping_rail = SliderGroup(self.separation_damping_slider)
+        self.layout.addWidget(self.separation_damping_rail)
 
         self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
         snap_row = QHBoxLayout()
@@ -426,9 +431,11 @@ class ToneSidebar(BaseSidebar):
                 self.midtone_gamma_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
+                self.split_grade_rail,
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
                 self.contrast_mask_slider,
                 self.mask_spacer_slider,
+                self.mask_spacer_rail,
                 self.preflash_slider,
             ):
                 w.setVisible(not transfer)
@@ -454,6 +461,7 @@ class ToneSidebar(BaseSidebar):
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
             self.separation_damping_slider.setVisible(global_mode and not is_bw)
+            self.separation_damping_rail.setVisible(global_mode and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
