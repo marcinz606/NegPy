@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -56,6 +55,19 @@ TOOLBAR_ITEMS: tuple[ToolbarItem, ...] = (
     ToolbarItem("negative_peek", "View", "Peek Negative"),
     ToolbarItem("zones", "View", "Zone Overlay"),
     ToolbarItem("loupe", "View", "Grain Focuser"),
+    ToolbarItem("embedded_peek", "View", "Peek Embedded Preview"),
+    ToolbarItem("reference", "View", "Reference View"),
+    ToolbarItem("light_table", "View", "Light Table"),
+    ToolbarItem("copy", "Settings", "Copy Settings"),
+    ToolbarItem("copy_bounds", "Settings", "Copy Settings + Bounds"),
+    ToolbarItem("paste", "Settings", "Paste Settings"),
+    ToolbarItem("sync_bounds", "Settings", "Sync Bounds…"),
+    ToolbarItem("reset", "Settings", "Reset Settings"),
+    ToolbarItem("reset_to_roll", "Settings", "Reset to Roll Settings"),
+    ToolbarItem("unload", "Settings", "Unload…"),
+    ToolbarItem("palette", "App", "Find Control or Action…"),
+    ToolbarItem("preferences", "App", "Preferences…"),
+    ToolbarItem("shortcuts", "App", "Keyboard Shortcuts"),
 )
 
 TOOLBAR_ITEM_BY_ID = {item.id: item for item in TOOLBAR_ITEMS}
@@ -162,12 +174,6 @@ class ActionToolbar(QWidget):
         self.btn_redo.setIcon(qta.icon("mdi.redo", color=icon_color))
         self._tip(self.btn_redo, "Redo", "redo")
 
-        # kept as internal state holders, not added to layout
-        self.btn_copy = QPushButton()
-        self.btn_paste = QPushButton()
-        self.btn_reset = QPushButton()
-        self.btn_unload = QPushButton()
-
         # 2. Geometry
         self.btn_rot_l = QToolButton()
         self.btn_rot_l.setIcon(qta.icon("mdi6.file-rotate-left", color=icon_color))
@@ -245,6 +251,86 @@ class ActionToolbar(QWidget):
             "Grain focuser — a loupe at the cursor showing the frame's own pixels, with an "
             "acutance figure for comparing sharpness across the frame (reads true on HQ)",
             "toggle_grain_focuser",
+        )
+
+        self.btn_embedded_peek = QToolButton()
+        self.btn_embedded_peek.setCheckable(True)
+        self.btn_embedded_peek.setIcon(qta.icon("fa5s.camera", color=icon_color))
+        self._tip(
+            self.btn_embedded_peek,
+            "Peek embedded preview — the camera's own JPEG of this capture, as a reference for what the scan looks like",
+            "toggle_embedded_peek",
+        )
+
+        # One-shot actions that otherwise live only in the ⋯ menu.
+        self.btn_reference = self._action_button(
+            qta.icon("fa5s.thumbtack", color=icon_color),
+            "Reference view — pin this frame beside the canvas to match others to it",
+            "toggle_reference",
+            self._toggle_reference,
+        )
+        self.btn_light_table = self._action_button(
+            qta.icon("fa5s.th", color=icon_color),
+            "Light Table — the roll as a grid in place of the canvas",
+            "toggle_light_table",
+            self._show_light_table,
+        )
+        self.btn_copy = self._action_button(
+            qta.icon("fa5s.copy", color=icon_color), "Copy this image's settings to the clipboard", "copy", self.session.copy_settings
+        )
+        self.btn_copy_bounds = self._action_button(
+            qta.icon("fa5s.clone", color=icon_color),
+            "Copy settings plus the metering/normalization bounds",
+            "copy_with_bounds",
+            self.session.copy_settings_with_bounds,
+        )
+        self.btn_paste = self._action_button(
+            qta.icon("fa5s.paste", color=icon_color),
+            "Paste the copied settings onto this image",
+            "paste",
+            lambda: open_paste_dialog(self, self.controller),
+        )
+        self.btn_sync_bounds = self._action_button(
+            qta.icon("fa5s.crosshairs", color=icon_color),
+            "Sync Bounds — give other frames this image's metering bounds, and nothing else",
+            "sync_bounds",
+            lambda: open_sync_bounds_dialog(self, self.session),
+        )
+        self.btn_reset = self._action_button(
+            qta.icon("fa5s.history", color=icon_color),
+            "Reset Settings — discard all edits and return this image to its default look",
+            None,
+            self.session.reset_settings,
+        )
+        self.btn_reset_to_roll = self._action_button(
+            roll_revert_icon(icon_color),
+            "Reset to Roll Settings — return every card that differs from the roll to the roll's settings",
+            "reset_to_roll",
+            self.controller.revert_frame_to_roll,
+        )
+        self.btn_unload = self._action_button(
+            qta.icon("fa5s.times-circle", color=icon_color),
+            "Unload — remove this image from the session (its saved edit is kept)",
+            None,
+            self._on_overflow_unload,
+        )
+        self.btn_palette = self._action_button(
+            qta.icon("fa5s.search", color=icon_color),
+            "Find any slider, card or action by name, and open it",
+            "command_palette",
+            self._show_palette,
+        )
+        self.btn_preferences = self._action_button(
+            qta.icon("fa5s.cog", color=icon_color),
+            "Preferences — interface, performance and storage settings for the whole app",
+            "open_preferences",
+            self._show_preferences,
+        )
+        self.btn_shortcuts = self._action_button(
+            qta.icon("fa5s.keyboard", color=icon_color),
+            "Show the full keyboard shortcuts reference",
+            "show_shortcuts",
+            self._show_shortcuts,
         )
 
         # 4. Overflow menu & responsive groups
@@ -412,6 +498,19 @@ class ActionToolbar(QWidget):
             self.btn_negative_peek,
             self.btn_zones,
             self.btn_loupe,
+            self.btn_embedded_peek,
+            self.btn_reference,
+            self.btn_light_table,
+            self.btn_copy,
+            self.btn_copy_bounds,
+            self.btn_paste,
+            self.btn_sync_bounds,
+            self.btn_reset,
+            self.btn_reset_to_roll,
+            self.btn_unload,
+            self.btn_palette,
+            self.btn_preferences,
+            self.btn_shortcuts,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -449,6 +548,19 @@ class ActionToolbar(QWidget):
             "negative_peek": self.btn_negative_peek,
             "zones": self.btn_zones,
             "loupe": self.btn_loupe,
+            "embedded_peek": self.btn_embedded_peek,
+            "reference": self.btn_reference,
+            "light_table": self.btn_light_table,
+            "copy": self.btn_copy,
+            "copy_bounds": self.btn_copy_bounds,
+            "paste": self.btn_paste,
+            "sync_bounds": self.btn_sync_bounds,
+            "reset": self.btn_reset,
+            "reset_to_roll": self.btn_reset_to_roll,
+            "unload": self.btn_unload,
+            "palette": self.btn_palette,
+            "preferences": self.btn_preferences,
+            "shortcuts": self.btn_shortcuts,
         }
         self._row_sequence: list[tuple[QWidget, bool]] = []
         self._available_width = 0
@@ -485,9 +597,10 @@ class ActionToolbar(QWidget):
             widget.blockSignals(False)
 
     def _on_embedded_peek_changed(self, active: bool) -> None:
-        self._ov_embedded_peek_action.blockSignals(True)
-        self._ov_embedded_peek_action.setChecked(active)
-        self._ov_embedded_peek_action.blockSignals(False)
+        for widget in (self.btn_embedded_peek, self._ov_embedded_peek_action):
+            widget.blockSignals(True)
+            widget.setChecked(active)
+            widget.blockSignals(False)
 
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
@@ -513,6 +626,7 @@ class ActionToolbar(QWidget):
         self.btn_negative_peek.toggled.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
         self._ov_negative_peek_action.triggered.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
         self.controller.negative_peek_changed.connect(self._on_negative_peek_changed)
+        self.btn_embedded_peek.toggled.connect(lambda checked: self.controller.toggle_embedded_peek(force=checked))
         self._ov_embedded_peek_action.triggered.connect(lambda checked: self.controller.toggle_embedded_peek(force=checked))
         self.controller.embedded_peek_changed.connect(self._on_embedded_peek_changed)
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
@@ -713,6 +827,10 @@ class ActionToolbar(QWidget):
         self._ov_undo_action.setEnabled(state.undo_index > 0)
         self._ov_redo_action.setEnabled(state.undo_index < state.max_history_index)
         self._action_paste.setEnabled(state.clipboard is not None)
+        self.btn_paste.setEnabled(state.clipboard is not None)
+        # A roll lookup on every state change, so only while the button is on the row.
+        if "reset_to_roll" in self._item_ids:
+            self.btn_reset_to_roll.setEnabled(bool(self.controller.can_revert_frame_to_roll()))
 
     @staticmethod
     def _toolbar_width_budget(canvas_width: int) -> int:
@@ -741,6 +859,13 @@ class ActionToolbar(QWidget):
         self.adjustSize()
         base = self.sizeHint()
         return QSize(self._pill_width(), base.height())
+
+    def _action_button(self, icon, text: str, action_id: str | None, slot) -> QToolButton:
+        btn = QToolButton()
+        btn.setIcon(icon)
+        self._tip(btn, text, action_id)
+        btn.clicked.connect(slot)
+        return btn
 
     def _tip(self, target, text: str, action_ids) -> None:
         """A tooltip that carries the action's key chip; recorded so a rebind re-renders it."""

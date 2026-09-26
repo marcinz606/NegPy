@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from negpy.desktop.view.canvas.toolbar import DEFAULT_TOOLBAR_IDS, TOOLBAR_ITEM_BY_ID, ActionToolbar, load_toolbar_items
+from negpy.desktop.view.canvas.toolbar import DEFAULT_TOOLBAR_IDS, TOOLBAR_ITEM_BY_ID, TOOLBAR_ITEMS, ActionToolbar, load_toolbar_items
 from negpy.domain.models import WorkspaceConfig
 
 if not QApplication.instance():
@@ -307,6 +307,25 @@ class TestToolbarCustomization(unittest.TestCase):
         self.assertEqual(_row_order(tb), ["flat_peek"])
         tb.btn_flat_peek.click()
         tb.controller.toggle_flat_peek.assert_called_once_with(force=True)
+
+    def test_every_item_can_be_put_on_the_row(self):
+        tb = _make_toolbar()
+        tb._item_ids = [item.id for item in TOOLBAR_ITEMS]
+        tb._rebuild_row()
+
+        self.assertEqual(_row_order(tb), tb._item_ids)
+
+    def test_menu_only_actions_on_the_row_drive_the_controller(self):
+        tb = _make_toolbar()
+        tb._item_ids = ["embedded_peek", "copy", "reset_to_roll"]
+        tb._rebuild_row()
+
+        tb.btn_embedded_peek.click()
+        tb.controller.toggle_embedded_peek.assert_called_once_with(force=True)
+        tb.btn_copy.click()
+        tb.session.copy_settings.assert_called_once()
+        tb.btn_reset_to_roll.click()
+        tb.controller.revert_frame_to_roll.assert_called_once()
 
     def test_editing_the_toolbar_saves_and_rebuilds(self):
         tb = _make_toolbar()
