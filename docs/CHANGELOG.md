@@ -1,5 +1,28 @@
 # Change Log
 
+## 0.62.0
+
+- Change: **UX pass**
+  - **Find** — Ctrl+K or the Controls panel's title box reaches every slider, card and action by name or by a common synonym ("contrast" finds ISO-R Grade); a slider hit is a live control.
+  - **Light Table** — Shift+G shows the roll as a grid in place of the canvas.
+  - **Reference view** — Shift+R pins a frame beside the canvas to match the roll to it; Draw Region moves to Ctrl+R.
+  - **Compact panels** — sliders are one row (label, track, value) with values always shown, and related sliders sit together behind a rail; the Show slider values preference is retired.
+  - **Labeled tabs** — tabs carry text labels, and the Color tab is now Look.
+  - **More room for the canvas** — the logo header is gone (About and updates are in the ⋯ menu), and Shift+H hides both side panels.
+  - **Edit Toolbar** can place the actions that were only in the ⋯ menu.
+- New: **Preflash** — a uniform paper pre-exposure in the print curve that lifts highlights near the paper's threshold and leaves the rest; print only.
+- New: **Single-edge crop handles** — drag one side of the crop at a time. @matthoosier
+- New: **Plustek Multi-Pass scanning** — a Scan mode combo (Single-Pass, Multi-Pass, Adaptive Multi-Exposure, Adaptive Multi-Pass) with a Passes slider stacks repeated exposures for less noise; not with IR. @TobbyTravel
+- New: **Hide the GPU memory warning** — a Preferences → Performance option; the warning no longer shows on CPU renders. @kurtwindisch
+- Change: **Filed carrier rebate** — the rebate prints through the frame's curves and filtration, the edge is filed in straight strokes with nicks near the corners, the film sits off center in the aperture, and flare takes the paper's toe color.
+- Change: **More Pakon and Noritsu scan sizes** — Pakon TLX dimensions are read from the file header; four more 5028-high Noritsu sizes are recognized. @thetalkingdrum
+- Change: **Crash reports go to negpy.log** — `~/negpy_boot.log` is gone. @seanharding
+- Fix: **Stitch cuts a seam through the overlap** — detail the alignment cannot match is no longer doubled. @kurtwindisch
+- Fix: **Slide fixes** — a Flat export of a raw slide gets no second white balance, Zone placement is off on an as-captured slide, the Half Frame dialog shows a slide as a positive, and Before resets to the shipped defaults.
+- Fix: **Dye Separation on saturated slide colors** — a clipped channel no longer speckles a blue sky. @thetalkingdrum
+- Fix: **Half Frame scans with a detected rebate** — Auto-detect All Splits no longer breaks thumbnails, export and the Half Frame dialog; affected scans are repaired. @thetalkingdrum
+- Fix: **Editing a Roll-tab card on an empty roll no longer crashes.** @kurtwindisch
+
 ## 0.61.0
 
 - New: **Nested roll discovery** — Import Subfolders as Rolls finds roll folders at any depth and shows them in a tree under their parent folders; Refresh finds new folders and marks rolls whose folder is gone; Discovery Filters (default `export`) skip folders by name; a folder with no images of its own imports its subfolders.
