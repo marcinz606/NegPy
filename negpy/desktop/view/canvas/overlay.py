@@ -673,8 +673,10 @@ class CanvasOverlay(QWidget):
         final_w = img_w * total_scale
         final_h = img_h * total_scale
 
+        # Zoom scales about the widget center, as the GPU shader and anchored zoom do, so the
+        # fit area's center (above the toolbar reserve) moves with zoom rather than staying put.
         center_x = (w / 2) + (self.pan_x * w)
-        center_y = (fit_h / 2) + (self.pan_y * h)
+        center_y = (h / 2) + ((fit_h - h) / 2) * self.zoom_level + (self.pan_y * h)
 
         self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
         self._remap_inflight_points(old_rect)
