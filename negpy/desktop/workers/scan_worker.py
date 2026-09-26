@@ -63,6 +63,7 @@ class BatchRequest:
     frame_offset_modifier_mm: float = 0.0
     # Per-frame correction (mm) on top of that ramp; an absent key means none.
     frame_offsets: dict[int, float] = field(default_factory=dict)
+    eject_when_done: bool = True
 
 
 @dataclass(frozen=True)
@@ -295,7 +296,7 @@ class ScanWorker(QObject):
             self.cancelled.emit()
         elif kind == "error":
             self.error.emit(payload or "Unknown scan error")
-        elif kind == "finished":
+        elif kind == "finished" and req.eject_when_done:
             # Return the strip, so it need not wait for the feeder's auto-park. A capability-gated
             # no-op on devices without an eject option.
             self.eject(req.device_id)

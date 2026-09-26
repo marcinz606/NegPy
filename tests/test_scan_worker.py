@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import threading
 
 import pytest
@@ -403,6 +404,16 @@ def test_run_batch_auto_returns_film_after_a_clean_batch() -> None:
     worker.run_batch(_batch_request((2, 3, 4)))
 
     assert service.eject_calls == ["coolscan3:test"]
+
+
+def test_run_batch_keeps_film_loaded_when_asked() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(dataclasses.replace(_batch_request((2, 3, 4)), eject_when_done=False))
+
+    assert service.eject_calls == []
 
 
 def test_run_batch_does_not_eject_when_stopped() -> None:

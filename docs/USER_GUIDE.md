@@ -1022,6 +1022,7 @@ Capture film directly into NegPy. Two collapsible sections.
 
 *   **Format**: `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives).
 *   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
+*   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its frame picks and previews, so more frames scan without a new preview, until **Eject** or the scanner's own idle timeout.
 *   **Depth**, **Autofocus**, hardware **Auto-exposure**: shown only when the device offers them (not on the OpticFilm 8200i SE).
 *   **Prescan**: a low-DPI full-window preview; drag a crop and the next Scan uses that hardware ROI.
 *   **Exposure**: shown when the scanner has `scan-exposure-time` (some genesys devices); overrides the exposure time, in µs, ms or s.

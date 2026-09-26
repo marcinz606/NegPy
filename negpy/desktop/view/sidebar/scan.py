@@ -430,6 +430,15 @@ class ScanSidebar(QWidget):
         self.frame_spec_label.setVisible(False)
         self.frame_spec_edit.setVisible(False)
 
+        self.eject_after_check = QCheckBox("Eject When Done")
+        self.eject_after_check.setToolTip(
+            "Return the strip after a batch. Off keeps it loaded, with its previews, for more "
+            "frames; the scanner may still return it by itself when idle."
+        )
+        self.eject_after_check.setChecked(self._settings.eject_after_batch)
+        layout.addWidget(self.eject_after_check)
+        self.eject_after_check.setVisible(False)
+
         # Scan window (strip/roll feeders): set once from a preview, reused per frame.
         scan_window_row = QHBoxLayout()
         scan_window_row.setContentsMargins(0, 0, 0, 0)
@@ -529,6 +538,7 @@ class ScanSidebar(QWidget):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.passes_slider.valueChanged.connect(self._on_passes_slider_changed)
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.eject_after_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
         self.clean_check.toggled.connect(lambda on: self._on_ir_pass_toggled(self.ir_check, on))
         self.superfine_check.toggled.connect(lambda: self._update_settings_from_ui())
@@ -655,6 +665,7 @@ class ScanSidebar(QWidget):
             self.eject_btn.setVisible(False)
             self.frame_spec_label.setVisible(False)
             self.frame_spec_edit.setVisible(False)
+            self.eject_after_check.setVisible(False)
             self.scan_window_row_label.setVisible(False)
             self.scan_window_widget.setVisible(False)
             self.scan_window_status.setVisible(False)
@@ -907,6 +918,7 @@ class ScanSidebar(QWidget):
         is_strip = _reaches_a_strip(caps)
         self.frame_spec_label.setVisible(is_strip)
         self.frame_spec_edit.setVisible(is_strip)
+        self.eject_after_check.setVisible(is_strip and caps.can_eject)
         if is_strip:
             self._sync_frame_spec()
 
@@ -1440,6 +1452,7 @@ class ScanSidebar(QWidget):
                         frame_windows=frame_windows,
                         frame_offset_modifier_mm=self._settings.frame_offset_modifier_mm,
                         frame_offsets=self._settings.frame_offsets,
+                        eject_when_done=self._settings.eject_after_batch,
                     )
                 )
             else:
@@ -1584,5 +1597,6 @@ class ScanSidebar(QWidget):
             output_folder=self.folder_edit.text().strip(),
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
+            eject_after_batch=self.eject_after_check.isChecked(),
         )
         self._update_summary()
