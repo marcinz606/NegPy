@@ -2,7 +2,7 @@ import os
 from typing import Any, Dict, Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
-from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, section_subheader
+from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, header_row, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -302,16 +302,12 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._color_section)
 
-        header_row = QHBoxLayout()
-        header_row.addWidget(section_subheader("COLOR MANAGEMENT"))
-        header_row.addStretch()
         self.icc_import_btn = QPushButton()
         self.icc_import_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
         self.icc_import_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.icc_import_btn.setToolTip(f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
         self.icc_import_btn.clicked.connect(self._import_icc)
-        header_row.addWidget(self.icc_import_btn, alignment=Qt.AlignmentFlag.AlignBottom)
-        root.addLayout(header_row)
+        root.addLayout(header_row(section_subheader("COLOR MANAGEMENT"), self.icc_import_btn))
 
         root.addWidget(hint_label("Processing is scene-linear (Adobe RGB primaries)"))
 

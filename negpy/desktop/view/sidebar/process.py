@@ -11,11 +11,11 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, header_row, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
@@ -120,7 +120,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.lock_bounds_btn = self._small_toggle(
             "fa5s.lock",
-            " Lock Bounds",
+            "",
             False,
             "Lock Bounds — freeze normalization bounds so crop and analysis sliders no longer re-analyze",
         )
@@ -132,16 +132,14 @@ class ProcessSidebar(BaseSidebar):
         analysis_col = QVBoxLayout(self.analysis_bar)
         analysis_col.setContentsMargins(0, 0, 0, 0)
         analysis_col.setSpacing(THEME.space_sm)
-        analysis_col.addWidget(section_subheader("ANALYSIS"))
-
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.reanalyze_frame_btn = self._icon_action(
             "fa5s.redo", "Reanalyze Frame — measure this frame's bounds again from its current crop and analysis settings"
         )
-        buffer_row = QHBoxLayout()
-        buffer_row.addWidget(self.analysis_buffer_slider, 1)
-        buffer_row.addWidget(self.reanalyze_frame_btn)
-        analysis_col.addLayout(buffer_row)
+        self.lock_bounds_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.analysis_header = section_subheader("ANALYSIS")
+        analysis_col.addLayout(header_row(self.analysis_header, self.reanalyze_frame_btn, self.lock_bounds_btn))
+        analysis_col.addWidget(self.analysis_buffer_slider)
 
         self.analysis_region_btn = self._tool_toggle(
             "fa5s.vector-square",
@@ -153,7 +151,7 @@ class ProcessSidebar(BaseSidebar):
             "fa5s.times", " Clear Region", "Clear the freehand analysis region (fall back to the Analysis Buffer)"
         )
         region_row = QHBoxLayout()
-        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn, self.lock_bounds_btn):
+        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn):
             region_row.addWidget(btn, 1)
         analysis_col.addLayout(region_row)
 
@@ -167,7 +165,8 @@ class ProcessSidebar(BaseSidebar):
         )
         self.tonal_range_header = section_subheader("TONAL RANGE")
         analysis_col.addWidget(self.tonal_range_header)
-        analysis_col.addWidget(SliderGroup(self.luma_range_clip_slider, self.color_range_clip_slider))
+        analysis_col.addWidget(self.luma_range_clip_slider)
+        analysis_col.addWidget(self.color_range_clip_slider)
 
         self.ch_btn = ChoiceButton(
             (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
@@ -180,7 +179,8 @@ class ProcessSidebar(BaseSidebar):
 
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
         self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        analysis_col.addWidget(SliderGroup(self.white_point_slider, self.black_point_slider))
+        analysis_col.addWidget(self.white_point_slider)
+        analysis_col.addWidget(self.black_point_slider)
 
         # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
         # own analysis. ControlsPanel places it at the top of the Roll Analysis card.

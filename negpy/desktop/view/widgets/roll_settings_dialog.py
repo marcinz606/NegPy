@@ -47,7 +47,7 @@ from negpy.features.metadata.models import FORMAT_OPTIONS, MetadataConfig, PUSH_
 from negpy.services.assets.presets import MetadataPresets
 
 _METADATA_ROWS: dict[str, SettingRow] = {row.label: row for title, rows in CATALOG if title == "Metadata" for row in rows}
-_SIMPLE_GROUPS = ("Exposure", "Sync Metadata to Batch", "Protect Original Metadata", "Description Fields")
+_SIMPLE_GROUPS = ("Exposure", "Protect Original Metadata", "Description Fields")
 
 
 def _fmt(value) -> str:

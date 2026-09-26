@@ -8,8 +8,8 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, header_row, section_subheader, wrap_tooltip
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT
@@ -71,19 +71,17 @@ class GeometrySidebar(BaseSidebar):
         self._sync_guide_orient_btn()
         self.layout.addLayout(guide_row)
 
-        self.layout.addWidget(section_subheader("ALIGNMENT"))
-
-        self.crop_to_valid_btn = self._labeled_toggle(
+        self.crop_to_valid_btn = self._small_toggle(
             "fa5s.crop",
-            " Crop by Default",
+            "",
             conf.crop_to_valid,
-            "Crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge shows extrapolated pixels",
+            "Crop by Default: crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge shows extrapolated pixels",
         )
-        self.layout.addWidget(self.crop_to_valid_btn)
-
-        align_row = QHBoxLayout()
+        self.crop_to_valid_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
         self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        # The tools sit on the header so all three sliders keep one track width.
+        self.layout.addLayout(header_row(section_subheader("ALIGNMENT"), self.straighten_btn, self.crop_to_valid_btn))
 
         # The slider shows the photographer's convention, where positive is clockwise on screen.
         # Internally geometry.fine_rotation keeps the cv2/warp convention, where positive is
@@ -92,9 +90,7 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider = CompactSlider(
             "Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, -conf.fine_rotation, step=0.1, unit="°"
         )
-        align_row.addWidget(self.fine_rot_slider, 1)
-        align_row.addWidget(self.straighten_btn, 0)
-        self.layout.addLayout(align_row)
+        self.layout.addWidget(self.fine_rot_slider)
 
         self.converge_v_slider = CompactSlider("Tilt", -15.0, 15.0, conf.converge_v, step=0.1, unit="%")
         self.converge_v_slider.setToolTip(
@@ -109,7 +105,8 @@ class GeometrySidebar(BaseSidebar):
             "wall shot from one side, or a copy stand not square to the film. Positive stretches "
             "the left edge."
         )
-        self.layout.addWidget(SliderGroup(self.converge_v_slider, self.converge_h_slider))
+        self.layout.addWidget(self.converge_v_slider)
+        self.layout.addWidget(self.converge_h_slider)
 
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())

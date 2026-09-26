@@ -114,7 +114,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.color_sidebar.cast_removal_slider
 
     def _auto_targets(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.tone_sidebar.targets_btn
+        return w.controls_panel.tone_sidebar.auto_btn
 
     def _split_grade(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.shadow_grade_slider
@@ -516,7 +516,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "same matrix the paper's own dye crosstalk uses. It works in density space "
                 "rather than as a post-hoc color boost, so it stays in step with the curve and "
                 "takes per-layer R/G/B trims for crossover. 1.0 is off.<br><br>"
-                "<b>Auto Density</b> and <b>Auto Grade</b> meter each frame for sensible "
+                "<b>Auto Density</b> and <b>Auto Grade</b>, in the <b>Auto</b> menu, meter each frame for sensible "
                 "brightness and contrast out of the box. They correct only <i>partially</i>, "
                 "so low-key and high-key shots keep their mood. Turn them off to let the "
                 "conversion follow the negative honestly."
@@ -787,16 +787,16 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "B&amp;W and Kodachrome scans are skipped.<br><br>"
                 "However a mark is found, the repair is the same: the film under it is rebuilt "
                 "from the clean film around it, with the frame's own grain transplanted back.<br><br>"
-                "<b>Heal Tool</b>: click or drag over dust spots. The brush marks a <i>search "
+                "<b>Heal</b>: click or drag over dust spots. The brush marks a <i>search "
                 "area</i>, not a stamp, so only the pixels that stand out from the film around "
                 "them are rewritten and clean grain under a generous brush is left alone.<br><br>"
-                "<b>Scratch Tool</b>: click a polyline along a hair or scratch, then double-click "
+                "<b>Scratch</b>: click a polyline along a hair or scratch, then double-click "
                 "or press <b>Enter</b> to commit.<br><br>"
-                "<b>Transport Line</b>: for the long straight marks a roll picks up in a camera "
+                "<b>Line</b> (Transport Line): for the long straight marks a roll picks up in a camera "
                 "or lab. Click once anywhere on the scratch and the whole line is traced and "
                 "repaired. <b>Line Sensitivity</b> tunes how readily one is followed.<br><br>"
-                "<b>Brush Size</b> sets the manual brush, and <b>Undo Last</b> / <b>Clear All</b> "
-                "manage the spots."
+                "<b>Brush Size</b> sets the manual brush, and the undo and bin icons beside the "
+                "tools remove the last or every spot."
             ),
             target=_retouch,
             section_attr="retouch_section",
@@ -804,9 +804,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Dust Overlay: See What Is Detected",
             body=(
-                "Dust thresholds are hard to set blind. The <b>Overlay</b> button cycles the "
-                "detection inspector so you can tune by eye: <b>Off → Marked → IR</b>. The IR "
-                "state appears only on scans that have an infrared channel.<br><br>"
+                "Dust thresholds are hard to set blind. The <b>Overlay</b> selector picks the "
+                "detection inspector so you can tune by eye: <b>Off</b>, <b>Marked</b> or <b>IR</b>. "
+                "IR is available only on scans that have an infrared channel.<br><br>"
                 "<b>Marked</b> paints every spot the detector is about to fix; <b>IR</b> shows "
                 "the raw infrared read behind it. Turn Optical or IR Removal on first, because "
                 "the overlay draws what those passes found, so with both off there is nothing to "

@@ -61,17 +61,16 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
-        # Task-flow order: the Print/Flat decision reframes the whole form, so it comes first with
-        # the primary Export action right under it. The form follows, and the occasional tools
-        # (presets, contact sheet, preview) sit collapsed at the bottom.
+        # Task-flow order: the output intent reframes the whole form, so it comes first; the
+        # Export action follows the form it reads, and the occasional tools sit collapsed below.
         self._add_flat_master_section()
-        self._add_export_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
         self.form = ExportSettingsForm()
         self.form.load(self._config_to_form_values())
         self.layout.addWidget(self.form)
         self._add_proof_controls()
+        self._add_export_section()
 
         self._add_soft_proof_section()
         self._add_presets_section()
@@ -111,8 +110,6 @@ class ExportSidebar(BaseSidebar):
         self.manage_presets_btn.clicked.connect(self._open_presets_dialog)
         self.export_presets_btn.clicked.connect(self._on_export_presets_clicked)
         self.export_main_btn.clicked.connect(self._on_export_clicked)
-        self.protect_check.toggled.connect(self._on_protect_toggled)
-        self.sync_check.toggled.connect(self._on_sync_to_batch_toggled)
 
         self.intent_btn.currentChanged.connect(self._on_flat_output_toggled)
         self.flat_peek_btn.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
@@ -1264,27 +1261,6 @@ class ExportSidebar(BaseSidebar):
         saved = self._RETIRED_EXPORT_SCOPES.get(saved, saved)
         self._set_export_scope(saved if saved in self._EXPORT_SCOPES else "current", persist=False)
 
-        # Export-time behaviors over the Metadata tab's per-frame fields, not metadata
-        # content themselves, so they live beside the Export button rather than on
-        # that tab. Both are stored on the Metadata config.
-        meta = self.state.config.metadata
-        self.protect_check = self._small_toggle(
-            "fa5s.shield-alt",
-            " Protect Original Metadata",
-            meta.protect_original_metadata,
-            "Copy EXIF and XMP from the source file onto exports without adding or changing metadata. Gear and process fields are ignored.",
-        )
-        self.layout.addWidget(self.protect_check)
-
-        self.sync_check = self._small_toggle(
-            "fa5s.copy",
-            " Sync Metadata to Batch",
-            meta.sync_to_batch,
-            "Batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.",
-        )
-        self.sync_check.setEnabled(not meta.protect_original_metadata)
-        self.layout.addWidget(self.sync_check)
-
     def _set_export_scope(self, key: str, persist: bool = True) -> None:
         self._export_scope = key
         _label, btn_label, tooltip = self._EXPORT_SCOPES[key]
@@ -1293,16 +1269,6 @@ class ExportSidebar(BaseSidebar):
         self.export_main_btn.setToolTip(tooltip_with_shortcut(tooltip, self._EXPORT_SCOPE_SHORTCUTS.get(key)))
         if persist:
             self.controller.session.repo.save_global_setting("export_scope", key)
-
-    def _on_sync_to_batch_toggled(self, checked: bool) -> None:
-        self.update_config_section("metadata", persist=True, render=False, readback_metrics=False, sync_to_batch=checked)
-
-    def _on_protect_toggled(self, checked: bool) -> None:
-        """Protect ignores gear/process fields, so syncing them to a batch would mean
-        nothing; the Metadata tab's own fields disable through its sync_ui() picking
-        up this same config change."""
-        self.sync_check.setEnabled(not checked)
-        self.update_config_section("metadata", persist=True, render=False, readback_metrics=False, protect_original_metadata=checked)
 
     def _flush_export_settings(self) -> None:
         """Stop the debounce timer and write the form into state immediately."""
@@ -1550,10 +1516,6 @@ class ExportSidebar(BaseSidebar):
             if not self.cs_output_path_edit.hasFocus():
                 self.cs_output_path_edit.setText(conf.contact_sheet_output_path)
             self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
-            meta = self.state.config.metadata
-            self.protect_check.setChecked(meta.protect_original_metadata)
-            self.sync_check.setChecked(meta.sync_to_batch)
-            self.sync_check.setEnabled(not meta.protect_original_metadata)
             self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
             self._refresh_contact_sheet_templates()
             saved_template = conf.contact_sheet_template.strip()
@@ -1597,8 +1559,6 @@ class ExportSidebar(BaseSidebar):
             self.cs_output_path_edit,
             self.cs_template_combo,
             self.sidecars_enabled_btn,
-            self.protect_check,
-            self.sync_check,
             self.flat_peek_btn,
             self.printing_notes_preview_btn,
             self.linear_wb_checkbox,

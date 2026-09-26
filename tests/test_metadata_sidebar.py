@@ -258,9 +258,7 @@ class TestPreviewPinning:
 
 
 class TestProtectGating:
-    """Protect Original Metadata is a checkbox on the Export tab, not here (it is an
-    export-time behavior, not metadata content), but this tab's own fields still
-    disable under it through the ordinary config sync."""
+    """Protect Original Metadata sits above the cards it disables, so it stays live while they are off."""
 
     def test_protect_disables_this_tabs_fields(self, sidebar: MetadataSidebar) -> None:
         assert sidebar._metadata_controls.isEnabled() is True
@@ -272,6 +270,16 @@ class TestProtectGating:
         _set_metadata(sidebar, protect_original_metadata=False)
         sidebar.sync_ui()
         assert sidebar._metadata_controls.isEnabled() is True
+
+    def test_the_toggle_persists_and_grays_out_the_cards(self, sidebar: MetadataSidebar) -> None:
+        sidebar.protect_btn.setChecked(True)
+        assert sidebar.state.config.metadata.protect_original_metadata is True
+        assert not sidebar._metadata_controls.isEnabled()
+        assert sidebar.protect_btn.isEnabled()
+
+        _set_metadata(sidebar, protect_original_metadata=False)
+        sidebar.sync_ui()
+        assert not sidebar.protect_btn.isChecked()
 
 
 class TestPlaceButtons:

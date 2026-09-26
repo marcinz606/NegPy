@@ -31,6 +31,13 @@ def qapp():
     app.processEvents()
 
 
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch):
+    """A panel starts a GitHub release check on construction; a live socket thread outlives
+    the test that built it and crashes Qt in a later one."""
+    monkeypatch.setattr("negpy.desktop.view.widgets.update_dialog.find_update", lambda *a, **k: None)
+
+
 @pytest.fixture
 def top_level_show_spy(qapp):
     """Record widgets exposed as unowned top-level windows during construction."""

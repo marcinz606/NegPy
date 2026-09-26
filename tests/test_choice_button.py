@@ -61,3 +61,30 @@ def test_scroll_wheel_steps_through_enabled_choices_and_stops_at_the_ends(qapp):
     assert btn.currentIndex() == 2
     wheel(btn, 120)
     assert btn.currentIndex() == 0
+
+
+def test_toggle_menu_button_is_checked_while_any_option_is_on(qapp):
+    from negpy.desktop.view.widgets.choice_button import ToggleMenuButton
+
+    btn = ToggleMenuButton("fa5s.magic", "Auto", "tip")
+    a = btn.add_toggle("A", "a")
+    b = btn.add_toggle("B", "b")
+    assert not btn.isChecked()
+
+    a.trigger()
+    assert btn.isChecked()
+    b.trigger()
+    a.trigger()
+    assert btn.isChecked()
+    b.trigger()
+    assert not btn.isChecked()
+
+    btn.nextCheckState()  # what a click runs besides opening the menu
+    assert not btn.isChecked()
+
+
+def test_tool_toggle_centers_by_default_and_left_aligns_on_request(qapp):
+    from negpy.desktop.view.styles.templates import tool_toggle
+
+    assert "text-align" not in tool_toggle("fa5s.magic", "Label", "tip").styleSheet()
+    assert "text-align: left" in tool_toggle("fa5s.magic", "Label", "tip", align_left=True).styleSheet()

@@ -262,7 +262,6 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # capture_frame is deliberately absent: a frame number is unique to one frame.
         _row("Roll", "metadata", "capture_roll"),
         _row("Exposure", "metadata", "exposure_override"),
-        _row("Sync Metadata to Batch", "metadata", "sync_to_batch"),
         _row("Protect Original Metadata", "metadata", "protect_original_metadata", sticky=True),
         _row(
             "Description Fields",

@@ -147,7 +147,6 @@ class MetadataConfig:
     process_time_seconds: Optional[int] = None
     process_temperature_c: Optional[float] = None
     scanning: str = ""
-    sync_to_batch: bool = False
 
     # Original capture instant, ISO-8601 truncated to the precision the user knows.
     capture_date: str = ""

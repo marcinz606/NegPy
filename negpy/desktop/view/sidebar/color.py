@@ -5,7 +5,7 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, wrap_tooltip
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
-from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider, SliderGroup
+from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
 
@@ -50,7 +50,8 @@ class ColorSidebar(BaseSidebar):
         self.magenta_slider.slider.setObjectName("magenta_slider")
         self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
-        self.layout.addWidget(SliderGroup(self.cyan_slider, self.magenta_slider, self.yellow_slider))
+        for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
+            self.layout.addWidget(slider)
 
         self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
         self.cast_removal_slider.setToolTip(

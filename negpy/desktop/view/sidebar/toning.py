@@ -51,11 +51,13 @@ class ToningSidebar(BaseSidebar):
 
         self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
         self.shadow_str_slider = CompactSlider("Shadow Strength", 0.0, 1.0, conf.shadow_tint_strength)
-        self.layout.addWidget(SliderGroup(self.shadow_hue_slider, self.shadow_str_slider))
+        self.layout.addWidget(self.shadow_str_slider)
+        self.layout.addWidget(SliderGroup(self.shadow_hue_slider))
 
         self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
         self.highlight_str_slider = CompactSlider("Highlight Strength", 0.0, 1.0, conf.highlight_tint_strength)
-        self.layout.addWidget(SliderGroup(self.highlight_hue_slider, self.highlight_str_slider))
+        self.layout.addWidget(self.highlight_str_slider)
+        self.layout.addWidget(SliderGroup(self.highlight_hue_slider))
 
         self.layout.addStretch()
 

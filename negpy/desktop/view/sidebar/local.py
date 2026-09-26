@@ -128,7 +128,8 @@ class LocalSidebar(BaseSidebar):
             "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
         )
 
-        self.layout.addWidget(SliderGroup(self.burn_slider, self.grade_slider))
+        self.layout.addWidget(self.burn_slider)
+        self.layout.addWidget(self.grade_slider)
         self.layout.addWidget(self.feather_slider)
         self.layout.addWidget(section_subheader("Tone Limit"))
         self.layout.addWidget(self.tone_btn)

@@ -220,15 +220,13 @@ def test_auto_density_grade_stay_on_a_raw_slide_and_a_positive(qapp):
     cfg = controller.state.config
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, positive_source=False))
     sidebar.sync_ui()
-    assert not sidebar.auto_density_btn.isHidden()
-    assert not sidebar.auto_grade_btn.isHidden()
+    assert not sidebar.auto_btn.isHidden()
     # The rest of the paper-model controls stay hidden either way.
     assert sidebar.paper_dmin_btn.isHidden()
 
     controller.state.config = replace(controller.state.config, process=replace(controller.state.config.process, positive_source=True))
     sidebar.sync_ui()
-    assert not sidebar.auto_density_btn.isHidden()
-    assert not sidebar.auto_grade_btn.isHidden()
+    assert not sidebar.auto_btn.isHidden()
     assert sidebar.paper_dmin_btn.isHidden()
 
 

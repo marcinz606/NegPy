@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.view.confirm import prompt_delete_scene
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, header_row, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.styles.theme import scene_color
 from negpy.kernel.system.text import count_of
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
@@ -42,16 +42,12 @@ class RollAnalysisSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.addWidget(section_subheader("ROLLS"))
         self.roll_combo = SearchableGearCombo(placeholder="Search rolls…")
         self.roll_combo.setToolTip(wrap_tooltip("Picking a roll loads its saved baseline onto the loaded files."))
         self.reanalyze_btn = self._icon_action("fa5s.tachometer-alt", BATCH_ANALYSIS_TOOLTIP)
         self.from_frame_btn = self._icon_action("fa5s.crosshairs", FROM_FRAME_TOOLTIP)
-        row = QHBoxLayout()
-        row.addWidget(self.roll_combo, 1)
-        row.addWidget(self.reanalyze_btn)
-        row.addWidget(self.from_frame_btn)
-        self.layout.addLayout(row)
+        self.layout.addLayout(header_row(section_subheader("ROLLS"), self.reanalyze_btn, self.from_frame_btn))
+        self.layout.addWidget(self.roll_combo)
 
         self.roll_status_hint = hint_label("", "muted")
         self.layout.addWidget(self.roll_status_hint)

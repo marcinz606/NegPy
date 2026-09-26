@@ -298,8 +298,8 @@ class ShortcutManager:
             "toggle_ir_removal": controls.retouch_sidebar.ir_dust_btn.click,
             "toggle_flat_field": controls.flatfield_sidebar.enable_btn.click,
             "batch_autocrop": controls.autocrop_sidebar.auto_crop_all_btn.click,
-            "toggle_auto_density": controls.tone_sidebar.auto_density_btn.click,
-            "toggle_auto_grade": controls.tone_sidebar.auto_grade_btn.click,
+            "toggle_auto_density": controls.tone_sidebar.auto_density_action.trigger,
+            "toggle_auto_grade": controls.tone_sidebar.auto_grade_action.trigger,
             "preset_apply": controls.presets_sidebar.apply_btn.click,
             "preset_save": controls.presets_sidebar.save_btn.click,
         }

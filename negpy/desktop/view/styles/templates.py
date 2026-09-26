@@ -3,7 +3,7 @@ import html
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
+from PyQt6.QtWidgets import QDialogButtonBox, QHBoxLayout, QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
@@ -96,14 +96,15 @@ def _button_icon(icon_name: str, checkable: bool, on_accent: bool = False):
     return qta.icon(icon_name, color=color, color_disabled=THEME.text_muted)
 
 
-def tool_toggle(icon_name: str, label: str, tooltip: str) -> QPushButton:
+def tool_toggle(icon_name: str, label: str, tooltip: str, align_left: bool = False) -> QPushButton:
     """Checkable tool button; empty label keeps it icon-only, empty icon_name keeps it text-only.
+    align_left lines the label up with toggles stacked above or below it; centered by default.
     Carries an edited_dot like labeled_toggle, for a tool whose effect outlives its checked state."""
     btn = QPushButton((" " + label) if (label and icon_name) else label)
     btn.setCheckable(True)
     if icon_name:
         btn.setIcon(_button_icon(icon_name, checkable=True))
-    btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
+    btn.setStyleSheet(tool_toggle_qss(icon_only=not label, align_left=align_left))
     btn.setFixedHeight(default_button_height())
     btn.setToolTip(wrap_tooltip(tooltip))
     btn.plain_tooltip = tooltip
@@ -331,6 +332,21 @@ class StatusStrip(QWidget):
             self._stack.setCurrentWidget(self._summary)
 
 
+def header_row(header: QLabel, *buttons: QWidget) -> QHBoxLayout:
+    """A section_subheader with icon buttons at its right end, for tools and actions that
+    act on the whole subsection. The header's top margin moves to the row, so the icons
+    center on the text rather than on the margin."""
+    # 1px, not 0: any nonzero QSS margin also indents the label text, and this keeps it
+    # in line with every other subheader.
+    header.setStyleSheet(header.styleSheet().replace(f"margin-top: {THEME.space_xl}px;", "margin-top: 1px;"))
+    row = QHBoxLayout()
+    row.setContentsMargins(0, THEME.space_xl - 1, 0, 0)
+    row.addWidget(header, 1)
+    for btn in buttons:
+        row.addWidget(btn)
+    return row
+
+
 def section_subheader(text: str) -> QLabel:
     """Small all-caps label for section grouping in sidebars."""
     lbl = QLabel(text.upper())
@@ -355,9 +371,11 @@ def field_label(text: str) -> QLabel:
     return lbl
 
 
-def tool_toggle_qss(icon_only: bool = False) -> str:
+def tool_toggle_qss(icon_only: bool = False, align_left: bool = False) -> str:
     """Icon-only padding; the checked look is the app-wide rule in modern_dark.qss."""
-    return "QPushButton {padding: 6px;}" if icon_only else ""
+    if icon_only:
+        return "QPushButton {padding: 6px;}"
+    return f"QPushButton {{text-align: left; padding-left: {THEME.space_xl}px;}}" if align_left else ""
 
 
 def slider_label_qss(color: str) -> str:

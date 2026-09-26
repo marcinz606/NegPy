@@ -79,15 +79,15 @@ class Panel(unittest.TestCase):
     def test_greyed_with_a_reason_on_a_merge(self):
         w = self._sidebar(_MERGE)
         # isHidden, not isVisible: the sidebar is never shown here.
-        for btn in (w.auto_density_btn, w.auto_grade_btn):
-            self.assertFalse(btn.isHidden(), "hiding it teaches nothing about why")
-            self.assertFalse(btn.isEnabled())
+        self.assertFalse(w.auto_btn.isHidden(), "hiding it teaches nothing about why")
+        for action in (w.auto_density_action, w.auto_grade_action):
+            self.assertFalse(action.isEnabled())
         self.assertFalse(w.auto_merged_hint.isHidden())
 
     def test_live_on_an_ordinary_slide(self):
         w = self._sidebar(HdrConfig())
-        self.assertTrue(w.auto_density_btn.isEnabled())
-        self.assertTrue(w.auto_grade_btn.isEnabled())
+        self.assertTrue(w.auto_density_action.isEnabled())
+        self.assertTrue(w.auto_grade_action.isEnabled())
         self.assertTrue(w.auto_merged_hint.isHidden())
 
 

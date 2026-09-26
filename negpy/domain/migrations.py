@@ -76,6 +76,8 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # Slide Normalize (a metered stretch through the print curve) was retired: every slide
         # renders through the transfer curve (migrate_flat_config reads it before this pop).
         "e6_normalize",
+        # Batch metadata sync: Metadata cards are roll defaults, so every frame already carries the roll's values.
+        "sync_to_batch",
     }
 )
 

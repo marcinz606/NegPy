@@ -2706,15 +2706,10 @@ class AppController(QObject):
         self.session.set_crop_guide_orientation((self.state.crop_guide_orientation + 1) % 8)
         self.crop_guide_changed.emit()
 
-    def cycle_dust_overlay(self) -> None:
-        """Advance the dust-detection overlay: Off → Marked → IR → Off
-        (IR skipped when the scan has no IR channel). Repaint only — the data is
+    def set_dust_overlay(self, mode: str) -> None:
+        """Dust-detection overlay: "off", "marked" or "ir". Repaint only — the data is
         already in state.last_metrics / state.preview_ir, no re-render needed."""
-        seq = ["off", "marked", "ir"]
-        if not self.state.has_ir:
-            seq.remove("ir")
-        cur = self.state.dust_overlay_mode if self.state.dust_overlay_mode in seq else "off"
-        self.state.dust_overlay_mode = seq[(seq.index(cur) + 1) % len(seq)]
+        self.state.dust_overlay_mode = mode
         self.dust_overlay_changed.emit()
 
     def toggle_zones_overlay(self, force: Optional[bool] = None) -> None:
@@ -6200,7 +6195,6 @@ class AppController(QObject):
             export_fmt=ExportFormat.JXL if linear_fmt == "jxl" else ExportFormat.TIFF,
         )
         roll_root = self._roll_export_root(delivery.output_mode, delivery.output_subfolder)
-        sync_metadata = self.state.config.metadata.sync_to_batch
         taken: set[str] = set()
         tasks = []
         for f in supported:
@@ -6214,7 +6208,7 @@ class AppController(QObject):
             stem = render_export_filename(
                 min(frames, key=lambda p: os.path.basename(p).lower()) if frames else f["path"],
                 delivery,
-                metadata=self.state.config.metadata if sync_metadata else params.metadata,
+                metadata=params.metadata,
                 composite="HDR" if frames else "",
             )
             # `_linear` always, on top of whatever the template rendered: without it a dump
@@ -6334,7 +6328,6 @@ class AppController(QObject):
         current_export = replace(self.state.config.export, export_path=export_path)
         roll_root = self._roll_export_root(current_export.output_mode, current_export.output_subfolder)
         icc_output = self.state.icc_output_path
-        sync_metadata = self.state.config.metadata.sync_to_batch
 
         if files is None:
             files = [
@@ -6378,7 +6371,7 @@ class AppController(QObject):
                     bounds_override = self.state.last_metrics.get("log_bounds")
 
             source_exif = self.state.source_exif.get(f["hash"])
-            metadata_config = self.state.config.metadata if sync_metadata else params.metadata
+            metadata_config = params.metadata
 
             tasks.append(
                 ExportTask(
@@ -6421,7 +6414,6 @@ class AppController(QObject):
         return [f for f in files if not f.get("excluded")]
 
     def _build_preset_export_tasks(self, files: list[dict], presets: List[ExportPreset]) -> List[ExportTask]:
-        sync_metadata = self.state.config.metadata.sync_to_batch
         tasks: List[ExportTask] = []
         for f in files:
             params = self._batch_params_for(f)
@@ -6432,7 +6424,7 @@ class AppController(QObject):
                     bounds_override = self.state.last_metrics.get("log_bounds")
 
             source_exif = self.state.source_exif.get(f["hash"])
-            metadata_config = self.state.config.metadata if sync_metadata else params.metadata
+            metadata_config = params.metadata
 
             tasks.extend(
                 self._tasks_for_file(

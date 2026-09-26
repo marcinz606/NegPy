@@ -380,9 +380,9 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 **Alignment:**
 
-*   **Crop by Default**: crop the wedge Fine Rotation, Tilt and Swing leave, so no edge shows extrapolated pixels. Live, only while no manual or auto crop is set. While you adjust a slider below, the canvas briefly darkens the margin it trims.
+*   **Crop by Default** (crop icon, right end of the ALIGNMENT header): crop the wedge Fine Rotation, Tilt and Swing leave, so no edge shows extrapolated pixels. Live, only while no manual or auto crop is set. While you adjust a slider below, the canvas briefly darkens the margin it trims.
 *   **Fine Rotation** (±45°): sub-degree rotation, positive clockwise. Applied after auto-crop.
-*   **Straighten** tool (ruler): draw a line along a horizon or vertical edge to level or plumb it.
+*   **Straighten** tool (ruler, on the ALIGNMENT header): draw a line along a horizon or vertical edge to level or plumb it.
 *   **Tilt** (±15%): tip the easel about a horizontal axis to correct converging verticals. Positive stretches the top edge. The unit is percent of the frame, not an angle.
 *   **Swing** (±15%): the same about a vertical axis, for converging horizontals. Positive stretches the left edge.
 
@@ -412,11 +412,11 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 
 **Global / R / G / B** applies most controls to the shared curve, or as per-dye-layer trims for **crossover correction** (casts that differ between shadows and highlights).
 
-**Automatic helpers** (on by default; turn off to print the negative as it is):
+**Automatic helpers**, in the **Auto** menu (magic-wand icon) beside the channel selector (on by default; turn off to print the negative as it is). The button shows the accent border while either is on:
 
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there.
 *   **Auto Grade**: partially picks the grade from the frame's textural density range, goes harder if needed so the darkest textured tones reach black (Shadow Reach in Set Targets), and burns the brightest textured tones off paper white (Highlight Hold).
-*   **Set Targets** (sliders icon): the brightness and contrast the helpers aim for. All frames, kept between sessions.
+*   **Set Targets…** (last item in the Auto menu): the brightness and contrast the helpers aim for. All frames, kept between sessions.
 
 **Test strip** (grid icon, or `Shift+T`): a 5×5 grid, Print Density rising left to right, ISO-R Grade softening top to bottom. Both ladders are centered on their defaults, so your settings are one patch. Click a patch to keep it. `Escape` or a second press clears it; any edit drops it.
 
@@ -438,8 +438,8 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 **Paper Response**:
 
 *   **Paper profile**: a bundled paper profile (RA4 in Color Negative, tonal B&W papers in B&W Negative) that sets the curve baseline; the other controls trim on top. *Neutral* gives the defaults. Each B&W paper has its own lith color path: Fomatone warm and colorful, *Neutral* and Ilford Multigrade nearly colorless.
-*   **Paper White** (page icon, right of the paper profile): simulate paper base density, so whites print at about 0.93.
-*   **Paper Black** (circle icon, right of the paper profile): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
+*   **Paper White** (page icon, on the PAPER RESPONSE header): simulate paper base density, so whites print at about 0.93.
+*   **Paper Black** (circle icon, on the PAPER RESPONSE header): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
 *   **Preflash** (0 to 1): an even flash of light over the whole sheet, as a fraction of the paper's threshold exposure. It pulls highlight detail off paper white and softens the print a little overall; a harder Grade gives the contrast back. Bare paper stays white. Hidden on slides.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.
@@ -545,8 +545,8 @@ Chemical toners (B&W Negative only) and a split tint (any mode). On a lith print
 
 **Split Toning** (all modes), an additive Lab tint that keeps grain and detail:
 
-*   **Shadow Hue** (0 to 360°) + **Shadow Strength** (0.0 to 1.0).
-*   **Highlight Hue** (0 to 360°) + **Highlight Strength** (0.0 to 1.0).
+*   **Shadow Strength** (0.0 to 1.0), with **Shadow Hue** (0 to 360°) under it.
+*   **Highlight Strength** (0.0 to 1.0), with **Highlight Hue** (0 to 360°) under it.
 
 ---
 
@@ -557,7 +557,7 @@ Chemical toners (B&W Negative only) and a split tint (any mode). On a lith print
 
 Spotting, as done with a brush on a finished print. Marks are found by local contrast, by the scanner's IR channel or by hand, and the three stack. Each mark is rebuilt from the clean film around it, with the frame's own grain put back; a mark too wide for that goes to a fill that follows the structure through.
 
-**Overlay** cycles the detection overlay (Off → Marked → IR): green for Optical Removal finds, magenta for IR finds and for defects sent to the structure-following fill.
+**Overlay** (Off / Marked / IR, at the top) shows the detection overlay: green for Optical Removal finds, magenta for IR finds and for defects sent to the structure-following fill. IR needs an IR plane.
 
 **Optical Removal** finds specks and hairs on the visible scan, with no IR needed:
 
@@ -569,19 +569,19 @@ Spotting, as done with a brush on a finished print. Marks are found by local con
 **IR Removal** uses the infrared channel to remove dust the dyes do not show. It is enabled only when the scan has an IR plane.
 
 *   **IR Threshold** (0.05 to 0.95): lower catches more.
-*   **Method**: how the film under a defect is rebuilt, from the same IR plane and threshold.
+*   **Method** (beside **IR Removal**): how the film under a defect is rebuilt, from the same IR plane and threshold.
     *   **NegPy** (default): divides semi-transparent dust back out, fills opaque cores with a weighted average of the clean film around them, and takes grain from the nearest clean pixel.
     *   **OpenICE**: works in log density and, at each scale, adds back picture detail stronger than the infrared's contrast, so texture under a speck survives. A solid defect gets Digital ICE's synthetic grain, strongest in the midtones. It measures clear-film level and dye-to-infrared crosstalk per frame and leaves clean film untouched bit-for-bit. Better on fine detail but less proven across scanners, so compare both on a frame you know.
 *   The IR plane is read from 4-channel TIFFs and DNGs (VueScan, NegPy's own scanner output), SilverFast's iSRD TIFFs and 64-bit **HDRi RAW DNGs**, and `_IR.tif` sidecars. Scan to HDRi, not plain HDR, to keep IR data. B&W and Kodachrome frames are skipped automatically, since they block infrared like dust.
 
 **Manual Heal** (the header shows the spot count). The brush marks a *search area*, not a stamp: only pixels that stand out from the film around them are rewritten, both dust (prints light) and scratches (print dark), so you can paint generously. If it finds nothing, it does nothing.
 
-*   **Heal Tool**: click dust spots to paint them out, or drag over a run of them.
-*   **Scratch Tool**: click points along a scratch or hair, then double-click or press Enter. Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
-*   **Transport Line**: for long straight marks from camera or lab transport that cross the frame. **Click once anywhere on the scratch** to trace and repair the whole line. Such a scratch is too faint to see at one point, so the tool reads its full length. It follows the scratch's angle and width and repairs only where the scratch is present. If a click finds nothing, it says so; click directly on the line. Hovering shows a **guide** of the line and band it would repair, and placed lines stay drawn; right-click one to delete it.
-*   **Line Sensitivity** (0.05 to 0.95, shown with the Transport Line tool): lower catches fainter lines and repairs a wider band; raise it if a line picks up film on either side. It also applies to placed lines.
-*   **Brush Size** (2 to 64 px): diameter of the heal, scratch and exclusion brushes, as the cursor shows. Shown while a heal or scratch tool is active or Optical Removal is on. Hold `Alt` and scroll on the canvas, or pinch while a brush is live.
-*   **Undo Last** / **Clear All**: remove the last or all manual heals and traced lines; auto-detected dust is unaffected.
+*   **Heal**: click dust spots to paint them out, or drag over a run of them.
+*   **Scratch**: click points along a scratch or hair, then double-click or press Enter. Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
+*   **Line** (Transport Line): for long straight marks from camera or lab transport that cross the frame. **Click once anywhere on the scratch** to trace and repair the whole line. Such a scratch is too faint to see at one point, so the tool reads its full length. It follows the scratch's angle and width and repairs only where the scratch is present. If a click finds nothing, it says so; click directly on the line. Hovering shows a **guide** of the line and band it would repair, and placed lines stay drawn; right-click one to delete it.
+*   **Line Sensitivity** (0.05 to 0.95, live with the Line tool): lower catches fainter lines and repairs a wider band; raise it if a line picks up film on either side. It also applies to placed lines.
+*   **Brush Size** (2 to 64 px): diameter of the heal, scratch and exclusion brushes, as the cursor shows. Live while the Heal or Scratch tool is active or Optical Removal is on. Hold `Alt` and scroll on the canvas, or pinch while a brush is live.
+*   **Undo Last** / **Clear All** (undo and bin icons, on the MANUAL HEAL header): remove the last or all manual heals and traced lines; auto-detected dust is unaffected.
 
 <!-- panel:finish -->
 ### 7.2 Finishing: vignette, carrier, border
@@ -639,7 +639,7 @@ Two lists: the versions you chose to keep, above the record of every change.
 
 A **work print** is a named version of this frame, like the test prints kept on the way to the final one.
 
-*   **Save Work Print** (**Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over a name asks first.
+*   **Save Work Print** (save icon on the WORK PRINTS header, or **Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over a name asks first.
 *   **Click** one to make it live. That is an edit, so **Ctrl+Z** restores the previous state.
 *   **Right-click** for **Export This Version…**, **Rename…** or **Delete**. Delete asks first; an empty name is ignored.
 
@@ -771,8 +771,8 @@ Meter the roll once and share the result, so frames of one film match. The **Use
 *   **Use average: Cast** (**Color Negative** only): take Cast Removal's gray balance from the roll or scene analysis instead of this frame's own grays. The film's color curve is the same on every frame; each frame keeps only as much of its own color level as the analysis found real differences between frames, so a scene under one light renders alike. Roll and Scene Analysis turn it on, except on frames far from the rest; grayed out until an analysis has run.
 *   **Baseline** (line shown while either average is on): names the roll or scene analyzed, or the frame **Sync Bounds…** took it from, and warns when there is none.
 *   **Rolls** (picker): search every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. Picking one loads its baseline at once; a different ticked roll shows a hint that its baseline belongs to that roll.
-*   **Reanalyze** (gauge, beside the picker): runs Roll Analysis on the loaded roll (also on the Library's roll list, [§2](#2-film-strip-left-panel)): averages density and color balance over every loaded frame outside a scene and saves it as the roll's baseline. Locked frames are skipped. A frame whose color is far from the rest keeps its own exposure and color (**Use average** off); the status message names these frames. *(Tip: run Auto Crop **Roll** first, in **Image only** mode, for consistent crops.)* Grayed out on a roll that is not loaded.
-*   **Use This Frame** (crosshairs, beside the picker): saves this frame's bounds as the roll's baseline, for a reference frame. Frames outside a scene with **Use average: Luma** / **Color** follow it; locked frames are skipped. A frame opened later with no baseline takes its scene's, else the roll's. Grayed out on a roll that is not loaded; on an unrendered frame it says there are no bounds yet.
+*   **Reanalyze** (gauge, on the ROLLS header): runs Roll Analysis on the loaded roll (also on the Library's roll list, [§2](#2-film-strip-left-panel)): averages density and color balance over every loaded frame outside a scene and saves it as the roll's baseline. Locked frames are skipped. A frame whose color is far from the rest keeps its own exposure and color (**Use average** off); the status message names these frames. *(Tip: run Auto Crop **Roll** first, in **Image only** mode, for consistent crops.)* Grayed out on a roll that is not loaded.
+*   **Use This Frame** (crosshairs, on the ROLLS header): saves this frame's bounds as the roll's baseline, for a reference frame. Frames outside a scene with **Use average: Luma** / **Color** follow it; locked frames are skipped. A frame opened later with no baseline takes its scene's, else the roll's. Grayed out on a roll that is not loaded; on an unrendered frame it says there are no bounds yet.
 *   **Scenes**: lists the loaded roll's [scenes](#scenes) with number, color, frame count and a tick once analyzed. **Analyze** runs Scene Analysis (Reanalyze over the scene's frames only, saved on the scene). **Select** selects its frames in the Film Strip. **Delete** (trash) forgets it after asking. Roll Analysis and a picked roll baseline skip scene frames.
 
 <!-- panel:process -->
@@ -792,9 +792,9 @@ How this frame is measured into a positive's tonal bounds. The film mode is in �
 **Analysis** sets where the black and white points are metered.
 
 *   **Analysis Buffer** (0.0 to 0.25): insets the measurement window so rebate, sprocket holes and scanner borders do not skew it. Raise it for wide borders.
-*   **Reanalyze Frame** (circular arrow): measures this frame again from its current crop, buffer and region. Grayed out with Lock Bounds on or with both averages on.
+*   **Reanalyze Frame** (circular arrow, on the ANALYSIS header): measures this frame again from its current crop, buffer and region. Grayed out with Lock Bounds on or with both averages on.
 *   **Draw Region** / **Clear Region**: draw a freehand region to meter *exactly* that area, overriding the buffer. Double-click inside to confirm.
-*   **Lock Bounds**: freezes this frame's bounds against crop and slider changes and against every Roll Analysis run.
+*   **Lock Bounds** (lock icon, on the ANALYSIS header): freezes this frame's bounds against crop and slider changes and against every Roll Analysis run.
 
 **Tonal Range**:
 
@@ -837,7 +837,7 @@ A newly chosen profile becomes the rig's default for the next roll.
 
 ## 11. Metadata tab
 
-Metadata for the original analog capture (camera, lens, film, process). NegPy writes it into every export format (JPEG, TIFF, PNG, JPEG XL, WebP) as EXIF and XMP, so a DAM such as Lightroom shows your film gear, not the scanner. A TIFF holds the capture position in XMP only. EXIF text is 7-bit, so `4×5` is written `4x5`. **Protect original metadata** (§13) writes the source's own EXIF/XMP instead.
+Metadata for the original analog capture (camera, lens, film, process). NegPy writes it into every export format (JPEG, TIFF, PNG, JPEG XL, WebP) as EXIF and XMP, so a DAM such as Lightroom shows your film gear, not the scanner. A TIFF holds the capture position in XMP only. EXIF text is 7-bit, so `4×5` is written `4x5`. **Protect Original Metadata**, at the top of the tab, writes the source's own EXIF/XMP instead: it copies the source's EXIF/XMP unchanged, grays out the cards below, and copies the source's resolution exactly, even when resized. A source without a resolution stays without one, except in TIFF, which states the export's own resolution.
 
 **Analog Gear**, **Capture**, **Process**, **Scanning** and **Exposure** are roll-wide by default: each has the scope pair from [§1](#frame-or-roll-the-scope-pair) with **Roll** lit. Edit a field and that card flips to **Frame**; its **Roll** button pushes this frame's value to the roll, and **Reset to Roll** takes the roll's value back. The line under the panel title lists the cards this frame has taken off the roll. The frame number is always per frame.
 
@@ -944,13 +944,6 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
 
     The file has no ICC profile and no color metadata from the source (JPEG XL excepted, as above). It carries Make, Model and DateTime from the source and a description of source format, expansion, demosaic algorithm, white balance and corrections, ICE included.
 
-### Export button
-
-**Export**; its chevron picks the scope: current frame (Ctrl+E), selected frames or all visible frames. For several formats or sizes in one run, use Export Presets.
-
-*   **Protect original metadata**: copy the source's EXIF/XMP unchanged. The Metadata tab (§11) is ignored and the source's resolution is copied exactly, even when resized. A source without a resolution stays without one, except in TIFF, which states the export's own resolution.
-*   **Sync custom metadata to all files in batch export**: write this frame's capture, gear and process values to every file in a batch or preset export. Disabled with Protect original metadata.
-
 ### Format / Size / Color Management / Destination
 
 *   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL` or `WebP`, each with quality or effort options. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Grayscale`**; `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC give an error, because NegPy's encoder cannot embed an ICC profile.
@@ -965,6 +958,10 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full resolution), *Print* (long-edge **Size** in cm plus **DPI**) or *Pixels* (long-edge **px**). Every file is tagged with a DPI: *Print* your value, *Pixels* the one its long edge implies, *Original* the source's own (EXIF or e.g. JFIF density), else the **DPI** field. Linear output follows the same rule.
 *   **Destination**: **Filename Pattern** (a Jinja2 template with export and Metadata fields; see [TEMPLATING.md](TEMPLATING.md)), **Overwrite**, and the location: subfolder of source (default, `export`), same as source, or an **Export Path**. A roll with no single source folder exports under its own folder in NegPy's data folder with Subfolder of Source, and the status bar says so. With **Linear**, only Destination shows.
+
+### Export button
+
+**Export**, under the form; its chevron picks the scope: current frame (Ctrl+E), selected frames or all visible frames. For several formats or sizes in one run, use Export Presets.
 
 ### Collapsible sections
 

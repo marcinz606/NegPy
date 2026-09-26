@@ -2,9 +2,9 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QVBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, header_row, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import ChoiceButton, ToggleMenuButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.hdr.models import hdr_active
@@ -55,26 +55,26 @@ class ToneSidebar(BaseSidebar):
             )
             for ch in _CH_SUFFIX
         )
-        self.auto_density_btn = self._small_toggle(
-            "fa5s.magic",
+        self.auto_btn = ToggleMenuButton("fa5s.magic", "", "Auto: automatic print density and grade, and the targets they aim for")
+        self.auto_density_action = self.auto_btn.add_toggle(
             "Auto Density",
-            conf.auto_exposure,
-            "Auto Density: meter each frame's midtone and anchor the print exposure there, so dense "
-            "and flat negatives land at a consistent brightness instead of needing per-frame trimming",
+            "Meter each frame's midtone and anchor the print exposure there, so dense and flat "
+            "negatives land at a consistent brightness instead of needing per-frame trimming",
         )
-        self.auto_grade_btn = self._small_toggle(
-            "fa5s.balance-scale",
+        self.auto_grade_action = self.auto_btn.add_toggle(
             "Auto Grade",
-            conf.auto_normalize_contrast,
-            "Auto Grade: aim each frame at a contrast target instead of printing the negative's own "
-            "density range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
+            "Aim each frame at a contrast target instead of printing the negative's own density "
+            "range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
         )
-        self.targets_btn = self._icon_action(
-            "fa5s.sliders-h",
-            "Set Targets — tune the brightness and contrast Auto Density and Auto Grade aim for. "
-            "Applies to every frame and is remembered between sessions.",
+        self.auto_btn.choice_menu.addSeparator()
+        targets_action = self.auto_btn.choice_menu.addAction("Set Targets…")
+        targets_action.setToolTip(
+            "Tune the brightness and contrast Auto Density and Auto Grade aim for. "
+            "Applies to every frame and is remembered between sessions."
         )
-        self.targets_btn.clicked.connect(self._open_targets_dialog)
+        targets_action.triggered.connect(self._open_targets_dialog)
+        self.auto_density_action.setChecked(conf.auto_exposure)
+        self.auto_grade_action.setChecked(conf.auto_normalize_contrast)
         self.test_strip_btn = self._tool_toggle("mdi.view-grid-outline", "", self._test_strip_tooltip())
         self.test_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
@@ -83,13 +83,9 @@ class ToneSidebar(BaseSidebar):
         ch_row.addWidget(self.ch_btn, 1)
         # Holds the icons at the right edge when B&W hides the selector.
         ch_row.addStretch()
-        ch_row.addWidget(self.targets_btn)
+        ch_row.addWidget(self.auto_btn)
         ch_row.addWidget(self.test_strip_btn)
         self.layout.addLayout(ch_row)
-        auto_row = QHBoxLayout()
-        auto_row.addWidget(self.auto_density_btn, 1)
-        auto_row.addWidget(self.auto_grade_btn, 1)
-        self.layout.addLayout(auto_row)
         # Disabled widgets get no hover, so the reason hangs off the hint under them.
         self.auto_merged_hint = hint_label("Not applied to a merged bracket.")
         self.auto_merged_hint.setToolTip(
@@ -152,7 +148,8 @@ class ToneSidebar(BaseSidebar):
             "that sit next to something bright, which is the mask line on the sheet. "
             "Inert with no mask."
         )
-        self.layout.addWidget(SliderGroup(self.contrast_mask_slider, self.mask_spacer_slider))
+        self.layout.addWidget(self.contrast_mask_slider)
+        self.layout.addWidget(SliderGroup(self.mask_spacer_slider))
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
@@ -166,7 +163,9 @@ class ToneSidebar(BaseSidebar):
         # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
         # it is disabled there rather than reading as broken.
         self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
-        self.layout.addWidget(SliderGroup(self.dye_separation_slider, self.dye_separation_trim_slider, self.separation_damping_slider))
+        self.layout.addWidget(self.dye_separation_slider)
+        self.layout.addWidget(self.dye_separation_trim_slider)
+        self.layout.addWidget(SliderGroup(self.separation_damping_slider))
 
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
@@ -175,7 +174,6 @@ class ToneSidebar(BaseSidebar):
             "black, Shoulder the highlight roll-off into paper white — each knee with its own "
             "Width, per dye layer via the Global/R/G/B selector."
         )
-        self.layout.addWidget(paper_header)
 
         self.paper_combo = QComboBox()
         self.paper_combo.setToolTip(
@@ -188,11 +186,8 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo.setCurrentIndex(idx)
         self.paper_black_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        paper_row = QHBoxLayout()
-        paper_row.addWidget(self.paper_combo, 1)
-        paper_row.addWidget(self.paper_black_btn)
-        paper_row.addWidget(self.paper_dmin_btn)
-        self.layout.addLayout(paper_row)
+        self.layout.addLayout(header_row(paper_header, self.paper_black_btn, self.paper_dmin_btn))
+        self.layout.addWidget(self.paper_combo)
 
         self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
         self.layout.addWidget(self.preflash_slider)
@@ -210,7 +205,8 @@ class ToneSidebar(BaseSidebar):
         )
         self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
-        self.layout.addWidget(SliderGroup(self.toe_slider, self.toe_w_slider, self.toe_w_trim_slider))
+        self.layout.addWidget(self.toe_slider)
+        self.layout.addWidget(SliderGroup(self.toe_w_slider, self.toe_w_trim_slider))
 
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
@@ -220,7 +216,8 @@ class ToneSidebar(BaseSidebar):
             "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
         )
         self.sh_w_trim_slider.setVisible(False)
-        self.layout.addWidget(SliderGroup(self.sh_slider, self.sh_w_slider, self.sh_w_trim_slider))
+        self.layout.addWidget(self.sh_slider)
+        self.layout.addWidget(SliderGroup(self.sh_w_slider, self.sh_w_trim_slider))
 
         self.layout.addStretch()
 
@@ -228,9 +225,7 @@ class ToneSidebar(BaseSidebar):
         self._global_only = (
             self.density_slider,
             self.test_strip_btn,
-            self.auto_density_btn,
-            self.auto_grade_btn,
-            self.targets_btn,
+            self.auto_btn,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.paper_combo,
@@ -393,8 +388,8 @@ class ToneSidebar(BaseSidebar):
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
             (self.paper_black_btn, "paper_black"),
-            (self.auto_density_btn, "auto_exposure"),
-            (self.auto_grade_btn, "auto_normalize_contrast"),
+            (self.auto_density_action, "auto_exposure"),
+            (self.auto_grade_action, "auto_normalize_contrast"),
         ):
             btn.toggled.connect(
                 lambda checked, f=field: self.update_config_section(
@@ -489,8 +484,8 @@ class ToneSidebar(BaseSidebar):
                 w.setEnabled(global_mode)
             # WorkspaceConfig holds both off on a merge; greyed so the reason can show.
             merged = hdr_active(self.state.config.hdr)
-            for w in (self.auto_density_btn, self.auto_grade_btn):
-                w.setEnabled(global_mode and not merged)
+            for action in (self.auto_density_action, self.auto_grade_action):
+                action.setEnabled(not merged)
             self.auto_merged_hint.setVisible(merged)
 
             for i, fields in enumerate(self._channel_fields, start=1):
@@ -519,8 +514,9 @@ class ToneSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.paper_black_btn.setChecked(conf.paper_black)
-            self.auto_density_btn.setChecked(conf.auto_exposure)
-            self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
+            self.auto_density_action.setChecked(conf.auto_exposure)
+            self.auto_grade_action.setChecked(conf.auto_normalize_contrast)
+            self.auto_btn.refresh()
         finally:
             self.block_signals(False)
 
@@ -550,7 +546,7 @@ class ToneSidebar(BaseSidebar):
             self.preflash_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
-            self.auto_density_btn,
-            self.auto_grade_btn,
+            self.auto_density_action,
+            self.auto_grade_action,
         ):
             w.blockSignals(blocked)

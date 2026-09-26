@@ -488,8 +488,8 @@ class ControlsPanel(QWidget):
             (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.autocrop_sidebar.auto_crop_all_btn, "batch_autocrop"),
-            (self.tone_sidebar.auto_density_btn, "toggle_auto_density"),
-            (self.tone_sidebar.auto_grade_btn, "toggle_auto_grade"),
+            (self.tone_sidebar.auto_density_action, "toggle_auto_density"),
+            (self.tone_sidebar.auto_grade_action, "toggle_auto_grade"),
             (self.presets_sidebar.apply_btn, "preset_apply"),
             (self.presets_sidebar.save_btn, "preset_save"),
         ):

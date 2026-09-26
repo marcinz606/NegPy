@@ -45,8 +45,8 @@ def test_picker_owns_its_batch_analysis_subheader(qapp):
     body -- everything else in that card (Analysis Buffer, clip sliders, White/Black
     Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
-    assert sidebar.layout.itemAt(0).widget() is not sidebar.roll_combo
-    assert sidebar.layout.itemAt(1).layout().itemAt(0).widget() is sidebar.roll_combo
+    assert sidebar.layout.itemAt(0).layout().itemAt(0).widget().text() == "ROLLS"
+    assert sidebar.layout.itemAt(1).widget() is sidebar.roll_combo
 
 
 def test_picker_defaults_to_the_active_roll_and_lists_every_library_roll(qapp):
@@ -98,14 +98,13 @@ def test_use_this_frame_is_gated_the_same_way_reanalyze_is(qapp):
     assert "Open this roll first" in sidebar.from_frame_btn.toolTip()
 
 
-def test_the_baseline_buttons_sit_right_of_the_picker(qapp):
-    """The same shape as a scene row: the field, then its icon actions."""
+def test_the_baseline_buttons_sit_on_the_rolls_header(qapp):
     _, sidebar, _ids = _sidebar()
 
-    row = sidebar.layout.itemAt(1).layout()
+    row = sidebar.layout.itemAt(0).layout()
     widgets = [row.itemAt(i).widget() for i in range(row.count())]
-    assert widgets == [sidebar.roll_combo, sidebar.reanalyze_btn, sidebar.from_frame_btn]
-    assert sidebar.layout.itemAt(0).widget().text() == "ROLLS"
+    assert widgets[1:] == [sidebar.reanalyze_btn, sidebar.from_frame_btn]
+    assert widgets[0].text() == "ROLLS"
 
 
 def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):

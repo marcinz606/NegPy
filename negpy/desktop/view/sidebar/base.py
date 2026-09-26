@@ -64,12 +64,12 @@ class BaseSidebar(QWidget):
         """Override to update widgets from current AppState."""
         pass
 
-    def _tool_toggle(self, icon_name: str, label: str, tooltip: str) -> QPushButton:
-        return tool_toggle(icon_name, label, tooltip)
+    def _tool_toggle(self, icon_name: str, label: str, tooltip: str, align_left: bool = False) -> QPushButton:
+        return tool_toggle(icon_name, label, tooltip, align_left)
 
-    def _small_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+    def _small_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str, align_left: bool = False) -> QPushButton:
         """_tool_toggle with an initial checked state; the name marks the role."""
-        btn = tool_toggle(icon_name, label, tooltip)
+        btn = tool_toggle(icon_name, label, tooltip, align_left)
         btn.setChecked(checked)
         return btn
 
