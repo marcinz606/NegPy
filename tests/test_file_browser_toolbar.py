@@ -64,7 +64,7 @@ def test_new_roll_lives_on_the_film_strip_section_header(panel):
     actions_btn = browser.frames_section.actions_btn
     assert actions_btn is not None
     labels = [action.text() for action in actions_btn.menu().actions()]
-    assert labels == ["New Roll…", "Reset Roll to Defaults…"]
+    assert labels == ["New Roll…", "Close Roll…", "Reset Roll to Defaults…"]
 
 
 def test_update_thumbnails_button_refreshes_the_whole_roll(panel):

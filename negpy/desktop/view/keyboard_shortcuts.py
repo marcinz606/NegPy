@@ -4,7 +4,8 @@ from typing import Optional
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.confirm import confirm_reset_frames
+from negpy.services.assets import rolls
+from negpy.desktop.view.confirm import confirm_close_roll, confirm_reset_frames
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
@@ -46,6 +47,23 @@ def _reset_roll(window, controller) -> None:
     count = len(controller.session.asset_model.visible_actual_indices_ordered())
     if count and confirm_reset_frames(window, count, roll=True) and controller.session.reset_roll_settings(scope="roll"):
         controller.request_render()
+
+
+def close_roll_label(state) -> str:
+    return "Close Roll…" if state.active_roll_id else "Unload All…"
+
+
+def _close_roll(window, controller) -> None:
+    """Empty the Film Strip: the open roll, or every loaded frame when no roll is open."""
+    session = controller.session
+    if not session.state.uploaded_files:
+        return
+    roll_id = session.state.active_roll_id
+    name = None
+    if roll_id:
+        name = (rolls.roll_for_id(session.repo, roll_id) or {}).get("name") or "this roll"
+    if confirm_close_roll(window, name):
+        session.clear_files()
 
 
 def _reset_selected(window, controller) -> None:
@@ -263,6 +281,7 @@ class ShortcutManager:
             "paste": lambda: open_paste_dialog(self.window, controller),
             "sync_bounds": lambda: open_sync_bounds_dialog(self.window, controller.session),
             "reset_roll": lambda: _reset_roll(self.window, controller),
+            "close_roll": lambda: _close_roll(self.window, controller),
             "reset_tab": lambda: _fire_tab_header(right, "reset"),
             "reset_tab_to_roll": lambda: _fire_tab_header(right, "revert"),
             "reset_to_roll": controller.revert_frame_to_roll,

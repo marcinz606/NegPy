@@ -27,6 +27,8 @@ from negpy.desktop.view.confirm import (
     warn_invalid_roll_name,
 )
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
+from negpy.desktop.view.keyboard_shortcuts import _close_roll
+from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, wrap_tooltip
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.widgets.sort_button import SortButton
@@ -409,6 +411,10 @@ class LibraryTree(QWidget):
                 name = item.data(0, _NAME_ROLE)
                 menu.addAction("Open").triggered.connect(lambda: self.controller.open_roll(roll_id))
                 is_active = roll_id == self.controller.state.active_roll_id
+                if is_active:
+                    menu.addAction(label_with_shortcut("Close Roll…", "close_roll")).triggered.connect(
+                        lambda: _close_roll(self, self.controller)
+                    )
                 analyze_action = menu.addAction("Roll Analysis")
                 analyze_action.setEnabled(is_active)
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)

@@ -31,6 +31,23 @@ def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
     return True
 
 
+def confirm_close_roll(parent, roll_name: str | None) -> bool:
+    """Ask before emptying the Film Strip: the open roll by *roll_name*, or, with no roll
+    open, every loaded frame."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    if roll_name is None:
+        box.setWindowTitle("Unload All")
+        box.setText("Unload all frames from the Film Strip?")
+    else:
+        box.setWindowTitle("Close Roll")
+        box.setText(f"Close “{roll_name}”?")
+    box.setInformativeText("Your saved edits stay in the database. The roll stays in the Library.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     """Ask the user to confirm removing image(s) from the session.
 
