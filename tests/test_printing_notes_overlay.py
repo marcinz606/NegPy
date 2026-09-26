@@ -33,6 +33,7 @@ def _overlay(notes: bool = True, masks=(BURN, DODGE)) -> CanvasOverlay:
     overlay._current_size = (W, H)
     overlay._qimage = QImage(W, H, QImage.Format.Format_RGB32)
     overlay._qimage.fill(0x00808080)
+    overlay._display_buffer = np.full((H, W, 3), 0.5, dtype=np.float32)
     return overlay
 
 
@@ -137,6 +138,7 @@ def test_the_sheet_carries_the_recipe_in_a_band_below_the_frame() -> None:
 def test_no_render_means_no_sheet() -> None:
     overlay = _overlay()
     overlay._qimage = None
+    overlay._display_buffer = None
     assert overlay.printing_notes_sheet() is None
 
     unmapped = _overlay()

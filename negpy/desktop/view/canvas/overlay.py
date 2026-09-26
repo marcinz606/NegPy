@@ -2112,10 +2112,13 @@ class CanvasOverlay(QWidget):
 
     def printing_notes_sheet(self) -> Optional[QImage]:
         """The exportable notes sheet: the frame the canvas rendered, the map baked on
-        it, and the recipe in a band below. None when there is nothing to annotate."""
-        img = self._host_qimage()
-        if img is None:
+        it, and the recipe in a band below. None when there is nothing to annotate.
+
+        Converted for sRGB, not the monitor: the sheet is saved as an untagged JPEG."""
+        buf = self._host_buffer()
+        if buf is None:
             return None
+        img = ImageConverter.to_qimage(buf, self._display_cs, None, self._proof)
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None and self.state.config.local.masks:
