@@ -23,6 +23,7 @@ from negpy.services.assets.half_frame import (
     remap_point,
     remap_workspace_config,
     remember_split_scans,
+    saved_crop_rect,
     slice_for_asset,
     slice_half,
     slice_half_dimensions,
@@ -133,6 +134,14 @@ class TestDetectFilmCrop:
         x1, y1, x2, y2 = roi
         assert abs(x1 - 40 / 600) < 0.01
         assert (y1, x2, y2) == (0.0, 1.0, 1.0)
+
+    def test_the_rect_survives_a_settings_round_trip_as_numbers(self):
+        """Settings are JSON with default=str, so a numpy scalar would read back as a string."""
+        import json
+
+        roi = detect_film_crop(_diptych_scan_with_edge_rebate())
+        assert roi is not None
+        assert json.loads(json.dumps(list(roi), default=str)) == list(roi)
 
     def test_each_side_is_detected_independently(self):
         roi = detect_film_crop(_diptych_scan_with_rebate_on_two_sides())
@@ -284,6 +293,25 @@ def test_expand_half_frames(monkeypatch):
     assert out[0]["name"] == "a.tif [1]" and out[1]["name"] == "a.tif [2]"
     assert out[0]["path"] == out[1]["path"] == "/p/a.tif"
     assert out[0]["split_x"] == out[1]["split_x"] == 0.48
+
+
+def test_saved_crop_rect_reads_string_values_as_floats():
+    assert saved_crop_rect(["0.04874884", 0.0, "0.9512549", 1.0]) == (0.04874884, 0.0, 0.9512549, 1.0)
+    assert saved_crop_rect(None) is None
+    assert saved_crop_rect([0.0, 0.0, 1.0]) is None
+    assert saved_crop_rect(["x", 0.0, 1.0, 1.0]) is None
+
+
+def test_expand_half_frames_reads_a_crop_saved_as_strings(monkeypatch):
+    """An override saved from numpy values before they were cast still slices."""
+    from negpy.desktop.workers import render as render_mod
+
+    worker = render_mod.AssetDiscoveryWorker()
+    assets = [{"name": "a.tif", "path": "/p/a.tif", "hash": "ha"}]
+    overrides = {"ha": {"crop_rect": ["0.05", 0.0, "0.95", 1.0], "split_x": 0.5, "gutter_thickness": 0.0}}
+    a1, a2 = worker._expand_half_frames(assets, profile={}, overrides=overrides)
+    assert a1["crop_rect"] == a2["crop_rect"] == (0.05, 0.0, 0.95, 1.0)
+    assert slice_half(np.zeros((100, 200, 3), np.float32), 1, a1["split_x"], a1["crop_rect"]).shape == (100, 90, 3)
 
 
 def test_expand_half_frames_with_profile_applies_it_uniformly(monkeypatch):

@@ -786,7 +786,14 @@ class AssetDiscoveryWorker(QObject):
         """
         import os
 
-        from negpy.services.assets.half_frame import base_hash, detect_split_x_for_file, half_hash, half_name, is_composite
+        from negpy.services.assets.half_frame import (
+            base_hash,
+            detect_split_x_for_file,
+            half_hash,
+            half_name,
+            is_composite,
+            saved_crop_rect,
+        )
 
         def _splittable(a: dict) -> bool:
             return not is_composite(a)
@@ -827,9 +834,9 @@ class AssetDiscoveryWorker(QObject):
                 }
                 source = override if override is not None else profile
                 if source is not None:
-                    cr = source.get("crop_rect")
+                    cr = saved_crop_rect(source.get("crop_rect"))
                     if cr is not None:
-                        entry["crop_rect"] = tuple(cr)
+                        entry["crop_rect"] = cr
                     entry["gutter_thickness"] = float(source.get("gutter_thickness") or 0.0)
                 out.append(entry)
         return out

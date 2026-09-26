@@ -100,6 +100,7 @@ from negpy.services.assets.half_frame import (
     is_composite,
     remap_workspace_config,
     remember_split_scans,
+    saved_crop_rect,
     split_scans,
 )
 from negpy.services.export.templating import path_safe, render_export_filename
@@ -1709,7 +1710,7 @@ class AppController(QObject):
     def save_half_frame_profile(self, crop_rect, split_x: float, gutter_thickness: float) -> None:
         self.session.repo.save_global_setting(
             self._HALF_FRAME_PROFILE_KEY,
-            {"crop_rect": list(crop_rect), "split_x": float(split_x), "gutter_thickness": float(gutter_thickness)},
+            {"crop_rect": [float(v) for v in crop_rect], "split_x": float(split_x), "gutter_thickness": float(gutter_thickness)},
         )
 
     def half_frame_overrides(self) -> dict:
@@ -1723,7 +1724,11 @@ class AppController(QObject):
 
     def save_half_frame_override(self, file_hash: str, crop_rect, split_x: float, gutter_thickness: float) -> None:
         overrides = self.half_frame_overrides()
-        overrides[file_hash] = {"crop_rect": list(crop_rect), "split_x": float(split_x), "gutter_thickness": float(gutter_thickness)}
+        overrides[file_hash] = {
+            "crop_rect": [float(v) for v in crop_rect],
+            "split_x": float(split_x),
+            "gutter_thickness": float(gutter_thickness),
+        }
         self.session.repo.save_global_setting(self._HALF_FRAME_OVERRIDES_KEY, overrides)
 
     def clear_half_frame_override(self, file_hash: str) -> None:
@@ -1779,9 +1784,8 @@ class AppController(QObject):
         auto-detect discovery falls back to."""
         saved = self.half_frame_override(file_hash) or self.half_frame_profile()
         if saved is not None:
-            cr = saved.get("crop_rect")
             return HalfGeometry(
-                crop_rect=tuple(cr) if cr is not None else None,
+                crop_rect=saved_crop_rect(saved.get("crop_rect")),
                 split_x=float(saved.get("split_x") or 0.5),
                 gutter_thickness=float(saved.get("gutter_thickness") or 0.0),
             )

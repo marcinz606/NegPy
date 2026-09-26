@@ -90,6 +90,21 @@ def half_name(name: str, half: int) -> str:
     return f"{name} [{half}]"
 
 
+def saved_crop_rect(value: Any) -> Optional[tuple[float, float, float, float]]:
+    """A persisted half-frame ``crop_rect`` as four floats, or None when absent or malformed.
+
+    Settings are stored as JSON with ``default=str``, so a crop saved from numpy values
+    reads back as strings.
+    """
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in value)
+    except (TypeError, ValueError):
+        return None
+    return (x1, y1, x2, y2)
+
+
 def _slice_half_bounds(
     height: int,
     width: int,
@@ -492,7 +507,7 @@ def _side_margin(norm: np.ndarray, axis: int, from_end: bool, gmin: float, gmax:
         region = norm[:depth, :] if not from_end else norm[n - depth :, :]
     if float(region.std()) > _EDGE_MAX_UNIFORMITY:
         return 0.0
-    return edge_px / n
+    return float(edge_px / n)
 
 
 def detect_film_crop(buf: np.ndarray) -> Optional[tuple[float, float, float, float]]:

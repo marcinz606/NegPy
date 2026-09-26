@@ -107,6 +107,23 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(args[0], "half_frame_overrides")
         self.assertEqual(args[1], {"h1": {"crop_rect": [0.05, 0.0, 0.95, 1.0], "split_x": 0.42, "gutter_thickness": 0.01}})
 
+    def test_half_frame_override_saves_numpy_crop_values_as_floats(self):
+        import numpy as np
+
+        self.controller.session.repo.get_global_setting.return_value = None
+        self.controller.save_half_frame_override("h1", (np.float32(0.25), 0.0, np.float32(0.75), 1.0), 0.5, 0.0)
+        args, _ = self.controller.session.repo.save_global_setting.call_args
+        self.assertTrue(all(type(v) is float for v in args[1]["h1"]["crop_rect"]))
+
+    def test_half_frame_geometry_reads_a_crop_saved_as_strings(self):
+        self.controller.session.repo.get_global_setting.side_effect = lambda key, default=None: (
+            {"h1": {"crop_rect": ["0.25", 0.0, "0.75", 1.0], "split_x": 0.5, "gutter_thickness": 0.0}}
+            if key == "half_frame_overrides"
+            else None
+        )
+        geom = self.controller._half_frame_geometry_for("h1")
+        self.assertEqual(geom.crop_rect, (0.25, 0.0, 0.75, 1.0))
+
     def test_clear_half_frame_override_only_writes_when_present(self):
         self.controller.session.repo.get_global_setting.return_value = {"h1": {"split_x": 0.4}}
         self.controller.clear_half_frame_override("h1")
