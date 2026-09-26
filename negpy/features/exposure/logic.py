@@ -98,6 +98,17 @@ def tone_key_weight(lum: float, e0: float, e1: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
+@njit(inline="always")
+def quadratic_core(k: float, pivot: float, curv: float, u: float) -> float:
+    """k*(u - pivot) + curv*u², held at its vertex on the side where it would fold back.
+    The Cast Removal clamp bounds curv only near the frame's range. exposure.wgsl mirrors it."""
+    if curv != 0.0:
+        vertex = -k / (2.0 * curv)
+        if (curv > 0.0 and u < vertex) or (curv < 0.0 and u > vertex):
+            u = vertex
+    return k * (u - pivot) + curv * u * u
+
+
 def tone_key_weight_np(lum: Any, e0: float, e1: float) -> Any:
     """Vectorized numpy twin of tone_key_weight, for the canvas tint over a whole raster."""
     t = np.clip((np.asarray(lum, dtype=np.float32) - np.float32(e0)) / np.float32(e1 - e0), 0.0, 1.0)
@@ -269,7 +280,7 @@ def _apply_print_curve_kernel(
                 # Quadratic per-channel core; curvature 0 gives the original straight line.
                 # gfac is the local grade, a slope rotation about this channel's pivot, so the
                 # region's own midtone holds. The cast-removal curvature stays global.
-                v = slopes[ch] * gfac * (val - pivots[ch]) + curvatures[ch] * val * val
+                v = quadratic_core(slopes[ch] * gfac, pivots[ch], curvatures[ch], val)
                 if flash > 0.0:
                     v = flash_v + flash_gamma * np.log10(10.0 ** ((v - flash_v) / flash_gamma) + flash)
 
@@ -412,6 +423,9 @@ class CharacteristicCurve:
 
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
         xv = np.asarray(x, dtype=np.float64)
+        if self.curvature != 0.0:
+            vertex = -self.k / (2.0 * self.curvature)
+            xv = np.maximum(xv, vertex) if self.curvature > 0.0 else np.minimum(xv, vertex)
         v = self.k * (xv - self.x0) + self.curvature * xv * xv
         if self.flash > 0.0:
             v = preflash_value(v, self.flash_v, self.flash, self.flash_gamma)

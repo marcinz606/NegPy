@@ -309,3 +309,17 @@ def test_block_median_b2_fast_path_matches_np_median():
     hb, wb = (h // 2) * 2, (w // 2) * 2
     ref = np.median(img[:hb, :wb].reshape(hb // 2, 2, wb // 2, 2, 3), axis=(1, 3))
     np.testing.assert_allclose(out, ref, atol=1e-6)
+
+
+def test_curvature_holds_at_vertex_below_the_domain():
+    """Values past the quadratic core's vertex must not fold back: the curve stays monotone."""
+    from negpy.features.exposure.logic import CharacteristicCurve
+
+    u = np.linspace(-3.0, 1.2, 64, dtype=np.float32)
+    ramp = np.repeat(u[None, :, None], 3, axis=2)
+    out = apply_characteristic_curve(ramp, (0.5, 2.85), (0.5, 3.0), (0.5, 2.7), curvatures=(1.97, 0.0, -1.5))[0]
+    assert np.all(np.diff(out, axis=0) <= 1e-6)
+
+    curve = CharacteristicCurve(contrast=2.85, pivot=0.5, curvature=1.97)
+    density = np.asarray(curve(u[:, None])).reshape(-1)
+    assert np.all(np.diff(density) >= -1e-6)

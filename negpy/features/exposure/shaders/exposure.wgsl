@@ -121,6 +121,18 @@ fn tone_key_weight(lum: f32, e0: f32, e1: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Mirrors logic.quadratic_core: held at the vertex where the quadratic would fold back.
+fn quadratic_core(k: f32, pivot: f32, curv: f32, u_in: f32) -> f32 {
+    var u = u_in;
+    if (curv != 0.0) {
+        let vertex = -k / (2.0 * curv);
+        if ((curv > 0.0 && u < vertex) || (curv < 0.0 && u > vertex)) {
+            u = vertex;
+        }
+    }
+    return k * (u - pivot) + curv * u * u;
+}
+
 // Working-space OETF (Adobe RGB: pure 563/256 gamma); feeds the encoded
 // perceptual region (clahe, retouch) before lab decodes back to linear.
 fn oetf_encode(t: f32) -> f32 {
@@ -249,7 +261,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // Quadratic per-channel core (curvature 0 -> the original straight line).
         // gfac is the local grade: a slope rotation about this channel's pivot, so a
         // masked region's own midtone holds. Curvature stays global.
-        var v = params.slopes[ch] * gfac * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
+        var v = quadratic_core(params.slopes[ch] * gfac, params.pivots[ch], params.curvatures[ch], val);
         // Preflash: the flash exposure adds to the image exposure (preflash_value).
         if (params.hue.y > 0.0) {
             v = params.hue.z + params.hue.w * log(pow(10.0, (v - params.hue.z) / params.hue.w) + params.hue.y) / 2.302585;
