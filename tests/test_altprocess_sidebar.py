@@ -69,4 +69,4 @@ def test_neither_block_shows_outside_bw() -> None:
     sidebar = AltProcessSidebar(SimpleNamespace(state=SimpleNamespace(config=config)))
     sidebar.sync_ui()
     assert not sidebar.cyano_block.isVisibleTo(sidebar)
-    assert not sidebar.mode_buttons[AltProcess.CYANOTYPE].isEnabled()
+    assert not sidebar.mode_btn.isEnabled()

@@ -1,6 +1,7 @@
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtWidgets import QButtonGroup, QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
+from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
 import qtawesome as qta
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
@@ -111,19 +112,11 @@ class LocalSidebar(BaseSidebar):
             "midtone holds, so this changes its contrast without moving its overall density."
         )
 
-        self.tone_group = QButtonGroup(self)
-        self.tone_group.setExclusive(True)
-        self.tone_buttons = {}
-        tone_row = QHBoxLayout()
-        for key, icon, label in (
-            (MaskKey.OFF, "fa5s.adjust", " All"),
-            (MaskKey.HIGHLIGHTS, "fa5s.sun", " Highlights"),
-            (MaskKey.SHADOWS, "fa5s.moon", " Shadows"),
-        ):
-            btn = self._labeled_toggle(icon, label, key == MaskKey.OFF, _TONE_TIPS[key])
-            self.tone_group.addButton(btn)
-            self.tone_buttons[key] = btn
-            tone_row.addWidget(btn)
+        self._tone_keys = (MaskKey.OFF, MaskKey.HIGHLIGHTS, MaskKey.SHADOWS)
+        self.tone_btn = ChoiceButton(
+            (("fa5s.adjust", "All"), ("fa5s.sun", "Highlights"), ("fa5s.moon", "Shadows")),
+            "Which tones inside the selected mask's shape it acts on",
+        )
 
         # Print zones in thirds, the zone strip's and zone placement's own step.
         self.key_zone_slider = CompactSlider("Tone Zone", 0.0, 10.0, 6.0, step=1.0 / 3.0, precision=3)
@@ -138,7 +131,7 @@ class LocalSidebar(BaseSidebar):
         self.layout.addWidget(SliderGroup(self.burn_slider, self.grade_slider))
         self.layout.addWidget(self.feather_slider)
         self.layout.addWidget(section_subheader("Tone Limit"))
-        self.layout.addLayout(tone_row)
+        self.layout.addWidget(self.tone_btn)
         self.layout.addWidget(SliderGroup(self.key_zone_slider, self.key_softness_slider))
 
         self.mask_count_label = field_label("0 masks")
@@ -165,8 +158,7 @@ class LocalSidebar(BaseSidebar):
             slider.valueCommitted.connect(lambda v, f=field: self.controller.update_selected_local_mask(**{f: float(v)}))
             slider.dragStarted.connect(lambda: self.controller.local_drag_changed.emit(True))
             slider.dragEnded.connect(lambda: self.controller.local_drag_changed.emit(False))
-        for key, btn in self.tone_buttons.items():
-            btn.clicked.connect(lambda _c, k=key: self.controller.update_selected_local_mask(key=k))
+        self.tone_btn.currentChanged.connect(lambda i: self.controller.update_selected_local_mask(key=self._tone_keys[i]))
 
     def _tool_modes(self) -> dict:
         return {
@@ -284,10 +276,11 @@ class LocalSidebar(BaseSidebar):
             self.grade_slider.setEnabled(has_selection)
             limited = limited_indices(conf)
             full = has_selection and idx not in limited and len(limited) >= MAX_KEYED_MASKS
-            for key, btn in self.tone_buttons.items():
+            self.tone_btn.setEnabled(has_selection)
+            for key, action in zip(self._tone_keys, self.tone_btn.choice_menu.actions()):
                 blocked = full and key != MaskKey.OFF
-                btn.setEnabled(has_selection and not blocked)
-                btn.setToolTip(wrap_tooltip(_TONE_FULL_TIP if blocked else _TONE_TIPS[key]))
+                action.setEnabled(not blocked)
+                action.setToolTip(_TONE_FULL_TIP if blocked else _TONE_TIPS[key])
             keyed = mask is not None and mask.key != MaskKey.OFF
             self.key_zone_slider.setEnabled(keyed)
             self.key_softness_slider.setEnabled(keyed)
@@ -295,7 +288,7 @@ class LocalSidebar(BaseSidebar):
                 self.burn_slider.setValue(mask.stops)
                 self.feather_slider.setValue(mask.feather)
                 self.grade_slider.setValue(mask.grade)
-                self.tone_buttons[mask.key].setChecked(True)
+                self.tone_btn.setCurrentIndex(self._tone_keys.index(mask.key))
                 self.key_zone_slider.setValue(mask.key_zone)
                 self.key_softness_slider.setValue(mask.key_softness)
         finally:
@@ -307,7 +300,7 @@ class LocalSidebar(BaseSidebar):
             self.burn_slider,
             self.feather_slider,
             self.grade_slider,
-            *self.tone_buttons.values(),
+            self.tone_btn,
             self.key_zone_slider,
             self.key_softness_slider,
         ]:

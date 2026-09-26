@@ -194,9 +194,9 @@ class ShortcutManager:
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
             ),
-            "mode_color_negative": lambda: controls.process_sidebar.mode_btns[0].click(),
-            "mode_bw_negative": lambda: controls.process_sidebar.mode_btns[1].click(),
-            "mode_transparency": lambda: controls.process_sidebar.mode_btns[2].click(),
+            "mode_color_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(0),
+            "mode_bw_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(1),
+            "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),
             "pick_wb": lambda: controls.color_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
             "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),

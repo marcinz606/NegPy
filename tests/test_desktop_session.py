@@ -605,26 +605,6 @@ class TestDesktopSessionSync(unittest.TestCase):
         config = self.session._apply_sticky_settings(base, only_global=True)
         self.assertFalse(config.exposure.auto_exposure)
 
-    def test_temp_lock_reaims_wb_on_load(self):
-        from negpy.features.exposure.logic import _TEMP_K_MAGENTA, _TEMP_K_YELLOW, wb_to_kelvin
-
-        sticky = {"last_export_config": {}, "wb_temp_lock": 4500.0}
-        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
-        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
-        # Both branches re-aim: saved files (only_global=True) and fresh files.
-        for only_global in (True, False):
-            cfg = self.session._apply_sticky_settings(base, only_global=only_global)
-            m, y = cfg.exposure.wb_magenta, cfg.exposure.wb_yellow
-            self.assertAlmostEqual(wb_to_kelvin(m, y), 4500.0, places=4)
-            # Re-aim moves along the locus only: the frame's tint is preserved.
-            self.assertAlmostEqual((m - 0.2) / _TEMP_K_MAGENTA, (y - 0.1) / _TEMP_K_YELLOW, places=6)
-
-    def test_temp_lock_absent_leaves_wb(self):
-        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
-        cfg = self.session._apply_sticky_settings(base, only_global=True)
-        self.assertEqual(cfg.exposure.wb_magenta, 0.2)
-        self.assertEqual(cfg.exposure.wb_yellow, 0.1)
-
     def test_sticky_settings_enabled_defaults_true(self):
         self.assertTrue(self.session.state.sticky_settings_enabled)
 
@@ -673,18 +653,15 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_export_config": {"export_path": "/out"},
             "last_linear_raw": True,
             "flatfield_active_profile": "rig-a",
-            "wb_temp_lock": 4500.0,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         self.session.state.sticky_settings_enabled = False
-        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
         with patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=prof):
-            config = self.session._apply_sticky_settings(base, only_global=False)
+            config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertEqual(config.export.export_path, "/out")
         self.assertTrue(config.process.linear_raw)
         self.assertEqual(config.flatfield.profile_id, "rig-a")
         self.assertTrue(config.flatfield.apply)
-        self.assertNotEqual((config.exposure.wb_magenta, config.exposure.wb_yellow), (0.2, 0.1))
 
     def test_master_switch_off_does_not_affect_only_global_branch(self):
         """only_global=True (an already-edited file) ignores the switch entirely."""

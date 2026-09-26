@@ -243,7 +243,7 @@ def test_flat_mode_hides_paper_ratio_for_original(qapp):
     form.load(_values(export_resolution_mode=ExportResolutionMode.ORIGINAL.value))
     form.set_flat_mode(True)
     assert form._ratio_row_widget.isHidden()
-    form.mode_target_px_btn.setChecked(True)
+    form.mode_btn.setCurrentIndex(2)
     assert not form._ratio_row_widget.isHidden()
 
 

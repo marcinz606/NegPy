@@ -178,7 +178,7 @@ def test_all_tones_leaves_the_zone_controls_off(qapp):
     _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
     sidebar.sync_ui()
 
-    assert sidebar.tone_buttons[MaskKey.OFF].isChecked()
+    assert sidebar.tone_btn.currentIndex() == 0
     assert not sidebar.key_zone_slider.isEnabled()
     assert not sidebar.key_softness_slider.isEnabled()
 
@@ -187,7 +187,7 @@ def test_choosing_highlights_limits_the_selected_mask(qapp):
     controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
     sidebar.sync_ui()
 
-    sidebar.tone_buttons[MaskKey.HIGHLIGHTS].click()
+    sidebar.tone_btn.choice_menu.actions()[1].trigger()
 
     controller.update_selected_local_mask.assert_called_with(key=MaskKey.HIGHLIGHTS)
 
@@ -196,7 +196,7 @@ def test_a_limited_mask_syncs_its_zone_and_names_it_in_the_row(qapp):
     _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.SHADOWS, key_zone=4.0, key_softness=2.0))
     sidebar.sync_ui()
 
-    assert sidebar.tone_buttons[MaskKey.SHADOWS].isChecked()
+    assert sidebar.tone_btn.currentIndex() == 2
     assert sidebar.key_zone_slider.isEnabled() and sidebar.key_zone_slider.value() == 4.0
     assert sidebar.key_softness_slider.value() == 2.0
     assert "≤IV" in _row_text(sidebar)
@@ -217,9 +217,9 @@ def test_a_fifth_mask_cannot_be_limited(qapp):
     _, sidebar = _sidebar(*limited, LocalMask(vertices=SQUARE, stops=1.0), selected=4)
     sidebar.sync_ui()
 
-    assert not sidebar.tone_buttons[MaskKey.HIGHLIGHTS].isEnabled()
-    assert not sidebar.tone_buttons[MaskKey.SHADOWS].isEnabled()
-    assert sidebar.tone_buttons[MaskKey.OFF].isChecked()
+    assert not sidebar.tone_btn.choice_menu.actions()[1].isEnabled()
+    assert not sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+    assert sidebar.tone_btn.currentIndex() == 0
 
 
 def test_a_limited_mask_among_four_stays_editable(qapp):
@@ -227,4 +227,4 @@ def test_a_limited_mask_among_four_stays_editable(qapp):
     _, sidebar = _sidebar(*limited, selected=2)
     sidebar.sync_ui()
 
-    assert sidebar.tone_buttons[MaskKey.SHADOWS].isEnabled()
+    assert sidebar.tone_btn.choice_menu.actions()[2].isEnabled()

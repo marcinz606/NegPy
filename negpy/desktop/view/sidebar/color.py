@@ -1,9 +1,10 @@
-from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, wrap_tooltip
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider, SliderGroup
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
@@ -14,61 +15,28 @@ class ColorSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
 
-        # Region selector, same idiom as the tone page's channel selector.
-        self.region_global_btn = self._labeled_toggle(
-            "fa5s.globe", " Global", True, "Global — apply temperature and CMY white balance to the entire tonal range"
+        self.region_btn = ChoiceButton(
+            (("fa5s.globe", "Global"), ("fa5s.moon", "Shadows"), ("fa5s.sun", "Highlights")),
+            "Region for Temperature, CMY and Pick WB: Global applies to the entire tonal range; "
+            "Shadows and Highlights bias toward shadow (low-density) or highlight (high-density) areas",
         )
-        self.region_shadow_btn = self._labeled_toggle(
-            "fa5s.moon", " Shadows", False, "Shadows — bias temperature and CMY white balance toward shadow (low-density) areas"
-        )
-        self.region_highlight_btn = self._labeled_toggle(
-            "fa5s.sun", " Highlights", False, "Highlights — bias temperature and CMY white balance toward highlight (high-density) areas"
-        )
-        self.region_btn_group = QButtonGroup(self)
-        self.region_btn_group.setExclusive(True)
-        self.region_btn_group.addButton(self.region_global_btn, 0)
-        self.region_btn_group.addButton(self.region_shadow_btn, 1)
-        self.region_btn_group.addButton(self.region_highlight_btn, 2)
-        # (button, region CMY fields). The edited dot shows when any field is set.
-        self._region_buttons = (
-            (self.region_global_btn, ("wb_cyan", "wb_magenta", "wb_yellow")),
-            (self.region_shadow_btn, ("shadow_cyan", "shadow_magenta", "shadow_yellow")),
-            (self.region_highlight_btn, ("highlight_cyan", "highlight_magenta", "highlight_yellow")),
-        )
-        region_row = QHBoxLayout()
-        for btn in (self.region_global_btn, self.region_shadow_btn, self.region_highlight_btn):
-            region_row.addWidget(btn, 1)
-        self.layout.addLayout(region_row)
-
         self.pick_wb_btn = self._tool_toggle(
             "fa5s.eye-dropper",
-            "Pick WB",
+            "",
             tooltip_with_shortcut(
                 "Pick a neutral gray from the canvas — solves the selected region's CMY so the patch prints neutral",
                 "pick_wb",
             ),
         )
-        self.temp_lock_btn = self._small_toggle(
-            "fa5s.thermometer-half",
-            "Roll Lock",
-            self.controller.session.repo.get_global_setting("wb_temp_lock") is not None,
-            "Roll lock — every newly opened frame re-aims this region's temperature to the target "
-            "(its own tint preserved); committing the slider while locked updates the target. "
-            "Each region (Global/Shadows/Highlights) holds its own lock.",
-        )
-        self.region_reset_btn = self._icon_action(
-            "fa5s.undo",
-            "Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral",
-        )
         self.ring_btn = self._tool_toggle("mdi.target", "", self._ring_tooltip())
+        self.pick_wb_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.ring_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
-        tools_row = QHBoxLayout()
-        tools_row.addWidget(self.pick_wb_btn, 1)
-        tools_row.addWidget(self.temp_lock_btn, 1)
-        tools_row.addWidget(self.region_reset_btn)
-        tools_row.addWidget(self.ring_btn)
-        self.layout.addLayout(tools_row)
+        region_row = QHBoxLayout()
+        region_row.addWidget(self.region_btn, 1)
+        region_row.addWidget(self.pick_wb_btn)
+        region_row.addWidget(self.ring_btn)
+        self.layout.addLayout(region_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
         self.temp_slider = KelvinSlider("Temperature")
@@ -97,33 +65,31 @@ class ColorSidebar(BaseSidebar):
 
         self.layout.addStretch()
 
+    _REGION_FIELDS = (
+        ("wb_cyan", "wb_magenta", "wb_yellow"),
+        ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
+        ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
+    )
     _REGION_MY = (
         ("wb_magenta", "wb_yellow"),
         ("shadow_magenta", "shadow_yellow"),
         ("highlight_magenta", "highlight_yellow"),
     )
-    _LOCK_KEYS = ("wb_temp_lock", "wb_temp_lock_shadow", "wb_temp_lock_highlight")
 
     def _region_index(self) -> int:
-        return self.region_btn_group.checkedId()
+        return self.region_btn.currentIndex()
 
     def _region_my(self, conf) -> tuple:
         m_field, y_field = self._REGION_MY[self._region_index()]
         return getattr(conf, m_field), getattr(conf, y_field)
 
-    def _on_region_reset(self) -> None:
-        fields = self._region_buttons[self._region_index()][1]
-        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{f: 0.0 for f in fields})
-
     def _connect_signals(self) -> None:
-        self.region_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
-        self.region_reset_btn.clicked.connect(self._on_region_reset)
+        self.region_btn.currentChanged.connect(lambda _i: self.sync_ui())
 
         self.temp_slider.dragStarted.connect(self._on_temp_drag_started)
         self.temp_slider.dragEnded.connect(self._on_temp_drag_ended)
         self.temp_slider.valueChanged.connect(self._on_temp_changed)
         self.temp_slider.valueCommitted.connect(lambda v: self._on_temp_changed(v, persist=True))
-        self.temp_lock_btn.toggled.connect(self._on_temp_lock_toggled)
 
         self.cyan_slider.valueChanged.connect(self._on_cyan_changed)
         self.magenta_slider.valueChanged.connect(self._on_magenta_changed)
@@ -177,13 +143,6 @@ class ColorSidebar(BaseSidebar):
         m2, y2 = kelvin_to_wb(kelvin, m0, y0)
         m_field, y_field = self._REGION_MY[self._region_index()]
         self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, **{m_field: m2, y_field: y2})
-        if persist and self.temp_lock_btn.isChecked():
-            # Store the achieved temperature (post-clip), not the requested one.
-            self.controller.session.repo.save_global_setting(self._LOCK_KEYS[self._region_index()], wb_to_kelvin(m2, y2))
-
-    def _on_temp_lock_toggled(self, checked: bool) -> None:
-        key = self._LOCK_KEYS[self._region_index()]
-        self.controller.session.repo.save_global_setting(key, float(self.temp_slider.value()) if checked else None)
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
         field = ("wb_cyan", "shadow_cyan", "highlight_cyan")[self._region_index()]
@@ -206,20 +165,14 @@ class ColorSidebar(BaseSidebar):
         try:
             idx = self._region_index()
             self.state.wb_pick_region = idx
-            channels = (
-                ("wb_cyan", "wb_magenta", "wb_yellow"),
-                ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
-                ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
-            )[idx]
+            channels = self._REGION_FIELDS[idx]
             self.cyan_slider.setValue(getattr(conf, channels[0]))
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
-            locked = self.controller.session.repo.get_global_setting(self._LOCK_KEYS[idx]) is not None
-            self.temp_lock_btn.setChecked(locked)
 
-            for btn, fields in self._region_buttons:
-                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
+            for i, fields in enumerate(self._REGION_FIELDS):
+                self.region_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
@@ -234,11 +187,8 @@ class ColorSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
-            self.region_global_btn,
-            self.region_shadow_btn,
-            self.region_highlight_btn,
+            self.region_btn,
             self.temp_slider,
-            self.temp_lock_btn,
             self.cyan_slider,
             self.magenta_slider,
             self.yellow_slider,

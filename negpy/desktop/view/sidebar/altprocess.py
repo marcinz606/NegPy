@@ -1,5 +1,6 @@
-from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout, QWidget
 
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
@@ -22,11 +23,7 @@ class AltProcessSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.altproc
 
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.setExclusive(True)
-        self.mode_buttons = {}
-        mode_row = QHBoxLayout()
-        for mode, icon, label, tip in (
+        self._modes = (
             (AltProcess.NONE, "fa5s.ban", "None", "Print normally — no alternative process."),
             (
                 AltProcess.LITH,
@@ -49,13 +46,11 @@ class AltProcessSidebar(BaseSidebar):
                 "There is no silver in a cyanotype, so every chemical toner is disabled while "
                 "this is on; use Bleach and Tannin instead",
             ),
-        ):
-            btn = self._tool_toggle(icon, label, tip)
-            btn.setChecked(conf.alt_process == mode)
-            self.mode_group.addButton(btn)
-            self.mode_buttons[mode] = btn
-            mode_row.addWidget(btn, 1)
-        self.layout.addLayout(mode_row)
+        )
+        self.mode_btn = ChoiceButton(tuple((icon, label) for _m, icon, label, _t in self._modes), "Alternative printing process")
+        for action, (*_rest, tip) in zip(self.mode_btn.choice_menu.actions(), self._modes):
+            action.setToolTip(tip)
+        self.layout.addWidget(self.mode_btn)
 
         self.lith_block = self._build_lith(conf)
         self.cyano_block = self._build_cyanotype(conf)
@@ -144,8 +139,7 @@ class AltProcessSidebar(BaseSidebar):
         self.sensitizer_combo.setCurrentIndex(max(self.sensitizer_combo.findData(str(sensitizer)), 0))
 
     def _connect_signals(self) -> None:
-        for mode, btn in self.mode_buttons.items():
-            btn.clicked.connect(lambda _c, m=mode: self.update_config_section("altproc", persist=True, alt_process=m))
+        self.mode_btn.currentChanged.connect(lambda i: self.update_config_section("altproc", persist=True, alt_process=self._modes[i][0]))
 
         self.sensitizer_combo.currentIndexChanged.connect(
             lambda i: self.update_config_section("altproc", persist=True, cyano_sensitizer=Sensitizer(self.sensitizer_combo.itemData(i)))
@@ -174,9 +168,8 @@ class AltProcessSidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
-            for m, btn in self.mode_buttons.items():
-                btn.setChecked(conf.alt_process == m)
-                btn.setEnabled(is_bw)
+            self.mode_btn.setCurrentIndex(next(i for i, (m, *_rest) in enumerate(self._modes) if m == conf.alt_process))
+            self.mode_btn.setEnabled(is_bw)
 
             self.exposure_slider.setValue(conf.lith_exposure)
             self.snatch_slider.setValue(conf.lith_snatch)
@@ -204,5 +197,5 @@ class AltProcessSidebar(BaseSidebar):
         ]
 
     def block_signals(self, blocked: bool) -> None:
-        for w in [*self.mode_buttons.values(), self.sensitizer_combo, *self._sliders()]:
+        for w in [self.mode_btn, self.sensitizer_combo, *self._sliders()]:
             w.blockSignals(blocked)

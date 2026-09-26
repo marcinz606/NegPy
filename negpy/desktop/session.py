@@ -1090,20 +1090,6 @@ class DesktopSessionManager(QObject):
                 ),
             )
 
-        # Temperature roll-locks (per region): re-aim each locked region's M/Y
-        # pair at its Kelvin target, keeping the frame's own off-locus tint.
-        for lock_key, m_field, y_field in (
-            ("wb_temp_lock", "wb_magenta", "wb_yellow"),
-            ("wb_temp_lock_shadow", "shadow_magenta", "shadow_yellow"),
-            ("wb_temp_lock_highlight", "highlight_magenta", "highlight_yellow"),
-        ):
-            locked_k = self.repo.get_global_setting(lock_key)
-            if locked_k is not None:
-                from negpy.features.exposure.logic import kelvin_to_wb
-
-                m2, y2 = kelvin_to_wb(float(locked_k), getattr(config.exposure, m_field), getattr(config.exposure, y_field))
-                config = replace(config, exposure=replace(config.exposure, **{m_field: m2, y_field: y2}))
-
         if only_global:
             return config
 

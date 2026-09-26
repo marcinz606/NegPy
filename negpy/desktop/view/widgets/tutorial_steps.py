@@ -51,10 +51,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.tone_sidebar.toe_slider
 
     def _channel_selector(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.tone_sidebar.ch_global_btn
+        return w.controls_panel.tone_sidebar.ch_btn
 
     def _region_btn(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.color_sidebar.region_global_btn
+        return w.controls_panel.color_sidebar.region_btn
 
     def _lab(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.lab_sidebar
@@ -96,7 +96,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.right_panel.history_panel.list
 
     def _flat_master(w: "MainWindow") -> Optional[QWidget]:
-        return w.right_panel.export_sidebar.intent_flat_btn
+        return w.right_panel.export_sidebar.intent_btn
 
     def _analysis_buffer(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.process_sidebar.analysis_buffer_slider
@@ -626,13 +626,12 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Exposure: Filtration",
             body=(
                 "White balance is real CC filtration: ±1.0 on a slider is ±20cc of dichroic "
-                "density. The <b>Global / Shadows / Highlights</b> buttons on top scope the "
+                "density. The <b>Global / Shadows / Highlights</b> selector on top scopes the "
                 "CMY sliders to a region for precise split-toning control.<br><br>"
                 "The <b>Temperature</b> slider re-dials the filter pack along the warm-to-cool "
                 "axis. Magenta and Yellow move together in the right ratio while your "
                 "green-magenta tint stays put. Travel is mired-linear (equal drag, equal "
-                f"perceived shift), {_k('temp_warm')}/{_k('temp_cool')} nudge it, and the thermometer button "
-                "locks the temperature for the whole roll.<br><br>"
+                f"perceived shift) and {_k('temp_warm')}/{_k('temp_cool')} nudge it.<br><br>"
                 "<b>Pick WB</b>: click a neutral area in the preview and the filtration is "
                 "calculated for you."
             ),
@@ -724,7 +723,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Alternative Processes: Lith & Cyanotype",
             body=(
                 "Two printing processes that are not ordinary silver-gelatin enlarging. They are "
-                "mutually exclusive, so the <b>None / Lith / Cyanotype</b> buttons pick one and "
+                "mutually exclusive, so the <b>None / Lith / Cyanotype</b> selector picks one and "
                 "only that process's controls appear. Both are <b>B&amp;W Negative only</b> and "
                 "off by default.<br><br>"
                 "<b>Lith</b> is the darkroom trick of massively over-exposing a lith-capable "

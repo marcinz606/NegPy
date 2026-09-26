@@ -38,16 +38,15 @@ def test_mode_buttons_track_config_and_switch_mode(qapp):
     controller, sidebar = _sidebar()
     sidebar.sync_ui()
 
-    color_btn, bw_btn, slide_btn = sidebar.mode_btns
-    assert color_btn.isChecked()
+    assert sidebar.mode_btn.currentIndex() == 0
 
     cfg = controller.state.config
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     sidebar.sync_ui()
-    assert slide_btn.isChecked()
-    assert not color_btn.isChecked() and not bw_btn.isChecked()
+    assert sidebar.mode_btn.currentIndex() == 2
+    controller.set_process_mode.assert_not_called()
 
-    bw_btn.click()
+    sidebar.mode_btn.choice_menu.actions()[1].trigger()
     controller.set_process_mode.assert_called_once_with(ProcessMode.BW)
 
 
@@ -120,7 +119,7 @@ def test_the_analysis_bar_holds_everything_that_meters_this_frame(qapp):
             sidebar.analysis_buffer_slider,
             sidebar.analysis_region_btn,
             sidebar.luma_range_clip_slider,
-            sidebar.ch_global_btn,
+            sidebar.ch_btn,
             sidebar.white_point_slider,
         )
     ]
@@ -168,7 +167,7 @@ def test_the_point_header_opens_the_channel_row_and_its_sliders(qapp):
     col = sidebar.analysis_bar.layout()
     header_i = col.indexOf(sidebar.point_header)
     assert header_i > _row_index_containing(col, sidebar.color_range_clip_slider)
-    assert _row_index_containing(col, sidebar.ch_r_btn) == header_i + 1
+    assert _row_index_containing(col, sidebar.ch_btn) == header_i + 1
     assert _row_index_containing(col, sidebar.white_point_slider) == header_i + 2
 
 
@@ -233,16 +232,16 @@ def test_white_black_point_retarget_and_sync(qapp):
     assert abs(sidebar.white_point_slider.value() - 0.1) < 1e-9
     assert abs(sidebar.black_point_slider.value() - (-0.05)) < 1e-9
 
-    sidebar.ch_r_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(1)
 
     assert sidebar._wp_field() == "white_point_trim_red"
     assert sidebar._bp_field() == "black_point_trim_red"
     assert abs(sidebar.white_point_slider.value() - 0.08) < 1e-9
     assert abs(sidebar.black_point_slider.value() - (-0.02)) < 1e-9
     assert sidebar.white_point_slider.label.text() == "White Point R"
-    assert sidebar.ch_r_btn.edited_dot.isVisibleTo(sidebar.ch_r_btn)
+    assert sidebar.ch_btn.edited_dot.isVisibleTo(sidebar.ch_btn)
 
-    sidebar.ch_global_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(0)
     assert abs(sidebar.white_point_slider.value() - 0.1) < 1e-9
     assert sidebar.white_point_slider.label.text() == "White Point"
 
@@ -291,7 +290,7 @@ def test_white_black_point_write_the_normalization_roll_card(qapp):
     controller, sidebar = _sidebar()
 
     sidebar._on_white_point_changed(0.15, persist=True)
-    sidebar.ch_g_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(2)
     sidebar._on_black_point_changed(-0.05, persist=True)
 
     calls = [(c.args[0], c.kwargs) for c in controller.set_roll_default.call_args_list]

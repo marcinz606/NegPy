@@ -145,7 +145,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert "&lt;" not in sidebar.grade_trim_slider.toolTip()
 
     # Red page: sliders retarget to the red trims; global-only controls grey out.
-    sidebar.ch_r_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(1)
 
     assert sidebar._curve_field("toe") == "toe_trim_red"
     assert sidebar._curve_field("shoulder") == "shoulder_trim_red"
@@ -182,7 +182,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
         assert not w.isEnabled()
 
     # Back to Global: values and enablement restore.
-    sidebar.ch_global_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(0)
     assert sidebar.toe_slider.value() == 0.0
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
     assert not sidebar.toe_w_slider.isHidden()
@@ -196,14 +196,13 @@ def test_channel_selector_hidden_in_bw(qapp):
     sidebar = ToneSidebar(controller)
 
     sidebar.sync_ui()
-    assert not sidebar.ch_r_btn.isHidden()
-    sidebar.ch_r_btn.setChecked(True)
+    assert not sidebar.ch_btn.isHidden()
+    sidebar.ch_btn.setCurrentIndex(1)
 
     cfg = controller.state.config
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     sidebar.sync_ui()
-    for w in (sidebar.ch_global_btn, sidebar.ch_r_btn, sidebar.ch_g_btn, sidebar.ch_b_btn):
-        assert w.isHidden()
+    assert sidebar.ch_btn.isHidden()
     # Forced back to the Global page.
     assert sidebar._channel_index() == 0
     assert not sidebar.grade_slider.isHidden()
@@ -252,7 +251,7 @@ def test_dye_separation_trim_swaps_per_channel_on_transfer_too(qapp):
     assert sidebar.dye_separation_trim_slider.isHidden()
     assert not sidebar.separation_damping_slider.isHidden()
 
-    sidebar.ch_r_btn.setChecked(True)
+    sidebar.ch_btn.setCurrentIndex(1)
     assert sidebar.dye_separation_slider.isHidden()
     assert not sidebar.dye_separation_trim_slider.isHidden()
     assert abs(sidebar.dye_separation_trim_slider.value() - 0.25) < 1e-9

@@ -1,10 +1,10 @@
-import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QVBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.hdr.models import hdr_active
@@ -35,45 +35,26 @@ class ToneSidebar(BaseSidebar):
         self.grade_trim_slider.setVisible(False)
 
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
-        self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — edit the shared H&D curve (all layers)")
-        self.ch_r_btn = self._labeled_toggle(
-            "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the cyan-dye emulsion"
+        self.ch_btn = ChoiceButton(
+            (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
+            "Global edits the shared H&D curve (all layers). Red, Green and Blue edit per-layer "
+            "Grade/Toe/Shoulder/Width/Snap trims for the cyan-, magenta- and yellow-dye emulsions",
         )
-        self.ch_g_btn = self._labeled_toggle(
-            "fa5s.circle", " Green", False, "Green layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the magenta-dye emulsion"
-        )
-        self.ch_b_btn = self._labeled_toggle(
-            "fa5s.circle", " Blue", False, "Blue layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the yellow-dye emulsion"
-        )
-        for btn, color in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_COLORS):
-            btn.setIcon(qta.icon("fa5s.circle", color=color))
-        self.ch_btn_group = QButtonGroup(self)
-        self.ch_btn_group.setExclusive(True)
-        for i, btn in enumerate((self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn)):
-            self.ch_btn_group.addButton(btn, i)
-        # (button, that channel's trim fields) for the edited dot.
-        self._channel_buttons = tuple(
+        # Each channel's trim fields, for the edited dot.
+        self._channel_fields = tuple(
             (
-                btn,
-                (
-                    f"grade_trim_{ch}",
-                    f"shadow_grade_trim_{ch}",
-                    f"highlight_grade_trim_{ch}",
-                    f"toe_trim_{ch}",
-                    f"shoulder_trim_{ch}",
-                    f"midtone_gamma_trim_{ch}",
-                    f"toe_width_trim_{ch}",
-                    f"shoulder_width_trim_{ch}",
-                    f"dye_separation_trim_{ch}",
-                ),
+                f"grade_trim_{ch}",
+                f"shadow_grade_trim_{ch}",
+                f"highlight_grade_trim_{ch}",
+                f"toe_trim_{ch}",
+                f"shoulder_trim_{ch}",
+                f"midtone_gamma_trim_{ch}",
+                f"toe_width_trim_{ch}",
+                f"shoulder_width_trim_{ch}",
+                f"dye_separation_trim_{ch}",
             )
-            for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
+            for ch in _CH_SUFFIX
         )
-        ch_row = QHBoxLayout()
-        for btn in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-            ch_row.addWidget(btn, 1)
-        self.layout.addLayout(ch_row)
-
         self.auto_density_btn = self._small_toggle(
             "fa5s.magic",
             "Auto Density",
@@ -98,11 +79,16 @@ class ToneSidebar(BaseSidebar):
         self.test_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
 
+        ch_row = QHBoxLayout()
+        ch_row.addWidget(self.ch_btn, 1)
+        # Holds the icons at the right edge when B&W hides the selector.
+        ch_row.addStretch()
+        ch_row.addWidget(self.targets_btn)
+        ch_row.addWidget(self.test_strip_btn)
+        self.layout.addLayout(ch_row)
         auto_row = QHBoxLayout()
         auto_row.addWidget(self.auto_density_btn, 1)
         auto_row.addWidget(self.auto_grade_btn, 1)
-        auto_row.addWidget(self.targets_btn)
-        auto_row.addWidget(self.test_strip_btn)
         self.layout.addLayout(auto_row)
         # Disabled widgets get no hover, so the reason hangs off the hint under them.
         self.auto_merged_hint = hint_label("Not applied to a merged bracket.")
@@ -119,7 +105,7 @@ class ToneSidebar(BaseSidebar):
 
         self.paper_black_btn = self._small_toggle(
             "fa5s.circle",
-            "Paper Black",
+            "",
             conf.paper_black,
             "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
             "compensating it to pure display black. Off (default) applies black point compensation, "
@@ -128,7 +114,7 @@ class ToneSidebar(BaseSidebar):
         )
         self.paper_dmin_btn = self._small_toggle(
             "fa5s.file",
-            "Paper White",
+            "",
             conf.paper_dmin,
             "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
         )
@@ -200,12 +186,13 @@ class ToneSidebar(BaseSidebar):
         idx = self.paper_combo.findData(conf.paper_profile)
         if idx >= 0:
             self.paper_combo.setCurrentIndex(idx)
-        self.layout.addWidget(self.paper_combo)
-
-        paper_toggle_row = QHBoxLayout()
-        paper_toggle_row.addWidget(self.paper_black_btn, 1)
-        paper_toggle_row.addWidget(self.paper_dmin_btn, 1)
-        self.layout.addLayout(paper_toggle_row)
+        self.paper_black_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        paper_row = QHBoxLayout()
+        paper_row.addWidget(self.paper_combo, 1)
+        paper_row.addWidget(self.paper_black_btn)
+        paper_row.addWidget(self.paper_dmin_btn)
+        self.layout.addLayout(paper_row)
 
         self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
         self.layout.addWidget(self.preflash_slider)
@@ -278,7 +265,7 @@ class ToneSidebar(BaseSidebar):
         self.controller.request_render(readback_metrics=True)
 
     def _channel_index(self) -> int:
-        return max(self.ch_btn_group.checkedId(), 0)
+        return self.ch_btn.currentIndex()
 
     def _curve_field(self, base: str) -> str:
         idx = self._channel_index()
@@ -330,7 +317,7 @@ class ToneSidebar(BaseSidebar):
         # The strip is session state, not config, and any render drops it, so the button has to
         # follow the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
-        self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
+        self.ch_btn.currentChanged.connect(lambda _i: self.sync_ui())
 
         # White Point/Black Point live on ProcessConfig, not ExposureConfig like the rest of
         # this panel, so they write to a different config section than the loop below.
@@ -452,10 +439,9 @@ class ToneSidebar(BaseSidebar):
                 w.setVisible(not transfer)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
             is_bw = mode == ProcessMode.BW
-            if is_bw and self._channel_index() != 0:
-                self.ch_global_btn.setChecked(True)
-            for w in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-                w.setVisible(not is_bw)
+            if is_bw:
+                self.ch_btn.setCurrentIndex(0)
+            self.ch_btn.setVisible(not is_bw)
 
             idx = self._channel_index()
             global_mode = idx == 0
@@ -507,8 +493,8 @@ class ToneSidebar(BaseSidebar):
                 w.setEnabled(global_mode and not merged)
             self.auto_merged_hint.setVisible(merged)
 
-            for btn, fields in self._channel_buttons:
-                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
+            for i, fields in enumerate(self._channel_fields, start=1):
+                self.ch_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
             self.toe_w_slider.setValue(conf.toe_width)
@@ -541,10 +527,7 @@ class ToneSidebar(BaseSidebar):
     def block_signals(self, blocked: bool) -> None:
         for w in (
             self.paper_combo,
-            self.ch_global_btn,
-            self.ch_r_btn,
-            self.ch_g_btn,
-            self.ch_b_btn,
+            self.ch_btn,
             self.density_slider,
             self.grade_slider,
             self.grade_trim_slider,

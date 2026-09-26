@@ -399,15 +399,13 @@ Three panels set light, color and contrast in the print stage of the pipeline.
 <!-- panel:color -->
 ### 5.1 Filtration: white balance
 
-Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** applies the controls to the whole image or biases them to low- or high-density tones.
+Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlights** selector applies the controls to the whole image or biases them to low- or high-density tones.
 
-*   **Pick WB** (eyedropper): click a pixel that should be neutral gray; NegPy solves the CMY filtration for the selected region.
-*   **Roll Lock**: re-aims each newly opened frame's temperature to the current target, keeping its tint. Per region.
-*   **Reset** (undo-arrow icon): set the region's temperature and CMY to neutral.
+*   **Pick WB** (eyedropper, right of the region selector): click a pixel that should be neutral gray; NegPy solves the CMY filtration for the selected region.
 *   **Temperature**: warm-to-cool lever on the magenta/yellow pair; cyan stays put.
 *   **Cyan / Magenta / Yellow** (-1 to 1): Cyan↔Red, Magenta↔Green, Yellow↔Blue.
 *   **Cast Removal** (0.0 to 1.0, **color only**): balances each layer against the frame's own grays so neutrals stay neutral from shadows to highlights; strength scales with how many clean near-neutrals the frame has. On Color Negative it removes the **orange mask** and starts at 1.0. On Transparency it starts at 0 and corrects a faded slide's crossover (a slide's cast can be the photograph). For other slide color use **Temperature**, the CMY sliders or **Hue Trim** (§10.3). Hidden for B&W Negative.
-*   **Ring-around** (target icon, or `Shift+F`): a 5×5 mosaic in 2cc steps to ±4cc on magenta and yellow, centered on neutral, so rings compare across frames. Each patch renders the part of the frame it covers; click one to keep its filtration. `Escape` or a second press clears it; any edit drops it. See **Rotating a proof** below.
+*   **Ring-around** (target icon, at the right end of the row, or `Shift+F`): a 5×5 mosaic in 2cc steps to ±4cc on magenta and yellow, centered on neutral, so rings compare across frames. Each patch renders the part of the frame it covers; click one to keep its filtration. `Escape` or a second press clears it; any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
 ### 5.2 Tone: density, contrast and the print curve
@@ -440,8 +438,8 @@ Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** 
 **Paper Response**:
 
 *   **Paper profile**: a bundled paper profile (RA4 in Color Negative, tonal B&W papers in B&W Negative) that sets the curve baseline; the other controls trim on top. *Neutral* gives the defaults. Each B&W paper has its own lith color path: Fomatone warm and colorful, *Neutral* and Ilford Multigrade nearly colorless.
-*   **Paper White**: simulate paper base density, so whites print at about 0.93.
-*   **Paper Black**: show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
+*   **Paper White** (page icon, right of the paper profile): simulate paper base density, so whites print at about 0.93.
+*   **Paper Black** (circle icon, right of the paper profile): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
 *   **Preflash** (0 to 1): an even flash of light over the whole sheet, as a fraction of the paper's threshold exposure. It pulls highlight detail off paper white and softens the print a little overall; a harder Grade gives the contrast back. Bare paper stays white. Hidden on slides.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.

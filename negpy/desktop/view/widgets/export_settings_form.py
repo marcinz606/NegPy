@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -20,7 +19,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, labeled_toggle, section_subheader
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -237,20 +237,13 @@ class ExportSettingsForm(QWidget):
 
         root.addWidget(section_subheader("SIZE"))
 
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(4)
-        self.mode_original_btn = labeled_toggle("", "Original", False, "Export at the source resolution")
-        self.mode_print_btn = labeled_toggle("", "Print", False, "Size the export for a print: paper size and DPI")
-        self.mode_target_px_btn = labeled_toggle("", "Pixels", False, "Size the export to a pixel count on the long edge")
-        for btn in (self.mode_original_btn, self.mode_print_btn, self.mode_target_px_btn):
-            mode_row.addWidget(btn)
-        self.mode_btn_group = QButtonGroup(self)
-        self.mode_btn_group.setExclusive(True)
-        self.mode_btn_group.addButton(self.mode_original_btn, 0)
-        self.mode_btn_group.addButton(self.mode_print_btn, 1)
-        self.mode_btn_group.addButton(self.mode_target_px_btn, 2)
-        self.mode_btn_group.idToggled.connect(self._on_mode_toggled)
-        root.addLayout(mode_row)
+        self.mode_btn = ChoiceButton(
+            (("", "Original"), ("", "Print"), ("", "Pixels")),
+            "Original exports at the source resolution. Print sizes the export for a print: paper "
+            "size and DPI. Pixels sizes it to a pixel count on the long edge",
+        )
+        self.mode_btn.currentChanged.connect(self._on_mode_toggled)
+        root.addWidget(self.mode_btn)
 
         # PRINT mode: cm + DPI
         self._print_container = QWidget()
@@ -565,9 +558,7 @@ class ExportSettingsForm(QWidget):
             )
         self.jxl_cs_warning.setVisible(blocked)
 
-    def _on_mode_toggled(self, _id: int, checked: bool) -> None:
-        if not checked:
-            return
+    def _on_mode_toggled(self, _id: int) -> None:
         mode = self._current_mode_value()
         self._update_mode_visibility(mode)
         self._update_ratio_visibility(mode)
@@ -592,12 +583,10 @@ class ExportSettingsForm(QWidget):
     _ID_BY_MODE = {v: k for k, v in _MODE_BY_ID.items()}
 
     def _current_mode_value(self) -> str:
-        return self._MODE_BY_ID.get(self.mode_btn_group.checkedId(), ExportResolutionMode.PRINT.value)
+        return self._MODE_BY_ID[self.mode_btn.currentIndex()]
 
     def _select_mode_button(self, mode_value: str) -> None:
-        btn = self.mode_btn_group.button(self._ID_BY_MODE.get(mode_value, 1))
-        if btn is not None:
-            btn.setChecked(True)
+        self.mode_btn.setCurrentIndex(self._ID_BY_MODE.get(mode_value, 1))
 
     def _update_mode_visibility(self, mode_value: str) -> None:
         self._print_container.setVisible(mode_value == ExportResolutionMode.PRINT.value)

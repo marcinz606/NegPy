@@ -5,7 +5,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QApplication,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -21,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.widgets.contact_sheet_colors_dialog import ContactSheetColorsDialog
 from negpy.desktop.view.styles.templates import (
@@ -30,7 +30,6 @@ from negpy.desktop.view.styles.templates import (
     hint_label,
     icon_button,
     labeled_action,
-    labeled_toggle,
     section_subheader,
     set_hint_kind,
 )
@@ -115,7 +114,7 @@ class ExportSidebar(BaseSidebar):
         self.protect_check.toggled.connect(self._on_protect_toggled)
         self.sync_check.toggled.connect(self._on_sync_to_batch_toggled)
 
-        self.intent_btn_group.idToggled.connect(self._on_flat_output_toggled)
+        self.intent_btn.currentChanged.connect(self._on_flat_output_toggled)
         self.flat_peek_btn.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.flat_bake_btn.clicked.connect(self.controller.request_batch_normalization)
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
@@ -542,40 +541,19 @@ class ExportSidebar(BaseSidebar):
         box.setContentsMargins(6, 6, 6, 6)
         box.setSpacing(6)
 
-        intent_row = QHBoxLayout()
-        intent_row.setSpacing(4)
-        self.intent_print_btn = labeled_toggle("", "Print", False, "Export the print as you see it, with the full NegPy look applied.")
-        self.intent_flat_btn = labeled_toggle(
-            "",
-            "Flat",
-            False,
-            "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
+        self.intent_btn = ChoiceButton(
+            (("", "Print"), ("", "Flat"), ("", "Linear")),
+            "Print: export the print as you see it, with the full NegPy look applied.<br><br>"
+            "Flat: export a flat, neutral, low-contrast master that keeps maximum tonal and color "
             "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
             "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
-            "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.",
-        )
-        self.intent_linear_btn = labeled_toggle(
-            "",
-            "Linear",
-            False,
-            "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
+            "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.<br><br>"
+            "Linear: export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
             "NegPy processing (no normalization, exposure, lab, toning, color management). "
             "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files.",
         )
-        for btn in (self.intent_print_btn, self.intent_flat_btn, self.intent_linear_btn):
-            intent_row.addWidget(btn)
-        self.intent_btn_group = QButtonGroup(self)
-        self.intent_btn_group.setExclusive(True)
-        self.intent_btn_group.addButton(self.intent_print_btn, 0)
-        self.intent_btn_group.addButton(self.intent_flat_btn, 1)
-        self.intent_btn_group.addButton(self.intent_linear_btn, 2)
-        if self.state.linear_output:
-            self.intent_linear_btn.setChecked(True)
-        elif self.state.flat_output:
-            self.intent_flat_btn.setChecked(True)
-        else:
-            self.intent_print_btn.setChecked(True)
-        box.addLayout(intent_row)
+        self.intent_btn.setCurrentIndex(self._state_intent())
+        box.addWidget(self.intent_btn)
 
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
@@ -709,8 +687,8 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(container)
 
     def _sync_flat_enabled(self) -> None:
-        flat_on = self.intent_flat_btn.isChecked()
-        linear_on = self.intent_linear_btn.isChecked()
+        flat_on = self.intent_btn.currentIndex() == 1
+        linear_on = self.intent_btn.currentIndex() == 2
         if hasattr(self, "form"):
             self.form.set_flat_mode(flat_on)
             # Linear keeps DESTINATION and drops the rest; set_flat_mode reruns the format
@@ -749,7 +727,7 @@ class ExportSidebar(BaseSidebar):
     def _sync_flat_roll_warning(self) -> None:
         """Show the roll-baseline nudge only when flat output is on and the roll
         doesn't yet share a locked normalization baseline."""
-        on = self.intent_flat_btn.isChecked()
+        on = self.intent_btn.currentIndex() == 1
         proc = self.state.config.process
         # Flat-master roll consistency needs both axes baselined across the roll.
         locked = proc.use_luma_average and proc.use_color_average and proc.is_locked_initialized
@@ -757,32 +735,25 @@ class ExportSidebar(BaseSidebar):
         self.flat_roll_warning.setVisible(show)
         self.flat_bake_btn.setVisible(show)
 
-    def _on_flat_output_toggled(self, btn_id: int, checked: bool) -> None:
-        if checked:
-            if btn_id == 2:
-                self.controller.set_linear_output(True)
-            else:
-                self.controller.set_linear_output(False)
-                self.controller.set_flat_output(btn_id == 1)
-            self._sync_flat_enabled()
+    def _state_intent(self) -> int:
+        """Print 0, Flat 1, Linear 2, from the session; Linear wins over Flat."""
+        return 2 if self.state.linear_output else 1 if self.state.flat_output else 0
 
-    def _on_flat_output_changed(self, enabled: bool) -> None:
-        self.intent_btn_group.blockSignals(True)
-        if enabled:
-            self.intent_flat_btn.setChecked(True)
-        elif not self.state.linear_output:
-            self.intent_print_btn.setChecked(True)
-        self.intent_btn_group.blockSignals(False)
+    def _on_flat_output_toggled(self, btn_id: int) -> None:
+        if btn_id == 2:
+            self.controller.set_linear_output(True)
+        else:
+            self.controller.set_linear_output(False)
+            self.controller.set_flat_output(btn_id == 1)
         self._sync_flat_enabled()
 
-    def _on_linear_output_changed(self, enabled: bool) -> None:
-        self.intent_btn_group.blockSignals(True)
-        if enabled:
-            self.intent_linear_btn.setChecked(True)
-        elif not self.state.flat_output:
-            self.intent_print_btn.setChecked(True)
-        self.intent_btn_group.blockSignals(False)
+    def _on_flat_output_changed(self, _enabled: bool) -> None:
+        self.intent_btn.blockSignals(True)
+        self.intent_btn.setCurrentIndex(self._state_intent())
+        self.intent_btn.blockSignals(False)
         self._sync_flat_enabled()
+
+    _on_linear_output_changed = _on_flat_output_changed
 
     _EXPANSION_OPTIONS: dict[str, list[tuple[str, float | None]]] = {
         "pakon": [("4× (default)", None), ("2×", 2.0), ("Off", 1.0)],
@@ -1590,12 +1561,7 @@ class ExportSidebar(BaseSidebar):
                 self.cs_template_combo.setCurrentText(saved_template)
             else:
                 self.cs_template_combo.setCurrentText(ContactSheetTemplates.DEFAULT_NAME)
-            if self.state.linear_output:
-                self.intent_linear_btn.setChecked(True)
-            elif self.state.flat_output:
-                self.intent_flat_btn.setChecked(True)
-            else:
-                self.intent_print_btn.setChecked(True)
+            self.intent_btn.setCurrentIndex(self._state_intent())
             self.flat_peek_btn.setChecked(self.state.flat_peek)
             self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
             self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
@@ -1643,4 +1609,4 @@ class ExportSidebar(BaseSidebar):
         ]
         for w in widgets:
             w.blockSignals(blocked)
-        self.intent_btn_group.blockSignals(blocked)
+        self.intent_btn.blockSignals(blocked)
