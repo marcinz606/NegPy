@@ -2,7 +2,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QVBoxLayout,
 )
 
 from negpy.desktop.session import ToolMode
@@ -10,7 +9,7 @@ from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUN
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT
@@ -110,10 +109,7 @@ class GeometrySidebar(BaseSidebar):
             "wall shot from one side, or a copy stand not square to the film. Positive stretches "
             "the left edge."
         )
-        converge_row = QVBoxLayout()
-        converge_row.addWidget(self.converge_v_slider)
-        converge_row.addWidget(self.converge_h_slider)
-        self.layout.addLayout(converge_row)
+        self.layout.addWidget(SliderGroup(self.converge_v_slider, self.converge_h_slider))
 
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())

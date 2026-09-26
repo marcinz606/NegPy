@@ -226,3 +226,24 @@ def test_align_slider_columns_lines_up_label_and_value(qapp):
 
     assert short.label.minimumWidth() == long.label.minimumWidth() >= long.label.sizeHint().width()
     assert short.spin.minimumWidth() == long.spin.minimumWidth() >= long.spin.sizeHint().width()
+
+
+def test_align_slider_columns_starts_grouped_tracks_at_same_x(qapp):
+    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+    from negpy.desktop.view.widgets.sliders import SliderGroup, align_slider_columns
+
+    root = QWidget()
+    layout = QVBoxLayout(root)
+    layout.setContentsMargins(0, 0, 0, 0)
+    alone = CompactSlider("Toe", 0.0, 1.0, 0.5)
+    grouped = CompactSlider("Highlights Density", -1.0, 1.0, 0.0)
+    layout.addWidget(alone)
+    layout.addWidget(SliderGroup(grouped, CompactSlider("Shadows Density", -1.0, 1.0, 0.0)))
+
+    align_slider_columns(root)
+    root.resize(400, 200)
+    root.show()
+    qapp.processEvents()
+
+    assert alone.slider.mapTo(root, alone.slider.rect().topLeft()).x() == grouped.slider.mapTo(root, grouped.slider.rect().topLeft()).x()

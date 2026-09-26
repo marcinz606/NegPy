@@ -70,7 +70,7 @@ Tabs that do not change the render:
 | **Gear** | Gear library | Cameras, lenses, films, processes, scan setups |
 | **Scan** | Scanner · Camera Scanning | Direct capture (Linux/macOS) |
 
-A slider row reads name, track and value: click the value to type one, drag the name to scrub (**Shift** for finer steps), and double-click or **Ctrl**+click the track to reset. A **dot** on a panel header or tab marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there. In a narrow panel, tabs that do not fit move into a **»** menu; the current tab stays visible.
+A slider row reads name, track and value: click the value to type one, drag the name to scrub (**Shift** for finer steps), and double-click or **Ctrl**+click the track to reset. A thin rail at the left joins controls that work together, such as Toe and Toe Width. A **dot** on a panel header or tab marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there. In a narrow panel, tabs that do not fit move into a **»** menu; the current tab stays visible.
 
 ### What carries to the next frame
 

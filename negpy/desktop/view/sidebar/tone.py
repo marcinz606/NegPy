@@ -5,7 +5,7 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.hdr.models import hdr_active
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
@@ -134,10 +134,7 @@ class ToneSidebar(BaseSidebar):
         )
         self.shadow_density_slider = CompactSlider("Shadows Density", -0.9, 0.9, conf.shadow_density)
         self.highlight_density_slider = CompactSlider("Highlights Density", -0.5, 0.5, conf.highlight_density)
-        zone_density_row = QVBoxLayout()
-        zone_density_row.addWidget(self.shadow_density_slider)
-        zone_density_row.addWidget(self.highlight_density_slider)
-        self.layout.addLayout(zone_density_row)
+        self.layout.addWidget(SliderGroup(self.shadow_density_slider, self.highlight_density_slider))
 
         grade_row = QVBoxLayout()
         grade_row.addWidget(self.grade_slider)
@@ -148,10 +145,7 @@ class ToneSidebar(BaseSidebar):
         self.highlight_grade_slider = CompactSlider(
             "Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
         )
-        split_grade_row = QVBoxLayout()
-        split_grade_row.addWidget(self.shadow_grade_slider)
-        split_grade_row.addWidget(self.highlight_grade_slider)
-        self.layout.addLayout(split_grade_row)
+        self.layout.addWidget(SliderGroup(self.shadow_grade_slider, self.highlight_grade_slider))
 
         # Inverted like ISO-R Grade, so dragging right hardens on both controls.
         self.contrast_mask_slider = CompactSlider("Contrast Mask", -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
@@ -172,10 +166,7 @@ class ToneSidebar(BaseSidebar):
             "that sit next to something bright, which is the mask line on the sheet. "
             "Inert with no mask."
         )
-        contrast_mask_row = QVBoxLayout()
-        contrast_mask_row.addWidget(self.contrast_mask_slider)
-        contrast_mask_row.addWidget(self.mask_spacer_slider)
-        self.layout.addLayout(contrast_mask_row)
+        self.layout.addWidget(SliderGroup(self.contrast_mask_slider, self.mask_spacer_slider))
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
@@ -189,11 +180,7 @@ class ToneSidebar(BaseSidebar):
         # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
         # it is disabled there rather than reading as broken.
         self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
-        dye_sep_row = QVBoxLayout()
-        dye_sep_row.addWidget(self.dye_separation_slider)
-        dye_sep_row.addWidget(self.dye_separation_trim_slider)
-        dye_sep_row.addWidget(self.separation_damping_slider)
-        self.layout.addLayout(dye_sep_row)
+        self.layout.addWidget(SliderGroup(self.dye_separation_slider, self.dye_separation_trim_slider, self.separation_damping_slider))
 
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
@@ -228,7 +215,6 @@ class ToneSidebar(BaseSidebar):
         snap_row.addWidget(self.midtone_gamma_slider)
         self.layout.addLayout(snap_row)
 
-        toe_row = QVBoxLayout()
         self.toe_w_slider = CompactSlider("Toe Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_trim_slider = CompactSlider("Toe Width", -2.0, 2.0, 0.0)
         self.toe_w_trim_slider.setToolTip(
@@ -237,12 +223,8 @@ class ToneSidebar(BaseSidebar):
         )
         self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
-        toe_row.addWidget(self.toe_slider)
-        toe_row.addWidget(self.toe_w_slider)
-        toe_row.addWidget(self.toe_w_trim_slider)
-        self.layout.addLayout(toe_row)
+        self.layout.addWidget(SliderGroup(self.toe_slider, self.toe_w_slider, self.toe_w_trim_slider))
 
-        sh_row = QVBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_trim_slider = CompactSlider("Shoulder Width", -2.0, 2.0, 0.0)
@@ -251,10 +233,7 @@ class ToneSidebar(BaseSidebar):
             "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
         )
         self.sh_w_trim_slider.setVisible(False)
-        sh_row.addWidget(self.sh_slider)
-        sh_row.addWidget(self.sh_w_slider)
-        sh_row.addWidget(self.sh_w_trim_slider)
-        self.layout.addLayout(sh_row)
+        self.layout.addWidget(SliderGroup(self.sh_slider, self.sh_w_slider, self.sh_w_trim_slider))
 
         self.layout.addStretch()
 

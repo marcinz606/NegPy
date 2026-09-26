@@ -1,5 +1,5 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
@@ -60,12 +60,9 @@ class RetouchSidebar(BaseSidebar):
         optical_row.addWidget(self.auto_dust_btn, 1)
         optical_row.addWidget(self.right_click_btn)
         self.layout.addLayout(optical_row)
-        auto_row = QVBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
         self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
-        auto_row.addWidget(self.threshold_slider)
-        auto_row.addWidget(self.auto_size_slider)
-        self.layout.addLayout(auto_row)
+        self.layout.addWidget(SliderGroup(self.threshold_slider, self.auto_size_slider))
 
         # --- IR REMOVAL ------------------------------------------------------
         self.ir_subheader = section_subheader("IR REMOVAL")
@@ -77,15 +74,12 @@ class RetouchSidebar(BaseSidebar):
         self.ir_method_combo.setToolTip(_IR_METHOD_TIP)
         method_row.addWidget(self.ir_method_label)
         method_row.addWidget(self.ir_method_combo, 1)
-        self.layout.addLayout(method_row)
 
         self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
         self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
         self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
-        ir_row = QVBoxLayout()
-        ir_row.addWidget(self.ir_dust_btn)
-        ir_row.addWidget(self.ir_threshold_slider)
-        self.layout.addLayout(ir_row)
+        self.layout.addWidget(self.ir_dust_btn)
+        self.layout.addWidget(SliderGroup(method_row, self.ir_threshold_slider))
 
         # Restored whenever the scan has IR (never let a stale "No IR channel" tip linger).
         self._ir_tooltips = {

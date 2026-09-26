@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QVBoxLayout, Q
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.altprocess.models import AltProcess, Sensitizer
 from negpy.features.process.models import ProcessMode
 
@@ -87,10 +87,7 @@ class AltProcessSidebar(BaseSidebar):
         )
 
         col.addWidget(self.exposure_slider)
-        row_dev = QVBoxLayout()
-        row_dev.addWidget(self.snatch_slider)
-        row_dev.addWidget(self.abruptness_slider)
-        col.addLayout(row_dev)
+        col.addWidget(SliderGroup(self.snatch_slider, self.abruptness_slider))
         return block
 
     def _build_cyanotype(self, conf) -> QWidget:
@@ -136,15 +133,9 @@ class AltProcessSidebar(BaseSidebar):
             "Bleach first for a full brown, on its own for a split blue-brown"
         )
 
-        row_exp = QVBoxLayout()
-        row_exp.addWidget(self.cyano_exposure_slider)
-        row_exp.addWidget(self.cyano_scale_slider)
-        col.addLayout(row_exp)
+        col.addWidget(SliderGroup(self.cyano_exposure_slider, self.cyano_scale_slider))
 
-        row_tone = QVBoxLayout()
-        row_tone.addWidget(self.cyano_bleach_slider)
-        row_tone.addWidget(self.cyano_tannin_slider)
-        col.addLayout(row_tone)
+        col.addWidget(SliderGroup(self.cyano_bleach_slider, self.cyano_tannin_slider))
         return block
 
     def _select_sensitizer(self, sensitizer) -> None:

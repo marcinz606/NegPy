@@ -1,9 +1,9 @@
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import default_button_height, section_subheader, wrap_tooltip
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 
 
 class FinishSidebar(BaseSidebar):
@@ -19,12 +19,9 @@ class FinishSidebar(BaseSidebar):
         self.vignette_burn_slider = CompactSlider("Burn", -2.0, 2.0, conf.vignette_stops, unit=" st")
         self.layout.addWidget(self.vignette_burn_slider)
 
-        row1 = QVBoxLayout()
         self.vignette_size_slider = CompactSlider("Size", 0.0, 1.0, conf.vignette_size)
         self.vignette_roundness_slider = CompactSlider("Roundness", 0.0, 1.0, conf.vignette_roundness)
-        row1.addWidget(self.vignette_size_slider)
-        row1.addWidget(self.vignette_roundness_slider)
-        self.layout.addLayout(row1)
+        self.layout.addWidget(SliderGroup(self.vignette_size_slider, self.vignette_roundness_slider))
 
         self.layout.addWidget(section_subheader("FILED CARRIER"))
         self.carrier_width_slider = CompactSlider("Width", 0.0, 5.0, conf.carrier_width)
@@ -34,10 +31,7 @@ class FinishSidebar(BaseSidebar):
             "How raggedly the aperture was filed — the paper-side edge of the black frame. "
             "The picture-side edge is the camera's film gate and only ever wobbles slightly."
         )
-        row_carrier = QVBoxLayout()
-        row_carrier.addWidget(self.carrier_width_slider)
-        row_carrier.addWidget(self.carrier_rough_slider)
-        self.layout.addLayout(row_carrier)
+        self.layout.addWidget(self.carrier_width_slider)
 
         self.carrier_flare_slider = CompactSlider("Flare", 0.0, 1.0, conf.carrier_flare)
         self.carrier_flare_slider.setToolTip(
@@ -46,22 +40,16 @@ class FinishSidebar(BaseSidebar):
         )
         self.carrier_corner_slider = CompactSlider("Corners", 0.0, 1.0, conf.carrier_corner)
         self.carrier_corner_slider.setToolTip("How far the filed aperture's corners round off — no file cuts a sharp inside corner")
-        row_carrier2 = QVBoxLayout()
-        row_carrier2.addWidget(self.carrier_flare_slider)
-        row_carrier2.addWidget(self.carrier_corner_slider)
-        self.layout.addLayout(row_carrier2)
+        self.layout.addWidget(SliderGroup(self.carrier_rough_slider, self.carrier_flare_slider, self.carrier_corner_slider))
 
         self.layout.addWidget(section_subheader("BORDER"))
 
-        row2 = QVBoxLayout()
         self.border_slider = CompactSlider("Width", 0.0, 2.5, conf.border_size)
         self.bottom_weight_slider = CompactSlider("Bottom Weight", 1.0, 2.0, conf.border_bottom_weight)
         self.bottom_weight_slider.setToolTip(
             wrap_tooltip("Thicken the bottom border relative to the other three, the window-mat proportion.")
         )
-        row2.addWidget(self.border_slider)
-        row2.addWidget(self.bottom_weight_slider)
-        self.layout.addLayout(row2)
+        self.layout.addWidget(self.border_slider)
 
         row3 = QHBoxLayout()
         self.color_btn = QPushButton()
@@ -72,9 +60,9 @@ class FinishSidebar(BaseSidebar):
         self.match_paper_btn = self._small_toggle(
             "fa5s.file", "Paper White", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked color"
         )
-        row3.addWidget(self.color_btn, 1)
         row3.addWidget(self.match_paper_btn, 1)
-        self.layout.addLayout(row3)
+        row3.addWidget(self.color_btn, 1)
+        self.layout.addWidget(SliderGroup(self.bottom_weight_slider, row3))
 
         self.layout.addStretch()
 

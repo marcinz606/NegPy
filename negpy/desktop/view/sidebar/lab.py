@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.features.lab.models import SharpenMethod
@@ -42,12 +42,9 @@ class LabSidebar(BaseSidebar):
         self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
 
-        row_sharpen = QVBoxLayout()
         self.sharpen_radius_slider = CompactSlider("Radius", 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
-        row_sharpen.addWidget(self.sharpen_radius_slider)
-        row_sharpen.addWidget(self.sharpen_masking_slider)
-        self.layout.addLayout(row_sharpen)
+        self.layout.addWidget(SliderGroup(self.sharpen_radius_slider, self.sharpen_masking_slider))
 
         self.layout.addWidget(section_subheader("DETAIL"))
 

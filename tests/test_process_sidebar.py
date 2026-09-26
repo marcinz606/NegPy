@@ -100,7 +100,7 @@ def _row_index_containing(layout, widget) -> int:
     """Index within *layout* of the (possibly nested) row that directly holds *widget*."""
     for i in range(layout.count()):
         item = layout.itemAt(i)
-        if item.widget() is widget:
+        if item.widget() is widget or (item.widget() is not None and item.widget().isAncestorOf(widget)):
             return i
         row = item.layout()
         if row is not None and any(row.itemAt(j).widget() is widget for j in range(row.count())):

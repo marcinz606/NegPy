@@ -7,9 +7,11 @@ from PyQt6.QtWidgets import (
     QSlider,
     QLabel,
     QDoubleSpinBox,
+    QLayout,
+    QVBoxLayout,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent, QLocale
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QRectF, QEvent, QLocale
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.styles.templates import EditedDot, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
 
@@ -718,13 +720,43 @@ class RangeSlider(QWidget):
         self.rangeCommitted.emit(0.0, 1.0)
 
 
+class SliderGroup(QWidget):
+    """Related controls or rows stacked tight, tied by a rail in the left gutter."""
+
+    RAIL_WIDTH = 2
+    INDENT = THEME.space_lg
+
+    def __init__(self, *items: QWidget | QLayout, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(self.INDENT, 0, 0, 0)
+        layout.setSpacing(THEME.space_xs)
+        for item in items:
+            if isinstance(item, QLayout):
+                layout.addLayout(item)
+            else:
+                layout.addWidget(item)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(THEME.border_color))
+        painter.drawRoundedRect(QRectF(0, 0, self.RAIL_WIDTH, self.height()), 1, 1)
+
+
+def _group_indent(slider: QWidget) -> int:
+    parent = slider.parentWidget()
+    return SliderGroup.INDENT if isinstance(parent, SliderGroup) else 0
+
+
 def align_slider_columns(root: QWidget) -> None:
-    """Give every CompactSlider under root the widest label and value among them."""
+    """Give every CompactSlider under root the widest label and value among them.
+    A grouped slider's label is shorter by the group's indent, so every track starts at one x."""
     sliders = root.findChildren(CompactSlider)
     if not sliders:
         return
     widths = [slider.natural_column_widths() for slider in sliders]
-    label_width = max(w[0] for w in widths)
+    label_width = max(w[0] + _group_indent(s) for w, s in zip(widths, sliders))
     value_width = max(w[1] for w in widths)
     for slider in sliders:
-        slider.set_column_widths(label_width, value_width)
+        slider.set_column_widths(label_width - _group_indent(slider), value_width)

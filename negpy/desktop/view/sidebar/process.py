@@ -16,7 +16,7 @@ from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
@@ -162,7 +162,6 @@ class ProcessSidebar(BaseSidebar):
             region_row.addWidget(btn, 1)
         analysis_col.addLayout(region_row)
 
-        clip_row = QVBoxLayout()
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
             "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
@@ -171,11 +170,9 @@ class ProcessSidebar(BaseSidebar):
         self.color_range_clip_slider = CompactSlider(
             "Color Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
         )
-        clip_row.addWidget(self.luma_range_clip_slider)
-        clip_row.addWidget(self.color_range_clip_slider)
         self.tonal_range_header = section_subheader("TONAL RANGE")
         analysis_col.addWidget(self.tonal_range_header)
-        analysis_col.addLayout(clip_row)
+        analysis_col.addWidget(SliderGroup(self.luma_range_clip_slider, self.color_range_clip_slider))
 
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — shared white/black point offsets (all layers)")
         self.ch_r_btn = self._labeled_toggle("fa5s.circle", " Red", False, "Red layer — white/black point trim for the cyan-dye emulsion")
@@ -199,10 +196,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
         self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        wp_bp_row = QVBoxLayout()
-        wp_bp_row.addWidget(self.white_point_slider)
-        wp_bp_row.addWidget(self.black_point_slider)
-        analysis_col.addLayout(wp_bp_row)
+        analysis_col.addWidget(SliderGroup(self.white_point_slider, self.black_point_slider))
 
         # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
         # own analysis. ControlsPanel places it at the top of the Roll Analysis card.

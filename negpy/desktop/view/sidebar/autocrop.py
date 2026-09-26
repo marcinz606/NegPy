@@ -1,9 +1,9 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.geometry.models import AutocropMode
 
 
@@ -78,10 +78,7 @@ class AutocropSidebar(BaseSidebar):
         )
         self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
 
-        trim_row = QVBoxLayout()
-        trim_row.addWidget(self.offset_slider)
-        trim_row.addWidget(self.rebate_trim_slider)
-        self.layout.addLayout(trim_row)
+        self.layout.addWidget(SliderGroup(self.offset_slider, self.rebate_trim_slider))
 
         self.auto_frame_btn = self._labeled_toggle(
             "fa5s.magic", " Frame", conf.crop_from_auto, "Find this frame's edges and crop to them; off clears the crop"
