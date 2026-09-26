@@ -1,7 +1,12 @@
+from dataclasses import replace
+from unittest import mock
+
 import numpy as np
 import pytest
 
 import cv2
+
+import negpy.features.stitch.logic as stitch_logic
 
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import (
@@ -12,6 +17,7 @@ from negpy.features.stitch.logic import (
     scale_affine,
     scale_transforms,
     stitch_composite,
+    warp_into_canvas,
 )
 from negpy.features.stitch.models import StitchConfig, stitch_hash, stitch_token
 from negpy.services.assets.composites import COMPOSITES_KEY
@@ -103,6 +109,69 @@ def test_register_parts_and_composite_seam():
     assert rms < 0.02
 
 
+def _overlap_detail(rgb, scene, masks, offset):
+    """Detail kept in the overlap, against the same region of the source scene.
+
+    A ghost is two copies of an edge a few px apart, which acts as a comb filter and
+    takes high-frequency energy out. Comparing the same scene content in both terms
+    keeps the ratio about the blend; comparing two regions of the canvas would
+    measure the scene.
+    """
+    ox, oy = offset
+    band = masks[0] & masks[1]
+    band[:8], band[-8:], band[:, :8], band[:, -8:] = False, False, False, False
+    ys, xs = np.nonzero(band)
+    sy, sx = ys - oy, xs - ox
+    inside = (sy >= 0) & (sy < scene.shape[0]) & (sx >= 0) & (sx < scene.shape[1])
+    ys, xs, sy, sx = ys[inside], xs[inside], sy[inside], sx[inside]
+    blended = cv2.Laplacian(rgb.mean(axis=2), cv2.CV_32F) ** 2
+    truth = cv2.Laplacian(scene.mean(axis=2), cv2.CV_32F) ** 2
+    return float(blended[ys, xs].mean() / max(truth[sy, sx].mean(), 1e-12))
+
+
+def test_seam_cut_keeps_a_misregistered_overlap_sharp():
+    """The blend must not average detail the registration could not line up.
+
+    Film that is not flat between shots leaves a few px of local disagreement that no
+    global transform removes, and averaging that draws every edge twice.
+    """
+    scene, part0, part1, _ = _parts()
+    cfg = _registered_config(part0, part1)
+    shifted = list(cfg.stitch_transforms[1])
+    shifted[2] += 5.0
+    shifted[5] += 3.0
+    off = replace(cfg, stitch_transforms=(cfg.stitch_transforms[0], tuple(shifted)))
+
+    transforms, canvas = scale_transforms(off, [(p.shape[1], p.shape[0]) for p in (part0, part1)])
+    masks = [warp_into_canvas(p, t, canvas)[1] for p, t in zip((part0, part1), transforms)]
+    m0 = np.array(off.stitch_transforms[0], dtype=np.float64).reshape(2, 3)
+    offset = (int(round(m0[0, 2])), int(round(m0[1, 2])))
+
+    cut, _ = stitch_composite([part0.copy(), part1.copy()], [None, None], off)
+    with mock.patch.object(stitch_logic, "find_seams", return_value=None):
+        averaged, _ = stitch_composite([part0.copy(), part1.copy()], [None, None], off)
+
+    smeared = _overlap_detail(averaged, scene, masks, offset)
+    sharp = _overlap_detail(cut, scene, masks, offset)
+    assert smeared < 0.65, "averaging the full overlap should visibly smear"
+    assert sharp > 0.75, "a seam cut should keep most of the overlap's detail"
+    assert sharp > smeared * 1.3, "the cut must beat the average it replaces"
+
+
+def test_seam_masks_partition_every_covered_pixel():
+    """An unassigned pixel has no weight to normalize against and renders black."""
+    scene, part0, part1, _ = _parts()
+    cfg = _registered_config(part0, part1)
+    transforms, canvas = scale_transforms(cfg, [(p.shape[1], p.shape[0]) for p in (part0, part1)])
+    warped, masks = zip(*(warp_into_canvas(p, t, canvas) for p, t in zip((part0, part1), transforms)))
+    seams = stitch_logic.find_seams(list(warped), list(masks), canvas)
+    assert seams is not None
+    covered = masks[0] | masks[1]
+    assigned = seams[0] | seams[1]
+    assert np.array_equal(covered, assigned)
+    assert not (seams[0] & seams[1]).any()
+
+
 def test_gain_compensation_removes_cast():
     scene, part0, part1, _ = _parts()
     cast = np.array([1.02, 0.98, 1.01], dtype=np.float32)
@@ -124,14 +193,14 @@ def test_ir_blended_only_when_all_present():
 
     ir0 = np.ones(part0.shape[:2], np.float32)
     ir1 = np.ones(part1.shape[:2], np.float32)
-    # Shared defect (film dust, same scene spot in both parts) must survive the max-blend.
+    # Film dust: the same scene spot in both parts, so whichever part owns the pixel
+    # carries it and it must survive.
     sx, sy = 800, 450
     inv = cv2.invertAffineTransform(t)
     px, py = cv2.transform(np.array([[[sx, sy]]], np.float64), inv)[0, 0]
     ir0[sy - 4 : sy + 4, sx - 4 : sx + 4] = 0.1
     ir1[int(py) - 6 : int(py) + 6, int(px) - 6 : int(px) + 6] = 0.1
-    # Single-part defect (sensor dust) inside the overlap is erased by the other
-    # part's clean pixels under the max-blend.
+    # Camera-side speck: part0 only, inside the overlap.
     ir0[440:460, 1000:1020] = 0.1
 
     _, ir_out = stitch_composite([part0, part1], [ir0, ir1], cfg)
@@ -139,9 +208,40 @@ def test_ir_blended_only_when_all_present():
     m0 = np.array(cfg.stitch_transforms[0], dtype=np.float64).reshape(2, 3)
     ox, oy = int(round(m0[0, 2])), int(round(m0[1, 2]))
     assert ir_out[oy + sy, ox + sx] < 0.5
-    assert ir_out[oy + 450, ox + 1010] > 0.9
     # Canvas corners outside every part are clean (1.0) by convention.
     assert ir_out[0, -1] > 0.99
+
+
+def test_ir_follows_the_seam_partition():
+    """The mask has to describe what the cut actually put on the canvas.
+
+    A camera-side speck lands in one part only. Flagging it when the other part owns
+    the pixel would repair clean film; not flagging it when its own part owns the
+    pixel leaves it on the canvas at full strength with nothing to remove it.
+    """
+    _, part0, part1, _ = _parts()
+    cfg = _registered_config(part0, part1)
+    transforms, canvas = scale_transforms(cfg, [(p.shape[1], p.shape[0]) for p in (part0, part1)])
+    warped, masks = zip(*(warp_into_canvas(p, t, canvas) for p, t in zip((part0, part1), transforms)))
+    seams = stitch_logic.find_seams(list(warped), list(masks), canvas)
+    assert seams is not None
+
+    speck = (slice(440, 460), slice(1000, 1020))
+    ir0 = np.ones(part0.shape[:2], np.float32)
+    ir0[speck] = 0.1
+    ir1 = np.ones(part1.shape[:2], np.float32)
+    _, ir_out = stitch_composite([part0.copy(), part1.copy()], [ir0, ir1], cfg)
+    assert ir_out is not None
+
+    m0 = np.array(cfg.stitch_transforms[0], dtype=np.float64).reshape(2, 3)
+    ox, oy = int(round(m0[0, 2])), int(round(m0[1, 2]))
+    ys, xs = np.mgrid[440:460, 1000:1020]
+    cy, cx = ys.ravel() + oy, xs.ravel() + ox
+    owned = seams[0][cy, cx]
+    assert owned.any() or (~owned).any()
+    # Flagged exactly where part0 owns the canvas, clean exactly where part1 does.
+    assert np.all(ir_out[cy[owned], cx[owned]] < 0.5)
+    assert np.all(ir_out[cy[~owned], cx[~owned]] > 0.9)
 
 
 def test_scale_transforms_half_scale():
@@ -474,7 +574,8 @@ def test_stitch_token_identity(tmp_path):
         stitch_sizes=((60, 100), (60, 100)),
     )
     tok = stitch_token(StitchConfig(**base))
-    assert tok.startswith("|stitch:")
+    # Versioned: an assembly change with no config field to carry it invalidates here.
+    assert tok.startswith("|stitch-v2:")
     moved = StitchConfig(**{**base, "stitch_transforms": ((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 60.0, 0.0, 1.0, 0.0))})
     assert stitch_token(moved) != tok
     # Missing part file -> inactive token (same convention as rgbscan_token).

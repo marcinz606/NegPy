@@ -170,7 +170,11 @@ def gain_compensate(ref: np.ndarray, ref_mask: np.ndarray, mov: np.ndarray, mov_
 
 
 def feather_blend(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray]) -> np.ndarray:
-    """Distance-transform-weighted average: seams fade over the full overlap width."""
+    """Distance-transform-weighted average over the full overlap width.
+
+    Averaging draws misregistered detail twice, so this is the fallback for when a
+    seam cannot be cut, not the normal path. See ``seam_blend``.
+    """
     acc = np.zeros_like(warped[0])
     weight_sum = np.zeros(warped[0].shape[:2], np.float32)
     for img, mask in zip(warped, masks):
@@ -180,15 +184,136 @@ def feather_blend(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray]) -> 
     return acc / np.maximum(weight_sum, 1e-6)[..., None]
 
 
-def blend_ir(irs: Sequence[np.ndarray], transforms: Sequence[np.ndarray], canvas_wh: Tuple[int, int]) -> np.ndarray:
-    """Per-pixel max over valid contributions: film dust appears in every part and
-    survives; single-part (sensor-side) specks are erased. Uncovered pixels are 1.0
-    (loader convention: clean)."""
+_SEAM_MAX_EDGE = 1024
+# Blend band around the cut, in full-res canvas px, scaled to whatever resolution the
+# parts decoded at. Wide enough to hide the residual step gain compensation leaves,
+# narrow enough that no edge the registration misplaced is drawn twice across it.
+_SEAM_FEATHER_PX = 48.0
+
+
+def _seam_cost_image(img: np.ndarray) -> np.ndarray:
+    """Perceptual copy for the cut's color cost. Flat-field gain can push linear
+    values past white, which would otherwise decide the seam on its own."""
+    return (np.clip(img, 0.0, 1.0) ** (1.0 / 2.2)).astype(np.float32)
+
+
+def find_seams(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray], canvas_wh: Tuple[int, int]) -> Optional[List[np.ndarray]]:
+    """Partition the covered canvas between the parts along a minimum-error path.
+
+    The cut is searched on a downscaled copy: where a seam runs is a low-frequency
+    decision and does not repay canvas resolution. Returns None when no cut is
+    possible, leaving the caller on ``feather_blend``.
+
+    Dynamic programming rather than a graph cut: the graph cut costs superlinearly in
+    the overlap, for no better seam.
+    """
+    if len(warped) < 2:
+        return None
+    w, h = canvas_wh
+    scale = min(1.0, _SEAM_MAX_EDGE / max(w, h))
+    size = (max(1, round(w * scale)), max(1, round(h * scale)))
+    # Everything through the upscale is guarded: the masks come back at canvas size, so
+    # this is where an export tight on memory fails, and it has to degrade to the
+    # average rather than end the export.
+    try:
+        small = [_seam_cost_image(cv2.resize(img, size, interpolation=cv2.INTER_AREA)) for img in warped]
+        small_masks = [cv2.resize(m.astype(np.uint8), size, interpolation=cv2.INTER_NEAREST) for m in masks]
+        corners = [(0, 0)] * len(small)
+        cut = cv2.detail_DpSeamFinder("COLOR").find(small, corners, [cv2.UMat(m) for m in small_masks])
+        seams = [(cv2.resize(cv2.UMat.get(m), (w, h), interpolation=cv2.INTER_NEAREST) > 0) & valid for m, valid in zip(cut, masks)]
+        # Nearest-neighbour upscaling can leave a covered pixel assigned to no part, and
+        # an unassigned pixel has no weight to normalize against. Give each one back to a
+        # part that actually covers it.
+        orphan = np.zeros((h, w), bool)
+        for mask in masks:
+            orphan |= mask
+        for seam in seams:
+            orphan &= ~seam
+        if orphan.any():
+            for seam, mask in zip(seams, masks):
+                claim = orphan & mask
+                seam |= claim
+                orphan &= ~claim
+    except (cv2.error, MemoryError):
+        return None
+    return seams
+
+
+def seam_blend(
+    warped: Sequence[np.ndarray],
+    masks: Sequence[np.ndarray],
+    seams: Sequence[np.ndarray],
+    feather_px: float,
+) -> np.ndarray:
+    """Cross-fade within ``feather_px`` of the cut; beyond it one part wins outright.
+
+    Weight ramps on the *signed* distance to the cut, so it reaches across into the
+    neighbour's side and the two parts actually mix there. A weight that only ramped
+    inside a part's own side would leave the halves disjoint and the cut hard.
+    """
+    acc = np.zeros_like(warped[0])
+    weight_sum = np.zeros(warped[0].shape[:2], np.float32)
+    for img, seam, valid in zip(warped, seams, masks):
+        weight = _seam_weight(seam, valid, max(feather_px, 1.0))
+        acc += img * weight[..., None]
+        weight_sum += weight
+    return acc / np.maximum(weight_sum, 1e-6)[..., None]
+
+
+def _seam_weight(seam: np.ndarray, valid: np.ndarray, feather_px: float) -> np.ndarray:
+    """Cross-fade weight for one part: a ramp across the cut, damped to zero at the
+    part's own coverage edge.
+
+    The damping is what keeps an overlap narrower than the band from ending on a step:
+    truncating the ramp at the coverage edge instead leaves the two parts' weights
+    summing to a discontinuity there. Each distance transform is released before the
+    next is taken, because at export these are full-canvas float32 planes.
+    """
+    span = 2.0 * feather_px
+    owned = seam.astype(np.uint8)
+    weight = cv2.distanceTransform(owned, cv2.DIST_L2, 3)
+    weight /= span
+    weight += 0.5
+    np.clip(weight, 0.0, 1.0, out=weight)
+
+    beyond = cv2.distanceTransform(1 - owned, cv2.DIST_L2, 3)
+    beyond /= span
+    np.subtract(0.5, beyond, out=beyond)
+    np.clip(beyond, 0.0, 1.0, out=beyond)
+    np.copyto(weight, beyond, where=~seam)
+    del beyond
+
+    edge = cv2.distanceTransform(valid.astype(np.uint8), cv2.DIST_L2, 3)
+    edge /= feather_px
+    np.clip(edge, 0.0, 1.0, out=edge)
+    weight *= edge
+    return weight
+
+
+def blend_ir(
+    irs: Sequence[np.ndarray],
+    transforms: Sequence[np.ndarray],
+    canvas_wh: Tuple[int, int],
+    seams: Optional[Sequence[np.ndarray]] = None,
+) -> np.ndarray:
+    """Defect mask for the assembled canvas. Uncovered pixels are 1.0 (loader
+    convention: clean).
+
+    With a seam, each pixel's mask comes from the part the pixel itself came from, so
+    the mask describes what is actually on the canvas. Without one the blend is an
+    average of every part, and the mask is a per-pixel max: film dust lands at the same
+    canvas place in every part and survives, while a speck on the camera side lands in
+    only one and is diluted rather than flagged.
+    """
     w, h = canvas_wh
     acc = np.full((h, w), -1.0, np.float32)
-    for ir, transform in zip(irs, transforms):
+    for i, (ir, transform) in enumerate(zip(irs, transforms)):
         warped, mask = warp_into_canvas(ir, transform, canvas_wh, interpolation=cv2.INTER_LINEAR)
-        acc[mask] = np.maximum(acc[mask], warped[mask])
+        if seams is not None:
+            owned = seams[i]
+            acc[owned] = warped[owned]
+        else:
+            acc[mask] = np.maximum(acc[mask], warped[mask])
     acc[acc < 0.0] = 1.0
     return acc
 
@@ -198,7 +323,7 @@ def stitch_composite(
     irs: Sequence[Optional[np.ndarray]],
     config: StitchConfig,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-    """Warp + gain-compensate + feather-blend the decoded parts into one frame.
+    """Warp, gain-compensate, then seam-cut and blend the decoded parts into one frame.
 
     ``parts`` is consumed (slots dropped after warping) to cap peak memory.
     IR is carried only when every part has one.
@@ -215,8 +340,14 @@ def stitch_composite(
                 break
         warped.append(img)
         masks.append(mask)
-    rgb = np.clip(feather_blend(warped, masks), 0.0, 1.0)
+    seams = find_seams(warped, masks, canvas)
+    if seams is None:
+        blended = feather_blend(warped, masks)
+    else:
+        decoded_scale = canvas[0] / max(config.stitch_canvas[0], 1)
+        blended = seam_blend(warped, masks, seams, _SEAM_FEATHER_PX * decoded_scale)
+    rgb = np.clip(blended, 0.0, 1.0)
     ir = None
     if irs and all(x is not None for x in irs):
-        ir = blend_ir(irs, transforms, canvas)  # type: ignore[arg-type]
+        ir = blend_ir(irs, transforms, canvas, seams)  # type: ignore[arg-type]
     return rgb, ir

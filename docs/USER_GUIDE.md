@@ -214,7 +214,7 @@ With Search by meaning on and its model downloaded, a **database** button appear
 
 #### Stitching a frame from several shots
 
-For a negative captured in overlapping pieces, select them and right-click → **Stitch Selected Frames**. NegPy registers the overlap, matches brightness across the seam and shows one composite named *a+b (Stitch)*, badged on the sheet. **Unstitch** restores the parts with their edits. The registration is saved, so the composite persists across folders and launches.
+For a negative captured in overlapping pieces, select them and right-click → **Stitch Selected Frames**. NegPy registers the overlap, matches brightness across it, cuts the seam where the two shots agree best and shows one composite named *a+b (Stitch)*, badged on the sheet. **Unstitch** restores the parts with their edits. The registration is saved, so the composite persists across folders and launches.
 
 For Trichrome, turn on **Trichrome Mode** first, then stitch the assembled frames; each part keeps its own three exposures.
 
