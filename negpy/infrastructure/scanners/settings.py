@@ -55,6 +55,8 @@ class ScannerSettings:
     # Return the strip after a batch. Off keeps it loaded, with the frames and strip pass
     # the preview found, until Eject or the unit's own idle timeout.
     eject_after_batch: bool = True
+    # Level nkscan's diagnostics are written to nkscan.log at, for a bug report: nkscan_log.LEVELS.
+    nkscan_log_level: str = "off"
     # Strip preview tile height (px); the width follows the device aspect.
     strip_tile_height: int = 140
     # Exposure lock: per-channel exposures metered on one frame, reused by every scan on this

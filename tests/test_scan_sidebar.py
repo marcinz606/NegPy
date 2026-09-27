@@ -1182,3 +1182,45 @@ def test_a_failed_metering_keeps_the_lock_it_had(monkeypatch) -> None:
     assert not sidebar._scanning
     assert sidebar.settings.exposure_lock == _LOCK
     assert "no film" in sidebar.status_strip.message()
+
+
+def test_the_debug_log_shows_only_for_nkscan(monkeypatch: pytest.MonkeyPatch) -> None:
+    levels: list[str] = []
+    monkeypatch.setattr("negpy.infrastructure.scanners.nkscan_log.set_level", lambda level: levels.append(level) or True)
+    sidebar, _ = _sidebar(settings={"backend": "plustek", "nkscan_log_level": "trace"})
+    assert sidebar.debug_log_widget.isVisibleTo(sidebar) is False
+    assert levels == []
+
+    sidebar, _ = _sidebar(settings={"backend": "nkscan", "nkscan_log_level": "trace"})
+    assert sidebar.debug_log_widget.isVisibleTo(sidebar) is True
+    assert sidebar.debug_log_btn.currentIndex() == 2
+    assert levels == ["trace"]
+
+
+def test_a_chosen_debug_log_level_is_saved_and_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    levels: list[str] = []
+    monkeypatch.setattr("negpy.infrastructure.scanners.nkscan_log.set_level", lambda level: levels.append(level) or True)
+    sidebar, _ = _sidebar(settings={"backend": "nkscan"})
+
+    sidebar.debug_log_btn.setCurrentIndex(1)
+
+    assert sidebar.settings.nkscan_log_level == "debug"
+    assert levels[-1] == "debug"
+
+
+def test_a_debug_log_that_cannot_start_falls_back_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("negpy.infrastructure.scanners.nkscan_log.set_level", lambda level: level == "off")
+    sidebar, _ = _sidebar(settings={"backend": "nkscan"})
+
+    sidebar.debug_log_btn.setCurrentIndex(2)
+
+    assert sidebar.debug_log_btn.currentIndex() == 0
+    assert sidebar.settings.nkscan_log_level == "off"
+
+
+def test_a_saved_debug_log_that_cannot_start_shows_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("negpy.infrastructure.scanners.nkscan_log.set_level", lambda level: level == "off")
+    sidebar, _ = _sidebar(settings={"backend": "nkscan", "nkscan_log_level": "trace"})
+
+    assert sidebar.debug_log_btn.currentIndex() == 0
+    assert sidebar.settings.nkscan_log_level == "off"

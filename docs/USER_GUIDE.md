@@ -1037,6 +1037,7 @@ Capture film directly into NegPy. Two collapsible sections.
 *   **Film**: Color negative, B&W negative, Slide or Kodachrome. Sets how frame boundaries are read, whether IR and ICE are offered (not for B&W or Kodachrome), and metering: a color negative is metered per channel to take the orange mask off before conversion; other films keep the factory balance.
 *   **Film format**: frame length (135, 66, 645 and so on). **Auto** where the holder narrows it; set it for loose film in a masked carrier. Shown only where the transport measures the film.
 *   **Exposure** (**Meter Frame…** / **Unlock**): nkscan meters every frame on its own, so a strip end, which meters on the bare light past the cut, keeps a color negative's orange mask and scans with a different color. **Meter Frame…** meters one frame of the loaded strip (pick one inside the strip, such as frame 2) and every later scan on this scanner reuses its exposure, across strips and restarts, until **Unlock**. Meter again for each new roll.
+*   **Debug log** (Off, Debug, Trace): writes nkscan's diagnostics to `nkscan.log` in the NegPy folder; the folder button opens it. Trace adds every command sent to the scanner and is what a bug report usually needs. Set it before you reproduce a problem, then attach the file.
 
 Controls follow what the unit reports; an LS-50 hides Samples and Superfine. The release builds include **nkscan**; from source, see [CONTRIBUTING.md](../CONTRIBUTING.md). On Linux, USB needs a udev rule for vendor `04b0`; FireWire/SCSI needs the `sg` module.
 
