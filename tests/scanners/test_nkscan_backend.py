@@ -250,6 +250,17 @@ def test_film_is_loaded_when_the_holder_is_empty() -> None:
     assert module.opened[-1].loads == 1
 
 
+def test_film_reloaded_after_the_unit_returned_it_is_measured_again() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+
+    _scan(backend)
+
+    assert module.opened[-1].loads == 1
+    assert module.opened[-1].discoveries == [None]
+
+
 def test_a_held_device_refuses_a_stateless_scan() -> None:
     backend, _ = make_backend()
     with backend.open_session(DEVICE_ID):

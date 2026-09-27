@@ -316,6 +316,9 @@ class NkscanBackend:
         try:
             with self._mapped_errors():
                 if not session.media_loaded():
+                    # The unit returned the film by itself (idle timeout): a reload can land it
+                    # elsewhere, so the cached rects no longer describe it.
+                    self.forget_frames(device_id)
                     session.load()
                 session.stage()
         except Exception:
