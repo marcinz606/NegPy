@@ -250,7 +250,8 @@ class ScanSidebar(QWidget):
         self.debug_log_btn = ChoiceButton(
             tuple(("", level.title()) for level in nkscan_log.LEVELS),
             "Write nkscan's diagnostics to nkscan.log in the NegPy folder, to attach to a bug report. "
-            "Debug records each scan's decisions; Trace also records every command sent to the scanner.",
+            "Debug records each scan's decisions; Trace also records every command sent to the scanner "
+            "and is what a bug report usually needs.",
         )
         level = self._settings.nkscan_log_level
         self.debug_log_btn.setCurrentIndex(nkscan_log.LEVELS.index(level) if level in nkscan_log.LEVELS else 0)
