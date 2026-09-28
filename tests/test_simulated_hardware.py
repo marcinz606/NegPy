@@ -9,12 +9,17 @@ import numpy as np
 import pytest
 
 from negpy.infrastructure.capture import gphoto
-from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError
+from negpy.infrastructure.capture.gphoto import GphotoCamera
+from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.infrastructure.scanners import registry
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.simulated.gphoto import MODEL, SimGphoto
 from negpy.infrastructure.simulated.scanner import SimulatedBackend
+from negpy.services.capture.calibration import CalibrationService, Roi, meter_base
+
+# Inside the clear-base band above the picture.
+_REBATE = Roi(0.3, 0.07, 0.4, 0.04)
 
 
 @pytest.fixture
@@ -47,25 +52,36 @@ def test_camera_streams_a_jpeg_preview(camera):
         assert f.read(2) == b"\xff\xd8"
 
 
-def test_camera_captures_the_raws_in_turn(camera, tmp_path, monkeypatch):
-    raws = tmp_path / "raws"
-    raws.mkdir()
-    (raws / "a.ARW").write_bytes(b"A" * 16)
-    (raws / "b.NEF").write_bytes(b"B" * 16)
-    (raws / "c.jpg").write_bytes(b"not a raw")
-    monkeypatch.setenv("NEGPY_SIM_RAW", str(raws))
-
-    first = camera.capture(str(tmp_path / "out" / "red.raw"))
-    second = camera.capture(str(tmp_path / "out" / "green.raw"))
-
-    assert first.endswith("red.ARW") and open(first, "rb").read() == b"A" * 16
-    assert second.endswith("green.NEF") and open(second, "rb").read() == b"B" * 16
+def _base_signal(path):
+    img = linear_demosaic(path, half_size=True)
+    return [meter_base(img[..., c], _REBATE) for c in range(3)]
 
 
-def test_camera_without_a_raw_fails_the_capture(camera, tmp_path, monkeypatch):
-    monkeypatch.setenv("NEGPY_SIM_RAW", str(tmp_path / "missing"))
-    with pytest.raises(GphotoError, match="NEGPY_SIM_RAW"):
-        camera.capture(str(tmp_path / "red.raw"))
+def test_still_is_a_raw_exposed_by_the_lit_channel(camera, tmp_path, sim_env):
+    light = Scanlight()
+    try:
+        light.set_color(100, 0, 0)
+        dim = camera.capture(str(tmp_path / "dim.raw"))
+        light.set_color(200, 0, 0)
+        bright = camera.capture(str(tmp_path / "bright.raw"))
+    finally:
+        light.close()
+
+    assert dim.endswith("dim.DNG") and os.path.getsize(dim) >= 8 * 1024 * 1024
+    r_dim, g_dim, b_dim = _base_signal(dim)
+    r_bright, _, _ = _base_signal(bright)
+    assert r_dim > 10 * max(g_dim, b_dim)
+    assert r_bright / r_dim == pytest.approx(2.0, rel=0.05)
+
+
+def test_calibration_reaches_target_on_the_simulated_rig(camera, tmp_path, sim_env):
+    light = Scanlight()
+    try:
+        service = CalibrationService(light, camera, lambda p: linear_demosaic(p, half_size=True), settle_s=0.0)
+        result = service.calibrate(_REBATE, str(tmp_path / "cal"))
+    finally:
+        light.close()
+    assert {c.channel for c in result.channels.values()} == {"R", "G", "B"}
 
 
 def test_flag_selects_the_simulated_gphoto_module(sim_env):

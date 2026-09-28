@@ -76,8 +76,7 @@ run:
 	@echo "Starting NegPy Desktop..."
 	@$(UV) python desktop.py
 
-# Run with a simulated camera, Scanlight and film scanners (no hardware needed). The camera
-# shoots real RAW files: NEGPY_SIM_RAW=<file or folder>, default samples/.
+# Run with a simulated camera, Scanlight and film scanners (no hardware needed).
 .PHONY: run-sim
 run-sim:
 	@echo "Starting NegPy Desktop with simulated hardware..."

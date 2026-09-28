@@ -104,11 +104,10 @@ dialogs work with no device attached. Only the lowest layer is fake: the gphoto2
 the serial port and one scanner backend. The drivers, workers and panels above it are the
 real code.
 
-- **Camera**: live view shows a synthetic negative, and the ISO and shutter steppers work.
-  A still is a real RAW file read from disk, because the capture path checks its size and
-  decodes it. Set `NEGPY_SIM_RAW` to a RAW file or a folder of them (used in turn, so a
-  triplet gets three files). The default is `samples/`. With no RAW, live view still works
-  and the capture fails with a message.
+- **Camera**: every frame is exposed from a synthetic negative, the Scanlight's current
+  color and the body's shutter and ISO, so live view, calibration and the triplet channels
+  respond to the light. A still is a Bayer DNG, decoded like any camera RAW. The negative
+  has a band of clear base around the picture: put the calibration ROI there.
 - **Scanlight**: a v4b that answers the firmware query and reports LED temperature.
 - **Film Scanner**: choose the "Simulated" backend. It has one device for each panel
   shape: a feeder (frames by index, IR, Eject), a prescan device (full-window preview, then

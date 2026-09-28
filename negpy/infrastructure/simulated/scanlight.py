@@ -10,6 +10,14 @@ _FIRMWARE_ID = 7
 _HARDWARE_ID = 3  # Scanlight v4b: has the white channel
 _TELEMETRY_INTERVAL_S = 0.2
 
+# (r, g, b, w) the light shows now. The simulated camera exposes its shots with it.
+_color = [0, 0, 0, 0]
+
+
+def current_color() -> tuple[int, int, int, int]:
+    r, g, b, w = _color
+    return r, g, b, w
+
 
 class SimSerial:
     port = "sim"
@@ -20,7 +28,9 @@ class SimSerial:
         self._next_telemetry = 0.0
 
     def write(self, data: bytes) -> None:
-        if len(data) >= 2 and data[0] == proto.START_BYTE and data[1] == proto.H2D_GET_FW_VERSION:
+        if len(data) >= 7 and data[0] == proto.START_BYTE and data[1] == proto.H2D_SET_COLOR:
+            _color[:] = data[3:7]
+        elif len(data) >= 2 and data[0] == proto.START_BYTE and data[1] == proto.H2D_GET_FW_VERSION:
             word = (_HARDWARE_ID << 16) | _FIRMWARE_ID
             self._replies.put(proto.encode_packet(proto.D2H_FW_VERSION, word.to_bytes(4, "big")))
 

@@ -1,15 +1,16 @@
 import numpy as np
 
 # Orange mask: blue is the densest dye layer at base, red the thinnest.
-_BASE_DENSITY = np.array([0.25, 0.55, 0.85], np.float32)
+BASE_DENSITY = np.array([0.25, 0.55, 0.85], np.float32)
 _HOLDER_T = 0.002
 _DUST_T = 0.05
 
 
-def negative(h: int, w: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
-    """A color negative in a black holder, as (rgb, ir) uint16 transmittance.
+def film(h: int, w: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """A color negative in a black holder, as float32 (rgb, ir) transmittance.
 
-    Dust specks block RGB and IR at the same place, as real dust does.
+    A band of clear base (the rebate) surrounds the picture, for metering. Dust specks block
+    RGB and IR at the same place, as real dust does.
     """
     rng = np.random.default_rng(seed)
     y, x = np.mgrid[0:h, 0:w].astype(np.float32) / max(h, w, 1)
@@ -17,20 +18,31 @@ def negative(h: int, w: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     for _ in range(8):
         cy, cx, r = rng.uniform(0, h / max(h, w)), rng.uniform(0, w / max(h, w)), rng.uniform(0.03, 0.15)
         scene[(y - cy) ** 2 + (x - cx) ** 2 < r * r] += rng.uniform(-0.35, 0.35, 3)
-    density = _BASE_DENSITY + 1.6 * np.clip(scene, 0.0, 1.0)
-    t = np.power(10.0, -density)
-    ir = np.full((h, w), 0.9, np.float32)
+    density = BASE_DENSITY + 1.6 * np.clip(scene, 0.0, 1.0)
 
     my, mx = h // 20, w // 20
-    frame = np.zeros((h, w), bool)
-    frame[my : h - my, mx : w - mx] = True
-    t[~frame] = _HOLDER_T
-    ir[~frame] = _HOLDER_T
+    ry, rx = my + h // 12, mx + w // 20
+    density[my : h - my, mx : w - mx][: ry - my] = BASE_DENSITY
+    density[my : h - my, mx : w - mx][-(ry - my) :] = BASE_DENSITY
+    density[my : h - my, mx : w - mx][:, : rx - mx] = BASE_DENSITY
+    density[my : h - my, mx : w - mx][:, -(rx - mx) :] = BASE_DENSITY
+    t = np.power(10.0, -density).astype(np.float32)
+    ir = np.full((h, w), 0.9, np.float32)
+
+    holder = np.ones((h, w), bool)
+    holder[my : h - my, mx : w - mx] = False
+    t[holder] = _HOLDER_T
+    ir[holder] = _HOLDER_T
 
     for _ in range(12):
         cy, cx, r = rng.integers(0, max(h, 1)), rng.integers(0, max(w, 1)), rng.uniform(1.5, 5.0)
         speck = (np.arange(h)[:, None] - cy) ** 2 + (np.arange(w)[None, :] - cx) ** 2 < r * r
         t[speck] *= _DUST_T
         ir[speck] *= _DUST_T
+    return t, ir
 
+
+def negative(h: int, w: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """`film` as uint16 (rgb, ir), as a scanner returns it."""
+    t, ir = film(h, w, seed)
     return (t * 65535).astype(np.uint16), (ir * 65535).astype(np.uint16)
