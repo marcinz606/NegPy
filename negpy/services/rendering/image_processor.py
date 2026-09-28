@@ -198,10 +198,9 @@ def _resolve_armed_autocrop(
     return dc_replace(settings, geometry=dc_replace(geom, crop_rect=rect, crop_detect_key=key)), (rect, key)
 
 
-def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
-    """Mirrors the preview fast path (PreviewManager): rawpy half_size aliases the
-    X-Trans 6x6 CFA on linear (no-camera-WB) decodes, so those stay full-res."""
-    return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
+def _use_half_size_decode(raw: Any) -> bool:
+    """Mirrors the PreviewManager fast path: half_size aliases the X-Trans 6x6 CFA."""
+    return not isinstance(raw, NonStandardFileWrapper) and not is_xtrans(raw)
 
 
 _DERIVE_RESOLUTION: Any = object()
@@ -912,7 +911,7 @@ class ImageProcessor:
                 user_wb = [1, 1, 1, 1]
                 use_camera_wb_flag = False
                 wb_for_gain = None
-            post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
+            post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw) else {}
             # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
             user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
             rgb = raw.postprocess(

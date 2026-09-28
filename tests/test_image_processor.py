@@ -129,17 +129,15 @@ def test_use_half_size_decode_rules(monkeypatch) -> None:
         pass
 
     monkeypatch.setattr(ip, "is_xtrans", lambda raw: False)
-    assert ip._use_half_size_decode(_Raw(), linear_raw=False)
-    assert ip._use_half_size_decode(_Raw(), linear_raw=True)
+    assert ip._use_half_size_decode(_Raw())
 
-    # X-Trans + linear decode: half_size aliases the 6x6 CFA -> stay full-res.
+    # X-Trans: half_size aliases the 6x6 CFA -> stay full-res.
     monkeypatch.setattr(ip, "is_xtrans", lambda raw: True)
-    assert ip._use_half_size_decode(_Raw(), linear_raw=False)
-    assert not ip._use_half_size_decode(_Raw(), linear_raw=True)
+    assert not ip._use_half_size_decode(_Raw())
 
     monkeypatch.setattr(ip, "is_xtrans", lambda raw: False)
     wrapper = object.__new__(ip.NonStandardFileWrapper)
-    assert not ip._use_half_size_decode(wrapper, linear_raw=False)
+    assert not ip._use_half_size_decode(wrapper)
 
 
 def _fake_decode_recorder(calls, record=None):

@@ -269,10 +269,8 @@ class PreviewManager:
         # fast path, not a full-size decode ending on the same algorithm.
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper)) and DemosaicMode(demosaic) == DemosaicMode.AUTO
         if use_fast:
-            # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
-            # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
-            # only linear X-Trans decodes full-res and lets the cv2 downsample below handle it.
-            xtrans_full = is_xtrans(raw) and not decode_camera_wb
+            # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that bounds metered here carry into export.
+            xtrans_full = is_xtrans(raw)
             post_kw: dict = {} if xtrans_full else {"half_size": True}
             # That decode is the one preview that interpolates a 6x6 CFA, where LINEAR aliases
             # far worse than the render it stands in for. PPG is LibRaw's spelling of 1-pass
