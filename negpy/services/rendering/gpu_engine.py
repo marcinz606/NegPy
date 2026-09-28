@@ -2705,6 +2705,8 @@ class GPUEngine:
             result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
             result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
         metrics_ref["base_positive"] = result
+        # metrics_ref comes from the preview-size metering render; the rect must describe this buffer.
+        metrics_ref["content_rect"] = (off_x, off_y, content_w, content_h)
         return result, metrics_ref
 
     def cleanup(self, collect: bool = True, retain: Optional[GPUTexture] = None) -> None:

@@ -132,6 +132,18 @@ class TestGpuTiledParity(unittest.TestCase):
 
         np.testing.assert_allclose(after, clean, atol=1e-6)
 
+    def test_tiled_content_rect_describes_the_tiled_buffer(self):
+        # HQ preview of a large frame renders tiled at full size, while its metering pass
+        # runs at preview size; the before/after split maps the buffer through this rect.
+        base = _base()
+        long_edge = float(max(self.img.shape[:2]))
+        for settings in (base, replace(base, finish=replace(base.finish, border_size=0.5))):
+            res, metrics = self.engine._process_tiled(self.img, settings, scale_factor=1.0, render_size_ref=long_edge)
+            expected = self.engine._calculate_layout_dims(settings, self.img.shape[1], self.img.shape[0], long_edge)
+            paper_w, paper_h, content_w, content_h, off_x, off_y, _ = expected
+            self.assertEqual(res.shape[:2], (paper_h, paper_w))
+            self.assertEqual(metrics["content_rect"], (off_x, off_y, content_w, content_h))
+
 
 # A real camera's XYZ->camera rows and as-shot multipliers, so the transfer path's
 # working-space meter grid differs from the camera-space one.
