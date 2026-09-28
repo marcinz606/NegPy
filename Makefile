@@ -76,6 +76,13 @@ run:
 	@echo "Starting NegPy Desktop..."
 	@$(UV) python desktop.py
 
+# Run with a simulated camera, Scanlight and film scanners (no hardware needed). The camera
+# shoots real RAW files: NEGPY_SIM_RAW=<file or folder>, default samples/.
+.PHONY: run-sim
+run-sim:
+	@echo "Starting NegPy Desktop with simulated hardware..."
+	@NEGPY_SIMULATE_HARDWARE=1 $(UV) python desktop.py
+
 # Delete the development user directory, so the next run starts with no saved edits
 # and no caches. Refuses to run against the default directory: that is the real
 # install. Set NEGPY_USER_DIR (see .env.local) to a scratch path first.

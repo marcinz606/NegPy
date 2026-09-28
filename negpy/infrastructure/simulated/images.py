@@ -1,0 +1,36 @@
+import numpy as np
+
+# Orange mask: blue is the densest dye layer at base, red the thinnest.
+_BASE_DENSITY = np.array([0.25, 0.55, 0.85], np.float32)
+_HOLDER_T = 0.002
+_DUST_T = 0.05
+
+
+def negative(h: int, w: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """A color negative in a black holder, as (rgb, ir) uint16 transmittance.
+
+    Dust specks block RGB and IR at the same place, as real dust does.
+    """
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32) / max(h, w, 1)
+    scene = np.repeat((0.25 + 0.5 * x + 0.1 * np.sin(8 * y + seed))[..., None], 3, axis=-1)
+    for _ in range(8):
+        cy, cx, r = rng.uniform(0, h / max(h, w)), rng.uniform(0, w / max(h, w)), rng.uniform(0.03, 0.15)
+        scene[(y - cy) ** 2 + (x - cx) ** 2 < r * r] += rng.uniform(-0.35, 0.35, 3)
+    density = _BASE_DENSITY + 1.6 * np.clip(scene, 0.0, 1.0)
+    t = np.power(10.0, -density)
+    ir = np.full((h, w), 0.9, np.float32)
+
+    my, mx = h // 20, w // 20
+    frame = np.zeros((h, w), bool)
+    frame[my : h - my, mx : w - mx] = True
+    t[~frame] = _HOLDER_T
+    ir[~frame] = _HOLDER_T
+
+    for _ in range(12):
+        cy, cx, r = rng.integers(0, max(h, 1)), rng.integers(0, max(w, 1)), rng.uniform(1.5, 5.0)
+        speck = (np.arange(h)[:, None] - cy) ** 2 + (np.arange(w)[None, :] - cx) ** 2 < r * r
+        t[speck] *= _DUST_T
+        ir[speck] *= _DUST_T
+
+    return (t * 65535).astype(np.uint16), (ir * 65535).astype(np.uint16)

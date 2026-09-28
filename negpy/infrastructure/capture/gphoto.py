@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from negpy.infrastructure import simulated
 from negpy.infrastructure.loaders.constants import (
     SUPPORTED_JPEG_EXTENSIONS,
     SUPPORTED_RAW_EXTENSIONS,
@@ -199,6 +200,10 @@ def _pin_locale() -> None:
 def _gp() -> Any:
     """Import python-gphoto2 lazily, so NegPy runs fine without it."""
     _pin_locale()
+    if simulated.enabled():
+        from negpy.infrastructure.simulated.gphoto import module
+
+        return module()
     try:
         import gphoto2  # noqa: PLC0415 — optional dependency, imported on demand
     except ImportError as exc:  # pragma: no cover — depends on the install

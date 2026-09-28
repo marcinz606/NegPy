@@ -12,6 +12,7 @@ Guidance for Claude Code in this repository.
 
 ```bash
 make run          # Launch the desktop app
+make run-sim      # Launch with a simulated camera, Scanlight and film scanners (NEGPY_SIM_RAW=<file|dir> for camera RAWs)
 make all          # lint + type check + tests (run before committing)
 make test         # pytest only
 make lint         # ruff check

@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from negpy.infrastructure import simulated
 from negpy.infrastructure.scanners.base import ScannerBackend, ScannerUnavailable
 
 
@@ -39,6 +40,12 @@ def _make_pieusb() -> ScannerBackend:
     return PieusbBackend()
 
 
+def _make_sim() -> ScannerBackend:
+    from negpy.infrastructure.simulated.scanner import SimulatedBackend
+
+    return SimulatedBackend()
+
+
 DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 
 # id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
@@ -53,6 +60,9 @@ if sys.platform != "win32":
         "sane": ("SANE", _make_sane),
         **BACKENDS,
     }
+if simulated.enabled():
+    DEFAULT_BACKEND_ID = "sim"
+    BACKENDS = {"sim": ("Simulated", _make_sim), **BACKENDS}
 
 
 def backend_choices() -> list[tuple[str, str]]:

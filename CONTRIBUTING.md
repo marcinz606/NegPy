@@ -92,6 +92,28 @@ Two things stay outside the user directory:
   next. Sidecar export is off by default; if you turn it on, test against copies.
 - Exports, wherever you send them.
 
+#### Running without scanning hardware
+
+```bash
+make run-sim
+```
+
+This starts the app with a simulated camera, Scanlight and film scanners
+(`NEGPY_SIMULATE_HARDWARE=1`), so the Camera Scanning and Film Scanner panels and their
+dialogs work with no device attached. Only the lowest layer is fake: the gphoto2 module,
+the serial port and one scanner backend. The drivers, workers and panels above it are the
+real code.
+
+- **Camera**: live view shows a synthetic negative, and the ISO and shutter steppers work.
+  A still is a real RAW file read from disk, because the capture path checks its size and
+  decodes it. Set `NEGPY_SIM_RAW` to a RAW file or a folder of them (used in turn, so a
+  triplet gets three files). The default is `samples/`. With no RAW, live view still works
+  and the capture fails with a message.
+- **Scanlight**: a v4b that answers the firmware query and reports LED temperature.
+- **Film Scanner**: choose the "Simulated" backend. It has one device for each panel
+  shape: a feeder (frames by index, IR, Eject), a prescan device (full-window preview, then
+  crop) and a roll device (frames found on the strip, the last boundary to confirm).
+
 ## 🏗️ Project Structure
 
 The codebase follows a modular architecture:
@@ -150,6 +172,7 @@ The `Makefile` is the central source of truth for developer commands and execute
 - `make format`: Auto-format code with Ruff.
 - `make all`: Run lint, type, and test in sequence.
 - `make clean`: Removes cache and build artifacts.
+- `make run-sim`: Runs the app with simulated scanning hardware (see [above](#running-without-scanning-hardware)).
 - `make clear-devhome`: Deletes the development user directory (see [above](#a-separate-user-directory-for-development)).
 
 

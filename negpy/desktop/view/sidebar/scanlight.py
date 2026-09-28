@@ -42,6 +42,7 @@ from negpy.desktop.view.styles.templates import (
     set_hint_kind,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
@@ -192,7 +193,7 @@ class ScanlightSidebar(QWidget):
         Windows build), so this drives the one-time setup hint."""
         import importlib.util
 
-        return importlib.util.find_spec("gphoto2") is not None
+        return simulated.enabled() or importlib.util.find_spec("gphoto2") is not None
 
     def _refresh_setup_hint(self) -> None:
         """Show the setup note only while python-gphoto2 is missing."""

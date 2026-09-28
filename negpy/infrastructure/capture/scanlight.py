@@ -16,6 +16,7 @@ import queue
 import threading
 from typing import Optional
 
+from negpy.infrastructure import simulated
 from negpy.infrastructure.capture import protocol as proto
 from negpy.kernel.system.logging import get_logger
 
@@ -88,6 +89,10 @@ class Scanlight:
         baudrate: int = DEFAULT_BAUDRATE,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
     ):
+        if serial_obj is None and simulated.enabled():
+            from negpy.infrastructure.simulated.scanlight import SimSerial
+
+            serial_obj = SimSerial()
         if serial_obj is not None:
             self._serial = serial_obj
             self._port = getattr(serial_obj, "port", "<injected>")
