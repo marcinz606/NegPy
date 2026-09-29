@@ -3,7 +3,7 @@ import sys
 from unittest.mock import MagicMock
 
 import tifffile
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QRectF, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
@@ -113,6 +113,24 @@ def test_target_takes_real_clicks_through_the_mask() -> None:
     assert not overlay.mask().contains(target.geometry().center())
     assert overlay.mask().contains(QPoint(600, 600))
     assert overlay.mask().contains(overlay._popup.geometry().center())
+
+
+def test_picture_stays_clear_and_the_card_avoids_it() -> None:
+    win = QMainWindow()
+    win.setGeometry(50, 50, 1200, 800)
+    win.show()
+    picture = QWidget(win)
+    picture.setGeometry(0, 0, 900, 800)
+    target = QPushButton("Slider", win)
+    target.setGeometry(1000, 100, 100, 30)
+    picture.show()
+    target.show()
+    overlay, _ = _started(win, [TutorialStep("A", "Drag", "x", lambda _: target, also=lambda _: picture)])
+    if overlay.isWindow():
+        return
+    assert not overlay.mask().contains(QPoint(450, 700))
+    card = overlay._popup.geometry()
+    assert overlay._covered(QRectF(card)) < card.width() * card.height() / 2
 
 
 def test_offer_shows_while_visible_and_runs() -> None:

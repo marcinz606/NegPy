@@ -32,8 +32,8 @@ class Offer:
 
 class TutorialStep:
     """task + watch make a step interactive: it is done once watch(window) differs from its
-    value when the step opened. also is a second clickable area without the ring, the canvas a
-    tool acts on. guide is a (USER_GUIDE panel key, panel title) pair."""
+    value when the step opened. also is a second area kept clear and clickable, without the ring:
+    the canvas, so an edit shows undimmed and a tool can act on it. guide is a (USER_GUIDE panel key, panel title) pair."""
 
     __slots__ = ("chapter", "title", "body", "target", "task", "watch", "also", "guide", "offer", "pre_hook")
 
@@ -414,20 +414,35 @@ class TutorialOverlay(QWidget):
         hi = self._hole.adjusted(-self._PAD, -self._PAD, self._PAD, self._PAD)
         top = max(m, min(int(hi.top()), oh - ph - m))
         center_x = max(m, min(int(hi.center().x()) - pw // 2, ow - pw - m))
-        # Beside the target first (the controls dock is on the right), then below or above it.
-        for x, y in (
-            (int(hi.left()) - self._GAP - pw, top),
-            (int(hi.right()) + self._GAP, top),
-            (center_x, int(hi.bottom()) + self._GAP),
-            (center_x, int(hi.top()) - self._GAP - ph),
-        ):
-            if m <= x <= ow - pw - m and m <= y <= oh - ph - m:
-                self._popup.setGeometry(x, y, pw, ph)
-                return
+        # Beside the target first (the controls dock is on the right), below or above it, then at a window edge.
+        spots = [
+            QRectF(x, y, pw, ph)
+            for x, y in (
+                (int(hi.left()) - self._GAP - pw, top),
+                (int(hi.right()) + self._GAP, top),
+                (center_x, int(hi.bottom()) + self._GAP),
+                (center_x, int(hi.top()) - self._GAP - ph),
+                (m, top),
+                (ow - pw - m, top),
+            )
+            if m <= x <= ow - pw - m and m <= y <= oh - ph - m
+        ]
+        clear = [r for r in spots if not r.intersects(hi)]
+        if clear:
+            # The spot that hides the least of the picture; min keeps the first of equals.
+            best = min(clear, key=self._covered)
+            self._popup.setGeometry(best.toAlignedRect())
+            return
         # A target that fills the window, the canvas: the card sits in its bottom-right corner.
         x = max(m, min(int(hi.right()) - self._GAP - pw, ow - pw - m))
         y = max(m, min(int(hi.bottom()) - self._GAP - ph, oh - ph - m))
         self._popup.setGeometry(x, y, pw, ph)
+
+    def _covered(self, card: QRectF) -> float:
+        if self._also is None:
+            return 0.0
+        overlap = card.intersected(self._also)
+        return overlap.width() * overlap.height()
 
     def _sync_geometry(self) -> None:
         if self._use_top_level_window:

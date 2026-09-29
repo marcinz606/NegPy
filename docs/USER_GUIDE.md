@@ -22,7 +22,7 @@ Drag a panel by its top edge (the thin strip above Session, the margin around th
 
 ### The tour
 
-**Take the Tour** (**⋯** menu, or Find) walks through NegPy in eight chapters, from the Library to the Scan tab; the chapter menu on its card jumps to any of them. The highlighted control stays live. A step with a circle is a task, such as dragging Print Density or pressing a view key; the step advances when you do it, or **Skip Step** moves on. With nothing open, **Load Demo Negative** opens a synthetic color negative to practice on. **Read More…** opens the panel's full guide. Esc ends the tour, and the next one offers **Resume Where You Left Off**.
+**Take the Tour** (**⋯** menu, or Find) walks through NegPy in eight chapters, from the Library to the Scan tab; the chapter menu on its card jumps to any of them. The highlighted control stays live and the picture stays undimmed, so an edit shows as you make it. A step with a circle is a task, such as dragging Print Density or pressing a view key; the step advances when you do it, or **Skip Step** moves on. With nothing open, **Load Demo Negative** opens a synthetic color negative to practice on. **Read More…** opens the panel's full guide. Esc ends the tour, and the next one offers **Resume Where You Left Off**.
 
 ### Find
 

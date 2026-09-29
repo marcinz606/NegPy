@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -74,8 +75,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def fb(w: "MainWindow"):
         return w.session_panel.file_browser
 
+    # The picture stays undimmed on every step, so an edit made during the tour shows as it will print.
+    step = partial(TutorialStep, also=canvas)
+
     return [
-        TutorialStep(
+        step(
             BASICS,
             "Welcome to NegPy",
             "NegPy prints your film scans through a <b>virtual darkroom</b>: it reads a scan as film "
@@ -86,7 +90,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: None,
             offer=_resume_offer(),
         ),
-        TutorialStep(
+        step(
             BASICS,
             "The Screen",
             "Left: the <b>Library</b> and the <b>Film Strip</b>. Center: the canvas, where tools act. "
@@ -95,7 +99,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "sit beside them. Edits save by themselves, keyed to the image content.",
             lambda w: rp(w).group_switcher,
         ),
-        TutorialStep(
+        step(
             BASICS,
             "Find Anything",
             "Every slider, card and action is one search away. Type what you want in your own words and "
@@ -104,7 +108,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             task=f"Press {_k('command_palette')} and type a word such as “grade”.",
             watch=_palette_open,
         ),
-        TutorialStep(
+        step(
             BASICS,
             "The Library: Rolls",
             "A <b>roll</b> is a named group of frames. <b>+</b> imports a folder as a roll, or each "
@@ -117,7 +121,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             guide=("library", "Library"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             BASICS,
             "Filter and Search",
             f"{_k('focus_search')} filters the open frames. A word matches the file name; "
@@ -128,7 +132,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: fb(w).search_input,
             guide=("frames", "Film Strip"),
         ),
-        TutorialStep(
+        step(
             BASICS,
             "Keep and Reject",
             f"Cull on the contact sheet. {_k('toggle_keep')} marks a keeper, {_k('toggle_reject')} "
@@ -139,7 +143,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             watch=lambda w: _marked(w, "keeper"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             BASICS,
             "Light Table, Stitch and HDR",
             f"{_k('toggle_light_table')} opens the <b>Light Table</b>: large thumbnails over the whole "
@@ -149,7 +153,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: fb(w).light_table_btn,
             guide=("frames", "Film Strip"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Frame or Roll",
             "Each card header has a <b>Frame / Roll</b> pair. A Roll tab card follows the roll; move a "
@@ -158,7 +162,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "roll's value back.",
             lambda w: cp(w).tone_section.roll_btn or cp(w).tone_section,
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Film Mode",
             "The first choice: <b>Color</b> negative, <b>B&amp;W</b> negative or <b>Slide</b>. Each one "
@@ -170,7 +174,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             guide=("film", "Film Mode"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Frame Assembly",
             "<b>Trichrome</b> merges three exposures of one negative, under red, green and blue light, "
@@ -179,7 +183,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).trichrome_sidebar.enable_btn,
             guide=("assembly", "Frame Assembly"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Calibration",
             "This card corrects the capture, not the look. The <b>bulb</b> asks how you scan and what "
@@ -189,7 +193,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).sensor_sidebar.scan_setup_btn,
             guide=("sensor", "Calibration"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Crosstalk",
             "Each film dye also absorbs outside its own band, which mutes color. A <b>Crosstalk</b> "
@@ -198,7 +202,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).sensor_sidebar.crosstalk_combo,
             guide=("sensor", "Calibration"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Cast Removal",
             "A negative's cast changes with density, so one white balance leaves shadows and highlights "
@@ -208,7 +212,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).sensor_sidebar.cast_removal_slider,
             guide=("sensor", "Calibration"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Metering",
             "NegPy meters the negative to find its black and white points and its orange mask. Rebate, "
@@ -218,7 +222,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).process_sidebar.analysis_buffer_slider,
             guide=("process", "Metering"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Roll Analysis",
             "One enlarger setting for the roll. <b>Reanalyze</b> meters every frame and keeps a roll "
@@ -228,7 +232,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).roll_sidebar.roll_combo,
             guide=("baseline", "Roll Analysis"),
         ),
-        TutorialStep(
+        step(
             ROLL,
             "Raw Decode and Optics",
             "<b>Raw Decode</b> picks the demosaic method for preview and export, and recovers clipped "
@@ -238,7 +242,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).lens_sidebar.distortion_slider,
             guide=("optics", "Optics"),
         ),
-        TutorialStep(
+        step(
             FRAMING,
             "Crop",
             "The crop sets the framing and what the meter reads. Drag a corner to resize, drag inside to "
@@ -248,11 +252,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).geometry_sidebar.manual_crop_btn,
             task="Click the crop tool and drag a new rectangle on the picture. Enter confirms.",
             watch=lambda w: w.state.config.geometry.crop_rect,
-            also=canvas,
             guide=("geometry", "Geometry"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             FRAMING,
             "Straighten, Tilt and Swing",
             "<b>Straighten</b>: draw a line along a horizon and the frame levels to it. Fine Rotation "
@@ -262,7 +265,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).geometry_sidebar.straighten_btn,
             guide=("geometry", "Geometry"),
         ),
-        TutorialStep(
+        step(
             FRAMING,
             "The Roll's Crop",
             "The crop's shape and what the detector looks for belong to the roll: Ratio, Mode (image or "
@@ -271,7 +274,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).autocrop_sidebar.auto_crop_all_btn,
             guide=("autocrop", "Crop"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Print Density",
             "<b>Print Density</b> is enlarger exposure: it slides the negative along the paper curve. A "
@@ -283,7 +286,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             guide=("tone", "Tone"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "ISO-R Grade",
             "<b>ISO-R Grade</b> is paper contrast on the ISO-R scale, 50 to 180. A lower R is harder, a "
@@ -294,7 +297,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             guide=("tone", "Tone"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Auto and Set Targets",
             "The <b>Auto</b> menu turns Auto Density and Auto Grade on or off. <b>Set Targets…</b> moves "
@@ -304,7 +307,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.auto_btn,
             guide=("tone", "Tone"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Test Strip",
             "A <b>test strip</b> prints bands of the frame at stepped exposure and grade, as on an easel. "
@@ -312,10 +315,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.test_strip_btn,
             task=f"Press {_k('toggle_test_strip')} to make a test strip.",
             watch=lambda w: w.state.test_strip,
-            also=canvas,
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Zone Density and Split Grade",
             "<b>Shadows Density</b> and <b>Highlights Density</b> burn or hold one zone and roll into "
@@ -325,7 +327,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.shadow_density_slider,
             guide=("tone", "Tone"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "One Dye Layer",
             "Pick <b>R</b>, <b>G</b> or <b>B</b> and the curve controls act on one dye layer. "
@@ -334,7 +336,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.ch_btn,
             guide=("tone", "Tone"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Paper Response",
             "A <b>paper profile</b> gives the print the character of a real paper, from its datasheet. "
@@ -344,7 +346,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.paper_combo,
             guide=("tone", "Tone"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Preflash and Contrast Mask",
             "<b>Preflash</b> is a short even exposure before the print: thin highlight detail prints "
@@ -354,7 +356,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).tone_sidebar.preflash_slider,
             guide=("tone", "Tone"),
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Filtration",
             "White balance here is CC filtration, as on a color enlarger head. Cyan, Magenta and Yellow "
@@ -364,11 +366,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).color_sidebar.pick_wb_btn,
             task="Click Pick WB, then click a gray area in the picture.",
             watch=lambda w: (w.state.config.exposure.wb_cyan, w.state.config.exposure.wb_magenta, w.state.config.exposure.wb_yellow),
-            also=canvas,
             guide=("color", "Filtration"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             PRINTING,
             "Dodge and Burn",
             "<b>Draw Mask</b> is a cut card, <b>Oval</b> the hole in a card, <b>Card Edge</b> a graded "
@@ -378,11 +379,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).local_sidebar.draw_btn,
             task="Pick Draw Mask and click points on the picture. Double-click to close it.",
             watch=lambda w: w.state.config.local,
-            also=canvas,
             guide=("local", "Dodge & Burn"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Lab",
             "The look after the print. <b>Chroma</b> scales color evenly; <b>Skin Protection</b> keeps "
@@ -392,7 +392,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).lab_sidebar.saturation_slider,
             guide=("lab", "Lab"),
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Alternative Processes",
             "For B&amp;W negatives. <b>Lith</b> gives creamy warm highlights and sudden hard blacks. "
@@ -401,7 +401,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).altproc_sidebar.mode_btn,
             guide=("altproc", "Alternative Processes"),
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Toning",
             "<b>Split Toning</b> moves shadows and highlights toward their own hues and keeps lightness, "
@@ -410,7 +410,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).toning_sidebar,
             guide=("toning", "Toning"),
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Dust Removal",
             "<b>Optical Removal</b> finds dust by local contrast. <b>IR Removal</b> uses the scanner's "
@@ -419,7 +419,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).retouch_sidebar.auto_dust_btn,
             guide=("retouch", "Retouch"),
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Heal, Scratch and Line",
             "<b>Heal</b> marks a search area, not a stamp: only pixels that stand out are rebuilt, with "
@@ -428,11 +428,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).retouch_sidebar.pick_dust_btn,
             task="Pick Heal and click a dust speck on the picture.",
             watch=lambda w: w.state.config.retouch,
-            also=canvas,
             guide=("retouch", "Retouch"),
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             LOOK,
             "Finishing",
             "Presentation, after the crop. <b>Vignette</b> is an edge burn in stops. <b>Filed "
@@ -442,7 +441,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: cp(w).finish_sidebar.vignette_burn_slider,
             guide=("finish", "Finishing"),
         ),
-        TutorialStep(
+        step(
             SEEING,
             "The Analysis Readout",
             "The densitometer above the tabs. The <b>H&amp;D chart</b> shows the paper curve and where "
@@ -451,7 +450,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: rp(w).curve_widget,
             guide=("analysis", "Analysis"),
         ),
-        TutorialStep(
+        step(
             SEEING,
             "Zone Placement",
             "Place zones as in the Zone System. Pin a point in the picture, give it a target zone, and "
@@ -459,17 +458,16 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: rp(w).zone_placement,
             guide=("analysis", "Analysis"),
         ),
-        TutorialStep(
+        step(
             SEEING,
             "Before and After",
             "Split the canvas between this print and the default conversion. Drag the divider to move it.",
             lambda w: w.toolbar.btn_compare,
             task=f"Press {_k('toggle_compare')} for the split. Press it again to close it.",
             watch=lambda w: w.state.compare_mode,
-            also=canvas,
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             SEEING,
             "Peeks, Reference, Loupe and Zones",
             f"Hold {_k('toggle_negative_peek')} for the scan as captured, {_k('toggle_flat_peek')} for "
@@ -479,10 +477,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: w.toolbar.btn_negative_peek,
             task=f"Hold {_k('toggle_negative_peek')} to see the negative.",
             watch=lambda w: w.state.negative_peek,
-            also=canvas,
             offer=_DEMO,
         ),
-        TutorialStep(
+        step(
             SEEING,
             "Soft Proof",
             "<b>Soft Proof</b> shows the print as a printer and paper will make it: paper white, ink "
@@ -491,7 +488,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: rp(w).export_sidebar._soft_proof_section,
             guide=("soft_proof", "Soft Proof"),
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "History and Work Prints",
             "Each edit is a step in <b>History</b>; click one to go back, then edit on to branch. "
@@ -500,7 +497,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             lambda w: rp(w).history_panel.work_prints,
             pre_hook=lambda w: rp(w).show_tab_by_key("history"),
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "Favorites and Presets",
             "<b>Favorites</b> is your own tab: pin the controls you use most. <b>Presets</b> keep chosen "
@@ -509,7 +506,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: rp(w).show_tab_by_key("favourites"),
             guide=("presets", "Presets"),
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "Metadata and Gear",
             "Film, camera, lens, developer and scan details go into the exported EXIF and XMP. The "
@@ -520,7 +517,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: rp(w).show_tab_by_key("metadata"),
             guide=("metadata_gear", "Analog Gear"),
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "Roll Settings",
             "Tag a whole roll in one dialog: gear, capture, place, process and scan fields, for this "
@@ -528,7 +525,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "“penf” for “Pen F”, opens this dialog filled in.",
             lambda w: fb(w).roll_settings_btn,
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "Output Intent",
             "<b>Print</b> is the finished print. <b>Flat</b> is a flat log master for other editors, "
@@ -539,7 +536,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             watch=lambda w: rp(w).export_sidebar.intent_btn.currentIndex(),
             pre_hook=lambda w: rp(w).show_tab_by_key("export"),
         ),
-        TutorialStep(
+        step(
             OUTPUT,
             "Export",
             "Pick a format (JPEG, 16-bit TIFF, PNG, WebP, JPEG XL), a color space and a size. The "
@@ -550,7 +547,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: rp(w).show_tab_by_key("export"),
             guide=("export_presets", "Export Presets"),
         ),
-        TutorialStep(
+        step(
             SCANNING,
             "Film Scanners",
             "Scan straight into NegPy. <b>Film Scanner</b> drives SANE scanners, the Nikon Coolscan "
@@ -560,7 +557,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: rp(w).show_tab_by_key("scan"),
             guide=("scan_sane", "Film Scanner"),
         ),
-        TutorialStep(
+        step(
             SCANNING,
             "Camera Scanning",
             "Tether a camera through gphoto2, with live view, and drive a Scanlight for white or red, "
@@ -569,7 +566,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: rp(w).show_tab_by_key("scan"),
             guide=("scan_rgb", "Camera Scanning"),
         ),
-        TutorialStep(
+        step(
             SCANNING,
             "You're All Set",
             f"{_k('show_shortcuts')} lists every shortcut and {_k('command_palette')} finds any control. "
