@@ -20,6 +20,10 @@ If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\
 
 Drag a panel by its top edge (the thin strip above Session, the margin around the Controls panel's **Find** box) to float it; its pin button docks it again. **Shift+H** hides both panels, and brings both back. NegPy remembers the layout. **Reset Panel Layout** in the **⋯** menu restores the default layout.
 
+### The tour
+
+**Take the Tour** (**⋯** menu, or Find) walks through NegPy in eight chapters, from the Library to the Scan tab; the chapter menu on its card jumps to any of them. The highlighted control stays live. A step with a circle is a task, such as dragging Print Density or pressing a view key; the step advances when you do it, or **Skip Step** moves on. With nothing open, **Load Demo Negative** opens a synthetic color negative to practice on. **Read More…** opens the panel's full guide. Esc ends the tour, and the next one offers **Resume Where You Left Off**.
+
 ### Find
 
 **Ctrl+K**, or **Find Control or Action…** in the **⋯** menu, opens one box for every slider, card and action. Type a name, or another editor's word for the job: *contrast* finds **ISO-R Grade**, *white balance* **Filtration**, *exposure* **Print Density**. Up and Down pick a row and Enter opens it on its tab. A slider row is the live control, so you can drag it without leaving the list.
@@ -92,7 +96,7 @@ On a **frame** card (Geometry, Filtration, Tone, Lab, Alternative Processes, Ton
 
 ### The tab header
 
-Tabs with several cards (Roll, Exposure, Color, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), **Reset to Roll** (appears once a card differs from the roll, one undo step), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
+Tabs with several cards (Roll, Exposure, Look, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), **Reset to Roll** (appears once a card differs from the roll, one undo step), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
 
 ### Menu bar (macOS)
 

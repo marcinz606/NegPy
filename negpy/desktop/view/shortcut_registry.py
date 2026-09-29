@@ -262,6 +262,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "undo": ShortcutEntry("Ctrl+Z", "Undo", "Actions"),
     "redo": ShortcutEntry("Ctrl+Y", "Redo", "Actions"),
     "show_shortcuts": ShortcutEntry("?", "Show shortcuts", "Help"),
+    "show_tour": ShortcutEntry("", "Take the tour: a guided walk through NegPy, one chapter at a time", "Help"),
     "show_analysis_help": ShortcutEntry("", "Analysis panel guide", "Help"),
     "check_for_updates": ShortcutEntry("", "Check for updates", "Help"),
     "show_about": ShortcutEntry("", "About NegPy: version and project page", "Help"),

@@ -174,12 +174,6 @@ class MainWindow(QMainWindow):
         self.tutorial_overlay = TutorialOverlay(self)
         self.tutorial_overlay.finished.connect(self._on_tutorial_finished)
 
-        repo = self.controller.session.repo
-        if not repo.get_global_setting("tutorial_seen", False):
-            QTimer.singleShot(600, self.show_tutorial)  # the scan-setup wizard follows the tour
-        elif repo.get_global_setting("scan_setup") is None:
-            QTimer.singleShot(600, self.show_scan_setup)
-
     def _restore_window_geometry(self) -> None:
         """Restore the window state and geometry, with a legacy size/position fallback."""
         encoded = self.controller.session.repo.get_global_setting("window_geometry_qt")
@@ -243,8 +237,18 @@ class MainWindow(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.controller.restore_session()
+                self._schedule_onboarding()
                 return
         self.session_panel.show_library(ask_if_unset=False)
+        self._schedule_onboarding()
+
+    def _schedule_onboarding(self) -> None:
+        """Runs after the restore question, so the first-run tour never opens under a message box."""
+        repo = self.controller.session.repo
+        if not repo.get_global_setting("tutorial_seen", False):
+            QTimer.singleShot(600, self.show_tutorial)  # the scan-setup wizard follows the tour
+        elif repo.get_global_setting("scan_setup") is None:
+            QTimer.singleShot(600, self.show_scan_setup)
 
     def _refresh_monitor_profile(self, force: bool = False) -> None:
         """Detect the active screen's ICC profile and hand it to the controller, which
@@ -382,9 +386,10 @@ class MainWindow(QMainWindow):
 
         self.tutorial_overlay.start(build(self))
 
-    def _on_tutorial_finished(self, _completed: bool) -> None:
+    def _on_tutorial_finished(self, completed: bool) -> None:
         repo = self.controller.session.repo
         repo.save_global_setting("tutorial_seen", True)
+        repo.save_global_setting("tutorial_resume", 0 if completed else self.tutorial_overlay.index)
         # Unset only until the wizard is answered once, so replaying the tour later from the
         # menu does not ask again.
         if repo.get_global_setting("scan_setup") is None:

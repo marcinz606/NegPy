@@ -303,6 +303,7 @@ class ShortcutManager:
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
+            "show_tour": self.window.show_tutorial,
             "command_palette": self.window.show_command_palette,
             "toggle_side_panels": self.window.toggle_side_panels,
             "toggle_reference": self.window.toggle_reference,

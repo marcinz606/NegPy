@@ -475,6 +475,7 @@ class ActionToolbar(QWidget):
         about_action = overflow_menu.addAction(qta.icon("fa5s.info-circle", color=icon_color), "About NegPy…", self._show_about)
         about_action.setToolTip("Version and project page")
         tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the Tour", self._show_tour)
+        self._label(tour_action, "Take the Tour", "show_tour")
         tour_action.setToolTip("Replay the guided feature tour")
         shortcuts_action = overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts", self._show_shortcuts)
         self._label(shortcuts_action, "Keyboard Shortcuts", "show_shortcuts")

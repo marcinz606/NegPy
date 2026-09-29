@@ -434,6 +434,12 @@ QLabel[hint="error"] {
     border: none;
 }
 
+QLabel[hint="success"] {
+    color: @status_success;
+    font-size: @font_size_smallpx;
+    border: none;
+}
+
 QPushButton#collapsible_reset_btn {
     background: transparent;
     border: none;
