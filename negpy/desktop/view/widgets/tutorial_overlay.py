@@ -33,9 +33,10 @@ class Offer:
 class TutorialStep:
     """task + watch make a step interactive: it is done once watch(window) differs from its
     value when the step opened. also is a second area kept clear and clickable, without the ring:
-    the canvas, so an edit shows undimmed and a tool can act on it. guide is a (USER_GUIDE panel key, panel title) pair."""
+    the canvas, so an edit shows undimmed and a tool can act on it. guide is a (USER_GUIDE panel
+    key, panel title) pair. post_hook runs as the step is left, by any route."""
 
-    __slots__ = ("chapter", "title", "body", "target", "task", "watch", "also", "guide", "offer", "pre_hook")
+    __slots__ = ("chapter", "title", "body", "target", "task", "watch", "also", "guide", "offer", "pre_hook", "post_hook")
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class TutorialStep:
         guide: tuple[str, str] = ("", ""),
         offer: Optional[Offer] = None,
         pre_hook: Optional[Callable[["MainWindow"], None]] = None,
+        post_hook: Optional[Callable[["MainWindow"], None]] = None,
     ) -> None:
         self.chapter = chapter
         self.title = title
@@ -61,6 +63,7 @@ class TutorialStep:
         self.guide = guide
         self.offer = offer
         self.pre_hook = pre_hook
+        self.post_hook = post_hook
 
 
 _NAV_KEYS = {Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space}
@@ -75,7 +78,6 @@ class TutorialOverlay(QWidget):
     _POPUP_W = 360
     _GAP = 16
     _POLL_MS = 150
-    _ADVANCE_MS = 800
 
     def __init__(self, window: "MainWindow") -> None:
         super().__init__(window)
@@ -96,6 +98,7 @@ class TutorialOverlay(QWidget):
         self._steps: list[TutorialStep] = []
         self._chapters: list[str] = []
         self._idx = 0
+        self._shown: Optional[int] = None
         self._baseline: object = None
         self._task_done = False
         self._hole: Optional[QRectF] = None
@@ -105,9 +108,6 @@ class TutorialOverlay(QWidget):
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(self._POLL_MS)
         self._poll_timer.timeout.connect(self._poll)
-        self._advance_timer = QTimer(self)
-        self._advance_timer.setSingleShot(True)
-        self._advance_timer.timeout.connect(self._next)
 
         self._build_popup()
         self.hide()
@@ -209,6 +209,7 @@ class TutorialOverlay(QWidget):
         self._steps = steps
         self._chapters = list(dict.fromkeys(s.chapter for s in steps))
         self._collapsed = []
+        self._shown = None
         self._build_chapter_button()
         self._sync_geometry()
         self.show()
@@ -221,9 +222,16 @@ class TutorialOverlay(QWidget):
     def dismiss(self) -> None:
         self._close(False)
 
+    def _leave(self) -> None:
+        if self._shown is not None:
+            hook = self._steps[self._shown].post_hook
+            self._shown = None
+            if hook:
+                hook(self._win)
+
     def _close(self, completed: bool) -> None:
         self._poll_timer.stop()
-        self._advance_timer.stop()
+        self._leave()
         for section in self._collapsed:
             section.set_expanded(False)
         self._collapsed = []
@@ -255,8 +263,9 @@ class TutorialOverlay(QWidget):
         self.goto(self._chapter_start(self._chapters[pos]))
 
     def goto(self, idx: int) -> None:
-        self._advance_timer.stop()
+        self._leave()
         self._idx = idx
+        self._shown = idx
         step = self._steps[idx]
 
         if step.pre_hook:
@@ -348,7 +357,6 @@ class TutorialOverlay(QWidget):
         if step.watch is not None and not self._task_done and step.watch(self._win) != self._baseline:
             self._task_done = True
             self._sync_task()
-            self._advance_timer.start(self._ADVANCE_MS)
         self._sync_offer()
         hole = self._target_rect(step.target(self._win))
         also = self._target_rect(step.also(self._win)) if step.also else None

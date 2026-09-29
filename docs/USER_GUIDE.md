@@ -22,7 +22,7 @@ Drag a panel by its top edge (the thin strip above Session, the margin around th
 
 ### The tour
 
-**Take the Tour** (**⋯** menu, or Find) walks through NegPy in eight chapters, from the Library to the Scan tab; the chapter menu on its card jumps to any of them. The highlighted control stays live and the picture stays undimmed, so an edit shows as you make it. A step with a circle is a task, such as dragging Print Density or pressing a view key; the step advances when you do it, or **Skip Step** moves on. With nothing open, **Load Demo Negative** opens a synthetic color negative to practice on. **Read More…** opens the panel's full guide. Esc ends the tour, and the next one offers **Resume Where You Left Off**.
+**Take the Tour** (**⋯** menu, or Find) walks through NegPy in eight chapters, from the Library to the Scan tab; the chapter menu on its card jumps to any of them. The highlighted control stays live and the picture stays undimmed, so an edit shows as you make it. A step with a circle is a task, such as dragging Print Density or pressing a view key; a check marks it done when you do it, and **Next** moves on when you are ready. **Skip Step** moves on without it. With nothing open, **Load Demo Negative** opens a synthetic color negative to practice on. **Read More…** opens the panel's full guide. Esc ends the tour, and the next one offers **Resume Where You Left Off**.
 
 ### Find
 
@@ -465,7 +465,7 @@ Draw masks and lighten or darken only those areas. The **MASKS** header shows ho
 
 Handles can go into the gray area outside the frame. A tilted Card Edge usually must start past the corner it burns.
 
-*   **Mask list**: shape icon, Dodge (lighten), Burn (darken) or Grade (contrast only), and values. Click the shape icon to enable or disable the mask (its row grays out). The yin-yang inverts the mask, so it acts everywhere except inside its shape (red while on). The eye toggles the outline; the trash deletes it.
+*   **Mask list**: shape icon, Dodge (lighten), Burn (darken) or Grade (contrast only), and values. Click the shape icon to enable or disable the mask (its row grays out). The yin-yang inverts the mask, so it acts everywhere except inside its shape (red while on). The eye toggles the outline; the trash deletes it. Outlines show only while the Exposure tab is open.
 *   The canvas tint of the current mask, and of masks that **intersect** it, goes while you hold **Burn**, **Feather** or **Grade** or drag a vertex. A Card Edge or an inverted mask intersects anything on its side.
 *   **SELECTED MASK**: the controls below act on the mask selected in the list, and gray out with none selected.
 *   **Burn** (-2 to 2 stops, default 0): **positive burns** (darker), **negative dodges** (brighter), like Print Density and the Finishing edge burn.

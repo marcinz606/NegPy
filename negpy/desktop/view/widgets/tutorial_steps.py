@@ -48,6 +48,27 @@ def _palette_open(_w: "MainWindow") -> bool:
     return isinstance(QApplication.activeModalWidget(), CommandPalette)
 
 
+def _put_down(w: "MainWindow") -> None:
+    """Esc until the canvas is plain, so a tool or view picked up on one step never rides into the next."""
+    from negpy.desktop.session import ToolMode
+
+    st = w.state
+    esc = w.shortcut_manager.action_for("cancel_tool")
+    for _ in range(12):
+        busy = (
+            st.active_tool != ToolMode.NONE,
+            st.test_strip or st.test_strip_pending,
+            st.negative_peek or st.embedded_peek or st.flat_peek,
+            st.compare_mode,
+            st.grain_focuser,
+            st.zone_arm_target is not None,
+            w.light_table_active(),
+        )
+        if esc is None or not any(busy):
+            return
+        esc()
+
+
 def _resume_offer() -> Offer:
     def saved(w: "MainWindow") -> int:
         value = w.controller.session.repo.get_global_setting("tutorial_resume", 0)
@@ -75,8 +96,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def fb(w: "MainWindow"):
         return w.session_panel.file_browser
 
-    # The picture stays undimmed on every step, so an edit made during the tour shows as it will print.
-    step = partial(TutorialStep, also=canvas)
+    # The picture stays undimmed on every step, so an edit shows as it will print, and each step
+    # leaves the canvas as it found it.
+    step = partial(TutorialStep, also=canvas, post_hook=_put_down)
 
     return [
         step(

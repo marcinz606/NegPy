@@ -213,6 +213,9 @@ class AppState:
     # session-only, never persisted.
     printing_notes: bool = False
 
+    # Dodge/burn mask outlines draw only while their tab shows. Display-only, session-only.
+    local_masks_shown: bool = True
+
     # Zone-placement pins (ZonePin: probed spot + target zone). Session-only and dropped by
     # any real render, like the test strip. Never persisted.
     zone_pins: List[Any] = field(default_factory=list)

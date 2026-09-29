@@ -1,5 +1,6 @@
 import re
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import tifffile
@@ -77,7 +78,7 @@ def test_chapters_skip_and_jump() -> None:
     assert not overlay._skip_btn.isVisible()
 
 
-def test_task_completes_and_advances() -> None:
+def test_task_marks_done_and_waits_for_next() -> None:
     state = {"v": 0}
     steps = [
         TutorialStep("A", "Try", "x", lambda _: None, task="Change v.", watch=lambda _: state["v"]),
@@ -88,7 +89,10 @@ def test_task_completes_and_advances() -> None:
     state["v"] = 1
     overlay._poll()
     assert overlay._task_lbl.property("hint") == "success"
-    QTest.qWait(overlay._ADVANCE_MS + 100)
+    assert overlay._next_btn.text() == "Next"
+    QTest.qWait(1000)
+    assert overlay.index == 0
+    _click(overlay._next_btn)
     assert overlay.index == 1
 
 
@@ -170,6 +174,62 @@ def test_start_at_resumes_the_saved_step() -> None:
     assert overlay.index == 2
     overlay.start(steps, at=overlay.index)
     assert overlay._title_lbl.text() == "2"
+
+
+def test_post_hook_runs_when_a_step_is_left() -> None:
+    left: list[str] = []
+    steps = [TutorialStep("A", n, "x", lambda _: None, post_hook=lambda _w, n=n: left.append(n)) for n in ("one", "two")]
+    overlay, _ = _started(_host(), steps)
+    _click(overlay._next_btn)
+    assert left == ["one"]
+    overlay.dismiss()
+    assert left == ["one", "two"]
+
+
+def test_put_down_escapes_until_the_canvas_is_plain() -> None:
+    from negpy.desktop.session import ToolMode
+    from negpy.desktop.view.widgets.tutorial_steps import _put_down
+
+    state = SimpleNamespace(
+        active_tool=ToolMode.CROP_MANUAL,
+        test_strip=False,
+        test_strip_pending=False,
+        negative_peek=False,
+        embedded_peek=False,
+        flat_peek=False,
+        compare_mode=True,
+        grain_focuser=False,
+        zone_arm_target=None,
+    )
+
+    def esc() -> None:
+        if state.compare_mode:
+            state.compare_mode = False
+        else:
+            state.active_tool = ToolMode.NONE
+
+    w = SimpleNamespace(state=state, shortcut_manager=SimpleNamespace(action_for=lambda _id: esc), light_table_active=lambda: False)
+    _put_down(w)  # type: ignore[arg-type]
+    assert not state.compare_mode and state.active_tool == ToolMode.NONE
+
+
+def test_mask_outlines_follow_the_dodge_and_burn_tab() -> None:
+    from negpy.desktop.view.sidebar.right_panel import RightPanel
+
+    state = SimpleNamespace(local_masks_shown=True)
+    stub = SimpleNamespace(
+        _group_keys=["roll", "frame"],
+        _active_group=1,
+        _active_index=0,
+        _section_tab_index={"local_section": 1},
+        controller=SimpleNamespace(session=SimpleNamespace(state=state), config_updated=MagicMock()),
+    )
+    RightPanel._sync_local_masks(stub)  # type: ignore[arg-type]
+    assert state.local_masks_shown is False
+    stub._active_index = 1
+    RightPanel._sync_local_masks(stub)  # type: ignore[arg-type]
+    assert state.local_masks_shown is True
+    assert stub.controller.config_updated.emit.call_count == 2
 
 
 def test_demo_negative_is_written_once(tmp_path) -> None:
