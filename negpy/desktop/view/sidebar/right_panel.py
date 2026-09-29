@@ -535,14 +535,16 @@ class RightPanel(QWidget):
 
     def scroll_to(self, widget: QWidget, centered: bool = False) -> None:
         """Ensure *widget* is visible within its enclosing scroll area; centered puts it a third
-        of the way down, which ensureWidgetVisible never does for a widget already in view."""
+        of the way down, or higher so a tall one fits, which ensureWidgetVisible never does for a
+        widget already in view."""
         parent = widget.parent()
         while parent is not None:
             if isinstance(parent, QScrollArea):
                 if centered and parent.widget() is not None:
                     bar = parent.verticalScrollBar()
                     y = widget.mapTo(parent.widget(), QPoint(0, 0)).y()
-                    bar.setValue(max(0, min(bar.maximum(), y - parent.viewport().height() // 3)))
+                    vh = parent.viewport().height()
+                    bar.setValue(max(0, min(bar.maximum(), y - max(0, min(vh // 3, vh - widget.height())))))
                 else:
                     parent.ensureWidgetVisible(widget)
                 return

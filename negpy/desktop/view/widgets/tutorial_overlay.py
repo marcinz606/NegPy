@@ -31,12 +31,14 @@ class Offer:
 
 
 class TutorialStep:
-    """task + watch make a step interactive: it is done once watch(window) differs from its
-    value when the step opened. also is a second area kept clear and clickable, without the ring:
-    the canvas, so an edit shows undimmed and a tool can act on it. guide is a (USER_GUIDE panel
-    key, panel title) pair. post_hook runs as the step is left, by any route."""
+    """target is the area lit and kept clickable, usually a whole card; focus is the control
+    inside it the step talks about, scrolled into view. task + watch make a step interactive: it
+    is done once watch(window) differs from its value when the step opened. also is a second area
+    kept clear and clickable, without the ring: the canvas, so an edit shows undimmed and a tool
+    can act on it. guide is a (USER_GUIDE panel key, panel title) pair. post_hook runs as the step
+    is left, by any route."""
 
-    __slots__ = ("chapter", "title", "body", "target", "task", "watch", "also", "guide", "offer", "pre_hook", "post_hook")
+    __slots__ = ("chapter", "title", "body", "target", "focus", "task", "watch", "also", "guide", "offer", "pre_hook", "post_hook")
 
     def __init__(
         self,
@@ -45,6 +47,7 @@ class TutorialStep:
         body: str,
         target: Callable[["MainWindow"], Optional[QWidget]],
         *,
+        focus: Optional[Callable[["MainWindow"], Optional[QWidget]]] = None,
         task: str = "",
         watch: Optional[Window] = None,
         also: Optional[Callable[["MainWindow"], Optional[QWidget]]] = None,
@@ -57,6 +60,7 @@ class TutorialStep:
         self.title = title
         self.body = body
         self.target = target
+        self.focus = focus
         self.task = task
         self.watch = watch
         self.also = also
@@ -103,6 +107,7 @@ class TutorialOverlay(QWidget):
         self._task_done = False
         self._hole: Optional[QRectF] = None
         self._also: Optional[QRectF] = None
+        self._focus: Optional[QRectF] = None
         self._collapsed: list[CollapsibleSection] = []
 
         self._poll_timer = QTimer(self)
@@ -273,6 +278,11 @@ class TutorialOverlay(QWidget):
         target = step.target(self._win)
         if target is not None:
             self._reveal(target)
+        focus = step.focus(self._win) if step.focus else None
+        right_panel = getattr(self._win, "right_panel", None)
+        if focus is not None and right_panel is not None:
+            # After reveal_widget's own deferred scroll, so the card's top moves only as far as focus needs.
+            QTimer.singleShot(0, lambda: right_panel.scroll_to(focus))
         self._baseline = step.watch(self._win) if step.watch else None
         self._task_done = False
 
@@ -299,8 +309,7 @@ class TutorialOverlay(QWidget):
         # Keys a task asks for are the main window's shortcuts, which a separate overlay window blocks.
         if step.watch is not None and self._use_top_level_window:
             self._win.activateWindow()
-        self._hole = self._target_rect(target)
-        self._also = self._target_rect(step.also(self._win)) if step.also else None
+        self._hole, self._also, self._focus = self._rects(step)
         self._layout()
 
     def _set_body(self, html: str) -> None:
@@ -358,10 +367,9 @@ class TutorialOverlay(QWidget):
             self._task_done = True
             self._sync_task()
         self._sync_offer()
-        hole = self._target_rect(step.target(self._win))
-        also = self._target_rect(step.also(self._win)) if step.also else None
-        if (hole, also) != (self._hole, self._also):
-            self._hole, self._also = hole, also
+        rects = self._rects(step)
+        if rects != (self._hole, self._also, self._focus):
+            self._hole, self._also, self._focus = rects
             self._layout()
 
     # Layout helpers
@@ -370,7 +378,7 @@ class TutorialOverlay(QWidget):
         for dock in (getattr(self._win, "session_dock", None), getattr(self._win, "drawer", None)):
             if dock is not None and dock.isAncestorOf(target) and not dock.isVisible():
                 dock.show()
-        parent = target.parentWidget()
+        parent: Optional[QWidget] = target
         while parent is not None:
             if (
                 isinstance(parent, CollapsibleSection)
@@ -387,11 +395,24 @@ class TutorialOverlay(QWidget):
             for section in self._collapsed:
                 section.expand()
 
+    def _rects(self, step: TutorialStep) -> tuple[Optional[QRectF], Optional[QRectF], Optional[QRectF]]:
+        w = self._win
+        return (
+            self._target_rect(step.target(w)),
+            self._target_rect(step.also(w)) if step.also else None,
+            self._target_rect(step.focus(w)) if step.focus else None,
+        )
+
     def _target_rect(self, target: Optional[QWidget]) -> Optional[QRectF]:
+        """The target's on-screen part: a card taller than its scroll area is cut to the viewport."""
         if target is None or not target.isVisible():
             return None
-        lp = self.mapFromGlobal(target.mapToGlobal(target.rect().topLeft()))
-        rect = QRectF(lp.x(), lp.y(), target.width(), target.height()).intersected(QRectF(self.rect()))
+        rect = QRectF(self.rect())
+        w: Optional[QWidget] = target
+        while w is not None:
+            lp = self.mapFromGlobal(w.mapToGlobal(w.rect().topLeft()))
+            rect = rect.intersected(QRectF(lp.x(), lp.y(), w.width(), w.height()))
+            w = None if w.isWindow() else w.parentWidget()
         return rect if not rect.isEmpty() else None
 
     def _layout(self) -> None:
@@ -404,6 +425,10 @@ class TutorialOverlay(QWidget):
             region = QRegion(self.rect())
             for h in holes:
                 region = region.subtracted(QRegion(h.toAlignedRect()))
+            if self._focus is not None:
+                # A thin band around the focus control, inside the hole, so its ring can paint.
+                ring = QRegion(self._focus.adjusted(-6, -6, 6, 6).toAlignedRect())
+                region = region.united(ring.subtracted(QRegion(self._focus.adjusted(-2, -2, 2, 2).toAlignedRect())))
             self.setMask(region.united(QRegion(self._popup.geometry())))
         self.update()
 
@@ -482,6 +507,9 @@ class TutorialOverlay(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(hi, 6, 6)
 
+        if self._focus is not None:
+            painter.drawRoundedRect(self._focus.adjusted(-4, -4, 4, 4), 4, 4)
+
         card = QRectF(self._popup.geometry())
         if not card.intersects(hi):
             # A leader from the card's nearest edge to the target's.
@@ -537,7 +565,6 @@ class TutorialOverlay(QWidget):
             self._sync_geometry()
             if self._steps:
                 step = self._steps[self._idx]
-                self._hole = self._target_rect(step.target(self._win))
-                self._also = self._target_rect(step.also(self._win)) if step.also else None
+                self._hole, self._also, self._focus = self._rects(step)
             self._layout()
         return False

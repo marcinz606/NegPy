@@ -251,3 +251,48 @@ def test_tutorial_overlay_uses_top_level_window_on_windows() -> None:
         assert overlay.windowFlags() & Qt.WindowType.FramelessWindowHint
     else:
         assert not overlay.isWindow()
+
+
+def test_tall_card_lights_only_its_visible_part_and_scrolls_to_focus() -> None:
+    from PyQt6.QtWidgets import QScrollArea
+
+    win = _host()
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    card = QWidget()
+    card.setMinimumHeight(3000)
+    focus = QPushButton("Deep", card)
+    focus.setGeometry(10, 2500, 100, 30)
+    scroll.setWidget(card)
+    win.setCentralWidget(scroll)
+    QApplication.processEvents()
+
+    def reveal(widget: QWidget, centered: bool = False) -> None:
+        scroll.ensureWidgetVisible(widget)
+
+    win.right_panel = SimpleNamespace(reveal_widget=reveal, scroll_to=reveal)  # type: ignore[attr-defined]
+    overlay, _ = _started(win, [TutorialStep("A", "Card", "x", lambda _: card, focus=lambda _: focus)])
+    hole = overlay._hole
+    assert hole is not None
+    viewport = scroll.viewport()
+    top_left = overlay.mapFromGlobal(viewport.mapToGlobal(QPoint(0, 0)))
+    assert hole == QRectF(top_left.x(), top_left.y(), viewport.width(), viewport.height())
+    assert scroll.verticalScrollBar().value() > 0
+    overlay.dismiss()
+
+
+def test_focus_control_gets_a_ring_and_stays_clickable() -> None:
+    win = _host()
+    card = QWidget(win)
+    card.setGeometry(500, 100, 300, 400)
+    focus = QPushButton("Strip", card)
+    focus.setGeometry(20, 200, 80, 30)
+    card.show()
+    overlay, _ = _started(win, [TutorialStep("A", "Card", "x", lambda _: card, focus=lambda _: focus)])
+    rect = overlay._focus
+    assert rect is not None
+    mask = overlay.mask()
+    assert not mask.contains(rect.center().toPoint())
+    assert mask.contains(QPoint(int(rect.left()) - 4, int(rect.center().y())))
+    assert not mask.contains(QPoint(int(rect.left()) - 20, int(rect.center().y())))
+    overlay.dismiss()
