@@ -2256,6 +2256,90 @@ class TestHdrDecodeIsFormatAgnostic:
         assert float(merged.max()) <= 1.0
 
 
+_ORIENTATIONS = [
+    GeometryConfig(rotation=0),
+    GeometryConfig(rotation=1),
+    GeometryConfig(rotation=2),
+    GeometryConfig(rotation=3),
+    GeometryConfig(flip_horizontal=True),
+    GeometryConfig(flip_vertical=True),
+    GeometryConfig(rotation=1, flip_horizontal=True),
+]
+
+
+class TestFlatFieldBeforeUserGeometry:
+    """The gain map is in sensor positions, so it multiplies the buffer before rotation and flips."""
+
+    _H, _W = 20, 30
+
+    def _gain(self) -> np.ndarray:
+        gain = np.ones((self._H, self._W, 3), dtype=np.float32)
+        gain[:, :10] = 0.5
+        return gain
+
+    def _decode(self, tmp_path: str, geometry: GeometryConfig, levels: dict[str, float], **kwargs) -> np.ndarray:
+        from negpy.features.flatfield.models import FlatFieldConfig
+        from negpy.services.export.linear_output import _decode_linear
+
+        paths = {}
+        for name in levels:
+            p = os.path.join(str(tmp_path), name)
+            open(p, "wb").close()
+            paths[p] = np.full((self._H, self._W, 3), levels[name], dtype=np.float32)
+
+        def fake_decode(path: str, demosaic="Auto"):
+            return paths[path].copy(), _MOCK_WB, _MOCK_META
+
+        first = next(iter(paths))
+        with (
+            mock.patch("negpy.services.export.linear_output._decode_camera_raw_buffer", side_effect=fake_decode),
+            mock.patch("negpy.features.flatfield.logic._resolve", return_value=(self._gain(), "tok")),
+        ):
+            rgb, _, _, _ = _decode_linear(
+                first,
+                geometry,
+                flatfield=FlatFieldConfig(apply=True, profile_id="ff"),
+                apply_flatfield=True,
+                **kwargs,
+            )
+        return rgb
+
+    @pytest.mark.parametrize("geometry", _ORIENTATIONS)
+    def test_single_raw(self, tmp_path: str, geometry: GeometryConfig) -> None:
+        from negpy.services.export.linear_output import _apply_user_geometry
+
+        rgb = self._decode(tmp_path, geometry, {"frame.nef": 0.4})
+        expected = _apply_user_geometry(np.full((self._H, self._W, 3), 0.4, np.float32) * self._gain(), geometry)
+        np.testing.assert_allclose(rgb, expected, atol=1e-6)
+
+    @pytest.mark.parametrize("geometry", _ORIENTATIONS)
+    def test_triplet(self, tmp_path: str, geometry: GeometryConfig) -> None:
+        from negpy.services.export.linear_output import _apply_user_geometry
+
+        names = {"red.nef": 0.4, "green.nef": 0.4, "blue.nef": 0.4}
+        rgbscan = RgbScanConfig(
+            enabled=True,
+            green_path=os.path.join(str(tmp_path), "green.nef"),
+            blue_path=os.path.join(str(tmp_path), "blue.nef"),
+            align=False,
+        )
+        rgb = self._decode(tmp_path, geometry, names, rgbscan=rgbscan)
+        expected = _apply_user_geometry(np.full((self._H, self._W, 3), 0.4, np.float32) * self._gain(), geometry)
+        np.testing.assert_allclose(rgb, expected, atol=1e-6)
+
+    @pytest.mark.parametrize("geometry", _ORIENTATIONS)
+    def test_hdr(self, tmp_path: str, geometry: GeometryConfig) -> None:
+        from negpy.features.hdr.models import HdrConfig
+        from negpy.services.export.linear_output import _apply_user_geometry
+
+        hdr = HdrConfig(hdr_enabled=True, hdr_paths=(os.path.join(str(tmp_path), "long.nef"),), hdr_ratios=(1.0, 4.0), hdr_align=False)
+        levels = {"ref.nef": 0.1, "long.nef": 0.4}
+        unrotated = self._decode(tmp_path, GeometryConfig(), levels, hdr=hdr)
+        rgb = self._decode(tmp_path, geometry, levels, hdr=hdr)
+        np.testing.assert_allclose(unrotated[:, :10], 0.5 * unrotated[:, 10:20], rtol=1e-4)
+        np.testing.assert_allclose(rgb, _apply_user_geometry(unrotated, geometry), atol=1e-6)
+
+
 class TestSourceMetaExifFallback:
     """`_read_source_meta_exif` is the fallback path for RAF, ORF and friends."""
 

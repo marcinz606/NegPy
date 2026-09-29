@@ -934,7 +934,7 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
 *   **Flat**: a neutral, low-contrast master for editing elsewhere. It skips the print look, effects, toning and vignette, and writes a 16-bit TIFF, or lossless JPEG XL when JXL is selected with sRGB, P3, Rec 2020 or Grayscale.
     *   **Preview Flat**: show the flat master on the canvas.
     *   **Roll Analysis** (Roll tab): share one exposure baseline across all visible frames so flat masters match. Run it before a flat batch.
-*   **Linear**: skip the pipeline and write the decoded buffer as linear 16-bit, with only rotation and flip applied (no normalization, exposure, color management, flatfield or sensor correction). **TIFF** (default, zlib, untagged) or **JPEG XL** (lossless). JPEG XL always tags sRGB primaries and a linear transfer, which is wrong for native primaries; use TIFF when that matters. **Effort** (1 to 9, default 7) sets JPEG XL speed against size.
+*   **Linear**: skip the pipeline and write the decoded buffer as linear 16-bit, with rotation and flip plus only the corrections you turn on below (no normalization, exposure or color management). **TIFF** (default, zlib, untagged) or **JPEG XL** (lossless). JPEG XL always tags sRGB primaries and a linear transfer, which is wrong for native primaries; use TIFF when that matters. **Effort** (1 to 9, default 7) sets JPEG XL speed against size.
     *   **Pakon RAW**: 4× expansion by default; F335 files (16-bit sensor) none.
     *   **LinearRaw DNG**: SilverFast HDRi (3-channel) and VueScan (4-channel RGB+IR). IR goes to a separate grayscale `_ir` file in the same Format.
     *   **Camera RAW**: demosaiced at unity white balance (1,1,1,1) with the Export algorithm from the Raw Decode card (§10.7). As-shot WB goes to XMP (`RAW-WB: R G B`). Trichrome triplets merge into one TIFF. Stitch composites (and stitch plus triplet) get flatfield and sensor correction per part for clean seams.
@@ -944,7 +944,7 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
     *   **TIFF**: a 4th channel tagged as IR (ExtraSamples = UNSPECIFIED or missing), a sidecar `_ir.tif` or IR in a secondary page goes to a separate `_ir` file. **Input gamma** (linear, 1.8, 2.2 or sRGB) linearizes the data. Expansion available, off by default.
     *   **Expansion**: scales the data before writing. Defaults: Pakon F135/F235 4×, Noritsu 16×, F335 and LinearRaw DNG off. Camera RAW, Coolscan NEF and Flextight FFF have none.
     *   **Apply ICE dust removal** (when IR exists): IR dust and scratch correction. Off by default.
-    *   **Corrections** (camera RAW only, all off): **Apply white balance** (as-shot gains; grayed out for a Trichrome triplet or Single-Shot Narrowband capture), **Apply flatfield**, **Apply sensor correction** (crosstalk unmixing). Stitch composites always get flatfield and sensor correction per part.
+    *   **Corrections** (camera RAW only, all off): **Apply white balance** (as-shot gains; grayed out for a Trichrome triplet or Single-Shot Narrowband capture), **Apply Flat Field**, **Apply sensor correction** (crosstalk unmixing). Stitch composites always get Flat Field and sensor correction per part.
 
     Linear Output uses **Destination** like any export and always appends `_linear`, so it cannot overwrite its source. Without **Overwrite**, an existing file gives `_linear_2`, `_linear_3` and so on. It runs as a background batch: **Abort** stops after the current frame, and the finish message counts failures.
 
