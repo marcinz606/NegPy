@@ -1688,7 +1688,9 @@ class FileBrowser(QWidget):
         # sync_selected_settings).
         visible = self.session.asset_model.visible_actual_indices()
         sel_count = len([i for i in set(state.selected_indices) if i in visible])
-        return RollSettingsDialog(self, state.config, GearProfiles.load_library(), sel_count=sel_count, roll_count=len(visible))
+        return RollSettingsDialog(
+            self, state.config, GearProfiles.load_library(), sel_count=sel_count, roll_count=len(visible), repo=self.session.repo
+        )
 
     def _exec_roll_settings_dialog(self, dlg: RollSettingsDialog) -> None:
         if dlg.exec() != QDialog.DialogCode.Accepted:

@@ -391,7 +391,7 @@ def make_section(
     if persist:
         section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
     if section.info_btn:
-        section.info_requested.connect(lambda: SectionHelpDialog(key, title, section).exec())
+        section.info_requested.connect(lambda: SectionHelpDialog(key, title, section, repo=repo).exec())
     return section
 
 

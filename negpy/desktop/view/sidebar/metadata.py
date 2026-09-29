@@ -556,7 +556,7 @@ class MetadataSidebar(BaseSidebar):
         self.controller.session.file_selected.connect(self._on_file_selected)
 
     def _open_description_fields(self) -> None:
-        dlg = DescriptionFieldsDialog(self._description_fields, self)
+        dlg = DescriptionFieldsDialog(self._description_fields, self, repo=self.controller.session.repo)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         self._description_fields = dlg.selected_fields()
@@ -645,7 +645,7 @@ class MetadataSidebar(BaseSidebar):
         previous = self._gear_selected_id(combo, self.state.config.metadata)
         category = self._gear_combo_category[id(combo)]
         library = self._gear_library
-        new_item = resolve_other_gear_pick(self, category, library)
+        new_item = resolve_other_gear_pick(self, category, library, repo=self.controller.session.repo)
         if new_item is None:
             combo.set_selected_id(previous)
             return
@@ -901,6 +901,7 @@ class MetadataSidebar(BaseSidebar):
             conf.location_country,
             center=center,
             parent=self,
+            repo=self.controller.session.repo,
         )
         if dlg.exec() != dlg.DialogCode.Accepted:
             return

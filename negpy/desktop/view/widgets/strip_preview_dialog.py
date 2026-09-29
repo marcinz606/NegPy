@@ -27,6 +27,7 @@ from negpy.kernel.system.text import count_of, plural
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
@@ -150,9 +151,12 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         film_format: str | None = None,
         film_type: str = "negative",
         parent=None,
+        *,
+        repo=None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._repo = repo
         self._device = device
         self._film_format = film_format
         self._film_type = film_type
@@ -203,7 +207,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.help_btn.setFlat(True)
         self.help_btn.setFixedSize(24, 22)
         self.help_btn.setVisible(has_guide(_GUIDE_KEY))
-        self.help_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Strip preview", self).exec())
+        self.help_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Strip preview", self, repo=self._repo).exec())
         help_row.addWidget(self.help_btn)
         layout.addLayout(help_row)
 
@@ -354,6 +358,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._update_ok_enabled()
 
         self._connect_preview_signals()
+        remember_dialog_geometry(self, repo, "strip_preview")
 
     def _ensure_tile(self, frame: int) -> _Tile:
         """The tile for a strip position, built and placed on first sight of it."""

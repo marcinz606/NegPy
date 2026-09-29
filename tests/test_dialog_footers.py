@@ -5,14 +5,13 @@ that pins nothing repeats the last click on Enter. The static walk keeps a new d
 shipping without the helper; the behaviour itself is covered by the templates tests.
 """
 
-import re
 from pathlib import Path
 
-WIDGETS = Path(__file__).resolve().parents[1] / "negpy" / "desktop" / "view" / "widgets"
+from tests.conftest import dialog_classes
 
 
 def _dialog_sources() -> list[Path]:
-    return [p for p in WIDGETS.glob("*.py") if re.search(r"class \w+\(QDialog\)", p.read_text())]
+    return sorted({path for path, _ in dialog_classes()})
 
 
 def test_every_dialog_with_buttons_pins_its_default():

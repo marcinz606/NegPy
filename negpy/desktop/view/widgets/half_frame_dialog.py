@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.split_button import make_split_button
 
 
@@ -308,6 +309,8 @@ class HalfFrameDialog(QDialog):
         process_mode: str = "",
         title: str = "Half Frame — split & crop",
         parent=None,
+        *,
+        repo=None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -379,6 +382,7 @@ class HalfFrameDialog(QDialog):
         self._label.set_gutter(initial_gutter or 0.0)
         self._label.changed.connect(self._update_gutter_label)
         self._update_gutter_label()
+        remember_dialog_geometry(self, repo, "half_frame")
 
     def _set_preview(self, rgb: np.ndarray) -> None:
         from PyQt6.QtGui import QImage

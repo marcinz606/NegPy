@@ -22,6 +22,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.templates import default_button_height, field_label, hint_label, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.semantic_download_dialog import ClipDownloadDialog
 from negpy.domain.types import AppConfig
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -142,6 +143,7 @@ class PreferencesDialog(QDialog):
         self.setWindowTitle("Preferences")
         self.resize(700, 720)
         self._init_ui()
+        remember_dialog_geometry(self, self.repo, "preferences")
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -455,7 +457,7 @@ class PreferencesDialog(QDialog):
 
     def _on_semantic_search_changed(self, checked: bool) -> None:
         if checked and not semantic_model.clip_model_ready():
-            if ClipDownloadDialog(self).exec() != QDialog.DialogCode.Accepted:
+            if ClipDownloadDialog(self, repo=self.repo).exec() != QDialog.DialogCode.Accepted:
                 self.semantic_box.setChecked(False)  # cancelled or failed -- stays off
                 return
         if checked != self.session.state.semantic_search_enabled:

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
@@ -25,7 +26,9 @@ _PREVIEW_SLOT = 1  # PerFrameRollSession's only slot on a frame-less device
 class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
     """Preview the current holder position at low res; set a crop window for the real scan."""
 
-    def __init__(self, controller, device: ScannerDevice, initial_window=None, film_type: str = "negative", parent=None) -> None:
+    def __init__(
+        self, controller, device: ScannerDevice, initial_window=None, film_type: str = "negative", parent=None, *, repo=None
+    ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._device = device
@@ -93,6 +96,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         layout.addLayout(btns)
 
         self._connect_preview_signals()
+        remember_dialog_geometry(self, repo, "quick_scan_preview")
 
     # ── result getters ────────────────────────────────────────────────
 

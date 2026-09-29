@@ -41,6 +41,7 @@ from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchLineEdit
 
 
@@ -62,7 +63,7 @@ def _format_step_value(group, value: float) -> str:
 class ShortcutsOverlay(QDialog):
     """Modal keyboard shortcut reference, opened with '?'."""
 
-    def __init__(self, shortcut_manager, parent=None):
+    def __init__(self, shortcut_manager, parent=None, *, repo=None):
         super().__init__(parent)
         self._shortcut_manager = shortcut_manager
         self._bindings = dict(shortcut_manager.bindings)
@@ -79,6 +80,7 @@ class ShortcutsOverlay(QDialog):
         self.setModal(True)
         self.resize(820, 720)
         self._init_ui()
+        remember_dialog_geometry(self, repo, "shortcuts_overlay")
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)

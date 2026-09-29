@@ -434,7 +434,7 @@ class LibraryTree(QWidget):
         if is_folder and rolls.ROLL_PATH_SEP in current_name:
             prefix, current_name = current_name.rsplit(rolls.ROLL_PATH_SEP, 1)
 
-        dlg = RenameRollDialog(current_name, self, folder_backed=is_folder)
+        dlg = RenameRollDialog(current_name, self, folder_backed=is_folder, repo=self.repo)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         name, rename_folder = dlg.name(), dlg.rename_folder()

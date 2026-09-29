@@ -291,7 +291,8 @@ class SensorSidebar(BaseSidebar):
     def _open_sensor_calibration(self) -> None:
         from negpy.desktop.view.widgets.sensor_calibration_dialog import SensorCalibrationDialog
 
-        dlg = SensorCalibrationDialog(parent=self, start_dir=last_open_folder(self.controller.session.repo))
+        repo = self.controller.session.repo
+        dlg = SensorCalibrationDialog(parent=self, start_dir=last_open_folder(repo), repo=repo)
         dlg.profile_saved.connect(self._on_sensor_profile_saved)
         dlg.exec()
 
@@ -328,7 +329,9 @@ class SensorSidebar(BaseSidebar):
 
         conf = self.state.config.process
         self._crosstalk_snapshot = (conf.crosstalk_profile, conf.crosstalk_matrix, conf.crosstalk_strength, conf.crosstalk_process)
-        dlg = CrosstalkEditorDialog(conf.crosstalk_profile, conf.crosstalk_strength, conf.process_mode, parent=self)
+        dlg = CrosstalkEditorDialog(
+            conf.crosstalk_profile, conf.crosstalk_strength, conf.process_mode, parent=self, repo=self.controller.session.repo
+        )
         dlg.matrix_previewed.connect(self._on_crosstalk_preview)
         dlg.profiles_changed.connect(self.sync_ui)
         dlg.finished.connect(lambda result: self._on_crosstalk_editor_finished(dlg, result))

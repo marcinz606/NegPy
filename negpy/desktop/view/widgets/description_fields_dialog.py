@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QVBoxLayout
 
 from negpy.desktop.view.styles.templates import hint_label, pin_button_box
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.features.metadata.models import (
     DESCRIPTION_FIELD_LABELS,
     DESCRIPTION_FIELD_ORDER,
@@ -11,7 +12,7 @@ from negpy.features.metadata.models import (
 class DescriptionFieldsDialog(QDialog):
     """Pick which metadata values join into EXIF ImageDescription."""
 
-    def __init__(self, selected: object, parent=None):
+    def __init__(self, selected: object, parent=None, *, repo=None):
         super().__init__(parent)
         self.setWindowTitle("Description Fields")
         self.setMinimumWidth(320)
@@ -32,6 +33,7 @@ class DescriptionFieldsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         pin_button_box(buttons)
         root.addWidget(buttons)
+        remember_dialog_geometry(self, repo, "description_fields")
 
     def selected_fields(self) -> tuple[str, ...]:
         return normalize_description_fields(key for key, box in self._checks.items() if box.isChecked())

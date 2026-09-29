@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.updater import (
     UpdateError,
@@ -130,7 +131,7 @@ def _mb(value: int) -> str:
 class UpdateDialog(QDialog):
     """Release notes, one button, and a progress bar for the swap."""
 
-    def __init__(self, info: UpdateInfo, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, info: UpdateInfo, parent: Optional[QWidget] = None, *, repo=None) -> None:
         super().__init__(parent)
         self.info = info
         self._worker: Optional[DownloadWorker] = None
@@ -205,6 +206,7 @@ class UpdateDialog(QDialog):
         actions.addWidget(self.install_button)
         pin_dialog_default(self.install_button, self.later_button, self.page_button)
         root.addLayout(actions)
+        remember_dialog_geometry(self, repo, "update")
 
     def _on_install(self) -> None:
         if not self.info.can_self_install:

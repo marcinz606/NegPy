@@ -1158,6 +1158,7 @@ class ScanSidebar(QWidget):
                 film_format=self._film_format(),
                 film_type=self._film_type(),
                 parent=self,
+                repo=self.controller.session.repo,
             )
             if dialog.exec():
                 self.settings = replace(
@@ -1182,6 +1183,7 @@ class ScanSidebar(QWidget):
             initial_window=self._settings.scan_window,
             film_type=self._film_type(),
             parent=self,
+            repo=self.controller.session.repo,
         )
         if dialog.exec():
             self.settings = replace(self._settings, scan_window=dialog.window())
@@ -1208,6 +1210,7 @@ class ScanSidebar(QWidget):
             device,
             initial_window=self._settings.scan_window,
             parent=self,
+            repo=self.controller.session.repo,
         )
         if dialog.exec():
             self.settings = replace(self._settings, scan_window=dialog.scan_window())

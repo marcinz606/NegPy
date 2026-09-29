@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, Q
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.paths import get_resource_path
 
 _MARKER = re.compile(r"^<!--\s*panel:([a-z_]+)\s*-->\s*$")
@@ -65,7 +66,7 @@ def guide_markdown(key: str) -> str:
 class SectionHelpDialog(QDialog):
     """Modal reference for one panel, rendered from the user guide."""
 
-    def __init__(self, key: str, title: str, parent: Optional[QWidget] = None):
+    def __init__(self, key: str, title: str, parent: Optional[QWidget] = None, *, repo=None):
         super().__init__(parent)
         heading = f"Reading the {title} panel"
         self.setWindowTitle(heading)
@@ -106,3 +107,4 @@ class SectionHelpDialog(QDialog):
         pin_dialog_default(close_btn)
         actions.addWidget(close_btn)
         root.addLayout(actions)
+        remember_dialog_geometry(self, repo, "section_help")

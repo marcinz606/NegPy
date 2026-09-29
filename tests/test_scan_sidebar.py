@@ -330,7 +330,7 @@ def test_sane_backend_scan_window_opens_the_quick_preview_dialog(monkeypatch) ->
     rect = (0.2, 0.2, 0.8, 0.8)
 
     class _FakeDialog:
-        def __init__(self, controller, device, initial_window=None, film_type="negative", parent=None) -> None:
+        def __init__(self, controller, device, initial_window=None, film_type="negative", parent=None, *, repo=None) -> None:
             self.seen = (controller, device, initial_window, film_type)
 
         def exec(self) -> bool:

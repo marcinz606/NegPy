@@ -123,7 +123,7 @@ def test_the_guide_is_parented_to_the_section_not_the_panel() -> None:
 
     repo = SimpleNamespace(get_global_setting=lambda _k: None, save_global_setting=lambda _k, _v: None)
     parents: list[object] = []
-    with patch.object(shd, "SectionHelpDialog", lambda k, t, parent: parents.append(parent) or MagicMock()):
+    with patch.object(shd, "SectionHelpDialog", lambda k, t, parent, repo=None: parents.append(parent) or MagicMock()):
         section = make_section(repo, "Analysis", "analysis", QWidget(), "fa5s.chart-bar", True)
         section.info_requested.emit()
 

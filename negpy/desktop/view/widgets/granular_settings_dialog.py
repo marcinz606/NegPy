@@ -20,6 +20,7 @@ from negpy.desktop.settings_catalog import SettingRow, catalog_sections
 from negpy.desktop.view.styles.templates import pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
 
 def _triplet(values) -> str:
@@ -90,6 +91,7 @@ class GranularSettingsDialog(QDialog):
         show_current: bool = False,
         show_apply_mode: bool = False,
         preselect_ids: frozenset[str] | None = None,
+        repo=None,
     ):
         # ponytail: at nine flags this class is at its ceiling. A tenth means splitting
         # pick mode into its own dialog.
@@ -145,6 +147,7 @@ class GranularSettingsDialog(QDialog):
         self._apply_visibility()
         self._refresh_section_states()
         self._update_apply_enabled()
+        remember_dialog_geometry(self, repo, "granular_settings")
 
     def _build_scope_row(self, sel_count: int, roll_count: int, show_current: bool = False) -> QHBoxLayout:
         row, self._scope_radios = build_scope_row(self, sel_count, roll_count, show_current)
@@ -415,7 +418,7 @@ class SyncBoundsDialog(QDialog):
     """The active frame's metering bounds and nothing else. The Apply picker reaches the
     same two axes, but only once every edited row has been unticked by hand."""
 
-    def __init__(self, parent, floors, ceils, source_name: str, sel_count: int, roll_count: int):
+    def __init__(self, parent, floors, ceils, source_name: str, sel_count: int, roll_count: int, *, repo=None):
         super().__init__(parent)
         self.setWindowTitle("Sync Bounds")
         self.apply_btn = QPushButton("Apply")
@@ -452,6 +455,7 @@ class SyncBoundsDialog(QDialog):
         footer.addWidget(self.apply_btn)
         pin_dialog_default(self.apply_btn, cancel_btn)
         root.addLayout(footer)
+        remember_dialog_geometry(self, repo, "sync_bounds")
 
     def _update_apply_enabled(self) -> None:
         self.apply_btn.setEnabled(self.luma_box.isChecked() or self.color_box.isChecked())
@@ -501,7 +505,7 @@ def open_sync_bounds_dialog(parent, session) -> None:
     if targets is None:
         return
     src, sel_targets, roll_targets = targets
-    dlg = SyncBoundsDialog(parent, bounds[0], bounds[1], _source_name(session, src), sel_targets, roll_targets)
+    dlg = SyncBoundsDialog(parent, bounds[0], bounds[1], _source_name(session, src), sel_targets, roll_targets, repo=session.repo)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         session.sync_selected_settings([], dlg.bounds_flags(), dlg.scope())
 
@@ -534,6 +538,7 @@ def open_apply_dialog(parent, session, rows=None, title: str = "") -> tuple[list
         bounds_mode=bounds_mode,
         sel_count=sel_targets,
         roll_count=roll_targets,
+        repo=session.repo,
     )
     if rows is not None:
         dlg.limit_to_rows([r.id for r in rows])
@@ -553,7 +558,7 @@ def open_paste_dialog(parent, controller) -> None:
     if state.clipboard is None or not state.current_file_hash:
         return
     bounds_mode = "local" if state.clipboard.process.is_local_initialized else ""
-    dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", bounds_mode=bounds_mode)
+    dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", bounds_mode=bounds_mode, repo=controller.session.repo)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         controller.session.apply_pasted_fields(dlg.selected(), include_bounds=dlg.paste_bounds())
 
@@ -567,6 +572,6 @@ def open_sticky_dialog(parent, controller) -> None:
     repo = controller.session.repo
     source = load_sticky_config(repo) or WorkspaceConfig()
     chosen = frozenset(r.id for r in load_sticky_rows(repo))
-    dlg = GranularSettingsDialog(parent, source, "", preselect_ids=chosen)
+    dlg = GranularSettingsDialog(parent, source, "", preselect_ids=chosen, repo=repo)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         save_sticky_rows(repo, dlg.selected_ids())

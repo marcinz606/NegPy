@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import plural
 from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.file_dialogs import pick_start_dir
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.sensor import build_sensor_matrix, measure_capture
@@ -37,13 +38,14 @@ class SensorCalibrationDialog(QDialog):
 
     profile_saved = pyqtSignal(str)
 
-    def __init__(self, parent=None, start_dir: str = "") -> None:
+    def __init__(self, parent=None, start_dir: str = "", *, repo=None) -> None:
         super().__init__(parent)
         self._start_dir = start_dir
         self._paths = {"R": "", "G": "", "B": ""}
         self.setWindowTitle("Calibrate Sensor")
         self.resize(560, 320)
         self._init_ui()
+        remember_dialog_geometry(self, repo, "sensor_calibration")
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)

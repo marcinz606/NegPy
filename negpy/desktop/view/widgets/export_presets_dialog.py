@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pin_dialog_default, pane_header_qss
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
 from negpy.domain.models import ColorSpace, ExportFormat, ExportPreset, ExportResolutionMode, preset_display_name
 from negpy.features.exposure.models import RenderIntent
@@ -29,7 +30,7 @@ class ExportPresetsDialog(QDialog):
 
     presets_changed = pyqtSignal(list)  # emits updated list[ExportPreset]
 
-    def __init__(self, presets: list, parent=None):
+    def __init__(self, presets: list, parent=None, *, repo=None):
         super().__init__(parent)
         self._presets: list[ExportPreset] = [self._copy_preset(p) for p in presets]
         self._selected_idx: int = -1
@@ -40,6 +41,7 @@ class ExportPresetsDialog(QDialog):
         self._init_ui()
         if self._presets:
             self._select_row(0)
+        remember_dialog_geometry(self, repo, "export_presets")
 
     # UI setup
 

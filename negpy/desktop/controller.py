@@ -1873,6 +1873,7 @@ class AppController(QObject):
             initial_scope=saved_scope,
             process_mode=self._half_frame_process_mode(file_path, file_hash),
             parent=None,
+            repo=self.session.repo,
         )
         if not dialog.exec():
             return None

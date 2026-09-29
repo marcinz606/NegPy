@@ -25,6 +25,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
 from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 #: Selectable provenances, in dropdown group order. "Other" is not offered: it exists to
@@ -111,7 +112,7 @@ class CrosstalkEditorDialog(QDialog):
     matrix_previewed = pyqtSignal(object, float, str)  # (flat 9-float matrix, strength, film process)
     profiles_changed = pyqtSignal()
 
-    def __init__(self, current_profile: str, current_strength: float, process_mode: Optional[str] = None, parent=None):
+    def __init__(self, current_profile: str, current_strength: float, process_mode: Optional[str] = None, parent=None, *, repo=None):
         super().__init__(parent)
         self._selected_name: Optional[str] = None
         self._updating = False
@@ -128,6 +129,7 @@ class CrosstalkEditorDialog(QDialog):
             select=current_profile if current_profile in CrosstalkProfiles.list_profiles() else CrosstalkProfiles.DEFAULT_NAME
         )
         self.preview_strength_slider.setValue(current_strength if current_strength > 0 else 1.0)
+        remember_dialog_geometry(self, repo, "crosstalk_editor")
 
     # ------------------------------------------------------------------ UI
 

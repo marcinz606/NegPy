@@ -1353,7 +1353,7 @@ class ExportSidebar(BaseSidebar):
     def _open_presets_dialog(self) -> None:
         from negpy.desktop.view.widgets.export_presets_dialog import ExportPresetsDialog
 
-        dlg = ExportPresetsDialog(self.state.export_presets, parent=self)
+        dlg = ExportPresetsDialog(self.state.export_presets, parent=self, repo=self.controller.session.repo)
         dlg.presets_changed.connect(self._on_presets_changed)
         dlg.exec()
 

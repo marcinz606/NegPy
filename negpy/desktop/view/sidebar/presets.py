@@ -85,6 +85,7 @@ class PresetsSidebar(BaseSidebar):
             sel_count=sel_count,
             roll_count=len(visible),
             exclude_sections=_PRESET_EXCLUDED_SECTIONS,
+            repo=self.controller.session.repo,
         )
         dlg.setWindowTitle("Apply Preset")
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -108,6 +109,7 @@ class PresetsSidebar(BaseSidebar):
             "current settings",
             ask_name=True,
             exclude_sections=_PRESET_EXCLUDED_SECTIONS,
+            repo=self.controller.session.repo,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted and self._name_is_usable(dlg.name()):
             Presets.save_preset(dlg.name().strip(), selected_flat_dict(self.state.config, dlg.selected()))
@@ -118,7 +120,9 @@ class PresetsSidebar(BaseSidebar):
         cfg = self._preset_config(name) if name else None
         if cfg is None:
             return
-        dlg = GranularSettingsDialog(self, cfg, name, ask_name=True, exclude_sections=_PRESET_EXCLUDED_SECTIONS)
+        dlg = GranularSettingsDialog(
+            self, cfg, name, ask_name=True, exclude_sections=_PRESET_EXCLUDED_SECTIONS, repo=self.controller.session.repo
+        )
         dlg.setWindowTitle("Edit Preset")
         dlg.set_name(name)
         if dlg.exec() != QDialog.DialogCode.Accepted:

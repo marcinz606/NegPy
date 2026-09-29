@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushBut
 
 from negpy.desktop.view.styles.templates import pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.update_dialog import _own
 from negpy.kernel.system.logging import get_logger
 from negpy.services.assets.semantic_model import MODEL_DOWNLOAD_SIZE, ClipDownloadError, download_clip_model
@@ -56,7 +57,7 @@ class ClipDownloadDialog(QDialog):
     """accept() once the model is on disk; reject() on Cancel or a closed window --
     the caller only turns the preference on after accept()."""
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, *, repo=None) -> None:
         super().__init__(parent)
         self._worker: Optional[ClipDownloadWorker] = None
 
@@ -107,6 +108,7 @@ class ClipDownloadDialog(QDialog):
         actions.addWidget(self.download_button)
         pin_dialog_default(self.download_button, self.cancel_button)
         root.addLayout(actions)
+        remember_dialog_geometry(self, repo, "clip_download")
 
     def _on_download(self) -> None:
         self.download_button.setEnabled(False)

@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.templates import hint_label, labeled_action
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 
@@ -28,7 +29,7 @@ class CalibrationWindow(QDialog):
     calibrateRequested = pyqtSignal(str)  # preset name
     closed = pyqtSignal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("New Preset — Calibrate on the Film Base")
         self.setModal(False)
@@ -85,6 +86,7 @@ class CalibrationWindow(QDialog):
         layout.addWidget(self.status)
 
         self.calibrate_btn.clicked.connect(self._emit_calibrate)
+        remember_dialog_geometry(self, repo, "scanlight_calibration")
 
     def _emit_calibrate(self) -> None:
         self.calibrateRequested.emit(self.name_edit.text().strip())

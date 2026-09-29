@@ -792,7 +792,7 @@ class ActionToolbar(QWidget):
     def _show_shortcuts(self) -> None:
         from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
-        dlg = ShortcutsOverlay(self.window().shortcut_manager, self.window())
+        dlg = ShortcutsOverlay(self.window().shortcut_manager, self.window(), repo=self.session.repo)
         dlg.exec()
 
     def _show_preferences(self) -> None:
@@ -945,6 +945,7 @@ class ActionToolbar(QWidget):
             chosen_header="TOOLBAR",
             hint="Drag to reorder. Whatever does not fit the canvas width collapses from the right. The ⋯ menu always holds every action, whichever ones the row shows.",
             defaults=list(DEFAULT_TOOLBAR_IDS),
+            repo=self.session.repo,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

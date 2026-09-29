@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
 
@@ -50,6 +51,7 @@ class FavouritesDialog(QDialog):
         chosen_header: str = "FAVORITES",
         hint: str = "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel.",
         defaults: list[str] | None = None,
+        repo=None,
     ):
         super().__init__(parent)
         self._choices = choices
@@ -75,6 +77,7 @@ class FavouritesDialog(QDialog):
         root.addLayout(self._build_footer())
 
         self._rebuild_chosen()
+        remember_dialog_geometry(self, repo, "favourites")
 
     def _build_available(self) -> QWidget:
         pane = QWidget()

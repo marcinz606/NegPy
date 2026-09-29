@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.features.process.models import scan_setup_values
 
 _CAPTURE = (
@@ -37,7 +38,7 @@ class ScanSetupDialog(QDialog):
     """Two-page wizard asking what rig the negatives were scanned on, so Linear RAW and
     Narrowband can be set from the answer instead of by trial and error."""
 
-    def __init__(self, parent, saved: Optional[dict] = None):
+    def __init__(self, parent, saved: Optional[dict] = None, *, repo=None):
         super().__init__(parent)
         self._capture = str((saved or {}).get("capture") or "camera")
         self._light = str((saved or {}).get("light") or "white")
@@ -61,6 +62,7 @@ class ScanSetupDialog(QDialog):
         root.addLayout(self._build_footer())
 
         self._sync()
+        remember_dialog_geometry(self, repo, "scan_setup")
 
     def _build_capture_page(self) -> QWidget:
         page = QWidget()

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.styles.templates import labeled_action, pin_button_box
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
@@ -17,7 +18,7 @@ from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 class RgbTripletDialog(QDialog):
     """Manually assign the red/green/blue exposure files for one RGB-scan frame."""
 
-    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "") -> None:
+    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "", *, repo=None) -> None:
         super().__init__(parent)
         self._start_dir = start_dir
         self.setWindowTitle("Edit RGB Triplet")
@@ -44,6 +45,7 @@ class RgbTripletDialog(QDialog):
         buttons.rejected.connect(self.reject)
         pin_button_box(buttons)
         layout.addWidget(buttons)
+        remember_dialog_geometry(self, repo, "rgb_triplet")
 
     def _browse(self, edit: QLineEdit) -> None:
         # An empty row starts where its siblings are: the three exposures of a triplet
@@ -76,6 +78,7 @@ def open_triplet_dialog(parent, session) -> None:
         info.get("blue_path", ""),
         info.get("align", True),
         start_dir=last_open_folder(session.repo),
+        repo=session.repo,
     )
     if dlg.exec():
         red, green, blue = dlg.paths()

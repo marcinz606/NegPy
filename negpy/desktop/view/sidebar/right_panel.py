@@ -374,7 +374,7 @@ class RightPanel(QWidget):
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
 
-        SectionHelpDialog("analysis", "Analysis", self).exec()
+        SectionHelpDialog("analysis", "Analysis", self, repo=self.controller.session.repo).exec()
 
     def _resize_splitter_for_analysis(self, expanded: bool) -> None:
         """Pin the collapsed Analysis header at the top: shrink pane 0 to the header and

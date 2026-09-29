@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QToolBut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.templates import hint_label, labeled_action, pin_dialog_default, SCAN_BUTTON_HEIGHT
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 #: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
@@ -130,7 +131,7 @@ class LiveViewWindow(QDialog):
     scanRequested = pyqtSignal()
     retakeRequested = pyqtSignal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Scanlight — Live View")
         self.setModal(False)
@@ -221,6 +222,7 @@ class LiveViewWindow(QDialog):
             QShortcut(QKeySequence(key), self, btn.click)
         self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")
         self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter  (shortcut: R)")
+        remember_dialog_geometry(self, repo, "live_view")
 
     def set_preview_available(self, available: bool, reason: str = "") -> None:
         """Swap the preview pane for an explanation on bodies that cannot stream.

@@ -1,4 +1,7 @@
+import ast
 import os
+from pathlib import Path
+
 import pytest
 
 # Configure headless mode for CI/CD
@@ -107,6 +110,19 @@ class FakeController:
 
     def __getattr__(self, name):
         return getattr(self._mock, name)
+
+
+def dialog_classes() -> list[tuple[Path, ast.ClassDef]]:
+    """Every QDialog subclass under negpy/desktop/view with its file, the mixin-based ones included."""
+    view = Path(__file__).resolve().parents[1] / "negpy" / "desktop" / "view"
+    found = []
+    for path in sorted(view.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ClassDef) and any(
+                (base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")) == "QDialog" for base in node.bases
+            ):
+                found.append((path, node))
+    return found
 
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)

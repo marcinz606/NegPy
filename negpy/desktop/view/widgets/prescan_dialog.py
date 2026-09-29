@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import PrescanRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -49,6 +50,7 @@ class PrescanCropDialog(QDialog):
         *,
         initial_window: tuple[float, float, float, float] | None = None,
         parent=None,
+        repo=None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -116,6 +118,7 @@ class PrescanCropDialog(QDialog):
         self._controller.scan_cancelled.connect(self._on_prescan_cancelled)
 
         self._start_prescan()
+        remember_dialog_geometry(self, repo, "prescan_crop")
 
     def scan_window(self) -> tuple[float, float, float, float] | None:
         """TA-normalized window for ScanParams, or None for full frame."""

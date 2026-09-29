@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
 from negpy.desktop.view.styles.templates import hint_label, pin_button_box, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import DEFAULT_TARGETS, TUNABLE_TARGETS
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 # (key, slider label, tooltip) grouped under a heading + explanatory blurb.
@@ -76,7 +77,7 @@ class ExposureTargetsDialog(QDialog):
 
     targets_previewed = pyqtSignal(dict)
 
-    def __init__(self, current: Dict[str, float], parent=None):
+    def __init__(self, current: Dict[str, float], parent=None, *, repo=None):
         super().__init__(parent)
         self.setWindowTitle("Auto Density & Grade Targets")
         float_over_app(self)
@@ -108,6 +109,7 @@ class ExposureTargetsDialog(QDialog):
         if restore is not None:
             restore.clicked.connect(self._restore_defaults)
         root.addWidget(buttons)
+        remember_dialog_geometry(self, repo, "exposure_targets")
 
     def values(self) -> Dict[str, float]:
         return {key: float(slider.value()) for key, slider in self._sliders.items()}

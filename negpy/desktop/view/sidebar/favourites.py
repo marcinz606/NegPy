@@ -66,7 +66,7 @@ class FavouritesSidebar(BaseSidebar):
 
     def _open_editor(self) -> None:
         repo = self.controller.session.repo
-        dlg = FavouritesDialog(self, self._choices(), load_favourites(repo))
+        dlg = FavouritesDialog(self, self._choices(), load_favourites(repo), repo=repo)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             repo.save_global_setting(_SETTING_KEY, dlg.selected_ids())
             self._rebuild()

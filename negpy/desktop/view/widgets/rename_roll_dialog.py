@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLineEdit, QVB
 
 from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
 
 class RenameRollDialog(QDialog):
@@ -11,7 +12,7 @@ class RenameRollDialog(QDialog):
     one. A virtual roll has no folder, so it gets the same dialog without that row.
     """
 
-    def __init__(self, current_name: str, parent=None, *, folder_backed: bool = True):
+    def __init__(self, current_name: str, parent=None, *, folder_backed: bool = True, repo=None):
         super().__init__(parent)
         self.setWindowTitle("Rename Roll")
         self.setMinimumWidth(340)
@@ -47,6 +48,7 @@ class RenameRollDialog(QDialog):
         root.addWidget(buttons)
 
         self.name_edit.setFocus()
+        remember_dialog_geometry(self, repo, "rename_roll")
 
     def name(self) -> str:
         return self.name_edit.text().strip()

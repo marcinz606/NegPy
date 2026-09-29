@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.text import human_bytes
 from negpy.services.assets.rolls import DISMISSED_FOLDERS_KEY, IMPORT_SOURCES_KEY, ROLLS_KEY, saved_rolls
 
@@ -80,6 +81,7 @@ class DatabaseDialog(QDialog):
 
         root.addLayout(self._build_footer())
         self._populate()
+        remember_dialog_geometry(self, repo, "database")
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()

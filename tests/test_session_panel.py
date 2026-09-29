@@ -256,7 +256,7 @@ def test_the_notice_names_the_new_version(panel, monkeypatch):
 def test_clicking_the_notice_opens_the_update_window(panel, monkeypatch):
     opened = []
     monkeypatch.setattr(
-        "negpy.desktop.view.sidebar.session_panel.UpdateDialog", lambda info, parent: MagicMock(exec=lambda: opened.append(info))
+        "negpy.desktop.view.sidebar.session_panel.UpdateDialog", lambda info, parent, repo=None: MagicMock(exec=lambda: opened.append(info))
     )
     panel._on_update_checked(_update())
 

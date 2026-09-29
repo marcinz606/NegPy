@@ -15,7 +15,9 @@ from negpy.services.assets.presets import Presets
 
 
 def _sidebar() -> PresetsSidebar:
-    controller = SimpleNamespace(state=SimpleNamespace(config=WorkspaceConfig(), current_file_hash=None))
+    controller = SimpleNamespace(
+        state=SimpleNamespace(config=WorkspaceConfig(), current_file_hash=None), session=SimpleNamespace(repo=None)
+    )
     return PresetsSidebar(controller)
 
 

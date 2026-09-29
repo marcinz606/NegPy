@@ -124,7 +124,7 @@ def _slider_name(slider: object, group: SliderShortcutGroup) -> str:
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
-    dlg = ShortcutsOverlay(window.shortcut_manager, window)
+    dlg = ShortcutsOverlay(window.shortcut_manager, window, repo=window.controller.session.repo)
     dlg.exec()
 
 
@@ -371,7 +371,7 @@ class ShortcutManager:
     def open_editor(self, parent=None) -> bool:
         from negpy.desktop.view.widgets.shortcut_editor import ShortcutEditorDialog
 
-        dlg = ShortcutEditorDialog(self.bindings, self.slider_steps, parent or self.window)
+        dlg = ShortcutEditorDialog(self.bindings, self.slider_steps, parent or self.window, repo=self.window.controller.session.repo)
         if dlg.exec():
             self.update_bindings(dlg.bindings())
             self.update_slider_steps(dlg.slider_steps())

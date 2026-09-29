@@ -122,14 +122,14 @@ class ScanlightSidebar(QWidget):
         self._pending_exposure_writes = 0
         self._no_wheel = _NoWheel(self)
 
-        self.lv_window = LiveViewWindow(self)
+        self.lv_window = LiveViewWindow(self, repo=self.controller.session.repo)
         self.lv_window.closed.connect(self._on_live_view_window_closed)
         self.lv_image = self.lv_window.image
 
         # Dedicated pop-up for creating a preset by calibration, independent of the scan
         # cockpit so the first preset can be made. Live frames route to whichever ROI image
         # is active via self._lv_target.
-        self.calib_window = CalibrationWindow(self)
+        self.calib_window = CalibrationWindow(self, repo=self.controller.session.repo)
         self.calib_window.closed.connect(self._on_calib_window_closed)
         self.calib_window.calibrateRequested.connect(self._on_calibrate_new_preset)
         self._lv_target = self.lv_image  # RoiImageLabel currently fed by the live-view poll

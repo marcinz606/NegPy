@@ -250,7 +250,7 @@ class ToneSidebar(BaseSidebar):
         from negpy.desktop.view.widgets.exposure_targets_dialog import ExposureTargetsDialog
 
         self._targets_snapshot = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
-        dlg = ExposureTargetsDialog(self._targets_snapshot, parent=self)
+        dlg = ExposureTargetsDialog(self._targets_snapshot, parent=self, repo=self.controller.session.repo)
         dlg.targets_previewed.connect(self._on_targets_preview)
         dlg.finished.connect(lambda result: self._on_targets_finished(dlg, result))
         self._targets_dialog = dlg  # keep a reference so the modeless dialog isn't GC'd

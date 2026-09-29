@@ -43,6 +43,7 @@ from negpy.desktop.view.shortcut_registry import (
     default_slider_steps,
 )
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.key_sequence_edit import KeypadAwareKeySequenceEdit
 from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchLineEdit
 from negpy.desktop.view.styles.fonts import mono_font_family
@@ -57,7 +58,7 @@ def _format_default_pair(inc_key: str, dec_key: str) -> str:
 
 
 class ShortcutEditorDialog(QDialog):
-    def __init__(self, bindings: dict[str, str], slider_steps: dict[str, float] | None = None, parent=None):
+    def __init__(self, bindings: dict[str, str], slider_steps: dict[str, float] | None = None, parent=None, *, repo=None):
         super().__init__(parent)
         self._initial_bindings = dict(bindings)
         self._initial_slider_steps = dict(slider_steps or default_slider_steps())
@@ -74,6 +75,7 @@ class ShortcutEditorDialog(QDialog):
         self.setWindowTitle("Customize Shortcuts")
         self.resize(820, 720)
         self._init_ui()
+        remember_dialog_geometry(self, repo, "shortcut_editor")
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)

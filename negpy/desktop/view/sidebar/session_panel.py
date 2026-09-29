@@ -101,7 +101,7 @@ class SessionPanel(QWidget):
         """Open the update window. Silent while the startup check has found nothing."""
         if self.update_info is None:
             return
-        UpdateDialog(self.update_info, self).exec()
+        UpdateDialog(self.update_info, self, repo=self.controller.session.repo).exec()
 
     def check_for_updates(self) -> None:
         """Re-run the release check on demand and report either way; one check at a time."""

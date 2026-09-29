@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.slippy_map import SlippyMapWidget
 from negpy.features.metadata.capture import format_coords, parse_coords
 from negpy.services.maps import place_fields, result_coords, reverse_place, search_places
@@ -75,6 +76,8 @@ class LocationPickerDialog(QDialog):
         country: str = "",
         center: Optional[tuple[float, float]] = None,
         parent=None,
+        *,
+        repo=None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Capture Location")
@@ -172,6 +175,7 @@ class LocationPickerDialog(QDialog):
             self.map_view.set_center(*center)
             self.map_view.set_zoom(8)
             self.status_label.setText("Centered on the scan file's coordinates.")
+        remember_dialog_geometry(self, repo, "location_picker")
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
         """Return in the search field searches; without this the dialog's OK button takes it."""

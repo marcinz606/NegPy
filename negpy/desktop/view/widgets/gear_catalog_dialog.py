@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from negpy.desktop.view.styles.templates import field_label, hint_label, pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
 from negpy.features.metadata.gear_logic import (
     CATEGORY_SEARCH_PLACEHOLDER,
@@ -25,7 +26,7 @@ class GearCatalogDialog(QDialog):
     (the caller clones it into a personal copy); Add Custom accepts with no pick, asking
     for a blank entry instead."""
 
-    def __init__(self, parent, singular: str, catalog: Sequence, label_fn: Callable, placeholder: str):
+    def __init__(self, parent, singular: str, catalog: Sequence, label_fn: Callable, placeholder: str, *, repo=None):
         super().__init__(parent)
         self._custom = False
         self.setWindowTitle(f"Add {singular}")
@@ -45,6 +46,7 @@ class GearCatalogDialog(QDialog):
 
         root.addLayout(self._build_footer())
         self._update_add_enabled()
+        remember_dialog_geometry(self, repo, "gear_catalog")
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -78,7 +80,7 @@ class GearCatalogDialog(QDialog):
         return "" if self._custom else self.combo.selected_id()
 
 
-def resolve_other_gear_pick(parent, category: str, library: GearLibrary) -> Optional[GearItem]:
+def resolve_other_gear_pick(parent, category: str, library: GearLibrary, *, repo=None) -> Optional[GearItem]:
     """The Other… row's flow, shared by every gear combo that defaults to personal gear:
     search the shipped catalog for this category, clone a pick into a personal item, or
     start a blank custom one. Returns the item to add to the library, or None if
@@ -93,6 +95,7 @@ def resolve_other_gear_pick(parent, category: str, library: GearLibrary) -> Opti
         catalog,
         lambda item: item.resolved_display_name,
         CATEGORY_SEARCH_PLACEHOLDER[category],
+        repo=repo,
     )
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
