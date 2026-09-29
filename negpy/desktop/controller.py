@@ -128,6 +128,7 @@ from negpy.features.geometry.logic import (
     detect_closest_aspect_ratio,
     enforce_roi_aspect_ratio,
     has_manual_crop,
+    solve_keystone_from_edges,
 )
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
@@ -359,6 +360,7 @@ class AppController(QObject):
     analysis_buffer_preview_requested = pyqtSignal(float)
     analysis_buffer_drag_changed = pyqtSignal(bool)
     rotation_guide_requested = pyqtSignal()
+    keystone_lines_cleared = pyqtSignal()
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
     zones_overlay_changed = pyqtSignal(bool)
@@ -620,6 +622,7 @@ class AppController(QObject):
         self._render_debounce.timeout.connect(self.request_render)
 
         self._crop_bounds_dirty = False
+        self._keystone_lines: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = {}
         self._zone_preview_shown = False
         self._pin_dragging = False
         self._pin_solution: Optional[Any] = None
@@ -723,7 +726,7 @@ class AppController(QObject):
             disp[1],
             None,
             metrics.get("active_roi"),
-            self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES),
             norm_w,
             norm_h,
         )
@@ -2670,12 +2673,14 @@ class AppController(QObject):
             self._handle_zone_pin(nx, ny)
 
     def set_active_tool(self, mode: ToolMode) -> None:
-        # Both the crop and analysis-region tools show the full uncropped frame, so
+        # The crop, analysis-region, and tilt/swing tools show the full uncropped frame, so
         # entering or leaving that set must re-render to swap the preview.
-        uncropped = {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW}
+        uncropped = {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES}
         preview_mode_changed = (self.state.active_tool in uncropped) != (mode in uncropped)
         leaving_crop = self.state.active_tool == ToolMode.CROP_MANUAL and mode != ToolMode.CROP_MANUAL
         leaving_zone_place = self.state.active_tool == ToolMode.ZONE_PLACE and mode != ToolMode.ZONE_PLACE
+        if mode != ToolMode.KEYSTONE_LINES:
+            self._keystone_lines = {}
         self.state.active_tool = mode
         self.tool_sync_requested.emit()
         if leaving_zone_place:
@@ -3198,6 +3203,40 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
         self.rotation_guide_requested.emit()
         self.set_active_tool(ToolMode.NONE)
+        self.request_render()
+
+    def handle_keystone_line_marked(self, edge: str, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
+        if self.state.active_tool != ToolMode.KEYSTONE_LINES:
+            return
+        self._keystone_lines[edge] = ((nx1, ny1), (nx2, ny2))
+        if not all(name in self._keystone_lines for name in ("left", "right", "top", "bottom")):
+            return
+        img = self.state.preview_raw
+        if img is None:
+            return
+        geo = self.state.config.geometry
+        height, width = img.shape[:2]
+        try:
+            converge_v, converge_h = solve_keystone_from_edges(
+                self._keystone_lines,
+                (height, width),
+                initial_converge_v=geo.converge_v,
+                initial_converge_h=geo.converge_h,
+                rotation_k=geo.rotation,
+                fine_rotation=geo.fine_rotation,
+                flip_horizontal=geo.flip_horizontal,
+                flip_vertical=geo.flip_vertical,
+                distortion_k1=geo.distortion_k1,
+            )
+        except ValueError as exc:
+            self.set_status(str(exc), 3000, "warning")
+            return
+        new_geo = replace(geo, converge_v=converge_v, converge_h=converge_h)
+        self._crop_bounds_dirty = True
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
+        self._keystone_lines = {}
+        self.keystone_lines_cleared.emit()
+        self.rotation_guide_requested.emit()
         self.request_render()
 
     def confirm_manual_crop(self) -> None:
@@ -5584,7 +5623,7 @@ class AppController(QObject):
         interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
         detect_buffer = self.state.preview_detect
-        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES)
         if (interactive or crop_preview_full) and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
             # The IR and detection planes must follow the image they are read against.
@@ -5826,7 +5865,7 @@ class AppController(QObject):
             original_size=(original[0], original[1]),
             scale_factor=max(original) / float(APP_CONFIG.preview_render_size),
             process_mode=self.state.config.process.process_mode,
-            # Mirrors request_render: the crop tool frames against the uncropped frame.
+            # Mirrors request_render: the crop and tilt/swing tools frame against the uncropped frame.
             crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
             wants_uv_grid=False,
         )
@@ -5922,7 +5961,7 @@ class AppController(QObject):
             original_size=(height, width),
             scale_factor=max(height, width) / float(APP_CONFIG.preview_render_size),
             process_mode=self.state.config.process.process_mode,
-            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES),
             wants_uv_grid=False,
         )
         img = GeometryProcessor(geometry).process(source, context)

@@ -49,6 +49,7 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.LOCAL_GRADIENT: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
+    ToolMode.KEYSTONE_LINES: Qt.CursorShape.CrossCursor,
     ToolMode.ZONE_PLACE: Qt.CursorShape.CrossCursor,
 }
 
@@ -122,6 +123,7 @@ class ImageCanvas(QWidget):
     scratch_completed = pyqtSignal(list)
     dust_exclusion_painted = pyqtSignal(list)
     straighten_completed = pyqtSignal(float)
+    keystone_line_marked = pyqtSignal(str, float, float, float, float)
     test_strip_picked = pyqtSignal(int, int)
     zone_pin_moved = pyqtSignal(int, float, float, bool)
     zone_placement_confirmed = pyqtSignal()
@@ -183,6 +185,7 @@ class ImageCanvas(QWidget):
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.dust_exclusion_painted.connect(self.dust_exclusion_painted.emit)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
+        self.overlay.keystone_line_marked.connect(self.keystone_line_marked.emit)
         self.overlay.test_strip_picked.connect(self.test_strip_picked.emit)
         self.overlay.zone_pin_moved.connect(self.zone_pin_moved.emit)
         self.overlay.zone_placement_confirmed.connect(self.zone_placement_confirmed.emit)
@@ -238,6 +241,9 @@ class ImageCanvas(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.setCursor(_cursor_for_tool(mode))
         self.overlay.set_tool_mode(mode)
+
+    def clear_keystone_lines(self) -> None:
+        self.overlay.clear_keystone_lines()
 
     def reset_tool_cursor(self) -> None:
         self.setCursor(_cursor_for_tool(self.state.active_tool))

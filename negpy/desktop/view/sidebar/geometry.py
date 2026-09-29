@@ -77,7 +77,11 @@ class GeometrySidebar(BaseSidebar):
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
         self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         # The tools sit on the header so all three sliders keep one track width.
-        self.layout.addLayout(header_row(section_subheader("ALIGNMENT"), self.straighten_btn, self.crop_to_valid_btn))
+        self.keystone_lines_btn = self._tool_toggle("fa5s.vector-square", "", "Tilt and swing with reference lines")
+        self.keystone_lines_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.layout.addLayout(
+            header_row(section_subheader("ALIGNMENT"), self.straighten_btn, self.keystone_lines_btn, self.crop_to_valid_btn)
+        )
 
         # The slider shows the photographer's convention, where positive is clockwise on screen.
         # Internally geometry.fine_rotation keeps the cv2/warp convention, where positive is
@@ -121,6 +125,7 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
 
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
+        self.keystone_lines_btn.toggled.connect(self._on_keystone_lines_toggled)
 
         # Display convention is CW-positive; negate crossing into the stored convention.
         self.fine_rot_slider.valueChanged.connect(
@@ -153,6 +158,9 @@ class GeometrySidebar(BaseSidebar):
     def _on_straighten_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.STRAIGHTEN if checked else ToolMode.NONE)
 
+    def _on_keystone_lines_toggled(self, checked: bool) -> None:
+        self.controller.set_active_tool(ToolMode.KEYSTONE_LINES if checked else ToolMode.NONE)
+
     def _on_auto_crop_toggled(self, checked: bool) -> None:
         if checked:
             self.controller.apply_auto_crop()
@@ -178,6 +186,7 @@ class GeometrySidebar(BaseSidebar):
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
+            self.keystone_lines_btn.setChecked(self.state.active_tool == ToolMode.KEYSTONE_LINES)
             self.reset_crop_btn.setChecked(conf.crop_from_auto)
             self.manual_crop_btn.edited_dot.set_active(has_manual_crop(conf))
             self.reset_crop_btn.edited_dot.set_active(conf.crop_from_auto)
@@ -195,5 +204,6 @@ class GeometrySidebar(BaseSidebar):
         self.converge_h_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
+        self.keystone_lines_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)
         self.crop_to_valid_btn.blockSignals(blocked)

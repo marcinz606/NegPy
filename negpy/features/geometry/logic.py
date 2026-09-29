@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
-from typing import List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -1772,6 +1772,14 @@ def map_point_radial(px: float, py: float, k1: float, w: int, h: int) -> Tuple[f
 # in transform.wgsl and in map_coords_to_geometry; change the quad in all three.
 
 _KEYSTONE_EPS = 1e-4  # per-cent
+_KEYSTONE_SOLVE_MAX_ITER = 20
+_KEYSTONE_SOLVE_TOL = 1e-7
+
+
+def keystone_quad(converge_v: float, converge_h: float) -> np.ndarray:
+    """Return the normalized source quad for the keystone correction."""
+    a, b = converge_v * 0.005, converge_h * 0.005
+    return np.asarray([[a, b], [1.0 - a, -b], [1.0 + a, 1.0 + b], [-a, 1.0 - b]], dtype=np.float32)
 
 
 def keystone_matrix_normalized(converge_v: float, converge_h: float) -> np.ndarray:
@@ -1782,8 +1790,7 @@ def keystone_matrix_normalized(converge_v: float, converge_h: float) -> np.ndarr
     both derive from it. Convergences are per-cent; positive converge_v stretches the
     top edge, positive converge_h the left.
     """
-    a, b = converge_v * 0.005, converge_h * 0.005
-    src = np.float32([[a, b], [1.0 - a, -b], [1.0 + a, 1.0 + b], [-a, 1.0 - b]])
+    src = keystone_quad(converge_v, converge_h)
     dst = np.float32([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
 
@@ -2236,7 +2243,7 @@ def resolve_autocrop_rect(
     return (x1 / rw, y1 / rh, x2 / rw, y2 / rh)
 
 
-def map_coords_to_geometry(
+def _pre_keystone_point(
     nx: float,
     ny: float,
     orig_shape: Tuple[int, int],
@@ -2244,14 +2251,9 @@ def map_coords_to_geometry(
     fine_rotation: float = 0.0,
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
-    roi: Optional[ROI] = None,
     distortion_k1: float = 0.0,
-    converge_v: float = 0.0,
-    converge_h: float = 0.0,
-) -> Tuple[float, float]:
-    """
-    Maps raw coordinates to geometry-transformed space.
-    """
+) -> Tuple[float, float, float, float]:
+    """Map a raw-normalized point to pixel space before keystone correction."""
     h_orig, w_orig = orig_shape
     px, py = nx * w_orig, ny * h_orig
     h, w = h_orig, w_orig
@@ -2278,10 +2280,29 @@ def map_coords_to_geometry(
         res_pt = m_mat @ pt
         px, py = float(res_pt[0]), float(res_pt[1])
 
-    # Inverse of the resample map: undistorted feature point -> corrected-image position
-    # (last forward op, matching GeometryProcessor / transform.wgsl).
     if distortion_k1 != 0.0:
         px, py = map_point_radial(px, py, distortion_k1, w, h)
+
+    return px, py, w, h
+
+
+def map_coords_to_geometry(
+    nx: float,
+    ny: float,
+    orig_shape: Tuple[int, int],
+    rotation_k: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+    roi: Optional[ROI] = None,
+    distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
+) -> Tuple[float, float]:
+    """
+    Maps raw coordinates to geometry-transformed space.
+    """
+    px, py, w, h = _pre_keystone_point(nx, ny, orig_shape, rotation_k, fine_rotation, flip_horizontal, flip_vertical, distortion_k1)
 
     if converge_v != 0.0 or converge_h != 0.0:
         px, py = map_point_keystone(px, py, converge_v, converge_h, w, h)
@@ -2296,6 +2317,89 @@ def map_coords_to_geometry(
     ny_new = np.clip(py / max(h, 1), 0.0, 1.0)
 
     return float(nx_new), float(ny_new)
+
+
+def solve_keystone_from_edges(
+    edges: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]],
+    orig_shape: Tuple[int, int],
+    initial_converge_v: float = 0.0,
+    initial_converge_h: float = 0.0,
+    rotation_k: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
+) -> Tuple[float, float]:
+    """Solve tilt and swing so opposite marked rebate edges become parallel."""
+    required = ("left", "right", "top", "bottom")
+    missing = [name for name in required if name not in edges]
+    if missing:
+        raise ValueError(f"solve_keystone_from_edges needs all four edges; missing {missing}")
+
+    pre = {
+        name: tuple(
+            _pre_keystone_point(
+                point[0],
+                point[1],
+                orig_shape,
+                rotation_k,
+                fine_rotation,
+                flip_horizontal,
+                flip_vertical,
+                distortion_k1,
+            )
+            for point in edges[name]
+        )
+        for name in required
+    }
+
+    def slope_v(name: str, converge_v: float, converge_h: float) -> float:
+        (px1, py1, width, height), (px2, py2, _, _) = pre[name]
+        mapped1 = map_point_keystone(px1, py1, converge_v, converge_h, width, height)
+        mapped2 = map_point_keystone(px2, py2, converge_v, converge_h, width, height)
+        dy = mapped2[1] - mapped1[1]
+        if abs(dy) < 1e-9:
+            raise ValueError(f"the {name} edge is horizontal after correction; mark it along its length")
+        return (mapped2[0] - mapped1[0]) / dy
+
+    def slope_h(name: str, converge_v: float, converge_h: float) -> float:
+        (px1, py1, width, height), (px2, py2, _, _) = pre[name]
+        mapped1 = map_point_keystone(px1, py1, converge_v, converge_h, width, height)
+        mapped2 = map_point_keystone(px2, py2, converge_v, converge_h, width, height)
+        dx = mapped2[0] - mapped1[0]
+        if abs(dx) < 1e-9:
+            raise ValueError(f"the {name} edge is vertical after correction; mark it along its length")
+        return (mapped2[1] - mapped1[1]) / dx
+
+    def residuals(converge_v: float, converge_h: float) -> np.ndarray:
+        return np.array(
+            [
+                slope_v("left", converge_v, converge_h) - slope_v("right", converge_v, converge_h),
+                slope_h("top", converge_v, converge_h) - slope_h("bottom", converge_v, converge_h),
+            ]
+        )
+
+    converge_v = float(np.clip(initial_converge_v, -15.0, 15.0))
+    converge_h = float(np.clip(initial_converge_h, -15.0, 15.0))
+    epsilon = 1e-3
+    for _ in range(_KEYSTONE_SOLVE_MAX_ITER):
+        residual = residuals(converge_v, converge_h)
+        if np.max(np.abs(residual)) < _KEYSTONE_SOLVE_TOL:
+            break
+        jacobian = np.column_stack(
+            (
+                (residuals(converge_v + epsilon, converge_h) - residual) / epsilon,
+                (residuals(converge_v, converge_h + epsilon) - residual) / epsilon,
+            )
+        )
+        try:
+            delta = np.linalg.solve(jacobian, -residual)
+        except np.linalg.LinAlgError:
+            delta, *_ = np.linalg.lstsq(jacobian, -residual, rcond=None)
+        converge_v = float(np.clip(converge_v + delta[0], -15.0, 15.0))
+        converge_h = float(np.clip(converge_h + delta[1], -15.0, 15.0))
+
+    return converge_v, converge_h
 
 
 def smooth_polyline(

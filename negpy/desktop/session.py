@@ -56,6 +56,7 @@ class ToolMode(Enum):
     LOCAL_GRADIENT = auto()
     ANALYSIS_DRAW = auto()
     STRAIGHTEN = auto()
+    KEYSTONE_LINES = auto()
     ZONE_PLACE = auto()
 
 

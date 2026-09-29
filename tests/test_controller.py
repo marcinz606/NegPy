@@ -104,6 +104,63 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(args[0], "half_frame_profile")
         self.assertEqual(args[1], {"crop_rect": [0.0, 0.0, 1.0, 1.0], "split_x": 0.6, "gutter_thickness": 0.02})
 
+    def test_keystone_solve_clears_lines_after_config_update(self):
+        self.controller.state.active_tool = ToolMode.KEYSTONE_LINES
+        self.controller.state.preview_raw = np.zeros((100, 120), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        edges = {
+            "left": ((0.1, 0.1), (0.1, 0.9)),
+            "right": ((0.9, 0.1), (0.9, 0.9)),
+            "top": ((0.1, 0.1), (0.9, 0.1)),
+            "bottom": ((0.1, 0.9), (0.9, 0.9)),
+        }
+        cleared = []
+        self.controller.keystone_lines_cleared.connect(
+            lambda: cleared.append(
+                (
+                    self.controller.state.config.geometry.converge_v,
+                    self.controller.state.config.geometry.converge_h,
+                    dict(self.controller._keystone_lines),
+                    self.controller.state.active_tool,
+                )
+            )
+        )
+
+        with patch("negpy.desktop.controller.solve_keystone_from_edges", return_value=(8.0, -6.0)):
+            for edge, (point1, point2) in edges.items():
+                self.controller.handle_keystone_line_marked(edge, *point1, *point2)
+
+        self.assertEqual(cleared, [(8.0, -6.0, {}, ToolMode.KEYSTONE_LINES)])
+        self.mock_session_manager.update_config.assert_called_once()
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["persist"])
+        self.controller.request_render.assert_called_once_with()
+
+    def test_keystone_solve_error_keeps_lines_and_does_not_emit_clear(self):
+        self.controller.state.active_tool = ToolMode.KEYSTONE_LINES
+        self.controller.state.preview_raw = np.zeros((100, 120), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        edges = {
+            "left": ((0.1, 0.1), (0.1, 0.9)),
+            "right": ((0.9, 0.1), (0.9, 0.9)),
+            "top": ((0.1, 0.1), (0.9, 0.1)),
+            "bottom": ((0.1, 0.9), (0.9, 0.9)),
+        }
+        cleared = MagicMock()
+        self.controller.keystone_lines_cleared.connect(cleared)
+
+        with patch("negpy.desktop.controller.solve_keystone_from_edges", side_effect=ValueError("invalid edge")):
+            for edge, (point1, point2) in edges.items():
+                self.controller.handle_keystone_line_marked(edge, *point1, *point2)
+
+        self.assertEqual(set(self.controller._keystone_lines), set(edges))
+        self.assertEqual(self.controller.state.active_tool, ToolMode.KEYSTONE_LINES)
+        cleared.assert_not_called()
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+        self.controller.set_status.assert_called_once_with("invalid edge", 3000, "warning")
+
     def test_half_frame_override_round_trip(self):
         self.controller.session.repo.get_global_setting.return_value = None
         self.assertEqual(self.controller.half_frame_overrides(), {})

@@ -8,16 +8,19 @@ autocrop's replay.
 import unittest
 from dataclasses import replace
 
+import cv2
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.geometry.logic import (
     apply_keystone,
     autocrop_detection_key,
+    keystone_quad,
     keystone_inverse_normalized,
     keystone_matrix,
     map_coords_to_geometry,
     map_point_keystone,
+    solve_keystone_from_edges,
 )
 from negpy.infrastructure.gpu.device import GPUDevice
 
@@ -107,6 +110,51 @@ class TestKeystoneCoordinateMapping(unittest.TestCase):
             back = CoordinateMapping.map_raw_to_viewport(rx, ry, grid)
             self.assertAlmostEqual(back[0], nx, delta=0.02, msg=f"x for ({nx},{ny})")
             self.assertAlmostEqual(back[1], ny, delta=0.02, msg=f"y for ({nx},{ny})")
+
+
+class TestKeystoneEdgeSolver(unittest.TestCase):
+    def test_solves_tilt_and_swing_from_the_four_rebate_edges(self):
+        h, w = 300, 400
+        true_v, true_h = 8.0, -6.0
+        quad = keystone_quad(true_v, true_h) * np.array([w, h], dtype=np.float32)
+        tl, tr, br, bl = (tuple(point) for point in quad)
+
+        img = np.zeros((h, w), dtype=np.float32)
+        cv2.polylines(img, [quad.astype(np.int32)], isClosed=True, color=(1.0,), thickness=2)
+        edges = {
+            "left": ((tl[0] / w, tl[1] / h), (bl[0] / w, bl[1] / h)),
+            "right": ((tr[0] / w, tr[1] / h), (br[0] / w, br[1] / h)),
+            "top": ((tl[0] / w, tl[1] / h), (tr[0] / w, tr[1] / h)),
+            "bottom": ((bl[0] / w, bl[1] / h), (br[0] / w, br[1] / h)),
+        }
+
+        solved_v, solved_h = solve_keystone_from_edges(edges, (h, w))
+        self.assertAlmostEqual(solved_v, true_v, delta=1e-2)
+        self.assertAlmostEqual(solved_h, true_h, delta=1e-2)
+        self.assertEqual(apply_keystone(img, solved_v, solved_h).shape, img.shape)
+
+        def mapped(point):
+            return map_point_keystone(point[0], point[1], solved_v, solved_h, w, h)
+
+        mapped_tl, mapped_tr, mapped_br, mapped_bl = (mapped(point) for point in (tl, tr, br, bl))
+
+        def unit_vector(start, end):
+            vector = np.array([end[0] - start[0], end[1] - start[1]])
+            return vector / np.linalg.norm(vector)
+
+        top, bottom = unit_vector(mapped_tl, mapped_tr), unit_vector(mapped_bl, mapped_br)
+        left, right = unit_vector(mapped_tl, mapped_bl), unit_vector(mapped_tr, mapped_br)
+        self.assertAlmostEqual(abs(float(np.dot(top, bottom))), 1.0, delta=1e-3)
+        self.assertAlmostEqual(abs(float(np.dot(left, right))), 1.0, delta=1e-3)
+        self.assertAlmostEqual(float(np.dot(top, left)), 0.0, delta=1e-3)
+
+    def test_missing_edge_raises(self):
+        edges = {
+            "left": ((0.0, 0.0), (0.0, 1.0)),
+            "right": ((1.0, 0.0), (1.0, 1.0)),
+        }
+        with self.assertRaises(ValueError):
+            solve_keystone_from_edges(edges, (100, 100))
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")

@@ -218,6 +218,7 @@ class ShortcutManager:
             "pick_wb": lambda: controls.color_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
             "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),
+            "keystone_lines": lambda: controls.geometry_sidebar.keystone_lines_btn.toggle(),
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),

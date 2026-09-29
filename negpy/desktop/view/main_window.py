@@ -575,6 +575,8 @@ class MainWindow(QMainWindow):
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
         self.canvas.dust_exclusion_painted.connect(self.controller.handle_dust_exclusion_painted)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
+        self.canvas.keystone_line_marked.connect(self.controller.handle_keystone_line_marked)
+        self.controller.keystone_lines_cleared.connect(self.canvas.clear_keystone_lines)
         self.canvas.zone_pin_moved.connect(self.controller.move_zone_pin)
         self.canvas.zone_placement_confirmed.connect(self.controller.apply_zone_placement)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
@@ -691,11 +693,11 @@ class MainWindow(QMainWindow):
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
-            # Crop and analysis render the uncropped, border-less frame, and padding it would
+            # Crop, analysis, and tilt/swing tools render the uncropped, border-less frame, and padding it would
             # misalign the tool rect. The GPU skips the layout pass there too.
             should_preview = (
                 finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
-            ) and self.state.active_tool not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+            ) and self.state.active_tool not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES)
 
             if should_preview:
                 pil_img = Image.fromarray(float_to_uint8(buffer))

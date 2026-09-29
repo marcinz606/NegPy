@@ -639,6 +639,14 @@ class ControlsPanel(QWidget):
                 "straighten",
             )
         )
+        geo.keystone_lines_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Tilt and swing with reference lines — drag a short line along each of the four "
+                "rebate edges (top, bottom, left, right); NegPy solves the Tilt and Swing that make "
+                "them parallel and square again. Stays open until you toggle it off",
+                "keystone_lines",
+            )
+        )
         crop.offset_slider.setToolTip(
             tooltip_with_shortcut(
                 "Insets the auto-crop border from the detected film edge. Positive = trim more; negative = bleed outside",

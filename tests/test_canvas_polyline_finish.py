@@ -3,6 +3,7 @@ from PyQt6.QtGui import QMouseEvent
 
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
+from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 
 def _mouse_event(kind: QEvent.Type, pos: QPointF, buttons=Qt.MouseButton.LeftButton) -> QMouseEvent:
@@ -178,6 +179,71 @@ def test_esc_ladder_clears_straighten_line() -> None:
 
     assert overlay.cancel_in_progress() is True
     assert overlay._straighten_p1 is None
+
+
+def test_keystone_lines_classify_by_direction_and_position() -> None:
+    overlay = _overlay_with_view()
+
+    assert overlay._classify_keystone_edge(QPointF(10, 20), QPointF(10, 80)) == "left"
+    assert overlay._classify_keystone_edge(QPointF(90, 20), QPointF(90, 80)) == "right"
+    assert overlay._classify_keystone_edge(QPointF(20, 10), QPointF(80, 10)) == "top"
+    assert overlay._classify_keystone_edge(QPointF(20, 90), QPointF(80, 90)) == "bottom"
+
+
+def test_keystone_line_drag_emits_raw_points_and_keeps_tool_active() -> None:
+    overlay = _overlay_with_parent()
+    overlay.set_tool_mode(ToolMode.KEYSTONE_LINES)
+    overlay.state.last_metrics["uv_grid"] = CoordinateMapping.create_uv_grid(100, 100, 0, 0.0)
+    emitted = []
+    overlay.keystone_line_marked.connect(lambda *args: emitted.append(args))
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(10, 10)))
+    overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, QPointF(10, 90)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(10, 90), Qt.MouseButton.NoButton))
+
+    assert len(emitted) == 1
+    edge, nx1, ny1, nx2, ny2 = emitted[0]
+    assert edge == "left"
+    assert all(abs(actual - expected) < 0.02 for actual, expected in zip((nx1, ny1, nx2, ny2), (0.1, 0.1, 0.1, 0.9)))
+    assert overlay._tool_mode == ToolMode.KEYSTONE_LINES
+    assert "left" in overlay._keystone_lines
+
+
+def test_keystone_line_cancel_preserves_marks_until_tool_exit() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.KEYSTONE_LINES)
+    overlay._keystone_lines["left"] = (QPointF(10, 20), QPointF(10, 80))
+    overlay._keystone_draw_p1 = QPointF(20, 20)
+    overlay._keystone_draw_p2 = QPointF(40, 40)
+
+    assert overlay.cancel_in_progress() is True
+    assert overlay._keystone_draw_p1 is None
+    assert "left" in overlay._keystone_lines
+
+    overlay.set_tool_mode(ToolMode.NONE)
+    assert overlay._keystone_lines == {}
+
+
+def test_clear_keystone_lines_preserves_active_tool() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.KEYSTONE_LINES)
+    overlay._keystone_lines["left"] = (QPointF(10, 20), QPointF(10, 80))
+
+    overlay.clear_keystone_lines()
+
+    assert overlay._keystone_lines == {}
+    assert overlay._tool_mode == ToolMode.KEYSTONE_LINES
+
+
+def test_keystone_lines_remap_when_view_rect_changes() -> None:
+    overlay = _overlay_with_view()
+    overlay._keystone_lines["left"] = (QPointF(25, 25), QPointF(25, 75))
+    old = QRectF(0, 0, 100, 100)
+    overlay._view_rect = QRectF(50, 50, 200, 200)
+
+    overlay._remap_inflight_points(old)
+
+    assert overlay._keystone_lines["left"] == (QPointF(100, 100), QPointF(100, 200))
 
 
 def test_context_cancel_two_stage() -> None:

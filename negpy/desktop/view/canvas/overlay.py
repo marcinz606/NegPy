@@ -253,6 +253,7 @@ class CanvasOverlay(QWidget):
     local_mask_edited = pyqtSignal(int, list)  # (mask index, viewport-normalized vertices)
     local_vertex_deleted = pyqtSignal(int, int)  # (mask index, vertex index)
     straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
+    keystone_line_marked = pyqtSignal(str, float, float, float, float)
     test_strip_picked = pyqtSignal(int, int)  # (row, col) of the clicked patch
     zone_pin_moved = pyqtSignal(int, float, float, bool)  # (pin index, nx, ny, drag ended)
     zone_placement_confirmed = pyqtSignal()  # Enter over the canvas: commit the solved print
@@ -350,6 +351,9 @@ class CanvasOverlay(QWidget):
         # Straighten tool: reference-line drag (press -> drag -> release applies).
         self._straighten_p1: Optional[QPointF] = None
         self._straighten_p2: Optional[QPointF] = None
+        self._keystone_lines: Dict[str, Tuple[QPointF, QPointF]] = {}
+        self._keystone_draw_p1: Optional[QPointF] = None
+        self._keystone_draw_p2: Optional[QPointF] = None
 
         self._auto_pan_active = False
         self._auto_pan_pointer: Optional[QPointF] = None
@@ -521,8 +525,16 @@ class CanvasOverlay(QWidget):
         if mode != ToolMode.STRAIGHTEN:
             self._straighten_p1 = None
             self._straighten_p2 = None
+        if mode != ToolMode.KEYSTONE_LINES:
+            self._keystone_lines = {}
+            self._keystone_draw_p1 = None
+            self._keystone_draw_p2 = None
         if mode != ToolMode.ZONE_PLACE:
             self._pin_drag_index = None
+        self.update()
+
+    def clear_keystone_lines(self) -> None:
+        self._keystone_lines.clear()
         self.update()
 
     def set_local_slider_drag(self, dragging: bool) -> None:
@@ -591,6 +603,12 @@ class CanvasOverlay(QWidget):
             self._stop_auto_pan()
             self._straighten_p1 = None
             self._straighten_p2 = None
+            self.update()
+            return True
+        if self._tool_mode == ToolMode.KEYSTONE_LINES and self._keystone_draw_p1 is not None:
+            self._stop_auto_pan()
+            self._keystone_draw_p1 = None
+            self._keystone_draw_p2 = None
             self.update()
             return True
         return False
@@ -730,6 +748,11 @@ class CanvasOverlay(QWidget):
             self._straighten_p1 = remap(self._straighten_p1)
         if self._straighten_p2 is not None:
             self._straighten_p2 = remap(self._straighten_p2)
+        if self._keystone_draw_p1 is not None:
+            self._keystone_draw_p1 = remap(self._keystone_draw_p1)
+        if self._keystone_draw_p2 is not None:
+            self._keystone_draw_p2 = remap(self._keystone_draw_p2)
+        self._keystone_lines = {name: (remap(p1), remap(p2)) for name, (p1, p2) in self._keystone_lines.items()}
         if self._crop_anchor_screen is not None:
             self._crop_anchor_screen = remap(self._crop_anchor_screen)
         if self._crop_draw_p1 is not None:
@@ -879,6 +902,14 @@ class CanvasOverlay(QWidget):
             self.update()
             return True
 
+        if self._tool_mode == ToolMode.KEYSTONE_LINES and self._keystone_draw_p1 is not None:
+            self._keystone_draw_p2 = QPointF(
+                float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            self.update()
+            return True
+
         if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
             mx = float(np.clip(pos.x(), self._view_rect.left(), self._view_rect.right()))
             my = float(np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom()))
@@ -946,7 +977,7 @@ class CanvasOverlay(QWidget):
         if (
             self._buffer_overlay_visible
             and self._buffer_overlay_ratio > 1e-4
-            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES)
         ):
             d = visible_rect
             margin_w = d.width() * self._buffer_overlay_ratio
@@ -1002,15 +1033,17 @@ class CanvasOverlay(QWidget):
             self._draw_dust_exclusions(painter)
         if self._tool_mode == ToolMode.STRAIGHTEN:
             self._draw_straighten_line(painter)
+        if self._tool_mode == ToolMode.KEYSTONE_LINES:
+            self._draw_keystone_lines_tool(painter)
 
         if self.state.dust_overlay_mode != "off":
             self._draw_dust_overlay(painter)
 
-        # Crop/analysis modes show the uncropped frame, so the boxes wouldn't line up.
+        # Crop, analysis, and tilt/swing modes show the uncropped frame, so the boxes wouldn't line up.
         content_aligned = (
             not self.state.flat_peek
             and not self.state.negative_peek
-            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES)
         )
         if self.state.test_strip and content_aligned:
             # Takes the content rect over from the zone grid: both would claim it.
@@ -1314,6 +1347,45 @@ class CanvasOverlay(QWidget):
         painter.drawRoundedRect(badge, 4, 4)
         painter.setPen(QColor(THEME.accent_primary))
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
+
+    def _classify_keystone_edge(self, p1: QPointF, p2: QPointF) -> str:
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        vertical = abs(abs(math.degrees(math.atan2(dy, dx))) - 90.0) < 45.0
+        rect = self._content_view_rect()
+        mid = QPointF((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0)
+        if vertical:
+            return "left" if mid.x() < rect.center().x() else "right"
+        return "top" if mid.y() < rect.center().y() else "bottom"
+
+    def _draw_keystone_lines_tool(self, painter: QPainter) -> None:
+        labels = {"left": "Left", "right": "Right", "top": "Top", "bottom": "Bottom"}
+        accent_pen = QPen(QColor(THEME.accent_primary), 1.5, Qt.PenStyle.SolidLine)
+        accent_pen.setCosmetic(True)
+        painter.setPen(accent_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for name, (p1, p2) in self._keystone_lines.items():
+            painter.drawLine(p1, p2)
+            mid = QPointF((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0)
+            badge = QRectF(mid.x() - 26.0, mid.y() - 11.0, 52.0, 20.0)
+            painter.setBrush(QColor(0, 0, 0, 170))
+            painter.drawRoundedRect(badge, 4.0, 4.0)
+            painter.setPen(QColor(THEME.accent_primary))
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, labels[name])
+            painter.setPen(accent_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self._keystone_draw_p1 is None or self._keystone_draw_p2 is None:
+            return
+        p1, p2 = self._keystone_draw_p1, self._keystone_draw_p2
+        white_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
+        white_pen.setCosmetic(True)
+        painter.setPen(white_pen)
+        painter.drawLine(p1, p2)
+        painter.setBrush(QColor(255, 255, 255, 200))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(p1, 3.0, 3.0)
+        painter.drawEllipse(p2, 3.0, 3.0)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _draw_zone_grid(self, painter: QPainter) -> None:
         """Adams-zone map over the image content: a fixed grid whose internal edges are
@@ -2228,7 +2300,7 @@ class CanvasOverlay(QWidget):
         conf = self.state.config
         edges = key_edges(mask, conf.exposure, conf.process.process_mode, metrics)
         roi = metrics.get("active_roi")
-        crop_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        crop_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES)
         # Box relative to the content, so panning reuses the cache.
         bx, by = x0 - content.x(), y0 - content.y()
         key = (
@@ -2508,6 +2580,15 @@ class CanvasOverlay(QWidget):
                     self.update()
                 event.accept()
                 return
+
+        if self._tool_mode == ToolMode.KEYSTONE_LINES:
+            if self._view_rect.contains(event.position()):
+                self._keystone_draw_p1 = event.position()
+                self._keystone_draw_p2 = event.position()
+                self._begin_auto_pan(event.position())
+                self.update()
+            event.accept()
+            return
 
         if self._tool_mode == ToolMode.ANALYSIS_DRAW:
             self._start_analysis_drag(event.position())
@@ -3171,6 +3252,25 @@ class CanvasOverlay(QWidget):
             # Ignore accidental clicks: a reference line needs some length.
             if math.hypot(dx, dy) >= 8.0:
                 self.straighten_completed.emit(straighten_delta_degrees(dx, dy))
+            self.update()
+            event.accept()
+            return
+
+        if self._tool_mode == ToolMode.KEYSTONE_LINES and self._keystone_draw_p1 is not None:
+            p1, p2 = self._keystone_draw_p1, self._keystone_draw_p2 or self._keystone_draw_p1
+            self._stop_auto_pan()
+            self._keystone_draw_p1 = None
+            self._keystone_draw_p2 = None
+            if math.hypot(p2.x() - p1.x(), p2.y() - p1.y()) >= 8.0:
+                edge = self._classify_keystone_edge(p1, p2)
+                self._keystone_lines[edge] = (p1, p2)
+                with self.state.metrics_lock:
+                    uv_grid = self.state.last_metrics.get("uv_grid")
+                c1, c2 = self._map_to_image_coords(p1), self._map_to_image_coords(p2)
+                if uv_grid is not None and c1 is not None and c2 is not None:
+                    r1 = CoordinateMapping.map_click_to_raw(c1[0], c1[1], uv_grid)
+                    r2 = CoordinateMapping.map_click_to_raw(c2[0], c2[1], uv_grid)
+                    self.keystone_line_marked.emit(edge, r1[0], r1[1], r2[0], r2[1])
             self.update()
             event.accept()
             return

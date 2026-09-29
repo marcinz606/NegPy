@@ -385,6 +385,7 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 *   **Crop by Default** (crop icon, right end of the ALIGNMENT header): crop the wedge Fine Rotation, Tilt and Swing leave, so no edge shows extrapolated pixels. Live, only while no manual or auto crop is set. While you adjust a slider below, the canvas briefly darkens the margin it trims.
 *   **Fine Rotation** (±45°): sub-degree rotation, positive clockwise. Applied after auto-crop.
 *   **Straighten** tool (ruler, on the ALIGNMENT header): draw a line along a horizon or vertical edge to level or plumb it. Move the pointer past the edge of the viewport to pan during drawing.
+*   **Tilt and swing with reference lines** tool: drag a line along each rebate edge (top, bottom, left, right); once all four are marked, Tilt and Swing solve to make them parallel and square. Re-drag an edge to refine.
 *   **Tilt** (±15%): tip the easel about a horizontal axis to correct converging verticals. Positive stretches the top edge. The unit is percent of the frame, not an angle.
 *   **Swing** (±15%): the same about a vertical axis, for converging horizontals. Positive stretches the left edge.
 
