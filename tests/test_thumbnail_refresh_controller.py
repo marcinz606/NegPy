@@ -5,6 +5,7 @@ from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from PIL import Image
 
 from negpy.desktop.controller import _THUMBNAIL_REFRESH_MEMORY_RETRY_MS, AppController, thumbnail_refresh_progress_text
 from negpy.desktop.session import AppState, DesktopSessionManager
@@ -709,35 +710,119 @@ class TestThumbnailRefreshController:
                 }
             )
 
-    def test_live_thumbnail_is_fingerprinted_from_the_config_that_rendered_it(self) -> None:
+    def test_a_frame_edited_since_its_render_is_flagged_not_written(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
         rendered = WorkspaceConfig()
-        # The user has edited since this render landed; the fingerprint must describe the
-        # pixels, not the newer config.
-        base = WorkspaceConfig()
-        self.controller.state.config = replace(base, exposure=replace(base.exposure, density=base.exposure.density + 0.3))
+        self.controller.state.config = replace(rendered, exposure=replace(rendered.exposure, density=rendered.exposure.density + 0.3))
+        self._live_render(("active", rendered))
+
+        self.controller._update_thumbnail_from_state(persist=True)
+
+        assert self.thumbnail_updates == []
+        assert asset_thumbnail_key(self.files[0]) in self.controller.state.stale_thumbnails
+
+    def test_an_edit_that_leaves_the_pixels_alone_still_files_the_render(self) -> None:
+        rendered = WorkspaceConfig()
+        self.controller.state.config = replace(rendered, metadata=replace(rendered.metadata, camera_id="cam"))
         self._live_render(("active", rendered))
 
         self.controller._update_thumbnail_from_state(persist=True)
 
         assert self.thumbnail_updates[-1].fingerprint == self.controller.thumbnail_fingerprint_for(rendered)
 
-    def test_live_thumbnail_without_a_matching_identity_is_stored_as_unknown(self) -> None:
+    def test_pixels_that_are_not_this_frames_render_never_reach_disk(self) -> None:
         self._live_render(("someone-else", WorkspaceConfig()))
         self.controller._update_thumbnail_from_state(persist=True)
-        assert self.thumbnail_updates[-1].fingerprint is None
-
         self._live_render(None)
         self.controller._update_thumbnail_from_state(persist=True)
-        assert self.thumbnail_updates[-1].fingerprint is None
-
-    def test_splash_and_in_memory_thumbnails_carry_no_fingerprint(self) -> None:
         self._live_render(("active", WorkspaceConfig()), splash=True)
         self.controller._update_thumbnail_from_state(persist=True)
-        assert self.thumbnail_updates[-1].fingerprint is None
 
+        assert self.thumbnail_updates == []
+
+    def test_an_in_memory_thumbnail_carries_no_fingerprint(self) -> None:
         self._live_render(("active", WorkspaceConfig()))
         self.controller._update_thumbnail_from_state(persist=False)
         assert self.thumbnail_updates[-1].fingerprint is None
+
+    def test_a_skipped_write_flags_a_thumbnail_the_edit_made_stale(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self._save("active", "some-older-render")
+        self._live_render(None)
+
+        self.controller._update_thumbnail_from_state(persist=True)
+
+        assert asset_thumbnail_key(self.files[0]) in self.controller.state.stale_thumbnails
+
+    def test_negative_peek_drops_the_render_identity(self) -> None:
+        self._live_render(("active", self.controller.state.config))
+        self.controller.state.preview_raw = np.full((4, 4, 3), 0.5, dtype=np.float32)
+
+        self.controller._paint_negative_peek()
+        self.controller._update_thumbnail_from_state(persist=True)
+
+        assert "render_identity" not in self.controller.state.last_metrics
+        assert self.thumbnail_updates == []
+
+    def _file_it_here(self) -> None:
+        """The test writes the JPEG itself; the worker thread writing the same file would race it."""
+        self.controller.thumbnail_update_requested.disconnect(self.controller.thumb_worker.update_rendered)
+
+    def _leave_after_bounds_writeback(self) -> None:
+        """Render the active frame, land its measured bounds, file its thumbnail on the
+        way out, then make it a background frame that reads its config back from storage."""
+        from types import SimpleNamespace
+
+        def update_config(config, **_kw):
+            self.controller.state.config = config
+
+        self._file_it_here()
+        self.session.update_config.side_effect = update_config
+        rendered = self.controller.state.config
+        self._live_render(("active", rendered))
+        self.controller._on_metrics_updated(
+            {"source_hash": "active", "log_bounds": SimpleNamespace(floors=(-1.0, -1.1, -1.2), ceils=(-0.9, -0.95, -1.0))}
+        )
+        saved = self.controller.state.config
+        assert saved.process.local_floors != rendered.process.local_floors
+
+        self.controller._update_thumbnail_from_state(persist=True)
+        task = self.thumbnail_updates[-1]
+        self.controller.asset_store.save_thumbnail(task.file_hash, Image.new("RGB", (4, 4)), fingerprint=task.fingerprint)
+
+        self.controller.state.current_file_hash = "third"
+        self.session.config_for_asset.side_effect = lambda a: (
+            WorkspaceConfig.from_flat_dict(saved.to_dict()) if a["hash"] == "active" else WorkspaceConfig()
+        )
+
+    def test_a_canvas_render_reads_current_after_its_bounds_are_written_back(self) -> None:
+        self._leave_after_bounds_writeback()
+        assert self.controller.thumbnail_is_stale(self.files[0]) is False
+
+    def test_an_edit_after_the_render_breaks_the_carried_identity(self) -> None:
+        base = self.controller.state.config
+        self._live_render(("active", base))
+        self.controller.state.config = replace(base, exposure=replace(base.exposure, density=base.exposure.density + 0.3))
+        before = self.controller.state.config
+        self.controller.state.config = replace(before, process=replace(before.process, local_floors=(-1.0, -1.0, -1.0)))
+
+        self.controller._carry_render_identity(before)
+
+        assert self.controller.state.last_metrics["render_identity"] == ("active", base)
+
+    def test_switching_away_skips_the_write_when_the_disk_already_holds_the_render(self) -> None:
+        self._file_it_here()
+        self._live_render(("active", self.controller.state.config))
+        self.controller._update_thumbnail_from_state(persist=True)
+        task = self.thumbnail_updates[-1]
+        self.controller.asset_store.save_thumbnail(task.file_hash, Image.new("RGB", (4, 4)), fingerprint=task.fingerprint)
+        count = len(self.thumbnail_updates)
+
+        self.controller._update_thumbnail_from_state(persist=True)
+
+        assert len(self.thumbnail_updates) == count
 
 
 def test_progress_text_has_no_time_left_after_one_frame() -> None:

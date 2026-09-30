@@ -408,7 +408,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(self.controller.state.zone_pins, [], "the placement is made; the proof is spent")
         self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
         self.assertEqual(len(self.render_tasks), n + 1, "one render of the committed edit")
-        self.assertIsNone(self.render_tasks[-1].config_override if hasattr(self.render_tasks[-1], "config_override") else None)
+        self.assertFalse(self.render_tasks[-1].config_override)
 
     def test_esc_discards_the_preview_without_committing(self):
         from negpy.desktop.view.keyboard_shortcuts import _context_cancel

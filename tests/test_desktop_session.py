@@ -1442,13 +1442,15 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.select_file(1)
         self.assertEqual(seen, ["hash1"])
 
-    def test_active_file_changing_not_emitted_when_clean(self):
+    def test_active_file_changing_emitted_when_clean(self):
+        # A frame only looked at still has its render to file on disk; the controller
+        # skips the write when the stored thumbnail already matches.
         self.session.state.current_file_hash = "hash1"
         self.session.state.is_dirty = False
-        fired = []
-        self.session.active_file_changing.connect(lambda: fired.append(True))
+        seen = []
+        self.session.active_file_changing.connect(lambda: seen.append(self.session.state.current_file_hash))
         self.session.select_file(1)
-        self.assertEqual(fired, [])
+        self.assertEqual(seen, ["hash1"])
 
     def test_clear_files_persists_empty_manifest(self):
         self.session.clear_files()

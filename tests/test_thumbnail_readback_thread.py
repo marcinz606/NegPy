@@ -61,7 +61,7 @@ class TestControllerDoesNotReadBack(unittest.TestCase):
         host = np.full((8, 8, 3), 0.25, dtype=np.float32)
         fn, stub = self._controller_stub({"base_positive": tex, "thumbnail_source": host, "source_hash": "h1"})
         with patch("negpy.desktop.controller.GPUTexture", _FakeTexture):
-            fn(stub)
+            fn(stub, persist=False)
         self.assertEqual(tex.readbacks, 0)
         stub.thumbnail_update_requested.emit.assert_called_once()
         self.assertIs(stub.thumbnail_update_requested.emit.call_args[0][0].buffer, host)
@@ -131,6 +131,15 @@ class TestWorkerAttachesTheHostCopy(unittest.TestCase):
         arr = np.full((8, 8, 3), 0.5, dtype=np.float32)
         metrics = self._run(self._worker(arr), self._task(arr, wants_thumbnail=True))
         self.assertIsNone(metrics.get("thumbnail_source"), "a host render is already its own thumbnail source")
+
+    def test_only_a_render_of_the_edit_carries_an_identity(self):
+        from dataclasses import replace
+
+        arr = np.full((8, 8, 3), 0.5, dtype=np.float32)
+        task = self._task(arr, wants_thumbnail=False)
+        self.assertEqual(self._run(self._worker(arr), task)["render_identity"], ("h", DEFAULT_WORKSPACE_CONFIG))
+        self.assertIsNone(self._run(self._worker(arr), replace(task, config_override=True))["render_identity"])
+        self.assertIsNone(self._run(self._worker(arr), replace(task, crop_preview_full=True))["render_identity"])
 
 
 if __name__ == "__main__":

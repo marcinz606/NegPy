@@ -65,6 +65,9 @@ class RenderTask:
     interactive: bool = False
     # Only the controller knows whether the filmstrip is already current for this config.
     wants_thumbnail: bool = False
+    # `config` is a view of the edit (flat peek, zone preview, compare baseline), not the
+    # edit itself, so the pixels get no render identity.
+    config_override: bool = False
     # Decoder XYZ->camera matrix for this source; only the transparency transfer reads it.
     cam_xyz: Optional[list] = None
     # As-shot WB multipliers, needed only when the buffer was decoded without WB.
@@ -367,8 +370,9 @@ class RenderWorker(QObject):
             metrics["source_hash"] = task.source_hash
             # The config these pixels were rendered from, paired with their hash, so the
             # thumbnail written from them can be fingerprinted against what actually ran,
-            # not against a config the user has edited since.
-            metrics["render_identity"] = (task.source_hash, task.config)
+            # not against a config the user has edited since. A crop-tool render shows the
+            # uncropped frame, which no config describes.
+            metrics["render_identity"] = None if task.crop_preview_full or task.config_override else (task.source_hash, task.config)
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
             metrics["compare"] = task.compare

@@ -1271,9 +1271,12 @@ class DesktopSessionManager(QObject):
         """
         if 0 <= index < len(self.state.uploaded_files):
             # Save current before switching, but only if user actually made explicit edits
-            if self.state.current_file_hash and self._config_dirty:
-                self.repo.save_file_settings(self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or "")
-                self.settings_saved.emit()
+            if self.state.current_file_hash:
+                if self._config_dirty:
+                    self.repo.save_file_settings(
+                        self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or ""
+                    )
+                    self.settings_saved.emit()
                 self.active_file_changing.emit()
             self._config_dirty = False
 

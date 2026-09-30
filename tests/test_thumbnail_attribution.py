@@ -42,7 +42,7 @@ def _emitted_key(controller):
 class Attribution(unittest.TestCase):
     def test_a_late_render_updates_the_frame_it_came_from(self):
         """A is rendering; the user clicks B; A's render lands. Its pixels are A's."""
-        metrics = {"base_positive": np.zeros((4, 4, 3), np.float32), "source_hash": "hash-a"}
+        metrics = {"base_positive": np.zeros((4, 4, 3), np.float32), "source_hash": "hash-a", "render_identity": ("hash-a", object())}
         controller = _controller(selected_idx=1, metrics=metrics)  # B is selected now
 
         AppController._update_thumbnail_from_state(controller)
@@ -50,7 +50,7 @@ class Attribution(unittest.TestCase):
         self.assertEqual(_emitted_key(controller), asset_thumbnail_key(A))
 
     def test_the_ordinary_case_is_unchanged(self):
-        metrics = {"base_positive": np.zeros((4, 4, 3), np.float32), "source_hash": "hash-b"}
+        metrics = {"base_positive": np.zeros((4, 4, 3), np.float32), "source_hash": "hash-b", "render_identity": ("hash-b", object())}
         controller = _controller(selected_idx=1, metrics=metrics)
 
         AppController._update_thumbnail_from_state(controller)

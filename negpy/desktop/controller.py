@@ -3722,8 +3722,11 @@ class AppController(QObject):
         stored = self.asset_store.get_thumbnail_fingerprint(key)
         if stored is None or stored == THUMB_QUICK:
             return True
+        return not self._thumbnail_matches(asset, stored)
+
+    def _thumbnail_matches(self, asset: dict, stored: str) -> bool:
         config = self._config_for_batch_asset(asset)
-        return not thumbnail_is_current(stored, self.thumbnail_fingerprint_for(config))
+        return thumbnail_is_current(stored, self.thumbnail_fingerprint_for(config))
 
     def refresh_thumbnails_for(self, hashes: list[str]) -> None:
         """Re-render the filmstrip thumbnails of frames a bulk settings write touched
@@ -6015,6 +6018,7 @@ class AppController(QObject):
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
+            config_override=config_override is not None,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=target_size,
             gpu_enabled=self.state.gpu_enabled,
@@ -6252,6 +6256,7 @@ class AppController(QObject):
             img = img * level
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = working_oetf_encode(img)
+            self.state.last_metrics.pop("render_identity", None)
             self.state.last_metrics["content_rect"] = None
             self.state.last_metrics["splash"] = False
             self.state.last_metrics["proof"] = False
@@ -7280,8 +7285,18 @@ class AppController(QObject):
             return
         new_geo = replace(geom, crop_rect=tuple(float(v) for v in rect), crop_detect_key=metrics["autocrop_resolved_key"])
         # record_history=False: tail of the Auto press, not a second edit to undo past.
+        before = self.state.config
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True, render=False, record_history=False)
+        self._carry_render_identity(before)
         self.config_updated.emit()
+
+    def _carry_render_identity(self, before: WorkspaceConfig) -> None:
+        """A write that leaves the shown pixels as they are makes them the render of the
+        new config too. Identity, not equality: an edit since the render breaks the chain."""
+        with self.state.metrics_lock:
+            identity = self.state.last_metrics.get("render_identity")
+            if isinstance(identity, tuple) and identity[0] == self.state.current_file_hash and identity[1] is before:
+                self.state.last_metrics["render_identity"] = (identity[0], self.state.config)
 
     def _dispatch_pending_render(self) -> None:
         """Start the render queued while the last one was running, if any."""
@@ -7303,7 +7318,9 @@ class AppController(QObject):
             return
 
         with self.state.metrics_lock:
-            self.state.last_metrics.update(metrics)
+            # _on_render_finished filed this render's identity, and a render-neutral write
+            # since then may have carried it forward.
+            self.state.last_metrics.update({k: v for k, v in metrics.items() if k != "render_identity"})
             _stamp_render_serial(self.state.last_metrics, metrics)
         if "ir_degenerate" in metrics:
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
@@ -7332,6 +7349,7 @@ class AppController(QObject):
                 changes["local_ceils"] = bounds.ceils
 
             if changes:
+                before = self.state.config
                 new_process = replace(self.state.config.process, **changes)
                 self.session.update_config(
                     replace(self.state.config, process=new_process),
@@ -7339,6 +7357,7 @@ class AppController(QObject):
                     render=False,
                     record_history=False,
                 )
+                self._carry_render_identity(before)
                 # render=False: the displayed pixels already reflect these measured bounds.
                 # Move the frame's memo entry to the updated config's key so the first
                 # navigate-back after an initial render still hits. A GPU render is not filed
@@ -7463,12 +7482,24 @@ class AppController(QObject):
         display_cs, monitor_bytes, proof = self.display_transform_params(
             splash=bool(metrics.get("splash")), proofed=bool(metrics.get("proof", True))
         )
-        # Fingerprint only pixels whose config is known to be this frame's render: a splash
-        # never ran the settings, and last_metrics can carry another frame's identity.
+        # Disk gets only pixels known to be this frame's render. A splash, a peek or a
+        # crop-tool view carries no identity, and last_metrics can hold another frame's
+        # pixels next to it; such a frame gets the stale dot instead.
         fingerprint = None
-        identity = metrics.get("render_identity")
-        if persist and not metrics.get("splash") and isinstance(identity, tuple) and identity[0] == asset.get("hash"):
+        if persist:
+            identity = metrics.get("render_identity")
+            if metrics.get("splash") or not isinstance(identity, tuple) or identity[0] != asset.get("hash"):
+                self._flag_if_stale(asset)
+                return
             fingerprint = self.thumbnail_fingerprint_for(identity[1])
+            if asset.get("hash") == self.state.current_file_hash and fingerprint != self.thumbnail_fingerprint_for(self.state.config):
+                # Edited since this render. Leaving the frame drops the newer render, and a
+                # thumbnail landing clears the stale flag, so nothing is written.
+                self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
+                self.session.asset_model.refresh()
+                return
+            if fingerprint == self.asset_store.get_thumbnail_fingerprint(asset_thumbnail_key(asset)):
+                return  # the disk already holds this render; the filmstrip got it when it landed
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(
@@ -7482,6 +7513,16 @@ class AppController(QObject):
                 fingerprint=fingerprint,
             )
         )
+
+    def _flag_if_stale(self, asset: dict) -> None:
+        key = asset_thumbnail_key(asset)
+        if key in self.state.stale_thumbnails or self.diptych_pair(asset) is not None:
+            return
+        stored = self.asset_store.get_thumbnail_fingerprint(key)
+        if stored is None or stored == THUMB_QUICK or self._thumbnail_matches(asset, stored):
+            return
+        self.state.stale_thumbnails.add(key)
+        self.session.asset_model.refresh()
 
     def cleanup(self) -> None:
         """

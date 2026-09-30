@@ -4527,7 +4527,7 @@ class TestDisplayTransformParams(unittest.TestCase):
         except TypeError:
             pass
         self.controller.thumbnail_update_requested.connect(emitted.append)
-        self.controller._update_thumbnail_from_state()
+        self.controller._update_thumbnail_from_state(persist=False)
 
         self.assertEqual(len(emitted), 1)
         task = emitted[0]
