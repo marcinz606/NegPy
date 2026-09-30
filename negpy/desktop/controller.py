@@ -345,6 +345,8 @@ _THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
 # Mean decode seconds above which, when decode also dominates the render, a refresh is
 # read-bound: the source volume, not the CPU, sets its pace.
 _THUMBNAIL_READ_BOUND_DECODE_S = 3.0
+# Frames checked per event-loop turn when a roll opens: each costs a config hydration.
+_STALE_SEED_CHUNK = 16
 
 
 def thumbnail_refresh_progress_text(
@@ -566,6 +568,7 @@ class AppController(QObject):
         self._thumbnail_render_pending: set[str] = set()
         # Hashes a pre-emption cut short, retried once the pre-empting batch is done.
         self._thumbnail_render_resume: set[str] = set()
+        self._stale_seed_pending: list[dict] = []
         # True between cancel_thumbnail_refresh() and the worker's cancelled signal
         # landing — marks that cancellation as a user stop, not a pre-emption, so the
         # cancelled handler discards the backlog instead of resuming it.
@@ -2148,6 +2151,7 @@ class AppController(QObject):
             self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
+            self._seed_stale_thumbnails(list(self.session.state.uploaded_files), restart=True)
             if not self._thumbnail_queue_active:
                 # Nothing queued, so no idle transition will arrive to start the
                 # embeddings pass (already-cached thumbnails are exactly what a
@@ -2179,6 +2183,7 @@ class AppController(QObject):
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
+            self._seed_stale_thumbnails(self.session.state.uploaded_files[first_new_idx:])
             if not self._thumbnail_queue_active:
                 # Nothing queued, so no idle transition will arrive to start the
                 # embeddings pass (already-cached thumbnails are exactly what a
@@ -3727,6 +3732,44 @@ class AppController(QObject):
     def _thumbnail_matches(self, asset: dict, stored: str) -> bool:
         config = self._config_for_batch_asset(asset)
         return thumbnail_is_current(stored, self.thumbnail_fingerprint_for(config))
+
+    def _seed_stale_thumbnails(self, assets: list[dict], *, restart: bool = False) -> None:
+        """Put the Film Strip's stale dot on frames whose rendered thumbnail no longer
+        matches their settings, including staleness from an earlier session. Only a real
+        mismatch gets a dot: a quick or unfingerprinted thumbnail is every frame never
+        opened, though Update Thumbnails still renders it."""
+        was_idle = not self._stale_seed_pending
+        if restart:
+            self._stale_seed_pending = []
+        self._stale_seed_pending.extend(assets)
+        if was_idle or restart:
+            QTimer.singleShot(0, self._seed_stale_chunk)
+
+    def _seed_stale_chunk(self) -> None:
+        chunk = self._stale_seed_pending[:_STALE_SEED_CHUNK]
+        del self._stale_seed_pending[:_STALE_SEED_CHUNK]
+        loaded = {a.get("hash") for a in self.state.uploaded_files}
+        flagged = False
+        for asset in chunk:
+            asset_hash = asset.get("hash")
+            if asset_hash not in loaded or asset_hash == self.state.current_file_hash:
+                continue
+            # A diptych row's thumbnail joins two halves; no single config describes it.
+            if self.diptych_pair(asset) is not None:
+                continue
+            key = asset_thumbnail_key(asset)
+            if key in self.state.stale_thumbnails:
+                continue
+            stored = self.asset_store.get_thumbnail_fingerprint(key)
+            if stored is None or stored == THUMB_QUICK:
+                continue
+            if not self._thumbnail_matches(asset, stored):
+                self.state.stale_thumbnails.add(key)
+                flagged = True
+        if flagged:
+            self.session.asset_model.refresh()
+        if self._stale_seed_pending:
+            QTimer.singleShot(0, self._seed_stale_chunk)
 
     def refresh_thumbnails_for(self, hashes: list[str]) -> None:
         """Re-render the filmstrip thumbnails of frames a bulk settings write touched

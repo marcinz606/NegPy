@@ -264,7 +264,7 @@ Right-click a thumbnail, or use shortcuts, to mark frames (multi-selection works
 | Bottom-right | cross, frame heavily dimmed | rejected |
 | Bottom-left | *see below* | the frame was built from more than one file |
 | Top-left | exclamation | the file failed to decode; click to retry |
-| Top-left | small amber dot | the thumbnail predates a settings change (a bulk apply reached the file before a render reached its thumbnail); open the frame to refresh it |
+| Top-left | small amber dot | the thumbnail predates a settings change, from this session or an earlier one; open the frame or use **Update Thumbnails** to refresh it |
 
 The gray bottom-left glyph shows the frame type:
 

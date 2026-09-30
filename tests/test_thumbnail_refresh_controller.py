@@ -824,6 +824,59 @@ class TestThumbnailRefreshController:
 
         assert len(self.thumbnail_updates) == count
 
+    # Seeding the Film Strip's stale dot from fingerprints when a roll opens.
+
+    def _seed(self, assets=None) -> set:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        with patch("negpy.desktop.controller.QTimer.singleShot", side_effect=lambda _ms, fn: fn()):
+            self.controller._seed_stale_thumbnails(assets if assets is not None else self.files, restart=True)
+        keys = {asset_thumbnail_key(f): f["hash"] for f in self.files}
+        return {keys[k] for k in self.controller.state.stale_thumbnails if k in keys}
+
+    def test_seeding_flags_only_a_real_mismatch(self) -> None:
+        from negpy.services.assets.thumbnail_fingerprint import QUICK
+
+        self._save("other", "some-older-render")
+        self._save("third", self._current("third"))
+        assert self._seed() == {"other"}
+
+        self._save("other", QUICK)
+        self._save("third", None)
+        self.controller.state.stale_thumbnails.clear()
+        assert self._seed() == set()
+
+    def test_seeding_skips_the_active_frame_and_diptych_rows(self) -> None:
+        self._save("active", "some-older-render")
+        self._save("other", "some-older-render")
+        self.files[1]["diptych"] = True
+        with patch.object(
+            self.controller, "diptych_pair", side_effect=lambda f: (WorkspaceConfig(), WorkspaceConfig()) if f["diptych"] else None
+        ):
+            assert self._seed() == set()
+
+    def test_seeding_keeps_this_sessions_flags(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self._save("other", self._current("other"))
+        self.controller.state.stale_thumbnails.add(asset_thumbnail_key(self.files[1]))
+        assert self._seed() == {"other"}
+
+    def test_seeding_works_through_a_roll_larger_than_one_chunk(self) -> None:
+        from negpy.desktop.controller import _STALE_SEED_CHUNK
+
+        self.files.extend(
+            {"name": f"f{i}.dng", "path": f"/roll/f{i}.dng", "hash": f"f{i}", "diptych": False} for i in range(_STALE_SEED_CHUNK * 2)
+        )
+        self._save(f"f{_STALE_SEED_CHUNK * 2 - 1}", "some-older-render")
+        assert self._seed() == {f"f{_STALE_SEED_CHUNK * 2 - 1}"}
+        assert self.controller._stale_seed_pending == []
+
+    def test_seeding_ignores_a_frame_no_longer_loaded(self) -> None:
+        self._save("other", "some-older-render")
+        gone = self.files.pop(1)
+        assert self._seed([gone]) == set()
+
 
 def test_progress_text_has_no_time_left_after_one_frame() -> None:
     assert thumbnail_refresh_progress_text(1, 49, 1.0, 1.0) == "Thumbnails 1/49"
