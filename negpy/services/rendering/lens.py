@@ -21,7 +21,7 @@ def metadata_lens_corrections(config: "WorkspaceConfig") -> LensCorrections:
 
 
 def lens_decode_token(corrections: LensCorrections, flatfield: FlatFieldConfig) -> str:
-    return f"|embedded-lens-v2-d{int(corrections.distortion)}-ca{int(corrections.ca)}" + flatfield_token(flatfield) if corrections else ""
+    return f"|embedded-lens-v3-d{int(corrections.distortion)}-ca{int(corrections.ca)}" + flatfield_token(flatfield) if corrections else ""
 
 
 def prepare_lens_source(

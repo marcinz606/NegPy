@@ -43,6 +43,9 @@ class LensMetadata:
     # DNG opcodes use the active image, before DefaultCrop and EXIF orientation.
     active_area: tuple[int, int, int, int] | None = None
     buffer_area: tuple[int, int, int, int] | None = None
+    # Output coordinates are scaled by this about the warp's center before the map is read.
+    # apply_lens sets it so a barrel correction fills the frame instead of reading past its edge.
+    fill_scale: float = 1.0
 
     @property
     def distortion(self) -> bool:

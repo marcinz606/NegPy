@@ -826,7 +826,7 @@ The scanning optics: one lens correction and one light correction for every fram
 #### Lens Correction
 
 *   **Embedded** (the file's own lens profile, enabled when the file has one):
-    *   **Distortion**: straightens curved lines, replacing manual distortion correction. Set it before cropping or retouching.
+    *   **Distortion**: straightens curved lines, replacing manual distortion correction. When the correction pulls the edges in from outside the frame, the image is enlarged slightly to fill it, as with Distortion Correction. Set it before cropping or retouching.
     *   **CA**: reduces color fringes. Works with or without **Distortion** and manual correction.
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing. Grayed out while the embedded **Distortion** is on.
 

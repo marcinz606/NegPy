@@ -657,8 +657,10 @@ def test_registered_reader_and_structural_warp_use_shared_rendering(tmp_path, mo
     oriented = apply_exif_orientation(image, orientation)
     result = apply_lens(oriented, lens, orientation)
     np.testing.assert_array_equal(result, apply_exif_orientation(expected, orientation))
-    assert all(context is lens and shape == image.shape for context, shape, *_ in calls)
-    assert [(start, stop, channel) for _, _, start, stop, channel in calls] == [
+    # Single-row reads are the fill-scale search; the render reads row blocks.
+    renders = [call for call in calls if call[2] % 256 == 0 and call[3] == min(call[2] + 256, image.shape[0])]
+    assert all(context is lens and shape == image.shape for context, shape, *_ in renders)
+    assert [(start, stop, channel) for _, _, start, stop, channel in renders] == [
         (start, min(start + 256, 521), channel) for channel in range(3) for start in range(0, 521, 256)
     ]
 
@@ -685,3 +687,68 @@ def test_warp_capabilities_drive_availability(warp: LensWarp, distortion, ca):
     if not lens.available:
         image = np.full((16, 24, 3), 0.5, np.float32)
         assert apply_lens(image, lens) is image
+
+
+def _max_edge_overshoot(lens: LensMetadata, shape: tuple[int, int], corrections: LensCorrections) -> float:
+    """How far past the source any output edge pixel reads, in pixels, through the filled warp."""
+    from negpy.features.lens.logic import fill_scale
+
+    h, w = shape
+    filled = replace(lens, fill_scale=fill_scale(lens, shape, corrections))
+    worst = 0.0
+    for warp in lens.warps:
+        for channel in range(3):
+            for row in range(h):
+                mx, my = warp.remap(filled, shape, row, row + 1, channel, corrections)
+                cols = slice(None) if row in (0, h - 1) else [0, w - 1]
+                worst = max(worst, -mx[0, cols].min(), mx[0, cols].max() - (w - 1), -my[0, cols].min(), my[0, cols].max() - (h - 1))
+    return worst
+
+
+@pytest.mark.parametrize(
+    "warp",
+    [
+        SonyWarp(tuple(range(0, 1600, 100))),
+        RectilinearWarp(
+            ((1, 0.04, 0.01, 0, 0.001, -0.002), (1, 0.05, 0.01, 0, 0.001, -0.002), (1, 0.06, 0.01, 0, 0.001, -0.002)), (0.42, 0.57)
+        ),
+    ],
+    ids=["sony", "dng-off-center-ca"],
+)
+def test_a_correction_that_reads_past_the_edge_is_scaled_to_fill(warp):
+    from negpy.features.lens.logic import fill_scale
+
+    lens = LensMetadata("test", (warp,))
+    corrections = LensCorrections(True, True)
+    scale = fill_scale(lens, (60, 90), corrections)
+    assert scale < 1.0
+    h, w = 60, 90
+    mx, _ = warp.remap(lens, (h, w), h // 2, h // 2 + 1, 1, corrections)
+    assert mx.min() < -1.0 or mx.max() > w, "the unfilled warp must read past the edge"
+    assert _max_edge_overshoot(lens, (h, w), corrections) <= 1e-3
+
+
+def test_filled_correction_leaves_no_replicated_streak():
+    image = np.full((60, 90, 3), 0.5, dtype=np.float32)
+    image[:, 0] = 1.0
+    image[:, -1] = 1.0
+    lens = LensMetadata("Sony", (SonyWarp(tuple(range(0, 1600, 100))),))
+    result = apply_lens(image, lens)
+    row = result[30, :, 1]
+    # Replicating the edge column would repeat 1.0 across the band the warp reads past the frame.
+    assert (row[:10] > 0.9).sum() <= 2 and (row[-10:] > 0.9).sum() <= 2
+
+
+@pytest.mark.parametrize(
+    "warp, corrections",
+    [
+        (SonyWarp((-1000,) * 16), LensCorrections(True, True)),
+        (SonyWarp(ca_red=(3000,) * 16, ca_blue=(-3000,) * 16), LensCorrections(False, True)),
+        (SonyWarp(tuple(range(0, 1600, 100)), (3000,) * 16), LensCorrections(False, True)),
+    ],
+    ids=["pincushion", "ca-only", "ca-only-with-distortion-off"],
+)
+def test_no_fill_when_nothing_reads_past_the_edge_or_distortion_is_off(warp, corrections):
+    from negpy.features.lens.logic import fill_scale
+
+    assert fill_scale(LensMetadata("Sony", (warp,)), (60, 90), corrections) == 1.0

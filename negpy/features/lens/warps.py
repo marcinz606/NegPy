@@ -24,8 +24,8 @@ def _coordinates(lens: LensMetadata, shape: tuple[int, ...], start: int, stop: i
     sx, sy = (br - bl) / w, (bb - bt) / h
     cx, cy = left + center[0] * (r - left - 1), t + center[1] * (b - t - 1)
     radius = np.hypot(max(cx - left, r - 1 - cx), max(cy - t, b - 1 - cy))
-    x = (bl + (np.arange(w, dtype=np.float32)[None, :] + 0.5) * sx - 0.5 - cx) / radius
-    y = (bt + (np.arange(start, stop, dtype=np.float32)[:, None] + 0.5) * sy - 0.5 - cy) / radius
+    x = (bl + (np.arange(w, dtype=np.float32)[None, :] + 0.5) * sx - 0.5 - cx) / radius * lens.fill_scale
+    y = (bt + (np.arange(start, stop, dtype=np.float32)[:, None] + 0.5) * sy - 0.5 - cy) / radius * lens.fill_scale
     return x, y, cx, cy, radius, sx, sy, bl, bt
 
 
@@ -112,8 +112,8 @@ class SonyWarp:
         # Sony's knot positions and units follow darktable's embedded-metadata model (GPL-3.0+).
         # https://github.com/darktable-org/darktable/blob/master/src/iop/lens.cc
         h, w = shape[:2]
-        x = np.arange(w, dtype=np.float32)[None, :] - w * 0.5
-        y = np.arange(start, stop, dtype=np.float32)[:, None] - h * 0.5
+        x = (np.arange(w, dtype=np.float32)[None, :] - w * 0.5) * lens.fill_scale
+        y = (np.arange(start, stop, dtype=np.float32)[:, None] - h * 0.5) * lens.fill_scale
         radius = np.hypot(x, y) / np.hypot(w * 0.5, h * 0.5)
         n = len(self.distortion) or len(self.ca_red) or len(self.ca_blue)
         knots = (np.arange(n) + 0.5) / (n - 1)
