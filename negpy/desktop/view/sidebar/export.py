@@ -766,7 +766,7 @@ class ExportSidebar(BaseSidebar):
     }
 
     def _refresh_linear_expansion_combo(self) -> None:
-        from negpy.services.export.linear_output import linear_output_source_type, wb_bake_block_reason
+        from negpy.services.export.linear_output import GAMMA_SOURCE_TYPES, linear_output_source_type, wb_bake_block_reason
 
         path = self.state.current_file_path or ""
         source_type = linear_output_source_type(path) if path else "unsupported"
@@ -792,7 +792,7 @@ class ExportSidebar(BaseSidebar):
         combo.blockSignals(False)
         self._current_expansion_source_type = source_type
 
-        needs_gamma = source_type in ("tiff", "nef")
+        needs_gamma = source_type in GAMMA_SOURCE_TYPES
         self.linear_gamma_row.setVisible(needs_gamma)
         self.linear_gamma_hint.setVisible(needs_gamma)
         if needs_gamma:

@@ -1483,6 +1483,23 @@ class TestLinearCorrections:
             desc = tf.pages[0].description
             assert "linearized from Gamma 2.2" in desc
 
+    def test_camera_raw_description_ignores_a_stale_gamma(self, tmp_path: str) -> None:
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+        out = os.path.join(str(tmp_path), "out.tiff")
+        with self._patch_decode({p: np.full((4, 4, 3), 0.5, dtype=np.float32)}):
+            export_linear_output(p, out, gamma_key="2.2")
+        with tifffile.TiffFile(out) as tf:
+            assert "linearized" not in tf.pages[0].description
+
+    def test_tiff_description_records_the_gamma(self, tmp_path: str) -> None:
+        p = os.path.join(str(tmp_path), "scan.tif")
+        tifffile.imwrite(p, np.full((4, 4, 3), 30000, dtype=np.uint16), photometric="rgb")
+        out = os.path.join(str(tmp_path), "out.tiff")
+        export_linear_output(p, out, gamma_key="2.2")
+        with tifffile.TiffFile(out) as tf:
+            assert "linearized from Gamma 2.2" in tf.pages[0].description
+
     def test_description_no_gamma_for_linear(self, tmp_path: str) -> None:
         f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
         out = os.path.join(str(tmp_path), "out.tiff")

@@ -186,6 +186,10 @@ def is_linear_output_supported(file_path: str) -> bool:
     return False
 
 
+# The source types whose decode reads Input gamma; every other decode ignores it.
+GAMMA_SOURCE_TYPES = ("tiff", "nef")
+
+
 def linear_output_source_type(file_path: str) -> str:
     """Classify a file for Linear Output expansion options.
 
@@ -1238,6 +1242,10 @@ def export_linear_output(
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
     wb_applied = apply_wb and not wb_bake_block_reason(rgbscan, process)
+    # The setting is global, so it can arrive from an earlier TIFF; the description records it
+    # only for a source whose decode reads it.
+    if linear_output_source_type(file_path) not in GAMMA_SOURCE_TYPES:
+        gamma_key = "linear"
     f32, ir, camera_wb, meta = _decode_linear(
         file_path,
         geometry,
