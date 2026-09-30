@@ -60,6 +60,27 @@ class TestThumbnailFingerprint:
                 fh.write(b"ab")
             assert _fp(WorkspaceConfig(), input_icc_path=path) != before
 
+    def test_rewriting_a_companion_file_changes_it(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            base = WorkspaceConfig()
+            for name in ("hdr", "green", "blue", "part", "part_green", "part_blue"):
+                with open(os.path.join(d, name), "wb") as fh:
+                    fh.write(b"a")
+            path = lambda name: os.path.join(d, name)  # noqa: E731
+            configs = [
+                replace(base, hdr=replace(base.hdr, hdr_paths=(path("hdr"),))),
+                replace(base, rgbscan=replace(base.rgbscan, green_path=path("green"), blue_path=path("blue"))),
+                replace(
+                    base,
+                    stitch=replace(base.stitch, stitch_paths=(path("part"),), stitch_triplets=((path("part_green"), path("part_blue")),)),
+                ),
+            ]
+            before = [_fp(c) for c in configs]
+            for name in ("hdr", "blue", "part_green"):
+                with open(path(name), "wb") as fh:
+                    fh.write(b"ab")
+            assert all(a != b for a, b in zip(before, [_fp(c) for c in configs]))
+
     def test_render_version_is_part_of_it(self, monkeypatch) -> None:
         before = _fp(WorkspaceConfig())
         monkeypatch.setattr(tf, "THUMBNAIL_RENDER_VERSION", tf.THUMBNAIL_RENDER_VERSION + 1)

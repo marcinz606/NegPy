@@ -46,6 +46,14 @@ def _file_identity(path: Optional[str]) -> Optional[str]:
     return f"{path}|{stat.st_size}|{stat.st_mtime_ns}"
 
 
+def _companion_paths(config: WorkspaceConfig) -> list[str]:
+    """Files besides the frame's own that a composite reads. The frame's own content is in
+    its hash, so the thumbnail key covers it; these are named only by path."""
+    triplets = [path for pair in config.stitch.stitch_triplets for path in pair]
+    paths = [*config.hdr.hdr_paths, config.rgbscan.green_path, config.rgbscan.blue_path, *config.stitch.stitch_paths, *triplets]
+    return [p for p in paths if p]
+
+
 def thumbnail_fingerprint(
     config: WorkspaceConfig,
     *,
@@ -65,6 +73,7 @@ def thumbnail_fingerprint(
         "config": sections,
         "workspace": workspace_color_space,
         "input_icc": _file_identity(input_icc_path),
+        "companions": [_file_identity(p) for p in _companion_paths(config)],
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
