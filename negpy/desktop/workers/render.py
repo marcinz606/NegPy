@@ -109,6 +109,9 @@ class ThumbnailUpdateTask:
     monitor_icc_bytes: Optional[bytes] = None
     proof: Optional[tuple] = None
     persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
+    # What the buffer was rendered from (services.assets.thumbnail_fingerprint), stored with
+    # the JPEG so staleness survives a restart. None stores it as unknown, i.e. stale.
+    fingerprint: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -362,6 +365,10 @@ class RenderWorker(QObject):
             metrics["render_long_edge"] = int(max(task.buffer.shape[:2])) if isinstance(task.buffer, np.ndarray) else 0
             # Render identity, so the controller can reject stale/ephemeral bounds writeback.
             metrics["source_hash"] = task.source_hash
+            # The config these pixels were rendered from, paired with their hash, so the
+            # thumbnail written from them can be fingerprinted against what actually ran,
+            # not against a config the user has edited since.
+            metrics["render_identity"] = (task.source_hash, task.config)
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
             metrics["compare"] = task.compare
@@ -558,6 +565,7 @@ class ThumbnailWorker(QObject):
                 color_space=task.color_space,
                 monitor_icc_bytes=task.monitor_icc_bytes,
                 proof=task.proof,
+                fingerprint=task.fingerprint,
             )
             if thumb:
                 self.rendered_finished.emit({task.file_hash: thumb})

@@ -82,14 +82,34 @@ class LocalAssetStore(IAssetStore):
                 return None
         return None
 
-    def save_thumbnail(self, file_hash: str, image: Image.Image) -> None:
-        """Persists thumb to disk."""
+    def save_thumbnail(self, file_hash: str, image: Image.Image, fingerprint: Optional[str] = None) -> None:
+        """Persists thumb to disk.
+
+        ``fingerprint`` (see ``services.assets.thumbnail_fingerprint``) is written into the
+        JPEG comment, so the record of what the thumbnail shows lives and dies with it.
+        None writes no comment, which reads back as unknown, and so as stale.
+        """
+        from negpy.services.assets.thumbnail_fingerprint import encode_comment
+
         try:
             thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
-            # Save as JPEG for speed and smaller file size
-            image.save(thumb_path, "JPEG", quality=85)
+            # Always passed: Pillow otherwise writes the comment of the image it was derived from.
+            image.save(thumb_path, "JPEG", quality=85, comment=encode_comment(fingerprint) or b"")
         except Exception as e:
             logger.error(f"Failed to save thumbnail {file_hash}: {e}")
+
+    def get_thumbnail_fingerprint(self, file_hash: str) -> Optional[str]:
+        """The fingerprint a cached thumbnail was saved with, or None when there is no
+        thumbnail, it predates fingerprints, or it cannot be read. Reads the JPEG header
+        only, so checking a whole roll costs no pixel decode."""
+        from negpy.services.assets.thumbnail_fingerprint import decode_comment
+
+        thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
+        try:
+            with Image.open(thumb_path) as img:
+                return decode_comment(img.info.get("comment"))
+        except Exception:
+            return None
 
     def _get_session_dir(self, session_id: str) -> str:
         session_dir = os.path.join(self.cache_dir, session_id)

@@ -165,6 +165,12 @@ from negpy.features.process.models import (
 )
 from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, FRAME_CARD_FIELDS, frame_card_rows, section_of_field, selected_flat_dict
 from negpy.services.assets.thumbnails import asset_thumbnail_key
+from negpy.services.assets.thumbnail_fingerprint import (
+    QUICK as THUMB_QUICK,
+    decode_comment,
+    is_current as thumbnail_is_current,
+    thumbnail_fingerprint,
+)
 from negpy.services.assets import semantic_model
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 from negpy.features.retouch.logic import downsample_ir, trace_scratch
@@ -999,7 +1005,11 @@ class AppController(QObject):
                 changed = True
             cached = self.asset_store.get_thumbnail(key)
             if cached is not None:
-                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose))
+                # The turned bitmap matches the new geometry only if it matched the old one,
+                # which a stored fingerprint cannot vouch for across the edit. Drop it (reads
+                # as stale, costing at most one re-render); a quick thumbnail stays quick.
+                was_quick = decode_comment(cached.info.get("comment")) == THUMB_QUICK
+                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose), fingerprint=THUMB_QUICK if was_quick else None)
             else:
                 self._thumbnail_pending_correction.setdefault(key, []).append(pil_transpose)
         return changed
@@ -1078,7 +1088,7 @@ class AppController(QObject):
                     # This decode's own disk write (inside get_thumbnail_worker) already
                     # landed in the old orientation and is served back verbatim from then
                     # on, so it needs the same correction, not just the in-memory icon.
-                    self.asset_store.save_thumbnail(key, pil_img)
+                    self.asset_store.save_thumbnail(key, pil_img, fingerprint=THUMB_QUICK)
                 if not self._set_thumbnail(key, pil_img):
                     broken.add(key)
         self.session.asset_model.refresh()
@@ -2418,6 +2428,7 @@ class AppController(QObject):
         self.state.last_metrics.pop("normalized_log", None)
         self.state.last_metrics.pop("base_positive", None)
         self.state.last_metrics.pop("thumbnail_source", None)
+        self.state.last_metrics.pop("render_identity", None)
 
         if memo is not None:
             with self.state.metrics_lock:
@@ -2430,6 +2441,8 @@ class AppController(QObject):
                 # frame's hash next to them would file them under it on the next
                 # thumbnail refresh, which reads whatever last_metrics holds.
                 self.state.last_metrics["source_hash"] = target_hash
+                # The memo key matched this config, so these pixels are its render.
+                self.state.last_metrics["render_identity"] = (target_hash, self.state.config)
             self.image_updated.emit()
 
         self.state.preview_raw = None
@@ -3662,18 +3675,55 @@ class AppController(QObject):
     def request_thumbnail_refresh(self, scope: str) -> None:
         """User-triggered escape hatch for stale thumbnails: the same background pass
         a bulk edit dispatches automatically, run on demand over ``scope`` ("selection"
-        or "roll") — for staleness an automatic trigger missed, or predates one."""
+        or "roll") — for staleness an automatic trigger missed, or predates one.
+
+        The roll scope renders only frames whose stored thumbnail fingerprint does not
+        match their current settings, so it catches staleness from an earlier session
+        without re-reading every source file. The selection scope renders what was
+        selected regardless: it is the explicit force."""
         if scope == "roll":
             indices = self.session.asset_model.visible_actual_indices_ordered()
         else:
             indices = [
                 i for i in (self.state.selected_indices or [self.state.selected_file_idx]) if 0 <= i < len(self.state.uploaded_files)
             ]
-        hashes = [self.state.uploaded_files[i]["hash"] for i in indices]
-        if not hashes:
+        assets = [self.state.uploaded_files[i] for i in indices]
+        if not assets:
             self.set_status("Nothing to update", 2000)
             return
-        self.refresh_thumbnails_for(hashes)
+        if scope == "roll":
+            assets = [a for a in assets if self.thumbnail_is_stale(a)]
+            if not assets:
+                self.set_status("All thumbnails are up to date", 2500)
+                return
+        self.refresh_thumbnails_for([a["hash"] for a in assets])
+
+    def thumbnail_fingerprint_for(self, config: WorkspaceConfig) -> str:
+        """Fingerprint of a thumbnail rendered from ``config``."""
+        return thumbnail_fingerprint(
+            config,
+            workspace_color_space=self.state.workspace_color_space,
+            input_icc_path=self.effective_input_icc(config.process),
+        )
+
+    def thumbnail_is_stale(self, asset: dict) -> bool:
+        """Whether the asset's cached thumbnail no longer shows its current settings.
+
+        Flagged this session, missing, unfingerprinted (legacy or quick) or mismatched all
+        count as stale. The active frame never does: the live render owns its thumbnail."""
+        if asset.get("hash") == self.state.current_file_hash:
+            return False
+        # A diptych row's thumbnail joins two halves; refresh_thumbnails_for skips it.
+        if self.diptych_pair(asset) is not None:
+            return False
+        key = asset_thumbnail_key(asset)
+        if key in self.state.stale_thumbnails:
+            return True
+        stored = self.asset_store.get_thumbnail_fingerprint(key)
+        if stored is None or stored == THUMB_QUICK:
+            return True
+        config = self._config_for_batch_asset(asset)
+        return not thumbnail_is_current(stored, self.thumbnail_fingerprint_for(config))
 
     def refresh_thumbnails_for(self, hashes: list[str]) -> None:
         """Re-render the filmstrip thumbnails of frames a bulk settings write touched
@@ -3776,6 +3826,7 @@ class AppController(QObject):
                 monitor_icc_bytes=monitor_bytes,
                 proof=proof,
                 persist=True,
+                fingerprint=self.thumbnail_fingerprint_for(frame.config),
             )
         )
 
@@ -7412,6 +7463,12 @@ class AppController(QObject):
         display_cs, monitor_bytes, proof = self.display_transform_params(
             splash=bool(metrics.get("splash")), proofed=bool(metrics.get("proof", True))
         )
+        # Fingerprint only pixels whose config is known to be this frame's render: a splash
+        # never ran the settings, and last_metrics can carry another frame's identity.
+        fingerprint = None
+        identity = metrics.get("render_identity")
+        if persist and not metrics.get("splash") and isinstance(identity, tuple) and identity[0] == asset.get("hash"):
+            fingerprint = self.thumbnail_fingerprint_for(identity[1])
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(
@@ -7422,6 +7479,7 @@ class AppController(QObject):
                 monitor_icc_bytes=monitor_bytes,
                 proof=proof,
                 persist=persist,
+                fingerprint=fingerprint,
             )
         )
 

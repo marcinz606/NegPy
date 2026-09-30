@@ -10,6 +10,7 @@ from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, embedded_preview
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
+from negpy.services.assets.thumbnail_fingerprint import QUICK
 
 logger = get_logger(__name__)
 
@@ -236,7 +237,7 @@ def get_thumbnail_worker(
         square_img: Image.Image = prepare_thumbnail(preview_positive(img, process_mode), ts)
 
         if asset_store:
-            asset_store.save_thumbnail(cache_key, square_img)
+            asset_store.save_thumbnail(cache_key, square_img, fingerprint=QUICK)
 
         return square_img
     except InterruptedError:
@@ -253,6 +254,7 @@ def get_rendered_thumbnail(
     color_space: str = WORKING_COLOR_SPACE,
     monitor_icc_bytes: Optional[bytes] = None,
     proof: Optional[tuple] = None,
+    fingerprint: Optional[str] = None,
 ) -> Optional[Image.Image]:
     """
     Creates a thumbnail from a rendered float32 buffer, applying the same display
@@ -262,6 +264,9 @@ def get_rendered_thumbnail(
     ``AppController.display_transform_params``. Rendered buffers are always in the
     working space: a soft proof rides the display LUT rather than the buffer, so
     dropping ``proof`` here leaves the filmstrip unproofed beside a proofed canvas.
+
+    ``fingerprint`` identifies the settings this buffer was rendered with
+    (``thumbnail_fingerprint``); None stores the thumbnail as unknown.
     """
     try:
         from negpy.infrastructure.display.color_mgmt import apply_display_transform
@@ -278,7 +283,7 @@ def get_rendered_thumbnail(
         square_img: Image.Image = prepare_thumbnail(img, ts)
 
         if asset_store:
-            asset_store.save_thumbnail(file_hash, square_img)
+            asset_store.save_thumbnail(file_hash, square_img, fingerprint=fingerprint)
 
         return square_img
     except Exception as e:
