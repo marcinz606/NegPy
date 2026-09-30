@@ -12,7 +12,7 @@ Output format is TIFF (zlib-compressed) or lossless JPEG XL.
 
 import io
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 import imagecodecs
@@ -27,7 +27,10 @@ from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
 from negpy.features.metadata.fsdate import sync_export_filesystem_dates
 from negpy.services.export.encoders import encode_tiff
+from negpy.features.geometry.logic import apply_radial_distortion
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.lens.logic import apply_lens
+from negpy.features.lens.models import LensCorrections, LensMetadata
 from negpy.features.process.models import DemosaicMode, ProcessConfig
 from negpy.features.process.sensor import apply_sensor_correction
 from negpy.features.hdr.logic import merge_bracket
@@ -37,6 +40,7 @@ from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_has_triplets
 from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
+from negpy.infrastructure.loaders.lens_metadata import bind_decode, read_lens_metadata
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation, resolve_demosaic
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
@@ -70,6 +74,7 @@ class _SourceMeta:
     # Resolved CFA interpolation label (e.g. "AHD", "Markesteijn 3-pass"), or None for a
     # source with no CFA. Set only by a camera-RAW decode; carried through every merge.
     demosaic: Optional[str] = None
+    lens_corrected: bool = False
 
 
 def _read_source_meta_tiff(file_path: str) -> _SourceMeta:
@@ -345,9 +350,17 @@ def _decode_linear(
     apply_wb: bool = False,
     apply_flatfield: bool = False,
     apply_sensor: bool = False,
+    apply_lens: bool = False,
+    half: int = 0,
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
-    """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
+    """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta).
+
+    ``half`` names the half-frame asset the dump is for; the dump itself is the whole scan.
+    """
+    lens = LensCorrections()
+    if apply_lens and geometry is not None:
+        lens = LensCorrections(geometry.lens_distortion_from_metadata, geometry.lens_ca_from_metadata)
     rgb, ir, wb, meta = _decode_source(
         file_path,
         expansion=expansion,
@@ -359,12 +372,21 @@ def _decode_linear(
         apply_wb=apply_wb,
         apply_flatfield=apply_flatfield,
         apply_sensor=apply_sensor,
+        lens=lens,
         gamma_key=gamma_key,
     )
     if geometry is not None:
         rgb = _apply_user_geometry(rgb, geometry)
         if ir is not None:
             ir = _apply_user_geometry(ir, geometry)
+    # After rot90 and flips, as in GeometryProcessor, so the CPU resample is bit-identical. A
+    # half's k1 is centered on that half, not on the whole scan the dump holds, so it is skipped.
+    # IR takes the same warp so that ICE stays aligned.
+    if apply_lens and geometry is not None and geometry.distortion_k1 != 0.0 and not half:
+        rgb = apply_radial_distortion(rgb, geometry.distortion_k1)
+        if ir is not None:
+            ir = apply_radial_distortion(ir, geometry.distortion_k1)
+        meta = replace(meta, lens_corrected=True)
     return rgb, ir, wb, meta
 
 
@@ -379,12 +401,14 @@ def _decode_source(
     apply_wb: bool = False,
     apply_flatfield: bool = False,
     apply_sensor: bool = False,
+    lens: LensCorrections = LensCorrections(),
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode and apply the source bakes: EXIF orientation only, no user geometry.
 
     The flat-field gain map is laid out on the EXIF-oriented decode, so it must run before a
-    rotation or flip.
+    rotation, a flip or the embedded lens warp. The embedded warp applies to a single camera RAW
+    only, as in `prepare_lens_source`: composite registrations refer to the unwarped parts.
     """
     wb_blocked = bool(wb_bake_block_reason(rgbscan, process))
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
@@ -434,15 +458,19 @@ def _decode_source(
                 rgb = _apply_white_balance(rgb, wb)
             return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
-        rgb, wb, decode_meta = _decode_camera_raw_buffer(file_path, demosaic)
+        rgb, wb, decode_meta, lens_meta = _decode_camera_raw_buffer(file_path, demosaic)
+        if apply_flatfield and flatfield is not None:
+            rgb = _apply_flatfield_correction(rgb, flatfield)
+        warped = bool(lens.distortion and lens_meta.distortion or lens.ca and lens_meta.ca)
+        if warped:
+            rgb = apply_lens(rgb, lens_meta, read_orientation(file_path), lens)
         merged = _SourceMeta(
             make=meta.make or decode_meta.make,
             model=meta.model or decode_meta.model,
             datetime=meta.datetime or decode_meta.datetime,
             demosaic=decode_meta.demosaic,
+            lens_corrected=warped,
         )
-        if apply_flatfield and flatfield is not None:
-            rgb = _apply_flatfield_correction(rgb, flatfield)
         if apply_sensor and process is not None and process.sensor_matrix is not None:
             rgb = apply_sensor_correction(rgb, process.sensor_matrix)
         if apply_wb and not wb_blocked and wb is not None:
@@ -647,11 +675,12 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
     return rgb, ir
 
 
-def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO) -> tuple[np.ndarray, _CameraWB, _SourceMeta]:
+def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO) -> tuple[np.ndarray, _CameraWB, _SourceMeta, LensMetadata]:
     """Decode a camera RAW to an oriented float32 buffer without applying user geometry.
 
-    Returns (f32, camera_wb, source_meta).  EXIF orientation *is* applied (lossless,
-    baked into the file) but user rotation/flip is not — the caller decides that.
+    Returns (f32, camera_wb, source_meta, lens). EXIF orientation *is* applied (lossless,
+    baked into the file) but user rotation/flip is not — the caller decides that. The lens
+    metadata is bound to this decode's own visible area.
     """
     raw = rawpy.imread(file_path)
     wb = _CameraWB(
@@ -671,13 +700,14 @@ def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO)
         user_flip=0,
         adjust_maximum_thr=0.0,
     )
+    lens = bind_decode(read_lens_metadata(file_path), raw)
     raw.close()
     rgb = ensure_rgb(rgb)
     f32 = uint16_to_float32(rgb)
     orientation = read_orientation(file_path)
     f32 = apply_exif_orientation(f32, orientation)
     meta = _SourceMeta(datetime=dt_str, demosaic=label)
-    return f32, wb, meta
+    return f32, wb, meta, lens
 
 
 def _decode_hdr(
@@ -721,7 +751,7 @@ def _decode_camera_raw_triplet(
     file_path: str, rgbscan: RgbScanConfig, demosaic: str = DemosaicMode.AUTO
 ) -> tuple[np.ndarray, None, Optional[_CameraWB], _SourceMeta]:
     """Decode three narrowband exposures and merge into one RGB buffer."""
-    primary_f32, wb, meta = _decode_camera_raw_buffer(file_path, demosaic)
+    primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic)
     file_meta = _read_source_meta_tiff(file_path)
     merged_meta = _SourceMeta(
         make=file_meta.make or meta.make,
@@ -735,7 +765,7 @@ def _decode_camera_raw_triplet(
     def _decode(path: str) -> np.ndarray:
         if path in cache:
             return cache[path]
-        buf, _, _ = _decode_camera_raw_buffer(path, demosaic)
+        buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic)
         cache[path] = buf
         return buf
 
@@ -765,20 +795,20 @@ def _decode_stitch_part(
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
 
     if is_triplet:
-        primary_f32, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
+        primary_f32, _, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
         cache: dict[str, np.ndarray] = {file_path: primary_f32}
 
         def _decode(path: str) -> np.ndarray:
             if path in cache:
                 return cache[path]
-            buf, _, _ = _decode_camera_raw_buffer(path, demosaic)
+            buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic)
             cache[path] = buf
             return buf
 
         f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
         f32 = np.clip(f32, 0.0, 1.0)  # see _decode_camera_raw_triplet: the warp can ring past 1.0
     else:
-        f32, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
+        f32, _, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
 
     if flatfield is not None:
         f32 = _apply_flatfield_correction(f32, flatfield)
@@ -798,7 +828,7 @@ def _decode_stitch(
     has_triplets = stitch_has_triplets(stitch)
 
     primary_meta = _read_source_meta_tiff(file_path)
-    _, wb, decode_meta = _decode_camera_raw_buffer(file_path, process.demosaic_export if process is not None else DemosaicMode.AUTO)
+    _, wb, decode_meta, _ = _decode_camera_raw_buffer(file_path, process.demosaic_export if process is not None else DemosaicMode.AUTO)
     merged_meta = _SourceMeta(
         make=primary_meta.make or decode_meta.make,
         model=primary_meta.model or decode_meta.model,
@@ -938,6 +968,7 @@ def _linear_description(
     ice_applied: bool,
     gamma_key: str,
     demosaic: Optional[str] = None,
+    lens_applied: bool = False,
 ) -> str:
     """The processing record both linear writers stamp on their output."""
     parts = [f"source: {source_format or source_name}"]
@@ -958,14 +989,16 @@ def _linear_description(
             parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
     else:
         parts.append("no WB applied")
-    corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied), ("ICE", ice_applied)) if on]
+    applied = (("flatfield", flatfield_applied), ("lens", lens_applied), ("sensor", sensor_applied), ("ICE", ice_applied))
+    corrections = [s for s, on in applied if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
     parts.append("no color management")
     return f"NegPy Linear Output -- {', '.join(parts)}."
 
 
-# A linear dump resamples nothing, so it keeps the source's own resolution. This is
+# A linear dump keeps the source's pixel dimensions, so it keeps the source's own
+# resolution; only an opt-in correction such as the lens warp resamples pixels. This is
 # the fallback for a source that declares none: readers report tifffile's unit-less
 # default as 1 DPI.
 NOMINAL_DPI = 300
@@ -1018,6 +1051,7 @@ def _write_tiff(
         ice_applied,
         gamma_key,
         demosaic=source_meta.demosaic if source_meta is not None else None,
+        lens_applied=source_meta is not None and source_meta.lens_corrected,
     )
 
     extratags: list[tuple] = []
@@ -1198,6 +1232,7 @@ def _write_jxl(
             ice_applied,
             gamma_key,
             demosaic=source_meta.demosaic if source_meta is not None else None,
+            lens_applied=source_meta is not None and source_meta.lens_corrected,
         ),
         camera_wb,
         source_path,
@@ -1225,6 +1260,8 @@ def export_linear_output(
     apply_wb: bool = False,
     apply_flatfield: bool = False,
     apply_sensor: bool = False,
+    apply_lens: bool = False,
+    half: int = 0,
     apply_ice: bool = False,
     retouch: Optional[RetouchConfig] = None,
     gamma_key: str = "linear",
@@ -1260,6 +1297,8 @@ def export_linear_output(
         apply_wb=apply_wb,
         apply_flatfield=apply_flatfield,
         apply_sensor=apply_sensor,
+        apply_lens=apply_lens,
+        half=half,
         gamma_key=gamma_key,
     )
     ice_applied = False

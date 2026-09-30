@@ -946,6 +946,7 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
     *   **Expansion**: scales the data before writing. Defaults: Pakon F135/F235 4×, Noritsu 16×, F335 and LinearRaw DNG off. Camera RAW, Coolscan NEF and Flextight FFF have none.
     *   **Apply ICE dust removal** (when IR exists): IR dust and scratch correction. Off by default.
     *   **Corrections** (camera RAW only, all off): **Apply white balance** (as-shot gains; grayed out for a Trichrome triplet or Single-Shot Narrowband capture), **Apply Flat Field**, **Apply sensor correction** (crosstalk unmixing). Stitch composites always get Flat Field and sensor correction per part.
+    *   **Apply lens correction** (off; shown when the frame has an embedded lens profile or a **Distortion Correction**): applies the scanning-lens correction set in **Optics** (§10.8), which resamples the pixels. The embedded profile applies to a single camera RAW only, after Flat Field; **Distortion Correction** applies to any source, IR included, except a half-frame scan, whose file holds the whole scan.
 
     Linear Output uses **Destination** like any export and always appends `_linear`, so it cannot overwrite its source. Without **Overwrite**, an existing file gives `_linear_2`, `_linear_3` and so on. It runs as a background batch: **Abort** stops after the current frame, and the finish message counts failures.
 
