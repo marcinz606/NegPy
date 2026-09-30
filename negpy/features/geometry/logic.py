@@ -2497,13 +2497,20 @@ def rotate_geometry_and_analysis(
     own geometry, crop rect and analysis rect. `direction` is +1/-1 quarter-turns
     CCW as seen on screen; a mirror inverts pipeline rotation handedness, so the
     stored `rotation` field turns the opposite way under a flip while the crop and
-    analysis rects, being display-space, always turn by `direction`. Takes and
+    analysis rects, being display-space, always turn by `direction`. The keystone is
+    applied last, in display space, so its two convergences swap axes with the turn.
+    Takes and
     returns the two WorkspaceConfig fields separately, not the config itself: a
     WorkspaceConfig import here would be the only one under features/, and the
     reverse import already runs domain.models -> geometry.models.
     """
     pipeline_direction = -direction if geo.flip_horizontal != geo.flip_vertical else direction
     new_geo = replace(geo, rotation=(geo.rotation + pipeline_direction) % 4)
+    if geo.converge_v != 0.0 or geo.converge_h != 0.0:
+        converge_v, converge_h = geo.converge_v, geo.converge_h
+        for _ in range(direction % 4):
+            converge_v, converge_h = 0.0 - converge_h, converge_v
+        new_geo = replace(new_geo, converge_v=converge_v, converge_h=converge_h)
     if geo.crop_rect is not None:
         new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, direction))
     new_rect = rotate_normalized_rect(analysis_rect, direction) if analysis_rect is not None else None
@@ -2518,12 +2525,13 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     mirror must negate the fine-rotation angle, or toggling a flip visibly
     changes the horizon (the tilt doubles instead of mirroring). The crop
     rect lives in transformed space and mirrors along with the content
-    it frames.
+    it frames, and the keystone, applied last, mirrors its convergence on the
+    flipped axis.
     """
     if horizontal:
-        new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal)
+        new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal, converge_h=0.0 - geo.converge_h)
     else:
-        new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
+        new_geo = replace(geo, flip_vertical=not geo.flip_vertical, converge_v=0.0 - geo.converge_v)
     if geo.fine_rotation != 0.0:
         new_geo = replace(new_geo, fine_rotation=-geo.fine_rotation)
     if geo.crop_rect is not None:
