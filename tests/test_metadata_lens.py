@@ -752,3 +752,17 @@ def test_no_fill_when_nothing_reads_past_the_edge_or_distortion_is_off(warp, cor
     from negpy.features.lens.logic import fill_scale
 
     assert fill_scale(LensMetadata("Sony", (warp,)), (60, 90), corrections) == 1.0
+
+
+def test_a_chain_is_checked_at_every_stage():
+    """A later warp reading past the image is not hidden by an earlier warp mapping the clamped point inward."""
+    from negpy.features.lens.logic import fill_scale
+
+    pincushion = RectilinearWarp(((1, -0.02, 0, 0, 0, 0),))
+    barrel = RectilinearWarp(((1, 0.05, 0.01, 0, 0, 0),))
+    corrections = LensCorrections(True, False)
+    chain = LensMetadata("DNG", (pincushion, barrel))
+    scale = fill_scale(chain, (600, 900), corrections)
+    assert scale < 1.0
+    mx, my = barrel.remap(replace(chain, fill_scale=scale), (600, 900), 300, 301, 1, corrections)
+    assert mx.min() >= 0 and mx.max() <= 899

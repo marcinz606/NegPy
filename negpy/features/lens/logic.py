@@ -41,8 +41,16 @@ def _lookup(
 def _edge_reads(
     lens: LensMetadata, shape: tuple[int, int], corrections: LensCorrections, applied: tuple[LensWarp, ...], scale: float
 ) -> bool:
-    """True when every output edge pixel reads inside the source through the whole warp chain."""
+    """True when every output edge pixel reads inside the image at every stage of the warp chain.
+
+    Each stage is checked before the next lookup clamps its points: apply_lens replicates the edge
+    of every intermediate image, not only of the source.
+    """
     h, w = shape
+
+    def outside(pts: np.ndarray) -> bool:
+        return bool(pts[:, 0].min() < 0 or pts[:, 0].max() > w - 1 or pts[:, 1].min() < 0 or pts[:, 1].max() > h - 1)
+
     step = max(1, h // _FILL_EDGE_ROWS)
     side_rows = range(step, h - 1, step)
     last = replace(lens, fill_scale=scale)
@@ -55,10 +63,12 @@ def _edge_reads(
             mx, my = applied[-1].remap(last, shape, row, row + 1, channel, corrections)
             parts.append(np.array([[mx[0, 0], my[0, 0]], [mx[0, -1], my[0, -1]]]))
         pts = np.concatenate(parts).astype(np.float64)
+        if outside(pts):
+            return False
         for warp in reversed(applied[:-1]):
             pts = _lookup(warp, lens, shape, channel, corrections, pts)
-        if pts[:, 0].min() < 0 or pts[:, 0].max() > w - 1 or pts[:, 1].min() < 0 or pts[:, 1].max() > h - 1:
-            return False
+            if outside(pts):
+                return False
     return True
 
 
@@ -92,9 +102,10 @@ def fill_scale(lens: LensMetadata, shape: tuple[int, ...], corrections: LensCorr
         return 1.0
     size = (int(shape[0]), int(shape[1]))
     try:
-        return _cached_fill_scale(lens, size, corrections, applied)
-    except TypeError:  # an unhashable warp
+        hash((lens, applied))
+    except TypeError:  # an unhashable warp cannot key the cache
         return _search_fill_scale(lens, size, corrections, applied)
+    return _cached_fill_scale(lens, size, corrections, applied)
 
 
 def apply_lens(
