@@ -995,7 +995,21 @@ The printer's record for this frame: the numbered dodge/burn masks and a card wi
 <!-- panel:contact_sheet -->
 #### Contact Sheet
 
-All visible frames on one sheet. Pick a **Template** or set **Cell / Gap / Margin / Max tiles**, choose a **Path**, press **Export Contact Sheet**. Written as JPEG with the **JPEG Quality** and **Progressive** settings above.
+A darkroom proof of the roll: every visible frame printed at true size as cut film strips on photographic paper, in the order the files were created (the EXIF capture time when every frame has one, else the file date). The paper prints black to its edge. The rebate, the perforations and the maker's edge print (stock name, frame numbers, the DX barcode on 35mm) follow the frames' **Film stock** and **Format** metadata. A vertical shot lies sideways, as on the negative. Each frame prints with its own edit, without the print border.
+
+*   **Path**: the folder for the sheets. Empty follows the export destination.
+*   **Contact Sheet…**: opens the proof. Drag an edge or a corner of the paper to resize it; the strips stay centered and take as many frames as the width holds. A size near an Ilford sheet snaps to it.
+*   **Format**: 35mm, 35mm Half Frame or 120, read from the frames' metadata and the roll's Half Frame mode. **Frame size** sets the 120 camera's frame (6×4.5 to 6×17).
+*   **Paper**: an Ilford sheet size, or Custom. The turn button swaps width and height. The default, 24 × 30.5 cm, holds a whole 36-exposure roll.
+*   **Width** / **Height**: the paper size, 50–610 mm.
+*   **DPI**: 150, 300 or 600. The file carries it, so it prints at true size; a sheet too large for 600 uses 300.
+*   **Order**: **Date** lays the frames out in the order they were created; **Scene** (offered once the roll has a scene) groups them by scene, each scene starting a new strip, frames in no scene last. The frames keep their own edge numbers.
+*   **Print**: **As Edited** prints each frame with its own edit. **Straight Proof** prints the whole roll at one exposure on grade 2 from the roll's Roll Analysis baseline, as a darkroom proof, so thin and dense negatives print light and dark. In **Scene** order each scene prints at its own Scene Analysis metering, the roll's standing in for a scene never analyzed. It needs the roll scanned at one exposure; camera raws exposed differently are evened out from their EXIF. Positives made by other scanning software cannot be proofed.
+*   **Edge Print**: the maker's markings on the film edge (stock name, frame numbers, DX barcode). Off prints plain film.
+*   **Roll Label**: the roll name, film, developer, camera and date above the strips, set in the edge print's capitals and ink.
+*   **Pick Frames**: shows every frame; click one to leave it out of the sheet or put it back. Frames rejected in the Film Strip start left out. The frames that stay keep their own edge numbers.
+
+Sheets are JPEGs named `contact_sheet.jpg` (`contact_sheet_1of2.jpg` and on when the roll needs more sheets), with the **JPEG Quality** and **Progressive** settings above.
 
 #### Soft Proof
 

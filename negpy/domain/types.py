@@ -37,7 +37,6 @@ class AppConfig:
     sensor_dir: str
     flatfield_dir: str
     gear_dir: str
-    contact_sheet_templates_dir: str
     default_export_dir: str
     adobe_rgb_profile: str
     use_gpu: bool = True

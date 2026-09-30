@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VIEW = ROOT / "negpy" / "desktop" / "view"
 HEX = re.compile(r'#[0-9a-fA-F]{6}\b|"#[0-9a-fA-F]{3}"')
 # The colour picker's own defaults are user data (the sheet's paper and ink), not chrome.
-ALLOWED = {"theme.py", "contact_sheet_colors_dialog.py"}
+ALLOWED = {"theme.py"}
 
 
 def _offenders(pattern: re.Pattern) -> list[str]:

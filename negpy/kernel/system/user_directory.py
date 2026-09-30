@@ -7,7 +7,7 @@ import tempfile
 
 
 _DATABASES = ("edits.db", "settings.db")
-_DIRECTORIES = ("presets", "cache", "icc", "crosstalk", "sensor", "flatfield", "gear", "contact_sheets", "export")
+_DIRECTORIES = ("presets", "cache", "icc", "crosstalk", "sensor", "flatfield", "gear", "export")
 
 
 def local_data_root() -> Path:

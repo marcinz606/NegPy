@@ -121,6 +121,50 @@ def draw_view_badge(painter: QPainter, text: str, x: float, y: float, width: flo
     painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
 
+def hit_resize_handle(pos: QPointF, handles: Dict[str, QPointF]) -> Optional[str]:
+    """The resize handle (corner or edge midpoint) under `pos`, or None."""
+    for name, pt in handles.items():
+        dx, dy = pos.x() - pt.x(), pos.y() - pt.y()
+        if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
+            return name
+    return None
+
+
+def resize_cursor(handle: str) -> Qt.CursorShape:
+    """The cursor that says which way a corner ("tl" …) or edge ("left" …) handle drags."""
+    if handle in ("tl", "br"):
+        return Qt.CursorShape.SizeFDiagCursor
+    if handle in ("tr", "bl"):
+        return Qt.CursorShape.SizeBDiagCursor
+    return Qt.CursorShape.SizeHorCursor if handle in ("left", "right") else Qt.CursorShape.SizeVerCursor
+
+
+def draw_resize_handles(painter: QPainter, corners: Dict[str, QPointF], edges: Optional[Dict[str, QPointF]] = None) -> None:
+    """Corner squares and edge bars of a resizable box, as the crop tool draws them."""
+    handle_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
+    handle_pen.setCosmetic(True)
+    painter.setPen(handle_pen)
+    painter.setBrush(QColor(THEME.accent_primary))
+    for pt in corners.values():
+        painter.drawRect(QRectF(pt.x() - 5, pt.y() - 5, 10, 10))
+    for name, pt in (edges or {}).items():
+        if name in ("top", "bottom"):
+            rect = QRectF(
+                pt.x() - _EDGE_HANDLE_LENGTH_PX / 2.0,
+                pt.y() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
+                _EDGE_HANDLE_LENGTH_PX,
+                _EDGE_HANDLE_THICKNESS_PX,
+            )
+        else:
+            rect = QRectF(
+                pt.x() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
+                pt.y() - _EDGE_HANDLE_LENGTH_PX / 2.0,
+                _EDGE_HANDLE_THICKNESS_PX,
+                _EDGE_HANDLE_LENGTH_PX,
+            )
+        painter.drawRect(rect)
+
+
 def loupe_src_rect(buf_w: int, buf_h: int, cx: float, cy: float, side: float) -> QRectF:
     """A `side`-square sample window on the buffer, centred on (cx, cy) and **shifted** to stay
     inside it — a partly out-of-bounds source rect blits garbage. Clamped to the buffer when
@@ -1908,11 +1952,7 @@ class CanvasOverlay(QWidget):
         }
 
     def _hit_test_crop_corner(self, pos: QPointF, corners: Dict[str, QPointF]) -> Optional[str]:
-        for name, pt in corners.items():
-            dx, dy = pos.x() - pt.x(), pos.y() - pt.y()
-            if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
-                return name
-        return None
+        return hit_resize_handle(pos, corners)
 
     def _crop_edge_midpoint_screen_points(self) -> Optional[Dict[str, QPointF]]:
         if self._crop_rect_norm is None or self._view_rect.isEmpty() or self.state.config.geometry.autocrop_ratio != "Free":
@@ -1928,11 +1968,7 @@ class CanvasOverlay(QWidget):
         }
 
     def _hit_test_crop_edge(self, pos: QPointF, edges: Dict[str, QPointF]) -> Optional[str]:
-        for name, pt in edges.items():
-            dx, dy = pos.x() - pt.x(), pos.y() - pt.y()
-            if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
-                return name
-        return None
+        return hit_resize_handle(pos, edges)
 
     def _crop_rotation_handle_points(self) -> Optional[Dict[str, QPointF]]:
         """Screen positions of the four rotation handles: one per crop-box edge,
@@ -1989,12 +2025,12 @@ class CanvasOverlay(QWidget):
         corners = self._crop_corner_screen_points()
         corner = self._hit_test_crop_corner(pos, corners) if corners else None
         if corner is not None:
-            self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
+            self.setCursor(resize_cursor(corner))
             return
         edges = self._crop_edge_midpoint_screen_points()
         edge = self._hit_test_crop_edge(pos, edges) if edges else None
         if edge is not None:
-            self.setCursor(Qt.CursorShape.SizeHorCursor if edge in ("left", "right") else Qt.CursorShape.SizeVerCursor)
+            self.setCursor(resize_cursor(edge))
             return
         if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -2108,31 +2144,7 @@ class CanvasOverlay(QWidget):
 
         self._draw_crop_guides(painter, QRectF(corners["tl"], corners["br"]))
 
-        handle_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
-        handle_pen.setCosmetic(True)
-        painter.setPen(handle_pen)
-        painter.setBrush(QColor(THEME.accent_primary))
-        for pt in corners.values():
-            painter.drawRect(QRectF(pt.x() - 5, pt.y() - 5, 10, 10))
-
-        edges = self._crop_edge_midpoint_screen_points()
-        if edges is not None:
-            for name, pt in edges.items():
-                if name in ("top", "bottom"):
-                    rect = QRectF(
-                        pt.x() - _EDGE_HANDLE_LENGTH_PX / 2.0,
-                        pt.y() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
-                        _EDGE_HANDLE_LENGTH_PX,
-                        _EDGE_HANDLE_THICKNESS_PX,
-                    )
-                else:
-                    rect = QRectF(
-                        pt.x() - _EDGE_HANDLE_THICKNESS_PX / 2.0,
-                        pt.y() - _EDGE_HANDLE_LENGTH_PX / 2.0,
-                        _EDGE_HANDLE_THICKNESS_PX,
-                        _EDGE_HANDLE_LENGTH_PX,
-                    )
-                painter.drawRect(rect)
+        draw_resize_handles(painter, corners, self._crop_edge_midpoint_screen_points())
 
         self._draw_rotation_handles(painter, corners)
 

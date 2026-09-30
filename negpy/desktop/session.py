@@ -1136,7 +1136,7 @@ class DesktopSessionManager(QObject):
         """Snapshot the settings a fresh file can inherit, in a single transaction.
 
         `last_export_config` is separate from the snapshot because EXPORT_REMAINDER — the
-        output folder, ICC paths, contact-sheet layout — has no catalog row to travel on.
+        export and contact-sheet output folders, ICC paths — has no catalog row to travel on.
         """
         from dataclasses import asdict
 

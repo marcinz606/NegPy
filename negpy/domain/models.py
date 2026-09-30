@@ -201,22 +201,7 @@ class ExportConfig:
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
-    contact_sheet_cell_px: int = 600
-    contact_sheet_gap: int = 16
-    contact_sheet_margin: int = 32
-    contact_sheet_max_tiles: int = 38
-    contact_sheet_show_labels: bool = True
-    contact_sheet_background_color: str = "#000000"
-    contact_sheet_label_color: str = "#ffffff"
     contact_sheet_output_path: str = ""  # empty = follow export destination rules
-    contact_sheet_template: str = ""  # empty = Default template active
-    contact_sheet_default_cell_px: int = 600
-    contact_sheet_default_gap: int = 16
-    contact_sheet_default_margin: int = 32
-    contact_sheet_default_max_tiles: int = 38
-    contact_sheet_default_show_labels: bool = True
-    contact_sheet_default_background_color: str = "#000000"
-    contact_sheet_default_label_color: str = "#ffffff"
 
     export_sidecars_enabled: bool = False
 

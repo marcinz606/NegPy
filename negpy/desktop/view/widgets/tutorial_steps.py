@@ -599,7 +599,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "Export",
             "Pick a format (JPEG, 16-bit TIFF, PNG, WebP, JPEG XL), a color space and a size. The "
             "arrow on the button picks this frame, the selection or all visible frames. <b>Presets</b> "
-            "run several recipes in one pass. <b>Contact Sheet</b> prints the roll on one sheet, and "
+            "run several recipes in one pass. <b>Contact Sheet</b> prints the roll as film strips on photographic paper, and "
             "<b>Sidecars</b> write each edit to a file beside its scan.",
             lambda w: rp(w).export_sidebar,
             focus=lambda w: rp(w).export_sidebar.export_main_btn,

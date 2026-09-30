@@ -28,8 +28,8 @@ STICKY_ROWS_KEY = "sticky_rows"
 
 _CATALOG_EXPORT_FIELDS = frozenset(f for title, rows in CATALOG if title == "Export" for r in rows for f in r.fields)
 
-# Export fields the catalog deliberately does not list: the output folder, ICC paths and
-# the contact-sheet layout. They are workspace state rather than a look, so they carry
+# Export fields the catalog deliberately does not list: the export and contact-sheet output
+# folders and the ICC paths. They are workspace state rather than a look, so they carry
 # unconditionally and never appear in the picker. Derived, so a new Export row cannot
 # leave one silently uncarried.
 EXPORT_REMAINDER: frozenset[str] = frozenset(ExportConfig.__dataclass_fields__) - _CATALOG_EXPORT_FIELDS

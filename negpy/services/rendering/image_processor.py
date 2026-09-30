@@ -1619,6 +1619,7 @@ class ImageProcessor:
         split_x: float = 0.5,
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
+        keep_source: bool = False,
     ) -> Optional[np.ndarray]:
         """Render a file (with its edits) to a small sRGB uint8 RGB array for tiling.
 
@@ -1644,12 +1645,14 @@ class ImageProcessor:
             if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
                 th, tw = f32_buffer.shape[:2]
                 ir_full = cv2.resize(ir_full, (tw, th), interpolation=cv2.INTER_AREA)
-            # Each frame of a contact sheet is decoded once, so the full-res source
-            # cache only pins ~300MB (24MP) across the next frame's decode.
-            self._source_cache_key = None
-            self._source_cache_value = None
-            self._precorrect_key = None
-            self._precorrect_value = None
+            # A contact sheet decodes each file once; only the other half of the same scan,
+            # rendered next, reuses the decode. Anything else would pin ~300MB (24MP) across
+            # the next frame's decode.
+            if not keep_source:
+                self._source_cache_key = None
+                self._source_cache_value = None
+                self._precorrect_key = None
+                self._precorrect_value = None
 
             # A Print/Target-px export setting sizes the paper from print_size x DPI, which
             # re-inflates the tile to full print resolution right after the downsample. Bound

@@ -63,6 +63,7 @@ from negpy.desktop.view.keyboard_shortcuts import _close_roll, _reset_roll, _res
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
+from negpy.desktop.view.widgets.marks import draw_mark_badge
 from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
@@ -112,7 +113,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _MARGIN = 5  # room for the selection ring outside the picture
     _SELECTION_OUTSET = 4  # the ring's outer edge, outside the picture edge
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
-    _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
     # Neutral, not the triage red: red already means "you marked this" and "this failed".
     # What a frame is built from is a fact about the asset, not a state the user set.
     _COMPOSITE_CHIP = QColor(20, 20, 20, 190)
@@ -231,18 +231,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         return super().sizeHint(option, index)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
-        r = 9
-        cx, cy = img_rect.right() - r - 4, img_rect.bottom() - r - 4
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self._MARK)
-        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
-        painter.setPen(QPen(QColor(255, 255, 255, 230), 2, cap=Qt.PenCapStyle.RoundCap))
-        if check:
-            painter.drawLine(cx - 4, cy, cx - 1, cy + 3)
-            painter.drawLine(cx - 1, cy + 3, cx + 4, cy - 3)
-        else:
-            painter.drawLine(cx - 3, cy - 3, cx + 3, cy + 3)
-            painter.drawLine(cx + 3, cy - 3, cx - 3, cy + 3)
+        draw_mark_badge(painter, img_rect, check)
 
     def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
         r = 9

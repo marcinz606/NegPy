@@ -295,6 +295,7 @@ class ShortcutManager:
             "roll_batch_analysis": controller.request_batch_normalization,
             "analyze_all_scenes": controller.request_analyze_all_scenes,
             "roll_settings": lambda: self.window.session_panel.file_browser.roll_settings_btn.click(),
+            "contact_sheet": lambda: right.export_sidebar.contact_sheet_btn.click(),
             "save_as_roll": lambda: self.window.session_panel.file_browser.save_roll_btn.click(),
             "import_roll": lambda: self.window.session_panel.library_tree.prompt_import_folder(),
             "index_library": lambda: self.window.session_panel.library_tree.index_btn.click(),

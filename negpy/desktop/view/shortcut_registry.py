@@ -243,6 +243,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "merge_frame": ShortcutEntry("", "Merge Frame to TIFF Negative…", "Actions"),
     "merge_selected": ShortcutEntry("", "Merge Selected to TIFF Negative…", "Actions"),
     "merge_roll": ShortcutEntry("", "Merge Roll to TIFF Negative…", "Actions"),
+    "contact_sheet": ShortcutEntry("", "Contact Sheet…", "Actions"),
     "copy": ShortcutEntry("Ctrl+C", "Copy settings", "Actions"),
     "copy_with_bounds": ShortcutEntry("Ctrl+Shift+C", "Copy settings (with bounds)", "Actions"),
     "paste": ShortcutEntry("Ctrl+V", "Paste settings", "Actions"),

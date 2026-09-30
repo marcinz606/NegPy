@@ -37,7 +37,6 @@ APP_CONFIG = AppConfig(
     sensor_dir=os.path.join(BASE_USER_DIR, "sensor"),
     flatfield_dir=os.path.join(BASE_USER_DIR, "flatfield"),
     gear_dir=os.path.join(BASE_USER_DIR, "gear"),
-    contact_sheet_templates_dir=os.path.join(BASE_USER_DIR, "contact_sheets"),
     default_export_dir=os.path.join(BASE_USER_DIR, "export"),
     adobe_rgb_profile=get_resource_path("icc/AdobeCompat-v4.icc"),
     use_gpu=True,

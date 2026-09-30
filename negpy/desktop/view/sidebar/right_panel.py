@@ -398,6 +398,7 @@ class RightPanel(QWidget):
         for btn, key, base in zip(self._group_buttons, self._group_keys, self._group_tooltips):
             btn.setToolTip(tooltip_with_shortcut(base, f"tab_{key}"))
         self.metadata_sidebar.apply_shortcut_tooltips()
+        self.export_sidebar.apply_shortcut_tooltips()
         self.gear_panel.apply_shortcut_tooltips()
 
     def _connect_signals(self) -> None:

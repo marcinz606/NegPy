@@ -39,7 +39,6 @@ def _make_app_config(**kwargs) -> AppConfig:
         sensor_dir="/tmp/sensor",
         flatfield_dir="/tmp/flatfield",
         gear_dir="/tmp/gear",
-        contact_sheet_templates_dir="/tmp/contact_sheets",
         default_export_dir="/tmp/export",
         adobe_rgb_profile="/tmp/adobe.icc",
         override_toml_path="/tmp/override.toml",

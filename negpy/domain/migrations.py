@@ -78,6 +78,23 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         "e6_normalize",
         # Batch metadata sync: Metadata cards are roll defaults, so every frame already carries the roll's values.
         "sync_to_batch",
+        # The pixel-grid contact sheet and its templates; the darkroom sheet keeps its
+        # paper and resolution as an app setting, not in each edit.
+        "contact_sheet_cell_px",
+        "contact_sheet_gap",
+        "contact_sheet_margin",
+        "contact_sheet_max_tiles",
+        "contact_sheet_show_labels",
+        "contact_sheet_background_color",
+        "contact_sheet_label_color",
+        "contact_sheet_template",
+        "contact_sheet_default_cell_px",
+        "contact_sheet_default_gap",
+        "contact_sheet_default_margin",
+        "contact_sheet_default_max_tiles",
+        "contact_sheet_default_show_labels",
+        "contact_sheet_default_background_color",
+        "contact_sheet_default_label_color",
     }
 )
 

@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QFile, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QTransform
-from PyQt6.QtWidgets import QCheckBox, QMessageBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QMessageBox
 
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
@@ -27,7 +27,15 @@ from negpy.desktop.session import (
     resolve_asset_rgbscan,
     resolve_asset_stitch,
 )
-from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts, resolve_output_dir
+from negpy.desktop.workers.contact_sheet import ContactSheetPreview
+from negpy.desktop.workers.export import (
+    ContactSheetJob,
+    ExportTask,
+    ExportWorker,
+    LinearOutputTask,
+    find_export_conflicts,
+    resolve_output_dir,
+)
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
@@ -92,6 +100,16 @@ from negpy.domain.models import (
 )
 from negpy.services.assets.composites import forget_composite, restore_maps
 from negpy.services.assets import rolls
+from negpy.services.export.contact_sheet_layout import ContactSheetSettings
+from negpy.services.export.contact_sheet_roll import (
+    FrameFacts,
+    SheetFrame,
+    creation_order,
+    infer_format,
+    roll_label_text,
+    sheet_look,
+    straight_proof,
+)
 from negpy.services.assets.half_frame import (
     HalfGeometry,
     base_hash,
@@ -401,6 +419,7 @@ class AppController(QObject):
     library_cleared = pyqtSignal()  # roots forgotten elsewhere — the panel must re-read them
     first_scene_created = pyqtSignal()  # the loaded roll's first scene: the Film Strip sorts by scene
     stitch_requested = pyqtSignal(object)
+    contact_sheet_requested = pyqtSignal(object)  # ContactSheetJob
     hdr_requested = pyqtSignal(object)
     frame_merge_requested = pyqtSignal(list)
     thumbnail_requested = pyqtSignal(list)
@@ -623,6 +642,11 @@ class AppController(QObject):
         # soon as the Camera Scanning tab polls or the user acts.
         self._capture_thread_started = False
 
+        self.contact_sheet_preview = ContactSheetPreview()
+        # The frames and configs of a Contact Sheet request while its file facts are read.
+        self._contact_sheet_pending: Optional[dict] = None
+        self._contact_sheet_folder = ""
+
         self.canvas: Any = None
         self._is_rendering = False
         self._busy_toast = False
@@ -805,6 +829,9 @@ class AppController(QObject):
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
         self.export_worker.error.connect(self._on_export_task_error)
+        self.export_worker.contact_sheet_written.connect(self._on_contact_sheet_written)
+        self.contact_sheet_requested.connect(self.export_worker.run_contact_sheet)
+        self.contact_sheet_preview.prepared.connect(self._on_contact_sheet_prepared)
 
         self.stitch_requested.connect(self.stitch_worker.run)
         self.stitch_worker.progress.connect(self._on_batch_progress)
@@ -6250,10 +6277,13 @@ class AppController(QObject):
             params = self.state.config
         else:
             params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+        params = self._with_sibling_crosstalk(params, f)
+        return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(params, f), f), f)
 
-        # Propagate capture-side crosstalk between sibling half-frames. The dye-unmix
-        # calibration belongs to the scanner-film pair, not to a frame, so if one half was
-        # calibrated and the other left at default both need the same correction.
+    def _with_sibling_crosstalk(self, params: WorkspaceConfig, f: dict) -> WorkspaceConfig:
+        """Propagate capture-side crosstalk between sibling half-frames. The dye-unmix
+        calibration belongs to the scanner-film pair, not to a frame, so if one half was
+        calibrated and the other left at default both need the same correction."""
         base = f.get("hash", "")
         half_val = half_of(base)
         if half_val is not None:
@@ -6274,8 +6304,7 @@ class AppController(QObject):
                         crosstalk_matrix=sibling_params.process.crosstalk_matrix if sibling_params else proc.crosstalk_matrix,
                     ),
                 )
-
-        return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(params, f), f), f)
+        return params
 
     def _tasks_for_file(
         self,
@@ -6787,56 +6816,119 @@ class AppController(QObject):
         # The sheet covers the whole roll, so the source-relative modes follow the first frame.
         return resolve_output_dir(visible_files[0]["path"], preset_from_export_config(export_conf), roll_root)
 
+    _CONTACT_SHEET_SETTINGS_KEY = "contact_sheet_settings"
+
     def request_contact_sheet(self) -> None:
-        """Renders all visible files small and writes darkroom contact sheet(s)."""
+        """Opens the Contact Sheet dialog for every visible frame once their dates are read.
+
+        Each frame prints with its own edit (roll defaults included), resolved here once, so an
+        unedited frame never takes the active frame's crop.
+        """
         self._flush_export_ui()
         if self._batch_busy("contact sheet"):
+            return
+        if self._contact_sheet_pending is not None:
             return
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
         if not visible_files:
             return
-
         out_dir = self._contact_sheet_output_dir(visible_files)
         if not out_dir:
             return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            configs = [self._with_sibling_crosstalk(self._config_for_batch_asset(f), f) for f in visible_files]
+        finally:
+            QApplication.restoreOverrideCursor()
+        generation = self.contact_sheet_preview.prepare(tuple(visible_files))
+        self._contact_sheet_pending = {"generation": generation, "assets": visible_files, "configs": configs, "out_dir": out_dir}
+        self.set_status("Reading capture dates…", 0)
 
-        if len(visible_files) > 1 and not self._confirm_bulk_export(
-            f"Render a contact sheet from {count_of(len(visible_files), 'frame')}?"
-        ):
+    def _on_contact_sheet_prepared(self, generation: int, facts: list) -> None:
+        pending = self._contact_sheet_pending
+        if pending is None or generation != pending["generation"]:
             return
+        self._contact_sheet_pending = None
+        self.set_status("", 0)
+        frames = creation_order(
+            [SheetFrame(asset, config, fact or FrameFacts()) for asset, config, fact in zip(pending["assets"], pending["configs"], facts)]
+        )
+        try:
+            library = self.load_gear_library()
+        except Exception:
+            library = None
+        roll_id = self.state.active_roll_id
+        film_format, frame_size = infer_format(frames, self.half_frame_mode_for_roll(roll_id) if roll_id else False)
+        label = roll_label_text(self._contact_sheet_roll_name(frames), frames, library)
+        settings = ContactSheetSettings.from_dict(self.session.repo.get_global_setting(self._CONTACT_SHEET_SETTINGS_KEY, None))
+        roll_baseline = rolls.roll_normalization(self.session.repo, roll_id) if roll_id else None
+        proof = straight_proof(frames, roll_baseline)
+        scene_baselines = {
+            scene_id: rolls.scene_normalization(self.session.repo, roll_id, scene_id)
+            for scene_id, _entry in rolls.roll_scenes(self.session.repo, roll_id)
+        }
+        scene_proof = straight_proof(frames, roll_baseline, scene_baselines)
 
-        tasks = []
-        for f in visible_files:
-            params = self._batch_params_for(f)
-            tasks.append(
-                ExportTask(
-                    file_info=f,
-                    params=params,
-                    export_settings=params.export,
-                    gpu_enabled=self.state.gpu_enabled,
-                    working_color_space=self.state.workspace_color_space,
-                )
-            )
+        from negpy.desktop.view.widgets.contact_sheet_dialog import ContactSheetDialog
 
-        cs = self.state.config.export
+        dialog = ContactSheetDialog(
+            frames,
+            film_format,
+            frame_size,
+            settings,
+            lambda fmt: sheet_look(frames, fmt, label, library),
+            label,
+            pending["out_dir"],
+            tiles=self.contact_sheet_preview,
+            lane_busy=self._contact_sheet_lane_message,
+            proof=proof,
+            scene_proof=scene_proof,
+            parent=QApplication.activeWindow(),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        settings = dialog.settings()
+        self.session.repo.save_global_setting(self._CONTACT_SHEET_SETTINGS_KEY, settings.to_dict())
+        film_format, frame_size = dialog.film()
+        export_conf = self.state.config.export
+        job = ContactSheetJob(
+            frames=dialog.kept_frames(),
+            format=film_format,
+            frame_size=frame_size,
+            settings=settings,
+            look=dialog.look(),
+            out_dir=pending["out_dir"],
+            gpu_enabled=self.state.gpu_enabled,
+            working_color_space=self.state.workspace_color_space,
+            jpeg_quality=int(export_conf.jpeg_quality),
+            jpeg_progressive=bool(export_conf.jpeg_progressive),
+            numbers=dialog.numbers(),
+            breaks=dialog.breaks(),
+        )
         self._export_start_time = time.time()
         self._export_failures = 0
+        self._contact_sheet_folder = ""
         if self._begin_batch("contact_sheet", "Contact sheet", abortable=True) is None:
             return
-        QMetaObject.invokeMethod(
-            self.export_worker,
-            "run_contact_sheet",
-            Qt.ConnectionType.QueuedConnection,
-            Q_ARG(list, tasks),
-            Q_ARG(str, out_dir),
-            Q_ARG(int, cs.contact_sheet_cell_px),
-            Q_ARG(int, cs.contact_sheet_gap),
-            Q_ARG(int, cs.contact_sheet_margin),
-            Q_ARG(int, cs.contact_sheet_max_tiles),
-            Q_ARG(bool, cs.contact_sheet_show_labels),
-            Q_ARG(str, cs.contact_sheet_background_color),
-            Q_ARG(str, cs.contact_sheet_label_color),
-        )
+        self.contact_sheet_requested.emit(job)
+
+    def _contact_sheet_lane_message(self) -> str:
+        if self._active_batch is None:
+            return ""
+        return f"{self._active_batch_title} is running; export once it finishes."
+
+    def _contact_sheet_roll_name(self, frames: list) -> str:
+        """The Library roll's name; else the Scanlight roll or the folder the frames are in."""
+        roll_id = self.state.active_roll_id
+        if roll_id:
+            entry = rolls.roll_for_id(self.session.repo, roll_id)
+            if entry and str(entry.get("name") or "").strip():
+                return str(entry["name"]).strip()
+        captured = [f.config.metadata.capture_roll for f in frames if f.config.metadata.capture_roll]
+        if captured:
+            return max(set(captured), key=captured.count)
+        paths = [str(f.asset.get("path", "")) for f in frames]
+        return os.path.basename(os.path.dirname(paths[0])) if paths and paths[0] else ""
 
     def _write_edit_sidecars(self, files: list[dict]) -> tuple[int, int]:
         """Write a .negpy edit sidecar next to each source (each frame's own saved edits).
@@ -7242,7 +7334,14 @@ class AppController(QObject):
         owner = self._active_batch if self._active_batch in ("export", "contact_sheet") else "export"
         self._end_batch(owner)
         self.export_finished.emit(elapsed, self._export_failures)
+        if owner == "contact_sheet" and self._contact_sheet_folder:
+            failed = f" — {count_of(self._export_failures, 'frame')} failed" if self._export_failures else ""
+            self.set_status(f"Contact sheet saved to {self._contact_sheet_folder}{failed}", 6000, kind="warning" if failed else "info")
+            self._contact_sheet_folder = ""
         self._update_thumbnail_from_state()
+
+    def _on_contact_sheet_written(self, folder: str) -> None:
+        self._contact_sheet_folder = folder
 
     def _asset_for_render(self, metrics: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """The asset a finished render belongs to — not whichever one is selected now.
@@ -7342,6 +7441,7 @@ class AppController(QObject):
         if self.scan_thread.isRunning():
             self.scan_thread.quit()
             self.scan_thread.wait()
+        self.contact_sheet_preview.shutdown()
         self.capture_worker.shutdown()
         if self.capture_thread.isRunning():
             self.capture_thread.quit()
