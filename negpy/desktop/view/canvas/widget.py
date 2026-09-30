@@ -150,6 +150,7 @@ class ImageCanvas(QWidget):
         self.pan_offset = QPointF(0, 0)
         self._last_mouse_pos = QPointF(0, 0)
         self._is_panning = False
+        self._space_pan_held = False
         self._bg_color = QColor(THEME.canvas_bg_black)
         self._last_buffer: Any = None
 
@@ -598,7 +599,9 @@ class ImageCanvas(QWidget):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.MiddleButton or (
-            event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self.state.active_tool == ToolMode.NONE
+            event.button() == Qt.MouseButton.LeftButton
+            and self.zoom_level > 1.0
+            and (self.state.active_tool == ToolMode.NONE or self._space_pan_held)
         ):
             self._is_panning = True
             self._last_mouse_pos = event.position()
@@ -630,6 +633,15 @@ class ImageCanvas(QWidget):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def set_space_pan_held(self, held: bool) -> None:
+        if self._space_pan_held == held:
+            return
+        self._space_pan_held = held
+        if held and self.underMouse():
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        elif not held:
+            self.reset_tool_cursor()
 
     def _sync_transform(self) -> None:
         """Propagates zoom/pan to sub-widgets."""

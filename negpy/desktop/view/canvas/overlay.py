@@ -2518,7 +2518,9 @@ class CanvasOverlay(QWidget):
             return
 
         if event.button() == Qt.MouseButton.MiddleButton or (
-            event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
+            event.button() == Qt.MouseButton.LeftButton
+            and self.zoom_level > 1.0
+            and (self._tool_mode == ToolMode.NONE or self.parent()._space_pan_held)
         ):
             self.parent()._is_panning = True
             self.parent()._last_mouse_pos = event.position()
