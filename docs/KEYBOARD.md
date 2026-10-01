@@ -81,7 +81,7 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Retouch
 | Key | Action |
 |-----|--------|
-| `Alt + 9` / `Alt + Shift + 9` | Increase / decrease **Threshold** (default step 0.01) |
+| `Alt + 9` / `Alt + Shift + 9` | Increase / decrease **Spot threshold** (default step 0.01) |
 | `Alt + 0` / `Alt + Shift + 0` | Increase / decrease **Auto size** (default step 1 px) |
 | `Alt + M` / `Alt + Shift + M` | Increase / decrease **Brush size** (default step 1 px) |
 

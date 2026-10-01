@@ -128,9 +128,9 @@ def ir_components(truth: np.ndarray, band_plane: np.ndarray, excess: np.ndarray)
     return labels, rows, dropped
 
 
-def optical_masks(small: np.ndarray, thr: float, size: int, stats: tuple) -> tuple:
+def optical_masks(small: np.ndarray, thr: float, size: int, stats: tuple, hair_thr: float | None = None) -> tuple:
     """``(opt_any, opt_write)`` — every pixel the score touched, and every pixel the fill writes."""
-    score, hair = detect_luma_score(small, thr, size, stats=stats)
+    score, hair = detect_luma_score(small, thr, size, stats=stats, hair_threshold=hair_thr)
     h, w = small.shape[:2]
     opt_any = np.zeros((h, w), bool)
     opt_write = np.zeros((h, w), bool)
@@ -178,11 +178,21 @@ def score_frame(
     # did not call; ~1.0 means IR saw nothing there.
     ratio_min = np.full(n_opt, 2.0, np.float32)
     np.minimum.at(ratio_min, lab_opt.ravel(), ratio.ravel())
-    only_rows = [
-        {"area": int(st_opt[i, cv2.CC_STAT_AREA]), "cx": float(cents_opt[i][0]), "cy": float(cents_opt[i][1]), "ratio": float(ratio_min[i])}
-        for i in range(1, n_opt)
-        if not touches[i]
-    ]
+    only_rows = []
+    for i in range(1, n_opt):
+        if touches[i]:
+            continue
+        x0, y0, bw, bh, area = (int(v) for v in st_opt[i])
+        hair = _is_hair(lab_opt[y0 : y0 + bh, x0 : x0 + bw] == i, area)
+        only_rows.append(
+            {
+                "area": area,
+                "cx": float(cents_opt[i][0]),
+                "cy": float(cents_opt[i][1]),
+                "ratio": float(ratio_min[i]),
+                "bucket": "hair" if hair else "",
+            }
+        )
     only = ~touches[lab_opt] & opt_any
     missed_px = truth & ~opt_any
     return {
@@ -199,6 +209,8 @@ def score_frame(
         "optical_only_area": int(only.sum()),
         "optical_only_ir_faint": sum(r["ratio"] < 0.9 for r in only_rows),
         "optical_only_clean_area": sum(r["area"] for r in only_rows if r["ratio"] >= 0.9),
+        "optical_only_hair": sum(r["bucket"] == "hair" for r in only_rows),
+        "optical_only_hair_clean_area": sum(r["area"] for r in only_rows if r["bucket"] == "hair" and r["ratio"] >= 0.9),
         "optical_only_rows": only_rows,
         "w_std": {
             "missed_p50": float(np.median(w_std[missed_px])) if missed_px.any() else float("nan"),
@@ -261,6 +273,7 @@ def bake_ab(
     truth: np.ndarray,
     rows: list,
     thr: float,
+    hair_thr: float,
     size: int,
     ir_thr: float,
     top: int,
@@ -268,7 +281,7 @@ def bake_ab(
 ) -> dict:
     """Both fills at detection scale; how much of the IR repair the optical path reproduces."""
     proc = ImageProcessor()
-    cfg = WorkspaceConfig(retouch=RetouchConfig(dust_remove=True, dust_threshold=thr, dust_size=size))
+    cfg = WorkspaceConfig(retouch=RetouchConfig(dust_remove=True, dust_threshold=thr, dust_hair_threshold=hair_thr, dust_size=size))
     score, hairs = proc._detect_luma(cfg, small, stem)
     out_opt = np.asarray(proc._luma_bake(small, score, stem), dtype=np.float32)
     if hairs:
@@ -302,7 +315,7 @@ def aggregate(frames: dict) -> dict:
         key = f"{thr}"
         per = {b: {"n": 0, "hit": 0} for b in BUCKETS}
         grid = {f"{b}/{d}": {"n": 0, "hit": 0} for b in BUCKETS for d in BANDS}
-        cov, n, hit, only_n, only_a, only_f, only_ca = [], 0, 0, 0, 0, 0, 0
+        cov, n, hit, only_n, only_a, only_f, only_ca, only_h, only_hca = [], 0, 0, 0, 0, 0, 0, 0, 0
         for f in frames.values():
             s = f["sweep"][key]
             n += s["ir_components"]
@@ -312,6 +325,8 @@ def aggregate(frames: dict) -> dict:
             only_a += s["optical_only_area"]
             only_f += s["optical_only_ir_faint"]
             only_ca += s["optical_only_clean_area"]
+            only_h += s["optical_only_hair"]
+            only_hca += s["optical_only_hair_clean_area"]
             for b in BUCKETS:
                 per[b]["n"] += s["buckets"][b]["n"]
                 per[b]["hit"] += s["buckets"][b]["hit"]
@@ -331,6 +346,8 @@ def aggregate(frames: dict) -> dict:
             "optical_only_area": only_a,
             "optical_only_ir_faint": only_f,
             "optical_only_clean_area": only_ca,
+            "optical_only_hair": only_h,
+            "optical_only_hair_clean_area": only_hca,
         }
     return agg
 
@@ -343,7 +360,7 @@ def report(frames: dict, agg: dict, default_thr: float, baseline: dict | None) -
     head = (
         f"{'thr':>5}{'ncomp':>7}{'recall':>8}"
         + "".join(f"{b:>8}" for b in BUCKETS)
-        + f"{'cov50':>7}{'cov10':>7}{'only#':>7}{'onlyA':>8}{'faint':>7}{'cleanA':>8}"
+        + f"{'cov50':>7}{'cov10':>7}{'only#':>7}{'onlyA':>8}{'faint':>7}{'cleanA':>8}{'hair#':>7}{'hairCA':>8}"
     )
     for stem, f in frames.items():
         print(f"\n== {stem}")
@@ -354,7 +371,7 @@ def report(frames: dict, agg: dict, default_thr: float, baseline: dict | None) -
                 f"{(s['buckets'][b]['hit'] / s['buckets'][b]['n']) if s['buckets'][b]['n'] else float('nan'):>8.2f}" for b in BUCKETS
             )
             print(
-                f"{thr:>5}{s['ir_components']:>7}{s['component_recall']:>8.2f}{cells}{s['coverage_median']:>7.2f}{s['coverage_p10']:>7.2f}{s['optical_only_count']:>7}{s['optical_only_area']:>8}{s['optical_only_ir_faint']:>7}{s['optical_only_clean_area']:>8}"
+                f"{thr:>5}{s['ir_components']:>7}{s['component_recall']:>8.2f}{cells}{s['coverage_median']:>7.2f}{s['coverage_p10']:>7.2f}{s['optical_only_count']:>7}{s['optical_only_area']:>8}{s['optical_only_ir_faint']:>7}{s['optical_only_clean_area']:>8}{s['optical_only_hair']:>7}{s['optical_only_hair_clean_area']:>8}"
             )
         w = f["sweep"][f"{default_thr}"]["w_std"]
         print(
@@ -371,7 +388,7 @@ def report(frames: dict, agg: dict, default_thr: float, baseline: dict | None) -
         a = agg[f"{thr}"]
         cells = "".join(f"{a['buckets'][b]:>8.2f}" for b in BUCKETS)
         print(
-            f"{thr:>5}{a['ir_components']:>7}{a['component_recall']:>8.2f}{cells}{a['coverage_median']:>7.2f}{a['coverage_p10']:>7.2f}{a['optical_only_count']:>7}{a['optical_only_area']:>8}{a['optical_only_ir_faint']:>7}{a['optical_only_clean_area']:>8}"
+            f"{thr:>5}{a['ir_components']:>7}{a['component_recall']:>8.2f}{cells}{a['coverage_median']:>7.2f}{a['coverage_p10']:>7.2f}{a['optical_only_count']:>7}{a['optical_only_area']:>8}{a['optical_only_ir_faint']:>7}{a['optical_only_clean_area']:>8}{a['optical_only_hair']:>7}{a['optical_only_hair_clean_area']:>8}"
         )
     a = agg[f"{default_thr}"]
     print("\n   bucket n: " + "  ".join(f"{b}={a['bucket_n'][b]}" for b in BUCKETS))
@@ -390,6 +407,8 @@ def report(frames: dict, agg: dict, default_thr: float, baseline: dict | None) -
             "optical_only_area",
             "optical_only_ir_faint",
             "optical_only_clean_area",
+            "optical_only_hair",
+            "optical_only_hair_clean_area",
         ):
             print(f"   {k:<20}{_fmt(b0.get(k, float('nan'))):>10} -> {_fmt(a[k]):>10}")
         for b in BUCKETS:
@@ -404,6 +423,7 @@ def main() -> None:
     ap.add_argument("--min-pool", action="store_true", help="erode by the resample footprint before the optical downsample")
     ap.add_argument("--size", type=int, default=RetouchConfig.dust_size)
     ap.add_argument("--threshold", type=float, default=RetouchConfig.dust_threshold, help="slider value the crops and bake use")
+    ap.add_argument("--hair-threshold", type=float, help="Hair Threshold for every sweep row; omitted, it follows the swept Threshold")
     ap.add_argument("--ir-threshold", type=float, default=RetouchConfig.ir_threshold)
     ap.add_argument("--top", type=int, default=8, help="crops per frame per list")
     ap.add_argument("--crop", type=int, default=160)
@@ -432,7 +452,7 @@ def main() -> None:
         truth = labels > 0
         sweep = {}
         for thr in thresholds:
-            opt_any, opt_write = optical_masks(p["small"], thr, args.size, stats)
+            opt_any, opt_write = optical_masks(p["small"], thr, args.size, stats, args.hair_threshold)
             sweep[f"{thr}"] = score_frame(
                 truth, labels, [dict(r) for r in rows] if thr != args.threshold else rows, dropped, opt_any, opt_write, stats[3], p["ratio"]
             )
@@ -440,7 +460,19 @@ def main() -> None:
                 dump_crops(stem, p["vis"], truth, opt_any, rows, sweep[f"{thr}"]["optical_only_rows"], args.top, args.crop)
         f = {"sweep": sweep}
         if args.bake:
-            f["bake"] = bake_ab(stem, p["small"], p["ir"], truth, rows, args.threshold, args.size, args.ir_threshold, args.top, args.crop)
+            f["bake"] = bake_ab(
+                stem,
+                p["small"],
+                p["ir"],
+                truth,
+                rows,
+                args.threshold,
+                args.hair_threshold if args.hair_threshold is not None else args.threshold,
+                args.size,
+                args.ir_threshold,
+                args.top,
+                args.crop,
+            )
         frames[stem] = f
         s = sweep[f"{args.threshold}"]
         print(

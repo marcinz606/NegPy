@@ -1,4 +1,5 @@
 import dataclasses
+import math
 import json
 
 import cv2
@@ -426,7 +427,8 @@ def test_detect_luma_score_joins_a_hair_into_one_component():
 def test_detect_bar_is_monotonic():
     bars = [detect_bar(s) for s in np.linspace(0.0, 1.0, 21)]
     assert all(a < b for a, b in zip(bars, bars[1:]))
-    assert detect_bar(0.0) == 3.0 and detect_bar(0.66) == 9.0 and detect_bar(1.0) == 48.0
+    assert detect_bar(0.0) == 3.0 and detect_bar(0.66) == 9.0 and 40.0 < detect_bar(0.99) < 48.0
+    assert detect_bar(1.0) == math.inf
     assert abs(detect_bar(0.66 - 1e-6) - detect_bar(0.66 + 1e-6)) < 1e-3
 
 
@@ -435,7 +437,7 @@ def test_lower_threshold_marks_more_and_the_deepest_speck_always():
     img[80:83, 80:83] = 0.18
     for y, level in ((40, 0.005), (100, 0.06), (160, 0.11)):
         img[y : y + 3, 100:103] = level
-    sweep = (0.3, 0.66, 0.9, 1.0)
+    sweep = (0.3, 0.66, 0.9, 0.99)
     counts = [int(_marked(img, thr).sum()) for thr in sweep]
     assert counts[0] >= counts[1] >= counts[2] >= counts[3] > 0
     for thr in sweep:
@@ -447,7 +449,19 @@ def test_detect_bar_top_rejects_a_strong_mark():
     img = (np.full((200, 200, 3), 0.18) * (1.0 + rng.normal(0, 0.06, (200, 200, 3)))).astype(np.float32)
     img[100:103, 100:103] = 0.10
     assert _marked(img, 0.66)[100:103, 100:103].any()
-    assert not _marked(img, 1.0).any()
+    assert not _marked(img, 0.99).any()
+
+
+def test_threshold_at_max_turns_its_detection_off():
+    """A frame edge clears any finite bar, so the top of each slider is off."""
+    img = _dusty_source(h=200, w=200)
+    img[100:102, 40:120] = 0.02
+    score, hair = detect_luma_score(img, 1.0, 4)
+    assert score is None and hair is None
+    score, hair = detect_luma_score(img, 0.66, 4, hair_threshold=1.0)
+    assert hair is None and score is not None, "specks keep their own bar"
+    score, hair = detect_luma_score(img, 1.0, 4, hair_threshold=0.66)
+    assert score is None and hair is not None, "hairs keep theirs"
 
 
 def test_detect_luma_score_grainy_clean_frame_is_empty():
@@ -457,9 +471,9 @@ def test_detect_luma_score_grainy_clean_frame_is_empty():
     assert detect_luma_score(img, 0.66, 4) == (None, None)
 
 
-def test_texture_protects_a_compact_mark_but_not_a_hair():
-    """The same speck marks on flat film and not inside busy image structure; a hair-shaped
-    mark is exempt from that bar."""
+def test_texture_protects_a_compact_mark_and_a_loose_hair_bar_reaches_a_hair():
+    """The same speck marks on flat film and not inside busy image structure. A hair across
+    that structure clears a texture-raised hair bar only with a loose Hair Threshold."""
     rng = np.random.default_rng(5)
     img = _dusty_source(h=200, w=200)
     img[80:83, 80:83] = 0.18
@@ -471,7 +485,53 @@ def test_texture_protects_a_compact_mark_but_not_a_hair():
     mark = _marked(img)
     assert mark[60:65, 40:45].any()
     assert not mark[55:70, 145:160].any()
-    assert mark[140:142, 120:180].mean() > 0.8
+    assert not mark[140:142, 120:180].any()
+    _, hair = detect_luma_score(img, 0.66, 4, hair_threshold=0.01)
+    assert hair is not None and hair[140:142, 120:180].mean() > 0.8
+
+
+def test_bright_rim_along_a_tonal_edge_is_not_a_hair():
+    """A thin dense line on a step edge grows into a hair-shaped component; the step in its
+    texture window rejects it, and the same line on flat film is still a hair."""
+    rng = np.random.default_rng(42)
+    img = (np.full((200, 200, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (200, 200, 3)))).astype(np.float32)
+    img[100:, :] *= 0.3
+    img[99:101, 20:180] = 0.035  # rim on the edge
+    img[40:42, 20:180] = 0.11  # hair on flat film
+    mark = _marked(img)
+    assert not mark[99:101, 30:170].any()
+    assert mark[40:42, 30:170].mean() > 0.8
+
+
+def _speck_and_hair_source():
+    rng = np.random.default_rng(42)
+    img = (np.full((200, 200, 3), 0.18) * (1.0 + rng.normal(0, 0.06, (200, 200, 3)))).astype(np.float32)
+    img[40:43, 40:43] = 0.10  # z ≈ 37
+    img[120:122, 30:170] = 0.10  # z ≈ 25
+    return img
+
+
+def test_hair_threshold_moves_hairs_only():
+    img = _speck_and_hair_source()
+    score, hair = detect_luma_score(img, 0.66, 4, hair_threshold=1.0)
+    assert hair is None, "the hair sits under the tightest hair bar"
+    assert score is not None and (score[40:43, 40:43] < _IR_WRITE_HI).any(), "the speck keeps its own bar"
+
+
+def test_loose_hair_threshold_finds_a_hair_under_the_spot_bar():
+    """Seeds come from the lower of the two bars, so a hair is reachable when the spot bar
+    is above it."""
+    img = _speck_and_hair_source()
+    score, hair = detect_luma_score(img, 1.0, 4, hair_threshold=0.66)
+    assert hair is not None and hair[120:122, 40:160].all()
+    assert score is None or not (score[40:43, 40:43] < _IR_WRITE_HI).any()
+
+
+def test_hair_threshold_defaults_to_the_spot_bar():
+    img = _speck_and_hair_source()
+    a, b = detect_luma_score(img, 0.66, 4), detect_luma_score(img, 0.66, 4, hair_threshold=0.66)
+    np.testing.assert_array_equal(a[0], b[0])
+    np.testing.assert_array_equal(a[1], b[1])
 
 
 def test_detect_luma_score_precomputed_stats_equivalent():
@@ -517,6 +577,7 @@ def test_hair_bake_token_tracks_detection_params():
     a = RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4)
     assert hair_bake_token(a) != hair_bake_token(RetouchConfig(dust_remove=True, dust_threshold=0.6, dust_size=4))
     assert hair_bake_token(a) == hair_bake_token(RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
+    assert hair_bake_token(a) != hair_bake_token(dataclasses.replace(a, dust_hair_threshold=0.8))
 
 
 def _transport_scratch(h=400, w=1200, depth=0.12, slope=0.006, seed=3):
@@ -664,6 +725,7 @@ def test_luma_bake_token_tracks_the_toggle_and_params():
     assert off == ""
     assert on != off
     assert luma_bake_token(RetouchConfig(dust_remove=True, dust_threshold=0.5)) != on
+    assert luma_bake_token(RetouchConfig(dust_remove=True, dust_hair_threshold=0.8)) != on
 
 
 def test_dust_toggle_changes_engine_source_hash():

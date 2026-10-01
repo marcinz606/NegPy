@@ -47,6 +47,7 @@ SLIDER_ATTRS: dict[str, str] = {
     "glow": "lab_sidebar.glow_slider",
     "halation": "lab_sidebar.halation_slider",
     "threshold": "retouch_sidebar.threshold_slider",
+    "hair_threshold": "retouch_sidebar.hair_threshold_slider",
     "auto_size": "retouch_sidebar.auto_size_slider",
     "manual_size": "retouch_sidebar.manual_size_slider",
     "lith_exposure": "altproc_sidebar.exposure_slider",

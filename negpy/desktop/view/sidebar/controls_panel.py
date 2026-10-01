@@ -807,8 +807,17 @@ class ControlsPanel(QWidget):
         )
         ret.threshold_slider.setToolTip(
             tooltip_with_shortcut(
-                "Brightness delta above which a pixel is classified as dust. Lower = catch more (risk false positives on real detail)",
+                "How far a speck must stand out from the film's grain to be repaired. Lower catches more, "
+                "with more false positives on fine detail. 1.0 turns speck detection off",
                 ["threshold_inc", "threshold_dec"],
+            )
+        )
+        ret.hair_threshold_slider.setToolTip(
+            tooltip_with_shortcut(
+                "How far a hair or other long thin mark must stand out from the grain to be repaired. The bar rises "
+                "along tonal edges and in busy detail, where a thin image line looks like a hair. Lower it if a hair "
+                "across busy detail is missed. 1.0 turns hair detection off",
+                ["hair_threshold_inc", "hair_threshold_dec"],
             )
         )
         ret.auto_size_slider.setToolTip(

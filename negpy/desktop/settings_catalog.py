@@ -237,7 +237,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     )),
     ("Retouch", (
         _row("Optical Removal", "retouch", "dust_remove", sticky=True),
-        _row("Optical Threshold", "retouch", "dust_threshold"),
+        _row("Optical Spot Threshold", "retouch", "dust_threshold"),
+        _row("Optical Hair Threshold", "retouch", "dust_hair_threshold"),
         _row("Optical Size", "retouch", "dust_size"),
         _row("IR Removal", "retouch", "ir_dust_remove"),
         _row("IR Threshold", "retouch", "ir_threshold"),

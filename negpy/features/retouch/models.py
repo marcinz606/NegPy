@@ -22,6 +22,8 @@ IR_METHODS = (IR_METHOD_NEGPY, IR_METHOD_OPENICE)
 class RetouchConfig:
     dust_remove: bool = False
     dust_threshold: float = 0.66
+    # Seed bar for hair-shaped detections, on the same scale as dust_threshold.
+    dust_hair_threshold: float = 0.66
     dust_size: int = 4
     manual_dust_spots: List[Tuple[float, float, float]] = field(default_factory=list)
     # Each stroke: (points, size, src_dx, src_dy). points = [[nx, ny], ...] source-normalized,

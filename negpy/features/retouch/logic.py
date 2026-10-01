@@ -28,7 +28,7 @@ _DETECT_PAD_PX = 2.5
 _DETECT_AVG_PX = 3
 _DETECT_MAD_GAIN = 4.0
 _DETECT_SIGMA_MIN = 0.003
-# Slider → seed bar in σ: linear to the default, geometric above it.
+# Slider → seed bar in σ: linear to the default, geometric toward _DETECT_Z_TIGHT above it.
 _DETECT_Z_LOOSE = 3.0
 _DETECT_Z_DEFAULT = 9.0
 _DETECT_Z_TIGHT = 48.0
@@ -41,10 +41,16 @@ _DETECT_Z_GROW_FRAC = 0.3
 _DETECT_GROW_REACH = 2  # times dust_size, px
 # Texture raises the bar: at detection scale a thin dense image line is the same shape as a
 # hair, and only its surroundings tell them apart. Measured candidates included, so a fat
-# defect raises its own bar; a hair-shaped component (_is_hair) is exempt. Clean film of
-# any grain sits under the knee.
+# defect raises its own bar. Clean film of any grain sits under the knee.
 _DETECT_TEXTURE_KNEE = 0.02
 _DETECT_TEXTURE_GAIN = 40.0  # bar multiplier per unit of σ over the knee
+# A hair-shaped component (_is_hair) reads the median σ along itself against a higher, steeper
+# knee. A hair lying across busy film stays under it; a seed grown along a tonal edge carries
+# the step in its window and sits far above it. The σ is capped at a multiple of the σ with the
+# hairs filled by the background, so a deep hair on flat film cannot raise its own bar.
+_DETECT_HAIR_TEXTURE_KNEE = 0.075
+_DETECT_HAIR_TEXTURE_GAIN = 150.0
+_DETECT_HAIR_FILL_GAIN = 2.0
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
@@ -286,6 +292,10 @@ def _u8(plane: np.ndarray) -> np.ndarray:
     return (np.clip(plane, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
 
+def _texture_win(shape: Tuple[int, ...], dust_size: int) -> int:
+    return int(max(7, max(1.0, float(dust_size)) * film_scale(shape) * 4.0)) * 2 + 1
+
+
 def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ...]:
     """Threshold-independent detection maps ``(proxy, background, z, texture)``, the
     expensive part of a detection pass, cacheable across threshold changes. ``z`` is the
@@ -296,7 +306,7 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
     # Size is film footprint at _IR_DETECT_REF; the windows follow the plane (see _ir_win).
     base_size = max(1.0, float(dust_size)) * film_scale(proxy.shape)
     v_win = int(max(3, base_size * 3.0)) * 2 + 1
-    w_win = int(max(7, base_size * 4.0)) * 2 + 1
+    w_win = _texture_win(proxy.shape, dust_size)
     # Median: the level of the film around a defect narrower than half the window. Opening:
     # identity on the soft ramp of a tonal edge and on anything wider than a speck, both of
     # which the median alone calls dense. Whichever is higher is the background.
@@ -310,8 +320,11 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
 
 
 def detect_bar(slider: float) -> float:
-    """UI Threshold (higher = conservative) → the seed bar in local σ."""
+    """UI Threshold (higher = conservative) → the seed bar in local σ; the top of the range
+    is off, since a frame edge or a specular rim clears any finite bar."""
     s = float(np.clip(slider, 0.0, 1.0))
+    if s >= 1.0:
+        return math.inf
     if s <= _DETECT_DEFAULT_POS:
         return _DETECT_Z_LOOSE + (_DETECT_Z_DEFAULT - _DETECT_Z_LOOSE) * s / _DETECT_DEFAULT_POS
     t = (s - _DETECT_DEFAULT_POS) / (1.0 - _DETECT_DEFAULT_POS)
@@ -323,36 +336,54 @@ def detect_luma_score(
     dust_threshold: float,
     dust_size: int,
     stats: Optional[Tuple[np.ndarray, ...]] = None,
+    hair_threshold: Optional[float] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Statistical dust detection on the linear source → ``(score, hair_mask)``.
 
-    Seeds above the slider's bar grow through connected pixels down to a lower bar, so the
-    mark covers the defect's footprint rather than its brightest pixel and a hair joins into
-    one component. Compact specks become a score for the shared fill; strongly elongated
-    hairs a mask for structure-following inpaint.
+    Seeds above the lower of the two bars grow through connected pixels down to a grow bar,
+    so the mark covers the defect's footprint rather than its brightest pixel and a hair joins
+    into one component. A compact component must clear ``dust_threshold``'s bar, a hair-shaped
+    one ``hair_threshold``'s (default: the same slider), each raised by its own texture ramp.
+    Compact specks become a score for the shared fill; hairs a mask for structure-following
+    inpaint.
     """
     if stats is None:
         stats = compute_dust_stats(img, dust_size)
-    proxy, _, z, texture = stats[:4]
+    proxy, background, z, texture = stats[:4]
     hi = detect_bar(dust_threshold)
-    seeds = (z >= hi) & (proxy > _DETECT_PROXY_MIN)
+    hi_hair = hi if hair_threshold is None else detect_bar(hair_threshold)
+    seeds = (z >= min(hi, hi_hair)) & (proxy > _DETECT_PROXY_MIN)
     if not np.any(seeds):
         return None, None
     scale = film_scale(proxy.shape)
-    lo = max(_DETECT_Z_GROW, hi * _DETECT_Z_GROW_FRAC)
+    lo = max(_DETECT_Z_GROW, min(hi, hi_hair) * _DETECT_Z_GROW_FRAC)
     reach = int(round(_DETECT_GROW_REACH * max(1, dust_size) * scale))
     near = cv2.dilate(seeds.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * reach + 1,) * 2)) > 0
     n_lbl, lab, stats_cc, _ = cv2.connectedComponentsWithStats((near & (z >= lo)).astype(np.uint8), connectivity=8)
     bar = hi * (1.0 + _DETECT_TEXTURE_GAIN * np.maximum(texture - _DETECT_TEXTURE_KNEE, 0.0))
     strong = np.zeros(n_lbl, dtype=bool)
     strong[np.unique(lab[seeds & (z >= bar)])] = True
-    seeded = np.zeros(n_lbl, dtype=bool)
-    seeded[np.unique(lab[seeds])] = True
+    peak = np.zeros(n_lbl, dtype=np.float32)
+    np.maximum.at(peak, lab[seeds], z[seeds])
     keep = np.zeros(n_lbl, dtype=bool)
-    for i in np.flatnonzero(seeded[1:]) + 1:
+    hairs = []
+    for i in np.flatnonzero(peak[1:] > 0) + 1:
         x0, y0 = int(stats_cc[i, cv2.CC_STAT_LEFT]), int(stats_cc[i, cv2.CC_STAT_TOP])
         bw, bh = int(stats_cc[i, cv2.CC_STAT_WIDTH]), int(stats_cc[i, cv2.CC_STAT_HEIGHT])
-        keep[i] = strong[i] or _is_hair(lab[y0 : y0 + bh, x0 : x0 + bw] == i, int(stats_cc[i, cv2.CC_STAT_AREA]))
+        if _is_hair(lab[y0 : y0 + bh, x0 : x0 + bw] == i, int(stats_cc[i, cv2.CC_STAT_AREA])):
+            hairs.append(i)
+        else:
+            keep[i] = strong[i]
+    if hairs:
+        is_hair = np.zeros(n_lbl, dtype=bool)
+        is_hair[hairs] = True
+        _, filled = _box_mean_std(np.where(is_hair[lab], background, proxy), _texture_win(proxy.shape, dust_size))
+        hair_tex = np.minimum(texture, _DETECT_HAIR_FILL_GAIN * filled)
+        for i in hairs:
+            x0, y0 = int(stats_cc[i, cv2.CC_STAT_LEFT]), int(stats_cc[i, cv2.CC_STAT_TOP])
+            bw, bh = int(stats_cc[i, cv2.CC_STAT_WIDTH]), int(stats_cc[i, cv2.CC_STAT_HEIGHT])
+            tex = float(np.median(hair_tex[y0 : y0 + bh, x0 : x0 + bw][lab[y0 : y0 + bh, x0 : x0 + bw] == i]))
+            keep[i] = peak[i] >= hi_hair * (1.0 + _DETECT_HAIR_TEXTURE_GAIN * max(tex - _DETECT_HAIR_TEXTURE_KNEE, 0.0))
     if not keep.any():
         return None, None
     hit = keep[lab].astype(np.uint8)
@@ -1265,7 +1296,10 @@ def luma_bake_token(retouch) -> str:
     actually detected, and the speck fill runs regardless."""
     if not retouch.dust_remove:
         return ""
-    return f"|dust{round(float(retouch.dust_threshold), 3)}_{int(retouch.dust_size)}" + exclusion_token(retouch)
+    return (
+        f"|dust{round(float(retouch.dust_threshold), 3)}_{round(float(retouch.dust_hair_threshold), 3)}_{int(retouch.dust_size)}"
+        + exclusion_token(retouch)
+    )
 
 
 def ir_bake_token(retouch, has_ir: bool) -> str:
@@ -1388,7 +1422,7 @@ def hair_bake_token(retouch) -> str:
     hair is actually detected). Distinct params → distinct inpainted source."""
     r = retouch
     return (
-        f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
+        f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{round(float(r.dust_hair_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
         + exclusion_token(r)
     )
 

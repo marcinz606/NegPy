@@ -234,6 +234,24 @@ def test_detect_luma_reuses_stats_across_threshold_changes(monkeypatch) -> None:
     assert len(calls) == 2, "dust_size changes the blur windows and must recompute"
 
 
+def test_detect_luma_reruns_the_gate_on_hair_threshold(monkeypatch) -> None:
+    from dataclasses import replace
+
+    import negpy.services.rendering.image_processor as ip
+    from negpy.features.retouch.models import RetouchConfig
+
+    img = np.full((160, 160, 3), 0.18, np.float32)
+    seen = []
+    real = ip.detect_luma_score
+    monkeypatch.setattr(ip, "detect_luma_score", lambda *a, **k: (seen.append(k["hair_threshold"]), real(*a, **k))[1])
+
+    service = ImageProcessor()
+    for hair in (0.66, 0.66, 0.9):
+        cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_hair_threshold=hair))
+        service._detect_luma(cfg, img, "same-source")
+    assert seen == [0.66, 0.9]
+
+
 def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
     """_ir_bake and _detect_luma each call _ir_ratio_gain every render. The cache key is
     the source shape, not the downsampled one, so the second call resolves it without
@@ -370,7 +388,7 @@ def test_run_pipeline_routes_wide_ir_blob_to_inpaint(monkeypatch) -> None:
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False, ir_threshold=0.35))
 
     out, metrics = service.run_pipeline(img, cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, ir_buffer=ir)
-    assert "hair_inpaint_masks" in metrics
+    assert metrics["hair_inpaint_masks"]
     assert float(out[68, 68, 0]) > 0.4, "blob interior not inpainted out of the source"
 
 

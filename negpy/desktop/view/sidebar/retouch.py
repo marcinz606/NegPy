@@ -62,9 +62,10 @@ class RetouchSidebar(BaseSidebar):
         optical_row.addWidget(self.auto_dust_btn, 1)
         optical_row.addWidget(self.right_click_btn)
         self.layout.addLayout(optical_row)
-        self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
+        self.threshold_slider = CompactSlider("Spot Threshold", 0.01, 1.0, conf.dust_threshold)
+        self.hair_threshold_slider = CompactSlider("Hair Threshold", 0.01, 1.0, conf.dust_hair_threshold)
         self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
-        self.layout.addWidget(SliderGroup(self.threshold_slider, self.auto_size_slider))
+        self.layout.addWidget(SliderGroup(self.threshold_slider, self.hair_threshold_slider, self.auto_size_slider))
 
         self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
         self.ir_method_btn = ChoiceButton(tuple(("", label) for label in _IR_METHOD_LABELS), "")
@@ -137,6 +138,9 @@ class RetouchSidebar(BaseSidebar):
         self.threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
         )
+        self.hair_threshold_slider.valueChanged.connect(
+            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_hair_threshold=v)
+        )
         self.auto_size_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_size=int(v))  # TODO: precision loss from int cast
         )
@@ -202,6 +206,7 @@ class RetouchSidebar(BaseSidebar):
             self.auto_dust_btn.setChecked(conf.dust_remove)
             self.right_click_btn.setChecked(self.state.right_click_excludes)
             self.threshold_slider.setValue(conf.dust_threshold)
+            self.hair_threshold_slider.setValue(conf.dust_hair_threshold)
             self.auto_size_slider.setValue(float(conf.dust_size))
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)

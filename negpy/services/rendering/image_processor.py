@@ -484,6 +484,7 @@ class ImageProcessor:
         key = (
             source_key,
             round(float(ret.dust_threshold), 6),
+            round(float(ret.dust_hair_threshold), 6),
             int(ret.dust_size),
             exclusion_token(ret),
             settings.process.process_mode,
@@ -499,7 +500,7 @@ class ImageProcessor:
             stats = compute_dust_stats(small, ret.dust_size)
             self._dust_stats_key = stats_key
             self._dust_stats_value = stats
-        score, hair_luma = detect_luma_score(small, ret.dust_threshold, ret.dust_size, stats=stats)
+        score, hair_luma = detect_luma_score(small, ret.dust_threshold, ret.dust_size, stats=stats, hair_threshold=ret.dust_hair_threshold)
         score, hair_luma = drop_exclusions(score, hair_luma, ret.dust_exclusion_strokes)
         value = (score, [hair_luma] if hair_luma is not None else [])
         self._retouch_detect_key = key
@@ -753,19 +754,17 @@ class ImageProcessor:
         if resolved_crop is not None:
             context.metrics["autocrop_resolved_rect"] = resolved_crop[0]
             context.metrics["autocrop_resolved_key"] = resolved_crop[1]
-        # Display-overlay data: the detection-scale set that was repaired. Absent when
-        # detection is off, so the overlay draws nothing.
+        # Display-overlay data: the detection-scale sets that were repaired, and the wash over
+        # the inpainted hairs (they emit no stroke capsules). Written as None/empty when nothing
+        # was found: the controller merges metrics into the last frame's, so an absent key
+        # would keep the previous frame's marks on the overlay.
         dust_mask = detected_dust < 1.0 if detected_dust is not None else None
-        if dust_mask is not None:
-            context.metrics["detected_dust_mask"] = dust_mask
-        # Overlay wash over the inpainted hairs (they emit no stroke capsules).
-        if hair_masks:
-            context.metrics["hair_inpaint_masks"] = hair_masks
-        # Overlay data for the IR-corrected regions, plus the B&W/Kodachrome guard.
+        context.metrics["detected_dust_mask"] = dust_mask
+        context.metrics["hair_inpaint_masks"] = hair_masks
+        context.metrics["ir_corrected_mask"] = ir_corrected_mask
+        # The B&W/Kodachrome guard.
         if want_ir:
             context.metrics["ir_degenerate"] = ir_degenerate
-            if ir_corrected_mask is not None:
-                context.metrics["ir_corrected_mask"] = ir_corrected_mask
         # Read-out of how much of the scan each route rewrote. Costs a reduction per live
         # mask; a scan with nothing repaired passes None and costs nothing.
         context.metrics["repair_fractions"] = repair_coverage(
