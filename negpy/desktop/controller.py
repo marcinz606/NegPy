@@ -332,6 +332,35 @@ _KNEE_LABELS = {
 # navigation and Auto Crop All caches already hold; deferred and retried rather than
 # started under memory pressure.
 _THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
+# Mean decode seconds above which, when decode also dominates the render, a refresh is
+# read-bound: the source volume, not the CPU, sets its pace.
+_THUMBNAIL_READ_BOUND_DECODE_S = 3.0
+
+
+def thumbnail_refresh_status(
+    done: int,
+    total: int,
+    name: str,
+    mean_decode_s: float,
+    mean_render_s: float,
+    *,
+    in_flight: bool = False,
+) -> str:
+    """Status line for a thumbnail refresh. ``done`` frames are finished, or with
+    ``in_flight`` the ``done``-th frame is still decoding and counts as left. The time
+    left needs two measured frames, since one is too noisy."""
+    text = f"Updating thumbnail {done}/{total}: {name}"
+    samples = done - 1 if in_flight else done
+    left = total - samples if in_flight else total - done
+    if samples >= 2 and left > 0:
+        seconds = (mean_decode_s + mean_render_s) * left
+        if seconds >= 60:
+            text += f" — ~{round(seconds / 60)} min left"
+        else:
+            text += f" — ~{max(1, round(seconds))} s left"
+    if mean_decode_s > _THUMBNAIL_READ_BOUND_DECODE_S and mean_decode_s > 2 * mean_render_s:
+        text += f" (reading source files, {mean_decode_s:.0f} s/frame)"
+    return text
 
 
 def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig, index: int) -> str:
@@ -533,6 +562,9 @@ class AppController(QObject):
         # landing — marks that cancellation as a user stop, not a pre-emption, so the
         # cancelled handler discards the backlog instead of resuming it.
         self._thumbnail_render_user_cancelled = False
+        # Running totals of the current generation's decode and render seconds, and the
+        # frame count they cover: the status line's time left and read-bound cue.
+        self._thumbnail_render_timing = [0.0, 0.0, 0]
         self.flush_export_settings: Optional[Callable[[], None]] = None
         # A rotate/flip on a frame with no cached thumbnail yet (generate_missing_thumbnails
         # is still decoding it) has nothing to turn; the pending turn recorded here is applied
@@ -848,6 +880,7 @@ class AppController(QObject):
         self.batch_autocrop_worker.error.connect(self._on_batch_autocrop_error)
 
         self.thumbnail_render_requested.connect(self.thumbnail_render_worker.process)
+        self.thumbnail_render_worker.frame_started.connect(self._on_thumbnail_render_frame_started)
         self.thumbnail_render_worker.progress.connect(self._on_thumbnail_render_progress)
         self.thumbnail_render_worker.rendered.connect(self._on_thumbnail_rendered)
         self.thumbnail_render_worker.finished.connect(self._on_thumbnail_render_finished)
@@ -3629,6 +3662,7 @@ class AppController(QObject):
 
         self._thumbnail_render_generation += 1
         self._thumbnail_render_running = True
+        self._thumbnail_render_timing = [0.0, 0.0, 0]
         self._thumbnail_render_pending = {f.file_info.get("hash") for f in frames}
         self.thumbnail_refresh_state_changed.emit(True)
         self.set_status(f"Updating {count_of(len(frames), 'thumbnail')}...")
@@ -3640,8 +3674,23 @@ class AppController(QObject):
             )
         )
 
-    def _on_thumbnail_render_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"Updating thumbnail {current}/{total}: {name}")
+    def _thumbnail_render_means(self) -> tuple[float, float]:
+        decode_s, render_s, count = self._thumbnail_render_timing
+        return (decode_s / count, render_s / count) if count else (0.0, 0.0)
+
+    def _on_thumbnail_render_frame_started(self, index: int, total: int, name: str) -> None:
+        if not self._thumbnail_render_running:
+            return
+        self.set_status(thumbnail_refresh_status(index, total, name, *self._thumbnail_render_means(), in_flight=True))
+
+    def _on_thumbnail_render_progress(self, current: int, total: int, name: str, decode_s: float, render_s: float) -> None:
+        if not self._thumbnail_render_running:
+            return
+        timing = self._thumbnail_render_timing
+        timing[0] += decode_s
+        timing[1] += render_s
+        timing[2] += 1
+        self.set_status(thumbnail_refresh_status(current, total, name, *self._thumbnail_render_means()))
 
     def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
         if not self._thumbnail_render_running:

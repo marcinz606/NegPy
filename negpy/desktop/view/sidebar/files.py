@@ -878,7 +878,7 @@ class FileBrowser(QWidget):
         self.save_roll_btn.clicked.connect(self._on_save_roll_clicked)
         self.update_thumbnails_btn = QToolButton()
         self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-        self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+        self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every thumbnail in the roll")
         self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
 
         self.scenes_btn = QToolButton()
@@ -1756,7 +1756,7 @@ class FileBrowser(QWidget):
             self.update_thumbnails_btn.setToolTip("Cancel Thumbnail Update — stop the background refresh in progress")
         else:
             self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-            self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+            self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every thumbnail in the roll")
 
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""

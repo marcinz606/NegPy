@@ -281,7 +281,7 @@ The right-click menu also has:
 *   **Reset to Roll Settings**: **Reset to Roll** on every card of this frame that differs from the roll, as one undo step. Unlike **Reset Settings**, the rest of the frame's edit stays. Also in the canvas **⋯** and right-click menus.
 *   **Apply Settings…**.
 *   **Sync Bounds…**: pushes only this frame's measured bounds, as **Tonal span** and **Color balance**, to the selection or roll. Also in the canvas right-click and overflow menus.
-*   **Update Thumbnail(s)**: re-renders the selection's thumbnails; **Update Thumbnails** on the toolbar does every stale one in the roll. Both become **Cancel** while running.
+*   **Update Thumbnail(s)**: re-renders the selection's thumbnails; **Update Thumbnails** on the toolbar does every thumbnail in the roll. Both become **Cancel** while running.
 *   **Reset Roll to Defaults…**, and per-frame export.
 *   **Edit Independently in This Roll** / **Use the Shared Edit Again**; see [Rolls that are not folders](#rolls-that-are-not-folders).
 

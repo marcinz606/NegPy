@@ -206,7 +206,7 @@ def test_thumbnail_render_skips_failed_frame_and_continues(qapp, monkeypatch) ->
     progress: list[tuple[int, int, str]] = []
     finished: list[int] = []
     worker.rendered.connect(lambda frame, _buf: rendered.append(frame.thumbnail_key))
-    worker.progress.connect(lambda current, total, name: progress.append((current, total, name)))
+    worker.progress.connect(lambda current, total, name, _decode_s, _render_s: progress.append((current, total, name)))
     worker.finished.connect(finished.append)
 
     worker.process(_task(_input("bad", base), _input("good", base)))
@@ -292,3 +292,58 @@ def test_thumbnail_render_cancel_does_not_poison_next_generation(qapp, monkeypat
 
     assert rendered == ["key-kept"]
     assert finished == [1]
+
+
+def test_thumbnail_render_reports_decode_and_render_time_per_frame(qapp, monkeypatch) -> None:
+    worker, _processor = _worker(monkeypatch)
+    ticks = iter([10.0, 25.0, 25.0, 26.5, 30.0, 32.0, 32.0, 32.25])
+    monkeypatch.setattr(render_workers.time, "perf_counter", lambda: next(ticks))
+    events: list[tuple] = []
+    worker.frame_started.connect(lambda index, total, name: events.append(("started", index, total, name)))
+    worker.progress.connect(
+        lambda done, total, name, decode_s, render_s: events.append(("progress", done, total, name, decode_s, render_s))
+    )
+    base = WorkspaceConfig()
+
+    worker.process(_task(_input("a", base), _input("b", base)))
+
+    assert events == [
+        ("started", 1, 2, "a"),
+        ("progress", 1, 2, "a", 15.0, 1.5),
+        ("started", 2, 2, "b"),
+        ("progress", 2, 2, "b", 2.0, 0.25),
+    ]
+
+
+def test_thumbnail_render_frame_started_fires_before_each_decode(qapp, monkeypatch) -> None:
+    worker, _processor = _worker(monkeypatch)
+    order: list[str] = []
+    real_decode = render_workers._decode_asset_preview_with_meta
+
+    def _decode(service, file_info, config, color_space):
+        order.append(f"decode:{file_info['name']}")
+        return real_decode(service, file_info, config, color_space)
+
+    monkeypatch.setattr(render_workers, "_decode_asset_preview_with_meta", _decode)
+    worker.frame_started.connect(lambda _index, _total, name: order.append(f"started:{name}"))
+    base = WorkspaceConfig()
+
+    worker.process(_task(_input("a", base), _input("b", base)))
+
+    assert order == ["started:a", "decode:a", "started:b", "decode:b"]
+
+
+def test_thumbnail_render_failed_decode_reports_zero_times(qapp, monkeypatch) -> None:
+    worker, processor = _worker(monkeypatch)
+
+    def _decode(*_args):
+        raise OSError("share went away")
+
+    monkeypatch.setattr(render_workers, "_decode_asset_preview_with_meta", _decode)
+    progress: list[tuple] = []
+    worker.progress.connect(lambda *args: progress.append(args))
+
+    worker.process(_task(_input("a", WorkspaceConfig())))
+
+    assert progress == [(1, 1, "a", 0.0, 0.0)]
+    assert processor.run_calls == []
