@@ -731,6 +731,15 @@ class TestThumbnailRefreshController:
 
         assert self.thumbnail_updates[-1].fingerprint == self.controller.thumbnail_fingerprint_for(rendered)
 
+    def test_quitting_files_the_active_frames_render(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self._live_render(("active", self.controller.state.config))
+
+        self.controller.cleanup()
+
+        assert self.controller.asset_store.get_thumbnail_fingerprint(asset_thumbnail_key(self.files[0])) == self._current("active")
+
     def test_pixels_that_are_not_this_frames_render_never_reach_disk(self) -> None:
         self._live_render(("someone-else", WorkspaceConfig()))
         self.controller._update_thumbnail_from_state(persist=True)

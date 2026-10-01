@@ -7543,7 +7543,7 @@ class AppController(QObject):
         # skipped refresh costs nothing: the next render of that frame writes it.
         return None
 
-    def _update_thumbnail_from_state(self, persist: bool = True) -> None:
+    def _update_thumbnail_from_state(self, persist: bool = True, sync: bool = False) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
         with self.state.metrics_lock:
@@ -7588,17 +7588,19 @@ class AppController(QObject):
                 return  # the disk already holds this render; the filmstrip got it when it landed
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
-        self.thumbnail_update_requested.emit(
-            ThumbnailUpdateTask(
-                file_hash=asset_thumbnail_key(asset),
-                buffer=buffer,
-                color_space=display_cs,
-                monitor_icc_bytes=monitor_bytes,
-                proof=proof,
-                persist=persist,
-                fingerprint=fingerprint,
-            )
+        task = ThumbnailUpdateTask(
+            file_hash=asset_thumbnail_key(asset),
+            buffer=buffer,
+            color_space=display_cs,
+            monitor_icc_bytes=monitor_bytes,
+            proof=proof,
+            persist=persist,
+            fingerprint=fingerprint,
         )
+        if sync:
+            self.thumb_worker.update_rendered(task)
+        else:
+            self.thumbnail_update_requested.emit(task)
 
     def _flag_if_stale(self, asset: dict) -> None:
         key = asset_thumbnail_key(asset)
@@ -7629,6 +7631,13 @@ class AppController(QObject):
             self.thumb_worker.cancel_pending()
             self.thumb_thread.quit()
             self.thumb_thread.wait()
+        # Quitting leaves the active frame as a switch does. With the thumbnail thread
+        # stopped, its write runs here; its result has no Film Strip to reach.
+        self.thumb_worker.blockSignals(True)
+        try:
+            self._update_thumbnail_from_state(sync=True)
+        except Exception:
+            logger.exception("Saving the active frame's thumbnail on exit failed")
         self._autocrop_cancel_requested = True
         self.batch_autocrop_worker.cancel(self._autocrop_batch_token)
         self.thumbnail_render_worker.cancel(self._thumbnail_render_generation)
