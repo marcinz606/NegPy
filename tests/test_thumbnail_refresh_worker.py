@@ -362,3 +362,62 @@ def test_thumbnail_render_failed_render_reports_the_time_it_took(qapp, monkeypat
     worker.process(_task(_input("a", WorkspaceConfig())))
 
     assert progress == [(1, 1, "a", 15.0, 2.0)]
+
+
+class _LivePreviewService:
+    def __init__(self, hit=None) -> None:
+        self.hit = hit
+        self.peek_calls: list[dict] = []
+
+    def peek_linear_preview(self, file_path, color_space, **kwargs):
+        self.peek_calls.append({"file_path": file_path, "color_space": color_space, **kwargs})
+        return self.hit
+
+
+def test_thumbnail_render_uses_a_live_cache_hit_without_decoding(qapp, monkeypatch) -> None:
+    processor = _StubProcessor()
+    monkeypatch.setattr(render_workers, "ImageProcessor", lambda use_gpu=True: processor)
+    cached = np.full((4, 6, 3), 0.6, dtype=np.float32)
+    meta = _meta("live")
+    live = _LivePreviewService(hit=(cached, (6, 4), meta))
+    private = _PreviewService()
+    worker = ThumbnailRenderWorker(private, live)
+
+    worker.process(_task(_input("a", WorkspaceConfig())))
+
+    assert private.linear_calls == []
+    assert [call["file_hash"] for call in live.peek_calls] == ["hash-a"]
+    buffer = processor.run_calls[0]["buffer"]
+    np.testing.assert_array_equal(buffer, cached)
+    # The pipeline gets its own copies; the navigation cache's arrays stay untouched.
+    assert not np.shares_memory(buffer, cached)
+    assert not np.shares_memory(processor.run_calls[0]["ir_buffer"], meta["ir_preview"])
+
+
+def test_thumbnail_render_falls_back_to_the_private_cache_on_a_live_miss(qapp, monkeypatch) -> None:
+    processor = _StubProcessor()
+    monkeypatch.setattr(render_workers, "ImageProcessor", lambda use_gpu=True: processor)
+    live = _LivePreviewService(hit=None)
+    private = _PreviewService()
+    worker = ThumbnailRenderWorker(private, live)
+
+    worker.process(_task(_input("a", WorkspaceConfig())))
+
+    assert len(live.peek_calls) == 1
+    assert [call["file_hash"] for call in private.linear_calls] == ["hash-a"]
+    assert len(processor.run_calls) == 1
+
+
+def test_thumbnail_render_skips_the_live_peek_for_a_stitch(qapp, monkeypatch) -> None:
+    processor = _StubProcessor()
+    monkeypatch.setattr(render_workers, "ImageProcessor", lambda use_gpu=True: processor)
+    live = _LivePreviewService(hit=(np.zeros((4, 6, 3), dtype=np.float32), (6, 4), {}))
+    private = _PreviewService()
+    worker = ThumbnailRenderWorker(private, live)
+    stitch = StitchConfig(stitch_enabled=True, stitch_paths=("/a.dng", "/b.dng"))
+    config = replace(WorkspaceConfig(), stitch=stitch)
+
+    worker.process(_task(_input("panorama", config)))
+
+    assert live.peek_calls == []
+    assert len(private.stitch_calls) == 1

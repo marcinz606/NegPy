@@ -6,9 +6,9 @@ import numpy as np
 
 from negpy.desktop.controller import _THUMBNAIL_REFRESH_MEMORY_RETRY_MS, AppController, thumbnail_refresh_progress_text
 from negpy.desktop.session import AppState, DesktopSessionManager
-from negpy.desktop.workers.render import ThumbnailUpdateTask
+from negpy.desktop.workers.render import ThumbnailRenderWorker, ThumbnailUpdateTask
 from negpy.domain.models import WorkspaceConfig
-from negpy.services.rendering.preview_manager import PreviewManager
+from negpy.services.rendering.preview_manager import PreviewManager, _linear_preview_key
 
 
 class TestThumbnailRefreshController:
@@ -531,6 +531,41 @@ class TestThumbnailRefreshController:
         self.controller._on_thumbnail_render_cancelled()
         assert bar[-1] == (0, 0)
         assert lines[-1] == ""
+
+    def test_live_worker_reads_the_navigation_preview_service(self) -> None:
+        assert self.controller.thumbnail_render_worker._live_preview_service is self.controller.preview_service
+
+    def test_neighbor_prefetch_key_matches_the_thumbnail_refresh_key(self) -> None:
+        """A plain whole frame the neighbor prefetch cached is a live-cache hit for the refresh."""
+        asset = self.files[1]
+        self.session.repo.load_file_settings.return_value = WorkspaceConfig()
+        task = self.controller._neighbor_prefetch_task(asset, 0, ())
+        assert task is not None
+        live = PreviewManager()
+        live._cache.put(
+            _linear_preview_key(
+                task.file_hash,
+                color_space=task.workspace_color_space,
+                use_camera_wb=task.use_camera_wb,
+                full_resolution=task.full_resolution,
+                half_slice=task.half_slice,
+                demosaic=task.demosaic,
+                positive_source=task.positive_source,
+                highlight_mode=task.highlight_mode,
+                bake_camera_wb=task.bake_camera_wb,
+                lens_corrections=task.lens_corrections,
+                lens_flatfield=task.lens_flatfield,
+            ),
+            np.zeros((4, 6, 3), dtype=np.float32),
+            (6, 4),
+            {},
+        )
+        self.controller.refresh_thumbnails_for([asset["hash"]])
+        frame = self.tasks[0].frames[0]
+        worker = ThumbnailRenderWorker(MagicMock(), live)
+
+        assert worker._peek_live_preview(frame, self.tasks[0].workspace_color_space) is not None
+        self.controller._on_thumbnail_render_cancelled()
 
 
 def test_progress_text_has_no_time_left_after_one_frame() -> None:

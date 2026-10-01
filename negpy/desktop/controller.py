@@ -625,7 +625,7 @@ class AppController(QObject):
         self.norm_worker.moveToThread(self.norm_thread)
         self.batch_autocrop_worker = BatchAutoCropWorker(self.batch_autocrop_preview_service)
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
-        self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service)
+        self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service, self.preview_service)
         self.thumbnail_render_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 

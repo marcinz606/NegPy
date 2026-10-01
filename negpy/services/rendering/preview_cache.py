@@ -102,6 +102,12 @@ class PreviewBufferCache:
             self._order.append(t)
             return ent.buffer, ent.dims, ent.metadata
 
+    def peek(self, key: PreviewCacheKey) -> Optional[tuple[ImageBuffer, Dimensions, dict]]:
+        """Like ``get``, but leaves the LRU order as it is."""
+        with self._lock:
+            ent = self._data.get(key.as_tuple())
+            return None if ent is None else (ent.buffer, ent.dims, ent.metadata)
+
     def put(
         self,
         key: PreviewCacheKey,

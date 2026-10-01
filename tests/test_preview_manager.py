@@ -622,3 +622,25 @@ def test_explicit_demosaic_drops_half_size() -> None:
     _, kwargs = raw.postprocess.call_args
     assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.VNG
     assert "half_size" not in kwargs
+
+
+def test_peek_linear_preview_hits_a_decode_load_linear_preview_cached() -> None:
+    ctx = NonStandardFileWrapper(np.full((120, 160, 3), 0.25, dtype=np.float32))
+    mgr = PreviewManager()
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (ctx, {"color_space": "Adobe RGB"})
+        buf, dims, _meta = mgr.load_linear_preview("/fake/path.tif", "Adobe RGB", use_camera_wb=True, file_hash="peek-hash")
+        lf.reset_mock()
+
+        hit = mgr.peek_linear_preview("/fake/path.tif", "Adobe RGB", use_camera_wb=True, file_hash="peek-hash")
+        wrong_wb = mgr.peek_linear_preview("/fake/path.tif", "Adobe RGB", use_camera_wb=False, file_hash="peek-hash")
+        absent = mgr.peek_linear_preview("/fake/path.tif", "Adobe RGB", use_camera_wb=True, file_hash="other-hash")
+
+        lf.get_loader.assert_not_called()
+    assert hit is not None and hit[0] is buf and hit[1] == dims
+    assert wrong_wb is None
+    assert absent is None
+
+
+def test_peek_linear_preview_without_a_hash_is_a_miss() -> None:
+    assert PreviewManager().peek_linear_preview("/fake/path.tif", "Adobe RGB", use_camera_wb=True, file_hash=None) is None

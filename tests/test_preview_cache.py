@@ -434,3 +434,35 @@ def test_navigating_to_the_prefetched_file_lets_its_decode_finish() -> None:
     )
 
     assert seen == [True, False]
+
+
+def test_cache_peek_leaves_lru_order_unchanged() -> None:
+    c = PreviewBufferCache(_small_cfg())
+    a = np.zeros((4, 4, 3), dtype=np.float32)
+    first, second, third = (PreviewCacheKey(h, False, "Adobe RGB", False) for h in ("h1", "h2", "h3"))
+    c.put(first, a, (4, 4), {})
+    c.put(second, a.copy(), (4, 4), {})
+
+    assert c.peek(first)[0] is a
+    c.put(third, a.copy(), (4, 4), {})
+
+    assert c.peek(first) is None  # still the oldest, so evicted
+    assert c.peek(second) is not None
+
+
+def test_cache_get_still_reorders() -> None:
+    c = PreviewBufferCache(_small_cfg())
+    a = np.zeros((4, 4, 3), dtype=np.float32)
+    first, second, third = (PreviewCacheKey(h, False, "Adobe RGB", False) for h in ("h1", "h2", "h3"))
+    c.put(first, a, (4, 4), {})
+    c.put(second, a.copy(), (4, 4), {})
+
+    assert c.get(first) is not None
+    c.put(third, a.copy(), (4, 4), {})
+
+    assert c.peek(first) is not None
+    assert c.peek(second) is None
+
+
+def test_cache_peek_misses_an_absent_key() -> None:
+    assert PreviewBufferCache(_small_cfg()).peek(PreviewCacheKey("none", False, "Adobe RGB", False)) is None
