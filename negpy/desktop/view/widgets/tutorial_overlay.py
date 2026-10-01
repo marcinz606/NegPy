@@ -357,7 +357,7 @@ class TutorialOverlay(QWidget):
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
 
         key, title = self._steps[self._idx].guide
-        SectionHelpDialog(key, title, parent=self._win).exec()
+        SectionHelpDialog(key, title, parent=self._win, repo=self._win.controller.session.repo).exec()
 
     def _poll(self) -> None:
         if not self._steps:
