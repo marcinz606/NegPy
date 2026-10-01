@@ -275,3 +275,33 @@ def test_raw_clip_plateau_does_not_false_positive_on_a_quiet_clean_base(monkeypa
     linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
     assert linearity == 0.0
     assert plateau == 0.0
+
+
+def test_raw_clip_plateau_does_not_false_positive_on_a_lossy_compressed_raw(monkeypatch):
+    # A lossy raw encoding stores every Nth code only, so a clean base reads as a comb: each
+    # populated code is followed by empty ones. The gaps must not read as a falling tail.
+    rng = np.random.default_rng(13)
+    step = 10
+    values = (np.round((3000 + rng.normal(0.0, 30.0, size=20000)) / step) * step).astype(np.int64)
+    monkeypatch.setattr(
+        rawpy,
+        "imread",
+        lambda _path: _FakeBayerFromValues(values, white_level=4095, camera_white_level=3827),
+    )
+    linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert linearity == 0.0
+    assert plateau == 0.0
+
+
+def test_raw_clip_plateau_still_found_on_a_lossy_compressed_raw(monkeypatch):
+    rng = np.random.default_rng(17)
+    step = 10
+    below = (np.round((3600 + rng.normal(0.0, 30.0, size=3000)) / step) * step).astype(np.int64)
+    values = np.concatenate([np.full(2000, 3700, dtype=np.int64), np.clip(below, 0, 3700)])
+    monkeypatch.setattr(
+        rawpy,
+        "imread",
+        lambda _path: _FakeBayerFromValues(values, white_level=4095, camera_white_level=3827),
+    )
+    _linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert plateau > 0.3

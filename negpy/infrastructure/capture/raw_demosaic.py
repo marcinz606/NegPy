@@ -98,11 +98,11 @@ def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
     return np.asarray(rgb)
 
 
-#: Window below the ROI's own maximum searched for a saturation plateau, and the run of bins
+#: Window below the ROI's own maximum searched for a saturation plateau, and the run of codes
 #: immediately above a candidate peak compared against it for density. A real pileup is denser by
-#: an order of magnitude or more; a clean sensor's falling tail never clears this ratio (verified
-#: down to a 4-count read-noise sigma). Both are counts, so they hold regardless of what the raw
-#: format's own ceiling is — this path needs no white level at all.
+#: an order of magnitude or more than every code above it; a clean sensor's mode sits beside a
+#: code of similar density and never clears this ratio. The window is in counts, so it holds
+#: regardless of what the raw format's own ceiling is — this path needs no white level at all.
 _PLATEAU_WINDOW = 256
 _PLATEAU_NEIGHBOR_BINS = 8
 _PLATEAU_DENSITY_RATIO = 6.0
@@ -127,12 +127,17 @@ def _plateau_clip_fraction(values: np.ndarray, dark_frame_guard: int) -> float:
         return 0.0
     lo = max(0, top - _PLATEAU_WINDOW)
     counts = np.bincount(values[values >= lo] - lo, minlength=_PLATEAU_WINDOW + 1)
-    peak_bin = int(np.argmax(counts))
+    # The peak is compared with the densest of the codes the file holds above it, not with
+    # every integer: a lossy raw encoding (Nikon compressed NEF) stores a sparse set of codes,
+    # and the gaps between them are not a falling tail.
+    populated = np.flatnonzero(counts)
+    peak_at = int(np.argmax(counts[populated]))
+    peak_bin = int(populated[peak_at])
     peak = int(counts[peak_bin])
     if peak < _MIN_PLATEAU_SITES:
         return 0.0
-    neighbors = counts[peak_bin + 1 : peak_bin + 1 + _PLATEAU_NEIGHBOR_BINS]
-    neighbor_density = float(neighbors.mean()) if neighbors.size else 0.0
+    neighbors = counts[populated[peak_at + 1 : peak_at + 1 + _PLATEAU_NEIGHBOR_BINS]]
+    neighbor_density = float(neighbors.max()) if neighbors.size else 0.0
     if peak < _PLATEAU_DENSITY_RATIO * max(neighbor_density, 1.0):
         return 0.0
     anchor = lo + peak_bin
