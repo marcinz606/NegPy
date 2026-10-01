@@ -105,6 +105,7 @@ class SheetCanvas(QWidget):
         self._image: Optional[QImage] = None
         self._drag: Optional[str] = None
         self._held_scale: Optional[float] = None
+        self._held_center: Optional[QPointF] = None
         self._readout = ""
         self._frames: list[tuple[int, QRectF]] = []
         self._left_out: set[int] = set()
@@ -154,10 +155,14 @@ class SheetCanvas(QWidget):
         avail_h = max(1.0, self.height() - 2 * _CANVAS_PAD)
         return max(0.05, min(avail_w / w, avail_h / h))
 
+    def _center(self) -> QPointF:
+        return self._held_center if self._held_center is not None else QPointF(self.width() / 2, self.height() / 2)
+
     def sheet_rect(self) -> QRectF:
         s = self.px_per_mm()
         w, h = self._paper[0] * s, self._paper[1] * s
-        return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
+        center = self._center()
+        return QRectF(center.x() - w / 2, center.y() - h / 2, w, h)
 
     def _handles(self) -> tuple[dict[str, QPointF], dict[str, QPointF]]:
         r = self.sheet_rect()
@@ -202,7 +207,10 @@ class SheetCanvas(QWidget):
         handle = self._handle_at(event.position())
         if event.button() == Qt.MouseButton.LeftButton and handle is not None:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
+            # Scale and center hold for the whole drag: the size is measured from them, and any
+            # layout change under a moving pointer would otherwise feed back into it.
             self._held_scale = self.px_per_mm()
+            self._held_center = self._center()
             self._drag = handle
             event.accept()
             return
@@ -231,7 +239,8 @@ class SheetCanvas(QWidget):
             return
         s = self.px_per_mm()
         width, height = self._paper
-        cx, cy = self.width() / 2, self.height() / 2
+        center = self._center()
+        cx, cy = center.x(), center.y()
         if self._drag in ("left", "right", "tl", "tr", "bl", "br"):
             width = 2 * abs(pos.x() - cx) / s
         if self._drag in ("top", "bottom", "tl", "tr", "bl", "br"):
@@ -250,6 +259,7 @@ class SheetCanvas(QWidget):
             return
         self._drag = None
         self._held_scale = None
+        self._held_center = None
         self.paper_released.emit()
         self.update()
 
@@ -336,9 +346,13 @@ class ContactSheetDialog(QDialog):
         self.page_label = hint_label()
         self.next_btn = icon_button("fa5s.chevron-right", "Next sheet")
         self.next_btn.clicked.connect(lambda: self._set_page(self._page + 1))
-        nav.addWidget(self.prev_btn)
-        nav.addWidget(self.page_label)
-        nav.addWidget(self.next_btn)
+        for widget in (self.prev_btn, self.page_label, self.next_btn):
+            # Hidden on a one-sheet roll, but the row keeps its height: the preview must not
+            # change size when a drag crosses into a second sheet.
+            policy = widget.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            widget.setSizePolicy(policy)
+            nav.addWidget(widget)
         nav.addStretch()
         left.addLayout(nav)
         root.addLayout(left, 1)

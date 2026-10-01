@@ -331,3 +331,32 @@ def test_a_proof_unavailable_in_scene_order_falls_back_to_as_edited(dialog):
     d.order_btn.setCurrentIndex(1)
     assert d.print_btn.currentIndex() == 0 and not d.straight_proof()
     assert "Scene Analysis" in d.proof_label.text()
+
+
+def test_the_preview_keeps_its_size_when_the_roll_spills_onto_a_second_sheet(dialog):
+    # The page arrows appear with a second sheet; if they took room from the preview, its
+    # center would move under a drag and the size would flip back and forth at the threshold.
+    d = dialog(n=38)
+    d.show()
+    d._render()
+    QApplication.processEvents()
+    before = d.canvas.size()
+    d._set_paper(DEFAULT_PAPER.width, 260.0, snap=False)
+    d._render()
+    QApplication.processEvents()
+    assert len(d.plan().pages) == 2
+    assert d.canvas.size() == before
+
+
+def test_a_drag_measures_from_where_the_sheet_was_when_it_began(dialog):
+    d = dialog()
+    d.show()
+    QApplication.processEvents()
+    canvas = d.canvas
+    rect = canvas.sheet_rect()
+    scale = canvas.px_per_mm()
+    canvas.mousePressEvent(_mouse(QEvent.Type.MouseButtonPress, QPointF(rect.center().x(), rect.bottom())))
+    canvas.resize(canvas.width(), canvas.height() - 40)
+    canvas.mouseMoveEvent(_mouse(QEvent.Type.MouseMove, QPointF(rect.center().x(), rect.bottom() + 5 * scale)))
+    canvas.mouseReleaseEvent(_mouse(QEvent.Type.MouseButtonRelease, QPointF(rect.center().x(), rect.bottom()), Qt.MouseButton.NoButton))
+    assert d.settings().paper_height == pytest.approx(DEFAULT_PAPER.height + 10, abs=1.0)
