@@ -3,10 +3,11 @@
 import sys
 
 from PyQt6.QtCore import QPoint, QRect
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
+from negpy.desktop.view.styles.theme import THEME
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -20,10 +21,30 @@ def _label():
 
 
 def test_display_letterboxes_the_full_frame():
-    # 100×100 frame in a 200×200 label → a centred 200×200 draw rect (square fits exactly).
+    # 100×100 frame in a 200×200 label → a centred square, less the border on every side.
     rect = _label()._display()
     assert rect is not None
-    assert rect.width() == 200 and rect.height() == 200
+    assert rect == QRect(1, 1, 198, 198)
+
+
+def test_the_frame_has_a_border_just_outside_its_pixels():
+    lbl = RoiImageLabel()
+    lbl.resize(300, 200)
+    frame = QPixmap(100, 100)
+    frame.fill(QColor("black"))  # a dark film holder at the frame edge
+    lbl.set_frame(frame)
+    shot = QImage(lbl.size(), QImage.Format.Format_RGB32)
+    shot.fill(QColor("black"))
+    lbl.render(shot)
+    rect = lbl._display()
+    border, black = QColor(THEME.border_indicator).rgb(), QColor("black").rgb()
+    mid_y = rect.center().y()
+    assert shot.pixel(rect.left() - 1, mid_y) == border
+    assert shot.pixel(rect.right() + 1, mid_y) == border
+    assert shot.pixel(rect.center().x(), rect.top() - 1) == border
+    assert shot.pixel(rect.center().x(), rect.bottom() + 1) == border
+    assert shot.pixel(rect.left(), mid_y) == black  # the border covers no frame pixel
+    assert shot.pixel(rect.right(), mid_y) == black
 
 
 def test_to_fraction_maps_widget_px_to_full_frame():

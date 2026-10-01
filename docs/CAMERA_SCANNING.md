@@ -79,6 +79,9 @@ the preset instead (see **Presets**), so the scan cannot drift. A control the bo
 offer is grayed out. Aperture on a lens with no electronic diaphragm is the usual case, and
 that is most enlarging and macro glass.
 
+A thin border marks the edge of the captured frame, so a dark film holder inside the frame
+does not read as the area outside it.
+
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**
 beside the preset dropdown, place the small rectangle on the clear film base, name the
 preset and run it. The rebate strip between frames is an ideal target. Calibration meters

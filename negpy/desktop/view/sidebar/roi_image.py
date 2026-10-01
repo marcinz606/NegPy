@@ -16,6 +16,9 @@ from negpy.desktop.view.styles.theme import THEME
 
 from negpy.services.capture.calibration import Roi
 
+#: Width of the line drawn just outside the frame. It separates the edge of the captured
+#: frame from a dark film holder inside it and from the dark panel around it.
+_FRAME_BORDER = 1
 _CLICK_SLOP = 5  # px: a release within this of the press counts as a click (scan pop-up magnifier)
 _CROSSHAIR_FRAC = 0.012  # a click samples a patch this wide (fraction of frame) — the rebate is narrow
 _CROSSHAIR_ASPECT = 2.5  # patch height : width in pixels → a vertical strip that fits the rebate bar
@@ -109,14 +112,19 @@ class RoiImageLabel(QLabel):
     # ── geometry ──────────────────────────────────────────────────────
 
     def _display(self) -> Optional[QRect]:
-        """Widget-px rect the full frame is drawn into (letterboxed & centred); None when no frame."""
+        """Widget-px rect the full frame is drawn into (letterboxed & centred); None when no frame.
+
+        It leaves `_FRAME_BORDER` free on every side for the frame border."""
         if self._pixmap is None or self._pixmap.isNull():
             return None
         pw, ph = self._pixmap.width(), self._pixmap.height()
         if pw <= 0 or ph <= 0:
             return None
-        scale = min(self.width() / pw, self.height() / ph)
+        room_w, room_h = self.width() - 2 * _FRAME_BORDER, self.height() - 2 * _FRAME_BORDER
+        scale = min(room_w / pw, room_h / ph)
         dw, dh = int(pw * scale), int(ph * scale)
+        if dw <= 0 or dh <= 0:
+            return None
         return QRect((self.width() - dw) // 2, (self.height() - dh) // 2, dw, dh)
 
     @staticmethod
@@ -151,6 +159,8 @@ class RoiImageLabel(QLabel):
         draw_rect = self._display()
         if draw_rect is not None and self._pixmap is not None:
             painter.drawPixmap(draw_rect, self._pixmap)
+            painter.setPen(QPen(QColor(THEME.border_indicator), _FRAME_BORDER))
+            painter.drawRect(draw_rect.adjusted(-_FRAME_BORDER, -_FRAME_BORDER, 0, 0))
             if self._roi is not None:  # just the box outline — no centre cross (cleaner)
                 painter.setPen(QPen(QColor(THEME.status_success), 2))
                 painter.drawRect(self._roi_in_widget(self._roi, draw_rect))
