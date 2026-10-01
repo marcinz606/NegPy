@@ -5,6 +5,8 @@ from dataclasses import replace
 from PIL import Image
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.lab.models import SharpenMethod
+from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets import thumbnail_fingerprint as tf
@@ -46,6 +48,41 @@ class TestThumbnailFingerprint:
             export=replace(config.export, **{export_field: _other_value(getattr(config.export, export_field))}),
         )
         assert _fp(edited) == _fp(config)
+
+    def test_unhashed_fields_exist(self) -> None:
+        config = WorkspaceConfig()
+        for section, names in tf._UNHASHED_FIELDS.items():
+            assert names <= set(getattr(config, section).__dataclass_fields__), section
+        for section in tf._NON_PIXEL_SECTIONS | tf._BELOW_THUMBNAIL_SECTIONS:
+            assert hasattr(config, section), section
+
+    def test_export_only_and_below_thumbnail_settings_do_not_change_it(self) -> None:
+        config = WorkspaceConfig()
+        edited = replace(
+            config,
+            process=replace(
+                config.process,
+                demosaic_export=DemosaicMode.VNG,
+                demosaic_preview=DemosaicMode.VNG,
+                roll_name="Roll 7",
+                baseline_source="roll:7",
+            ),
+            lab=replace(
+                config.lab,
+                sharpen=config.lab.sharpen + 0.5,
+                sharpen_method=SharpenMethod.RL,
+                sharpen_radius=config.lab.sharpen_radius + 1,
+                sharpen_masking=config.lab.sharpen_masking + 0.1,
+                chroma_denoise=config.lab.chroma_denoise + 1,
+            ),
+            retouch=replace(config.retouch, dust_remove=not config.retouch.dust_remove, manual_heal_strokes=[((0.5, 0.5),)]),
+        )
+        assert _fp(edited) == _fp(config)
+
+    def test_a_visible_setting_in_a_partly_hashed_section_changes_it(self) -> None:
+        config = WorkspaceConfig()
+        assert _fp(replace(config, lab=replace(config.lab, saturation=config.lab.saturation + 0.2))) != _fp(config)
+        assert _fp(replace(config, process=replace(config.process, highlight_reconstruction=1))) != _fp(config)
 
     def test_workspace_color_space_changes_it(self) -> None:
         assert _fp(WorkspaceConfig(), workspace_color_space="ProPhoto RGB") != _fp(WorkspaceConfig())

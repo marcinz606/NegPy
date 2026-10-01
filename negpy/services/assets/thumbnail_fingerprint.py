@@ -33,6 +33,17 @@ _COMMENT_PREFIX = "negpy-thumb:"
 # the exported file. Everything else is assumed to shape the thumbnail.
 _NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
 
+# Fields left out of a hashed section. Export-only and label fields never reach a
+# thumbnail. The rest change only detail a thumbnail is too small to show, and a roll push
+# or paste of them would otherwise cost a full source read per frame.
+_UNHASHED_FIELDS: dict[str, frozenset[str]] = {
+    "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview"}),
+    "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "chroma_denoise"}),
+}
+
+# Sections whose every field is below thumbnail size: dust, scratch and heal repairs.
+_BELOW_THUMBNAIL_SECTIONS = frozenset({"retouch"})
+
 
 def _file_identity(path: Optional[str]) -> Optional[str]:
     """A profile path plus size and mtime: replacing the file under the same name changes
@@ -67,7 +78,12 @@ def thumbnail_fingerprint(
     monitor-profile or soft-proof change would otherwise make every thumbnail stale and
     force a full source read per frame for a color shift.
     """
-    sections = {f.name: asdict(getattr(config, f.name)) for f in fields(config) if f.name not in _NON_PIXEL_SECTIONS}
+    sections = {}
+    for f in fields(config):
+        if f.name in _NON_PIXEL_SECTIONS or f.name in _BELOW_THUMBNAIL_SECTIONS:
+            continue
+        skip = _UNHASHED_FIELDS.get(f.name, frozenset())
+        sections[f.name] = {k: v for k, v in asdict(getattr(config, f.name)).items() if k not in skip}
     payload = {
         "v": THUMBNAIL_RENDER_VERSION,
         "config": sections,
