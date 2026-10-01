@@ -824,6 +824,41 @@ class TestThumbnailRefreshController:
 
         assert len(self.thumbnail_updates) == count
 
+    # A batch turn keeps a current thumbnail current.
+
+    def _batch_turn(self, turned: WorkspaceConfig) -> dict:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.controller.state.selected_indices = [0, 1, 2]
+        before = self.controller.thumbnail_turn_snapshot()
+        self.session.config_for_asset.return_value = turned
+        keys = [asset_thumbnail_key(f) for f in self.files[1:]]
+        self.controller.state.stale_thumbnails.update(keys)  # as push_external_history leaves them
+        self.controller.rotate_thumbnails(keys, 1, before)
+        return dict(zip(("other", "third"), keys))
+
+    def test_a_batch_turn_carries_a_current_fingerprint_to_the_turned_settings(self) -> None:
+        self._save("other", self._current("other"))
+        self._save("third", "some-older-render")
+        base = WorkspaceConfig()
+
+        keys = self._batch_turn(replace(base, geometry=replace(base.geometry, rotation=1)))
+
+        assert self.controller.asset_store.get_thumbnail_fingerprint(keys["other"]) == self._current("other")
+        assert keys["other"] not in self.controller.state.stale_thumbnails
+        assert self.controller.asset_store.get_thumbnail_fingerprint(keys["third"]) is None
+        assert keys["third"] in self.controller.state.stale_thumbnails
+
+    def test_a_batch_turn_does_not_vouch_for_a_keystoned_frame(self) -> None:
+        base = WorkspaceConfig()
+        keystoned = replace(base, geometry=replace(base.geometry, converge_v=4.0))
+        self.session.config_for_asset.return_value = keystoned
+        self._save("other", self._current("other"))
+
+        keys = self._batch_turn(replace(keystoned, geometry=replace(keystoned.geometry, rotation=1)))
+
+        assert self.controller.asset_store.get_thumbnail_fingerprint(keys["other"]) is None
+
     # Seeding the Film Strip's stale dot from fingerprints when a roll opens.
 
     def _seed(self, assets=None) -> set:

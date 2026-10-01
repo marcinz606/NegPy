@@ -991,15 +991,52 @@ class AppController(QObject):
             # worker thread and uploaded_files must not grow a stale mode.
             self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
 
-    def _turn_thumbnails(self, keys: list, qt_transform: QTransform, pil_transpose: Any) -> bool:
+    def thumbnail_turn_snapshot(self) -> dict[str, Optional[bool]]:
+        """For each selected frame but the active one, whether its stored thumbnail shows its
+        settings: True, False, or None for a quick or unfingerprinted one. A batch turn reads
+        it after the new geometry is written, so it is taken before."""
+        if len(self.state.selected_indices) <= 1:
+            return {}
+        result: dict[str, Optional[bool]] = {}
+        for idx in self.state.selected_indices:
+            if not 0 <= idx < len(self.state.uploaded_files):
+                continue
+            asset = self.state.uploaded_files[idx]
+            if asset.get("hash") == self.state.current_file_hash or self.diptych_pair(asset) is not None:
+                continue
+            key = asset_thumbnail_key(asset)
+            stored = self.asset_store.get_thumbnail_fingerprint(key)
+            if stored is None or stored == THUMB_QUICK:
+                result[key] = None
+            else:
+                result[key] = key not in self.state.stale_thumbnails and self._thumbnail_matches(asset, stored)
+        return result
+
+    def _turned_fingerprint(self, asset: Optional[dict]) -> Optional[str]:
+        """Fingerprint of a current thumbnail turned with its frame, now that the turn is saved.
+        A turned bitmap can sit a few pixels off a fresh render of a cropped frame; that is
+        accepted, as re-rendering a whole turned roll costs far more than it shows."""
+        if asset is None:
+            return None
+        config = self._config_for_batch_asset(asset)
+        # TODO: drop once Tilt and Swing turn with the picture (#1239).
+        if config.geometry.converge_v or config.geometry.converge_h:
+            return None
+        return self.thumbnail_fingerprint_for(config)
+
+    def _turn_thumbnails(
+        self, keys: list, qt_transform: QTransform, pil_transpose: Any, before: Optional[dict[str, Optional[bool]]] = None
+    ) -> bool:
         """Turns each cached thumbnail in place by one step. Memory and disk turn from
         their OWN current content, never from each other: a frame that rendered on
         the canvas has a memory icon ahead of its disk JPEG (persisted lazily), and
         deriving one from the other would clobber whichever is more current. A frame
         with no disk-cached thumbnail yet is still mid-decode in generate_missing_
         thumbnails, so the turn is queued instead and replayed onto that decode's own
-        result in _apply_thumbnails."""
+        result in _apply_thumbnails. ``before`` is thumbnail_turn_snapshot's record: a
+        thumbnail current before the turn takes the turned settings' fingerprint."""
         changed = False
+        assets = {asset_thumbnail_key(a): a for a in self.state.uploaded_files} if before else {}
         for key in keys:
             icon = self.state.thumbnails.get(key)
             sizes = icon.availableSizes() if icon is not None else []
@@ -1008,16 +1045,18 @@ class AppController(QObject):
                 changed = True
             cached = self.asset_store.get_thumbnail(key)
             if cached is not None:
-                # The turned bitmap matches the new geometry only if it matched the old one,
-                # which a stored fingerprint cannot vouch for across the edit. Drop it (reads
-                # as stale, costing at most one re-render); a quick thumbnail stays quick.
+                # Without a record that the bitmap matched the old geometry, the turned one
+                # reads as stale; a quick thumbnail stays quick.
                 was_quick = decode_comment(cached.info.get("comment")) == THUMB_QUICK
-                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose), fingerprint=THUMB_QUICK if was_quick else None)
+                fingerprint = THUMB_QUICK if was_quick else None
+                if before is not None and before.get(key):
+                    fingerprint = self._turned_fingerprint(assets.get(key))
+                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose), fingerprint=fingerprint)
             else:
                 self._thumbnail_pending_correction.setdefault(key, []).append(pil_transpose)
         return changed
 
-    def rotate_thumbnails(self, keys: list, direction: int) -> None:
+    def rotate_thumbnails(self, keys: list, direction: int, before: Optional[dict[str, Optional[bool]]] = None) -> None:
         """Turns each cached thumbnail in place by a quarter-turn, for a batch
         rotate on frames that are not the active one."""
         from PIL import Image
@@ -1027,14 +1066,18 @@ class AppController(QObject):
             return
         pil_transpose = {1: Image.Transpose.ROTATE_90, 2: Image.Transpose.ROTATE_180, 3: Image.Transpose.ROTATE_270}[turns]
         qt_transform = QTransform().rotate(-90 * direction)
-        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose)
+        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose, before)
         # push_external_history flagged these stale for the bulk geometry write; the turn
         # above already brings the cached bitmap into agreement with it, so no render is owed.
-        self.state.stale_thumbnails.difference_update(keys)
+        self._clear_turned_stale_flags(keys, before)
         if changed:
             self.session.asset_model.refresh()
 
-    def flip_thumbnails(self, keys: list, horizontal: bool) -> None:
+    def _clear_turned_stale_flags(self, keys: list, before: Optional[dict[str, Optional[bool]]]) -> None:
+        """A thumbnail already stale before the turn stays flagged."""
+        self.state.stale_thumbnails.difference_update(k for k in keys if before is None or before.get(k) is not False)
+
+    def flip_thumbnails(self, keys: list, horizontal: bool, before: Optional[dict[str, Optional[bool]]] = None) -> None:
         """Mirrors each cached thumbnail in place. See _turn_thumbnails for why
         memory and disk turn independently rather than one deriving from the other."""
         from PIL import Image
@@ -1043,8 +1086,8 @@ class AppController(QObject):
             return
         pil_transpose = Image.Transpose.FLIP_LEFT_RIGHT if horizontal else Image.Transpose.FLIP_TOP_BOTTOM
         qt_transform = QTransform().scale(-1, 1) if horizontal else QTransform().scale(1, -1)
-        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose)
-        self.state.stale_thumbnails.difference_update(keys)
+        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose, before)
+        self._clear_turned_stale_flags(keys, before)
         if changed:
             self.session.asset_model.refresh()
 

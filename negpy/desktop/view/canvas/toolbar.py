@@ -708,9 +708,10 @@ class ActionToolbar(QWidget):
             self.session.update_config(new_config, persist=True)
         # A multi-selection rotates every other selected frame too, each by its own
         # current geometry rather than a copy of the active frame's new one.
+        before = self.controller.thumbnail_turn_snapshot()
         touched = self.session.rotate_selected_frames(direction, active_included=include_active)
         if touched:
-            self.controller.rotate_thumbnails(touched, direction)
+            self.controller.rotate_thumbnails(touched, direction, before)
         if include_active:
             # Rotating must not drop an active before/after or flat-peek, so re-render in
             # place within whichever view is on.
@@ -734,9 +735,10 @@ class ActionToolbar(QWidget):
             self.session.update_config(new_config, persist=True)
         # A multi-selection flips every other selected frame too, each by its own
         # current geometry rather than a copy of the active frame's new one.
+        before = self.controller.thumbnail_turn_snapshot()
         touched = self.session.flip_selected_frames(horizontal, active_included=include_active)
         if touched:
-            self.controller.flip_thumbnails(touched, horizontal)
+            self.controller.flip_thumbnails(touched, horizontal, before)
         if include_active:
             # Flipping shouldn't drop an active before/after or flat-peek (see rotate()).
             self.controller.rerender_active_view()
