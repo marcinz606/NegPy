@@ -9,6 +9,7 @@ own anchor) by each row's cached identity, not its list position, across a sort,
 a file added to or removed from the list.
 """
 
+import pytest
 from PyQt6.QtCore import Qt, QEvent, QItemSelectionModel, QPointF
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
@@ -25,6 +26,20 @@ def _files(n):
     return [{"name": f"f{i}.dng", "path": f"/tmp/f{i}.dng", "hash": f"h{i}", "mtime": 100 - i} for i in range(n)]
 
 
+# A shown panel left to the cycle collector can be deleted while Qt paints it.
+_panels = []
+
+
+@pytest.fixture(autouse=True)
+def _close_panels():
+    yield
+    while _panels:
+        panel = _panels.pop()
+        panel.close()
+        panel.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+
+
 def _browser(qapp):
     controller = _Controller(_Repo())
     controller.state.uploaded_files = _files(8)
@@ -32,6 +47,7 @@ def _browser(qapp):
     panel = SessionPanel(controller)
     panel.resize(400, 800)
     panel.show()
+    _panels.append(panel)
     qapp.processEvents()
     return panel.file_browser
 
