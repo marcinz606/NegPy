@@ -242,6 +242,12 @@ def test_detect_luma_score_finds_dark_speck():
     assert abs(float(xs.mean()) - 81.5) < 5.0 and abs(float(ys.mean()) - 81.5) < 5.0
 
 
+def test_detect_luma_score_finds_a_speck_at_the_smallest_size():
+    img = _dusty_source()
+    score, _ = detect_luma_score(img, 0.66, 2)
+    assert score is not None and (score[80:83, 80:83] < _IR_WRITE_HI).all()
+
+
 def test_detect_luma_score_exposure_invariant():
     """The density proxy is self-normalized: a 2-stop exposure shift must yield the
     identical score (no detection flicker while grading)."""

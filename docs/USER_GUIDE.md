@@ -565,7 +565,7 @@ Spotting, as done with a brush on a finished print. Marks are found by local con
 
 *   **Spot Threshold** (0.01 to 1.0): the bar for specks. Lower catches more, with more false positives. Above the default the bar rises faster, so the top end leaves sharp highlights alone, and 1.0 turns speck detection off. The bar is measured against the film's own grain, so a value means the same on any scan. It rises in busy detail, so dust on textured film may need a lower Spot Threshold or the IR or Heal tools.
 *   **Hair Threshold** (0.01 to 1.0): the same bar for hairs and other long thin marks. It rises steeply along tonal edges and in busy detail, where a bright rim or a thin image line looks like a hair. Lower it if a hair across busy detail is missed; 1.0 turns hair detection off.
-*   **Size** (3 to 8 px): max spot radius. A mark covers the whole speck or hair.
+*   **Size** (2 to 8 px): max spot radius. A mark covers the whole speck or hair.
 *   To protect detail, right-drag on the canvas to paint an exclusion band, or right-click and pick **Exclude From Optical Removal** for one spot. Only what you paint is excluded. The band is Brush Size wide and shows in amber with the overlay on. Toggling **Optical Removal** clears every band.
 *   The cursor button beside **Optical Removal** makes a plain right-click exclude the spot, with no menu. The canvas menu (Copy Settings, Reset View) is then out of reach while the removal is on; the Heal and Scratch tools keep their right-click. The setting is remembered between sessions.
 

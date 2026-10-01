@@ -64,7 +64,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(optical_row)
         self.threshold_slider = CompactSlider("Spot Threshold", 0.01, 1.0, conf.dust_threshold)
         self.hair_threshold_slider = CompactSlider("Hair Threshold", 0.01, 1.0, conf.dust_hair_threshold)
-        self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
+        self.auto_size_slider = CompactSlider("Size", 2.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
         self.layout.addWidget(SliderGroup(self.threshold_slider, self.hair_threshold_slider, self.auto_size_slider))
 
         self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
