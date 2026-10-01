@@ -11,9 +11,10 @@ import os
 import re
 from dataclasses import asdict, fields, replace
 
+import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QPixmap, QStandardItemModel
+from PyQt6.QtGui import QImage, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -46,6 +47,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
+from negpy.services.capture.focus_meter import FocusMeter
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
@@ -81,6 +83,17 @@ _MANUAL_PRESET = "\x00create-manual"
 # 10 ms and set_color is a fire-and-forget serial write, so 50 ms keeps an
 # order-of-magnitude margin. A fixed tuning constant, not a persisted setting.
 _LED_SETTLE_S = 0.05
+#: A body takes a second or two to switch between its full and magnified view.
+_MAGNIFIER_SETTLE_MS = 2500
+
+
+def _gray_array(pixmap: QPixmap) -> np.ndarray:
+    """A live frame as an HxW uint8 array, for the focus meter."""
+    image = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
+    bits = image.constBits()
+    bits.setsize(image.sizeInBytes())
+    rows = np.frombuffer(bits, dtype=np.uint8).reshape(image.height(), image.bytesPerLine())
+    return rows[:, : image.width()].copy()
 
 
 class ScanlightSidebar(QWidget):
@@ -105,6 +118,14 @@ class ScanlightSidebar(QWidget):
         self._status_pinned = False  # a pinned status (calibration outcome) outranks the light echo
         self._exposure_popup = None  # the over/under pop-up (kept referenced; replaced per calibration)
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
+        self._magnifier_available = True  # false once the body reports it cannot stream the magnified view
+        self._focus_meter = FocusMeter()
+        # The magnified view replaces the full frame a moment after the click, and the two do
+        # not share a sharpness scale, so the peak resets again once the body has switched.
+        self._focus_settle_timer = QTimer()
+        self._focus_settle_timer.setSingleShot(True)
+        self._focus_settle_timer.setInterval(_MAGNIFIER_SETTLE_MS)
+        self._focus_settle_timer.timeout.connect(self._reset_focus_meter)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
         self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
         # Advertised camera abilities (issue #621). Optimistic until a body has been opened:
@@ -364,6 +385,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
         self.controller.capture_live_view_failed.connect(self._on_live_view_failed)
         self.controller.capture_live_view_unsupported.connect(self._on_live_view_unsupported)
+        self.controller.capture_focus_magnifier_unavailable.connect(self._on_magnifier_unavailable)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -882,6 +904,8 @@ class ScanlightSidebar(QWidget):
             # The body may have drifted since a preset was picked with the stream down, because
             # the write lands only once a session is open. Re-assert the preset's exposure.
             self._apply_active_preset_camera_settings()
+        self._magnifier_available = True  # a new session can be a different body
+        self._reset_focus_meter()
         self._lv_timer.start()
         self._set_status("Live view running.")
 
@@ -923,6 +947,8 @@ class ScanlightSidebar(QWidget):
         self._lv_last_mtime = mtime
         self._lv_frames_seen += 1
         self._lv_target.set_frame(pixmap)  # scan pop-up or the calibration window
+        if self._lv_target is self.lv_image:
+            self.lv_window.set_focus(self._focus_meter.update(_gray_array(pixmap)))
         if self._lv_frames_seen % 12 == 0:
             # About once a second: keep the ISO/shutter/aperture dropdowns fresh in whichever
             # pop-up is streaming. Gated to the scan window, this left the calibration pop-up's
@@ -1001,12 +1027,29 @@ class ScanlightSidebar(QWidget):
     def _reset_magnifier(self) -> None:
         """Forget the magnifier state when the stream stops (the camera resets it too)."""
         self._magnifier_on = False
+        self._focus_settle_timer.stop()
+
+    def _reset_focus_meter(self) -> None:
+        self._focus_meter.reset()
+        self.lv_window.set_focus(None)
+
+    @pyqtSlot(str)
+    def _on_magnifier_unavailable(self, reason: str) -> None:
+        """The body cannot stream its magnified view: a click only resets the focus meter."""
+        self._magnifier_available = False
+        self._magnifier_on = False
+        self._focus_settle_timer.stop()
+        self._set_status(reason)
 
     def _on_magnifier_click(self, fx: float, fy: float) -> None:
         """Click the live view to magnify at that spot; click again for the full frame.
-        Only while the stream is running."""
+        Every click resets the focus meter's peak. Only while the stream is running."""
         if not self.lv_btn.isChecked():
             return
+        self._reset_focus_meter()
+        if not self._magnifier_available:
+            return
+        self._focus_settle_timer.start()
         if self._magnifier_on:
             self._on_magnifier_off()
             return

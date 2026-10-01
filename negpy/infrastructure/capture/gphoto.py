@@ -88,6 +88,12 @@ _MAGNIFIERS = (
     _Magnifier(ratio="liveviewimagezoomratio"),  # PTP_VENDOR_NIKON
 )
 
+#: Driver entries whose magnifier stops the preview stream: the body enters its enlarged view
+#: and answers every frame request "Device Busy" until the ratio is back at full frame. A
+#: body not listed here is caught by the preview loop, at the cost of one stalled frame
+#: request.
+_STALLING_MAGNIFIER_DRIVERS = frozenset({"Nikon DSC D3300"})
+
 #: Where the camera should put the file it just took. Tethered capture wants it in memory,
 #: not on a card: Canon and Nikon default to the card and fail outright without one.
 _CAPTURE_TARGET = "capturetarget"
@@ -292,6 +298,7 @@ class GphotoCamera:
         gp_module: Optional[Any] = None,
         on_preview_died: Optional[Callable[[str], None]] = None,
         on_preview_unusable: Optional[Callable[[str], None]] = None,
+        on_magnifier_unusable: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._gp = gp_module or _gp()
         self._jpeg_path = jpeg_path or default_jpeg_path()
@@ -303,6 +310,8 @@ class GphotoCamera:
         # Called instead of the above when the stream fails but the body still answers. The
         # session stays open and scanning continues; only the preview is given up.
         self._on_preview_unusable = on_preview_unusable
+        # Called when a click asks for a magnifier this body cannot stream.
+        self._on_magnifier_unusable = on_magnifier_unusable
         self._camera: Any = None
         self._model = ""
         # Cleared when the body stops answering. Unplugging it leaves the handle behind, and a
@@ -335,6 +344,8 @@ class GphotoCamera:
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
         self._magnifier_probed = False
+        self._magnifier_engaged = False
+        self._magnifier_stalls = False
         self._aim_warned = False
         self._names: dict[str, Optional[str]] = {}  # settings key → this body's property name
         self._position = (_GRID_W // 2, _GRID_H // 2)
@@ -626,6 +637,10 @@ class GphotoCamera:
             choices = _choices(self._gp, widget)
             if len(choices) < 2:
                 continue  # a magnifier with nothing to select is no magnifier
+            if self._capabilities.driver_model in _STALLING_MAGNIFIER_DRIVERS:
+                self._magnifier_stalls = True
+                logger.info("gphoto2: %r stops the preview stream on this body; magnifier disabled", spec.ratio)
+                return None
             steps = choices[1:]  # choices[0] is the off/1x entry
             if spec.skip_first_step and len(steps) >= 2:
                 steps = steps[1:]  # Sony's first step repositions without magnifying
@@ -655,8 +670,28 @@ class GphotoCamera:
             widget = camera.get_single_config(spec.ratio)
             widget.set_value(value)
             camera.set_single_config(spec.ratio, widget)
+            self._magnifier_engaged = ratio != self._magnifier_off
         except self._gp.GPhoto2Error as exc:
             logger.warning("gphoto2: could not set magnifier %r to %r: %s", spec.ratio, value, exc)
+
+    def _magnifier_refusal(self) -> str:
+        return f"{self._model or 'This camera'} cannot stream its magnified view. Use the focus meter under the image."
+
+    def _release_stalled_magnifier(self) -> bool:
+        """Switch off a magnifier that stopped the stream and retire it for this session.
+
+        Returns False when no magnifier is engaged, so the empty frame has another cause.
+        """
+        with self._lock:
+            if not self._magnifier_engaged or self._magnifier is None:
+                return False
+            logger.warning("gphoto2: %r stopped the preview stream; magnifier disabled", self._magnifier.ratio)
+            self._write_magnifier(self._magnifier_off)
+            self._magnifier_engaged = False
+            self._magnifier = None
+            self._magnifier_stalls = True
+        self._report_preview_stopped(self._on_magnifier_unusable, self._magnifier_refusal())
+        return True
 
     def set_focus_magnifier(self, on: bool) -> None:
         with self._lock:
@@ -678,6 +713,8 @@ class GphotoCamera:
         with self._lock:
             spec = self._probe_magnifier()
             if spec is None or self._magnifier_ratios is None:
+                if self._magnifier_stalls:
+                    self._report_preview_stopped(self._on_magnifier_unusable, self._magnifier_refusal())
                 return
             if not spec.packed and not self._aim_warned:
                 self._aim_warned = True
@@ -888,6 +925,8 @@ class GphotoCamera:
                         self._drain_events()
                     frame = self._camera.capture_preview()
                     data = bytes(memoryview(frame.get_data_and_size()))
+                if not data and self._release_stalled_magnifier():
+                    continue
                 self._publish_frame(data)
                 failures = 0
                 if time.monotonic() >= next_settings:

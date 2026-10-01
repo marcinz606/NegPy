@@ -1524,3 +1524,41 @@ def test_folder_as_roll_captures_into_the_output_folder_itself(tmp_path):
     assert req.roll_name == "Portra 400"
     assert req.as_roll is True
     assert not w.output.roll_edit.isEnabled()
+
+
+def _streaming_sidebar():
+    w = _sidebar()
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    return w
+
+
+def test_a_click_resets_the_focus_meter_peak():
+    w = _streaming_sidebar()
+    w._focus_meter._peak = 5.0
+    w._on_magnifier_click(0.5, 0.5)
+    assert w._focus_meter._peak == 0.0
+
+
+def test_a_click_only_resets_the_meter_once_the_magnifier_is_unavailable():
+    w = _streaming_sidebar()
+    w._on_magnifier_click(0.5, 0.5)
+    w._on_magnifier_unavailable("cannot stream its magnified view")
+    assert not w._magnifier_on
+    assert not w._focus_settle_timer.isActive()
+    w.controller.set_focus_magnifier_pos.reset_mock()
+    w._focus_meter._peak = 5.0
+    w._on_magnifier_click(0.5, 0.5)
+    assert not w.controller.set_focus_magnifier_pos.called
+    assert w._focus_meter._peak == 0.0
+
+
+def test_live_view_window_shows_the_focus_reading():
+    w = _sidebar()
+    w.lv_window.set_focus(0.5)
+    assert w.lv_window.focus_label.text() == "Focus meter: 50% of peak"
+    w.lv_window.set_focus(0.995)
+    assert w.lv_window.focus_label.text() == "Focus meter: at peak"
+    w.lv_window.set_focus(None)
+    assert w.lv_window.focus_label.text() == "Focus meter: no reading"

@@ -8,6 +8,7 @@ emit signals; `ScanlightSidebar` wires them and mirrors scanning state + status.
 """
 
 import time
+from typing import Optional
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -16,7 +17,14 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QToolBut
 
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
-from negpy.desktop.view.styles.templates import hint_label, labeled_action, pin_dialog_default, wrap_tooltip, SCAN_BUTTON_HEIGHT
+from negpy.desktop.view.styles.templates import (
+    SCAN_BUTTON_HEIGHT,
+    hint_label,
+    labeled_action,
+    pin_dialog_default,
+    set_hint_kind,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
@@ -27,6 +35,8 @@ from negpy.desktop.view.widgets.floating_panel import float_over_app
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text}
 _DONE_COLOR = THEME.status_success
 _FLASH_MS = 1500
+#: A focus reading at or above this fraction of the peak counts as at the peak.
+_FOCUS_AT_PEAK = 0.99
 
 
 class SettingStepper(QWidget):
@@ -156,6 +166,17 @@ class LiveViewWindow(QDialog):
         self.image.setCursor(QCursor(_loupe, 9, 9))  # hotspot ≈ the lens centre
         layout.addWidget(self.image, 1)
 
+        self.focus_label = hint_label("")
+        self.focus_label.setToolTip(
+            wrap_tooltip(
+                "Sharpness of the live image against the best value seen. Turn the focus ring through "
+                "best focus, then back until the reading returns to the peak. Click the image to reset the peak."
+            )
+        )
+        self._focus_kind = "muted"
+        layout.addWidget(self.focus_label)
+        self.set_focus(None)
+
         # Shown in the image's place on bodies that advertise no live view (issue #621). The
         # window still scans: only the preview pane is replaced, so the toolbar, the settings row
         # and the frame counter all keep working.
@@ -252,10 +273,24 @@ class LiveViewWindow(QDialog):
         strip the only Scan button in the app and lock these cameras out (issue #621).
         """
         self.image.setVisible(available)
+        self.focus_label.setVisible(available)
         self.no_preview.setVisible(not available)
         if not available:
             self.no_preview.setText(f"{reason}\n\nFraming and focus have to be set on the camera itself. Scanning works as usual.")
         self.setWindowTitle("Scanlight — Live View" if available else "Scanlight — Scan (no live view)")
+
+    def set_focus(self, fraction: Optional[float]) -> None:
+        """Show the focus meter reading: 0..1 of the peak, or None while there is none."""
+        if fraction is None:
+            text, kind = "Focus meter: no reading", "muted"
+        else:
+            at_peak = fraction >= _FOCUS_AT_PEAK
+            text = "Focus meter: at peak" if at_peak else f"Focus meter: {round(fraction * 100)}% of peak"
+            kind = "success" if at_peak else "muted"
+        self.focus_label.setText(text)
+        if kind != self._focus_kind:
+            self._focus_kind = kind
+            set_hint_kind(self.focus_label, kind)
 
     def set_progress(self, frac: float) -> None:
         self._flash_token += 1

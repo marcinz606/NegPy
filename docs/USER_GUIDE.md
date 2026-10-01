@@ -1083,7 +1083,7 @@ Capture film directly into NegPy. The **Scanner** card picks the scanner; the ta
 Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux). With a NegPy **Scanlight**, it captures narrowband R/G/B triplets from film-stock presets; without, one white-light exposure. Needs `python-gphoto2` (`pip install gphoto2`; no Windows build). See CAMERA_SCANNING.md for setup, the macOS camera-daemon note and troubleshooting.
 
 *   **Camera** / **Light**: connection status, found automatically; the light shows its LED temperature, amber once it runs warm.
-*   **Live View**: frame and focus; click the image to aim the focus magnifier, click again for the full frame. ISO, shutter and aperture are set from its toolbar, or locked by a calibrated RGB preset.
+*   **Live View**: frame and focus; click the image to aim the focus magnifier, click again for the full frame. The **Focus meter** under the image reads sharpness against the best value seen: turn the focus ring through best focus, then back until it reads **at peak**. Each click resets the peak, and on a body that cannot stream its magnified view a click does only that. ISO, shutter and aperture are set from its toolbar, or locked by a calibrated RGB preset.
 *   **Scan** and **Retake**: **Scan** shoots the next frame, auto-numbered, and imports it; **Retake** shoots the last frame again. In the Live View window, `S` scans and `R` retakes; both can be rebound under Camera Live View in Keyboard Shortcuts.
 *   **Narrowband**: RGB-lit scans render more saturated; the Calibration card's **Narrowband** toggle corrects this.
 
