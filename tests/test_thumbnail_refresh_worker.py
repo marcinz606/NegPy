@@ -333,8 +333,10 @@ def test_thumbnail_render_frame_started_fires_before_each_decode(qapp, monkeypat
     assert order == ["started:a", "decode:a", "started:b", "decode:b"]
 
 
-def test_thumbnail_render_failed_decode_reports_zero_times(qapp, monkeypatch) -> None:
+def test_thumbnail_render_failed_decode_reports_the_time_it_took(qapp, monkeypatch) -> None:
     worker, processor = _worker(monkeypatch)
+    ticks = iter([10.0, 40.0])
+    monkeypatch.setattr(render_workers.time, "perf_counter", lambda: next(ticks))
 
     def _decode(*_args):
         raise OSError("share went away")
@@ -345,5 +347,18 @@ def test_thumbnail_render_failed_decode_reports_zero_times(qapp, monkeypatch) ->
 
     worker.process(_task(_input("a", WorkspaceConfig())))
 
-    assert progress == [(1, 1, "a", 0.0, 0.0)]
+    assert progress == [(1, 1, "a", 30.0, 0.0)]
     assert processor.run_calls == []
+
+
+def test_thumbnail_render_failed_render_reports_the_time_it_took(qapp, monkeypatch) -> None:
+    worker, processor = _worker(monkeypatch)
+    processor.fail_hashes = {"hash-a"}
+    ticks = iter([10.0, 25.0, 25.0, 27.0])
+    monkeypatch.setattr(render_workers.time, "perf_counter", lambda: next(ticks))
+    progress: list[tuple] = []
+    worker.progress.connect(lambda *args: progress.append(args))
+
+    worker.process(_task(_input("a", WorkspaceConfig())))
+
+    assert progress == [(1, 1, "a", 15.0, 2.0)]

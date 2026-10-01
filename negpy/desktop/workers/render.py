@@ -1655,12 +1655,14 @@ class ThumbnailRenderWorker(QObject):
                 name = str(frame.file_info.get("name") or frame.file_info.get("path") or done)
                 self.frame_started.emit(done, total, name)
                 decode_s = render_s = 0.0
+                decoding = True
+                started = time.perf_counter()
                 try:
-                    started = time.perf_counter()
                     buffer, meta = _decode_asset_preview_with_meta(
                         self._preview_service, frame.file_info, frame.config, task.workspace_color_space
                     )
                     decode_s = time.perf_counter() - started
+                    decoding = False
                     cam_xyz = meta.get("cam_xyz")
                     if frame.icc_input_active:
                         cam_xyz = wb_only_cam_xyz(cam_xyz)
@@ -1687,6 +1689,11 @@ class ThumbnailRenderWorker(QObject):
                 except Exception:
                     if self._cancel_requested(generation):
                         break
+                    # A failed read on a slow volume costs as much as a good one; the time left counts it.
+                    if decoding:
+                        decode_s = time.perf_counter() - started
+                    else:
+                        render_s = time.perf_counter() - started
                     logger.exception("Background thumbnail refresh skipped failed frame %s", name)
                 self.progress.emit(done, total, name, decode_s, render_s)
 
