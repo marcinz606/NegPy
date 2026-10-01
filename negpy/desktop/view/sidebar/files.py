@@ -1005,6 +1005,7 @@ class FileBrowser(QWidget):
         # belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
 
+        self._refresh_progress = ""
         self.tally_label = ElidedLabel("")
         self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.tally_label.setVisible(False)
@@ -1205,6 +1206,7 @@ class FileBrowser(QWidget):
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
+        self.controller.thumbnail_refresh_progress.connect(self._on_thumbnail_refresh_progress)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.controller.first_scene_created.connect(lambda: self._apply_sort_order("scene"))
@@ -1482,6 +1484,10 @@ class FileBrowser(QWidget):
             names.append("Hide Rejected")
         return names
 
+    def _on_thumbnail_refresh_progress(self, text: str) -> None:
+        self._refresh_progress = text
+        self._update_tally()
+
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
         if not files:
@@ -1505,6 +1511,9 @@ class FileBrowser(QWidget):
         # as what they are instead: an edit here reaches the roll each frame came from,
         # which a strip that looks identical either way gives no sign of.
         text = f"{roll_name or 'No roll'} — {text}"
+        # First, so a narrow panel elides the roll name rather than the progress.
+        if self._refresh_progress:
+            text = f"{self._refresh_progress} · {text}"
         self.tally_label.setText(text)
         self.tally_label.setToolTip(
             ""

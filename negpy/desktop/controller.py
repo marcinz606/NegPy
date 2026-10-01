@@ -337,29 +337,25 @@ _THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
 _THUMBNAIL_READ_BOUND_DECODE_S = 3.0
 
 
-def thumbnail_refresh_status(
-    done: int,
+def thumbnail_refresh_progress_text(
+    index: int,
     total: int,
-    name: str,
     mean_decode_s: float,
     mean_render_s: float,
     *,
     in_flight: bool = False,
 ) -> str:
-    """Status line for a thumbnail refresh. ``done`` frames are finished, or with
-    ``in_flight`` the ``done``-th frame is still decoding and counts as left. The time
+    """Progress line for a thumbnail refresh. With ``in_flight`` the ``index``-th frame is
+    still decoding and counts as left; otherwise ``index`` frames are finished. The time
     left needs two measured frames, since one is too noisy."""
-    text = f"Updating thumbnail {done}/{total}: {name}"
-    samples = done - 1 if in_flight else done
-    left = total - samples if in_flight else total - done
+    text = f"Thumbnails {index}/{total}"
+    samples = index - 1 if in_flight else index
+    left = total - samples if in_flight else total - index
     if samples >= 2 and left > 0:
         seconds = (mean_decode_s + mean_render_s) * left
-        if seconds >= 60:
-            text += f" — ~{round(seconds / 60)} min left"
-        else:
-            text += f" — ~{max(1, round(seconds))} s left"
+        text += f" · ~{round(seconds / 60)} min left" if seconds >= 60 else f" · ~{max(1, round(seconds))} s left"
     if mean_decode_s > _THUMBNAIL_READ_BOUND_DECODE_S and mean_decode_s > 2 * mean_render_s:
-        text += f" (reading source files, {mean_decode_s:.0f} s/frame)"
+        text += f" · reading {mean_decode_s:.0f} s/frame"
     return text
 
 
@@ -452,6 +448,8 @@ class AppController(QObject):
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
     status_message_requested = pyqtSignal(str, int, str)
     status_progress_requested = pyqtSignal(int, int)
+    # The running thumbnail refresh's progress line; "" when none is running.
+    thumbnail_refresh_progress = pyqtSignal(str)
     batch_started = pyqtSignal(str, bool)  # title, abortable
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
     batch_finished = pyqtSignal()
@@ -3666,6 +3664,7 @@ class AppController(QObject):
         self._thumbnail_render_pending = {f.file_info.get("hash") for f in frames}
         self.thumbnail_refresh_state_changed.emit(True)
         self.set_status(f"Updating {count_of(len(frames), 'thumbnail')}...")
+        self.status_progress_requested.emit(0, len(frames))
         self.thumbnail_render_requested.emit(
             ThumbnailRenderTask(
                 frames=frames,
@@ -3681,7 +3680,7 @@ class AppController(QObject):
     def _on_thumbnail_render_frame_started(self, index: int, total: int, name: str) -> None:
         if not self._thumbnail_render_running:
             return
-        self.set_status(thumbnail_refresh_status(index, total, name, *self._thumbnail_render_means(), in_flight=True))
+        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(index, total, *self._thumbnail_render_means(), in_flight=True))
 
     def _on_thumbnail_render_progress(self, current: int, total: int, name: str, decode_s: float, render_s: float) -> None:
         if not self._thumbnail_render_running:
@@ -3690,7 +3689,8 @@ class AppController(QObject):
         timing[0] += decode_s
         timing[1] += render_s
         timing[2] += 1
-        self.set_status(thumbnail_refresh_status(current, total, name, *self._thumbnail_render_means()))
+        self.status_progress_requested.emit(current, total)
+        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(current, total, *self._thumbnail_render_means()))
 
     def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
         if not self._thumbnail_render_running:
@@ -3751,6 +3751,8 @@ class AppController(QObject):
         redispatch queued behind, never ahead of, the batch that pre-empted it."""
         self._thumbnail_render_running = False
         self._thumbnail_render_pending = set()
+        self.status_progress_requested.emit(0, 0)
+        self.thumbnail_refresh_progress.emit("")
         self.thumbnail_refresh_state_changed.emit(False)
         if self._thumbnail_render_resume:
             leftover = list(self._thumbnail_render_resume)

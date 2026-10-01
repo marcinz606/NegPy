@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from negpy.desktop.controller import _THUMBNAIL_REFRESH_MEMORY_RETRY_MS, AppController, thumbnail_refresh_status
+from negpy.desktop.controller import _THUMBNAIL_REFRESH_MEMORY_RETRY_MS, AppController, thumbnail_refresh_progress_text
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.workers.render import ThumbnailUpdateTask
 from negpy.domain.models import WorkspaceConfig
@@ -482,7 +482,7 @@ class TestThumbnailRefreshController:
         self.controller.thumbnail_render_worker.cancel.assert_not_called()
 
     def test_progress_running_mean_resets_on_a_new_generation(self) -> None:
-        with patch.object(self.controller, "set_status") as set_status:
+        with patch.object(self.controller, "set_status"):
             self.controller.refresh_thumbnails_for(["other", "third"])
             self.controller._on_thumbnail_render_progress(1, 2, "other.dng", 20.0, 1.0)
             self.controller._on_thumbnail_render_progress(2, 2, "third.dng", 20.0, 1.0)
@@ -493,37 +493,60 @@ class TestThumbnailRefreshController:
             assert self.controller._thumbnail_render_means() == (0.0, 0.0)
             self.controller._on_thumbnail_render_progress(1, 1, "other.dng", 1.0, 0.5)
             assert self.controller._thumbnail_render_means() == (1.0, 0.5)
-            assert set_status.call_args[0][0] == "Updating thumbnail 1/1: other.dng"
         self.controller._on_thumbnail_render_cancelled()
 
-    def test_frame_started_shows_the_frame_in_flight_with_time_left(self) -> None:
+    def test_a_refresh_reports_progress_off_the_toast_and_clears_it_at_the_end(self) -> None:
+        bar, lines = [], []
+        self.controller.status_progress_requested.connect(lambda cur, tot: bar.append((cur, tot)))
+        self.controller.thumbnail_refresh_progress.connect(lines.append)
         with patch.object(self.controller, "set_status") as set_status:
             self.controller.refresh_thumbnails_for(["other", "third"])
-            self.controller._thumbnail_render_timing = [4.0, 6.0, 2]
-            self.controller._on_thumbnail_render_frame_started(3, 5, "c.dng")
+            set_status.reset_mock()
+            self.controller._on_thumbnail_render_frame_started(1, 2, "other.dng")
+            self.controller._on_thumbnail_render_progress(1, 2, "other.dng", 1.0, 0.5)
+            self.controller._on_thumbnail_render_frame_started(2, 2, "third.dng")
+            self.controller._on_thumbnail_render_progress(2, 2, "third.dng", 1.0, 0.5)
+            assert set_status.call_count == 0
+            self.controller._on_thumbnail_render_finished(2)
+        assert bar == [(0, 2), (1, 2), (2, 2), (0, 0)]
+        assert lines == ["Thumbnails 1/2", "Thumbnails 1/2", "Thumbnails 2/2", "Thumbnails 2/2", ""]
+
+    def test_frame_started_counts_the_frame_in_flight_as_left(self) -> None:
+        lines = []
+        self.controller.thumbnail_refresh_progress.connect(lines.append)
+        self.controller.refresh_thumbnails_for(["other", "third"])
+        self.controller._thumbnail_render_timing = [4.0, 6.0, 2]
+        self.controller._on_thumbnail_render_frame_started(3, 5, "c.dng")
         # Frames 3, 4 and 5 are left at 5 s each.
-        assert set_status.call_args[0][0] == "Updating thumbnail 3/5: c.dng — ~15 s left"
+        assert lines[-1] == "Thumbnails 3/5 · ~15 s left"
         self.controller._on_thumbnail_render_cancelled()
 
-
-def test_refresh_status_has_no_time_left_after_one_frame() -> None:
-    assert thumbnail_refresh_status(1, 49, "a.arw", 1.0, 1.0) == "Updating thumbnail 1/49: a.arw"
-
-
-def test_refresh_status_formats_seconds_and_minutes() -> None:
-    assert thumbnail_refresh_status(2, 5, "b.arw", 1.0, 1.0) == "Updating thumbnail 2/5: b.arw — ~6 s left"
-    assert thumbnail_refresh_status(2, 49, "b.arw", 1.0, 1.0) == "Updating thumbnail 2/49: b.arw — ~2 min left"
-
-
-def test_refresh_status_has_no_time_left_on_the_last_frame() -> None:
-    assert thumbnail_refresh_status(5, 5, "e.arw", 1.0, 1.0) == "Updating thumbnail 5/5: e.arw"
+    def test_a_cancelled_refresh_clears_its_progress(self) -> None:
+        bar, lines = [], []
+        self.controller.status_progress_requested.connect(lambda cur, tot: bar.append((cur, tot)))
+        self.controller.thumbnail_refresh_progress.connect(lines.append)
+        self.controller.refresh_thumbnails_for(["other"])
+        self.controller._on_thumbnail_render_progress(1, 2, "other.dng", 1.0, 0.5)
+        self.controller.cancel_thumbnail_refresh()
+        self.controller._on_thumbnail_render_cancelled()
+        assert bar[-1] == (0, 0)
+        assert lines[-1] == ""
 
 
-def test_refresh_status_flags_a_read_bound_refresh() -> None:
-    text = thumbnail_refresh_status(2, 49, "b.arw", 17.0, 1.0)
-    assert text == "Updating thumbnail 2/49: b.arw — ~14 min left (reading source files, 17 s/frame)"
+def test_progress_text_has_no_time_left_after_one_frame() -> None:
+    assert thumbnail_refresh_progress_text(1, 49, 1.0, 1.0) == "Thumbnails 1/49"
 
 
-def test_refresh_status_does_not_flag_a_slow_render() -> None:
-    assert "reading source files" not in thumbnail_refresh_status(2, 49, "b.arw", 4.0, 3.0)
-    assert "reading source files" not in thumbnail_refresh_status(2, 49, "b.arw", 2.5, 0.1)
+def test_progress_text_formats_seconds_and_minutes() -> None:
+    assert thumbnail_refresh_progress_text(2, 5, 1.0, 1.0) == "Thumbnails 2/5 · ~6 s left"
+    assert thumbnail_refresh_progress_text(2, 49, 1.0, 1.0) == "Thumbnails 2/49 · ~2 min left"
+
+
+def test_progress_text_has_no_time_left_on_the_last_frame() -> None:
+    assert thumbnail_refresh_progress_text(5, 5, 1.0, 1.0) == "Thumbnails 5/5"
+
+
+def test_progress_text_flags_a_read_bound_refresh_only() -> None:
+    assert thumbnail_refresh_progress_text(2, 49, 17.0, 1.0) == "Thumbnails 2/49 · ~14 min left · reading 17 s/frame"
+    assert "reading" not in thumbnail_refresh_progress_text(2, 49, 4.0, 3.0)
+    assert "reading" not in thumbnail_refresh_progress_text(2, 49, 2.5, 0.1)
