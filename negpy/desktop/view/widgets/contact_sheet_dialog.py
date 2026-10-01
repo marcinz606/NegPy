@@ -21,9 +21,11 @@ from negpy.desktop.view.styles.templates import (
 )
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.marks import draw_mark_badge
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
+from negpy.domain.interfaces import IRepository
 from negpy.services.export.contact_sheet import ContactSheetService
 from negpy.services.export.contact_sheet_layout import (
     DEFAULT_PAPER,
@@ -282,6 +284,8 @@ class ContactSheetDialog(QDialog):
         proof: Optional[StraightProof] = None,
         scene_proof: Optional[StraightProof] = None,
         parent: Optional[QWidget] = None,
+        *,
+        repo: Optional[IRepository] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Contact Sheet")
@@ -296,6 +300,7 @@ class ContactSheetDialog(QDialog):
         self._out_dir = out_dir
         self._source = tiles
         self._lane_busy = lane_busy
+        self._repo = repo
         self._paper = (settings.paper_width, settings.paper_height)
         self._dpi = settings.dpi
         # Print variants: the frames as edited, and as a straight proof at the roll's or at each
@@ -366,6 +371,7 @@ class ContactSheetDialog(QDialog):
         if self._source is not None and self._frames:
             self._source.tile_ready.connect(self._on_tile_ready)
         self._apply_variant()
+        remember_dialog_geometry(self, repo, "contact_sheet")
 
     # ── controls ────────────────────────────────────────────────────────
 
@@ -482,7 +488,7 @@ class ContactSheetDialog(QDialog):
         footer = QHBoxLayout()
         self.info_btn = icon_button("fa5s.info-circle", "How the contact sheet is laid out")
         self.info_btn.setVisible(has_guide(_GUIDE_KEY))
-        self.info_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Contact Sheet", self).exec())
+        self.info_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Contact Sheet", self, repo=self._repo).exec())
         footer.addWidget(self.info_btn)
         footer.addStretch()
         self.cancel_btn = QPushButton("Cancel")

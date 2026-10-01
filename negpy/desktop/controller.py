@@ -6884,6 +6884,7 @@ class AppController(QObject):
             proof=proof,
             scene_proof=scene_proof,
             parent=QApplication.activeWindow(),
+            repo=self.session.repo,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

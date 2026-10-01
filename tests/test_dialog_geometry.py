@@ -20,7 +20,7 @@ from tests.conftest import FakeController, FakeRepo, dialog_classes
 NEGPY = Path(__file__).resolve().parents[1] / "negpy"
 KEY = "dialog_geometry_probe"
 # Windows that fix their own size: there is nothing for the user to resize.
-FIXED_SIZE = {"ProgressDialog", "ContactSheetColorsDialog", "CommandPalette"}
+FIXED_SIZE = {"ProgressDialog", "CommandPalette"}
 # Callables that pass the store on to a dialog they build.
 FORWARDERS = {"resolve_other_gear_pick", "GearItemsPanel", "GearPresetsPanel"}
 # Calls on the dialog that set its default size or its window flags.
