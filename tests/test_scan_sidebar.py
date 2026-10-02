@@ -1228,6 +1228,7 @@ def test_a_saved_debug_log_that_cannot_start_shows_off(monkeypatch: pytest.Monke
 
 def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
+    sidebar.folder_roll_check.setChecked(False)
     sidebar.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.roll_edit.setText("Portra 1")
 
@@ -1243,7 +1244,7 @@ def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
 def test_scan_as_roll_off_keeps_the_flat_output_folder() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
     sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.as_roll_btn.setChecked(False)
+    sidebar.as_roll_check.setChecked(False)
 
     sidebar._on_scan()
 
@@ -1256,6 +1257,7 @@ def test_scan_as_roll_off_keeps_the_flat_output_folder() -> None:
 
 def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
+    sidebar.folder_roll_check.setChecked(False)
     sidebar.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.roll_edit.setText("../escape")
 
@@ -1267,7 +1269,6 @@ def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
 def test_folder_as_roll_scans_into_the_output_folder_itself() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
     sidebar.folder_edit.setText("/tmp/negpy-scan-out/Portra 1")
-    sidebar.folder_roll_btn.setChecked(True)
 
     sidebar._on_scan()
 
@@ -1280,7 +1281,7 @@ def test_folder_as_roll_scans_into_the_output_folder_itself() -> None:
 
 def test_folder_as_roll_needs_scan_as_roll() -> None:
     sidebar, _ = _sidebar()
-    sidebar.as_roll_btn.setChecked(False)
-    assert sidebar.folder_roll_btn.isEnabled() is False
-    sidebar.as_roll_btn.setChecked(True)
-    assert sidebar.folder_roll_btn.isEnabled() is True
+    sidebar.as_roll_check.setChecked(False)
+    assert sidebar.folder_roll_check.isEnabled() is False
+    sidebar.as_roll_check.setChecked(True)
+    assert sidebar.folder_roll_check.isEnabled() is True

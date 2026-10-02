@@ -575,6 +575,7 @@ def test_poll_no_usb_in_usb_mode_marks_not_connected():
 
 def test_frame_number_auto_derived_from_roll_subfolder(tmp_path):
     w = _sidebar()
+    w.folder_roll_check.setChecked(False)
     w.folder_edit.setText(str(tmp_path))
     w.roll_edit.setText("Roll007")
     roll_dir = tmp_path / "Roll007"
@@ -617,6 +618,7 @@ def test_frame_number_auto_derived_from_roll_subfolder(tmp_path):
 )
 def test_capture_rejects_unsafe_roll_name(tmp_path, roll_name):
     w = _sidebar()
+    w.folder_roll_check.setChecked(False)
     w.folder_edit.setText(str(tmp_path))
     w.roll_edit.setText(roll_name)
 
@@ -628,6 +630,7 @@ def test_capture_rejects_unsafe_roll_name(tmp_path, roll_name):
 
 def test_blank_roll_name_falls_back_consistently(tmp_path):
     w = _sidebar()
+    w.folder_roll_check.setChecked(False)
     w.folder_edit.setText(str(tmp_path))
     w.roll_edit.clear()
 
@@ -645,6 +648,7 @@ def test_blank_roll_name_falls_back_consistently(tmp_path):
 
 def test_safe_roll_name_is_trimmed_consistently(tmp_path):
     w = _sidebar()
+    w.folder_roll_check.setChecked(False)
     w.folder_edit.setText(str(tmp_path))
     w.roll_edit.setText("  Summer 2026  ")
 
@@ -1492,9 +1496,33 @@ def test_live_view_prefers_the_exact_shift_binding():
 def test_scan_as_roll_reaches_the_capture_request(tmp_path, on):
     w = _sidebar()
     w.folder_edit.setText(str(tmp_path))
-    w.as_roll_btn.setChecked(on)
+    w.as_roll_check.setChecked(on)
 
     w._start_capture(retake=False)
 
     assert w.controller.start_capture.call_args.args[0].as_roll is on
     assert w._settings.scan_as_roll is on
+
+
+def test_folder_as_roll_captures_into_the_output_folder_itself(tmp_path):
+    folder = tmp_path / "Portra 400"
+    folder.mkdir()
+    w = _sidebar()
+    w.folder_edit.setText(str(folder))
+
+    w._start_capture(retake=False)
+
+    req = w.controller.start_capture.call_args.args[0]
+    assert req.output_folder == str(folder)
+    assert req.roll_name == "Portra 400"
+    assert req.as_roll is True
+    assert not w.roll_edit.isEnabled()
+    assert w._settings.roll_is_folder is True
+
+
+def test_folder_as_roll_needs_scan_as_roll():
+    w = _sidebar()
+    w.as_roll_check.setChecked(False)
+    assert not w.folder_roll_check.isEnabled()
+    w.as_roll_check.setChecked(True)
+    assert w.folder_roll_check.isEnabled()

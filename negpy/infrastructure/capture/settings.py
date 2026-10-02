@@ -47,6 +47,7 @@ class ScanlightSettings:
     roll_name: str = "Roll001"
     output_folder: str = ""
     scan_as_roll: bool = True  # the roll subfolder becomes a Library roll and opens
+    roll_is_folder: bool = True  # with scan_as_roll: output_folder itself is the roll, no subfolder
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
 
     def __post_init__(self) -> None:

@@ -26,10 +26,10 @@ from negpy.desktop.view.styles.templates import (
     hint_label,
     icon_button as _icon_button,
     labeled_action,
-    labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     section_subheader,
     StatusStrip,
+    wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
@@ -437,10 +437,14 @@ class ScanSidebar(QWidget):
         self.roll_edit = QLineEdit()
         self.roll_edit.setToolTip("Roll name — one folder name (no / or \\), created under the output folder")
         self.form.addRow("Roll", self.roll_edit)
-        self.as_roll_btn = labeled_toggle("fa5s.film", " Scan as Roll", self._settings.scan_as_roll, _AS_ROLL_TIP)
-        self.form.addRow(self.as_roll_btn)
-        self.folder_roll_btn = labeled_toggle("fa5s.folder", " Folder as Roll", self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
-        self.form.addRow(self.folder_roll_btn)
+        self.as_roll_check = QCheckBox("Scan as Roll")
+        self.as_roll_check.setToolTip(wrap_tooltip(_AS_ROLL_TIP))
+        self.as_roll_check.setChecked(self._settings.scan_as_roll)
+        self.form.addRow(self.as_roll_check)
+        self.folder_roll_check = QCheckBox("Folder as Roll")
+        self.folder_roll_check.setToolTip(wrap_tooltip(_FOLDER_ROLL_TIP))
+        self.folder_roll_check.setChecked(self._settings.roll_is_folder)
+        self.form.addRow(self.folder_roll_check)
 
         self.pattern_edit = QLineEdit()
         self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }}.\nExample: {{ date }}_{{ "%03d" % seq }}')
@@ -574,8 +578,8 @@ class ScanSidebar(QWidget):
         self.folder_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.roll_edit.textChanged.connect(lambda: self._update_settings_from_ui())
-        self.as_roll_btn.toggled.connect(self._on_roll_toggles_changed)
-        self.folder_roll_btn.toggled.connect(self._on_roll_toggles_changed)
+        self.as_roll_check.toggled.connect(self._on_roll_checks_changed)
+        self.folder_roll_check.toggled.connect(self._on_roll_checks_changed)
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
@@ -1122,11 +1126,11 @@ class ScanSidebar(QWidget):
         self._update_settings_from_ui()
 
     def _sync_roll_controls(self) -> None:
-        as_roll = self.as_roll_btn.isChecked()
-        self.folder_roll_btn.setEnabled(as_roll)
-        self.roll_edit.setEnabled(as_roll and not self.folder_roll_btn.isChecked())
+        as_roll = self.as_roll_check.isChecked()
+        self.folder_roll_check.setEnabled(as_roll)
+        self.roll_edit.setEnabled(as_roll and not self.folder_roll_check.isChecked())
 
-    def _on_roll_toggles_changed(self) -> None:
+    def _on_roll_checks_changed(self) -> None:
         self._sync_roll_controls()
         self._update_settings_from_ui()
 
@@ -1477,8 +1481,8 @@ class ScanSidebar(QWidget):
             output_folder = self.folder_edit.text().strip()
             if not output_folder:
                 return
-        as_roll = self.as_roll_btn.isChecked()
-        if as_roll and not self.folder_roll_btn.isChecked():
+        as_roll = self.as_roll_check.isChecked()
+        if as_roll and not self.folder_roll_check.isChecked():
             roll = roll_folder_name(self.roll_edit.text())
             if roll is None:
                 self.status_strip.set_message('Roll name must be a single safe name (not "." or "..", and no path separators).')
@@ -1692,8 +1696,8 @@ class ScanSidebar(QWidget):
             film_type=self._film_type(),
             selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),
             output_folder=self.folder_edit.text().strip(),
-            scan_as_roll=self.as_roll_btn.isChecked(),
-            roll_is_folder=self.folder_roll_btn.isChecked(),
+            scan_as_roll=self.as_roll_check.isChecked(),
+            roll_is_folder=self.folder_roll_check.isChecked(),
             roll_name=self.roll_edit.text().strip() or "Roll001",
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
