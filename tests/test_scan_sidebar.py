@@ -1021,6 +1021,13 @@ def test_ejecting_drops_the_per_frame_corrections_of_the_film_that_left() -> Non
     assert sidebar.settings.frame_offsets == {}
 
 
+def test_a_new_app_run_drops_the_per_frame_corrections_of_the_last_one() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"frame_offsets": {"3": 1.5}, "frame_offset_mm": 0.5, "frame_offset_modifier_mm": 0.1})
+
+    assert sidebar.settings.frame_offsets == {}
+    assert (sidebar.settings.frame_offset_mm, sidebar.settings.frame_offset_modifier_mm) == (0.5, 0.1)
+
+
 def test_ejecting_keeps_the_registration_offsets() -> None:
     # Offset and drift belong to the transport's own registration, not to one strip.
     sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1], "frame_offset_mm": 1.5, "frame_offset_modifier_mm": 0.2})
@@ -1145,9 +1152,8 @@ def test_the_exposure_lock_row_shows_only_where_the_backend_offers_it() -> None:
 
 
 def test_meter_frame_meters_the_picked_frame_of_the_film_loaded(monkeypatch) -> None:
-    sidebar, controller = _sidebar(
-        LOCKING_DEVICE, settings={"frame_offset_mm": 0.5, "frame_offset_modifier_mm": 0.1, "frame_offsets": {"3": 0.2}}
-    )
+    sidebar, controller = _sidebar(LOCKING_DEVICE, settings={"frame_offset_mm": 0.5, "frame_offset_modifier_mm": 0.1})
+    sidebar.settings = replace(sidebar._settings, frame_offsets={3: 0.2})
 
     _meter_frame(sidebar, monkeypatch, frame=3)
 

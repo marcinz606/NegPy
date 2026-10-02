@@ -189,7 +189,9 @@ class ScanSidebar(QWidget):
         # Drop backends that no longer ship on this platform (e.g. saved "sane" on Windows).
         if settings.backend not in {bid for bid, _ in backend_choices()}:
             settings = replace(settings, backend=DEFAULT_BACKEND_ID)
-        return settings
+        # Per-frame corrections register the boundaries of the strip they were set on, and a new
+        # app run measures the film again.
+        return replace(settings, frame_offsets={})
 
     def _save_settings(self) -> None:
         from dataclasses import asdict
