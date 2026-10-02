@@ -21,6 +21,9 @@ def _controller(as_roll=False, capture_req=None):
     c._batch_frame_selected = False
     c._last_capture_req = capture_req
     c._discover_scanned = MethodType(AppController._discover_scanned, c)
+    c._save_rgb_scan_mode = MethodType(AppController._save_rgb_scan_mode, c)
+    c._RGB_SCAN_MODE_BY_ROLL_KEY = AppController._RGB_SCAN_MODE_BY_ROLL_KEY
+    c._store = store
     return c
 
 
@@ -31,7 +34,7 @@ def test_first_scan_opens_its_folder_as_a_roll_before_discovery():
 
     roll_id = folder_roll_id_for_path(c.session.repo, "/out/Roll001")
     assert roll_id is not None and c.state.active_roll_id == roll_id
-    c.half_frame_mode_changed.emit.assert_called_once()
+    c._announce_roll_modes.assert_called_once_with(roll_id)
     c.library_cleared.emit.assert_called_once()
     c.request_asset_discovery.assert_called_once_with(
         ["/out/Roll001"], auto_open=True, replace_existing=True, reselect_path="/out/Roll001/a.tif", restore_triplets=None
@@ -115,3 +118,39 @@ def test_start_scan_remembers_as_roll():
     assert c._scan_as_roll is True and c._batch_frame_selected is False
     AppController.start_scan(c, SimpleNamespace(as_roll=False))
     assert c._scan_as_roll is False
+
+
+def test_capture_records_trichrome_mode_on_the_roll_it_lands_in():
+    req = SimpleNamespace(white_mode=False, rgb_mode=True, white_process_mode="auto", roll_name="R1", frame_number=1, as_roll=True)
+    c = _controller(capture_req=req)
+    c._store["rgbscan_mode_by_roll"] = {"other": False}
+
+    AppController._on_capture_finished(c, ["/hot/R1/r.ARW", "/hot/R1/g.ARW", "/hot/R1/b.ARW"])
+
+    roll_id = folder_roll_id_for_path(c.session.repo, "/hot/R1")
+    assert c._store["rgbscan_mode_by_roll"] == {"other": False, roll_id: True}
+    assert c._store["rgbscan_mode"] is True
+
+
+def test_capture_without_as_roll_leaves_an_open_roll_in_another_folder_alone():
+    req = SimpleNamespace(white_mode=False, rgb_mode=True, white_process_mode="auto", roll_name="R2", frame_number=1, as_roll=False)
+    c = _controller(capture_req=req)
+    open_roll = recognize_folder(c.session.repo, "/film/Roll1")
+    c.state.active_roll_id = open_roll
+    c._store["rgbscan_mode_by_roll"] = {open_roll: False}
+
+    AppController._on_capture_finished(c, ["/hot/R2/r.ARW", "/hot/R2/g.ARW", "/hot/R2/b.ARW"])
+
+    assert c._store["rgbscan_mode_by_roll"] == {open_roll: False}
+    assert c._store["rgbscan_mode"] is True
+
+
+def test_capture_without_as_roll_records_on_its_folders_own_roll():
+    req = SimpleNamespace(white_mode=True, rgb_mode=False, white_process_mode="auto", roll_name="R1", frame_number=1, as_roll=False)
+    c = _controller(capture_req=req)
+    roll_id = recognize_folder(c.session.repo, "/hot/R1")
+    c._store["rgbscan_mode_by_roll"] = {roll_id: True}
+
+    AppController._on_capture_finished(c, ["/hot/R1/w.ARW"])
+
+    assert c._store["rgbscan_mode_by_roll"] == {roll_id: False}

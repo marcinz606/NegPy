@@ -30,6 +30,8 @@ def _run(paths, **req_kw):
     controller._pending_capture_imports = {}
     controller._last_capture_req = req
     controller._discover_scanned = MethodType(AppController._discover_scanned, controller)
+    controller._save_rgb_scan_mode = MethodType(AppController._save_rgb_scan_mode, controller)
+    controller._RGB_SCAN_MODE_BY_ROLL_KEY = AppController._RGB_SCAN_MODE_BY_ROLL_KEY
     AppController._on_capture_finished(controller, paths)
     return controller
 

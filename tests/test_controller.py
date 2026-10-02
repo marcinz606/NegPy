@@ -534,6 +534,56 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(seen, [True])
         self.assertEqual(self.controller.state.active_roll_id, "r1")
 
+    def test_rgb_scan_mode_for_roll_reads_that_rolls_own_entry(self):
+        store = self._fake_settings_store()
+        store["rgbscan_mode"] = True
+        store["rgbscan_mode_by_roll"] = {"r1": False, "r2": True}
+        self.assertFalse(self.controller.rgb_scan_mode_for_roll("r1"))
+        self.assertTrue(self.controller.rgb_scan_mode_for_roll("r2"))
+
+    def test_rgb_scan_mode_for_roll_falls_back_to_the_last_mode_chosen(self):
+        store = self._fake_settings_store()
+        store["rgbscan_mode"] = True
+        store["rgbscan_mode_by_roll"] = {"r1": False}
+        self.assertTrue(self.controller.rgb_scan_mode_for_roll("new-roll"))
+        self.assertTrue(self.controller.rgb_scan_mode_for_roll(None))
+
+    def test_set_rgb_scan_mode_writes_the_active_rolls_entry_and_the_last_mode(self):
+        store = self._fake_settings_store()
+        store["rgbscan_mode_by_roll"] = {"r2": True}
+        self.controller.state.active_roll_id = "r1"
+        self.controller.session.state.uploaded_files = []
+        self.controller.set_rgb_scan_mode(False)
+        self.assertEqual(store["rgbscan_mode_by_roll"], {"r1": False, "r2": True})
+        self.assertIs(store["rgbscan_mode"], False)
+
+    def test_a_rolls_first_discovery_records_its_trichrome_mode(self):
+        """Once recorded, a mode chosen on another roll does not regroup this one."""
+        store = self._fake_settings_store()
+        store["rgbscan_mode"] = True
+        self.assertTrue(self.controller._rgb_scan_mode_for_discovery("r1"))
+        self.assertEqual(store["rgbscan_mode_by_roll"], {"r1": True})
+        store["rgbscan_mode"] = False
+        self.assertTrue(self.controller._rgb_scan_mode_for_discovery("r1"))
+
+    def test_discovery_with_no_roll_records_nothing(self):
+        store = self._fake_settings_store()
+        store["rgbscan_mode"] = True
+        self.assertTrue(self.controller._rgb_scan_mode_for_discovery(None))
+        self.assertNotIn("rgbscan_mode_by_roll", store)
+
+    def test_open_roll_emits_that_rolls_own_trichrome_mode(self):
+        store = self._fake_settings_store()
+        store["rgbscan_mode"] = True
+        store["rgbscan_mode_by_roll"] = {"r1": False}
+        with patch("negpy.desktop.controller.rolls") as mock_rolls:
+            mock_rolls.roll_for_id.return_value = {"kind": "folder", "folder_path": "/p", "extra_paths": []}
+            self.controller.request_asset_discovery = MagicMock()
+            seen = []
+            self.controller.rgb_scan_mode_changed.connect(seen.append)
+            self.controller.open_roll("r1")
+        self.assertEqual(seen, [False])
+
     def test_create_roll_from_session_seeds_the_new_rolls_half_frame_state(self):
         """Saving the current ad hoc session as a roll must not silently reset its
         toggle to off the next time that roll is opened."""
@@ -545,6 +595,7 @@ class TestAppController(unittest.TestCase):
             roll_id = self.controller.create_roll_from_session("My Roll")
         self.assertEqual(roll_id, "new-roll")
         self.assertEqual(store["half_frame_mode_by_roll"], {"new-roll": True})
+        self.assertEqual(store["rgbscan_mode_by_roll"], {"new-roll": False})
 
     def test_busy_toast_is_taken_down_when_the_frame_lands(self):
         """A slow render step holds its toast open; the finished frame clears it, and a
@@ -3928,6 +3979,37 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
         self.controller.asset_discovery_requested.connect(tasks.append)
         self.controller.request_asset_discovery(["/a.dng"], **discovery_kwargs)
         return tasks[0]
+
+    def test_discovery_groups_with_the_active_rolls_own_trichrome_mode(self):
+        store = {"rgbscan_mode": False, "rgbscan_mode_by_roll": {"r1": True}}
+        self.mock_session_manager.state.active_roll_id = "r1"
+        self.mock_session_manager.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+        self.mock_session_manager.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+        self.assertTrue(self._captured_task().rgb_scan)
+
+    def test_a_new_rolls_discovery_records_the_last_mode_as_its_own(self):
+        store = {"rgbscan_mode": True}
+        self.mock_session_manager.state.active_roll_id = "r2"
+        self.mock_session_manager.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+        self.mock_session_manager.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+        self.assertTrue(self._captured_task().rgb_scan)
+        self.assertEqual(store["rgbscan_mode_by_roll"], {"r2": True})
+
+    def test_a_queued_discovery_keeps_the_mode_of_the_roll_it_was_made_for(self):
+        store = {"rgbscan_mode": False, "rgbscan_mode_by_roll": {"r1": True, "r2": False}}
+        self.mock_session_manager.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+        self.mock_session_manager.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+        self.controller.asset_discovery_requested.disconnect(self.controller.discovery_worker.process)
+        tasks = []
+        self.controller.asset_discovery_requested.connect(tasks.append)
+        self.controller._discovery_running = True
+        self.mock_session_manager.state.active_roll_id = "r1"
+        self.controller.request_asset_discovery(["/a.dng"])
+        self.mock_session_manager.state.active_roll_id = "r2"
+        self.controller._discovery_running = False
+        self.controller._start_next_asset_discovery()
+        self.assertEqual([t.rgb_scan for t in tasks], [True])
+        self.assertEqual(store["rgbscan_mode_by_roll"], {"r1": True, "r2": False})
 
     def test_no_active_roll_never_splits_half_frames(self):
         """A batch with no single shared roll (a library-wide search's mixed results)

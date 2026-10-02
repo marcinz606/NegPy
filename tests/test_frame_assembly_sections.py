@@ -16,6 +16,7 @@ def _controller():
     controller.state = AppState()
     controller.session.repo.get_global_setting.return_value = False
     controller.half_frame_mode_for_roll.return_value = False
+    controller.rgb_scan_mode_for_roll.return_value = False
     controller.active_diptych.return_value = None
     controller.current_base_file.return_value = ("/tmp/scan.tif", "h1")
     controller.selected_base_hashes.return_value = ["h1"]
@@ -49,6 +50,17 @@ def test_trichrome_toggle_drives_the_mode(trichrome):
     sidebar.enable_btn.setChecked(True)
 
     controller.set_rgb_scan_mode.assert_called_once_with(True)
+
+
+def test_trichrome_toggle_shows_the_active_rolls_own_mode(trichrome):
+    sidebar, controller = trichrome
+    controller.state.active_roll_id = "r1"
+    controller.rgb_scan_mode_for_roll.side_effect = lambda roll_id: roll_id == "r1"
+
+    sidebar.sync_ui()
+
+    assert sidebar.enable_btn.isChecked()
+    controller.set_rgb_scan_mode.assert_not_called()
 
 
 def test_trichrome_asks_before_regrouping_a_loaded_roll(trichrome):

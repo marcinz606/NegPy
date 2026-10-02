@@ -108,6 +108,12 @@ class FakeController:
             return bool(by_roll.get(roll_id, False))
         return bool(self.session.repo.get_global_setting("half_frame_mode", False))
 
+    def rgb_scan_mode_for_roll(self, roll_id):
+        by_roll = self.session.repo.get_global_setting("rgbscan_mode_by_roll", default=None) or {}
+        if roll_id and roll_id in by_roll:
+            return bool(by_roll[roll_id])
+        return bool(self.session.repo.get_global_setting("rgbscan_mode", False))
+
     def __getattr__(self, name):
         return getattr(self._mock, name)
 
