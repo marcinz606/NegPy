@@ -49,6 +49,7 @@ class CaptureRequest:
     rgb_mode: bool = True  # True = Scanlight R/G/B triplet; False = one plain white-light shot (no Scanlight)
     iso: str = ""  # RGB preset's baked ISO/aperture — the triplet forces them; "" = leave as set
     aperture: str = ""
+    as_roll: bool = False  # output_folder becomes a Library roll and opens
 
 
 @dataclass(frozen=True)

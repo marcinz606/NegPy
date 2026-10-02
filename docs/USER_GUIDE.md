@@ -1044,6 +1044,7 @@ Capture film directly into NegPy. Two collapsible sections.
 **Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls group as **Film**, **Quality**, **Framing** and **Output**; a group with nothing for the device is hidden.
 
 *   **Format**: `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives).
+*   **Scan as Roll** (on by default) and **Roll**: scans go to a **Roll** subfolder of the output folder, which becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. A new Roll name opens a new roll. Off writes into the output folder itself, and the frames belong to no roll.
 *   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
 *   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its frame picks and previews, so more frames scan without a new preview, until **Eject** or the scanner's own idle timeout.
 *   **Depth**, **Autofocus**, hardware **Auto-exposure**: shown only when the device offers them (not on the OpticFilm 8200i SE).
@@ -1076,6 +1077,7 @@ Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux). W
 *   **Live View & Scan**: click the image to aim the focus magnifier, click again for the full frame. ISO, shutter and aperture are set from the toolbar, or locked by a calibrated RGB preset.
 *   **Preset**: shows its RGB levels, ISO, shutter and aperture and forces them each frame. **+** calibrates: place the rectangle on clear film base, name it, run it. It solves a shutter and per-channel LED levels just under clipping, or says which way to adjust and saves nothing. **Create a manual preset…** sets one by hand.
 *   **Scan** and **Retake**: **Scan** shoots into a per-roll subfolder, auto-numbered, and imports; **Retake** shoots again without advancing. In the Live View window, `S` scans and `R` retakes; both can be rebound under Camera Live View in Keyboard Shortcuts. **Delay between exposures** pauses between R, G and B for bodies that lock up.
+*   **Scan as Roll** (on by default): the roll's subfolder becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to the frames. A new **Roll** name opens a new roll.
 *   **Narrowband**: RGB-lit scans render more saturated; the Calibration card's **Narrowband** toggle corrects this.
 
 Needs `python-gphoto2` (`pip install gphoto2`; no Windows build). See CAMERA_SCANNING.md for setup, the macOS camera-daemon note and troubleshooting.

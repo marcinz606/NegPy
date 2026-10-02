@@ -37,6 +37,7 @@ from negpy.desktop.view.styles.templates import (
     icon_button as _icon_button,
     ICON_BUTTON_WIDTH,
     labeled_action,
+    labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     section_subheader,
     set_hint_kind,
@@ -45,6 +46,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
+from negpy.services.assets.rolls import roll_folder_name
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
@@ -80,6 +82,11 @@ _MANUAL_PRESET = "\x00create-manual"
 # 10 ms and set_color is a fire-and-forget serial write, so 50 ms keeps an
 # order-of-magnitude margin. A fixed tuning constant, not a persisted setting.
 _LED_SETTLE_S = 0.05
+
+_AS_ROLL_TIP = (
+    "Make the roll's folder a roll in the Library and open it, so Half Frame, roll defaults "
+    "and Roll Analysis apply to the frames as they are scanned."
+)
 
 
 class _NoWheel(QObject):
@@ -319,6 +326,8 @@ class ScanlightSidebar(QWidget):
         self.roll_edit = QLineEdit(self._settings.roll_name)
         self.roll_edit.setToolTip("Roll name — one folder/file name (no / or \\); the frame number is assigned automatically per roll")
         out_form.addRow("Roll", self.roll_edit)
+        self.as_roll_btn = labeled_toggle("fa5s.film", " Scan as Roll", self._settings.scan_as_roll, _AS_ROLL_TIP)
+        out_form.addRow(self.as_roll_btn)
         layout.addLayout(out_form)
 
         # RGB section (Scanlight only): presets, level sliders and calibration.
@@ -413,6 +422,7 @@ class ScanlightSidebar(QWidget):
         self.inter_exposure_delay_slider.valueChanged.connect(self._update_settings_from_ui)
         for w in (self.roll_edit, self.folder_edit):
             w.editingFinished.connect(self._update_settings_from_ui)
+        self.as_roll_btn.toggled.connect(self._update_settings_from_ui)
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
@@ -1292,8 +1302,8 @@ class ScanlightSidebar(QWidget):
         return hi
 
     def _capture_roll_name(self) -> str | None:
-        roll = self.roll_edit.text().strip() or "Roll001"
-        if roll in {".", ".."} or any(separator in roll for separator in ("/", "\\", "\0")):
+        roll = roll_folder_name(self.roll_edit.text())
+        if roll is None:
             self._set_status('Roll name must be a single safe name (not "." or "..", and no path separators).')
             return None
         return roll
@@ -1362,6 +1372,7 @@ class ScanlightSidebar(QWidget):
             # scanning leave the body free, since the operator sets those in the live view.
             iso=s.iso if rgb and not s.white_mode else "",
             aperture=s.aperture if rgb and not s.white_mode else "",
+            as_roll=s.scan_as_roll,
         )
         self.set_scanning(True)
         if rgb and not req.white_mode:
@@ -1710,6 +1721,7 @@ class ScanlightSidebar(QWidget):
             aperture=aperture,
             roll_name=self.roll_edit.text().strip() or "Roll001",
             output_folder=self.folder_edit.text().strip(),
+            scan_as_roll=self.as_roll_btn.isChecked(),
         )
         if updated == self._settings:
             return  # nothing changed → skip the disk write + re-gate (the 3 s poll calls this each tick)

@@ -1224,3 +1224,41 @@ def test_a_saved_debug_log_that_cannot_start_shows_off(monkeypatch: pytest.Monke
 
     assert sidebar.debug_log_btn.currentIndex() == 0
     assert sidebar.settings.nkscan_log_level == "off"
+
+
+def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.roll_edit.setText("Portra 1")
+
+    sidebar._on_scan()
+
+    _, req = controller.started[0]
+    assert req.as_roll is True
+    assert req.output_folder == os.path.join("/tmp/negpy-scan-out", "Portra 1")
+    saved = controller.session.repo.get_global_setting("scanner_settings")
+    assert saved["roll_name"] == "Portra 1" and saved["scan_as_roll"] is True
+
+
+def test_scan_as_roll_off_keeps_the_flat_output_folder() -> None:
+    sidebar, controller = _sidebar(MINIMAL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.as_roll_btn.setChecked(False)
+
+    sidebar._on_scan()
+
+    _, req = controller.started[0]
+    assert req.as_roll is False
+    assert req.output_folder == "/tmp/negpy-scan-out"
+    assert sidebar.roll_edit.isEnabled() is False
+    assert controller.session.repo.get_global_setting("scanner_settings")["scan_as_roll"] is False
+
+
+def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
+    sidebar, controller = _sidebar(MINIMAL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.roll_edit.setText("../escape")
+
+    sidebar._on_scan()
+
+    assert controller.started == []

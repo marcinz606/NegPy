@@ -1486,3 +1486,15 @@ def test_live_view_prefers_the_exact_shift_binding():
     finally:
         set_current_bindings(default_bindings())
     assert fired == ["retake", "scan"]
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_scan_as_roll_reaches_the_capture_request(tmp_path, on):
+    w = _sidebar()
+    w.folder_edit.setText(str(tmp_path))
+    w.as_roll_btn.setChecked(on)
+
+    w._start_capture(retake=False)
+
+    assert w.controller.start_capture.call_args.args[0].as_roll is on
+    assert w._settings.scan_as_roll is on

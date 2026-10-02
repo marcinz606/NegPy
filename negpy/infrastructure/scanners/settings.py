@@ -38,6 +38,9 @@ class ScannerSettings:
     film_format: str | None = None
     film_type: str = "negative"
     output_folder: str = ""
+    # On: scans go to output_folder/roll_name, which becomes a Library roll and opens.
+    scan_as_roll: bool = True
+    roll_name: str = "Roll001"
     output_format: str = "TIFF"
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
     scan_window: Rect | None = None

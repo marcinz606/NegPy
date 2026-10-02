@@ -26,6 +26,7 @@ from negpy.desktop.view.styles.templates import (
     hint_label,
     icon_button as _icon_button,
     labeled_action,
+    labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     section_subheader,
     StatusStrip,
@@ -45,6 +46,7 @@ from negpy.infrastructure.scanners.params import (
 from negpy.infrastructure.scanners import nkscan_log
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID, backend_choices
 from negpy.infrastructure.scanners.settings import OUTPUT_FORMATS, ScannerSettings
+from negpy.services.assets.rolls import roll_folder_name
 
 
 class ScanCaptureMode(StrEnum):
@@ -121,6 +123,10 @@ def _valid_capture_mode(desired: ScanCaptureMode, *, has_me: bool, has_stack: bo
 
 
 _SAMPLE_COUNTS = (1, 2, 4, 8, 16)
+_AS_ROLL_TIP = (
+    "Scan into a Roll subfolder of the output folder, make it a roll in the Library and open "
+    "it, so Half Frame, roll defaults and Roll Analysis apply to the frames as they are scanned."
+)
 
 
 def _reaches_a_strip(caps: ScannerCapabilities) -> bool:
@@ -427,6 +433,12 @@ class ScanSidebar(QWidget):
         folder_row.addWidget(self.browse_btn)
         self.form.addRow("Folder", folder_row)
 
+        self.roll_edit = QLineEdit()
+        self.roll_edit.setToolTip("Roll name — one folder name (no / or \\), created under the output folder")
+        self.form.addRow("Roll", self.roll_edit)
+        self.as_roll_btn = labeled_toggle("fa5s.film", " Scan as Roll", self._settings.scan_as_roll, _AS_ROLL_TIP)
+        self.form.addRow(self.as_roll_btn)
+
         self.pattern_edit = QLineEdit()
         self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }}.\nExample: {{ date }}_{{ "%03d" % seq }}')
         self.form.addRow("Filename", self.pattern_edit)
@@ -540,6 +552,8 @@ class ScanSidebar(QWidget):
         # Pre-fill from persisted settings
         self.fmt_combo.setCurrentText(self._settings.output_format)
         self.folder_edit.setText(self._settings.output_folder)
+        self.roll_edit.setText(self._settings.roll_name)
+        self.roll_edit.setEnabled(self._settings.scan_as_roll)
         self.pattern_edit.setText(self._settings.filename_pattern)
         self.autofocus_check.setChecked(self._settings.autofocus)
         self.ae_check.setChecked(self._settings.auto_exposure)
@@ -556,6 +570,8 @@ class ScanSidebar(QWidget):
         self.scan_btn.clicked.connect(self._on_scan)
         self.folder_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
+        self.roll_edit.textChanged.connect(lambda: self._update_settings_from_ui())
+        self.as_roll_btn.toggled.connect(self._on_as_roll_toggled)
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
@@ -1101,6 +1117,10 @@ class ScanSidebar(QWidget):
         self.exposure_slider.setEnabled(not self.ae_check.isChecked())
         self._update_settings_from_ui()
 
+    def _on_as_roll_toggled(self, on: bool) -> None:
+        self.roll_edit.setEnabled(on)
+        self._update_settings_from_ui()
+
     def _on_exposure_changed(self, _value: int) -> None:
         self._update_exposure_value_label()
         self._update_settings_from_ui()
@@ -1448,6 +1468,13 @@ class ScanSidebar(QWidget):
             output_folder = self.folder_edit.text().strip()
             if not output_folder:
                 return
+        as_roll = self.as_roll_btn.isChecked()
+        if as_roll:
+            roll = roll_folder_name(self.roll_edit.text())
+            if roll is None:
+                self.status_strip.set_message('Roll name must be a single safe name (not "." or "..", and no path separators).')
+                return
+            output_folder = os.path.join(output_folder, roll)
 
         from negpy.desktop.workers.scan_worker import BatchRequest, ScanRequest
         from negpy.infrastructure.scanners.params import ScanParams
@@ -1512,6 +1539,7 @@ class ScanSidebar(QWidget):
                         frame_offset_modifier_mm=self._settings.frame_offset_modifier_mm,
                         frame_offsets=self._settings.frame_offsets,
                         eject_when_done=self._settings.eject_after_batch,
+                        as_roll=as_roll,
                     )
                 )
             else:
@@ -1522,6 +1550,7 @@ class ScanSidebar(QWidget):
                         output_folder=output_folder,
                         filename_pattern=pattern,
                         output_format=fmt,
+                        as_roll=as_roll,
                     )
                 )
         except RuntimeError as e:
@@ -1654,6 +1683,8 @@ class ScanSidebar(QWidget):
             film_type=self._film_type(),
             selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),
             output_folder=self.folder_edit.text().strip(),
+            scan_as_roll=self.as_roll_btn.isChecked(),
+            roll_name=self.roll_edit.text().strip() or "Roll001",
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             eject_after_batch=self.eject_after_check.isChecked(),

@@ -3999,6 +3999,7 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
         req = MagicMock()
         req.white_mode = False
         req.rgb_mode = True
+        req.as_roll = False
         self.controller._last_capture_req = req
 
         first_paths = ["/roll/frame1_R.dng", "/roll/frame1_G.dng", "/roll/frame1_B.dng"]
