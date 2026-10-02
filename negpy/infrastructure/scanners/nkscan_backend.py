@@ -10,6 +10,7 @@ closes and until the film moves.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from typing import Any, Iterator
@@ -51,6 +52,11 @@ _MAX_SAMPLES = 16  # the protocol's own ceiling; a unit's own limit comes from i
 _DEFAULT_AREA_MM = (24.0, 36.0)
 
 _PHASES = {"discover": "Detecting frames", "meter": "Metering", "scan": "Scanning"}
+
+# A unit returns a loaded strip after it sits this long without a command, and gives no notice.
+# A strip put back in before NegPy opens the unit again reads as loaded, so this long without
+# contact counts as a return. Under the unit's own timeout: a false return costs a re-measure.
+_IDLE_RETURN_S = 9 * 60
 
 _MM_PER_INCH = 25.4
 
@@ -249,6 +255,7 @@ class NkscanBackend:
         # Devices whose measured strip the unit returned by itself, not yet reported. Kept apart
         # from the rects, which go first: a load or eject that fails must not lose the return.
         self._returned: set[str] = set()
+        self._last_contact = time.monotonic()  # end of the last command to any unit
         self._lock = threading.Lock()
 
     # ── enumeration ───────────────────────────────────────────────────
@@ -322,6 +329,7 @@ class NkscanBackend:
         `notice_return=False` carries on without a word, for an eject.
         """
         model = next((d.model for d in self.list_devices() if d.id == device_id), "")
+        idle = time.monotonic() - self._last_contact
         with self._mapped_errors():
             session = self._nk.Session(device_id)
         try:
@@ -336,6 +344,10 @@ class NkscanBackend:
                         self._returned.add(device_id)
                     self.forget_frames(device_id)
                     loaded = bool(session.load())
+                elif idle >= _IDLE_RETURN_S and device_id in self._frames:
+                    # Long enough for the unit to return the strip and for it to go back in unseen.
+                    self._returned.add(device_id)
+                    self.forget_frames(device_id)
                 if notice_return and device_id in self._returned:
                     self._returned.discard(device_id)
                     returned = StripReturned(loaded=loaded)
@@ -630,3 +642,5 @@ class NkscanBackend:
             raise RuntimeError(f"{getattr(exc, 'op', 'operation')}: {getattr(exc, 'reason', exc)}") from exc
         except nk.ScannerError as exc:
             raise RuntimeError(str(exc)) from exc
+        finally:
+            self._last_contact = time.monotonic()

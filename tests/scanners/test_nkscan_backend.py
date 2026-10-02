@@ -694,3 +694,72 @@ def test_an_eject_that_does_nothing_leaves_the_return_to_report() -> None:
 
     with pytest.raises(StripReturned):
         _scan(backend)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch) -> _Clock:
+    from negpy.infrastructure.scanners import nkscan_backend
+
+    fake = _Clock()
+    monkeypatch.setattr(nkscan_backend.time, "monotonic", fake)
+    return fake
+
+
+def test_a_long_idle_counts_as_a_return_though_the_strip_reads_as_loaded(clock) -> None:
+    # The unit gives no notice of its own eject, so a strip put back in looks as if it never left.
+    from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
+
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    clock.now += _IDLE_RETURN_S
+
+    with pytest.raises(StripReturned) as raised:
+        _scan(backend)
+
+    assert raised.value.loaded
+    assert module.opened[-1].staged == 0
+    _scan(backend)
+    assert module.opened[-1].discoveries == [None]  # measured again
+
+
+def test_a_short_idle_keeps_the_measured_strip(clock) -> None:
+    from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
+
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    clock.now += _IDLE_RETURN_S - 1
+
+    _scan(backend)
+
+    assert module.opened[-1].discoveries == []
+
+
+def test_each_contact_starts_the_idle_clock_again(clock) -> None:
+    from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
+
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    clock.now += _IDLE_RETURN_S - 1
+    _scan(backend)  # the unit starts its idle timer again after this
+    clock.now += _IDLE_RETURN_S - 1
+
+    _scan(backend)
+
+    assert module.opened[-1].discoveries == []
+
+
+def test_a_long_idle_with_nothing_measured_is_not_a_return(clock) -> None:
+    from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
+
+    backend, _ = make_backend()
+    clock.now += _IDLE_RETURN_S * 2
+
+    _scan(backend)

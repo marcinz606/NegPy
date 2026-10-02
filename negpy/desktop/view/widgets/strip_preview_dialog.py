@@ -772,7 +772,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self._recut.stop()  # the reset sliders armed it
         if loaded:
             self._on_preview_all()
-            self.status_strip.set_message("The scanner returned the strip while idle — measuring it again…")
+            self.status_strip.set_message("The scanner sat idle long enough to return the strip — measuring it again…")
         else:
             self.status_strip.set_message("The scanner returned the strip while idle. Insert it again, then press Detect frames.")
 

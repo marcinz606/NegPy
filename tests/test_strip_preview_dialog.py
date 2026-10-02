@@ -1413,7 +1413,7 @@ def test_the_unit_returning_the_strip_drops_its_frame_state_and_measures_it_agai
     assert dialog.frame_offsets() == {}
     assert dialog.frame_offset() == 1.5
     assert len(controller.preview_reqs) == 3  # measured again
-    assert "returned the strip" in dialog.status_strip.message()
+    assert "long enough to return the strip" in dialog.status_strip.message()
 
 
 def test_a_returned_strip_not_back_in_waits_for_detect_frames() -> None:

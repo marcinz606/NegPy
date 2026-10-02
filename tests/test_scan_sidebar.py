@@ -1068,7 +1068,7 @@ def test_the_unit_returning_the_strip_clears_what_an_eject_clears() -> None:
 
     assert (sidebar.settings.selected_frames, sidebar.settings.frame_windows, sidebar.settings.frame_offsets) == ((), {}, {})
     assert (sidebar.settings.frame_offset_mm, sidebar.settings.frame_offset_modifier_mm) == (1.5, 0.2)
-    assert sidebar.status_strip.message() == "The scanner returned the strip while idle — frame selection cleared"
+    assert sidebar.status_strip.message() == "The scanner sat idle long enough to return the strip — frame selection cleared"
 
 
 def test_a_returned_strip_not_back_in_asks_for_it_again() -> None:

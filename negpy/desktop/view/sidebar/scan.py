@@ -1588,9 +1588,9 @@ class ScanSidebar(QWidget):
         if not loaded:
             message = "The scanner returned the strip while idle — insert it again"
         elif stale:
-            message = "The scanner returned the strip while idle — frame selection cleared"
+            message = "The scanner sat idle long enough to return the strip — frame selection cleared"
         else:
-            message = "The scanner returned the strip while idle"
+            message = "The scanner sat idle long enough to return the strip"
         self.status_strip.set_message(message)
 
     def _drop_strip_state(self) -> bool:
