@@ -1397,3 +1397,92 @@ def test_calibration_refuses_rather_than_writing_a_foreign_shutter_label(tmp_pat
     assert not w.controller.start_calibration.called
     assert "settable shutter speeds" in w.calib_window.status.text()
     assert not w._calibrating_preset  # the run never started
+
+
+@pytest.mark.parametrize("key, signal", [("S", "scanRequested"), ("R", "retakeRequested")])
+def test_live_view_letter_keys_win_over_main_window_shortcuts(key, signal):
+    # The main window binds S and R too, and on macOS it sees a panel's keys.
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QKeySequence, QShortcut
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QMainWindow
+
+    from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow
+    from negpy.desktop.view.widgets.floating_panel import float_over_app
+
+    main = QMainWindow()
+    main_fired = []
+    QShortcut(QKeySequence(key), main).activated.connect(lambda: main_fired.append(key))
+    win = LiveViewWindow(main)
+    float_over_app(win, platform="darwin")
+    fired = []
+    getattr(win, signal).connect(lambda: fired.append(key))
+    main.show()
+    win.show()
+    win.activateWindow()
+    assert QTest.qWaitForWindowActive(win, 2000)
+    win.scan_btn.setFocus()
+    QTest.keyClick(win.scan_btn, getattr(Qt.Key, f"Key_{key}"))
+    assert fired == [key]
+    assert main_fired == []
+    win.close()
+    main.close()
+
+
+def test_live_view_keys_follow_a_rebind():
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.view.shortcut_registry import default_bindings, set_current_bindings
+    from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow
+
+    win = LiveViewWindow()
+    fired = []
+    win.scanRequested.connect(lambda: fired.append("scan"))
+    set_current_bindings({**default_bindings(), "live_view_scan": "Shift+Space"})
+    try:
+        QTest.keyClick(win, Qt.Key.Key_S)
+        QTest.keyClick(win, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        win.apply_shortcut_tooltips()
+        assert "Space" in win.scan_btn.toolTip()
+    finally:
+        set_current_bindings(default_bindings())
+    assert fired == ["scan"]
+
+
+def test_live_view_matches_a_shifted_symbol_binding():
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.view.shortcut_registry import default_bindings, set_current_bindings
+    from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow
+
+    win = LiveViewWindow()
+    fired = []
+    win.retakeRequested.connect(lambda: fired.append("retake"))
+    set_current_bindings({**default_bindings(), "live_view_retake": "?"})
+    try:
+        QTest.keyClick(win, Qt.Key.Key_Question, Qt.KeyboardModifier.ShiftModifier)
+    finally:
+        set_current_bindings(default_bindings())
+    assert fired == ["retake"]
+
+
+def test_live_view_prefers_the_exact_shift_binding():
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.view.shortcut_registry import default_bindings, set_current_bindings
+    from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow
+
+    win = LiveViewWindow()
+    fired = []
+    win.scanRequested.connect(lambda: fired.append("scan"))
+    win.retakeRequested.connect(lambda: fired.append("retake"))
+    set_current_bindings({**default_bindings(), "live_view_scan": "S", "live_view_retake": "Shift+S"})
+    try:
+        QTest.keyClick(win, Qt.Key.Key_S, Qt.KeyboardModifier.ShiftModifier)
+        QTest.keyClick(win, Qt.Key.Key_S)
+    finally:
+        set_current_bindings(default_bindings())
+    assert fired == ["retake", "scan"]

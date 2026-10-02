@@ -26,7 +26,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.canvas.reference_pane import ReferencePane
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
-from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
+from negpy.desktop.view.keyboard_shortcuts import SpacePanKeyFilter, setup_keyboard_shortcuts
 from negpy.desktop.view.mac_menu_bar import install_mac_menus
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.right_panel import RightPanel
@@ -164,6 +164,8 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._connect_signals()
         self.shortcut_manager = setup_keyboard_shortcuts(self)
+        self.space_pan_filter = SpacePanKeyFilter(self)
+        self.space_pan_filter.space_held_changed.connect(self.canvas.set_space_pan_held)
         # macOS only: the global menu bar costs no window space, and elsewhere this is a
         # no-op. After the shortcut manager, whose actions the menu items dispatch through.
         self.mac_menus = install_mac_menus(self)
@@ -195,6 +197,9 @@ class MainWindow(QMainWindow):
             self.setWindowState(Qt.WindowState.WindowMaximized)
 
     def closeEvent(self, event) -> None:
+        space_pan_filter = getattr(self, "space_pan_filter", None)
+        if space_pan_filter is not None:
+            space_pan_filter.uninstall()
         try:
             geo = self.normalGeometry() if self.isMaximized() or self.isFullScreen() else self.geometry()
             self.controller.session.repo.save_global_settings(

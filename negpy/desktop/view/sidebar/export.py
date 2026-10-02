@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer
@@ -396,6 +397,13 @@ class ExportSidebar(BaseSidebar):
         self.linear_sensor_checkbox.toggled.connect(self._on_linear_correction_changed)
         box.addWidget(self.linear_sensor_checkbox)
 
+        self.linear_lens_checkbox = QCheckBox("Apply lens correction")
+        self.linear_lens_checkbox.setToolTip(wrap_tooltip(self._LINEAR_LENS_TOOLTIP))
+        self.linear_lens_checkbox.setChecked(self.state.linear_apply_lens)
+        self.linear_lens_checkbox.setVisible(False)
+        self.linear_lens_checkbox.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_lens_checkbox)
+
         self.linear_ice_checkbox = QCheckBox("Apply ICE dust removal")
         self.linear_ice_checkbox.setToolTip("Apply IR-based dust and scratch correction")
         self.linear_ice_checkbox.setChecked(self.state.linear_apply_ice)
@@ -457,6 +465,7 @@ class ExportSidebar(BaseSidebar):
             self.linear_wb_checkbox.setVisible(False)
             self.linear_flatfield_checkbox.setVisible(False)
             self.linear_sensor_checkbox.setVisible(False)
+            self.linear_lens_checkbox.setVisible(False)
             self.linear_ice_checkbox.setVisible(False)
             self.linear_corrections_hint.setVisible(False)
         if hasattr(self, "_presets_section"):
@@ -545,8 +554,12 @@ class ExportSidebar(BaseSidebar):
 
         is_camera = source_type == "camera"
         has_ir = self.state.has_ir
-        show_corrections = is_camera or has_ir
+        lens_visible, has_lens = self._linear_lens_state(path, is_camera)
+        show_corrections = is_camera or has_ir or lens_visible
         self.linear_corrections_label.setVisible(show_corrections)
+        self.linear_lens_checkbox.setVisible(lens_visible)
+        self.linear_lens_checkbox.setEnabled(has_lens)
+        self.linear_lens_checkbox.setToolTip(wrap_tooltip(self._LINEAR_LENS_TOOLTIP if has_lens else "Distortion and CA are off in Optics"))
         self.linear_wb_checkbox.setVisible(is_camera)
         self.linear_flatfield_checkbox.setVisible(is_camera)
         self.linear_sensor_checkbox.setVisible(is_camera)
@@ -587,9 +600,29 @@ class ExportSidebar(BaseSidebar):
             (self.state.linear_apply_wb and wb_available)
             or (self.state.linear_apply_flatfield and has_flatfield)
             or (self.state.linear_apply_sensor and has_matrix)
+            or (self.state.linear_apply_lens and has_lens)
             or (self.state.linear_apply_ice and has_ir)
         )
         self.linear_corrections_hint.setVisible(show_corrections and any_on)
+
+    _LINEAR_LENS_TOOLTIP = "Apply the scanning-lens correction set in Optics: the embedded Distortion and CA, and Distortion Correction"
+
+    def _linear_lens_state(self, path: str, is_camera: bool) -> tuple[bool, bool]:
+        """(visible, enabled): visible for an embedded profile or a nonzero k1, enabled when Optics has one on."""
+        from negpy.features.lens.models import LensMetadata
+        from negpy.infrastructure.loaders.lens_metadata import read_lens_metadata
+        from negpy.services.rendering.lens import metadata_lens_corrections
+
+        config = self.state.config
+        geometry = config.geometry
+        requested = replace(config, geometry=replace(geometry, lens_distortion_from_metadata=True, lens_ca_from_metadata=True))
+        single = bool(path) and is_camera and not self.state.has_ir and bool(metadata_lens_corrections(requested))
+        embedded = read_lens_metadata(path) if single else LensMetadata()
+        on = metadata_lens_corrections(config)
+        embedded_on = on.distortion and embedded.distortion or on.ca and embedded.ca
+        has_profile = embedded.available
+        has_k1 = geometry.distortion_k1 != 0.0
+        return has_profile or has_k1, bool(embedded_on or has_k1)
 
     def _on_linear_expansion_changed(self, index: int) -> None:
         source_type = getattr(self, "_current_expansion_source_type", "unsupported")
@@ -637,10 +670,15 @@ class ExportSidebar(BaseSidebar):
         self.state.linear_apply_wb = self.linear_wb_checkbox.isChecked()
         self.state.linear_apply_flatfield = self.linear_flatfield_checkbox.isChecked()
         self.state.linear_apply_sensor = self.linear_sensor_checkbox.isChecked()
+        self.state.linear_apply_lens = self.linear_lens_checkbox.isChecked()
         self.state.linear_apply_ice = self.linear_ice_checkbox.isChecked()
         self.controller.session.save_flat_output_prefs()
         any_on = (
-            self.state.linear_apply_wb or self.state.linear_apply_flatfield or self.state.linear_apply_sensor or self.state.linear_apply_ice
+            self.state.linear_apply_wb
+            or self.state.linear_apply_flatfield
+            or self.state.linear_apply_sensor
+            or self.state.linear_apply_lens
+            or self.state.linear_apply_ice
         )
         self.linear_corrections_hint.setVisible(any_on)
 
@@ -1256,6 +1294,7 @@ class ExportSidebar(BaseSidebar):
             self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
             self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
             self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
+            self.linear_lens_checkbox.setChecked(self.state.linear_apply_lens)
             self.linear_ice_checkbox.setChecked(self.state.linear_apply_ice)
             self._refresh_linear_gamma_combo()
         finally:
@@ -1285,6 +1324,7 @@ class ExportSidebar(BaseSidebar):
             self.linear_wb_checkbox,
             self.linear_flatfield_checkbox,
             self.linear_sensor_checkbox,
+            self.linear_lens_checkbox,
             self.linear_ice_checkbox,
             self.linear_gamma_combo,
         ]

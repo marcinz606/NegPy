@@ -106,12 +106,15 @@ class GeometrySidebar(BaseSidebar):
         self.crop_to_valid_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
         self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.auto_skew_btn = self._icon_action("fa5s.ruler-combined", "Auto Skew: square the frame to its own film and frame edges")
         # The tools sit on the header so all three sliders keep one track width.
         self.keystone_lines_btn = self._tool_toggle("", "", "Tilt and swing with reference lines")
         self.keystone_lines_btn.setIcon(_keystone_reference_icon())
         self.keystone_lines_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.layout.addLayout(
-            header_row(section_subheader("ALIGNMENT"), self.straighten_btn, self.keystone_lines_btn, self.crop_to_valid_btn)
+            header_row(
+                section_subheader("ALIGNMENT"), self.auto_skew_btn, self.straighten_btn, self.keystone_lines_btn, self.crop_to_valid_btn
+            )
         )
 
         # The slider shows the photographer's convention, where positive is clockwise on screen.
@@ -155,6 +158,7 @@ class GeometrySidebar(BaseSidebar):
         self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
 
+        self.auto_skew_btn.clicked.connect(self.controller.auto_skew_frame)
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
         self.keystone_lines_btn.toggled.connect(self._on_keystone_lines_toggled)
 

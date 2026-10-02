@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Iterable
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 
 from negpy.desktop.view.slider_shortcut_groups import (
@@ -17,6 +18,11 @@ class ShortcutEntry:
     default_key: str
     description: str
     category: str
+    # The window that dispatches the key. A key only clashes with another bound in the same window.
+    window: str = "main"
+
+
+LIVE_VIEW = "live_view"
 
 
 REGISTRY: dict[str, ShortcutEntry] = {
@@ -45,6 +51,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "converge_v_inc": ShortcutEntry("", "Easel tilt up", "Geometry"),
     "converge_h_dec": ShortcutEntry("", "Easel swing down", "Geometry"),
     "converge_h_inc": ShortcutEntry("", "Easel swing up", "Geometry"),
+    "auto_skew": ShortcutEntry("", "Auto skew: square the frame to its edges", "Geometry"),
     "straighten": ShortcutEntry("L", "Toggle straighten line tool", "Geometry"),
     "keystone_lines": ShortcutEntry("", "Toggle tilt/swing reference-lines tool", "Geometry"),
     "pick_wb": ShortcutEntry("Shift+W", "Toggle WB picker", "Tools"),
@@ -268,6 +275,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "save_work_print": ShortcutEntry("Ctrl+Shift+S", "Save the current edit as a named work print", "Actions"),
     "undo": ShortcutEntry("Ctrl+Z", "Undo", "Actions"),
     "redo": ShortcutEntry("Ctrl+Y", "Redo", "Actions"),
+    "live_view_scan": ShortcutEntry("S", "Scan, or stop the capture", "Camera Live View", LIVE_VIEW),
+    "live_view_retake": ShortcutEntry("R", "Retake the current frame", "Camera Live View", LIVE_VIEW),
     "show_shortcuts": ShortcutEntry("?", "Show shortcuts", "Help"),
     "show_tour": ShortcutEntry("", "Take the tour: a guided walk through NegPy, one chapter at a time", "Help"),
     "show_analysis_help": ShortcutEntry("", "Analysis panel guide", "Help"),
@@ -393,6 +402,16 @@ def current_bindings() -> dict[str, str]:
     if not _CURRENT_BINDINGS:
         set_current_bindings(default_bindings())
     return dict(_CURRENT_BINDINGS)
+
+
+def clash_scope(action_id: str, key: str) -> str:
+    """The window whose other bindings a key clashes with. A Ctrl or Cmd chord passes a
+    floating panel's key guard to the main window, so it clashes there too."""
+    seq = QKeySequence(key)
+    command = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+    if not seq.isEmpty() and seq[0].keyboardModifiers() & command:
+        return "main"
+    return REGISTRY[action_id].window
 
 
 def key_for(action_id: str, bindings: dict[str, str] | None = None) -> str:

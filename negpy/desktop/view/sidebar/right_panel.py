@@ -400,6 +400,7 @@ class RightPanel(QWidget):
         self.metadata_sidebar.apply_shortcut_tooltips()
         self.export_sidebar.apply_shortcut_tooltips()
         self.gear_panel.apply_shortcut_tooltips()
+        self.scanlight_sidebar.lv_window.apply_shortcut_tooltips()
 
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)

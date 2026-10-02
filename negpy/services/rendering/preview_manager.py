@@ -82,6 +82,38 @@ working_oetf_decode(working_oetf_encode(np.zeros(4, dtype=np.float32)))
 del _warmup
 
 
+def _linear_preview_key(
+    file_hash: str,
+    *,
+    color_space: str,
+    use_camera_wb: bool,
+    full_resolution: bool,
+    half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None,
+    demosaic: str,
+    positive_source: bool,
+    highlight_mode: int,
+    bake_camera_wb: bool,
+    lens_corrections: LensCorrections,
+    lens_flatfield: FlatFieldConfig,
+) -> PreviewCacheKey:
+    """The cache key of one plain-frame linear decode; every put and lookup builds it here."""
+    return PreviewCacheKey(
+        file_hash=file_hash,
+        use_camera_wb=use_camera_wb,
+        workspace_color_space=color_space,
+        full_resolution=full_resolution,
+        demosaic=demosaic,
+        lens_token=lens_decode_token(lens_corrections, lens_flatfield),
+        half=half_slice[0] if half_slice else 0,
+        split_x=half_slice[1] if half_slice else 0.5,
+        crop_rect=half_slice[2] if half_slice else None,
+        gutter_thickness=half_slice[3] if half_slice else 0.0,
+        positive_source=positive_source,
+        highlight_mode=highlight_mode,
+        bake_camera_wb=bake_camera_wb,
+    )
+
+
 class PreviewManager:
     """
     Loads RAW (and other) files for UI preview, with in-memory LRU and fast decode.
@@ -111,20 +143,18 @@ class PreviewManager:
         """Warm one preview when its cache and system-memory budgets both admit it."""
         if not file_hash:
             return False
-        key = PreviewCacheKey(
-            file_hash=file_hash,
+        key = _linear_preview_key(
+            file_hash,
+            color_space=color_space,
             use_camera_wb=use_camera_wb,
-            workspace_color_space=color_space,
             full_resolution=False,
+            half_slice=half_slice,
             demosaic=demosaic,
-            lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-            half=half_slice[0] if half_slice else 0,
-            split_x=half_slice[1] if half_slice else 0.5,
-            crop_rect=half_slice[2] if half_slice else None,
-            gutter_thickness=half_slice[3] if half_slice else 0.0,
             positive_source=positive_source,
             highlight_mode=highlight_mode,
             bake_camera_wb=bake_camera_wb,
+            lens_corrections=lens_corrections,
+            lens_flatfield=lens_flatfield,
         )
         if self._cache.contains(key):
             return True
@@ -174,6 +204,41 @@ class PreviewManager:
             lens_flatfield=lens_flatfield,
         )
         return True
+
+    def peek_linear_preview(
+        self,
+        file_path: str,
+        color_space: str,
+        *,
+        use_camera_wb: bool,
+        file_hash: str | None,
+        full_resolution: bool = False,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+        demosaic: str = DemosaicMode.AUTO,
+        positive_source: bool = False,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
+        lens_corrections: LensCorrections = LensCorrections(),
+        lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
+    ) -> Optional[Tuple[ImageBuffer, Dimensions, dict]]:
+        """The cached decode ``load_linear_preview`` would return for these arguments, or None.
+        Never decodes and never reorders the LRU. The buffer is shared: do not mutate it."""
+        if not file_hash:
+            return None
+        key = _linear_preview_key(
+            file_hash,
+            color_space=color_space,
+            use_camera_wb=use_camera_wb,
+            full_resolution=full_resolution,
+            half_slice=half_slice,
+            demosaic=demosaic,
+            positive_source=positive_source,
+            highlight_mode=highlight_mode,
+            bake_camera_wb=bake_camera_wb,
+            lens_corrections=lens_corrections,
+            lens_flatfield=lens_flatfield,
+        )
+        return self._cache.peek(key)
 
     # Internal helpers. They operate on an already-open raw object, so a caller that needs
     # both splash and linear shares one file open.
@@ -446,20 +511,18 @@ class PreviewManager:
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview load cancelled")
         if file_hash:
-            ck = PreviewCacheKey(
-                file_hash=file_hash,
+            ck = _linear_preview_key(
+                file_hash,
+                color_space=color_space,
                 use_camera_wb=use_camera_wb,
-                workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half_slice=half_slice,
                 demosaic=demosaic,
-                lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-                half=half_slice[0] if half_slice else 0,
-                split_x=half_slice[1] if half_slice else 0.5,
-                crop_rect=half_slice[2] if half_slice else None,
-                gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
+                lens_corrections=lens_corrections,
+                lens_flatfield=lens_flatfield,
             )
             # The cache entry aliases the returned buffer, under the same read-only contract as
             # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
@@ -531,20 +594,18 @@ class PreviewManager:
 
         # Fast path: skip file open entirely when all cache-key params are known upfront.
         if file_hash and color_space is not None:
-            ck = PreviewCacheKey(
-                file_hash=file_hash,
+            ck = _linear_preview_key(
+                file_hash,
+                color_space=color_space,
                 use_camera_wb=use_camera_wb,
-                workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half_slice=half_slice,
                 demosaic=demosaic,
-                lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-                half=half_slice[0] if half_slice else 0,
-                split_x=half_slice[1] if half_slice else 0.5,
-                crop_rect=half_slice[2] if half_slice else None,
-                gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
+                lens_corrections=lens_corrections,
+                lens_flatfield=lens_flatfield,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -563,20 +624,18 @@ class PreviewManager:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
-                ck = PreviewCacheKey(
-                    file_hash=file_hash,
+                ck = _linear_preview_key(
+                    file_hash,
+                    color_space=color_space,
                     use_camera_wb=use_camera_wb,
-                    workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    half_slice=half_slice,
                     demosaic=demosaic,
-                    lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-                    half=half_slice[0] if half_slice else 0,
-                    split_x=half_slice[1] if half_slice else 0.5,
-                    crop_rect=half_slice[2] if half_slice else None,
-                    gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
+                    lens_corrections=lens_corrections,
+                    lens_flatfield=lens_flatfield,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -929,20 +988,18 @@ class PreviewManager:
 
         # Fast path: skip file open entirely when all cache-key params are known upfront.
         if file_hash and color_space is not None:
-            ck = PreviewCacheKey(
-                file_hash=file_hash,
+            ck = _linear_preview_key(
+                file_hash,
+                color_space=color_space,
                 use_camera_wb=use_camera_wb,
-                workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half_slice=half_slice,
                 demosaic=demosaic,
-                lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-                half=half_slice[0] if half_slice else 0,
-                split_x=half_slice[1] if half_slice else 0.5,
-                crop_rect=half_slice[2] if half_slice else None,
-                gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
+                lens_corrections=lens_corrections,
+                lens_flatfield=lens_flatfield,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -965,20 +1022,18 @@ class PreviewManager:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
-                ck = PreviewCacheKey(
-                    file_hash=file_hash,
+                ck = _linear_preview_key(
+                    file_hash,
+                    color_space=color_space,
                     use_camera_wb=use_camera_wb,
-                    workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    half_slice=half_slice,
                     demosaic=demosaic,
-                    lens_token=lens_decode_token(lens_corrections, lens_flatfield),
-                    half=half_slice[0] if half_slice else 0,
-                    split_x=half_slice[1] if half_slice else 0.5,
-                    crop_rect=half_slice[2] if half_slice else None,
-                    gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
+                    lens_corrections=lens_corrections,
+                    lens_flatfield=lens_flatfield,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:

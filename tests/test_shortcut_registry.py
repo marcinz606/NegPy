@@ -4,6 +4,7 @@ from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
     EditorRowSlider,
     category_editor_rows,
+    clash_scope,
     default_bindings,
     default_slider_steps,
     display_key,
@@ -144,7 +145,7 @@ def test_category_editor_rows_merge_slider_pairs():
 
 def test_no_two_actions_claim_the_same_default_key():
     # Two actions on one key makes Qt fire activatedAmbiguously and both go dead.
-    keys = [key for key in default_bindings().values() if key]
+    keys = [(clash_scope(action_id, entry.default_key), entry.default_key) for action_id, entry in REGISTRY.items() if entry.default_key]
     assert len(keys) == len(set(keys))
 
 
@@ -177,3 +178,11 @@ def test_label_with_shortcut_appends_the_current_binding():
 def test_label_with_shortcut_leaves_an_unbound_action_plain():
     bindings = merge_bindings({"copy": ""})
     assert label_with_shortcut("Copy Settings", "copy", bindings) == "Copy Settings"
+
+
+def test_a_command_chord_clashes_across_windows():
+    # A floating panel passes Ctrl/Cmd chords to the main window, so only bare keys may repeat.
+    assert clash_scope("live_view_scan", "S") == "live_view"
+    assert clash_scope("live_view_scan", "Ctrl+E") == "main"
+    assert clash_scope("live_view_scan", "Meta+E") == "main"
+    assert clash_scope("export", "Ctrl+E") == "main"

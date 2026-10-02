@@ -129,6 +129,106 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["persist"])
         self.controller.request_render.assert_called_once_with()
 
+    def test_auto_skew_writes_absolute_rotation_and_measured_keystone(self):
+        from negpy.features.geometry.skew import FrameSkew
+
+        geo = replace(self.controller.state.config.geometry, fine_rotation=4.0, converge_v=0.0, converge_h=2.5)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        measured = FrameSkew(fine_rotation=-1.25, converge_v=0.8, converge_h=None, confidence=0.9, lines=(), residual=0.0)
+
+        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured) as fit:
+            self.controller.auto_skew_frame()
+
+        # The fit sees the frame with no fine rotation or keystone, so its values replace them.
+        fitted_on = fit.call_args.args[0]
+        self.assertEqual(fitted_on.shape[:2], (100, 120))
+        result = self.controller.state.config.geometry
+        self.assertAlmostEqual(result.fine_rotation, -1.25)
+        self.assertAlmostEqual(result.converge_v, 0.8)
+        self.assertAlmostEqual(result.converge_h, 2.5)  # unmeasured: kept
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["persist"])
+        self.controller.request_render.assert_called_once_with()
+
+    def test_auto_skew_status_names_only_what_the_fit_measured(self):
+        from negpy.features.geometry.skew import FrameSkew
+
+        geo = replace(self.controller.state.config.geometry, converge_h=2.5)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        measured = FrameSkew(fine_rotation=-1.25, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
+
+        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured):
+            self.controller.auto_skew_frame()
+
+        message = self.controller.set_status.call_args.args[0]
+        self.assertIn("Fine Rotation", message)
+        self.assertNotIn("Tilt", message)
+        self.assertNotIn("Swing", message)
+
+    def test_auto_skew_without_a_frame_edge_changes_nothing(self):
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+
+        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=None):
+            self.controller.auto_skew_frame()
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+        self.assertEqual(self.controller.set_status.call_args.args[2], "warning")
+
+    def test_auto_skew_reports_no_adjustment_when_the_frame_already_sits_square(self):
+        from negpy.features.geometry.skew import FrameSkew
+
+        geo = replace(self.controller.state.config.geometry, fine_rotation=1.0)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        measured = FrameSkew(fine_rotation=1.01, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
+
+        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured):
+            self.controller.auto_skew_frame()
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+        self.assertIn("no adjustment necessary", self.controller.set_status.call_args.args[0])
+
+    def test_auto_skew_measures_the_flat_fielded_source(self):
+        from negpy.features.geometry.skew import FrameSkew
+
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        flattened = np.full((100, 120, 3), 0.5, dtype=np.float32)
+        measured = FrameSkew(fine_rotation=-1.0, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
+
+        with (
+            patch("negpy.desktop.controller.apply_flatfield", return_value=flattened) as bake,
+            patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured) as fit,
+        ):
+            self.controller.auto_skew_frame()
+
+        bake.assert_called_once()
+        self.assertEqual(float(fit.call_args.args[0].mean()), 0.5)
+
+    def test_auto_skew_failure_reports_and_changes_nothing(self):
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+
+        with patch("negpy.desktop.controller.trusted_frame_skew", side_effect=RuntimeError("no LSD")):
+            self.controller.auto_skew_frame()
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+        self.assertEqual(self.controller.set_status.call_args.args[2], "warning")
+
     def test_keystone_solve_error_keeps_lines_and_does_not_emit_clear(self):
         self.controller.state.active_tool = ToolMode.KEYSTONE_LINES
         self.controller.state.preview_raw = np.zeros((100, 120), dtype=np.float32)

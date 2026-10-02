@@ -369,6 +369,13 @@ class CanvasOverlay(QWidget):
         # Same, for the auto-corrected-region magenta wash (ir_corrected_mask +
         # inpainted hair masks), keyed per mask object identity.
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
+        # Placed heals in viewport-normalized coords, keyed on (uv_grid, retouch config)
+        # identity, and their screen shapes, keyed on that plus the content rect. The inverse
+        # uv lookup per point is the cost of a paint, and the heal tool repaints per mouse move.
+        self._heal_norm_cache: Optional[Tuple[Any, Any, tuple]] = None
+        self._heal_shape_cache: Optional[Tuple[tuple, tuple, list]] = None
+        # The shapes rasterized once, so a repaint is one blit at any heal count.
+        self._heal_layer_cache: Optional[Tuple[list, tuple, QPixmap]] = None
 
         # The rendered frame as NumPy, for the instruments that measure pixels (zone grid,
         # grain loupe, notes sheet). The GPU path hands over a texture instead, read back only
@@ -1730,6 +1737,76 @@ class CanvasOverlay(QWidget):
             rotated_cell(current, base_grid, rotation),
         )
 
+    def _placed_heals_norm(self, conf: Any, uv_grid: np.ndarray) -> tuple:
+        """(stroke point lists, spot centers) of the placed heals in viewport-normalized
+        coords. The cache holds both keys, so their ids cannot be reused while it lives."""
+        cached = self._heal_norm_cache
+        if cached is not None and cached[0] is uv_grid and cached[1] is conf:
+            return cached[2]
+        strokes = tuple(
+            [CoordinateMapping.map_raw_to_viewport(px, py, uv_grid) for px, py in stroke[0]] for stroke in conf.manual_heal_strokes
+        )
+        spots = tuple(CoordinateMapping.map_raw_to_viewport(rx, ry, uv_grid) for rx, ry, _size in conf.manual_dust_spots)
+        value = (strokes, spots)
+        self._heal_norm_cache = (uv_grid, conf, value)
+        return value
+
+    def _norm_to_content(self, nx: float, ny: float, rect: QRectF) -> QPointF:
+        return QPointF(rect.x() + nx * rect.width(), rect.y() + ny * rect.height())
+
+    def _placed_heal_shapes(self, conf: Any, uv_grid: np.ndarray) -> list:
+        """Screen shapes of the placed heals: ("dab", center, radius), ("region", path)
+        and ("spot", center, radius)."""
+        norm = self._placed_heals_norm(conf, uv_grid)
+        rect = self._content_view_rect()
+        key = (rect.x(), rect.y(), rect.width(), rect.height())
+        cached = self._heal_shape_cache
+        if cached is not None and cached[0] == key and cached[1] is norm:
+            return cached[2]
+        shapes: list = []
+        for stroke, pts in zip(conf.manual_heal_strokes, norm[0]):
+            screen_pts = [self._norm_to_content(nx, ny, rect) for nx, ny in pts]
+            radius = max(2.0, self._brush_screen_radius(stroke[1]))
+            if len(screen_pts) == 1:
+                shapes.append(("dab", screen_pts[0], radius))
+                continue
+            if len(screen_pts) >= 3:
+                screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
+            shapes.append(("region", self._heal_region_path(screen_pts, radius)))
+        for (_rx, _ry, size), (nx, ny) in zip(conf.manual_dust_spots, norm[1]):
+            shapes.append(("spot", self._norm_to_content(nx, ny, rect), max(2.0, self._brush_screen_radius(size))))
+        self._heal_shape_cache = (key, norm, shapes)
+        return shapes
+
+    def _placed_heal_layer(self, shapes: list) -> QPixmap:
+        dpr = self.devicePixelRatioF()
+        key = (self.width(), self.height(), dpr)
+        cached = self._heal_layer_cache
+        if cached is not None and cached[0] is shapes and cached[1] == key:
+            return cached[2]
+        pix = QPixmap(max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(THEME.accent_primary), 1.0, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        # Masked area only, with no centerline and no outline.
+        fill = QColor(THEME.accent_primary)
+        fill.setAlpha(40)
+        for shape in shapes:
+            if shape[0] == "region":
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(fill)
+                p.drawPath(shape[1])
+            else:
+                p.setPen(pen)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawEllipse(shape[1], shape[2], shape[2])
+        p.end()
+        self._heal_layer_cache = (shapes, key, pix)
+        return pix
+
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
         conf = self.state.config.retouch
@@ -1740,33 +1817,7 @@ class CanvasOverlay(QWidget):
         if uv_grid is None:
             return
 
-        pen = QPen(QColor(THEME.accent_primary), 1.0, Qt.PenStyle.SolidLine)
-        pen.setCosmetic(True)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        for stroke in conf.manual_heal_strokes:
-            points, size = stroke[0], stroke[1]
-            screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
-            radius = max(2.0, self._brush_screen_radius(size))
-            if len(screen_pts) == 1:
-                painter.setPen(pen)
-                painter.drawEllipse(screen_pts[0], radius, radius)
-            else:
-                if len(screen_pts) >= 3:
-                    screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
-                # Masked area only, with no centerline and no outline.
-                fill = QColor(THEME.accent_primary)
-                fill.setAlpha(40)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(fill)
-                painter.drawPath(self._heal_region_path(screen_pts, radius))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        painter.setPen(pen)
-        for rx, ry, size in conf.manual_dust_spots:
-            center = self._raw_to_screen(rx, ry, uv_grid)
-            radius = max(2.0, self._brush_screen_radius(size))
-            painter.drawEllipse(center, radius, radius)
+        painter.drawPixmap(0, 0, self._placed_heal_layer(self._placed_heal_shapes(conf, uv_grid)))
 
         # Traced scratches draw as the band they repair, not a hairline.
         for line in conf.scratch_lines:
@@ -2530,7 +2581,9 @@ class CanvasOverlay(QWidget):
             return
 
         if event.button() == Qt.MouseButton.MiddleButton or (
-            event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
+            event.button() == Qt.MouseButton.LeftButton
+            and self.zoom_level > 1.0
+            and (self._tool_mode == ToolMode.NONE or self.parent()._space_pan_held)
         ):
             self.parent()._is_panning = True
             self.parent()._last_mouse_pos = event.position()
@@ -3119,15 +3172,17 @@ class CanvasOverlay(QWidget):
         slop = 4.0
         best: Optional[Tuple[str, int]] = None
         best_dist = float("inf")
-        for i, (points, size, _dx, _dy) in enumerate(conf.manual_heal_strokes):
-            screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
+        norm_strokes, norm_spots = self._placed_heals_norm(conf, uv_grid)
+        rect = self._content_view_rect()
+        for i, ((_points, size, _dx, _dy), pts) in enumerate(zip(conf.manual_heal_strokes, norm_strokes)):
+            screen_pts = [self._norm_to_content(nx, ny, rect) for nx, ny in pts]
             radius = max(2.0, self._brush_screen_radius(size)) + slop
             d = _distance_to_polyline(pos, screen_pts)
             if d <= radius and d < best_dist:
                 best = ("stroke", i)
                 best_dist = d
-        for i, (rx, ry, size) in enumerate(conf.manual_dust_spots):
-            center = self._raw_to_screen(rx, ry, uv_grid)
+        for i, ((_rx, _ry, size), (nx, ny)) in enumerate(zip(conf.manual_dust_spots, norm_spots)):
+            center = self._norm_to_content(nx, ny, rect)
             radius = max(2.0, self._brush_screen_radius(size)) + slop
             d = math.hypot(pos.x() - center.x(), pos.y() - center.y())
             if d <= radius and d < best_dist:

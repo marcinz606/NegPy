@@ -11,11 +11,12 @@ import time
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
+from PyQt6.QtGui import QCursor, QKeySequence
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QToolButton, QVBoxLayout, QWidget
 
+from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
-from negpy.desktop.view.styles.templates import hint_label, labeled_action, pin_dialog_default, SCAN_BUTTON_HEIGHT
+from negpy.desktop.view.styles.templates import hint_label, labeled_action, pin_dialog_default, wrap_tooltip, SCAN_BUTTON_HEIGHT
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
@@ -141,7 +142,7 @@ class LiveViewWindow(QDialog):
 
         # ── capture toolbar (mirrors the panel so you needn't switch tabs) ──
         bar = QHBoxLayout()
-        self.scan_btn = labeled_action("fa5s.camera-retro", " Scan", "Capture this frame")
+        self.scan_btn = labeled_action("fa5s.camera-retro", " Scan", "Capture this frame, or stop the capture")
         self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
         self.retake_btn = labeled_action("fa5s.redo", " Retake", "Re-capture the current frame without advancing the counter")
         bar.addWidget(self.scan_btn, 2)
@@ -216,13 +217,33 @@ class LiveViewWindow(QDialog):
         # once made Enter keep retaking until Scan was clicked again to reclaim it (issue #997).
         pin_dialog_default(self.scan_btn, self.retake_btn)
 
-        # Keyboard shortcuts while the pop-up is focused. There are no text fields here, so
-        # letter keys are safe. The buttons respect their gated state.
-        for key, btn in (("S", self.scan_btn), ("R", self.retake_btn)):
-            QShortcut(QKeySequence(key), self, btn.click)
-        self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")
-        self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter  (shortcut: R)")
+        # Keys while the pop-up is focused; there are no text fields here. The buttons respect
+        # their gated state.
+        self._key_buttons = {"live_view_scan": self.scan_btn, "live_view_retake": self.retake_btn}
         remember_dialog_geometry(self, repo, "live_view")
+
+    def apply_shortcut_tooltips(self) -> None:
+        for action_id, btn in self._key_buttons.items():
+            btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action_id)))
+
+    def _key_button(self, ev):
+        modifiers = ev.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        # A shifted symbol such as "?" arrives as Key_Question with Shift held, so Shift is
+        # dropped only after no binding matches the exact chord.
+        for mods in (modifiers, modifiers & ~Qt.KeyboardModifier.ShiftModifier):
+            pressed = QKeySequence(ev.key() | mods.value)
+            for action_id, btn in self._key_buttons.items():
+                key = key_for(action_id)
+                if key and QKeySequence(key) == pressed:
+                    return btn
+        return None
+
+    def keyPressEvent(self, ev) -> None:
+        btn = self._key_button(ev)
+        if btn is None:
+            super().keyPressEvent(ev)
+        elif not ev.isAutoRepeat():
+            btn.click()
 
     def set_preview_available(self, available: bool, reason: str = "") -> None:
         """Swap the preview pane for an explanation on bodies that cannot stream.
@@ -282,6 +303,7 @@ class LiveViewWindow(QDialog):
     def set_status(self, text: str) -> None:
         self.status.setText(text)
 
-    def closeEvent(self, ev) -> None:
+    def done(self, result: int) -> None:
+        # Esc reaches here without a closeEvent, so the session cleanup hangs off done().
         self.closed.emit()
-        super().closeEvent(ev)
+        super().done(result)

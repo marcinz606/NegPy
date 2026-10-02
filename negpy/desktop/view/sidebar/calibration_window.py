@@ -85,6 +85,7 @@ class CalibrationWindow(QDialog):
         self.status = hint_label("Click the clear film base (crosshair), name the stock, then Calibrate & Save.")
         layout.addWidget(self.status)
 
+        self._running = False
         self.calibrate_btn.clicked.connect(self._emit_calibrate)
         remember_dialog_geometry(self, repo, "scanlight_calibration")
 
@@ -95,6 +96,7 @@ class CalibrationWindow(QDialog):
         """Freeze the calibration inputs while a run is in progress: the film-stock name, the base
         ROI (clicking the image must not move the patch being metered), and the ISO/aperture the
         base is metered at. Re-enabled at any terminal outcome so a failed run can be retried."""
+        self._running = locked
         self.name_edit.setEnabled(not locked)
         self.iso_stepper.setEnabled(not locked)
         self.aperture_stepper.setEnabled(not locked)
@@ -121,6 +123,12 @@ class CalibrationWindow(QDialog):
         self.show()
         self.raise_()
 
-    def closeEvent(self, ev) -> None:
+    def keyPressEvent(self, ev) -> None:
+        # Esc must not cancel a running calibration; the close button still does.
+        if not (self._running and ev.key() == Qt.Key.Key_Escape):
+            super().keyPressEvent(ev)
+
+    def done(self, result: int) -> None:
+        # Esc reaches here without a closeEvent, so the session cleanup hangs off done().
         self.closed.emit()
-        super().closeEvent(ev)
+        super().done(result)

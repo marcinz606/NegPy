@@ -877,8 +877,8 @@ class ScanlightSidebar(QWidget):
         session is cleanly exited — holding it open past the last window that uses it
         makes the next connection attempt hang instead of reconnecting.
 
-        `closing`, when given, names the window whose closeEvent just fired: `closed` is
-        emitted from inside closeEvent, before Qt actually hides the widget, so
+        `closing`, when given, names the window that is closing: `closed` is emitted from
+        inside done(), before Qt actually hides the widget, so
         `closing.isVisible()` would still (wrongly) read True here — treat it as already
         gone instead. Omit it when called after the fact (e.g. once a cancelled
         calibration actually stops), when both windows' visibility is already accurate.

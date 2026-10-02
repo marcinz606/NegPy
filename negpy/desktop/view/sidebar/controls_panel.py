@@ -629,6 +629,13 @@ class ControlsPanel(QWidget):
                 "manual_crop",
             )
         )
+        geo.auto_skew_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Auto Skew — find the film and frame edges and square the frame to them: Fine Rotation, "
+                "and Tilt and Swing where both edges of a pair show. Reads only the edges, never the picture",
+                "auto_skew",
+            )
+        )
         geo.straighten_btn.setToolTip(
             tooltip_with_shortcut(
                 "Straighten with a reference line — draw along the horizon or a vertical edge "

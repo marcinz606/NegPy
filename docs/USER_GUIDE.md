@@ -285,7 +285,7 @@ The right-click menu also has:
 *   **Reset to Roll Settings**: **Reset to Roll** on every card of this frame that differs from the roll, as one undo step. Unlike **Reset Settings**, the rest of the frame's edit stays. Also in the canvas **⋯** and right-click menus.
 *   **Apply Settings…**.
 *   **Sync Bounds…**: pushes only this frame's measured bounds, as **Tonal span** and **Color balance**, to the selection or roll. Also in the canvas right-click and overflow menus.
-*   **Update Thumbnail(s)**: re-renders the selection's thumbnails; **Update Thumbnails** on the toolbar does every stale one in the roll. Both become **Cancel** while running.
+*   **Update Thumbnail(s)**: re-renders the selection's thumbnails; **Update Thumbnails** on the toolbar does every thumbnail in the roll. Both become **Cancel** while running. A thin bar along the top of the canvas shows progress, and the Film Strip's count line shows the frame, the time left and, when the source files read slowly, the read time per frame.
 *   **Reset Roll to Defaults…**, and per-frame export.
 *   **Edit Independently in This Roll** / **Use the Shared Edit Again**; see [Rolls that are not folders](#rolls-that-are-not-folders).
 
@@ -388,6 +388,7 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 *   **Crop by Default** (crop icon, right end of the ALIGNMENT header): crop the wedge Fine Rotation, Tilt and Swing leave, so no edge shows extrapolated pixels. Live, only while no manual or auto crop is set. While you adjust a slider below, the canvas briefly darkens the margin it trims.
 *   **Fine Rotation** (±45°): sub-degree rotation, positive clockwise. Applied after auto-crop.
+*   **Auto Skew** (square ruler, on the ALIGNMENT header): find the film and frame edges and square the frame to them. It sets **Fine Rotation**, plus **Tilt** or **Swing** where both edges of that pair show; a value it could not measure keeps its own. It reads only the edges, so it works on any picture, and a deliberately tilted photo stays tilted. A frame that already sits square reports "no adjustment necessary"; a frame whose edges it cannot read confidently is left alone.
 *   **Straighten** tool (ruler, on the ALIGNMENT header): draw a line along a horizon or vertical edge to level or plumb it. Move the pointer past the edge of the viewport to pan during drawing.
 *   **Tilt and swing with reference lines** tool: drag a line along each rebate edge (top, bottom, left, right); once all four are marked, Tilt and Swing solve to make them parallel and square. Re-drag an edge to refine.
 *   **Tilt** (±15%): tip the easel about a horizontal axis to correct converging verticals. Positive stretches the top edge. The unit is percent of the frame, not an angle.
@@ -764,7 +765,7 @@ The shape every frame is cut to and what the frame detector looks for, roll-wide
 *   **Crop Offset** (-5 to 100 px): inset the detected edge; negative bleeds slightly outside.
 *   **Rebate Trim** (0 to 150%): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border. *Image only*; applies to **Frame** and **Roll**.
 *   **Auto-crop this frame** (magic wand on the AUTO CROP header): detect this frame's edge and crop to it, the same toggle as **Auto** in Geometry. Off clears the crop.
-*   **Auto-crop the roll** (layers icon on the AUTO CROP header): crops all visible landscape frames as a roll, calibrating weak detections from confident ones. Portrait frames are cropped alone, as with **Auto-crop this frame**. With no readable film edge anywhere (film overfills the sensor), each frame trims its own border; a roll of only a few frames, including an RGB triplet, trims by the edges brighter than the picture. Runs in the background with progress and cancel. Manual, Film-edge and ambiguous frames are left alone. *Image only* mode only.
+*   **Auto-crop the roll** (layers icon on the AUTO CROP header): crops all visible landscape frames as a roll, calibrating weak detections from confident ones. Each frame is straightened by its film and frame edges, as **Auto Skew** reads them. Portrait frames are cropped alone, as with **Auto-crop this frame**. With no readable film edge anywhere (film overfills the sensor), each frame trims its own border; a roll of only a few frames, including an RGB triplet, trims by the edges brighter than the picture. Runs in the background with progress and cancel. Manual, Film-edge and ambiguous frames are left alone. *Image only* mode only.
 *   **Mixing scans**: allowed. A frame that reads its own edge keeps its crop; a frame with no edge takes the roll's width and tilt. Frames from one camera, holder and format pool best.
 *   **When auto-crop leaves a frame alone**: the scanner bed must be the brightest thing in the scan. A slide with highlights as bright as the bed, sprocket-exposed film, or a neighbor frame filling more than a tenth of one side stays uncropped. Crop by hand, or use *Film edge* and trim in.
 
@@ -832,7 +833,7 @@ The scanning optics: one lens correction and one light correction for every fram
 #### Lens Correction
 
 *   **Embedded** (the file's own lens profile, enabled when the file has one):
-    *   **Distortion**: straightens curved lines, replacing manual distortion correction. Set it before cropping or retouching.
+    *   **Distortion**: straightens curved lines, replacing manual distortion correction. When the correction pulls the edges in from outside the frame, the image is enlarged slightly to fill it, as with Distortion Correction. Set it before cropping or retouching.
     *   **CA**: reduces color fringes. Works with or without **Distortion** and manual correction.
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing. Grayed out while the embedded **Distortion** is on.
 
@@ -951,6 +952,7 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
     *   **Expansion**: scales the data before writing. Defaults: Pakon F135/F235 4×, Noritsu 16×, F335 and LinearRaw DNG off. Camera RAW, Coolscan NEF and Flextight FFF have none.
     *   **Apply ICE dust removal** (when IR exists): IR dust and scratch correction. Off by default.
     *   **Corrections** (camera RAW only, all off): **Apply white balance** (as-shot gains; grayed out for a Trichrome triplet or Single-Shot Narrowband capture), **Apply Flat Field**, **Apply sensor correction** (crosstalk unmixing). Stitch composites always get Flat Field and sensor correction per part.
+    *   **Apply lens correction** (off; shown when the frame has an embedded lens profile or a **Distortion Correction**): applies the scanning-lens correction set in **Optics** (§10.8), which resamples the pixels. The embedded profile applies to a single camera RAW only, after Flat Field; **Distortion Correction** applies to any source, IR included, except a half-frame scan, whose file holds the whole scan.
 
     Linear Output uses **Destination** like any export and always appends `_linear`, so it cannot overwrite its source. Without **Overwrite**, an existing file gives `_linear_2`, `_linear_3` and so on. It runs as a background batch: **Abort** stops after the current frame, and the finish message counts failures.
 
@@ -1073,7 +1075,7 @@ Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux). W
 
 *   **Live View & Scan**: click the image to aim the focus magnifier, click again for the full frame. ISO, shutter and aperture are set from the toolbar, or locked by a calibrated RGB preset.
 *   **Preset**: shows its RGB levels, ISO, shutter and aperture and forces them each frame. **+** calibrates: place the rectangle on clear film base, name it, run it. It solves a shutter and per-channel LED levels just under clipping, or says which way to adjust and saves nothing. **Create a manual preset…** sets one by hand.
-*   **Scan** and **Retake**: **Scan** shoots into a per-roll subfolder, auto-numbered, and imports; **Retake** shoots again without advancing. **Delay between exposures** pauses between R, G and B for bodies that lock up.
+*   **Scan** and **Retake**: **Scan** shoots into a per-roll subfolder, auto-numbered, and imports; **Retake** shoots again without advancing. In the Live View window, `S` scans and `R` retakes; both can be rebound under Camera Live View in Keyboard Shortcuts. **Delay between exposures** pauses between R, G and B for bodies that lock up.
 *   **Narrowband**: RGB-lit scans render more saturated; the Calibration card's **Narrowband** toggle corrects this.
 
 Needs `python-gphoto2` (`pip install gphoto2`; no Windows build). See CAMERA_SCANNING.md for setup, the macOS camera-daemon note and troubleshooting.

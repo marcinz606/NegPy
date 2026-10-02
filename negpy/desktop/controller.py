@@ -152,7 +152,10 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.finish.models import FinishConfig
+from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.logic import (
+    AUTOCROP_DETECT_RES,
+    _normalize_detection_input,
     apply_fine_rotation,
     autocrop_detection_key,
     detect_closest_aspect_ratio,
@@ -162,6 +165,7 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
+from negpy.features.geometry.skew import trusted_frame_skew
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
@@ -350,6 +354,31 @@ _KNEE_LABELS = {
 # navigation and Auto Crop All caches already hold; deferred and retried rather than
 # started under memory pressure.
 _THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
+# Mean decode seconds above which, when decode also dominates the render, a refresh is
+# read-bound: the source volume, not the CPU, sets its pace.
+_THUMBNAIL_READ_BOUND_DECODE_S = 3.0
+
+
+def thumbnail_refresh_progress_text(
+    index: int,
+    total: int,
+    mean_decode_s: float,
+    mean_render_s: float,
+    *,
+    in_flight: bool = False,
+) -> str:
+    """Progress line for a thumbnail refresh. With ``in_flight`` the ``index``-th frame is
+    still decoding and counts as left; otherwise ``index`` frames are finished. The time
+    left needs two measured frames, since one is too noisy."""
+    text = f"Thumbnails {index}/{total}"
+    samples = index - 1 if in_flight else index
+    left = total - samples if in_flight else total - index
+    if samples >= 2 and left > 0:
+        seconds = (mean_decode_s + mean_render_s) * left
+        text += f" · ~{round(seconds / 60)} min left" if seconds >= 60 else f" · ~{max(1, round(seconds))} s left"
+    if mean_decode_s > _THUMBNAIL_READ_BOUND_DECODE_S and mean_decode_s > 2 * mean_render_s:
+        text += f" · reading {mean_decode_s:.0f} s/frame"
+    return text
 
 
 def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig, index: int) -> str:
@@ -442,6 +471,8 @@ class AppController(QObject):
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
     status_message_requested = pyqtSignal(str, int, str)
     status_progress_requested = pyqtSignal(int, int)
+    # The running thumbnail refresh's progress line; "" when none is running.
+    thumbnail_refresh_progress = pyqtSignal(str)
     batch_started = pyqtSignal(str, bool)  # title, abortable
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
     batch_finished = pyqtSignal()
@@ -552,6 +583,9 @@ class AppController(QObject):
         # landing — marks that cancellation as a user stop, not a pre-emption, so the
         # cancelled handler discards the backlog instead of resuming it.
         self._thumbnail_render_user_cancelled = False
+        # Running totals of the current generation's decode and render seconds, and the
+        # frame count they cover: the status line's time left and read-bound cue.
+        self._thumbnail_render_timing = [0.0, 0.0, 0]
         self.flush_export_settings: Optional[Callable[[], None]] = None
         # A rotate/flip on a frame with no cached thumbnail yet (generate_missing_thumbnails
         # is still decoding it) has nothing to turn; the pending turn recorded here is applied
@@ -610,7 +644,7 @@ class AppController(QObject):
         self.norm_worker.moveToThread(self.norm_thread)
         self.batch_autocrop_worker = BatchAutoCropWorker(self.batch_autocrop_preview_service)
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
-        self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service)
+        self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service, self.preview_service)
         self.thumbnail_render_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 
@@ -875,6 +909,7 @@ class AppController(QObject):
         self.batch_autocrop_worker.error.connect(self._on_batch_autocrop_error)
 
         self.thumbnail_render_requested.connect(self.thumbnail_render_worker.process)
+        self.thumbnail_render_worker.frame_started.connect(self._on_thumbnail_render_frame_started)
         self.thumbnail_render_worker.progress.connect(self._on_thumbnail_render_progress)
         self.thumbnail_render_worker.rendered.connect(self._on_thumbnail_rendered)
         self.thumbnail_render_worker.finished.connect(self._on_thumbnail_render_finished)
@@ -3263,6 +3298,67 @@ class AppController(QObject):
         self.set_active_tool(ToolMode.NONE)
         self.request_render()
 
+    def auto_skew_frame(self) -> None:
+        """Square the frame to its own film and gate edges: Fine Rotation, and Tilt and Swing
+        where an opposite pair of edges measured them. Unmeasured ones keep their value."""
+        raw = self.state.preview_raw
+        if raw is None:
+            return
+        config = self.state.config
+        geo = config.geometry
+        # The fit reads gradients off the flat-fielded source, like every detection path.
+        source = raw if metadata_lens_corrections(config) else apply_flatfield(raw, config.flatfield)
+        # Detection resolution up front: the transforms below are scale-invariant and the
+        # fit resamples to this size anyway, so the warp never runs at full resolution.
+        source, _ = _normalize_detection_input(source, AUTOCROP_DETECT_RES)
+        # Measured before any fine rotation or keystone, so every value the fit returns is absolute.
+        base_geometry = replace(
+            geo, fine_rotation=0.0, converge_v=0.0, converge_h=0.0, crop_rect=None, crop_from_auto=False, autocrop_offset=0
+        )
+        context = PipelineContext(
+            original_size=(source.shape[1], source.shape[0]),
+            scale_factor=1.0,
+            process_mode=config.process.process_mode,
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            skew = trusted_frame_skew(GeometryProcessor(base_geometry).process(source, context))
+        except Exception:
+            logger.exception("Auto Skew failed on %s", self.state.current_file_path)
+            self.set_status("Auto Skew failed; see the log", 3000, "warning")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if skew is None:
+            self.set_status("Auto Skew could not read the frame edges confidently enough to apply", 3000, "warning")
+            return
+        new_geo = replace(
+            geo,
+            fine_rotation=float(np.clip(skew.fine_rotation, -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT)),
+            converge_v=geo.converge_v if skew.converge_v is None else float(skew.converge_v),
+            converge_h=geo.converge_h if skew.converge_h is None else float(skew.converge_h),
+        )
+        # Under the sliders' own step, the frame already sits where the fit would put it.
+        if (
+            abs(new_geo.fine_rotation - geo.fine_rotation) < 0.05
+            and abs(new_geo.converge_v - geo.converge_v) < 0.05
+            and abs(new_geo.converge_h - geo.converge_h) < 0.05
+        ):
+            self.set_status("Auto Skew: no adjustment necessary", 3000)
+            return
+        self._crop_bounds_dirty = True
+        self.session.update_config(replace(config, geometry=new_geo), persist=True)
+        self.rotation_guide_requested.emit()
+        # Only what the fit measured; the slider shows rotation clockwise-positive, the
+        # stored value counter-clockwise.
+        parts = [f"Fine Rotation {-new_geo.fine_rotation:+.2f}°"]
+        if skew.converge_v is not None:
+            parts.append(f"Tilt {new_geo.converge_v:+.1f}%")
+        if skew.converge_h is not None:
+            parts.append(f"Swing {new_geo.converge_h:+.1f}%")
+        self.set_status("Auto Skew: " + ", ".join(parts), 4000)
+        self.request_render()
+
     def handle_keystone_line_marked(self, edge: str, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
         if self.state.active_tool != ToolMode.KEYSTONE_LINES:
             return
@@ -3656,9 +3752,11 @@ class AppController(QObject):
 
         self._thumbnail_render_generation += 1
         self._thumbnail_render_running = True
+        self._thumbnail_render_timing = [0.0, 0.0, 0]
         self._thumbnail_render_pending = {f.file_info.get("hash") for f in frames}
         self.thumbnail_refresh_state_changed.emit(True)
         self.set_status(f"Updating {count_of(len(frames), 'thumbnail')}...")
+        self.status_progress_requested.emit(0, len(frames))
         self.thumbnail_render_requested.emit(
             ThumbnailRenderTask(
                 frames=frames,
@@ -3667,8 +3765,24 @@ class AppController(QObject):
             )
         )
 
-    def _on_thumbnail_render_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"Updating thumbnail {current}/{total}: {name}")
+    def _thumbnail_render_means(self) -> tuple[float, float]:
+        decode_s, render_s, count = self._thumbnail_render_timing
+        return (decode_s / count, render_s / count) if count else (0.0, 0.0)
+
+    def _on_thumbnail_render_frame_started(self, index: int, total: int, name: str) -> None:
+        if not self._thumbnail_render_running:
+            return
+        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(index, total, *self._thumbnail_render_means(), in_flight=True))
+
+    def _on_thumbnail_render_progress(self, current: int, total: int, name: str, decode_s: float, render_s: float) -> None:
+        if not self._thumbnail_render_running:
+            return
+        timing = self._thumbnail_render_timing
+        timing[0] += decode_s
+        timing[1] += render_s
+        timing[2] += 1
+        self.status_progress_requested.emit(current, total)
+        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(current, total, *self._thumbnail_render_means()))
 
     def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
         if not self._thumbnail_render_running:
@@ -3729,6 +3843,8 @@ class AppController(QObject):
         redispatch queued behind, never ahead of, the batch that pre-empted it."""
         self._thumbnail_render_running = False
         self._thumbnail_render_pending = set()
+        self.status_progress_requested.emit(0, 0)
+        self.thumbnail_refresh_progress.emit("")
         self.thumbnail_refresh_state_changed.emit(False)
         if self._thumbnail_render_resume:
             leftover = list(self._thumbnail_render_resume)
@@ -6525,6 +6641,8 @@ class AppController(QObject):
                         "apply_wb": self.state.linear_apply_wb,
                         "apply_flatfield": self.state.linear_apply_flatfield,
                         "apply_sensor": self.state.linear_apply_sensor,
+                        "apply_lens": self.state.linear_apply_lens,
+                        "half": int(f.get("half") or 0),
                         "apply_ice": self.state.linear_apply_ice,
                         "retouch": params.retouch,
                         "gamma_key": self.state.linear_gamma_key,

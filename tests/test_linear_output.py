@@ -12,6 +12,7 @@ import pytest
 import tifffile
 
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.lens.models import LensMetadata
 from negpy.features.process.models import ProcessConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
@@ -906,7 +907,7 @@ class TestLinearDescriptionDemosaic:
 
         with mock.patch(
             "negpy.services.export.linear_output._decode_camera_raw_buffer",
-            return_value=(buf, _MOCK_WB, meta),
+            return_value=(buf, _MOCK_WB, meta, LensMetadata()),
         ):
             export_linear_output(path, out)
 
@@ -931,7 +932,7 @@ class TestTripletExport:
         mapping = {paths[0]: bufs["r"], paths[1]: bufs["g"], paths[2]: bufs["b"]}
 
         def fake_decode(path: str, demosaic="Auto"):
-            return mapping[path], _MOCK_WB, _MOCK_META
+            return mapping[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
             "negpy.services.export.linear_output._decode_camera_raw_buffer",
@@ -1115,7 +1116,7 @@ class TestStitchExport:
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
         def fake_decode(path: str, demosaic="Auto"):
-            return path_to_buf[path], _MOCK_WB, _MOCK_META
+            return path_to_buf[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
             "negpy.services.export.linear_output._decode_camera_raw_buffer",
@@ -1282,7 +1283,7 @@ class TestLinearCorrections:
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
         def fake_decode(path: str, demosaic="Auto"):
-            return path_to_buf[path], _MOCK_WB, _MOCK_META
+            return path_to_buf[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
             "negpy.services.export.linear_output._decode_camera_raw_buffer",
@@ -2305,7 +2306,7 @@ class TestFlatFieldBeforeUserGeometry:
             paths[p] = np.full((self._H, self._W, 3), levels[name], dtype=np.float32)
 
         def fake_decode(path: str, demosaic="Auto"):
-            return paths[path].copy(), _MOCK_WB, _MOCK_META
+            return paths[path].copy(), _MOCK_WB, _MOCK_META, LensMetadata()
 
         first = next(iter(paths))
         with (
@@ -2355,6 +2356,135 @@ class TestFlatFieldBeforeUserGeometry:
         rgb = self._decode(tmp_path, geometry, levels, hdr=hdr)
         np.testing.assert_allclose(unrotated[:, :10], 0.5 * unrotated[:, 10:20], rtol=1e-4)
         np.testing.assert_allclose(rgb, _apply_user_geometry(unrotated, geometry), atol=1e-6)
+
+
+class _MirrorWarp:
+    """A distortion-only embedded warp that mirrors the sensor left to right."""
+
+    has_distortion = True
+    has_ca = False
+
+    def remap(self, lens, shape, start, stop, channel, corrections):
+        h, w = shape[:2]
+        ys, xs = np.meshgrid(np.arange(start, stop, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij")
+        return (w - 1 - xs).astype(np.float32), ys
+
+
+class TestLinearLensCorrection:
+    """Apply lens correction: the Optics card's embedded warp and manual k1."""
+
+    _H, _W = 20, 30
+
+    def _gain(self) -> np.ndarray:
+        gain = np.ones((self._H, self._W, 3), dtype=np.float32)
+        gain[:, :10] = 0.5
+        return gain
+
+    def _decode(self, tmp_path: str, geometry: GeometryConfig, apply_lens: bool = True, apply_flatfield: bool = False, **kwargs):
+        from negpy.features.flatfield.models import FlatFieldConfig
+
+        bufs = {}
+        for name in kwargs.pop("names", ("frame.nef",)):
+            p = os.path.join(str(tmp_path), name)
+            open(p, "wb").close()
+            bufs[p] = np.full((self._H, self._W, 3), 0.4, dtype=np.float32)
+        lens = LensMetadata(source="test", warps=(_MirrorWarp(),))
+
+        def fake_decode(path: str, demosaic="Auto"):
+            return bufs[path].copy(), _MOCK_WB, _MOCK_META, lens
+
+        with (
+            mock.patch("negpy.services.export.linear_output._decode_camera_raw_buffer", side_effect=fake_decode),
+            mock.patch("negpy.features.flatfield.logic._resolve", return_value=(self._gain(), "tok")),
+        ):
+            return _decode_linear(
+                next(iter(bufs)),
+                geometry,
+                flatfield=FlatFieldConfig(apply=True, profile_id="ff"),
+                apply_flatfield=apply_flatfield,
+                apply_lens=apply_lens,
+                **kwargs,
+            )
+
+    def test_flat_field_runs_before_the_warp(self, tmp_path: str) -> None:
+        geometry = GeometryConfig(lens_distortion_from_metadata=True)
+        rgb, _, _, meta = self._decode(tmp_path, geometry, apply_flatfield=True)
+        expected = (np.full((self._H, self._W, 3), 0.4, np.float32) * self._gain())[:, ::-1]
+        np.testing.assert_allclose(rgb, expected, atol=1e-6)
+        assert meta.lens_corrected
+
+    def test_toggle_off_skips_the_warp(self, tmp_path: str) -> None:
+        geometry = GeometryConfig(lens_distortion_from_metadata=True)
+        rgb, _, _, meta = self._decode(tmp_path, geometry, apply_lens=False, apply_flatfield=True)
+        np.testing.assert_allclose(rgb, np.full((self._H, self._W, 3), 0.4, np.float32) * self._gain(), atol=1e-6)
+        assert not meta.lens_corrected
+
+    def test_optics_card_off_skips_the_warp(self, tmp_path: str) -> None:
+        rgb, _, _, meta = self._decode(tmp_path, GeometryConfig(lens_ca_from_metadata=True), apply_flatfield=True)
+        np.testing.assert_allclose(rgb, np.full((self._H, self._W, 3), 0.4, np.float32) * self._gain(), atol=1e-6)
+        assert not meta.lens_corrected
+
+    def test_triplet_skips_the_warp(self, tmp_path: str) -> None:
+        names = ("red.nef", "green.nef", "blue.nef")
+        rgbscan = RgbScanConfig(
+            enabled=True, green_path=os.path.join(str(tmp_path), names[1]), blue_path=os.path.join(str(tmp_path), names[2]), align=False
+        )
+        with mock.patch("negpy.services.export.linear_output.apply_lens") as warp:
+            _, _, _, meta = self._decode(tmp_path, GeometryConfig(lens_distortion_from_metadata=True), names=names, rgbscan=rgbscan)
+        warp.assert_not_called()
+        assert not meta.lens_corrected
+
+    def test_hdr_skips_the_warp(self, tmp_path: str) -> None:
+        from negpy.features.hdr.models import HdrConfig
+
+        hdr = HdrConfig(hdr_enabled=True, hdr_paths=(os.path.join(str(tmp_path), "long.nef"),), hdr_ratios=(1.0, 4.0), hdr_align=False)
+        with mock.patch("negpy.services.export.linear_output.apply_lens") as warp:
+            self._decode(tmp_path, GeometryConfig(lens_distortion_from_metadata=True), names=("ref.nef", "long.nef"), hdr=hdr)
+        warp.assert_not_called()
+
+    def test_ir_source_skips_the_embedded_warp(self, tmp_path: str) -> None:
+        path = _make_linearraw_dng_4ch(str(tmp_path))
+        with mock.patch("negpy.services.export.linear_output.apply_lens") as warp:
+            _, ir, _, _ = _decode_linear(path, GeometryConfig(lens_distortion_from_metadata=True), apply_lens=True)
+        assert ir is not None
+        warp.assert_not_called()
+
+    def test_manual_k1_matches_the_engine_on_rgb_and_ir(self, tmp_path: str) -> None:
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.geometry.processor import GeometryProcessor
+
+        path = _make_linearraw_dng_4ch(str(tmp_path))
+        plain, plain_ir, _, _ = _decode_linear(path)
+        geometry = GeometryConfig(rotation=1, flip_horizontal=True, distortion_k1=0.08)
+        rgb, ir, _, meta = _decode_linear(path, geometry, apply_lens=True)
+
+        def engine(img: np.ndarray) -> np.ndarray:
+            return GeometryProcessor(geometry).process(img, PipelineContext(original_size=img.shape[:2], scale_factor=1.0))
+
+        np.testing.assert_array_equal(rgb, engine(plain))
+        np.testing.assert_array_equal(ir, engine(plain_ir))
+        assert meta.lens_corrected
+
+    def test_manual_k1_is_skipped_for_a_half_frame(self, tmp_path: str) -> None:
+        path = _make_linearraw_dng_4ch(str(tmp_path))
+        plain, _, _, _ = _decode_linear(path)
+        rgb, _, _, meta = _decode_linear(path, GeometryConfig(distortion_k1=0.08), apply_lens=True, half=1)
+        np.testing.assert_array_equal(rgb, plain)
+        assert not meta.lens_corrected
+
+    def test_manual_k1_needs_the_toggle(self, tmp_path: str) -> None:
+        path = _make_linearraw_dng_4ch(str(tmp_path))
+        plain, _, _, _ = _decode_linear(path)
+        rgb, _, _, meta = _decode_linear(path, GeometryConfig(distortion_k1=0.08))
+        np.testing.assert_array_equal(rgb, plain)
+        assert not meta.lens_corrected
+
+    def test_description_names_the_lens(self, tmp_path: str) -> None:
+        path = _make_linearraw_dng_4ch(str(tmp_path))
+        out = os.path.join(str(tmp_path), "out.tiff")
+        export_linear_output(path, out, geometry=GeometryConfig(distortion_k1=0.08), apply_lens=True)
+        with tifffile.TiffFile(out) as tf:
+            assert "corrections: lens" in tf.pages[0].description
 
 
 class TestSourceMetaExifFallback:
@@ -2434,6 +2564,7 @@ class TestCameraDngDecode:
                     np.zeros((4, 4, 3), np.float32),
                     _CameraWB(as_shot=(1.0, 1.0, 1.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0)),
                     _SourceMeta(make="RawMake", model="RawModel"),
+                    LensMetadata(),
                 ),
             ),
         }

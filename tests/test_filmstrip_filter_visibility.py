@@ -147,3 +147,10 @@ def test_a_long_tally_does_not_hold_the_panel_wide(qapp):
     label.setFixedWidth(40)
     assert label.is_elided()
     assert label.text() == "No roll — 36 frames · 2 keepers · 1 rejected"
+
+
+def test_a_thumbnail_refresh_leads_the_tally_and_leaves_with_it(browser):
+    browser._on_thumbnail_refresh_progress("Thumbnails 3/36 · ~1 min left")
+    assert browser.tally_label.text() == "Thumbnails 3/36 · ~1 min left · No roll — 36 frames"
+    browser._on_thumbnail_refresh_progress("")
+    assert browser.tally_label.text() == "No roll — 36 frames"

@@ -16,7 +16,9 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
     measure_film_border,
     measure_film_edges,
+    rotate_geometry_and_analysis,
     scale_roi_inset,
+    toggle_flip,
 )
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
@@ -1253,6 +1255,61 @@ def test_flip_with_negated_angle_mirrors_rendered_image():
     # Interior comparison: the rotation's border-replicate wedges differ at the edges.
     m = 40
     np.testing.assert_allclose(out_b[m:-m, m:-m], np.fliplr(out_a)[m:-m, m:-m], atol=0.01)
+
+
+def _render_geometry(img: np.ndarray, geo: GeometryConfig) -> np.ndarray:
+    h, w = img.shape[:2]
+    return GeometryProcessor(geo).process(img, PipelineContext(scale_factor=1.0, original_size=(h, w)))
+
+
+def _asymmetric_image() -> np.ndarray:
+    h, w = 240, 360
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    base = 0.2 + 0.6 * (xx / w) * (yy / h) + 0.15 * np.sin(xx / 40.0) + 0.1 * np.cos(yy / 25.0)
+    return np.repeat(base[..., None], 3, axis=2).astype(np.float32)
+
+
+_KEYSTONED = [
+    GeometryConfig(converge_v=6.0, converge_h=-4.0),
+    GeometryConfig(converge_v=6.0, converge_h=-4.0, rotation=1, flip_horizontal=True),
+    GeometryConfig(converge_v=-5.0, converge_h=3.0, rotation=3, flip_vertical=True, fine_rotation=2.0),
+]
+
+
+@pytest.mark.parametrize("geo", _KEYSTONED)
+@pytest.mark.parametrize("direction", [1, -1, 2])
+def test_turning_a_keystoned_frame_turns_the_rendered_image(geo, direction):
+    img = _asymmetric_image()
+    before = _render_geometry(img, geo)
+    turned = geo
+    for _ in range(abs(direction)):
+        turned, _rect = rotate_geometry_and_analysis(turned, None, 1 if direction > 0 else -1)
+    after = _render_geometry(img, turned)
+
+    # Interior only: the border-replicate wedges differ at the edges.
+    m = 40
+    np.testing.assert_allclose(after[m:-m, m:-m], np.rot90(before, k=direction)[m:-m, m:-m], atol=0.01)
+
+
+@pytest.mark.parametrize("geo", _KEYSTONED)
+@pytest.mark.parametrize("horizontal", [True, False])
+def test_flipping_a_keystoned_frame_mirrors_the_rendered_image(geo, horizontal):
+    img = _asymmetric_image()
+    before = _render_geometry(img, geo)
+    after = _render_geometry(img, toggle_flip(geo, horizontal))
+
+    m = 40
+    mirrored = np.fliplr(before) if horizontal else np.flipud(before)
+    np.testing.assert_allclose(after[m:-m, m:-m], mirrored[m:-m, m:-m], atol=0.01)
+
+
+def test_turns_and_flips_leave_no_keystone_as_positive_zero():
+    import math
+
+    geo = GeometryConfig()
+    for turned in (rotate_geometry_and_analysis(geo, None, 1)[0], toggle_flip(geo, True), toggle_flip(geo, False)):
+        assert math.copysign(1.0, turned.converge_v) == 1.0
+        assert math.copysign(1.0, turned.converge_h) == 1.0
 
 
 def test_crop_ratio_choices_has_no_reciprocal_duplicates():

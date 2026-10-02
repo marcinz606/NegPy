@@ -27,7 +27,7 @@ class ProgressDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Working…")
         self.setModal(False)
-        float_over_app(self)
+        float_over_app(self, claim_keys=False)
         self.setFixedWidth(360)
 
         root = QVBoxLayout(self)
@@ -98,6 +98,11 @@ class ProgressDialog(QDialog):
 
     def finish(self) -> None:
         self.hide()
+
+    def keyPressEvent(self, ev) -> None:
+        # Esc must not hide a running job's only progress and Abort; the close button still does.
+        if ev.key() != Qt.Key.Key_Escape:
+            super().keyPressEvent(ev)
 
     def _on_abort(self) -> None:
         self._abort.setEnabled(False)

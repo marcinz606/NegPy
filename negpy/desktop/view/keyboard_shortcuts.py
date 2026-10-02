@@ -1,7 +1,9 @@
 from collections.abc import Callable
 from typing import Optional
 
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QKeyEvent, QKeySequence, QShortcut
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.services.assets import rolls
@@ -136,6 +138,119 @@ def _open_preferences(window, controller) -> None:
     open_preferences(window, controller)
 
 
+SPACE_PAN_DELAY_MS = 200
+
+
+class SpacePanKeyFilter(QObject):
+    """Track Space so left-drag can pan while a pointer-driven canvas tool is active."""
+
+    space_held_changed = pyqtSignal(bool)
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self._app = QApplication.instance()
+        if self._app is None:
+            raise RuntimeError("Space pan requires an active QApplication")
+        self._space_down = False
+        self._space_consumed = False
+        self._pending_target: Optional[QWidget] = None
+        self._hold_timer = QTimer(self)
+        self._hold_timer.setSingleShot(True)
+        self._hold_timer.timeout.connect(self._on_space_timeout)
+        self._replay_guard = False
+        self._app.installEventFilter(self)
+        self._app.focusChanged.connect(self._on_focus_changed)
+
+    def _inside_window(self, widget: Optional[QWidget]) -> bool:
+        return widget is not None and (widget is self.window or self.window.isAncestorOf(widget))
+
+    def _clear_pending_space(self) -> None:
+        self._hold_timer.stop()
+        self._pending_target = None
+
+    def _set_space_down(self, held: bool) -> None:
+        if held != self._space_down:
+            self._space_down = held
+            self.space_held_changed.emit(held)
+
+    def _replay_short_press(self, target: QWidget) -> None:
+        self._replay_guard = True
+        try:
+            press = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " ", False, 1)
+            release = QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " ", False, 1)
+            QApplication.sendEvent(target, press)
+            QApplication.sendEvent(target, release)
+        finally:
+            self._replay_guard = False
+
+    def _on_space_timeout(self) -> None:
+        if self._pending_target is None:
+            return
+        self._clear_pending_space()
+        self._set_space_down(True)
+        self._space_consumed = True
+
+    def _on_focus_changed(self, _old, new) -> None:
+        if self._pending_target is not None and not self._inside_window(new):
+            self._clear_pending_space()
+            self._space_consumed = False
+        if not self._inside_window(new):
+            self._set_space_down(False)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Track Space in the active window and suppress the focused tool button's activation."""
+        if self._replay_guard:
+            return False
+
+        event_type = event.type()
+        if event_type in (QEvent.Type.ApplicationDeactivate, QEvent.Type.WindowDeactivate):
+            if event_type == QEvent.Type.ApplicationDeactivate or not self.window.isActiveWindow():
+                self._clear_pending_space()
+                self._set_space_down(False)
+                self._space_consumed = False
+            return False
+
+        if event_type not in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) or event.key() != Qt.Key.Key_Space:
+            return False
+
+        if event.isAutoRepeat():
+            return self._space_consumed
+
+        if event_type == QEvent.Type.KeyPress:
+            target = watched if isinstance(watched, QWidget) else QApplication.focusWidget()
+            if not self.window.isActiveWindow() or not self._inside_window(target):
+                self._clear_pending_space()
+                self._set_space_down(False)
+                return False
+            self._clear_pending_space()
+            self._pending_target = target
+            self._hold_timer.start(SPACE_PAN_DELAY_MS)
+            return True
+
+        if self._pending_target is not None:
+            target = self._pending_target
+            self._clear_pending_space()
+            self._replay_short_press(target)
+            return True
+
+        consumed = self._space_consumed
+        self._space_consumed = False
+        self._set_space_down(False)
+        return consumed
+
+    def uninstall(self) -> None:
+        """Release Space state and remove the application event filter."""
+        self._clear_pending_space()
+        self._set_space_down(False)
+        self._space_consumed = False
+        self._app.removeEventFilter(self)
+        try:
+            self._app.focusChanged.disconnect(self._on_focus_changed)
+        except (TypeError, RuntimeError):
+            pass
+
+
 class ShortcutManager:
     def __init__(self, window):
         self.window = window
@@ -218,6 +333,7 @@ class ShortcutManager:
             "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),
             "pick_wb": lambda: controls.color_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
+            "auto_skew": lambda: controls.geometry_sidebar.auto_skew_btn.click(),
             "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),
             "keystone_lines": lambda: controls.geometry_sidebar.keystone_lines_btn.toggle(),
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
@@ -387,7 +503,7 @@ class ShortcutManager:
 
 def setup_keyboard_shortcuts(window) -> ShortcutManager:
     manager = ShortcutManager(window)
-    missing = [action_id for action_id in REGISTRY if action_id not in manager._actions]
+    missing = [action_id for action_id, entry in REGISTRY.items() if entry.window == "main" and action_id not in manager._actions]
     if missing:
         raise RuntimeError(f"Shortcut actions missing handlers: {missing}")
     return manager

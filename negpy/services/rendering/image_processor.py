@@ -691,6 +691,7 @@ class ImageProcessor:
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same file
         # at full resolution with unchanged settings, so without this the engine cache
         # reports "nothing changed" and returns the stale low-res render.
+        heal_token = manual_bake_token(settings.retouch)
         base_hash = (
             source_hash
             + flatfield_token(settings.flatfield)
@@ -704,23 +705,26 @@ class ImageProcessor:
             + sensor_token(settings.process)
             + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
-            + manual_bake_token(settings.retouch)
+            + heal_token
             + luma_bake_token(settings.retouch)
         )
+        # The IR and luma passes run ahead of the manual bake and never read the strokes, so
+        # their caches key without them: painting a heal must not re-run detection.
+        auto_hash = base_hash.replace(heal_token, "", 1) if heal_token else base_hash
 
         # Bake the IR correction before detection so meters/stats see the corrected buffer.
         # Gated: the bake caches are single-slot and the export prefetch bakes on a helper thread.
         want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
         with self._prepare_gate:
-            img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, base_hash)
+            img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, auto_hash)
 
             orig_ret = settings.retouch
-            detected_dust, hair_masks = self._detect_luma(settings, img, base_hash, detect_buffer)
+            detected_dust, hair_masks = self._detect_luma(settings, img, auto_hash, detect_buffer)
             if ir_corrected_mask is not None and (detected_dust is not None or hair_masks):
                 # What IR already repaired is not repaired again from the visible.
                 detected_dust, hair_masks = _without_ir(detected_dust, hair_masks, ir_corrected_mask)
             dust_label = _dust_step_label(orig_ret)
-            img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret), dust_label)
+            img = self._luma_bake(img, detected_dust, auto_hash + hair_bake_token(orig_ret), dust_label)
             img, manual_routed = self._manual_bake(img, settings, base_hash)
             extra = [m for m in (ir_routed, manual_routed) if m is not None]
             if extra:

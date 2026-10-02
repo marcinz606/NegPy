@@ -635,6 +635,7 @@ def test_detect_candidate_takes_the_edge_fit_as_the_whole_angle(
     monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
     monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
     monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: None)
 
     evidence = detect_crop_candidate("fitted", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
 
@@ -664,11 +665,78 @@ def test_detect_candidate_keeps_the_contour_angle_when_the_fit_disagrees(
     monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
     monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
     monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: None)
 
     evidence = detect_crop_candidate("mismatched", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
 
     assert evidence.angle_confident is False
     assert evidence.correction_angle == pytest.approx(2.0)
+
+
+def test_detect_candidate_takes_the_four_edge_fit_over_the_contour_angle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = np.zeros(600, dtype=np.float32)
+    detection = SimpleNamespace(
+        roi=(100, 300, 50, 550),
+        correction_angle=0.0,
+        confidence=0.9,
+        supported_sides=frozenset({"top", "right", "bottom", "left"}),
+        supported_corners=frozenset({"top_left"}),
+        evidence_sources=("adaptive-dark",),
+        geometry_score=0.9,
+        vertical_edge_contrast=0.8,
+        vertical_edge_profile=profile,
+    )
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: detection)
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
+    monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: 1.25)
+
+    evidence = detect_crop_candidate("four-edge", np.ones((400, 600, 3), dtype=np.float32))
+
+    assert evidence.angle_confident is True
+    assert evidence.correction_angle == pytest.approx(1.25)
+
+
+def test_an_agreeing_top_edge_fit_skips_the_four_edge_fit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The four-edge fit runs several detections of its own, so a frame the contour and the
+    # top-edge fit already settle must never pay for it.
+    profile = np.zeros(600, dtype=np.float32)
+    detection = SimpleNamespace(
+        roi=(100, 300, 50, 550),
+        correction_angle=0.2,
+        confidence=0.9,
+        supported_sides=frozenset({"top", "right", "bottom", "left"}),
+        supported_corners=frozenset({"top_left"}),
+        evidence_sources=("adaptive-dark",),
+        geometry_score=0.9,
+        vertical_edge_contrast=0.8,
+        vertical_edge_profile=profile,
+    )
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: detection)
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
+    monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: pytest.fail("an agreed angle must not pay for the fit"))
+
+    evidence = detect_crop_candidate("agreed", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
+
+    assert evidence.angle_confident is True
+    assert evidence.correction_angle == pytest.approx(0.3, abs=0.05)
+
+
+def test_a_portrait_frame_takes_the_four_edge_fit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A portrait canvas takes no part in the roll, but its own crop still deskews.
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: -0.8)
+    monkeypatch.setattr(batch_autocrop, "get_autocrop_coords", lambda *_a, **_k: (10, 110, 5, 75))
+
+    portrait = detect_crop_candidate("portrait", np.zeros((120, 80, 3), dtype=np.float32))
+    resolved = resolve_roll_crops([portrait])
+
+    assert portrait.angle_confident is True
+    assert resolved[0].correction_angle == pytest.approx(-0.8)
 
 
 def test_fitted_angle_survives_a_mediocre_box_score() -> None:
@@ -755,3 +823,68 @@ def test_roll_angle_keeps_every_frame_below_the_fitted_minimum() -> None:
 
     assert template is not None
     assert template.correction_angle == pytest.approx(1.0)
+
+
+def test_a_no_box_frame_with_a_fitted_angle_keeps_its_fallback_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The fallback box and border feed the borderless-roll template, so a frame whose
+    # angle the four-edge fit measured must still carry them when no box is found at
+    # either rotation; an opaque-holder roll otherwise loses Auto Crop All entirely.
+    profile = np.zeros(600, dtype=np.float32)
+    empty = SimpleNamespace(
+        roi=None,
+        correction_angle=0.0,
+        confidence=0.0,
+        supported_sides=frozenset(),
+        supported_corners=frozenset(),
+        evidence_sources=(),
+        geometry_score=0.0,
+        vertical_edge_contrast=0.0,
+        vertical_edge_profile=profile,
+    )
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: empty)
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: 1.0)
+    monkeypatch.setattr(
+        batch_autocrop,
+        "_border_without_a_film_box",
+        lambda _image: ((0, 400, 0, 600), (0.02, 0.02, 0.02, 0.02), (0.0, 0.0, 0.0, 0.0)),
+    )
+
+    evidence = detect_crop_candidate("no-box-fitted", np.ones((400, 600, 3), dtype=np.float32))
+
+    assert evidence.reason == "no_consensus"
+    assert evidence.correction_angle == pytest.approx(1.0)
+    assert evidence.angle_confident is True
+    assert evidence.fallback_roi == (0, 400, 0, 600)
+    assert evidence.border == pytest.approx((0.02, 0.02, 0.02, 0.02))
+
+
+def test_portrait_evidence_does_not_shape_the_roll_template() -> None:
+    # Portrait frames resolve alone, so their fitted angles and rects must not steer the
+    # fallback template the landscape frames are placed from.
+    portraits = [
+        _evidence(
+            f"portrait-{index}",
+            canvas_shape=(1600, 1000),
+            roi=None,
+            fallback_roi=(0, 1600, 0, 1000),
+            correction_angle=5.0,
+            confidence=0.0,
+            angle_confident=True,
+            supported_sides=frozenset(),
+            geometry_score=0.0,
+            reason="unsupported_orientation",
+        )
+        for index in range(3)
+    ]
+
+    resolved = _resolved_by_key(_borderless_roll() + portraits)
+
+    clean = _resolved_by_key(_borderless_roll())
+    for key, crop in clean.items():
+        assert resolved[key].correction_angle == pytest.approx(crop.correction_angle)
+        assert resolved[key].crop_rect == pytest.approx(crop.crop_rect)
+    for index in range(3):
+        assert resolved[f"portrait-{index}"].correction_angle == pytest.approx(5.0)
