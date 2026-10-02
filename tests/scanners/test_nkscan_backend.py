@@ -656,3 +656,41 @@ def test_a_held_device_refuses_a_stateless_meter() -> None:
     with backend.open_session(DEVICE_ID):
         with pytest.raises(RuntimeError, match="held"):
             _meter(backend)
+
+
+def test_a_load_that_fails_still_leaves_the_return_to_report() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+    module.load_error = module.TransientError("usb glitch")
+
+    with pytest.raises(TransientScanError):
+        _scan(backend)
+    module.load_error = None
+
+    with pytest.raises(StripReturned):
+        _scan(backend)
+
+
+def test_ejecting_a_strip_the_unit_already_returned_counts_as_ejected() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+    module.film_waiting = False
+
+    assert backend.eject(DEVICE_ID) is True
+    assert module.opened[-1].ejects == 0
+
+    module.media_loaded_at_open = True
+    _scan(backend)  # settled by the eject: nothing left to report
+
+
+def test_an_eject_that_does_nothing_leaves_the_return_to_report() -> None:
+    backend, module = make_backend(with_eject=False)
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False  # the strip waits in the adapter, so load() takes it in
+
+    assert backend.eject(DEVICE_ID) is False
+
+    with pytest.raises(StripReturned):
+        _scan(backend)

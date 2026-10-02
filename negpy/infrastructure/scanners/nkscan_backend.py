@@ -205,6 +205,8 @@ class NkscanSession:
         with self._backend._mapped_errors():
             ejected = bool(self._session.eject())
         self._backend.forget_frames(self.device_id)
+        if ejected:
+            self._backend._returned.discard(self.device_id)
         return ejected
 
     def close(self) -> None:
@@ -244,6 +246,9 @@ class NkscanBackend:
         self._frames: dict[str, list[tuple[int, int, int, int]]] = {}
         self._strips: dict[str, np.ndarray] = {}
         self._columns: dict[str, float] = {}
+        # Devices whose measured strip the unit returned by itself, not yet reported. Kept apart
+        # from the rects, which go first: a load or eject that fails must not lose the return.
+        self._returned: set[str] = set()
         self._lock = threading.Lock()
 
     # ── enumeration ───────────────────────────────────────────────────
@@ -322,16 +327,19 @@ class NkscanBackend:
         try:
             returned: StripReturned | None = None
             with self._mapped_errors():
+                loaded = True
                 if not session.media_loaded():
                     # The cached rects describe film that has left the holder. An Eject already
                     # dropped them, so only rects still held mean the unit returned it by itself.
                     # load() takes in only a strip that waits in the adapter.
-                    measured = device_id in self._frames
+                    if device_id in self._frames:
+                        self._returned.add(device_id)
                     self.forget_frames(device_id)
                     loaded = bool(session.load())
-                    if measured and notice_return:
-                        returned = StripReturned(loaded=loaded)
-                if returned is None:
+                if notice_return and device_id in self._returned:
+                    self._returned.discard(device_id)
+                    returned = StripReturned(loaded=loaded)
+                else:
                     session.stage()
             if returned is not None:
                 raise returned
@@ -594,11 +602,17 @@ class NkscanBackend:
         session, _model = self._open(device_id, notice_return=False)
         try:
             with self._mapped_errors():
-                return bool(session.eject())
+                if device_id in self._returned and not session.media_loaded():
+                    ejected = True  # the unit returned the strip by itself and it is still out
+                else:
+                    ejected = bool(session.eject())
         finally:
             self.forget_frames(device_id)
             with suppress(Exception):
                 session.close()
+        if ejected:
+            self._returned.discard(device_id)
+        return ejected
 
     # ── errors ────────────────────────────────────────────────────────
 
