@@ -21,6 +21,15 @@ class TransientScanError(RuntimeError):
     """
 
 
+class StripReturned(RuntimeError):
+    """The unit returned a measured strip by itself (an idle timeout) and has loaded it again.
+
+    A reload can land the film elsewhere, so the frame picks, crops and per-frame offsets set
+    on it no longer line up. The operation stops instead of using them; the next one finds
+    the strip loaded and measures it again.
+    """
+
+
 @dataclass(frozen=True)
 class ScannerCapabilities:
     ir_channel: bool

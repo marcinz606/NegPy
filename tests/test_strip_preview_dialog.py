@@ -68,6 +68,7 @@ class _FakeController(QObject):
     scan_progress = pyqtSignal(float, str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
+    scan_strip_returned = pyqtSignal()
 
     def __init__(self, *, raise_on_preview: bool = False) -> None:
         super().__init__()
@@ -1386,3 +1387,29 @@ def test_the_readings_stay_gray_off_zero() -> None:
 
     assert THEME.text_secondary in dialog.offset_label.styleSheet()
     assert THEME.channel_red_text not in dialog.findChild(QWidget, "frameOverlay").styleSheet()
+
+
+def test_the_unit_returning_the_strip_drops_its_frame_state_and_measures_it_again() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(
+        controller,
+        _discovery_device(),
+        initial_selected=(2,),
+        initial_windows={1: (0.1, 0.1, 0.9, 0.9)},
+        initial_frame_offsets={2: 0.4, 7: -0.3},
+        initial_offset=1.5,
+    )
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+    assert dialog.selected_frames() == (2,) and dialog.frame_offsets() == {2: 0.4, 7: -0.3}
+
+    dialog._on_preview_all()  # the pass the unit refuses: it raises, then reports the return
+    controller.scan_error.emit("returned")
+    controller.scan_strip_returned.emit()
+
+    assert dialog.selected_frames() == (1, 2, 3)
+    assert dialog.frame_windows() == {}
+    assert dialog.frame_offsets() == {}
+    assert dialog.frame_offset() == 1.5
+    assert len(controller.preview_reqs) == 3  # measured again
+    assert "returned the strip" in dialog.status_strip.message()

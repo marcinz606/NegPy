@@ -21,6 +21,7 @@ from negpy.infrastructure.scanners.base import (
     ScannerDevice,
     ScannerSession,
     ScannerUnavailable,
+    StripReturned,
     TransientScanError,
 )
 from negpy.infrastructure.scanners.params import (
@@ -309,19 +310,31 @@ class NkscanBackend:
         with self._lock:
             self._sessions.pop(session.device_id, None)
 
-    def _open(self, device_id: str) -> tuple[Any, str]:
-        """Open the unit at `device_id` and stage it for a scan."""
+    def _open(self, device_id: str, *, notice_return: bool = True) -> tuple[Any, str]:
+        """Open the unit at `device_id` and stage it for a scan.
+
+        Raises StripReturned, after loading the film again, when the unit returned a strip
+        NegPy had measured; `notice_return=False` loads it without a word, for an eject.
+        """
         model = next((d.model for d in self.list_devices() if d.id == device_id), "")
         with self._mapped_errors():
             session = self._nk.Session(device_id)
         try:
+            returned = False
             with self._mapped_errors():
                 if not session.media_loaded():
                     # The unit returned the film by itself (idle timeout): a reload can land it
-                    # elsewhere, so the cached rects no longer describe it.
+                    # elsewhere, so the cached rects no longer describe it. An Eject already
+                    # dropped them, so only rects still held mean the unit did it.
+                    returned = device_id in self._frames
                     self.forget_frames(device_id)
                     session.load()
                 session.stage()
+            if returned and notice_return:
+                raise StripReturned(
+                    "The scanner returned the strip while it sat idle and has loaded it again. "
+                    "Its frame selection, crops and per-frame offsets were cleared: preview the strip, then scan."
+                )
         except Exception:
             with suppress(Exception):
                 session.close()
@@ -578,7 +591,7 @@ class NkscanBackend:
             held = self._sessions.get(device_id)
         if held is not None:
             return held.eject()
-        session, _model = self._open(device_id)
+        session, _model = self._open(device_id, notice_return=False)
         try:
             with self._mapped_errors():
                 return bool(session.eject())

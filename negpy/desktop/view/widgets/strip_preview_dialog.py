@@ -740,6 +740,25 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         slots = _DISCOVERY_SLOTS if self._discovers else self._capacity
         self._start_preview(tuple(range(1, slots + 1)))
 
+    def _preview_signal_pairs(self):
+        return (*super()._preview_signal_pairs(), (self._controller.scan_strip_returned, self._on_strip_returned))
+
+    @pyqtSlot()
+    def _on_strip_returned(self) -> None:
+        """The unit returned the strip by itself and loaded it again. As after an Eject, the ticks,
+        crops and own offsets no longer describe it: drop them and measure the strip again."""
+        self._recut.stop()
+        self._initial_selected = ()
+        self._initial_windows = {}
+        self._initial_frame_offsets = {}
+        for tile in self._tiles.values():
+            tile.checkbox.setChecked(True)
+            tile.label.clear_window()
+            tile.offset_slider.setValue(0)
+        self._recut.stop()  # the reset sliders armed it; the pass below re-cuts every tile
+        self._on_preview_all()
+        self.status_strip.set_message("The scanner returned the strip while idle — measuring it again…")
+
     def done(self, result: int) -> None:
         """Stop a pending re-cut: its timer holds this dialog."""
         self._recut.stop()

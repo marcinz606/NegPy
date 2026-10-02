@@ -8,7 +8,7 @@ import threading
 import numpy as np
 import pytest
 
-from negpy.infrastructure.scanners.base import TransientScanError
+from negpy.infrastructure.scanners.base import StripReturned, TransientScanError
 from negpy.infrastructure.scanners.nkscan_backend import _crop_frame, _offset_units, _shift_frame, _stack_rgb
 from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode, ScanParams
 from tests.scanners import fake_nkscan
@@ -250,15 +250,51 @@ def test_film_is_loaded_when_the_holder_is_empty() -> None:
     assert module.opened[-1].loads == 1
 
 
+def test_film_the_unit_returned_is_loaded_again_and_the_scan_stops() -> None:
+    # The picks, crops and per-frame offsets riding on the request describe where the film was.
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+
+    with pytest.raises(StripReturned):
+        _scan(backend)
+
+    assert module.opened[-1].loads == 1
+    assert module.opened[-1].closed
+    assert backend.frames(DEVICE_ID) == []
+
+
 def test_film_reloaded_after_the_unit_returned_it_is_measured_again() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+    with pytest.raises(StripReturned):
+        _scan(backend)
+    module.media_loaded_at_open = True
+
+    _scan(backend)
+
+    assert module.opened[-1].discoveries == [None]
+
+
+def test_film_ejected_by_negpy_loads_again_without_a_word() -> None:
+    # An Eject already cleared the strip's state; only the unit's own return is news.
+    backend, module = make_backend(with_eject=True)
+    _scan(backend)
+    backend.eject(DEVICE_ID)
     module.media_loaded_at_open = False
 
     _scan(backend)
 
     assert module.opened[-1].loads == 1
-    assert module.opened[-1].discoveries == [None]
+
+
+def test_ejecting_a_strip_the_unit_returned_is_not_refused() -> None:
+    backend, module = make_backend(with_eject=True)
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+
+    assert backend.eject(DEVICE_ID) is True
 
 
 def test_a_held_device_refuses_a_stateless_scan() -> None:

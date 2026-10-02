@@ -500,6 +500,7 @@ class AppController(QObject):
     scan_cancelled = pyqtSignal()
     scan_ejected = pyqtSignal(bool)
     scan_eject_error = pyqtSignal(str)
+    scan_strip_returned = pyqtSignal()  # the unit returned the strip by itself
     scan_frame_done = pyqtSignal(int, str)  # batch: frame number, rgb path
     scan_batch_finished = pyqtSignal(list)  # batch: all completed rgb paths
     scan_batch_requested = pyqtSignal(BatchRequest)
@@ -963,6 +964,7 @@ class AppController(QObject):
         self.scan_worker.batch_finished.connect(self._on_scan_batch_finished)
         self.scan_worker.ejected.connect(self.scan_ejected.emit)
         self.scan_worker.eject_error.connect(self.scan_eject_error.emit)
+        self.scan_worker.strip_returned.connect(self.scan_strip_returned.emit)
         self.scan_roll_preview_requested.connect(self.scan_worker.run_roll_preview)
         self.scan_worker.roll_preview_ready.connect(self.scan_roll_preview_ready.emit)
         self.scan_worker.roll_preview_finished.connect(self.scan_roll_preview_finished.emit)

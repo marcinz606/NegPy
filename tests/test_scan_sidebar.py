@@ -132,6 +132,7 @@ class _FakeController(QObject):
     scan_batch_finished = pyqtSignal(list)
     scan_ejected = pyqtSignal(bool)
     scan_eject_error = pyqtSignal(str)
+    scan_strip_returned = pyqtSignal()
     scan_exposure_metered = pyqtSignal(object, int)
     scan_meter_error = pyqtSignal(str)
 
@@ -1028,6 +1029,26 @@ def test_ejecting_keeps_the_registration_offsets() -> None:
 
     assert sidebar.settings.frame_offset_mm == 1.5
     assert sidebar.settings.frame_offset_modifier_mm == 0.2
+
+
+def test_the_unit_returning_the_strip_clears_what_an_eject_clears() -> None:
+    # An idle timeout is an Eject nobody pressed: the same per-strip state goes, and the
+    # transport's own registration stays.
+    settings = {
+        "selected_frames": [1, 3],
+        "frame_windows": {"1": [0.1, 0.1, 0.9, 0.9]},
+        "frame_offset_mm": 1.5,
+        "frame_offset_modifier_mm": 0.2,
+    }
+    sidebar, controller = _sidebar(FULL_DEVICE, settings=settings)
+    sidebar.settings = replace(sidebar._settings, frame_offsets={2: 0.4})
+
+    controller.scan_error.emit("returned")
+    controller.scan_strip_returned.emit()
+
+    assert (sidebar.settings.selected_frames, sidebar.settings.frame_windows, sidebar.settings.frame_offsets) == ((), {}, {})
+    assert (sidebar.settings.frame_offset_mm, sidebar.settings.frame_offset_modifier_mm) == (1.5, 0.2)
+    assert sidebar.status_strip.message() == "The scanner returned the strip while idle — frame selection cleared"
 
 
 def test_ejecting_with_nothing_picked_says_only_that() -> None:
