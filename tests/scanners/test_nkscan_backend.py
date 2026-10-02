@@ -662,7 +662,7 @@ def test_a_load_that_fails_still_leaves_the_return_to_report() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
     module.media_loaded_at_open = False
-    module.load_error = module.TransientError("usb glitch")
+    module.load_error = fake_nkscan.TransientError("usb glitch")
 
     with pytest.raises(TransientScanError):
         _scan(backend)
