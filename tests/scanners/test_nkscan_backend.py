@@ -763,3 +763,27 @@ def test_a_long_idle_with_nothing_measured_is_not_a_return(clock) -> None:
     clock.now += _IDLE_RETURN_S * 2
 
     _scan(backend)
+
+
+def test_a_holder_with_its_own_frame_table_keeps_the_plain_reload() -> None:
+    # Only a strip feeder with a strip pass is known to return a strip by itself.
+    backend, module = make_backend(caps=FakeCapabilities(framing="published"))
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+
+    _scan(backend)
+
+    assert module.opened[-1].loads == 1
+    assert module.opened[-1].staged == 1
+
+
+def test_a_long_idle_is_no_return_on_a_holder_with_its_own_frame_table(clock) -> None:
+    from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
+
+    backend, module = make_backend(caps=FakeCapabilities(framing="published"))
+    backend.detect_frames(DEVICE_ID)
+    clock.now += _IDLE_RETURN_S * 2
+
+    _scan(backend)
+
+    assert module.opened[-1].discoveries == []

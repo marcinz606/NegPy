@@ -326,9 +326,12 @@ class NkscanBackend:
         """Open the unit at `device_id` and stage it for a scan.
 
         Raises StripReturned when the unit returned a strip NegPy had measured;
-        `notice_return=False` carries on without a word, for an eject.
+        `notice_return=False` carries on without a word, for an eject. Only a strip feeder with a
+        strip pass (the SA-21 and SA-30) is known to return a strip by itself.
         """
-        model = next((d.model for d in self.list_devices() if d.id == device_id), "")
+        device = next((d for d in self.list_devices() if d.id == device_id), None)
+        model = device.model if device is not None else ""
+        returns = device is not None and device.capabilities.strip_pass
         idle = time.monotonic() - self._last_contact
         with self._mapped_errors():
             session = self._nk.Session(device_id)
@@ -340,11 +343,11 @@ class NkscanBackend:
                     # The cached rects describe film that has left the holder. An Eject already
                     # dropped them, so only rects still held mean the unit returned it by itself.
                     # load() takes in only a strip that waits in the adapter.
-                    if device_id in self._frames:
+                    if returns and device_id in self._frames:
                         self._returned.add(device_id)
                     self.forget_frames(device_id)
                     loaded = bool(session.load())
-                elif idle >= _IDLE_RETURN_S and device_id in self._frames:
+                elif returns and idle >= _IDLE_RETURN_S and device_id in self._frames:
                     # Long enough for the unit to return the strip and for it to go back in unseen.
                     self._returned.add(device_id)
                     self.forget_frames(device_id)
