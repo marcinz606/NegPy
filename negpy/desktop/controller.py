@@ -7577,8 +7577,8 @@ class AppController(QObject):
             if metrics.get("splash") or not isinstance(identity, tuple) or identity[0] != asset.get("hash"):
                 self._flag_if_stale(asset)
                 return
-            fingerprint = self.thumbnail_fingerprint_for(identity[1])
-            if asset.get("hash") == self.state.current_file_hash and fingerprint != self.thumbnail_fingerprint_for(self.state.config):
+            fingerprint = self._filed_fingerprint(identity[1], asset)
+            if asset.get("hash") == self.state.current_file_hash and fingerprint != self._filed_fingerprint(self.state.config, asset):
                 # Edited since this render. Leaving the frame drops the newer render, and a
                 # thumbnail landing clears the stale flag, so nothing is written.
                 self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
@@ -7601,6 +7601,15 @@ class AppController(QObject):
             self.thumb_worker.update_rendered(task)
         else:
             self.thumbnail_update_requested.emit(task)
+
+    def _filed_fingerprint(self, config: WorkspaceConfig, asset: dict) -> str:
+        """Fingerprint a live render of ``config`` is filed under. An unedited half's measured
+        bounds never reach the database (``_may_persist_measured_bounds``), so its stored
+        bounds stand in, or the half reads stale against its stored settings on every visit."""
+        if asset.get("hash") == self.state.current_file_hash and not self._may_persist_measured_bounds():
+            stored = self.session.config_for_asset(asset).process
+            config = replace(config, process=replace(config.process, local_floors=stored.local_floors, local_ceils=stored.local_ceils))
+        return self.thumbnail_fingerprint_for(config)
 
     def _flag_if_stale(self, asset: dict) -> None:
         key = asset_thumbnail_key(asset)

@@ -810,6 +810,29 @@ class TestThumbnailRefreshController:
         self._leave_after_bounds_writeback()
         assert self.controller.thumbnail_is_stale(self.files[0]) is False
 
+    def test_an_unedited_half_reads_current_after_its_unsaved_bounds(self) -> None:
+        from types import SimpleNamespace
+
+        def update_config(config, **_kw):
+            self.controller.state.config = config
+
+        self._file_it_here()
+        self.session.update_config.side_effect = update_config
+        self.controller._may_persist_measured_bounds = lambda: False
+        self._live_render(("active", self.controller.state.config))
+        self.controller._on_metrics_updated(
+            {"source_hash": "active", "log_bounds": SimpleNamespace(floors=(-1.0, -1.1, -1.2), ceils=(-0.9, -0.95, -1.0))}
+        )
+        # A re-render of the same settings runs on the config that holds the unsaved bounds.
+        self._live_render(("active", self.controller.state.config))
+
+        self.controller._update_thumbnail_from_state(persist=True)
+        task = self.thumbnail_updates[-1]
+        self.controller.asset_store.save_thumbnail(task.file_hash, Image.new("RGB", (4, 4)), fingerprint=task.fingerprint)
+        self.controller.state.current_file_hash = "third"
+
+        assert self.controller.thumbnail_is_stale(self.files[0]) is False
+
     def test_an_edit_after_the_render_breaks_the_carried_identity(self) -> None:
         base = self.controller.state.config
         self._live_render(("active", base))
