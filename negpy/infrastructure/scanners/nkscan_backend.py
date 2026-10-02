@@ -81,6 +81,7 @@ def _caps_for(caps: Any) -> ScannerCapabilities:
         exposure_time_us=None,
         hw_clean=True,
         roll_discovery=True,
+        strip_pass=str(caps.framing) in _MEASURED_FRAMING,
         film_formats=FILM_FORMATS if str(caps.framing) in _MEASURED_FRAMING else (),
         film_types=tuple(FILM_TYPES),
         max_samples=max(1, int(caps.max_samples)),

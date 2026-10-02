@@ -51,6 +51,9 @@ class ScannerCapabilities:
     #: Frames are detected per strip, not addressed by index: the count is unknown until a
     #: strip is measured, so the UI must grow its slots from what the preview reports.
     roll_discovery: bool = False
+    #: Previews are cut from one pass over the whole strip, so previewing one frame again
+    #: shows the same pixels.
+    strip_pass: bool = False
     #: Film formats the transport must be told, because it cannot measure the frame length
     #: itself. Empty when the holder fixes it.
     film_formats: tuple[str, ...] = ()

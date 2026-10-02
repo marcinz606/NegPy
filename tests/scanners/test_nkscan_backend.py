@@ -449,6 +449,12 @@ def test_only_a_transport_that_measures_the_film_is_told_the_frame_length() -> N
     assert published.list_devices()[0].capabilities.film_formats == ()
 
 
+def test_only_the_framings_that_take_a_thumbnail_pass_cut_previews_from_a_strip_pass() -> None:
+    for framing, strip_pass in (("thumbnail", True), ("perforation", True), ("published", False), ("address", False)):
+        backend, _ = make_backend(caps=FakeCapabilities(framing=framing))
+        assert backend.list_devices()[0].capabilities.strip_pass is strip_pass, framing
+
+
 # ── metering ──────────────────────────────────────────────────────────────
 
 
