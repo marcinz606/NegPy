@@ -1018,11 +1018,7 @@ class AppController(QObject):
         accepted, as re-rendering a whole turned roll costs far more than it shows."""
         if asset is None:
             return None
-        config = self._config_for_batch_asset(asset)
-        # TODO: drop once Tilt and Swing turn with the picture (#1239).
-        if config.geometry.converge_v or config.geometry.converge_h:
-            return None
-        return self.thumbnail_fingerprint_for(config)
+        return self.thumbnail_fingerprint_for(self._config_for_batch_asset(asset))
 
     def _turn_thumbnails(
         self, keys: list, qt_transform: QTransform, pil_transpose: Any, before: Optional[dict[str, Optional[bool]]] = None

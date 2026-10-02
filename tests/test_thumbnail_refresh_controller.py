@@ -881,15 +881,15 @@ class TestThumbnailRefreshController:
         assert self.controller.asset_store.get_thumbnail_fingerprint(keys["third"]) is None
         assert keys["third"] in self.controller.state.stale_thumbnails
 
-    def test_a_batch_turn_does_not_vouch_for_a_keystoned_frame(self) -> None:
+    def test_a_batch_turn_carries_a_keystoned_frames_fingerprint(self) -> None:
         base = WorkspaceConfig()
         keystoned = replace(base, geometry=replace(base.geometry, converge_v=4.0))
         self.session.config_for_asset.return_value = keystoned
         self._save("other", self._current("other"))
 
-        keys = self._batch_turn(replace(keystoned, geometry=replace(keystoned.geometry, rotation=1)))
+        keys = self._batch_turn(replace(keystoned, geometry=replace(keystoned.geometry, rotation=1, converge_h=4.0, converge_v=0.0)))
 
-        assert self.controller.asset_store.get_thumbnail_fingerprint(keys["other"]) is None
+        assert self.controller.asset_store.get_thumbnail_fingerprint(keys["other"]) == self._current("other")
 
     # Seeding the Film Strip's stale dot from fingerprints when a roll opens.
 
