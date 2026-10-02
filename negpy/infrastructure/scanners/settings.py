@@ -37,7 +37,6 @@ class ScannerSettings:
     # Frame length for a transport that measures the strip; None lets it decide.
     film_format: str | None = None
     film_type: str = "negative"
-    output_folder: str = ""
     output_format: str = "TIFF"
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
     scan_window: Rect | None = None

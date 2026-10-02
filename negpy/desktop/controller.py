@@ -454,7 +454,7 @@ class AppController(QObject):
     library_search_requested = pyqtSignal(LibrarySearchTask)
     library_index_scan_requested = pyqtSignal(list)  # library_roots(), for whole-library indexing
     library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
-    library_cleared = pyqtSignal()  # roots forgotten elsewhere — the panel must re-read them
+    library_cleared = pyqtSignal()  # the library changed elsewhere — the panel must re-read it
     first_scene_created = pyqtSignal()  # the loaded roll's first scene: the Film Strip sorts by scene
     stitch_requested = pyqtSignal(object)
     contact_sheet_requested = pyqtSignal(object)  # ContactSheetJob
@@ -564,6 +564,8 @@ class AppController(QObject):
         self._pending_asset_discoveries: List[_DiscoveryRequest] = []
         self._active_discovery_keys: frozenset[str] = frozenset()
         self._pending_scanned_file: Optional[str] = None
+        self._scan_as_roll = False
+        self._batch_frame_selected = False
         self._gpu_fallback_notified = False
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
@@ -960,7 +962,7 @@ class AppController(QObject):
         self.scan_batch_requested.connect(self.scan_worker.run_batch)
         self.scan_eject_requested.connect(self.scan_worker.eject)
         self.scan_worker.cancelled.connect(self.scan_cancelled.emit)
-        self.scan_worker.frame_done.connect(self.scan_frame_done.emit)
+        self.scan_worker.frame_done.connect(self._on_scan_frame_done)
         self.scan_worker.batch_finished.connect(self._on_scan_batch_finished)
         self.scan_worker.ejected.connect(self.scan_ejected.emit)
         self.scan_worker.eject_error.connect(self.scan_eject_error.emit)
@@ -5200,12 +5202,15 @@ class AppController(QObject):
     def start_scan(self, req: ScanRequest) -> None:
         """Start a scan. The UI connects to scan signals for state updates."""
         self.scan_worker.prepare_scan()
+        self._scan_as_roll = req.as_roll
         self.scan_started.emit()
         self.scan_requested.emit(req)
 
     def start_batch(self, req: BatchRequest) -> None:
         """Start a frame-range batch scan over a roll/strip feeder."""
         self.scan_worker.prepare_scan()
+        self._scan_as_roll = req.as_roll
+        self._batch_frame_selected = False
         self.scan_started.emit()
         self.scan_batch_requested.emit(req)
 
@@ -5235,15 +5240,43 @@ class AppController(QObject):
     def _on_scan_finished(self, path: str) -> None:
         """Auto-add scanned file to NegPy file list and select it."""
         self.scan_finished.emit(path)
-        self._pending_scanned_file = path
-        self.request_asset_discovery([path])
+        self._discover_scanned([path], path, self._scan_as_roll)
+
+    def _on_scan_frame_done(self, frame: int, path: str) -> None:
+        """Load each batch frame as it is written. Only the batch's first frame takes the
+        selection, so a frame being edited meanwhile stays selected."""
+        self.scan_frame_done.emit(frame, path)
+        self._discover_scanned([path], path, self._scan_as_roll, select=not self._batch_frame_selected)
+        self._batch_frame_selected = True
 
     def _on_scan_batch_finished(self, paths: list) -> None:
-        """Import every frame a batch completed, including a stopped or failed run."""
         self.scan_batch_finished.emit(paths)
-        if paths:
-            self._pending_scanned_file = paths[-1]
-            self.request_asset_discovery(list(paths))
+
+    def _discover_scanned(
+        self, paths: List[str], selected: str, as_roll: bool, triplet: Optional[dict] = None, select: bool = True
+    ) -> None:
+        """Load a scanner's or camera's new files, selecting *selected* when *select*. With
+        *as_roll* their folder is a roll, opened before discovery runs: Half Frame splits at
+        discovery time."""
+        if as_roll:
+            folder = os.path.dirname(selected)
+            roll_id = rolls.recognize_folder(self.session.repo, folder)
+            if roll_id != self.state.active_roll_id:
+                self.state.active_roll_id = roll_id
+                self.half_frame_mode_changed.emit(self.half_frame_mode_for_roll(roll_id))
+                self._register_library_roots([folder])
+                self.library_cleared.emit()
+                self.request_asset_discovery(
+                    [folder],
+                    auto_open=True,
+                    replace_existing=True,
+                    reselect_path=selected if select else self.state.current_file_path,
+                    restore_triplets=triplet,
+                )
+                return
+        if select:
+            self._pending_scanned_file = selected
+        self.request_asset_discovery(paths, restore_triplets=triplet)
 
     # ── Stitch (multi-part scan composite) ─────────────────────────────
 
@@ -5858,13 +5891,12 @@ class AppController(QObject):
                 capture_roll=capture_roll,
                 capture_frame=capture_frame,
             )
-        self._pending_scanned_file = paths[0]
         # The capture shot these three exposures for one frame, in red/green/blue order
         # (CaptureResult.paths), so hand discovery the triplet instead of asking it to
         # re-derive one it already knows. Deriving it can only refuse a frame it should
         # have kept: a blank or untextured frame gives the content test nothing to match.
         triplet = {paths[0]: [paths[1], paths[2]]} if rgb and not white and len(paths) == 3 else None
-        self.request_asset_discovery(list(paths), restore_triplets=triplet)
+        self._discover_scanned(list(paths), paths[0], bool(getattr(req, "as_roll", False)), triplet)
 
     def effective_output_icc(self) -> Optional[str]:
         """Profile the *export* converts to and tags with: a custom override, else the

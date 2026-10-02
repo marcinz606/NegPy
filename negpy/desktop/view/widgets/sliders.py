@@ -257,6 +257,19 @@ class BaseSlider(QWidget):
     def value(self) -> float:
         return self.spin.value()
 
+    def set_range(self, min_val: float, max_val: float) -> None:
+        """New limits for a range that depends on the device, not on the setting; the reset
+        value moves inside them."""
+        self._min, self._max = min_val, max_val
+        self._default = min(max(self._default, min_val), max_val)
+        self.slider._default_slider_value = self._to_int(self._default)
+        self.slider.blockSignals(True)
+        self.spin.blockSignals(True)
+        self.slider.setRange(*sorted((self._to_int(min_val), self._to_int(max_val))))
+        self.spin.setRange(min_val, max_val)
+        self.slider.blockSignals(False)
+        self.spin.blockSignals(False)
+
     def adjust_by(self, delta: float) -> None:
         new_value = max(self._min, min(self._max, self.value() + delta))
         self.setValue(new_value, _rebase_commit=False)

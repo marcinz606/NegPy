@@ -20,6 +20,7 @@ class ScanRequest:
     output_folder: str
     filename_pattern: str
     output_format: str  # one of settings.OUTPUT_FORMATS
+    as_roll: bool = False  # output_folder becomes a Library roll and opens
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class BatchRequest:
     # Per-frame correction (mm) on top of that ramp; an absent key means none.
     frame_offsets: dict[int, float] = field(default_factory=dict)
     eject_when_done: bool = True
+    as_roll: bool = False
 
 
 @dataclass(frozen=True)

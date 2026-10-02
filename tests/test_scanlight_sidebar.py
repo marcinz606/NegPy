@@ -67,7 +67,7 @@ def test_sidebar_builds_with_all_controls():
 
 def test_normal_mode_relaxes_gate_to_camera_and_folder(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w._camera_verified = True
     # RGB mode (default): the Scanlight + a preset are required → still blocked.
     assert "connect the Scanlight" in " ".join(w._missing_requirements())
@@ -80,14 +80,14 @@ def test_normal_mode_relaxes_gate_to_camera_and_folder(tmp_path):
 def test_normal_mode_clears_stale_light_status():
     w = _sidebar()
     w._on_light_set(255, 118, 86, 0)  # RGB framing set "Light: R255 G118 B86"
-    assert "Light:" in w.status_label.text()
+    assert "Light:" in w.status_strip.message()
     w._set_rgb_mode(False)  # Scanlight unplugged → normal mode
-    assert w.status_label.text() == ""  # the stale light status is dropped
+    assert w.status_strip.message() == ""  # the stale light status is dropped
 
 
 def test_normal_mode_capture_request_is_single_no_triplet(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w._camera_verified = True
     w._set_rgb_mode(False)
     w._start_capture(retake=False)
@@ -165,7 +165,7 @@ def test_white_preset_does_not_inherit_the_rgb_shutter(tmp_path):
     assert w._settings.white_mode is True
     assert w._settings.shutter_w == ""  # nothing is forced; the camera keeps what the live view set
 
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w._start_capture(retake=False)
     assert w.controller.start_capture.call_args[0][0].shutter_w == ""
 
@@ -195,7 +195,7 @@ def test_set_scanning_mirrors_to_popup_button():
 def test_cancelled_scan_returns_sidebar_to_a_terminal_idle_state():
     w = _sidebar()
     w.set_scanning(True)
-    w.progress_bar.setValue(67)
+    w.status_strip.set_progress("Capturing… %p%", 0.67)
     w.lv_btn.blockSignals(True)
     w.lv_btn.setChecked(True)
     w.lv_btn.blockSignals(False)
@@ -204,8 +204,8 @@ def test_cancelled_scan_returns_sidebar_to_a_terminal_idle_state():
     w._on_cancelled()
 
     assert not w._scanning
-    assert w.progress_bar.isHidden()
-    assert "cancelled" in w.status_label.text().lower()
+    assert w.status_strip.showing() != "progress"
+    assert "cancelled" in w.status_strip.message().lower()
     assert w.lv_btn.isChecked()  # capture cancellation preserves the live-view session
     assert w.controller.set_scanlight_color.called  # restore the framing light
 
@@ -349,12 +349,12 @@ def test_capture_error_closes_the_stale_live_view_session():
     w._on_error("camera disconnected")
 
     assert not w._scanning
-    assert w.progress_bar.isHidden()
+    assert w.status_strip.showing() != "progress"
     assert not w.lv_btn.isChecked()
     assert w.lv_window.isHidden()
     assert not w._lv_timer.isActive()
     w.controller.stop_live_view.assert_called_once_with()
-    assert "camera disconnected" in w.status_label.text().lower()
+    assert "camera disconnected" in w.status_strip.message().lower()
 
 
 def test_status_is_mirrored_into_popup():
@@ -365,21 +365,21 @@ def test_status_is_mirrored_into_popup():
 
 def test_popup_scan_signal_triggers_capture(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w.lv_window.scanRequested.emit()  # the pop-up's Scan button
     assert w.controller.start_capture.called
 
 
 def test_scan_gated_until_all_requirements(tmp_path):
     w = _sidebar()
-    # Nothing ready → "Live View & Scan" and the pop-up Scan are disabled.
-    assert not w.lv_btn.isEnabled()
+    # Nothing ready → Scan and the pop-up Scan are disabled.
+    assert not w.scan_btn.isEnabled()
     assert not w.lv_window.scan_btn.isEnabled()
     # Satisfy folder + preset + camera + light → enabled.
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w.preset_combo.setCurrentIndex(w.preset_combo.findData("White Light (B&W or Slide Film)"))
     w._on_poll_status(_poll(usb_ok=True, usb_model="FAKE-1"))
-    assert w.lv_btn.isEnabled()
+    assert w.scan_btn.isEnabled()
     assert w.lv_window.scan_btn.isEnabled()
     assert w.gate_hint.text() == ""
 
@@ -389,7 +389,8 @@ def test_gate_hint_lists_missing_requirements():
     w._on_poll_status(_poll(usb_ok=True))  # camera + light ok; folder + preset still missing
     assert "output folder" in w.gate_hint.text()
     assert "preset" in w.gate_hint.text()
-    assert not w.lv_btn.isEnabled()
+    assert not w.scan_btn.isEnabled()
+    assert w.lv_btn.isEnabled()  # live view frames and focuses with the camera alone
 
 
 def test_new_preset_button_needs_only_camera_and_light():
@@ -499,10 +500,13 @@ def test_setting_stepper_steps_and_clamps():
     assert seen == [400, 200]  # only real moves emit an `activated`
 
 
-def test_scan_button_is_bold_scan():
+def test_scan_button_reads_scan_then_stop():
     w = _sidebar()
-    assert w.lv_btn.text().strip() == "Scan"  # renamed from "Live View & Scan"
-    assert w.lv_btn.font().bold()
+    assert w.scan_btn.text().strip() == "Scan"
+    w.set_scanning(True)
+    assert w.scan_btn.text().strip() == "Stop" and w.scan_btn.property("scanning") == "true"
+    w.set_scanning(False)
+    assert w.scan_btn.text().strip() == "Scan"
 
 
 def test_poll_clears_stale_searching_status_on_connect():
@@ -511,7 +515,7 @@ def test_poll_clears_stale_searching_status_on_connect():
     w._set_status("Camera disconnected.")
     w._on_poll_status(_poll(usb_ok=True, usb_model="ZV-E1"))  # USB body appears → connected
     assert w._camera_verified
-    assert w.status_label.text() == ""  # the stale failure line is dropped on connect
+    assert w.status_strip.message() == ""  # the stale failure line is dropped on connect
 
 
 def test_poll_finds_usb_camera_marks_green():
@@ -562,7 +566,7 @@ def test_disconnect_during_live_view_closes_the_preview():
     w._on_poll_status(_poll(usb_ok=False))
     assert not w._camera_verified
     assert not w.lv_btn.isChecked()
-    assert "disconnected" in w.status_label.text().lower()
+    assert "disconnected" in w.status_strip.message().lower()
 
 
 def test_poll_no_usb_in_usb_mode_marks_not_connected():
@@ -575,8 +579,9 @@ def test_poll_no_usb_in_usb_mode_marks_not_connected():
 
 def test_frame_number_auto_derived_from_roll_subfolder(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
-    w.roll_edit.setText("Roll007")
+    w.output.folder_roll_btn.setChecked(False)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll007")
     roll_dir = tmp_path / "Roll007"
 
     def captured_req():
@@ -617,47 +622,54 @@ def test_frame_number_auto_derived_from_roll_subfolder(tmp_path):
 )
 def test_capture_rejects_unsafe_roll_name(tmp_path, roll_name):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
-    w.roll_edit.setText(roll_name)
+    w.output.folder_roll_btn.setChecked(False)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText(roll_name)
 
     w._start_capture(retake=False)
 
     assert not w.controller.start_capture.called
-    assert "single safe name" in w.status_label.text().lower()
+    assert "single safe name" in w.status_strip.message().lower()
 
 
 def test_blank_roll_name_falls_back_consistently(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
-    w.roll_edit.clear()
+    w.output.folder_roll_btn.setChecked(False)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.clear()
 
     w._start_capture(retake=False)
 
     req = w.controller.start_capture.call_args.args[0]
     assert req.roll_name == "Roll001"
     assert req.output_folder == str(tmp_path / "Roll001")
-    assert w.roll_edit.text() == "Roll001"
-    assert w._settings.roll_name == "Roll001"
-    key, saved = w.controller.session.repo.save_global_setting.call_args.args
-    assert key == "scanlight_settings"
-    assert saved["roll_name"] == "Roll001"
+    assert w.output.roll_edit.text() == "Roll001"
+    saved = [
+        value
+        for key, value in (c.args for c in w.controller.session.repo.save_global_setting.call_args_list)
+        if key == "scan_output_settings"
+    ]
+    assert saved[-1]["roll_name"] == "Roll001"
 
 
 def test_safe_roll_name_is_trimmed_consistently(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
-    w.roll_edit.setText("  Summer 2026  ")
+    w.output.folder_roll_btn.setChecked(False)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("  Summer 2026  ")
 
     w._start_capture(retake=False)
 
     req = w.controller.start_capture.call_args.args[0]
     assert req.roll_name == "Summer 2026"
     assert req.output_folder == str(tmp_path / "Summer 2026")
-    assert w.roll_edit.text() == "Summer 2026"
-    assert w._settings.roll_name == "Summer 2026"
-    key, saved = w.controller.session.repo.save_global_setting.call_args.args
-    assert key == "scanlight_settings"
-    assert saved["roll_name"] == "Summer 2026"
+    assert w.output.roll_edit.text() == "Summer 2026"
+    saved = [
+        value
+        for key, value in (c.args for c in w.controller.session.repo.save_global_setting.call_args_list)
+        if key == "scan_output_settings"
+    ]
+    assert saved[-1]["roll_name"] == "Summer 2026"
 
 
 def test_temp_label_hides_when_no_reading():
@@ -718,16 +730,16 @@ def test_calibrate_button_in_an_open_popup_is_refused_during_a_scan():
 
 def test_scan_is_refused_while_a_calibration_runs(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w._calibrating_preset = "Portra 400"
     w._start_capture(retake=False)
     assert not w.controller.start_capture.called
-    assert "calibration is running" in w.status_label.text().lower()
+    assert "calibration is running" in w.status_strip.message().lower()
 
 
 def test_a_second_scan_click_does_not_queue_another_frame(tmp_path):
     w = _sidebar()
-    w.folder_edit.setText(str(tmp_path))
+    w.output.folder_edit.setText(str(tmp_path))
     w.set_scanning(True)
     w._start_capture(retake=False)
     assert not w.controller.start_capture.called
@@ -893,14 +905,14 @@ def test_calibration_outcome_survives_the_light_echo(monkeypatch):
     # because the echo arrives after the handler returns.
     w = _sidebar()
     _calibrate(w, monkeypatch)
-    assert "Saved preset" in w.status_label.text()
+    assert "Saved preset" in w.status_strip.message()
     w._on_light_set(213, 92, 78, 0)  # the async echo, exactly as the worker delivers it
-    assert "Saved preset" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
+    assert "Saved preset" in w.status_strip.message(), "the light echo must not clobber the calibration outcome"
     # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
     # light echo works again afterwards.
     w._set_status("Calibrating a new preset — see the pop-up.")
     w._on_light_set(10, 20, 30, 0)
-    assert w.status_label.text() == "Light: R10 G20 B30"
+    assert w.status_strip.message() == "Light: R10 G20 B30"
 
 
 def test_calibration_bakes_the_metered_iso_and_aperture(tmp_path, monkeypatch):
@@ -1123,7 +1135,7 @@ def test_rgb_only_scanlight_hides_white_slider_and_preset():
     w = _sidebar()
     w._light_has_white = False  # a v1-v3 body: no white LED
     w._refresh_light_channels()
-    assert w._slider_rows[w.w_slider].isHidden()  # W slider gone
+    assert w.w_slider.isHidden()  # W slider gone
     assert not _white_preset_item(w).isEnabled()  # white-light preset greyed out
 
 
@@ -1131,14 +1143,14 @@ def test_white_scanlight_keeps_white_slider_and_preset():
     w = _sidebar()
     w._light_has_white = True  # v4 / Big
     w._refresh_light_channels()
-    assert not w._slider_rows[w.w_slider].isHidden()
+    assert not w.w_slider.isHidden()
     assert _white_preset_item(w).isEnabled()
 
 
 def test_poll_status_carries_white_capability_to_the_ui():
     w = _sidebar()
     w._on_poll_status({"light_ok": True, "light_detail": "hw2 (fw1)", "light_has_white": False, "usb_ok": False, "usb_model": ""})
-    assert w._light_has_white is False and w._slider_rows[w.w_slider].isHidden()
+    assert w._light_has_white is False and w.w_slider.isHidden()
 
 
 def test_rgb_only_scanlight_hides_the_temperature():
@@ -1168,8 +1180,8 @@ def test_rgb_preset_shows_the_exposure_fields(monkeypatch):
 def test_scan_request_carries_the_preset_exposure(tmp_path):
     w = _sidebar()  # RGB mode is the default
     w._apply_preset_exposure("100", "f/8")  # as selecting a calibrated RGB preset would
-    w.folder_edit.setText(str(tmp_path))
-    w.roll_edit.setText("Roll001")
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
     w._start_capture(retake=False)
     req = w.controller.start_capture.call_args[0][0]
     assert req.iso == "100" and req.aperture == "f/8"  # the worker forces these on the body
@@ -1486,3 +1498,29 @@ def test_live_view_prefers_the_exact_shift_binding():
     finally:
         set_current_bindings(default_bindings())
     assert fired == ["retake", "scan"]
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_scan_as_roll_reaches_the_capture_request(tmp_path, on):
+    w = _sidebar()
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.as_roll_btn.setChecked(on)
+
+    w._start_capture(retake=False)
+
+    assert w.controller.start_capture.call_args.args[0].as_roll is on
+
+
+def test_folder_as_roll_captures_into_the_output_folder_itself(tmp_path):
+    folder = tmp_path / "Portra 400"
+    folder.mkdir()
+    w = _sidebar()
+    w.output.folder_edit.setText(str(folder))
+
+    w._start_capture(retake=False)
+
+    req = w.controller.start_capture.call_args.args[0]
+    assert req.output_folder == str(folder)
+    assert req.roll_name == "Portra 400"
+    assert req.as_roll is True
+    assert not w.output.roll_edit.isEnabled()

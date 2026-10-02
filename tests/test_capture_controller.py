@@ -12,7 +12,7 @@ GPU needed), with an AppState standing in for session hydration.
 
 import os
 from dataclasses import replace
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import MagicMock
 
 from negpy.desktop.controller import AppController
@@ -29,6 +29,7 @@ def _run(paths, **req_kw):
     controller.state = AppState()
     controller._pending_capture_imports = {}
     controller._last_capture_req = req
+    controller._discover_scanned = MethodType(AppController._discover_scanned, controller)
     AppController._on_capture_finished(controller, paths)
     return controller
 

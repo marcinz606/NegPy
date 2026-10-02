@@ -328,6 +328,8 @@ class ShortcutManager:
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
             ),
+            "scan_as_roll": lambda: right.scan_output.as_roll_btn.toggle(),
+            "scan_folder_as_roll": lambda: right.scan_output.folder_roll_btn.toggle(),
             "mode_color_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(0),
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(1),
             "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),

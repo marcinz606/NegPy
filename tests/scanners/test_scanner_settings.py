@@ -137,8 +137,8 @@ def test_an_unset_saved_frame_range_selects_nothing():
 
 
 def test_a_key_this_version_dropped_keeps_the_rest_of_the_blob():
-    restored = ScannerSettings.from_dict({"gone_in_this_version": True, "output_folder": "/scans"})
-    assert restored.output_folder == "/scans"
+    restored = ScannerSettings.from_dict({"gone_in_this_version": True, "output_folder": "/scans", "output_format": "TIFF (mono)"})
+    assert restored.output_format == "TIFF (mono)"
 
 
 def test_legacy_multi_exposure_true_migrates_to_adaptive_mode():

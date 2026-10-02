@@ -371,6 +371,19 @@ def field_label(text: str) -> QLabel:
     return lbl
 
 
+def field_row(label: str, field: QWidget, *trailing: QWidget) -> QHBoxLayout:
+    """A field_label at FIELD_LABEL_WIDTH, the field taking the rest, then any icon buttons.
+    The label is the layout's first item, so a caller can hide the row with its field."""
+    row = QHBoxLayout()
+    caption = field_label(label)
+    caption.setFixedWidth(FIELD_LABEL_WIDTH)
+    row.addWidget(caption)
+    row.addWidget(field, 1)
+    for widget in trailing:
+        row.addWidget(widget)
+    return row
+
+
 def tool_toggle_qss(icon_only: bool = False, align_left: bool = False) -> str:
     """Icon-only padding; the checked look is the app-wide rule in modern_dark.qss."""
     if icon_only:

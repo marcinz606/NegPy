@@ -5,6 +5,8 @@ handful of film, rig and scanning facts (see TestRollDefaults below)."""
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+import pytest
+
 from negpy.domain.models import ProcessConfig, WorkspaceConfig
 from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -36,6 +38,7 @@ from negpy.services.assets.rolls import (
     import_subfolders_as_rolls,
     is_forked,
     recognize_folder,
+    roll_folder_name,
     rename_folder_roll_disk,
     rename_roll,
     resolve_roll_baseline,
@@ -106,6 +109,20 @@ def test_add_extra_member_extends_a_folder_rolls_extra_paths():
     roll_id = recognize_folder(repo, "/scans/roll_a")
     add_extra_members(repo, roll_id, ["/elsewhere/c.nef"])
     assert roll_for_id(repo, roll_id)["extra_paths"] == ["/elsewhere/c.nef"]
+
+
+def test_add_extra_member_skips_files_the_folder_walk_finds():
+    repo = _repo()
+    roll_id = recognize_folder(repo, "/scans/roll_a")
+    add_extra_members(repo, roll_id, ["/scans/roll_a/1.tif", "/scans/roll_a/sub/2.tif", "/elsewhere/c.nef"])
+    assert roll_for_id(repo, roll_id)["extra_paths"] == ["/scans/roll_a/sub/2.tif", "/elsewhere/c.nef"]
+
+
+@pytest.mark.parametrize(
+    ("text", "name"), [("", "Roll001"), ("  Summer 2026  ", "Summer 2026"), ("..", None), ("a/b", None), ("a\\b", None), ("a\0b", None)]
+)
+def test_roll_folder_name(text, name):
+    assert roll_folder_name(text) == name
 
 
 def test_add_extra_member_extends_a_virtual_rolls_member_paths():
