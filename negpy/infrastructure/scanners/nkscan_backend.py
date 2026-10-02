@@ -56,7 +56,7 @@ _PHASES = {"discover": "Detecting frames", "meter": "Metering", "scan": "Scannin
 # A unit returns a loaded strip after it sits this long without a command, and gives no notice.
 # A strip put back in before NegPy opens the unit again reads as loaded, so this long without
 # contact counts as a return. Under the unit's own timeout: a false return costs a re-measure.
-_IDLE_RETURN_S = 8 * 60
+_IDLE_RETURN_S = 9 * 60
 
 _MM_PER_INCH = 25.4
 
