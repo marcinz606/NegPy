@@ -416,14 +416,17 @@ def test_run_batch_keeps_film_loaded_when_asked() -> None:
     assert service.eject_calls == []
 
 
+class _ReturnedService(_BatchService):
+    """A unit that returned the strip while idle: the first open raises."""
+
+    def run_scan(self, device_id, params, progress, cancel):
+        from negpy.infrastructure.scanners.base import StripReturned
+
+        self.frames.append(params.frame)
+        raise StripReturned("returned")
+
+
 def test_run_batch_reports_a_returned_strip_after_its_error_and_scans_nothing_more() -> None:
-    from negpy.infrastructure.scanners.base import StripReturned
-
-    class _ReturnedService(_BatchService):
-        def run_scan(self, device_id, params, progress, cancel):
-            self.frames.append(params.frame)
-            raise StripReturned("returned")
-
     worker = ScanWorker()
     service = _ReturnedService()
     worker._service = service  # type: ignore[assignment]
