@@ -20,7 +20,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QValidator
 from PyQt6.QtWidgets import QApplication
 
@@ -191,36 +191,36 @@ def test_no_device_disables_controls() -> None:
     assert sidebar.scan_btn.isEnabled() is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
-    assert sidebar.ae_check.isVisibleTo(sidebar) is False
-    assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
-    assert sidebar.depth_combo.isVisibleTo(sidebar) is False
-    assert sidebar.depth_label.isVisibleTo(sidebar) is False
+    assert sidebar.ae_btn.isVisibleTo(sidebar) is False
+    assert sidebar.autofocus_btn.isVisibleTo(sidebar) is False
+    assert sidebar.depth_btn.isVisibleTo(sidebar) is False
+    assert sidebar.depth_widget.isVisibleTo(sidebar) is False
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
 
 
 def test_full_capability_device_enables_coolscan_controls() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    assert sidebar.ir_check.isEnabled() is True
-    assert sidebar.ae_check.isVisibleTo(sidebar) is True
-    assert sidebar.autofocus_check.isVisibleTo(sidebar) is True
+    assert sidebar.ir_btn.isEnabled() is True
+    assert sidebar.ae_btn.isVisibleTo(sidebar) is True
+    assert sidebar.autofocus_btn.isVisibleTo(sidebar) is True
     assert sidebar.eject_btn.isVisibleTo(sidebar) is True
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
-    assert sidebar.depth_combo.isVisibleTo(sidebar) is True
-    assert sidebar.depth_label.isVisibleTo(sidebar) is True
+    assert sidebar.depth_btn.isVisibleTo(sidebar) is True
+    assert sidebar.depth_widget.isVisibleTo(sidebar) is True
 
 
 def test_minimal_device_hides_coolscan_controls() -> None:
     # The multi-backend invariant: a plain Plustek shows none of the Coolscan
     # controls and still scans.
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.ir_check.isEnabled() is False
-    assert sidebar.ae_check.isVisibleTo(sidebar) is False
-    assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
+    assert sidebar.ir_btn.isEnabled() is False
+    assert sidebar.ae_btn.isVisibleTo(sidebar) is False
+    assert sidebar.autofocus_btn.isVisibleTo(sidebar) is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
-    assert sidebar.depth_combo.isVisibleTo(sidebar) is False
-    assert sidebar.depth_label.isVisibleTo(sidebar) is False
-    assert sidebar.depth_combo.currentData() == 16
+    assert sidebar.depth_btn.isVisibleTo(sidebar) is False
+    assert sidebar.depth_widget.isVisibleTo(sidebar) is False
+    assert sidebar.depth_btn.currentData() == 16
     assert sidebar.prescan_widget.isVisibleTo(sidebar) is False
     assert sidebar.scan_btn.isEnabled() is True
 
@@ -229,8 +229,8 @@ def test_se_device_shows_prescan() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
     assert sidebar.prescan_widget.isVisibleTo(sidebar) is True
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
-    assert sidebar.ir_check.isEnabled() is True
-    assert sidebar.mode_combo.isEnabled() is True
+    assert sidebar.ir_btn.isEnabled() is True
+    assert sidebar.mode_btn.isEnabled() is True
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
 
 
@@ -251,21 +251,18 @@ def test_sane_backend_keeps_single_holder_window_control(monkeypatch) -> None:
 
 def test_minimal_device_disables_multi_exposure() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.mode_combo.isEnabled() is False
+    assert sidebar.mode_btn.isEnabled() is False
     assert sidebar._capture_mode() == ScanCaptureMode.SINGLE_PASS
 
 
 def test_minimal_device_hides_passes_control() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.passes_row_widget.isVisibleTo(sidebar) is False
+    assert sidebar.passes_rail.isVisibleTo(sidebar) is False
 
 
 def test_only_single_pass_enabled_when_device_has_neither_capability() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    enabled = {
-        ScanCaptureMode(sidebar.mode_combo.itemData(i)): sidebar.mode_combo.model().item(i).isEnabled()
-        for i in range(sidebar.mode_combo.count())
-    }
+    enabled = {mode: sidebar.mode_btn.is_choice_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
     assert enabled[ScanCaptureMode.SINGLE_PASS] is True
     assert enabled[ScanCaptureMode.MULTI_PASS] is False
     assert enabled[ScanCaptureMode.ADAPTIVE_ME] is False
@@ -274,32 +271,31 @@ def test_only_single_pass_enabled_when_device_has_neither_capability() -> None:
 
 def test_mode_combo_tooltips_present() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
-    for i in range(sidebar.mode_combo.count()):
-        tooltip = sidebar.mode_combo.itemData(i, Qt.ItemDataRole.ToolTipRole)
-        assert isinstance(tooltip, str) and tooltip.strip()
+    for action in sidebar.mode_btn.choice_menu.actions():
+        assert action.toolTip().strip()
 
 
 def test_selecting_multi_pass_reveals_passes_slider_and_unchecks_ir() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "capture_ir": True})
     sidebar._set_capture_mode(ScanCaptureMode.MULTI_PASS)
-    assert sidebar.passes_row_widget.isVisibleTo(sidebar) is True
-    assert sidebar.ir_check.isChecked() is False
+    assert sidebar.passes_rail.isVisibleTo(sidebar) is True
+    assert sidebar.ir_btn.isChecked() is False
 
 
 def test_ir_toggle_drops_multi_pass_to_single_pass() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "n_passes": 3})
     sidebar._set_capture_mode(ScanCaptureMode.MULTI_PASS)
-    sidebar.ir_check.setChecked(True)
+    sidebar.ir_btn.setChecked(True)
     assert sidebar._capture_mode() == ScanCaptureMode.SINGLE_PASS
-    assert sidebar.ir_check.isChecked() is True
+    assert sidebar.ir_btn.isChecked() is True
 
 
 def test_ir_toggle_drops_adaptive_multi_pass_to_adaptive_me() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "n_passes": 3})
     sidebar._set_capture_mode(ScanCaptureMode.ADAPTIVE_MULTI_PASS)
-    sidebar.ir_check.setChecked(True)
+    sidebar.ir_btn.setChecked(True)
     assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_ME
-    assert sidebar.ir_check.isChecked() is True
+    assert sidebar.ir_btn.isChecked() is True
 
 
 def test_scan_params_include_prescan_crop() -> None:
@@ -307,7 +303,7 @@ def test_scan_params_include_prescan_crop() -> None:
         SE_DEVICE,
         settings={"backend": "plustek", "scan_window": (0.1, 0.2, 0.9, 0.8)},
     )
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar._on_scan()
     kind, req = controller.started[0]
     assert kind == "scan"
@@ -373,18 +369,18 @@ def test_14_bit_device_defaults_to_14_not_8() -> None:
     sidebar, _ = _sidebar(LS50_DEVICE)
     # Saved default depth 16 is not offered on an (8, 14) scanner; the combo must
     # land on the deepest supported, never silently on index 0 = 8-bit.
-    assert sidebar.depth_combo.isVisibleTo(sidebar) is True
-    assert sidebar.depth_combo.currentData() == 14
+    assert sidebar.depth_btn.isVisibleTo(sidebar) is True
+    assert sidebar.depth_btn.currentData() == 14
 
 
 def test_saved_depth_wins_when_the_device_offers_it() -> None:
     sidebar, _ = _sidebar(LS50_DEVICE, settings={"depth": 8})
-    assert sidebar.depth_combo.currentData() == 8
+    assert sidebar.depth_btn.currentData() == 8
 
 
 def test_an_unreadable_frame_list_refuses_the_scan() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.frame_spec_edit.setText("2-")
 
     assert sidebar.scan_btn.isEnabled() is False
@@ -397,7 +393,7 @@ def test_an_unreadable_frame_list_refuses_the_scan() -> None:
 
 def test_scan_on_capacity_device_routes_to_batch() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.frame_spec_edit.setText("2-4")
 
     sidebar._on_scan()
@@ -412,7 +408,7 @@ def test_scan_on_capacity_device_routes_to_batch() -> None:
 
 def test_scan_on_plain_device_routes_to_single() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
 
     sidebar._on_scan()
 
@@ -424,7 +420,7 @@ def test_scan_on_plain_device_routes_to_single() -> None:
 
 def test_scan_uses_dialog_selection_and_per_frame_windows() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     rect = (0.1, 0.1, 0.5, 0.5)
     sidebar.settings = replace(sidebar._settings, selected_frames=(1, 2, 4), frame_windows={4: rect})
 
@@ -451,7 +447,7 @@ def test_ui_edit_preserves_dialog_selection() -> None:
     rect = (0.1, 0.1, 0.5, 0.5)
     sidebar.settings = replace(sidebar._settings, selected_frames=(1, 2, 4), frame_windows={4: rect})
 
-    sidebar.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
+    sidebar.output.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
 
     assert sidebar._settings.selected_frames == (1, 2, 4)
     assert sidebar._settings.frame_windows == {4: rect}
@@ -461,7 +457,7 @@ def test_backend_combo_lists_registry_default() -> None:
     from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
     sidebar, _ = _sidebar()
-    assert sidebar.backend_combo.findData("plustek") >= 0
+    assert sidebar.backend_btn.findData("plustek") >= 0
     assert sidebar._current_backend_id() == DEFAULT_BACKEND_ID
 
 
@@ -502,7 +498,7 @@ def test_backend_change_persists_and_re_enumerates(monkeypatch) -> None:
     sidebar, controller = _sidebar()
     before = controller.device_requests
 
-    sidebar.backend_combo.setCurrentIndex(1)  # fires _on_backend_changed
+    sidebar.backend_btn.setCurrentIndex(1)  # fires _on_backend_changed
 
     assert sidebar._current_backend_id() == "mock"
     assert controller.backend_requests[-1] == "mock"
@@ -514,7 +510,7 @@ def test_ui_edit_preserves_offset_and_drift() -> None:
     sidebar, _ = _sidebar(LS50_DEVICE)
     sidebar.settings = replace(sidebar._settings, frame_offset_mm=1.5, frame_offset_modifier_mm=-0.1)
 
-    sidebar.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
+    sidebar.output.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
 
     assert sidebar._settings.frame_offset_mm == 1.5
     assert sidebar._settings.frame_offset_modifier_mm == -0.1
@@ -524,7 +520,7 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
     # _on_scan() re-reads settings from the UI right before building the
     # request — the rebuild must not wipe dialog-owned fields.
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.settings = replace(sidebar._settings, frame_offset_mm=1.5, frame_offset_modifier_mm=0.2)
 
     sidebar._on_scan()
@@ -537,7 +533,7 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
 
 def test_scan_carries_the_per_frame_corrections_into_the_batch_request() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar.settings = replace(sidebar._settings, frame_offsets={2: -0.4})
 
     sidebar._on_scan()
@@ -554,9 +550,9 @@ def test_eject_button_calls_controller() -> None:
 
 def test_ae_flag_flows_into_scan_params() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.ae_check.setChecked(True)
-    sidebar.autofocus_check.setChecked(True)
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.ae_btn.setChecked(True)
+    sidebar.autofocus_btn.setChecked(True)
 
     sidebar._on_scan()
 
@@ -567,9 +563,9 @@ def test_ae_flag_flows_into_scan_params() -> None:
 
 def test_unsupported_ae_af_forced_off_in_scan_params() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.ae_check.setChecked(True)
-    sidebar.autofocus_check.setChecked(True)
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.ae_btn.setChecked(True)
+    sidebar.autofocus_btn.setChecked(True)
 
     sidebar._on_scan()
 
@@ -628,19 +624,20 @@ def test_indeterminate_scan_phase_uses_busy_progress_bar() -> None:
 
 def test_a_measured_strip_device_shows_the_nkscan_controls() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert sidebar.clean_check.isVisibleTo(sidebar) is True
-    assert sidebar.superfine_check.isVisibleTo(sidebar) is True
-    assert sidebar.samples_combo.isVisibleTo(sidebar) is True
+    assert sidebar.clean_btn.isVisibleTo(sidebar) is True
+    assert sidebar.superfine_btn.isVisibleTo(sidebar) is True
+    assert sidebar.samples_btn.isVisibleTo(sidebar) is True
     assert sidebar.format_combo.isVisibleTo(sidebar) is True
-    assert [sidebar.samples_combo.itemData(i) for i in range(sidebar.samples_combo.count())] == [1, 2, 4, 8, 16]
+    assert [sidebar.samples_btn.findData(n) for n in (1, 2, 4, 8, 16)] == [0, 1, 2, 3, 4]
+    assert sidebar.samples_btn.count() == 5
     assert [sidebar.format_combo.itemData(i) for i in range(sidebar.format_combo.count())] == [None, "135", "66"]
 
 
 def test_a_sane_device_shows_none_of_them() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    assert sidebar.clean_check.isVisibleTo(sidebar) is False
-    assert sidebar.superfine_check.isVisibleTo(sidebar) is False
-    assert sidebar.samples_combo.isVisibleTo(sidebar) is False
+    assert sidebar.clean_btn.isVisibleTo(sidebar) is False
+    assert sidebar.superfine_btn.isVisibleTo(sidebar) is False
+    assert sidebar.samples_btn.isVisibleTo(sidebar) is False
     assert sidebar.format_combo.isVisibleTo(sidebar) is False
 
 
@@ -652,17 +649,17 @@ def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
 
 def test_a_measured_strip_scans_as_a_batch() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
     assert [kind for kind, _req in controller.started] == ["batch"]
 
 
 def test_the_nkscan_options_reach_the_request() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
-    sidebar.clean_check.setChecked(True)
-    sidebar.superfine_check.setChecked(True)
-    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.clean_btn.setChecked(True)
+    sidebar.superfine_btn.setChecked(True)
+    sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(4))
     sidebar.format_combo.setCurrentIndex(sidebar.format_combo.findData("66"))
 
     sidebar._on_scan()
@@ -673,7 +670,7 @@ def test_the_nkscan_options_reach_the_request() -> None:
 def test_a_saved_clean_never_reaches_a_device_that_cannot_do_it() -> None:
     """The same guard as autofocus: a stale saved value must not become a refused option."""
     sidebar, controller = _sidebar(FULL_DEVICE, settings={"clean": True, "superfine": True, "samples": 8})
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
 
     params = controller.started[-1][1].params
@@ -682,8 +679,8 @@ def test_a_saved_clean_never_reaches_a_device_that_cannot_do_it() -> None:
 
 def test_the_nkscan_options_persist() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.clean_check.setChecked(True)
-    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(2))
+    sidebar.clean_btn.setChecked(True)
+    sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(2))
     assert (sidebar.settings.clean, sidebar.settings.samples) == (True, 2)
 
 
@@ -696,7 +693,7 @@ def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
 
 def test_a_typed_frame_list_reaches_the_batch_without_a_preview() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar.frame_spec_edit.setText("1,3-5")
 
     sidebar._on_scan()
@@ -713,7 +710,7 @@ def test_a_selection_from_the_strip_dialog_shows_in_the_frame_box() -> None:
 def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE, settings={"selected_frames": [2, 4]})
     assert sidebar.frame_spec_edit.text() == "2,4"
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
     assert controller.started[-1][1].frames == (2, 4)
 
@@ -721,7 +718,7 @@ def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
 def test_a_measured_strip_with_nothing_picked_scans_the_whole_strip() -> None:
     """Its frame count is unknown until the film is measured, so the batch names no frames."""
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
 
     kind, req = controller.started[-1]
@@ -730,7 +727,7 @@ def test_a_measured_strip_with_nothing_picked_scans_the_whole_strip() -> None:
 
 def test_a_feeder_with_nothing_picked_still_uses_its_frame_range() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
 
     assert controller.started[-1][1].frames == tuple(range(1, 7))
@@ -742,8 +739,8 @@ def test_selecting_a_device_keeps_the_saved_capability_gated_settings() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
 
     assert (sidebar.settings.clean, sidebar.settings.superfine, sidebar.settings.samples) == (True, True, 8)
-    assert sidebar.clean_check.isChecked() and sidebar.superfine_check.isChecked()
-    assert sidebar.samples_combo.currentData() == 8
+    assert sidebar.clean_btn.isChecked() and sidebar.superfine_btn.isChecked()
+    assert sidebar.samples_btn.currentData() == 8
 
 
 def test_selecting_a_device_keeps_a_saved_auto_exposure() -> None:
@@ -757,53 +754,53 @@ def test_selecting_a_device_keeps_a_saved_auto_exposure() -> None:
 
 def test_the_film_types_the_transport_takes_are_offered() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    labels = [sidebar.film_type_combo.itemText(i) for i in range(sidebar.film_type_combo.count())]
+    labels = [action.text() for action in sidebar.film_type_btn.choice_menu.actions()]
     assert labels == ["Color negative", "B&W negative", "Slide", "Kodachrome"]
-    assert sidebar.film_type_combo.currentData() == "negative"
+    assert sidebar.film_type_btn.currentData() == "negative"
 
 
 def test_a_device_that_is_told_nothing_about_the_film_hides_the_control() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    assert sidebar.film_type_combo.isVisibleTo(sidebar) is False
+    assert sidebar.film_type_btn.isVisibleTo(sidebar) is False
 
 
 def test_a_film_that_blocks_infrared_disables_ir_and_ice() -> None:
     """Silver grain stops infrared as it stops light, so the mask is the picture again."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.ir_check.setChecked(True)
-    sidebar.clean_check.setChecked(True)
+    sidebar.ir_btn.setChecked(True)
+    sidebar.clean_btn.setChecked(True)
 
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
 
-    assert sidebar.ir_check.isEnabled() is False and sidebar.ir_check.isChecked() is False
-    assert sidebar.clean_check.isEnabled() is False and sidebar.clean_check.isChecked() is False
-    assert "blocks infrared" in sidebar.ir_check.toolTip()
+    assert sidebar.ir_btn.isEnabled() is False and sidebar.ir_btn.isChecked() is False
+    assert sidebar.clean_btn.isEnabled() is False and sidebar.clean_btn.isChecked() is False
+    assert "blocks infrared" in sidebar.ir_btn.toolTip()
 
 
 def test_ir_and_ice_untick_each_other() -> None:
     """Both read the same pass, and ICE bakes its repair in, so only one can be asked for."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
 
-    sidebar.ir_check.setChecked(True)
-    sidebar.clean_check.setChecked(True)
-    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (False, True)
+    sidebar.ir_btn.setChecked(True)
+    sidebar.clean_btn.setChecked(True)
+    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (False, True)
     assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (False, True)
 
-    sidebar.ir_check.setChecked(True)
-    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (True, False)
+    sidebar.ir_btn.setChecked(True)
+    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (True, False)
     assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (True, False)
 
 
 def test_a_saved_ir_and_ice_pair_comes_back_as_ice_alone() -> None:
     saved = {"backend": "nkscan", "capture_ir": True, "clean": True}
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
-    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (False, True)
+    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (False, True)
 
 
 def test_kodachrome_blocks_infrared_too() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("kodachrome"))
-    assert sidebar.clean_check.isEnabled() is False
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("kodachrome"))
+    assert sidebar.clean_btn.isEnabled() is False
 
 
 def test_a_saved_bw_film_greys_ir_and_ice_out_on_the_device_it_is_switched_to() -> None:
@@ -812,9 +809,9 @@ def test_a_saved_bw_film_greys_ir_and_ice_out_on_the_device_it_is_switched_to() 
     sidebar._on_devices_ready([FULL_DEVICE, NKSCAN_DEVICE])
     sidebar.device_combo.setCurrentIndex(1)
 
-    assert sidebar.film_type_combo.currentData() == "mono"
-    assert sidebar.ir_check.isEnabled() is False and sidebar.ir_check.isChecked() is False
-    assert sidebar.clean_check.isEnabled() is False and sidebar.clean_check.isChecked() is False
+    assert sidebar.film_type_btn.currentData() == "mono"
+    assert sidebar.ir_btn.isEnabled() is False and sidebar.ir_btn.isChecked() is False
+    assert sidebar.clean_btn.isEnabled() is False and sidebar.clean_btn.isChecked() is False
 
 
 def test_colour_negative_leaves_ice_usable_on_the_device_it_is_switched_to() -> None:
@@ -822,22 +819,22 @@ def test_colour_negative_leaves_ice_usable_on_the_device_it_is_switched_to() -> 
     sidebar._on_devices_ready([SE_DEVICE, NKSCAN_DEVICE])
     sidebar.device_combo.setCurrentIndex(1)
 
-    assert sidebar.ir_check.isEnabled() is True
-    assert sidebar.clean_check.isEnabled() is True
+    assert sidebar.ir_btn.isEnabled() is True
+    assert sidebar.clean_btn.isEnabled() is True
 
 
 def test_going_back_to_colour_negative_restores_them() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("negative"))
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("negative"))
 
-    assert sidebar.ir_check.isEnabled() is True and sidebar.clean_check.isEnabled() is True
+    assert sidebar.ir_btn.isEnabled() is True and sidebar.clean_btn.isEnabled() is True
 
 
 def test_the_film_type_reaches_the_request_and_the_settings() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-test")
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("positive"))
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("positive"))
     sidebar._on_scan()
 
     assert controller.started[-1][1].params.film_type == "positive"
@@ -847,25 +844,24 @@ def test_the_film_type_reaches_the_request_and_the_settings() -> None:
 # ── group headers ─────────────────────────────────────────────────────
 
 
-def test_a_group_header_hides_with_its_whole_group() -> None:
+def test_a_row_hides_where_the_device_has_nothing_for_it() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    # Nothing to say about the film, and one manual holder to frame.
-    assert sidebar.film_header.isVisibleTo(sidebar) is False
-    assert sidebar.quality_header.isVisibleTo(sidebar) is True
-    assert sidebar.output_header.isVisibleTo(sidebar) is True
+    # Nothing to say about the film.
+    assert sidebar.film_type_widget.isVisibleTo(sidebar) is False
+    assert sidebar.quality_body.isVisibleTo(sidebar) is True
 
 
-def test_the_film_group_appears_where_the_transport_asks_about_the_film() -> None:
+def test_the_film_row_and_framing_appear_where_the_transport_asks_for_them() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert sidebar.film_header.isVisibleTo(sidebar) is True
-    assert sidebar.framing_header.isVisibleTo(sidebar) is True
+    assert sidebar.film_type_widget.isVisibleTo(sidebar) is True
+    assert sidebar.framing_body.isVisibleTo(sidebar) is True
 
 
-def test_no_device_hides_the_optional_headers() -> None:
+def test_no_device_hides_the_framing_card() -> None:
     sidebar, _ = _sidebar()
     sidebar._update_device_caps()
-    assert sidebar.film_header.isVisibleTo(sidebar) is False
-    assert sidebar.framing_header.isVisibleTo(sidebar) is False
+    assert sidebar.film_type_widget.isVisibleTo(sidebar) is False
+    assert sidebar.framing_body.isVisibleTo(sidebar) is False
 
 
 # ── the status strip ──────────────────────────────────────────────────
@@ -950,12 +946,12 @@ def test_the_summary_quotes_a_per_frame_size_for_an_unmeasured_strip() -> None:
 
 def test_the_summary_names_the_extra_passes() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.ir_check.setChecked(True)
-    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
+    sidebar.ir_btn.setChecked(True)
+    sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(4))
 
     assert "IR" in _summary(sidebar) and "4× sampled" in _summary(sidebar)
 
-    sidebar.clean_check.setChecked(True)
+    sidebar.clean_btn.setChecked(True)
 
     assert "ICE" in _summary(sidebar) and "IR" not in _summary(sidebar)
 
@@ -1056,32 +1052,32 @@ def test_an_empty_dpi_box_falls_back_to_the_finest_the_device_offers() -> None:
 def test_a_pass_the_device_cannot_run_is_not_shown_at_all() -> None:
     # Disabled-with-a-reason is for a pass the film blocks; one the transport lacks goes away.
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.ir_check.isVisibleTo(sidebar) is False
-    assert sidebar.mode_combo.isVisibleTo(sidebar) is False
+    assert sidebar.ir_btn.isVisibleTo(sidebar) is False
+    assert sidebar.mode_btn.isVisibleTo(sidebar) is False
 
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
-    assert sidebar.ir_check.isVisibleTo(sidebar) is True
-    assert sidebar.mode_combo.isVisibleTo(sidebar) is True
+    assert sidebar.ir_btn.isVisibleTo(sidebar) is True
+    assert sidebar.mode_btn.isVisibleTo(sidebar) is True
 
 
 def test_a_film_that_blocks_infrared_leaves_the_control_visible_to_explain_itself() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
+    sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
 
-    assert sidebar.ir_check.isVisibleTo(sidebar) is True
-    assert sidebar.ir_check.isEnabled() is False
+    assert sidebar.ir_btn.isVisibleTo(sidebar) is True
+    assert sidebar.ir_btn.isEnabled() is False
 
 
 def test_the_format_combo_offers_the_mono_tiff() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    offered = [sidebar.fmt_combo.itemText(i) for i in range(sidebar.fmt_combo.count())]
+    offered = [action.text() for action in sidebar.fmt_btn.choice_menu.actions()]
     assert offered == ["TIFF", "TIFF (mono)"]
 
 
 def test_the_chosen_format_reaches_the_batch_request() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.fmt_combo.setCurrentText("TIFF (mono)")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.fmt_btn.setCurrentIndex(sidebar.fmt_btn.findData("TIFF (mono)"))
 
     sidebar._on_scan()
 
@@ -1142,14 +1138,14 @@ def test_a_metered_frame_locks_every_later_scan_of_that_device(monkeypatch) -> N
     )
     assert "frame 2" in sidebar.exposure_lock_status.text()
     assert sidebar.exposure_unlock_btn.isEnabled()
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
     assert controller.started[-1][1].params.exposures == _LOCK
 
 
 def test_a_lock_metered_on_another_scanner_is_not_sent() -> None:
     sidebar, controller = _sidebar(LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": "usb:other"})
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
 
     sidebar._on_scan()
 
@@ -1166,7 +1162,7 @@ def test_unlock_forgets_the_lock() -> None:
 
     assert sidebar.settings.exposure_lock is None
     assert controller.session.repo.get_global_setting("scanner_settings")["exposure_lock"] is None
-    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
     assert controller.started[-1][1].params.exposures is None
 
@@ -1228,38 +1224,34 @@ def test_a_saved_debug_log_that_cannot_start_shows_off(monkeypatch: pytest.Monke
 
 def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.folder_roll_check.setChecked(False)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.roll_edit.setText("Portra 1")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_roll_btn.setChecked(False)
+    sidebar.output.roll_edit.setText("Portra 1")
 
     sidebar._on_scan()
 
     _, req = controller.started[0]
     assert req.as_roll is True
     assert req.output_folder == os.path.join("/tmp/negpy-scan-out", "Portra 1")
-    saved = controller.session.repo.get_global_setting("scanner_settings")
-    assert saved["roll_name"] == "Portra 1" and saved["scan_as_roll"] is True
 
 
-def test_scan_as_roll_off_keeps_the_flat_output_folder() -> None:
+def test_scan_as_roll_off_still_writes_where_the_output_says() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.as_roll_check.setChecked(False)
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.as_roll_btn.setChecked(False)
 
     sidebar._on_scan()
 
     _, req = controller.started[0]
     assert req.as_roll is False
     assert req.output_folder == "/tmp/negpy-scan-out"
-    assert sidebar.roll_edit.isEnabled() is False
-    assert controller.session.repo.get_global_setting("scanner_settings")["scan_as_roll"] is False
 
 
 def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.folder_roll_check.setChecked(False)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.roll_edit.setText("../escape")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_roll_btn.setChecked(False)
+    sidebar.output.roll_edit.setText("../escape")
 
     sidebar._on_scan()
 
@@ -1268,20 +1260,20 @@ def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
 
 def test_folder_as_roll_scans_into_the_output_folder_itself() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.folder_edit.setText("/tmp/negpy-scan-out/Portra 1")
+    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out/Portra 1")
 
     sidebar._on_scan()
 
     _, req = controller.started[0]
     assert req.as_roll is True
     assert req.output_folder == "/tmp/negpy-scan-out/Portra 1"
-    assert sidebar.roll_edit.isEnabled() is False
-    assert controller.session.repo.get_global_setting("scanner_settings")["roll_is_folder"] is True
+    assert sidebar.output.roll_edit.isEnabled() is False
 
 
-def test_folder_as_roll_needs_scan_as_roll() -> None:
-    sidebar, _ = _sidebar()
-    sidebar.as_roll_check.setChecked(False)
-    assert sidebar.folder_roll_check.isEnabled() is False
-    sidebar.as_roll_check.setChecked(True)
-    assert sidebar.folder_roll_check.isEnabled() is True
+def test_a_scan_locks_its_setup_until_it_stops() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    sidebar.set_scanning(True)
+    assert not sidebar.quality_body.isEnabled() and not sidebar.device_body.isEnabled()
+    assert sidebar.scan_btn.isEnabled()
+    sidebar.set_scanning(False)
+    assert sidebar.quality_body.isEnabled() and sidebar.device_body.isEnabled()

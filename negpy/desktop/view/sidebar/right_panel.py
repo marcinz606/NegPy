@@ -23,6 +23,7 @@ from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
@@ -101,10 +102,12 @@ class RightPanel(QWidget):
         self.gear_panel.presets_changed.connect(self.metadata_sidebar._refresh_metadata_presets)
 
         from negpy.desktop.view.sidebar.scan import ScanSidebar
+        from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
         from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
 
-        self.scan_sidebar = ScanSidebar(self.controller)
-        self.scanlight_sidebar = ScanlightSidebar(self.controller)
+        self.scan_output = ScanOutputPanel(self.controller.session.repo)
+        self.scan_sidebar = ScanSidebar(self.controller, self.scan_output)
+        self.scanlight_sidebar = ScanlightSidebar(self.controller, self.scan_output)
         self.scan_page = self._build_scan_page()
 
         # (key, label, content_widget)
@@ -139,10 +142,10 @@ class RightPanel(QWidget):
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_group(idx))
             self.group_switcher.add_button(btn, tooltip)
 
-            # Frame, Metadata and Gear manage their own scrolling (a pinned section or subtab
-            # switcher above a scroll area); the other pages are one control column each, so
-            # the page itself needs it.
-            page = content if key in ("frame", "metadata", "gear") else wrap_scroll(content)
+            # Frame, Metadata, Gear and Scan manage their own scrolling (a pinned section, subtab
+            # switcher or Scan button beside a scroll area); the other pages are one control
+            # column each, so the page itself needs it.
+            page = content if key in ("frame", "metadata", "gear", "scan") else wrap_scroll(content)
             self.group_stack.addWidget(page)
             self._group_buttons.append(btn)
             self._group_keys.append(key)
@@ -356,20 +359,99 @@ class RightPanel(QWidget):
         open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
 
     def _build_scan_page(self) -> QWidget:
-        """The 'Scan' tab hosts two collapsible sections (like Frame's Look tab): the
-        SANE flatbed/film scanner on top, the RGB-Scan trichromatic capture below."""
+        """The Scanner card picks which scanner the tab drives; its cards and the shared Output
+        card scroll, and its status and Scan button stay pinned under them."""
         repo = self.controller.session.repo
-        self.scan_sane_section = make_section(repo, "Film Scanner", "scan_sane", self.scan_sidebar, "fa5s.camera-retro", False)
-        self.scan_rgb_section = make_section(repo, "Camera Scanning", "scan_rgb", self.scanlight_sidebar, "fa5s.camera", True)
+        scan, cam = self.scan_sidebar, self.scanlight_sidebar
+
+        self.scan_source_btn = ChoiceButton(
+            (("fa5s.camera-retro", "Film Scanner"), ("fa5s.camera", "Camera")),
+            "The scanner this tab drives: a film scanner, or a camera on a copy stand",
+            data=("film", "camera"),
+        )
+        self.scan_source_btn.setCurrentIndex(max(self.scan_source_btn.findData(repo.get_global_setting("scan_source", "camera")), 0))
+        self.scan_source_section = make_section(
+            repo, "Scanner", "scan_source", self.scan_source_btn, "fa5s.exchange-alt", collapsible=False
+        )
+        self.scan_device_section = make_section(repo, "Device", "scan_device", scan.device_body, "fa5s.plug", True)
+        self.scan_quality_section = make_section(repo, "Film & Quality", "scan_quality", scan.quality_body, "fa5s.sliders-h", True)
+        self.scan_framing_section = make_section(repo, "Framing", "scan_framing", scan.framing_body, "fa5s.crop-alt", True)
+        self.scan_camera_section = make_section(repo, "Camera", "scan_camera", cam.camera_body, "fa5s.camera", True)
+        self.scan_light_section = make_section(repo, "Preset & Light", "scan_light", cam.light_body, "fa5s.lightbulb", True)
+        output_body = QWidget()
+        output_layout = QVBoxLayout(output_body)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(THEME.space_md)
+        output_layout.addWidget(self.scan_output)
+        output_layout.addWidget(scan.output_body)
+        self.scan_output_section = make_section(repo, "Output", "scan_output", output_body, "fa5s.folder-open", True)
+
+        cards = QWidget()
+        cards_layout = QVBoxLayout(cards)
+        cards_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(THEME.space_lg)
+        for section in (
+            self.scan_source_section,
+            self.scan_device_section,
+            self.scan_quality_section,
+            self.scan_framing_section,
+            self.scan_camera_section,
+            self.scan_light_section,
+            self.scan_output_section,
+        ):
+            cards_layout.addWidget(section)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(cards)
 
         page = QWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.setSpacing(THEME.space_lg)
-        page_layout.addWidget(self.scan_sane_section)
-        page_layout.addWidget(self.scan_rgb_section)
+        page_layout.setSpacing(0)
+        page_layout.addWidget(scroll, 1)
+        for footer in (scan.footer, cam.footer):
+            # Outside any card, so it takes the inset a card would give it.
+            footer.setContentsMargins(THEME.space_xl, THEME.space_md, THEME.space_xl, THEME.space_md)
+            page_layout.addWidget(footer)
+
+        self.scan_source_btn.currentChanged.connect(self._on_scan_source_changed)
+        scan.cards_changed.connect(self._sync_scan_cards)
+        cam.cards_changed.connect(self._sync_scan_cards)
+        self._sync_scan_cards()
         return page
+
+    def _scan_film(self) -> bool:
+        return self.scan_source_btn.currentData() == "film"
+
+    def _active_scan_sidebar(self):
+        return self.scan_sidebar if self._scan_film() else self.scanlight_sidebar
+
+    def show_scan_source(self, source: str) -> None:
+        """Switch the Scan tab to "film" or "camera"."""
+        self.scan_source_btn.setCurrentIndex(self.scan_source_btn.findData(source))
+
+    def _on_scan_source_changed(self, _index: int) -> None:
+        self.controller.session.repo.save_global_setting("scan_source", self.scan_source_btn.currentData())
+        self._sync_scan_cards()
+        if self._active_group == self._scan_group_index:
+            self._active_scan_sidebar().on_activated()
+
+    def _sync_scan_cards(self) -> None:
+        """Only the chosen scanner's cards show, and of those only the ones its device fills."""
+        film = self._scan_film()
+        scan, cam = self.scan_sidebar, self.scanlight_sidebar
+        for section, body, owned in (
+            (self.scan_device_section, scan.device_body, film),
+            (self.scan_quality_section, scan.quality_body, film),
+            (self.scan_framing_section, scan.framing_body, film),
+            (self.scan_camera_section, cam.camera_body, not film),
+            (self.scan_light_section, cam.light_body, not film),
+        ):
+            section.setVisible(owned and not body.isHidden())
+        scan.output_body.setVisible(film)
+        scan.footer.setVisible(film)
+        cam.footer.setVisible(not film)
 
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
@@ -469,13 +551,9 @@ class RightPanel(QWidget):
         self.group_switcher.set_pinned(index)
         self._sync_local_masks()
 
-        # Trigger device detection and a gating refresh when the Scan tab is selected. It hosts
-        # both the SANE scanner and the RGB-Scan capture as collapsible sections.
+        # Device detection or the connection poll starts for the scanner the tab shows.
         if index == self._scan_group_index:
-            if hasattr(self.scan_sidebar, "on_activated"):
-                self.scan_sidebar.on_activated()
-            if hasattr(self.scanlight_sidebar, "on_activated"):
-                self.scanlight_sidebar.on_activated()
+            self._active_scan_sidebar().on_activated()
 
     def _sync_local_masks(self) -> None:
         """Mask outlines are the Dodge & Burn card's editing handles, so they leave the canvas with its tab."""

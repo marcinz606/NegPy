@@ -12,42 +12,40 @@ import re
 from dataclasses import asdict, fields, replace
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
-    QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
-    QLineEdit,
     QMessageBox,
-    QProgressBar,
     QPushButton,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
 
 from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
+from negpy.desktop.view.sidebar.base import install_wheel_guards
+from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
+    field_row,
+    header_row,
     hint_label,
-    icon_button as _icon_button,
-    ICON_BUTTON_WIDTH,
+    icon_button,
     labeled_action,
+    labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     section_subheader,
     set_hint_kind,
+    StatusStrip,
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
-from negpy.services.assets.rolls import roll_folder_name
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
@@ -84,26 +82,17 @@ _MANUAL_PRESET = "\x00create-manual"
 # order-of-magnitude margin. A fixed tuning constant, not a persisted setting.
 _LED_SETTLE_S = 0.05
 
-_AS_ROLL_TIP = (
-    "Make the roll's folder a roll in the Library and open it, so Half Frame, roll defaults "
-    "and Roll Analysis apply to the frames as they are scanned."
-)
-_FOLDER_ROLL_TIP = "Scan straight into the output folder and make that folder the roll, named after it."
-
-
-class _NoWheel(QObject):
-    """Event filter that swallows wheel events so scrolling can't change a value."""
-
-    def eventFilter(self, obj, event) -> bool:
-        return event.type() == QEvent.Type.Wheel or super().eventFilter(obj, event)
-
 
 class ScanlightSidebar(QWidget):
     """Trichromatic RGB-scan capture panel."""
 
-    def __init__(self, controller) -> None:
+    cards_changed = pyqtSignal()  # a body was gated in or out, so its card follows
+
+    def __init__(self, controller, output: ScanOutputPanel | None = None) -> None:
         super().__init__()
         self.controller = controller
+        # Shared with the Film Scanner on the Scan tab; a standalone panel keeps its own.
+        self.output = output if output is not None else ScanOutputPanel(controller.session.repo)
         self._settings: ScanlightSettings = self._load_settings()
         self._presets = PresetStore(self.controller.session.repo)
         self._scanning = False
@@ -117,8 +106,6 @@ class ScanlightSidebar(QWidget):
         self._exposure_popup = None  # the over/under pop-up (kept referenced; replaced per calibration)
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
-        self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
-        self._slider_rows: dict = {}  # slider → its row widget, so the W row can be hidden on an RGB-only Scanlight
         self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
         # Advertised camera abilities (issue #621). Optimistic until a body has been opened:
         # an unlisted body matches the generic PTP entry that claims everything, so only a
@@ -129,7 +116,6 @@ class ScanlightSidebar(QWidget):
         # Preset-exposure writes still in flight on the worker. Scan stays gated until each is
         # confirmed, so a capture cannot race the body's async programming.
         self._pending_exposure_writes = 0
-        self._no_wheel = _NoWheel(self)
 
         self.lv_window = LiveViewWindow(self, repo=self.controller.session.repo)
         self.lv_window.closed.connect(self._on_live_view_window_closed)
@@ -210,50 +196,23 @@ class ScanlightSidebar(QWidget):
 
     # ── UI construction ───────────────────────────────────────────────
 
-    def _slider_row(self, letter: str, value: int) -> QSlider:
-        row_widget = QWidget()  # wrapped so the whole row (W) can be hidden on an RGB-only Scanlight
-        row = QHBoxLayout(row_widget)
-        row.setContentsMargins(0, 0, 0, 0)
-        tag = QLabel(letter)
-        tag.setFixedWidth(14)
-        tag.setStyleSheet(f"color: {_CHANNEL_COLORS[letter]}; font-weight: bold;")
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 255)
+    def _light_slider(self, name: str, letter: str, value: int, default: int) -> CompactSlider:
+        slider = CompactSlider(name, 0, 255, default, step=1, precision=1, color=_CHANNEL_COLORS[letter])
         slider.setValue(value)
-        readout = hint_label(str(value))
-        readout.setWordWrap(False)
-        readout.setFixedWidth(ICON_BUTTON_WIDTH)
-        row.addWidget(tag)
-        row.addWidget(slider, 1)
-        row.addWidget(readout)
-        self._light_layout.addWidget(row_widget)
-        self._slider_readouts[slider] = readout  # so preset apply (signals blocked) can refresh it
-        self._slider_rows[slider] = row_widget
-        slider.valueChanged.connect(lambda v, lbl=readout: lbl.setText(str(v)))
         slider.valueChanged.connect(lambda _v: self._light_debounce.start())
         return slider
 
     def _init_ui(self) -> None:
+        """Three bodies, each its own card on the Scan tab: the camera, the Scanlight's preset
+        and light, and the footer with the scan controls. Standalone they stack here."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 5)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(THEME.space_lg)
 
-        # LIVE VIEW & SCAN (the primary action: top, gated)
-        self.lv_btn = QPushButton(qta.icon("fa5s.video", color=THEME.text_primary), " Scan")
-        self.lv_btn.setObjectName("scan_btn")
-        self.lv_btn.setCheckable(True)
-        self.lv_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
-        _lv_font = self.lv_btn.font()
-        _lv_font.setBold(True)  # make the primary action stand out
-        self.lv_btn.setFont(_lv_font)
-        layout.addWidget(self.lv_btn)
-
-        # Persistent hint listing what's still missing before you can scan (task 5).
-        self.gate_hint = hint_label("", "warning")
-        layout.addWidget(self.gate_hint)
-
-        # ── CAMERA (auto-connect over USB) ─────────────────────────────────
-        layout.addWidget(section_subheader("CAMERA"))
+        self.camera_body = QWidget()
+        cam = QVBoxLayout(self.camera_body)
+        cam.setContentsMargins(0, 0, 0, 0)
+        cam.setSpacing(THEME.space_md)
         # python-gphoto2 is optional, so show a setup note while it is missing. It hides once
         # installed and never nags an equipped user.
         self._setup_hint = hint_label(
@@ -262,132 +221,82 @@ class ScanlightSidebar(QWidget):
             "See docs/CAMERA_SCANNING.md.",
             "warning",
         )
-        layout.addWidget(self._setup_hint)
+        cam.addWidget(self._setup_hint)
         self._setup_hint.setVisible(not self._gphoto_available())
         self._conn_hint = hint_label("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
-        layout.addWidget(self._conn_hint)
-
-        self.inter_exposure_delay_row = QWidget()
-        self.inter_exposure_delay_layout = QHBoxLayout(self.inter_exposure_delay_row)
-        self.inter_exposure_delay_layout.setContentsMargins(0, 0, 0, 0)
-        self.inter_exposure_delay_layout.setSpacing(6)
-        self.inter_exposure_delay_slider = QSlider(Qt.Orientation.Horizontal)
-        self.inter_exposure_delay_slider.setRange(0, 5000)
-        self.inter_exposure_delay_slider.setSingleStep(100)
-        self.inter_exposure_delay_slider.setValue(self._settings.inter_exposure_delay_ms)
-        self.inter_exposure_delay_slider.setToolTip(
-            "Wait this long between successive trichrome channel exposures so the camera can flush the previous shot."
-        )
-        self.inter_exposure_delay_value = QLabel(f"{self._settings.inter_exposure_delay_ms} ms")
-        self.inter_exposure_delay_value.setMinimumWidth(64)
-        self.inter_exposure_delay_value.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
-        self.inter_exposure_delay_label = QLabel("Delay between exposures")
-        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_label)
-        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_slider, 1)
-        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_value)
-        layout.addWidget(self.inter_exposure_delay_row)
+        cam.addWidget(self._conn_hint)
         status_row = QHBoxLayout()
-        self.cam_status = QLabel()
-        self.light_status = QLabel()
+        status_row.setSpacing(THEME.space_lg)
+        self.cam_status = hint_label()
+        self.light_status = hint_label()
         self.light_temp = hint_label()  # live LED temperature next to the light status (heat monitoring)
         self.light_temp.hide()  # stay hidden until a reading arrives — an empty label still paints a panel-dark box
-        status_row.addWidget(self.cam_status)
-        status_row.addWidget(self.light_status)
-        status_row.addWidget(self.light_temp)
+        for label in (self.cam_status, self.light_status, self.light_temp):
+            label.setWordWrap(False)
+            status_row.addWidget(label)
         status_row.addStretch()
-        layout.addLayout(status_row)
+        cam.addLayout(status_row)
         self._set_conn_status(self.cam_status, None, "Camera")
         self._set_conn_status(self.light_status, None, "Light")
         # RGB scanning needs the Scanlight. Without it, in normal white-light mode, this hint
         # sits with the connection status. The light poll hides it in RGB mode.
         self._rgb_hint = hint_label("You can also connect the Scanlight to scan in RGB.")
         self._rgb_hint.setVisible(False)
-        layout.addWidget(self._rgb_hint)
-        # Connection and scan status live with the connection area, not as a strip between
-        # the Live-View button and the gate hint.
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setFormat("Capturing… %p%")
-        layout.addWidget(self.progress_bar)
-        self.status_label = hint_label("")
-        self.status_label.setVisible(False)
-        layout.addWidget(self.status_label)
+        cam.addWidget(self._rgb_hint)
+        layout.addWidget(self.camera_body)
 
-        # ── OUTPUT (above presets so the folder is noticed) ──
-        layout.addWidget(section_subheader("OUTPUT"))
-        out_form = QFormLayout()
-        out_form.setSpacing(6)
-        folder_row = QHBoxLayout()
-        self.folder_edit = QLineEdit(self._settings.output_folder)
-        self.folder_edit.setPlaceholderText("Hot folder…")
-        self.folder_browse = _icon_button("fa5s.folder-open", "Browse for output folder")
-        folder_row.addWidget(self.folder_edit)
-        folder_row.addWidget(self.folder_browse)
-        out_form.addRow("Folder", folder_row)
-        self.roll_edit = QLineEdit(self._settings.roll_name)
-        self.roll_edit.setToolTip("Roll name — one folder/file name (no / or \\); the frame number is assigned automatically per roll")
-        out_form.addRow("Roll", self.roll_edit)
-        self.as_roll_check = QCheckBox("Scan as Roll")
-        self.as_roll_check.setToolTip(wrap_tooltip(_AS_ROLL_TIP))
-        self.as_roll_check.setChecked(self._settings.scan_as_roll)
-        out_form.addRow(self.as_roll_check)
-        self.folder_roll_check = QCheckBox("Folder as Roll")
-        self.folder_roll_check.setToolTip(wrap_tooltip(_FOLDER_ROLL_TIP))
-        self.folder_roll_check.setChecked(self._settings.roll_is_folder)
-        out_form.addRow(self.folder_roll_check)
-        self._sync_roll_controls()
-        layout.addLayout(out_form)
-
-        # RGB section (Scanlight only): presets, level sliders and calibration.
-        # Shown when the Scanlight is connected. Hidden for normal white-light camera
-        # scanning, where only Camera and Output are needed (_set_rgb_mode).
-        self._rgb_section = QWidget()
-        rgb = QVBoxLayout(self._rgb_section)
+        # Scanlight only: presets, light levels and the preset's exposure. Hidden for normal
+        # white-light camera scanning (_set_rgb_mode).
+        self.light_body = QWidget()
+        rgb = QVBoxLayout(self.light_body)
         rgb.setContentsMargins(0, 0, 0, 0)
-        rgb.setSpacing(10)
+        rgb.setSpacing(THEME.space_md)
 
-        rgb.addWidget(section_subheader("PRESET"))
-        preset_row = QHBoxLayout()
         self.preset_combo = QComboBox()
         self.preset_combo.setToolTip(
-            "Pick a saved film-stock preset (RGB levels + ISO + shutter + aperture, shown read-only), a "
-            "built-in white-light mode, or “Create a manual preset…” to build one by hand"
+            wrap_tooltip(
+                "Pick a saved film-stock preset (RGB levels + ISO + shutter + aperture, shown read-only), a "
+                "built-in white-light mode, or “Create a manual preset…” to build one by hand"
+            )
         )
-        self.preset_new_btn = _icon_button("fa5s.plus", "Create a preset by calibrating on the film base (auto-meters the exposure)")
-        self.preset_save_btn = _icon_button(
+        self.preset_new_btn = icon_button("fa5s.plus", "Create a preset by calibrating on the film base (auto-meters the exposure)")
+        self.preset_save_btn = icon_button(
             "fa5s.save", "Name and save the manual preset you're building (only while in manual-preset mode)"
         )
-        self.preset_del_btn = _icon_button("fa5s.trash", "Delete the selected preset")
-        preset_row.addWidget(self.preset_combo, 1)
-        preset_row.addWidget(self.preset_new_btn)
-        preset_row.addWidget(self.preset_save_btn)
-        preset_row.addWidget(self.preset_del_btn)
-        rgb.addLayout(preset_row)
-        # A one-line note about the current preset, right under the dropdown instead of up in
-        # the camera status line. Hidden when it has nothing to say.
+        self.preset_del_btn = icon_button("fa5s.trash", "Delete the selected preset")
+        rgb.addLayout(header_row(section_subheader("PRESET"), self.preset_new_btn, self.preset_save_btn, self.preset_del_btn))
+        rgb.addWidget(self.preset_combo)
+        # A one-line note about the current preset, right under the dropdown. Hidden when it has
+        # nothing to say.
         self.preset_hint = hint_label("")
         self.preset_hint.setVisible(False)
         rgb.addWidget(self.preset_hint)
 
         rgb.addWidget(section_subheader("LIGHT"))
-        self._light_layout = QVBoxLayout()
-        self._light_layout.setSpacing(6)
-        rgb.addLayout(self._light_layout)
-        self.r_slider = self._slider_row("R", self._settings.r_level)
-        self.g_slider = self._slider_row("G", self._settings.g_level)
-        self.b_slider = self._slider_row("B", self._settings.b_level)
-        self.w_slider = self._slider_row("W", self._settings.w_level)
+        self.r_slider = self._light_slider("Red", "R", self._settings.r_level, 255)
+        self.g_slider = self._light_slider("Green", "G", self._settings.g_level, 255)
+        self.b_slider = self._light_slider("Blue", "B", self._settings.b_level, 255)
+        self.w_slider = self._light_slider("White", "W", self._settings.w_level, 0)
+        self.r_slider.setToolTip("Red LED level")
+        self.g_slider.setToolTip("Green LED level")
+        self.b_slider.setToolTip("Blue LED level")
         self.w_slider.setToolTip("White LED — used only by the white-light preset; the Scanlight can't light it together with RGB")
+        for slider in (self.r_slider, self.g_slider, self.b_slider, self.w_slider):
+            rgb.addWidget(slider)
+        self.off_btn = labeled_action("fa5s.power-off", " Light Off", "Turn all Scanlight channels off")
+        rgb.addWidget(self.off_btn)
+
         # ISO / shutter / aperture: the preset's exposure, wrapped so it hides as a unit for a
         # white-light preset, whose exposure is set in the live view. Each is a stepper, read-only
         # while a preset is active because the scan forces these onto the body, and writable only
         # in "manual preset" mode, where it steps through this body's own choices. Calibration
         # normally solves the shutter.
         self._exposure_widget = QWidget()
+        self._exposure_widget.setObjectName("collapsible_content_body")  # transparent inside the card
         _exp = QVBoxLayout(self._exposure_widget)
         _exp.setContentsMargins(0, 0, 0, 0)
-        _exp.setSpacing(6)
+        _exp.setSpacing(THEME.space_md)
+        _exp.addWidget(section_subheader("EXPOSURE"))
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper()
         self.aperture_stepper = SettingStepper()
@@ -399,40 +308,55 @@ class ScanlightSidebar(QWidget):
             _stepper.setEnabled(False)  # read-only until "create a manual preset" unlocks it
             _stepper.setToolTip("Locked to the preset — pick “Create a manual preset” to set it by hand.")
             _stepper.activated.connect(lambda _i, w=_which, s=_stepper: self._on_sidebar_exposure_changed(w, s))
-            _row = QHBoxLayout()
-            _tag = hint_label(_tag_text)
-            _row.addWidget(_tag)
-            _row.addStretch(1)
-            _row.addWidget(_stepper)
-            _exp.addLayout(_row)
-        self._light_layout.addWidget(self._exposure_widget)
-        # White-light modes (B&W / slide) are built-in presets, so there is no separate toggle.
-        # The Scanlight is auto-detected by its Raspberry Pi Pico USB VID, so there is no
-        # port picker.
-        self.off_btn = labeled_action("fa5s.power-off", " Light Off", "Turn all Scanlight channels off")
-        rgb.addWidget(self.off_btn)
-        layout.addWidget(self._rgb_section)
+            _exp.addLayout(field_row(_tag_text, _stepper))
+        rgb.addWidget(self._exposure_widget)
+        self.inter_exposure_delay_slider = CompactSlider("Channel Delay", 0, 5000, 0, step=100, precision=1, unit=" ms")
+        self.inter_exposure_delay_slider.setValue(self._settings.inter_exposure_delay_ms)
+        self.inter_exposure_delay_slider.setToolTip(
+            "Wait this long between successive trichrome channel exposures so the camera can flush the previous shot."
+        )
+        rgb.addWidget(self.inter_exposure_delay_slider)
+        layout.addWidget(self.light_body)
 
-        self._disable_wheel()
+        # Scan controls: what still blocks a scan, the capture's progress, then the actions.
+        self.footer = QWidget()
+        foot = QVBoxLayout(self.footer)
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.setSpacing(THEME.space_md)
+        self.gate_hint = hint_label("", "warning")
+        foot.addWidget(self.gate_hint)
+        self.status_strip = StatusStrip()
+        foot.addWidget(self.status_strip)
+        self.lv_btn = labeled_toggle("fa5s.video", " Live View", False, "Open the live view to frame and focus")
+        self.retake_btn = labeled_action("fa5s.redo", " Retake", "Capture the last frame again, without advancing the frame number")
+        actions = QHBoxLayout()
+        actions.addWidget(self.lv_btn, 1)
+        actions.addWidget(self.retake_btn, 1)
+        foot.addLayout(actions)
+        self.scan_btn = QPushButton(" Scan")
+        self.scan_btn.setObjectName("scan_btn")
+        self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
+        self.scan_btn.setProperty("scanning", "false")
+        self.scan_btn.setIcon(qta.icon("fa5s.camera", color=THEME.text_on_accent))
+        foot.addWidget(self.scan_btn)
+        layout.addWidget(self.footer)
+
+        install_wheel_guards(self)
         self._apply_gating()
         layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.off_btn.clicked.connect(self._on_light_off)
-        self.folder_browse.clicked.connect(self._on_browse_folder)
         self.lv_btn.toggled.connect(self._on_live_view_toggled)
+        self.scan_btn.clicked.connect(self._on_scan)
+        self.retake_btn.clicked.connect(self._on_retake)
         self.preset_combo.activated.connect(self._on_preset_selected)
         self.preset_new_btn.clicked.connect(self._on_preset_new)
         self.preset_save_btn.clicked.connect(self._on_preset_save)
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
-        self.folder_edit.editingFinished.connect(self._apply_gating)
-        self.inter_exposure_delay_slider.valueChanged.connect(self._update_inter_exposure_delay_label)
+        self.output.changed.connect(self._apply_gating)
         self.inter_exposure_delay_slider.valueChanged.connect(self._update_settings_from_ui)
-        for w in (self.roll_edit, self.folder_edit):
-            w.editingFinished.connect(self._update_settings_from_ui)
-        self.as_roll_check.toggled.connect(self._on_roll_checks_changed)
-        self.folder_roll_check.toggled.connect(self._on_roll_checks_changed)
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
@@ -473,17 +397,6 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()  # refresh the "what's still missing to scan" hint
         self._poll_connection_tick()
 
-    def _disable_wheel(self) -> None:
-        """Stop the mouse wheel from changing values (avoids accidental scroll edits)."""
-        for widget in (
-            self.r_slider,
-            self.g_slider,
-            self.b_slider,
-            self.w_slider,
-            self.preset_combo,
-        ):
-            widget.installEventFilter(self._no_wheel)
-
     # ── light ─────────────────────────────────────────────────────────
 
     def _push_light(self) -> None:
@@ -491,12 +404,12 @@ class ScanlightSidebar(QWidget):
             return  # normal white-light scanning has no Scanlight to control
         if self._settings.white_mode:
             # A white-light preset: the W slider is the scan light itself.
-            self.controller.set_scanlight_color(0, 0, 0, self.w_slider.value(), self._settings.port)
+            self.controller.set_scanlight_color(0, 0, 0, int(self.w_slider.value()), self._settings.port)
         else:
             # Any RGB state (a selected preset, manual building, or framing in live view) lights
             # the R/G/B mix from the sliders, so it works on every Scanlight and never assumes a
             # white LED an RGB-only body lacks. White stays off: the Scanlight cannot mix both.
-            r, g, b = self.r_slider.value(), self.g_slider.value(), self.b_slider.value()
+            r, g, b = (int(slider.value()) for slider in (self.r_slider, self.g_slider, self.b_slider))
             if not self._manual_mode and self._preset_selected():
                 # A stored RGB preset frames by its own mix, but dimmed (issue #573): all three
                 # channels burn at once against a single-channel scan exposure, so full levels
@@ -544,10 +457,7 @@ class ScanlightSidebar(QWidget):
     def _set_slider(self, slider, value: int) -> None:
         """Set a light slider + its readout without firing valueChanged — preset apply drives the
         sliders itself, and the sliders reflect the *preset*, not the live LED level."""
-        slider.blockSignals(True)
         slider.setValue(value)
-        slider.blockSignals(False)
-        self._slider_readouts[slider].setText(str(value))
 
     def _show_lone(self, stepper, label: str) -> None:
         """Make a stepper display one fixed value (a preset's baked setting): no options to step
@@ -862,7 +772,7 @@ class ScanlightSidebar(QWidget):
         self.controller.start_calibration(
             CalibrationRequest(
                 roi=roi,
-                output_folder=s.output_folder or "",
+                output_folder=self.output.folder(),
                 port=s.port,
                 settle_s=_LED_SETTLE_S,
                 shutter_candidates=candidates,
@@ -1199,18 +1109,18 @@ class ScanlightSidebar(QWidget):
             self.calib_window.set_progress(frac)
             self.calib_window.set_status(msg)
         else:
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(int(frac * 100))
+            self.status_strip.set_progress("Calibrating… %p%", frac)
             self._set_status(msg)
 
     @pyqtSlot(object)
     def _on_calibration_finished(self, result) -> None:
-        self.progress_bar.setVisible(False)
+        self.status_strip.stop_progress()
         self._manual_mode = False  # a calibrated preset is read-only, never left in manual-edit mode
         levels, shutters = result.levels, result.shutters
         self.r_slider.setValue(int(levels[0]))
         self.g_slider.setValue(int(levels[1]))
         self.b_slider.setValue(int(levels[2]))
+        self._light_debounce.start()  # setValue does not emit, and the new levels must reach the light
         # An RGB preset means the white LED is off. Without this the W slider keeps a prior white
         # preset's 255, which _update_settings_from_ui bakes into the saved preset.
         self._set_slider(self.w_slider, 0)
@@ -1273,14 +1183,6 @@ class ScanlightSidebar(QWidget):
         box.show()
         self._exposure_popup = box
 
-    # ── browse ────────────────────────────────────────────────────────
-
-    def _on_browse_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select Hot Folder")
-        if folder:
-            self.folder_edit.setText(folder)
-            self._update_settings_from_ui()
-
     # ── scan ──────────────────────────────────────────────────────────
 
     def _on_scan(self) -> None:
@@ -1311,25 +1213,6 @@ class ScanlightSidebar(QWidget):
             return 0
         return hi
 
-    def _sync_roll_controls(self) -> None:
-        as_roll = self.as_roll_check.isChecked()
-        self.folder_roll_check.setEnabled(as_roll)
-        self.roll_edit.setEnabled(not (as_roll and self.folder_roll_check.isChecked()))
-
-    def _on_roll_checks_changed(self) -> None:
-        self._sync_roll_controls()
-        self._update_settings_from_ui()
-
-    def _folder_is_roll(self) -> bool:
-        return self.as_roll_check.isChecked() and self.folder_roll_check.isChecked()
-
-    def _capture_roll_name(self) -> str | None:
-        roll = roll_folder_name(self.roll_edit.text())
-        if roll is None:
-            self._set_status('Roll name must be a single safe name (not "." or "..", and no path separators).')
-            return None
-        return roll
-
     def _start_capture(self, retake: bool) -> None:
         if self._calibrating_preset:
             # Both ride one worker thread, so this would only queue, then fire with the exposure
@@ -1338,10 +1221,10 @@ class ScanlightSidebar(QWidget):
             return
         if self._scanning:
             return  # already capturing; a second click must not queue another frame
-        output_folder = self.folder_edit.text().strip()
+        output_folder = self.output.folder()
         if not output_folder:
-            self._on_browse_folder()
-            output_folder = self.folder_edit.text().strip()
+            self.output.browse()
+            output_folder = self.output.folder()
             if not output_folder:
                 return
         if not (os.path.isabs(output_folder) and os.path.isdir(output_folder)):
@@ -1352,14 +1235,12 @@ class ScanlightSidebar(QWidget):
             self._apply_gating()  # greys Scan and repeats the reason in the gate hint
             return
 
-        if self._folder_is_roll():
-            roll = roll_folder_name(os.path.basename(os.path.normpath(output_folder))) or "Roll001"
-        else:
-            roll = self._capture_roll_name()
-            if roll is None:
-                return
-            if self.roll_edit.text() != roll:
-                self.roll_edit.setText(roll)
+        roll = self.output.roll_name()
+        if roll is None:
+            self._set_status('Roll name must be a single safe name (not "." or "..", and no path separators).')
+            return
+        if not self.output.folder_is_roll():
+            self.output.set_roll_text(roll)
 
         # Capture happens *inside* the live-view session, because the body grants one PTP claim.
         # The preview pauses for the shot and resumes, with no teardown and no reconnect.
@@ -1369,7 +1250,7 @@ class ScanlightSidebar(QWidget):
         from negpy.desktop.workers.capture_worker import CaptureRequest
 
         s = self._settings
-        roll_folder = output_folder if self._folder_is_roll() else os.path.join(output_folder, roll)
+        roll_folder = self.output.target_folder() or output_folder
         # Frame numbers come from the roll's folder, with no manual field: a fresh scan takes the
         # next free number and a retake overwrites the last one. The service creates the subfolder
         # before writing.
@@ -1397,7 +1278,7 @@ class ScanlightSidebar(QWidget):
             # scanning leave the body free, since the operator sets those in the live view.
             iso=s.iso if rgb and not s.white_mode else "",
             aperture=s.aperture if rgb and not s.white_mode else "",
-            as_roll=s.scan_as_roll,
+            as_roll=self.output.as_roll(),
         )
         self.set_scanning(True)
         if rgb and not req.white_mode:
@@ -1409,8 +1290,7 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(float)
     def _on_progress(self, progress: float) -> None:
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(int(progress * 100))
+        self.status_strip.set_progress("Capturing… %p%", progress)
         self.lv_window.set_progress(progress)
 
     @pyqtSlot(str)
@@ -1420,7 +1300,6 @@ class ScanlightSidebar(QWidget):
     @pyqtSlot(list)
     def _on_finished(self, paths: list) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         frame = paths[0].split("_Frame")[-1][:3] if paths else ""
         self.lv_window.flash_captured(frame)
         self._set_status(f"Captured frame {frame} — inverting in NegPy…")
@@ -1429,7 +1308,6 @@ class ScanlightSidebar(QWidget):
     @pyqtSlot()
     def _on_cancelled(self) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         self.lv_window.clear_progress()
         if self._calibrating_preset:
             self._finish_calibration_terminal("Calibration cancelled.")
@@ -1452,7 +1330,6 @@ class ScanlightSidebar(QWidget):
     @pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         self.lv_window.clear_progress()
         if self._calibrating_preset:
             # New-preset calibration failed: report in the pop-up, drop back to the scan target.
@@ -1475,15 +1352,13 @@ class ScanlightSidebar(QWidget):
         the over/under aperture advice): the ambient light echo (_on_light_set) declines to replace
         it. Any other write — every one of them user-driven — replaces and unpins as usual."""
         self._status_pinned = pinned and bool(text)
-        self.status_label.setText(text)
-        self.status_label.setVisible(bool(text))  # collapse the strip when there's no message
+        self.status_strip.set_message(text)
         self.lv_window.set_status(text)
 
     def _set_conn_status(self, label, state, short: str, detail: str = "") -> None:
-        """Compact color-coded dot: green=ok, red=fail, grey=unknown (detail in tooltip)."""
-        color = THEME.status_success if state else (THEME.error if state is False else THEME.text_hint)
+        """Compact dot: success when connected, error when it failed, muted while unknown (detail in tooltip)."""
         label.setText(f"● {short}")
-        label.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
+        set_hint_kind(label, "success" if state else ("error" if state is False else "muted"))
         label.setToolTip(detail or short)
 
     def _poll_connection_tick(self) -> None:
@@ -1491,7 +1366,7 @@ class ScanlightSidebar(QWidget):
         background (the auto-connect that replaced 'Check'). Enumerating the USB bus does
         not claim the camera, so this keeps running through live view — that is the only
         way an unplug is noticed while the preview is up."""
-        if not self.isVisible():
+        if not self.camera_body.isVisible():
             return
         self.controller.poll_light_temp(self._settings.port)  # cheap light-only read
         if self._conn_poll_inflight or self._scanning:
@@ -1534,8 +1409,7 @@ class ScanlightSidebar(QWidget):
         RGB-only bodies (v1-v3) have no temperature sensor and report a bogus 0 °C, so hide it there
         (no white channel is our proxy for those models)."""
         if isinstance(temp, (int, float)) and self._light_has_white:
-            color = THEME.warn_amber if temp >= 55 else THEME.text_hint  # amber once it's getting warm
-            self.light_temp.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
+            set_hint_kind(self.light_temp, "warning" if temp >= 55 else "muted")  # amber once it's getting warm
             self.light_temp.setText(f"{temp:.0f} °C")
             self.light_temp.show()
         else:
@@ -1589,7 +1463,7 @@ class ScanlightSidebar(QWidget):
                 m.append("connect the Scanlight")
             if not self._preset_selected():
                 m.append("select or create a preset")
-        folder = self.folder_edit.text().strip()
+        folder = self.output.folder()
         if not folder:
             m.append("choose an output folder")
         elif not (os.path.isabs(folder) and os.path.isdir(folder)):
@@ -1604,8 +1478,11 @@ class ScanlightSidebar(QWidget):
         button only needs camera+light. When scanning is blocked, say why (task 5)."""
         missing = self._missing_requirements()
         can_scan = not missing
-        # keep enabled while live view is open so it can be toggled off
-        self.lv_btn.setEnabled(can_scan or self.lv_btn.isChecked())
+        # Live view frames and focuses, so it needs only the camera; kept enabled while open so it
+        # can be toggled off.
+        self.lv_btn.setEnabled((self._camera_verified and not self._calibrating_preset) or self.lv_btn.isChecked())
+        self.scan_btn.setEnabled(can_scan or self._scanning)
+        self.retake_btn.setEnabled(can_scan and not self._scanning)
         # Calibration needs the camera, the light, an idle capture worker and live view, whose
         # stream is how the film base is aimed at: the crosshair sits on a live frame. A body
         # without preview can still scan, but it cannot be calibrated this way (issue #621).
@@ -1626,11 +1503,11 @@ class ScanlightSidebar(QWidget):
         for btn in (self.lv_window.scan_btn, self.lv_window.retake_btn):
             btn.setEnabled(can_scan)
         if missing:
-            self.lv_btn.setToolTip("Can't scan yet — " + "; ".join(missing))
+            self.scan_btn.setToolTip(wrap_tooltip("Can't scan yet — " + "; ".join(missing)))
             self.gate_hint.setText("⚠ To scan: " + ", ".join(missing) + ".")
             self.gate_hint.setVisible(True)
         else:
-            self.lv_btn.setToolTip("Open the live view to frame, focus and scan")
+            self.scan_btn.setToolTip(wrap_tooltip("Capture the next frame into the roll, or stop the capture"))
             self.gate_hint.setText("")
             self.gate_hint.setVisible(False)  # collapse the strip when nothing is missing
         self._refresh_preset_ui()
@@ -1676,9 +1553,7 @@ class ScanlightSidebar(QWidget):
         the live-view framing then lights all three RGB channels instead of a missing white one
         (`_push_light`). A body with a white LED (v4 / Big) keeps them."""
         has_white = self._light_has_white
-        w_row = self._slider_rows.get(self.w_slider)
-        if w_row is not None:
-            w_row.setVisible(has_white)
+        self.w_slider.setVisible(has_white)
         white_name = next(iter(_BUILTIN_WHITE_PRESETS))  # the built-in white-light preset
         white_idx = self.preset_combo.findData(white_name)
         model = self.preset_combo.model()
@@ -1698,8 +1573,9 @@ class ScanlightSidebar(QWidget):
         if on == self._rgb_mode:
             return
         self._rgb_mode = on
-        self._rgb_section.setVisible(on)
+        self.light_body.setVisible(on)
         self._rgb_hint.setVisible(not on)
+        self.cards_changed.emit()
         if not on:
             self._set_status("")  # drop a lingering "Light: R… G… B…" — there's no Scanlight now
         self._apply_gating()
@@ -1709,13 +1585,21 @@ class ScanlightSidebar(QWidget):
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
         if active:
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
+            self.status_strip.start_progress("Capturing… %p%")
+        else:
+            self.status_strip.stop_progress()
+        self.scan_btn.setText(" Stop" if active else " Scan")
+        self.scan_btn.setIcon(
+            qta.icon("fa5s.stop" if active else "fa5s.camera", color=THEME.accent_secondary if active else THEME.text_on_accent)
+        )
+        # The filled/hollow swap is a QSS property selector, and Qt only re-reads those on a
+        # repolish.
+        self.scan_btn.setProperty("scanning", "true" if active else "false")
+        style = self.scan_btn.style()
+        style.unpolish(self.scan_btn)
+        style.polish(self.scan_btn)
         self.lv_window.set_scanning(active)
         self._apply_gating()  # a running scan locks the "+" calibration button
-
-    def _update_inter_exposure_delay_label(self) -> None:
-        self.inter_exposure_delay_value.setText(f"{self.inter_exposure_delay_slider.value()} ms")
 
     def _update_settings_from_ui(self) -> None:
         # white_mode / white_process_mode are set by preset selection, not by widgets. Exposure
@@ -1729,11 +1613,11 @@ class ScanlightSidebar(QWidget):
             shutter, iso, aperture = self._settings.shutter_r, self._settings.iso, self._settings.aperture
         updated = replace(
             self._settings,
-            r_level=self.r_slider.value(),
-            g_level=self.g_slider.value(),
-            b_level=self.b_slider.value(),
-            w_level=self.w_slider.value(),
-            inter_exposure_delay_ms=self.inter_exposure_delay_slider.value(),
+            r_level=int(self.r_slider.value()),
+            g_level=int(self.g_slider.value()),
+            b_level=int(self.b_slider.value()),
+            w_level=int(self.w_slider.value()),
+            inter_exposure_delay_ms=int(self.inter_exposure_delay_slider.value()),
             shutter_r=shutter,
             shutter_g=shutter,
             shutter_b=shutter,
@@ -1744,10 +1628,6 @@ class ScanlightSidebar(QWidget):
             shutter_w="" if self._settings.white_mode else shutter,
             iso=iso,
             aperture=aperture,
-            roll_name=self.roll_edit.text().strip() or "Roll001",
-            output_folder=self.folder_edit.text().strip(),
-            scan_as_roll=self.as_roll_check.isChecked(),
-            roll_is_folder=self.folder_roll_check.isChecked(),
         )
         if updated == self._settings:
             return  # nothing changed → skip the disk write + re-gate (the 3 s poll calls this each tick)

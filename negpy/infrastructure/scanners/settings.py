@@ -37,12 +37,6 @@ class ScannerSettings:
     # Frame length for a transport that measures the strip; None lets it decide.
     film_format: str | None = None
     film_type: str = "negative"
-    output_folder: str = ""
-    # On: scans go to output_folder/roll_name, which becomes a Library roll and opens;
-    # with roll_is_folder, to output_folder itself, which is the roll.
-    scan_as_roll: bool = True
-    roll_is_folder: bool = True
-    roll_name: str = "Roll001"
     output_format: str = "TIFF"
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
     scan_window: Rect | None = None

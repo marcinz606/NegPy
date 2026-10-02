@@ -34,6 +34,7 @@ def test_scan_panel_combos_ignore_the_wheel_unless_focused(qapp):
     _, sidebar = _panel(ScanSidebar)
     combos = sidebar.findChildren(QComboBox)
     assert combos, "the scan panel should have combo boxes to guard"
+    sidebar.device_combo.addItem("Second scanner", "second")
 
     exercised = 0
     for combo in combos:

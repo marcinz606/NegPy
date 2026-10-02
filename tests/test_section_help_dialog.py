@@ -50,8 +50,13 @@ GUIDED_KEYS = (
     "metadata_preview",
     "gear_items",
     "gear_presets",
-    "scan_sane",
-    "scan_rgb",
+    "scan_source",
+    "scan_device",
+    "scan_quality",
+    "scan_framing",
+    "scan_camera",
+    "scan_light",
+    "scan_output",
     "scan_strip",
 )
 

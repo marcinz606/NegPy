@@ -88,3 +88,34 @@ def test_tool_toggle_centers_by_default_and_left_aligns_on_request(qapp):
 
     assert "text-align" not in tool_toggle("fa5s.magic", "Label", "tip").styleSheet()
     assert "text-align: left" in tool_toggle("fa5s.magic", "Label", "tip", align_left=True).styleSheet()
+
+
+def test_choices_can_be_replaced_and_carry_values(qapp):
+    btn = ChoiceButton((), "tip")
+    assert btn.count() == 0 and btn.currentData() is None
+
+    btn.set_choices((("", "8-bit"), ("", "16-bit")), data=(8, 16))
+    assert [a.text() for a in btn.choice_menu.actions()] == ["8-bit", "16-bit"]
+    assert btn.currentData() == 8 and btn.findData(16) == 1 and btn.findData(14) == -1
+
+    btn.setCurrentIndex(1)
+    btn.set_choices((("", "14-bit"),), data=(14,))
+    assert btn.count() == 1 and btn.currentData() == 14
+
+
+def test_a_disabled_choice_is_skipped_by_the_wheel(qapp):
+    btn = ChoiceButton(_CHOICES, "tip")
+    btn.set_choice_enabled(1, False)
+    assert not btn.is_choice_enabled(1)
+
+    class _Wheel:
+        def angleDelta(self):  # noqa: N802
+            from PyQt6.QtCore import QPoint
+
+            return QPoint(0, -120)
+
+        def accept(self):
+            pass
+
+    btn.wheelEvent(_Wheel())
+    assert btn.currentIndex() == 2

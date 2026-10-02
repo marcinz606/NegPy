@@ -65,16 +65,17 @@ def test_switch_group_persists_the_index_and_updates_the_stack():
     panel._group_buttons[0].setChecked.assert_called_once_with(False)
 
 
-def test_switch_group_activates_scan_sidebars_only_on_the_scan_tab():
+def test_switch_group_activates_the_chosen_scanner_only_on_the_scan_tab():
     panel = _group_panel_stub(scan_index=5)
 
     RightPanel._switch_group(panel, 0)
     panel.scan_sidebar.on_activated.assert_not_called()
     panel.scanlight_sidebar.on_activated.assert_not_called()
 
+    panel._active_scan_sidebar.return_value = panel.scan_sidebar
     RightPanel._switch_group(panel, 5)
     panel.scan_sidebar.on_activated.assert_called_once_with()
-    panel.scanlight_sidebar.on_activated.assert_called_once_with()
+    panel.scanlight_sidebar.on_activated.assert_not_called()
 
 
 def test_show_tab_by_key_dispatches_to_a_group_tab():

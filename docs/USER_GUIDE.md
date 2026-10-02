@@ -1036,58 +1036,83 @@ Preview only; exports are never proofed. Paper is dimmer and has a smaller gamut
 
 ## 14. Scan tab
 
-Capture film directly into NegPy. Two collapsible sections.
+Capture film directly into NegPy. The **Scanner** card picks the scanner; the tab then shows that scanner's cards, the shared **Output** card, and its status line and **Scan** button pinned at the bottom. While a scan runs, its setup is locked and **Scan** reads **Stop**.
 
-<!-- panel:scan_sane -->
-### Film Scanner
+<!-- panel:scan_source -->
+### Scanner
 
-**Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls group as **Film**, **Quality**, **Framing** and **Output**; a group with nothing for the device is hidden.
+*   **Scanner** (Camera by default): **Film Scanner** drives a dedicated film scanner (Device, Film & Quality, Framing); **Camera** drives a camera on a copy stand (Camera, Preset & Light). Both write through the same Output card.
 
-*   **Format**: `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives).
-*   **Scan as Roll** (on by default) and **Roll**: the folder the scans go to becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. With Folder as Roll off, scans go to a **Roll** subfolder of the output folder, and a new Roll name opens a new roll. Each frame of a batch loads as it is written; only the first takes the selection. Off writes into the output folder itself, and the frames belong to no roll.
-*   **Folder as Roll** (on by default, under Scan as Roll): scans go into the output folder itself, which is the roll, named after the folder.
-*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
-*   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its frame picks and previews, so more frames scan without a new preview, until **Eject** or the scanner's own idle timeout.
-*   **Depth**, **Autofocus**, hardware **Auto-exposure**: shown only when the device offers them (not on the OpticFilm 8200i SE).
-*   **Prescan**: a low-DPI full-window preview; drag a crop and the next Scan uses that hardware ROI.
-*   **Exposure**: shown when the scanner has `scan-exposure-time` (some genesys devices); overrides the exposure time, in µs, ms or s.
+<!-- panel:scan_device -->
+### Device
 
-**pyOpticfilm (Plustek)**: the **OpticFilm 8200i SE** (`07b3:1825`) and **8100 V2** (`07b3:1824`) scan; other listed models cannot yet (try **SANE** on Linux and macOS). **Prescan** takes a 1200 dpi preview; set a crop and leave with **Apply Crop** or **Scan Frame**. **Scan mode** (Single-Pass by default) chooses among **Single-Pass** (one exposure), **Multi-Pass** (repeats the exposure and stacks the results to reduce noise, with a **Passes** slider from 2 to 9), **Adaptive Multi-Exposure** (fuses a short and long exposure for extended dynamic range) and **Adaptive Multi-Pass** (both together); every mode past Single-Pass takes longer, and Multi-Pass cannot combine with IR. From pyopticfilm 1.1.2, orientation matches SilverFast; rescan older files if left-right matters. **IR** comes in the same pass, aligned to color. Shading is measured before the film feed, so the strip can stay loaded. The holder margins in the default Full window are clamped so they do not skew auto exposure; if a frame still looks off, raise **Analysis Buffer** or crop. On Windows, bind the device to **WinUSB** with Zadig first. Install with `uv sync --group plustek` or `pip install negpy[plustek]` (bundled in Windows builds). See [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
+**Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls follow what the device reports; a row or card with nothing for the device is hidden.
 
-**Nikon Coolscan (nkscan)**: needs no SANE. **Preview strip…** reads the strip in one pass, finds every frame and cuts the tiles from it; it starts when the dialog opens and holds until eject. **Detect frames** runs it again after the film moves. Adjust framing with **Offset** (±10 mm, both ways) and **Drift**; tiles re-cut with no new scan. **Scan** with nothing picked scans every frame. For a subset, type **Frames** or untick tiles. Eject clears the selection; **Offset** and **Drift** stay. Backend-only controls:
+*   **Device**: the scanner; the arrows refresh the list, the eject button returns the film.
+*   **Debug log** (nkscan only; Off, Debug, Trace): writes nkscan's diagnostics to `nkscan.log` in the NegPy folder; the folder button opens it. Trace adds every command sent to the scanner and is what a bug report usually needs. Set it before you reproduce a problem, then attach the file.
 
-*   **ICE**: infrared dust and scratch removal baked into the file (Retouch's IR Restore stays editable). Color film only. **ICE** and **IR** exclude each other; **IR** keeps the plane for Retouch.
-*   **Samples**: reads per line averaged (1 to 16). Less shadow noise, proportionally slower.
-*   **Superfine**: one line per pass. Slower, with no host-side line registration.
+**pyOpticfilm (Plustek)**: the **OpticFilm 8200i SE** (`07b3:1825`) and **8100 V2** (`07b3:1824`) scan; other listed models cannot yet (try **SANE** on Linux and macOS). From pyopticfilm 1.1.2, orientation matches SilverFast; rescan older files if left-right matters. **IR** comes in the same pass, aligned to color. Shading is measured before the film feed, so the strip can stay loaded. The holder margins in the default Full window are clamped so they do not skew auto exposure; if a frame still looks off, raise **Analysis Buffer** or crop. On Windows, bind the device to **WinUSB** with Zadig first. Install with `uv sync --group plustek` or `pip install negpy[plustek]` (bundled in Windows builds). See [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
+
+**Nikon Coolscan (nkscan)**: needs no SANE. Controls follow what the unit reports; an LS-50 hides Samples and Superfine. The release builds include **nkscan**; from source, see [CONTRIBUTING.md](../CONTRIBUTING.md). On Linux, USB needs a udev rule for vendor `04b0`; FireWire/SCSI needs the `sg` module.
+
+<!-- panel:scan_quality -->
+### Film & Quality
+
 *   **Film**: Color negative, B&W negative, Slide or Kodachrome. Sets how frame boundaries are read, whether IR and ICE are offered (not for B&W or Kodachrome), and metering: a color negative is metered per channel to take the orange mask off before conversion; other films keep the factory balance.
 *   **Film format**: frame length (135, 66, 645 and so on). **Auto** where the holder narrows it; set it for loose film in a masked carrier. Shown only where the transport measures the film.
-*   **Exposure** (**Meter Frame…** / **Unlock**): nkscan meters every frame on its own, so a strip end, which meters on the bare light past the cut, keeps a color negative's orange mask and scans with a different color. **Meter Frame…** meters one frame of the loaded strip (pick one inside the strip, such as frame 2) and every later scan on this scanner reuses its exposure, across strips and restarts, until **Unlock**. Meter again for each new roll.
-*   **Debug log** (Off, Debug, Trace): writes nkscan's diagnostics to `nkscan.log` in the NegPy folder; the folder button opens it. Trace adds every command sent to the scanner and is what a bug report usually needs. Set it before you reproduce a problem, then attach the file.
+*   **Resolution**, **Bit depth**: the scan's dpi and bits per channel; type a resolution between the listed stops.
+*   **Scan mode** (Plustek; Single-Pass by default): **Single-Pass** (one exposure), **Multi-Pass** (repeats the exposure and stacks the results to reduce noise, with **Passes** from 2 to 9 under it), **Adaptive Multi-Exposure** (fuses a short and long exposure for extended dynamic range) and **Adaptive Multi-Pass** (both together). Every mode past Single-Pass takes longer, and Multi-Pass cannot combine with IR.
+*   **Samples** (nkscan): reads per line averaged (1 to 16). Less shadow noise, proportionally slower.
+*   **IR**: a separate infrared plane for Retouch's dust removal. **ICE** (nkscan): infrared dust and scratch removal baked into the file (Retouch's IR Restore stays editable), color film only. **ICE** and **IR** exclude each other.
+*   **Superfine** (nkscan): one line per pass. Slower, with no host-side line registration.
+*   **Autofocus**, **Auto-exposure**: run on the scanner before the scan, where it offers them.
+*   **Exposure** (µs): shown when the scanner has `scan-exposure-time` (some genesys devices); off while Auto-exposure is on.
 
-Controls follow what the unit reports; an LS-50 hides Samples and Superfine. The release builds include **nkscan**; from source, see [CONTRIBUTING.md](../CONTRIBUTING.md). On Linux, USB needs a udev rule for vendor `04b0`; FireWire/SCSI needs the `sg` module.
+<!-- panel:scan_framing -->
+### Framing
 
-**SANE scan window**: on a feeder, **Preview strip…** previews every frame, sets per-frame windows and picks frames. With a manual holder, **Preview…** previews one position for one crop window. The window sets the hardware scan area, so only that region is read.
+*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
+*   **Batch** / **Window**: on a feeder, **Preview strip…** previews every frame, sets per-frame windows and picks frames; with a manual holder, **Preview…** previews one position for one crop window. The window sets the hardware scan area, so only that region is read. **Clear** scans the default frame again. On nkscan the preview reads the strip in one pass, finds every frame and cuts the tiles from it; **Detect frames** runs it again after the film moves, and Eject clears the selection while **Offset** and **Drift** stay.
+*   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its frame picks and previews, so more frames scan without a new preview, until **Eject** or the scanner's own idle timeout.
+*   **Exposure lock** (**Meter Frame…** / **Unlock**, nkscan): nkscan meters every frame on its own, so a strip end, which meters on the bare light past the cut, keeps a color negative's orange mask and scans with a different color. **Meter Frame…** meters one frame of the loaded strip (pick one inside the strip, such as frame 2) and every later scan on this scanner reuses its exposure, across strips and restarts, until **Unlock**. Meter again for each new roll.
+*   **Crop** (**Prescan…**, Plustek): a 1200 dpi full-window preview; drag a crop and leave with **Apply Crop** or **Scan Frame**, and the next scan reads only that hardware area. **Clear** scans the full window.
 
-During a preview, a progress bar shows, **Cancel** reads **Stop Preview** (keeps tiles read so far), and **Apply** and **Scan** stay disabled. Negative stock previews inverted, Slide and Kodachrome not.
+<!-- panel:scan_camera -->
+### Camera
 
-<!-- panel:scan_rgb -->
-### Camera Scanning
+Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux). With a NegPy **Scanlight**, it captures narrowband R/G/B triplets from film-stock presets; without, one white-light exposure. Needs `python-gphoto2` (`pip install gphoto2`; no Windows build). See CAMERA_SCANNING.md for setup, the macOS camera-daemon note and troubleshooting.
 
-Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux). With a NegPy **Scanlight**, it captures narrowband R/G/B triplets from film-stock presets; without, one white-light exposure. Frames go to the hot folder and into Trichrome Mode.
-
-*   **Live View & Scan**: click the image to aim the focus magnifier, click again for the full frame. ISO, shutter and aperture are set from the toolbar, or locked by a calibrated RGB preset.
-*   **Preset**: shows its RGB levels, ISO, shutter and aperture and forces them each frame. **+** calibrates: place the rectangle on clear film base, name it, run it. It solves a shutter and per-channel LED levels just under clipping, or says which way to adjust and saves nothing. **Create a manual preset…** sets one by hand.
-*   **Scan** and **Retake**: **Scan** shoots into a per-roll subfolder, auto-numbered, and imports; **Retake** shoots again without advancing. In the Live View window, `S` scans and `R` retakes; both can be rebound under Camera Live View in Keyboard Shortcuts. **Delay between exposures** pauses between R, G and B for bodies that lock up.
-*   **Scan as Roll** (on by default): the folder the frames go to becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. With Folder as Roll off, frames go to a **Roll** subfolder, and a new Roll name opens a new roll.
-*   **Folder as Roll** (on by default, under Scan as Roll): frames go into the output folder itself, which is the roll; its folder name names the frames.
+*   **Camera** / **Light**: connection status, found automatically; the light shows its LED temperature, amber once it runs warm.
+*   **Live View**: frame and focus; click the image to aim the focus magnifier, click again for the full frame. ISO, shutter and aperture are set from its toolbar, or locked by a calibrated RGB preset.
+*   **Scan** and **Retake**: **Scan** shoots the next frame, auto-numbered, and imports it; **Retake** shoots the last frame again. In the Live View window, `S` scans and `R` retakes; both can be rebound under Camera Live View in Keyboard Shortcuts.
 *   **Narrowband**: RGB-lit scans render more saturated; the Calibration card's **Narrowband** toggle corrects this.
 
-Needs `python-gphoto2` (`pip install gphoto2`; no Windows build). See CAMERA_SCANNING.md for setup, the macOS camera-daemon note and troubleshooting.
+<!-- panel:scan_light -->
+### Preset & Light
+
+Shown while a Scanlight is connected.
+
+*   **Preset**: shows its RGB levels, ISO, shutter and aperture and forces them each frame. **+** calibrates: place the rectangle on clear film base, name it, run it. It solves a shutter and per-channel LED levels just under clipping, or says which way to adjust and saves nothing. **Create a manual preset…** sets one by hand, and the save button stores it.
+*   **Red**, **Green**, **Blue**, **White** (0 to 255): LED levels, editable while building a manual preset. **Light Off** turns every channel off.
+*   **ISO**, **Shutter**, **Aperture**: the preset's exposure, editable while building a manual preset.
+*   **Channel Delay** (0 to 5000 ms): pauses between R, G and B for bodies that lock up.
+
+<!-- panel:scan_output -->
+### Output
+
+Shared by both scanners.
+
+*   **Folder**: where frames are written.
+*   **Scan as Roll** (on by default): the folder the frames go to becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. Each frame of a batch loads as it is written; only the first takes the selection.
+*   **Folder as Roll** (on by default): frames go into the output folder itself, which is the roll and gives it its name. Off writes into a **Roll** subfolder, and a new Roll name starts a new roll. A camera frame's file name starts with the roll name.
+*   **Format**, **Filename** (Film Scanner): `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives), and the file name as a Jinja2 template of `{{ date }}` and `{{ seq }}`.
 
 <!-- panel:scan_strip -->
 ### Strip preview
 
 Dialogs end with **Cancel**, **Apply** (keep the framing) and **Scan**. Apply reads **Apply Framing** on a strip, **Apply Window** on a single holder, **Apply Crop** after a Prescan.
+
+During a preview, a progress bar shows, **Cancel** reads **Stop Preview** (keeps tiles read so far), and **Apply** and **Scan** stay disabled. Negative stock previews inverted, Slide and Kodachrome not. On nkscan, adjust framing with **Offset** (±10 mm, both ways) and **Drift**; tiles re-cut with no new scan.
 
 *   **Cropping**: drag on a frame; corners resize, inside moves. **Clear Crops** removes all.
 *   **Frame outline**: red box on the detected frame; offsets are measured from it.

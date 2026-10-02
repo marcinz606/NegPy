@@ -41,39 +41,74 @@ class _MenuButton(QPushButton):
 class ChoiceButton(_MenuButton):
     """One choice out of a few, as a button that opens a menu of them. A choice is
     (icon, label) or (icon, label, icon color); an empty icon name shows none. The button's dot marks the current choice as
-    edited; the menu marks every edited choice."""
+    edited; the menu marks every edited choice. `data` gives each choice a value, for a list
+    built from what a device offers."""
 
     currentChanged = pyqtSignal(int)
 
-    def __init__(self, choices: tuple[tuple[str, ...], ...], tooltip: str, parent=None):
+    def __init__(self, choices: tuple[tuple[str, ...], ...], tooltip: str, parent=None, data: tuple | None = None):
         super().__init__(tooltip, parent)
-        self._choices = choices
-        self._edited = [False] * len(choices)
-        self._index = 0
-        group = QActionGroup(self)
-        group.setExclusive(True)
+        self._group = QActionGroup(self)
+        self._group.setExclusive(True)
+        self._choices: tuple[tuple[str, ...], ...] = ()
+        self._data: tuple = ()
+        self._edited: list[bool] = []
+        self._actions: list[QAction] = []
+        self._index = -1
+        self.set_choices(choices, data)
+
+    def set_choices(self, choices: tuple[tuple[str, ...], ...], data: tuple | None = None) -> None:
+        """Replace the choices, without emitting; the first becomes current."""
+        for action in self._actions:
+            self._group.removeAction(action)
+            self.choice_menu.removeAction(action)
+        self._choices = tuple(choices)
+        self._data = tuple(data) if data is not None else tuple(range(len(self._choices)))
+        self._edited = [False] * len(self._choices)
         self._actions = []
         # No icons on the items: a checkable item with an icon draws no check mark.
-        for i, (_icon, label, *_color) in enumerate(choices):
+        for i, (_icon, label, *_color) in enumerate(self._choices):
             action = self.choice_menu.addAction(label)
             action.setCheckable(True)
-            group.addAction(action)
+            self._group.addAction(action)
             action.triggered.connect(lambda _checked=False, i=i: self.setCurrentIndex(i))
             self._actions.append(action)
+        if not self._choices:
+            self._index = -1
+            self.setText("")
+            return
         # Sized for the longest choice, so switching never moves the row around it.
         self.ensurePolished()
         widths = []
-        for i in range(len(choices)):
+        for i in range(len(self._choices)):
             self._show(i)
             widths.append(super().sizeHint().width())
         self._show(0)
         self.setMinimumWidth(max(widths))
 
+    def count(self) -> int:
+        return len(self._choices)
+
+    def currentData(self):  # noqa: N802
+        return self._data[self._index] if 0 <= self._index < len(self._data) else None
+
+    def findData(self, value) -> int:  # noqa: N802
+        return self._data.index(value) if value in self._data else -1
+
+    def set_choice_enabled(self, index: int, enabled: bool) -> None:
+        self._actions[index].setEnabled(enabled)
+
+    def is_choice_enabled(self, index: int) -> bool:
+        return self._actions[index].isEnabled()
+
+    def set_choice_tooltip(self, index: int, tooltip: str) -> None:
+        self._actions[index].setToolTip(tooltip)
+
     def currentIndex(self) -> int:  # noqa: N802
         return self._index
 
     def setCurrentIndex(self, index: int) -> None:  # noqa: N802
-        if index == self._index:
+        if index == self._index or not 0 <= index < len(self._choices):
             return
         self._show(index)
         self.currentChanged.emit(index)
