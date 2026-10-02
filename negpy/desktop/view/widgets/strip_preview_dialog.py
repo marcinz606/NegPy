@@ -117,6 +117,7 @@ class _ResetSlider(QSlider):
 
 
 _ZERO_TICK_HALF_H = 4
+_DISCOVERY_EMPTY = "Finding the frames on the strip…"
 
 
 class _ZeroTickSlider(_ResetSlider):
@@ -315,7 +316,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tiles: dict[int, _Tile] = {}
         self._tiles_wired = False
         self._strip = strip
-        self._empty_hint = QLabel("Finding the frames on the strip…" if self._discovers else "Preview a frame to set its window")
+        self._empty_hint = QLabel(_DISCOVERY_EMPTY if self._discovers else "Preview a frame to set its window")
         self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_base}px; padding: 48px;")
         strip.addWidget(self._empty_hint, 0, 0, 1, _TILES_PER_ROW)
@@ -736,6 +737,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._start_preview((frame,))
 
     def _on_preview_all(self) -> None:
+        if self._discovers:
+            self._empty_hint.setText(_DISCOVERY_EMPTY)
         # A measured strip answers with the frames it found and ignores the rest.
         slots = _DISCOVERY_SLOTS if self._discovers else self._capacity
         self._start_preview(tuple(range(1, slots + 1)))
@@ -743,21 +746,35 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def _preview_signal_pairs(self):
         return (*super()._preview_signal_pairs(), (self._controller.scan_strip_returned, self._on_strip_returned))
 
-    @pyqtSlot()
-    def _on_strip_returned(self) -> None:
-        """The unit returned the strip by itself and loaded it again. As after an Eject, the ticks,
-        crops and own offsets no longer describe it: drop them and measure the strip again."""
+    @pyqtSlot(bool)
+    def _on_strip_returned(self, loaded: bool) -> None:
+        """The unit returned the strip by itself. As after an Eject, nothing measured on it holds:
+        drop the tiles with their ticks, crops and own offsets, and measure the strip once it is in."""
         self._recut.stop()
         self._initial_selected = ()
         self._initial_windows = {}
         self._initial_frame_offsets = {}
-        for tile in self._tiles.values():
-            tile.checkbox.setChecked(True)
-            tile.label.clear_window()
-            tile.offset_slider.setValue(0)
-        self._recut.stop()  # the reset sliders armed it; the pass below re-cuts every tile
-        self._on_preview_all()
-        self.status_strip.set_message("The scanner returned the strip while idle — measuring it again…")
+        if self._discovers:
+            for tile in self._tiles.values():
+                self._strip.removeWidget(tile.widget)
+                tile.widget.deleteLater()
+            self._tiles.clear()
+            self._capacity = 0
+            self._empty_hint.setText(_DISCOVERY_EMPTY if loaded else "Insert the strip, then press Detect frames")
+            self._empty_hint.setVisible(True)
+            self._relayout(force=True)
+            self._update_ok_enabled()
+        else:
+            for tile in self._tiles.values():
+                tile.checkbox.setChecked(True)
+                tile.label.clear_window()
+                tile.offset_slider.setValue(0)
+            self._recut.stop()  # the reset sliders armed it
+        if loaded:
+            self._on_preview_all()
+            self.status_strip.set_message("The scanner returned the strip while idle — measuring it again…")
+        else:
+            self.status_strip.set_message("The scanner returned the strip while idle. Insert it again, then press Detect frames.")
 
     def done(self, result: int) -> None:
         """Stop a pending re-cut: its timer holds this dialog."""

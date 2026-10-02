@@ -68,7 +68,7 @@ class _FakeController(QObject):
     scan_progress = pyqtSignal(float, str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
-    scan_strip_returned = pyqtSignal()
+    scan_strip_returned = pyqtSignal(bool)
 
     def __init__(self, *, raise_on_preview: bool = False) -> None:
         super().__init__()
@@ -1405,11 +1405,34 @@ def test_the_unit_returning_the_strip_drops_its_frame_state_and_measures_it_agai
 
     dialog._on_preview_all()  # the pass the unit refuses: it raises, then reports the return
     controller.scan_error.emit("returned")
-    controller.scan_strip_returned.emit()
+    controller.scan_strip_returned.emit(True)
 
-    assert dialog.selected_frames() == (1, 2, 3)
+    assert dialog._tiles == {}  # the old strip's tiles go, as after an Eject
+    assert dialog.selected_frames() == ()
     assert dialog.frame_windows() == {}
     assert dialog.frame_offsets() == {}
     assert dialog.frame_offset() == 1.5
     assert len(controller.preview_reqs) == 3  # measured again
     assert "returned the strip" in dialog.status_strip.message()
+
+
+def test_a_returned_strip_not_back_in_waits_for_detect_frames() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), initial_selected=(1, 2, 3), initial_frame_offsets={2: 0.4})
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3, 4, 5, 6))
+    dialog._on_preview_all()
+    controller.scan_error.emit("returned")
+
+    controller.scan_strip_returned.emit(False)
+
+    assert dialog._tiles == {}
+    assert (dialog.selected_frames(), dialog.frame_offsets()) == ((), {})
+    assert len(controller.preview_reqs) == 2  # no retry while the strip is out
+    assert "Insert it again" in dialog.status_strip.message()
+    assert not dialog._empty_hint.isHidden() and "Insert the strip" in dialog._empty_hint.text()
+
+    dialog._on_preview_all()  # Detect frames once it is back in
+    controller.deliver_all((1, 2, 3, 4, 5))
+
+    assert dialog.selected_frames() == (1, 2, 3, 4, 5)

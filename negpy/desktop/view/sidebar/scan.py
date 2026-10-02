@@ -1579,13 +1579,17 @@ class ScanSidebar(QWidget):
         stale = self._drop_strip_state()
         self.status_strip.set_message("Film ejected — frame selection cleared" if stale else "Film ejected")
 
-    @pyqtSlot()
-    def _on_strip_returned(self) -> None:
+    @pyqtSlot(bool)
+    def _on_strip_returned(self, loaded: bool) -> None:
         # The unit's idle timeout is an Eject nobody pressed: the same state goes.
         stale = self._drop_strip_state()
-        self.status_strip.set_message(
-            "The scanner returned the strip while idle — frame selection cleared" if stale else "The scanner returned the strip while idle"
-        )
+        if not loaded:
+            message = "The scanner returned the strip while idle — insert it again"
+        elif stale:
+            message = "The scanner returned the strip while idle — frame selection cleared"
+        else:
+            message = "The scanner returned the strip while idle"
+        self.status_strip.set_message(message)
 
     def _drop_strip_state(self) -> bool:
         """Forget the frame picks, crops and per-frame offsets, and say whether there were any.

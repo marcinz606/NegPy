@@ -256,12 +256,27 @@ def test_film_the_unit_returned_is_loaded_again_and_the_scan_stops() -> None:
     backend.detect_frames(DEVICE_ID)
     module.media_loaded_at_open = False
 
-    with pytest.raises(StripReturned):
+    with pytest.raises(StripReturned) as raised:
         _scan(backend)
 
+    assert raised.value.loaded
     assert module.opened[-1].loads == 1
+    assert module.opened[-1].staged == 0
     assert module.opened[-1].closed
     assert backend.frames(DEVICE_ID) == []
+
+
+def test_a_returned_strip_the_unit_cannot_take_back_asks_for_it_again() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.media_loaded_at_open = False
+    module.film_waiting = False
+
+    with pytest.raises(StripReturned, match="Insert it again") as raised:
+        _scan(backend)
+
+    assert not raised.value.loaded
+    assert module.opened[-1].staged == 0
 
 
 def test_film_reloaded_after_the_unit_returned_it_is_measured_again() -> None:

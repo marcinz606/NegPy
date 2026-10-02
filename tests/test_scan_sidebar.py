@@ -132,7 +132,7 @@ class _FakeController(QObject):
     scan_batch_finished = pyqtSignal(list)
     scan_ejected = pyqtSignal(bool)
     scan_eject_error = pyqtSignal(str)
-    scan_strip_returned = pyqtSignal()
+    scan_strip_returned = pyqtSignal(bool)
     scan_exposure_metered = pyqtSignal(object, int)
     scan_meter_error = pyqtSignal(str)
 
@@ -1044,11 +1044,20 @@ def test_the_unit_returning_the_strip_clears_what_an_eject_clears() -> None:
     sidebar.settings = replace(sidebar._settings, frame_offsets={2: 0.4})
 
     controller.scan_error.emit("returned")
-    controller.scan_strip_returned.emit()
+    controller.scan_strip_returned.emit(True)
 
     assert (sidebar.settings.selected_frames, sidebar.settings.frame_windows, sidebar.settings.frame_offsets) == ((), {}, {})
     assert (sidebar.settings.frame_offset_mm, sidebar.settings.frame_offset_modifier_mm) == (1.5, 0.2)
     assert sidebar.status_strip.message() == "The scanner returned the strip while idle — frame selection cleared"
+
+
+def test_a_returned_strip_not_back_in_asks_for_it_again() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE, settings={"selected_frames": [1, 3]})
+
+    controller.scan_strip_returned.emit(False)
+
+    assert sidebar.settings.selected_frames == ()
+    assert sidebar.status_strip.message() == "The scanner returned the strip while idle — insert it again"
 
 
 def test_ejecting_with_nothing_picked_says_only_that() -> None:

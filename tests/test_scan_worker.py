@@ -423,7 +423,7 @@ class _ReturnedService(_BatchService):
         from negpy.infrastructure.scanners.base import StripReturned
 
         self.frames.append(params.frame)
-        raise StripReturned("returned")
+        raise StripReturned(loaded=False)
 
 
 def test_run_batch_reports_a_returned_strip_after_its_error_and_scans_nothing_more() -> None:
@@ -432,11 +432,11 @@ def test_run_batch_reports_a_returned_strip_after_its_error_and_scans_nothing_mo
     worker._service = service  # type: ignore[assignment]
     events: list[str] = []
     worker.error.connect(lambda _msg: events.append("error"))
-    worker.strip_returned.connect(lambda: events.append("returned"))
+    worker.strip_returned.connect(lambda loaded: events.append(f"returned loaded={loaded}"))
 
     worker.run_batch(_batch_request((2, 3, 4)))
 
-    assert events == ["error", "returned"]
+    assert events == ["error", "returned loaded=False"]
     assert service.frames == [2]
     assert service.eject_calls == []
 
@@ -445,7 +445,7 @@ def test_run_batch_failure_is_not_a_returned_strip() -> None:
     worker = ScanWorker()
     worker._service = _BatchService(fail_on=3)  # type: ignore[assignment]
     returned: list[None] = []
-    worker.strip_returned.connect(lambda: returned.append(None))
+    worker.strip_returned.connect(lambda _loaded: returned.append(None))
 
     worker.run_batch(_batch_request((2, 3, 4)))
 

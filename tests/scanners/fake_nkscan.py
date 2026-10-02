@@ -119,6 +119,7 @@ class FakeNkscanModule:
     frames: tuple[tuple[int, int, int, int], ...] = FRAMES
     caps: FakeCapabilities = field(default_factory=FakeCapabilities)
     media_loaded_at_open: bool = True
+    film_waiting: bool = True  # what load() finds in the adapter
     with_eject: bool = False
     progress_steps: int = 0
     rows: int = 8
@@ -207,7 +208,7 @@ class FakeSession:
 
     def load(self) -> bool:
         self.loads += 1
-        return True
+        return self._module.film_waiting
 
     def stage(self) -> None:
         self.staged += 1
