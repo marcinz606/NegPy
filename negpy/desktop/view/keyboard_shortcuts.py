@@ -329,6 +329,9 @@ class ShortcutManager:
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
             ),
             "scan_as_roll": (lambda: right.scan_sidebar.as_roll_btn.toggle() if getattr(right, "scan_sidebar", None) is not None else None),
+            "scan_folder_as_roll": (
+                lambda: right.scan_sidebar.folder_roll_btn.toggle() if getattr(right, "scan_sidebar", None) is not None else None
+            ),
             "capture_as_roll": (
                 lambda: right.scanlight_sidebar.as_roll_btn.toggle() if getattr(right, "scanlight_sidebar", None) is not None else None
             ),

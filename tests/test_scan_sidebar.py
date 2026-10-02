@@ -1262,3 +1262,25 @@ def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
     sidebar._on_scan()
 
     assert controller.started == []
+
+
+def test_folder_as_roll_scans_into_the_output_folder_itself() -> None:
+    sidebar, controller = _sidebar(MINIMAL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out/Portra 1")
+    sidebar.folder_roll_btn.setChecked(True)
+
+    sidebar._on_scan()
+
+    _, req = controller.started[0]
+    assert req.as_roll is True
+    assert req.output_folder == "/tmp/negpy-scan-out/Portra 1"
+    assert sidebar.roll_edit.isEnabled() is False
+    assert controller.session.repo.get_global_setting("scanner_settings")["roll_is_folder"] is True
+
+
+def test_folder_as_roll_needs_scan_as_roll() -> None:
+    sidebar, _ = _sidebar()
+    sidebar.as_roll_btn.setChecked(False)
+    assert sidebar.folder_roll_btn.isEnabled() is False
+    sidebar.as_roll_btn.setChecked(True)
+    assert sidebar.folder_roll_btn.isEnabled() is True

@@ -18,6 +18,7 @@ def _controller(as_roll=False, capture_req=None):
     c._pending_scanned_file = None
     c._pending_capture_imports = {}
     c._scan_as_roll = as_roll
+    c._batch_frame_selected = False
     c._last_capture_req = capture_req
     c._discover_scanned = MethodType(AppController._discover_scanned, c)
     return c
@@ -26,16 +27,35 @@ def _controller(as_roll=False, capture_req=None):
 def test_first_scan_opens_its_folder_as_a_roll_before_discovery():
     c = _controller(as_roll=True)
 
-    AppController._on_scan_batch_finished(c, ["/out/Roll001/a.tif", "/out/Roll001/b.tif"])
+    AppController._on_scan_frame_done(c, 1, "/out/Roll001/a.tif")
 
     roll_id = folder_roll_id_for_path(c.session.repo, "/out/Roll001")
     assert roll_id is not None and c.state.active_roll_id == roll_id
     c.half_frame_mode_changed.emit.assert_called_once()
     c.library_cleared.emit.assert_called_once()
     c.request_asset_discovery.assert_called_once_with(
-        ["/out/Roll001"], auto_open=True, replace_existing=True, reselect_path="/out/Roll001/b.tif", restore_triplets=None
+        ["/out/Roll001"], auto_open=True, replace_existing=True, reselect_path="/out/Roll001/a.tif", restore_triplets=None
     )
     assert c._pending_scanned_file is None
+
+
+def test_later_batch_frames_load_without_taking_the_selection():
+    c = _controller(as_roll=True)
+    AppController._on_scan_frame_done(c, 1, "/out/Roll001/a.tif")
+    c.request_asset_discovery.reset_mock()
+
+    AppController._on_scan_frame_done(c, 2, "/out/Roll001/b.tif")
+
+    c.request_asset_discovery.assert_called_once_with(["/out/Roll001/b.tif"], restore_triplets=None)
+    assert c._pending_scanned_file is None
+    c.scan_frame_done.emit.assert_called_with(2, "/out/Roll001/b.tif")
+
+
+def test_batch_end_loads_nothing_more():
+    c = _controller(as_roll=True)
+    AppController._on_scan_batch_finished(c, ["/out/Roll001/a.tif"])
+    c.request_asset_discovery.assert_not_called()
+    c.scan_batch_finished.emit.assert_called_once_with(["/out/Roll001/a.tif"])
 
 
 def test_next_scan_into_the_open_roll_appends():
@@ -90,7 +110,8 @@ def test_capture_triplet_reaches_the_roll_open():
 
 def test_start_scan_remembers_as_roll():
     c = _controller()
+    c._batch_frame_selected = True
     AppController.start_batch(c, SimpleNamespace(as_roll=True))
-    assert c._scan_as_roll is True
+    assert c._scan_as_roll is True and c._batch_frame_selected is False
     AppController.start_scan(c, SimpleNamespace(as_roll=False))
     assert c._scan_as_roll is False

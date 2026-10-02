@@ -1044,7 +1044,8 @@ Capture film directly into NegPy. Two collapsible sections.
 **Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls group as **Film**, **Quality**, **Framing** and **Output**; a group with nothing for the device is hidden.
 
 *   **Format**: `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives).
-*   **Scan as Roll** (on by default) and **Roll**: scans go to a **Roll** subfolder of the output folder, which becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. A new Roll name opens a new roll. Off writes into the output folder itself, and the frames belong to no roll.
+*   **Scan as Roll** (on by default) and **Roll**: scans go to a **Roll** subfolder of the output folder, which becomes a roll in the Library and opens, so Half Frame, the Roll tab and Roll Analysis apply to them. A new Roll name opens a new roll. Each frame of a batch loads as it is written; only the first takes the selection. Off writes into the output folder itself, and the frames belong to no roll.
+*   **Folder as Roll** (under Scan as Roll): scans go into the output folder itself, which is the roll, named after the folder.
 *   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
 *   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its frame picks and previews, so more frames scan without a new preview, until **Eject** or the scanner's own idle timeout.
 *   **Depth**, **Autofocus**, hardware **Auto-exposure**: shown only when the device offers them (not on the OpticFilm 8200i SE).

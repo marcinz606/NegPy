@@ -127,6 +127,7 @@ _AS_ROLL_TIP = (
     "Scan into a Roll subfolder of the output folder, make it a roll in the Library and open "
     "it, so Half Frame, roll defaults and Roll Analysis apply to the frames as they are scanned."
 )
+_FOLDER_ROLL_TIP = "Scan straight into the output folder and make that folder the roll, named after it."
 
 
 def _reaches_a_strip(caps: ScannerCapabilities) -> bool:
@@ -438,6 +439,8 @@ class ScanSidebar(QWidget):
         self.form.addRow("Roll", self.roll_edit)
         self.as_roll_btn = labeled_toggle("fa5s.film", " Scan as Roll", self._settings.scan_as_roll, _AS_ROLL_TIP)
         self.form.addRow(self.as_roll_btn)
+        self.folder_roll_btn = labeled_toggle("fa5s.folder", " Folder as Roll", self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
+        self.form.addRow(self.folder_roll_btn)
 
         self.pattern_edit = QLineEdit()
         self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }}.\nExample: {{ date }}_{{ "%03d" % seq }}')
@@ -553,7 +556,7 @@ class ScanSidebar(QWidget):
         self.fmt_combo.setCurrentText(self._settings.output_format)
         self.folder_edit.setText(self._settings.output_folder)
         self.roll_edit.setText(self._settings.roll_name)
-        self.roll_edit.setEnabled(self._settings.scan_as_roll)
+        self._sync_roll_controls()
         self.pattern_edit.setText(self._settings.filename_pattern)
         self.autofocus_check.setChecked(self._settings.autofocus)
         self.ae_check.setChecked(self._settings.auto_exposure)
@@ -571,7 +574,8 @@ class ScanSidebar(QWidget):
         self.folder_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.roll_edit.textChanged.connect(lambda: self._update_settings_from_ui())
-        self.as_roll_btn.toggled.connect(self._on_as_roll_toggled)
+        self.as_roll_btn.toggled.connect(self._on_roll_toggles_changed)
+        self.folder_roll_btn.toggled.connect(self._on_roll_toggles_changed)
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
@@ -1117,8 +1121,13 @@ class ScanSidebar(QWidget):
         self.exposure_slider.setEnabled(not self.ae_check.isChecked())
         self._update_settings_from_ui()
 
-    def _on_as_roll_toggled(self, on: bool) -> None:
-        self.roll_edit.setEnabled(on)
+    def _sync_roll_controls(self) -> None:
+        as_roll = self.as_roll_btn.isChecked()
+        self.folder_roll_btn.setEnabled(as_roll)
+        self.roll_edit.setEnabled(as_roll and not self.folder_roll_btn.isChecked())
+
+    def _on_roll_toggles_changed(self) -> None:
+        self._sync_roll_controls()
         self._update_settings_from_ui()
 
     def _on_exposure_changed(self, _value: int) -> None:
@@ -1469,7 +1478,7 @@ class ScanSidebar(QWidget):
             if not output_folder:
                 return
         as_roll = self.as_roll_btn.isChecked()
-        if as_roll:
+        if as_roll and not self.folder_roll_btn.isChecked():
             roll = roll_folder_name(self.roll_edit.text())
             if roll is None:
                 self.status_strip.set_message('Roll name must be a single safe name (not "." or "..", and no path separators).')
@@ -1684,6 +1693,7 @@ class ScanSidebar(QWidget):
             selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),
             output_folder=self.folder_edit.text().strip(),
             scan_as_roll=self.as_roll_btn.isChecked(),
+            roll_is_folder=self.folder_roll_btn.isChecked(),
             roll_name=self.roll_edit.text().strip() or "Roll001",
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
