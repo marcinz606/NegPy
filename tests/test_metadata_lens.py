@@ -524,7 +524,11 @@ def test_history_or_reset_reloads_pixels_when_metadata_mode_changes(enabled):
     state = AppState(current_file_path="scan.arw")
     state.config = replace(state.config, geometry=GeometryConfig(lens_distortion_from_metadata=enabled, lens_ca_from_metadata=enabled))
     state.preview_lens_token = lens_decode_token(LensCorrections(not enabled, not enabled), state.config.flatfield)
-    controller = SimpleNamespace(state=state, _render_debounce=MagicMock(), load_file=MagicMock())
+    controller = SimpleNamespace(
+        state=state,
+        _render_debounce=MagicMock(),
+        load_file=MagicMock(),
+    )
     AppController.request_render(controller)
     controller.load_file.assert_called_once_with("scan.arw", preserve_zoom=True)
 

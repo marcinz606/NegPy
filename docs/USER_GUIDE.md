@@ -38,7 +38,7 @@ Drag a panel by its top edge (the thin strip above Session, the margin around th
 
 ### Peek Negative
 
-The toolbar's film button (or `N`) shows the scan as loaded: not inverted, no metering, no film-base normalization, no edits. Crop, rotation and flip still apply. Use it to check density, mask color and scanner clipping. Touching a control closes it. It is color managed and scaled to its brightest tone, so thin and dense captures look equally bright: read density from the density histogram. The soft proof is off.
+The toolbar's film button (or `N`) shows the scan as loaded: not inverted, no metering, no film-base normalization, no edits. Crop, rotation and flip still apply. Use it to check density, mask color and scanner clipping. A crop resize keeps the peek active while you drag and closes it when you release the handle. Touching another control closes it. It is color managed and scaled to its brightest tone, so thin and dense captures look equally bright: read density from the density histogram. The soft proof is off.
 
 ### Peek Embedded Preview
 

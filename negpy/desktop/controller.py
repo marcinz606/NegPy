@@ -3331,11 +3331,11 @@ class AppController(QObject):
         # Defer the bounds recompute to crop-tool close. Clearing here re-normalizes on
         # every drag step.
         self._crop_bounds_dirty = True
-        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
+        self._render_debounce.stop()
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist, render=persist)
         if persist:
+            self._reset_all_peeks()
             self.request_render()
-        else:
-            self._render_debounce.start()
 
     def handle_crop_rotation_changed(self, angle: float, persist: bool) -> None:
         """Live-updates (persist=False) or commits (persist=True) fine rotation from the
@@ -3367,6 +3367,7 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
         self.rotation_guide_requested.emit()
         self.set_active_tool(ToolMode.NONE)
+        self._reset_all_peeks()
         self.request_render()
 
     def auto_skew_frame(self) -> None:
@@ -3462,7 +3463,21 @@ class AppController(QObject):
         self._keystone_lines = {}
         self.keystone_lines_cleared.emit()
         self.rotation_guide_requested.emit()
+        self._reset_all_peeks()
         self.request_render()
+
+    def _reset_all_peeks(self) -> None:
+        """Drop all the peek modes, which are mutually exclusive with each other and with
+        the crop tool. Called before any edit that would otherwise leave a peek up."""
+        if self.state.flat_peek:
+            self.state.flat_peek = False
+            self.flat_peek_changed.emit(False)
+        if self.state.negative_peek:
+            self.state.negative_peek = False
+            self.negative_peek_changed.emit(False)
+        if self.state.embedded_peek:
+            self.state.embedded_peek = False
+            self.embedded_peek_changed.emit(False)
 
     def confirm_manual_crop(self) -> None:
         """Close the crop tool (committing the current rect) — invoked by a double-click
@@ -6115,16 +6130,7 @@ class AppController(QObject):
             self.load_file(self.state.current_file_path, preserve_zoom=True)
             return
 
-        # Any direct render exits the flat preview-peek.
-        if config_override is None and self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
-        if config_override is None and self.state.negative_peek:
-            self.state.negative_peek = False
-            self.negative_peek_changed.emit(False)
-        if config_override is None and self.state.embedded_peek:
-            self.state.embedded_peek = False
-            self.embedded_peek_changed.emit(False)
+        # Peek state is explicit at the interaction boundary; direct renders do not change it.
 
         # The strip's patches were printed from the config as it stood, so once the edit
         # moves they prove something else. Drop them, which also cancels a strip still

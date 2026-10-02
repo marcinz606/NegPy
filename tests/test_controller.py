@@ -2375,6 +2375,47 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.mock_session_manager.update_config.call_args.kwargs.get("persist"), False)
         self.controller.request_render.assert_not_called()
 
+    def test_crop_rect_live_update_keeps_negative_peek_until_release(self):
+        self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
+        self.controller.state.negative_peek = True
+        self.controller.state.active_tool = ToolMode.CROP_MANUAL
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        painted: list = []
+        self.controller.image_updated.connect(lambda: painted.append(True))
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_crop_rect_changed(0.2, 0.2, 0.8, 0.8, False)
+
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertFalse(self.controller._render_debounce.isActive())
+        self.assertFalse(self.controller.request_render.called)
+        self.assertFalse(painted)
+        self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs.get("render", True))
+
+    def test_crop_rect_commit_ends_negative_peek(self):
+        self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
+        self.controller.state.negative_peek = True
+        self.controller.state.active_tool = ToolMode.CROP_MANUAL
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_crop_rect_changed(0.2, 0.2, 0.8, 0.8, True)
+
+        self.assertFalse(self.controller.state.negative_peek)
+        self.controller.request_render.assert_called_once_with()
+
+    def test_straighten_completion_ends_negative_peek(self):
+        self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
+        self.controller.state.negative_peek = True
+        self.controller.state.active_tool = ToolMode.STRAIGHTEN
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_straighten_completed(5.0)
+
+        self.assertFalse(self.controller.state.negative_peek)
+        self.controller.request_render.assert_called_once_with()
+
     def test_handle_crop_rect_changed_defers_bounds_invalidation(self):
         """During drag the auto-exposure bounds are left untouched (only flagged dirty),
         so the base cache survives and the frame doesn't re-normalize each step."""
@@ -4969,8 +5010,8 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.controller.negative_peek_changed.connect(seen.append)
         with patch.object(self.controller, "_dispatch_pending_render"):
             self.controller.request_render()
-        self.assertFalse(self.controller.state.negative_peek)
-        self.assertIn(False, seen)
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertEqual(seen, [])
 
     def test_rerender_active_view_keeps_the_negative_peek(self):
         import numpy as np
