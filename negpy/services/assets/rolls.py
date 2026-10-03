@@ -91,13 +91,26 @@ def recognize_folder(repo: Any, path: str, name: str = "") -> str:
     roll_id = uuid.uuid4().hex
     store[roll_id] = {
         "kind": "folder",
-        "name": name or path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or path,
+        "name": name or _import_name(repo, path) or path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or path,
         "folder_path": path,
         "extra_paths": [],
         "created_at": time.time(),
     }
     _write(repo, store)
     return roll_id
+
+
+def _import_name(repo: Any, path: str) -> str:
+    """*path* named as Import Subfolders as Rolls names it, from the deepest import source
+    that holds it, so the Library tree nests it there; "" outside every source."""
+    key = _folder_key(path)
+    sources = [os.path.normpath(s) for s in import_sources(repo) if key != _folder_key(s) and _under(key, _folder_key(s))]
+    if not sources:
+        return ""
+    source = max(sources, key=len)
+    # The source's own spelling, so a case-different path on Windows joins the same tree node.
+    parts = [os.path.basename(source), *os.path.relpath(os.path.normpath(path), source).split(os.sep)]
+    return ROLL_PATH_SEP.join(parts)
 
 
 def _dismissed_folders(repo: Any) -> List[str]:

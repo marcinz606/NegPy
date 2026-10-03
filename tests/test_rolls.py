@@ -80,6 +80,30 @@ def test_recognize_folder_names_it_from_the_path():
     assert entry["extra_paths"] == []
 
 
+def test_recognize_folder_under_an_import_source_nests_like_an_import(tmp_path):
+    repo = _repo()
+    (tmp_path / "scans" / "old").mkdir(parents=True)
+    (tmp_path / "scans" / "old" / "a.tif").write_bytes(b"")
+    import_subfolders_as_rolls(repo, str(tmp_path / "scans"))
+    roll_id = recognize_folder(repo, str(tmp_path / "scans" / "2026" / "new"))
+    assert roll_for_id(repo, roll_id)["name"] == "scans/2026/new"
+    assert roll_for_id(repo, recognize_folder(repo, "/elsewhere/roll"))["name"] == "roll"
+
+
+def test_recognize_folder_nests_under_an_import_source_on_windows(monkeypatch):
+    import ntpath
+    from types import SimpleNamespace
+
+    from negpy.services.assets import rolls
+
+    monkeypatch.setattr(rolls, "os", SimpleNamespace(path=ntpath, sep="\\"))
+    repo = _repo()
+    repo.save_global_setting(rolls.IMPORT_SOURCES_KEY, ["D:\\Photos\\Scans"])
+    roll_id = recognize_folder(repo, "d:/photos/scans/2026\\New")
+    assert roll_for_id(repo, roll_id)["name"] == "Scans/2026/New"
+    assert roll_for_id(repo, recognize_folder(repo, "E:\\Photos\\Scans\\x"))["name"] == "x"
+
+
 def test_recognize_folder_is_idempotent():
     repo = _repo()
     first = recognize_folder(repo, "/scans/roll_a")
