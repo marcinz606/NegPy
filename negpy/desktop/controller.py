@@ -100,6 +100,7 @@ from negpy.domain.models import (
     resolve_preset_export,
 )
 from negpy.services.assets.composites import forget_composite, restore_maps
+from negpy.services.assets.triplets import saved_triplets
 from negpy.services.assets import rolls
 from negpy.services.export.contact_sheet_layout import ContactSheetSettings
 from negpy.services.export.contact_sheet_roll import (
@@ -1556,11 +1557,21 @@ class AppController(QObject):
         self._active_discovery_keys = frozenset(_capture_import_key(path) for path in request.paths)
         self.set_status("Scanning for assets…")
         stitches, merges = restore_maps(self.session.repo)
+        restore_triplets = request.restore_triplets
+        if request.rgb_scan:
+            # A grouping found before skips the raw read. One this request names wins, unless it
+            # names the same pair: the stored record carries the hashes that catch a changed file.
+            saved = saved_triplets(self.session.repo)
+            requested = request.restore_triplets or {}
+            restore_triplets = {
+                **saved,
+                **{red: rec for red, rec in requested.items() if list(saved.get(red, [None, None])[:2]) != list(rec[:2])},
+            }
         task = AssetDiscoveryTask(
             paths=list(request.paths),
             supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS),
             rgb_scan=request.rgb_scan,
-            restore_triplets=request.restore_triplets,
+            restore_triplets=restore_triplets,
             half_frame=request.half_frame,
             # Read as the request starts, not as it was queued: a composite made while
             # a discovery waits its turn must still be re-attached when the queue gets to it.

@@ -198,7 +198,7 @@ class AssetDiscoveryTask:
     paths: list[str]
     supported_extensions: tuple[str, ...]
     rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
-    restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
+    restore_triplets: dict | None = None  # {red_path: [green, blue, align, hashes?]} — rebuild known triplets.
     half_frame: bool = False  # Expand each file into two half-frame assets along the split axis.
     restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
     restore_hdr: dict | None = None  # {reference_path: {paths, ratios, align, hash}} (session restore).
@@ -870,18 +870,38 @@ class AssetDiscoveryWorker(QObject):
         """Re-attach known green/blue exposures to their red asset (no reclassification).
 
         A session manifest holds the red path alone, but a capture hands over all three,
-        so the two exposures that became part of a frame are dropped from the roll.
+        so the two exposures that became part of a frame are dropped from the roll. A record
+        that states a member's hash re-attaches only while the file found here still has it.
         """
         import os
 
+        from negpy.kernel.image.logic import calculate_file_hash
+
+        hashes = {a["path"]: a["hash"] for a in assets}
         out = []
         parts: set = set()
         for a in assets:
             gb = triplets.get(a["path"])
-            if gb and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
+            stored = list(gb[3]) if gb and len(gb) > 3 else ["", "", ""]
+            if gb:
+                for path, want in zip(gb[:2], stored[1:]):
+                    if want and path and path not in hashes and os.path.exists(path):
+                        hashes[path] = calculate_file_hash(path)
+            changed = gb and any(want and path in hashes and hashes[path] != want for path, want in zip((a["path"], gb[0], gb[1]), stored))
+            if gb and not changed and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
                 base = os.path.splitext(a["name"])[0]
                 align = bool(gb[2]) if len(gb) > 2 else True
-                out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1], "align": align})
+                out.append(
+                    {
+                        **a,
+                        "name": f"{base} (RGB)",
+                        "green_path": gb[0],
+                        "blue_path": gb[1],
+                        "align": align,
+                        "green_hash": hashes.get(gb[0], stored[1]),
+                        "blue_hash": hashes.get(gb[1], stored[2]),
+                    }
+                )
                 parts.update({gb[0], gb[1]})
             else:
                 out.append(a)
@@ -1015,7 +1035,16 @@ class AssetDiscoveryWorker(QObject):
                 continue
             red = by_path[t.red]
             base = os.path.splitext(red["name"])[0]
-            result.append({**red, "name": f"{base} (RGB)", "green_path": t.green, "blue_path": t.blue})
+            result.append(
+                {
+                    **red,
+                    "name": f"{base} (RGB)",
+                    "green_path": t.green,
+                    "blue_path": t.blue,
+                    "green_hash": by_path[t.green]["hash"],
+                    "blue_hash": by_path[t.blue]["hash"],
+                }
+            )
             grouped.update({t.red, t.green, t.blue})
 
         result.extend(by_path[p] for p in ordered if p not in grouped)
