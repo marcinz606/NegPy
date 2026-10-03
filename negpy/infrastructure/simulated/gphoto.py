@@ -2,7 +2,9 @@
 
 Every frame is exposed from the simulated film, the simulated Scanlight's current color and
 the body's shutter and ISO, so calibration and the triplet channels respond to the light. A
-still is a Bayer DNG, which the capture path decodes like any camera RAW.
+still is a Bayer DNG, which the capture path decodes like any camera RAW. A still lit white
+or by the triplet's first channel advances the film to a new picture; the other two channels
+stay on it, so a triplet's three exposures show one picture.
 """
 
 import functools
@@ -13,6 +15,7 @@ import cv2
 import numpy as np
 import tifffile
 
+from negpy.infrastructure.capture.base import CAPTURE_ORDER
 from negpy.infrastructure.simulated.images import film
 from negpy.infrastructure.simulated.scanlight import current_color
 
@@ -40,6 +43,9 @@ _DNG_TAGS = [
     (50728, "2I", 3, (1, 1, 1, 1, 1, 1), True),  # AsShotNeutral
 ]
 _CFA_PHOTOMETRIC = 32803
+# Enough texture that every frame of a roll passes trichrome grouping's same-frame floor.
+_FILM_SHAPES = 24
+_FIRST_CHANNEL = "RGB".index(CAPTURE_ORDER[0].letter)
 
 
 def _seconds(label: str) -> float:
@@ -179,6 +185,7 @@ class SimGphoto:
         self.pending_raw = b""
         self.shot_events = 0
         self._rng = np.random.default_rng(0)
+        self._frame = 0
         self.Camera = lambda: _Camera(self)
         self.Camera.autodetect = lambda: _CameraList([(MODEL, "usb:sim")])
 
@@ -191,8 +198,14 @@ class SimGphoto:
         gain = _seconds(self.props["shutterspeed"].value or "1") * (int(iso) / 100 if iso.isdigit() else 1.0)
         return transmittance * (_RESPONSE * lit * gain)
 
+    def _advance_film(self) -> None:
+        r, g, b, w = current_color()
+        if w > max(r, g, b) or int(np.argmax((r, g, b))) == _FIRST_CHANNEL:
+            self._frame += 1
+
     def still_dng(self) -> bytes:
-        quad = self._signal(_film(_SENSOR_HW[0] // 2, _SENSOR_HW[1] // 2))
+        self._advance_film()
+        quad = self._signal(_film(_SENSOR_HW[0] // 2, _SENSOR_HW[1] // 2, self._frame))
         cfa = np.empty(_SENSOR_HW, np.float32)
         cfa[0::2, 0::2], cfa[0::2, 1::2], cfa[1::2, 0::2], cfa[1::2, 1::2] = quad[..., 0], quad[..., 1], quad[..., 1], quad[..., 2]
         counts = cfa * (_WHITE - _BLACK)
@@ -203,14 +216,14 @@ class SimGphoto:
         return out.getvalue()
 
     def preview_jpeg(self) -> bytes:
-        display = np.clip(self._signal(_film(*_PREVIEW_HW)), 0.0, 1.0) ** (1 / 2.2)
+        display = np.clip(self._signal(_film(*_PREVIEW_HW, self._frame)), 0.0, 1.0) ** (1 / 2.2)
         _ok, jpeg = cv2.imencode(".jpg", cv2.cvtColor((display * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
         return jpeg.tobytes()
 
 
-@functools.cache
-def _film(h: int, w: int) -> np.ndarray:
-    return film(h, w)[0]
+@functools.lru_cache(maxsize=4)
+def _film(h: int, w: int, seed: int) -> np.ndarray:
+    return film(h, w, seed, _FILM_SHAPES)[0]
 
 
 @functools.cache
