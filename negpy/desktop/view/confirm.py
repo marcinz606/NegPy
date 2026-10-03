@@ -175,6 +175,19 @@ def confirm_clear_heals(parent, count: int) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_trash_duplicates(parent, count: int) -> bool:
+    """Ask before Find Duplicates moves files to the Trash. Cancel is the default: files leave
+    the disk, and the Trash is the only way back."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle("Find Duplicates")
+    box.setText(f"Move {count_of(count, 'duplicate file')} to the Trash?")
+    box.setInformativeText("Their .negpy sidecars go too. Restore them from the Trash to get them back.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_assembly_mode(parent, mode: str, count: int) -> bool:
     """Ask before Trichrome or Half Frame mode goes on.
 

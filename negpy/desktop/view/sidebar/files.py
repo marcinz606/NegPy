@@ -1056,11 +1056,15 @@ class FileBrowser(QWidget):
         self.close_roll_action.triggered.connect(lambda: _close_roll(self, self.controller))
         frames_menu.aboutToShow.connect(self._sync_close_roll_action)
         frames_menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(self._on_reset_roll)
+        frames_menu.addAction(label_with_shortcut("Find Duplicates…", "find_duplicates")).triggered.connect(
+            lambda: self.controller.request_find_duplicates()
+        )
         self.frames_section.set_actions_menu(
             frames_menu,
             "New Roll clears the film strip so you can drag in a fresh batch of frames. "
             "Close Roll empties it and returns to the Library. "
-            "Reset Roll to Defaults undoes every loaded frame's edit at once.",
+            "Reset Roll to Defaults undoes every loaded frame's edit at once. "
+            "Find Duplicates looks for frames scanned more than once, to stack, reject or trash.",
         )
 
         # A splitter, like the right panel's Analysis/Tabs one, so the boundary can be
@@ -1832,6 +1836,9 @@ class FileBrowser(QWidget):
             menu.addSeparator()
             menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())
             self._add_hdr_merge_action(menu, state)
+            menu.addAction(label_with_shortcut("Stack Scans", "stack_scans")).triggered.connect(
+                lambda: self.controller.request_stack_selected()
+            )
             self._add_merge_to_tiff_action(menu, state, SCOPE_SELECTION)
         else:
             menu.addSeparator()
@@ -1840,7 +1847,9 @@ class FileBrowser(QWidget):
             active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
             if active.get("stitch_paths"):
                 menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
-            if active.get("hdr_paths"):
+            if active.get("hdr_paths") and active.get("hdr_stack"):
+                menu.addAction("Unstack Scans").triggered.connect(lambda: self.controller.request_unmerge_hdr())
+            elif active.get("hdr_paths"):
                 self._add_hdr_anchor_menu(menu, active)
                 menu.addAction("Unmerge Exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
             if active.get("diptych"):

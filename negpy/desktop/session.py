@@ -367,6 +367,8 @@ def composite_summary(asset: Dict[str, Any]) -> str:
     kind = composite_kind(asset)
     if kind == "stitch":
         return f"Stitched composite of {count_of(len(asset['stitch_paths']) + 1, 'frame')}"
+    if kind == "hdr" and asset.get("hdr_stack"):
+        return f"Stack of {count_of(len(hdr_frame_paths(asset)), 'scan')}"
     if kind == "hdr":
         return f"HDR merge of {count_of(len(hdr_frame_paths(asset)), 'exposure')}"
     if kind == "rgb":
@@ -724,6 +726,7 @@ def resolve_asset_hdr(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
                 hdr_align=bool(asset.get("hdr_align", True)),
                 hdr_anchor=str(asset.get("hdr_anchor", "") or ""),
                 hdr_anchor_ev=float(asset.get("hdr_anchor_ev", ANCHOR_EV_UNSET)),
+                hdr_stack=bool(asset.get("hdr_stack", False)),
             ),
         )
     return replace(params, hdr=HdrConfig())
@@ -1336,6 +1339,21 @@ class DesktopSessionManager(QObject):
             self.repo.save_file_mark(unforked_hash(f["hash"]), mark if set_all else None, file_path=f.get("path", ""))
         self.asset_model.refresh()
         self.files_changed.emit()
+
+    def mark_paths(self, paths: List[str], mark: str) -> int:
+        """Sets a triage mark on the loaded frames at ``paths``, whatever the selection.
+        Returns how many frames took it."""
+        other = "excluded" if mark == "keeper" else "keeper"
+        wanted = set(paths)
+        hits = [f for f in self.state.uploaded_files if f.get("path") in wanted]
+        for f in hits:
+            f[mark] = True
+            f[other] = False
+            self.repo.save_file_mark(unforked_hash(f["hash"]), mark, file_path=f.get("path", ""))
+        if hits:
+            self.asset_model.refresh()
+            self.files_changed.emit()
+        return len(hits)
 
     def _stamp_scenes(self) -> None:
         by_hash = rolls.scene_by_hash(self.repo, self.state.active_roll_id)
@@ -2191,6 +2209,17 @@ class DesktopSessionManager(QObject):
             self.asset_model.refresh()
             self.state_changed.emit()
             self._persist_session()
+
+    def remove_paths(self, paths: List[str]) -> int:
+        """Removes the loaded frames at ``paths`` from the session, as Unload does. Returns
+        how many were removed."""
+        wanted = set(paths)
+        indices = [i for i, f in enumerate(self.state.uploaded_files) if f.get("path") in wanted]
+        if not indices:
+            return 0
+        self.state.selected_indices = indices
+        self.remove_selected_files()
+        return len(indices)
 
     def remove_selected_files(self) -> None:
         """

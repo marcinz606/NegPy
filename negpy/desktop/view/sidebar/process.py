@@ -18,7 +18,7 @@ from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
-from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_bracket
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
@@ -394,7 +394,7 @@ class ProcessSidebar(BaseSidebar):
 
             # Greyed on a merge, not hidden: the render already ignores it, since WorkspaceConfig
             # holds that invariant, and a control that vanishes teaches nothing about why.
-            merged = hdr_active(self.state.config.hdr)
+            merged = hdr_bracket(self.state.config.hdr)
 
             self.positive_source_btn.setVisible(is_e6)
             self.positive_source_btn.setChecked(conf.positive_source)

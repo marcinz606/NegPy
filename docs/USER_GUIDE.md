@@ -163,6 +163,7 @@ The **⋮** menu on the Film Strip header, beside its ⓘ guide:
 *   **New Roll…**: clears the film strip so you can drag in frames and keep them with **Save as Roll…**.
 *   **Close Roll…**: empties the film strip and returns to the Library; **Unload All…** when the frames are not a roll. Asks first; edits stay saved.
 *   **Reset Roll to Defaults…**: **Reset Settings** on every visible frame. Asks first; each reset is an undo step.
+*   **Find Duplicates…**: finds frames scanned more than once ([§Stacking](#stacking-rescans-and-finding-duplicates)).
 
 The grid button on the same header opens the **Light Table** (`Shift+G`): the roll as a grid in place of the canvas, to cull and pick frames with the same selection, marks and menus. Double-click or **Enter** opens a frame on the canvas; **Esc** or `Shift+G` goes back. Both side panels step aside while it shows, so the grid fills the window.
 
@@ -246,6 +247,17 @@ Metered −2 through +3 is six frames; if you must drop some, drop long ones. Sh
 The merge inherits its exposures' **film process** (stitched composites too), and is **named after the first frame in filename order** with an `-HDR` suffix: `_DSC1715`…`_DSC1719` exports as `_DSC1715-HDR.jpg`.
 
 **Merging is for transparencies** (10-12 stops, against about 5-6 for color negative and near 4 for black-and-white), so it appears on Transparency frames only. On black-and-white it shows disabled: reversal monochrome (Scala, dr5, Fomapan R) is not supported yet. Frames already merged, stitched or Trichrome triplets cannot be merged.
+
+#### Stacking rescans and finding duplicates
+
+Scanning one frame several times and averaging the scans lowers the scanner's noise; the film's own grain is the same in every scan and stays. Select the scans and right-click → **Stack Scans**. They become one badged frame named *a +3 (Stack)*, on any film; **Unstack Scans** restores the originals. Each scan is aligned to the reference (the first in filename order, or the one kept in Find Duplicates), so scans that crop the frame differently still line up; an area only some scans reach averages those. Auto Density and Auto Grade work as on a single frame. A stack exports with a `-STACK` suffix.
+
+**Find Duplicates…** (Film Strip **⋮** menu) looks through the loaded single frames for any scanned more than once: rescans of one negative, and copies of one scan (an exported JPEG beside its TIFF, a resized copy). A neighbouring frame of the same scene is not a match. Each group shows its frames; choose the one to **Keep** and what happens to the others:
+
+*   **Stack**: average them with the kept frame. The default for rescans.
+*   **Reject Others**: mark them rejected; the files stay. The default for copies and for a group that mixes file types, since copies of one scan average to nothing.
+*   **Move Others to Trash**: move their files and `.negpy` sidecars to the Trash and unload them. Asks first.
+*   **Skip**: leave the group as it is.
 
 ### Triage (culling the roll)
 

@@ -940,7 +940,7 @@ class AssetDiscoveryWorker(QObject):
                 out.append(
                     {
                         **a,
-                        "name": hdr_name([a["path"], *entry["paths"]]),
+                        "name": hdr_name([a["path"], *entry["paths"]], stack=bool(entry.get("stack"))),
                         "hash": entry["hash"],
                         # The composite hash is the bracket's own: inheriting the reference
                         # frame's legacy digest would rehome that frame's edit onto it.
@@ -950,6 +950,7 @@ class AssetDiscoveryWorker(QObject):
                         "hdr_align": bool(entry.get("align", True)),
                         "hdr_anchor": str(entry.get("anchor", "") or ""),
                         "hdr_anchor_ev": float(entry.get("anchor_ev", 1.0)),
+                        "hdr_stack": bool(entry.get("stack", False)),
                     }
                 )
                 attached.append(entry)

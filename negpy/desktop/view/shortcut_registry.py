@@ -35,6 +35,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     # fire activatedAmbiguously and kills both actions.
     "hdr_merge": ShortcutEntry("", "Merge selected exposures into one HDR frame", "Triage"),
     "hdr_unmerge": ShortcutEntry("", "Unmerge an HDR frame back into its exposures", "Triage"),
+    "stack_scans": ShortcutEntry("", "Stack selected rescans of one frame into one, averaging their noise", "Triage"),
+    "find_duplicates": ShortcutEntry("", "Find frames scanned more than once in the roll", "Triage"),
     "half_frame_undiptych": ShortcutEntry("", "Unsplit a diptych back into one plain frame", "Triage"),
     "update_thumbnails_selection": ShortcutEntry("", "Update selected frames' thumbnails", "Triage"),
     "update_thumbnails_roll": ShortcutEntry("", "Update thumbnails for the whole roll", "Triage"),

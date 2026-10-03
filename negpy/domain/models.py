@@ -22,7 +22,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
-from negpy.features.hdr.models import HdrConfig, hdr_active
+from negpy.features.hdr.models import HdrConfig, hdr_active, hdr_bracket
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.domain.migrations import migrate_export_fmt, migrate_flat_config
@@ -389,7 +389,8 @@ class WorkspaceConfig:
             return
         if self.process.highlight_reconstruction:
             object.__setattr__(self, "process", replace(self.process, highlight_reconstruction=0))
-        if self.exposure.auto_exposure or self.exposure.auto_normalize_contrast:
+        # A stack has one exposure's range and no render exposure, so the autos are its own.
+        if hdr_bracket(self.hdr) and (self.exposure.auto_exposure or self.exposure.auto_normalize_contrast):
             object.__setattr__(self, "exposure", replace(self.exposure, auto_exposure=False, auto_normalize_contrast=False))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -500,6 +501,7 @@ class WorkspaceConfig:
                 hdr_align=bool(d.get("hdr_align", True)),
                 hdr_anchor=str(d.get("hdr_anchor", "") or ""),
                 hdr_anchor_ev=float(d.get("hdr_anchor_ev", 1.0)),
+                hdr_stack=bool(d.get("hdr_stack", False)),
             )
 
         return cls(

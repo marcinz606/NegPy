@@ -40,11 +40,20 @@ class HdrConfig:
     #: setting. That leaves the whole usable range, 0 and below, free to mean what it says,
     #: which a 0.0 sentinel would not, since 0 EV is a real choice distinct from the default.
     hdr_anchor_ev: float = 1.0
+    #: A stack: rescans of one frame at one exposure, every ratio 1.0, averaged for noise.
+    #: It merges through the same path, but places each scan on the reference's canvas
+    #: (rescans crop differently) and keeps the autos a bracket switches off.
+    hdr_stack: bool = False
 
 
 def hdr_active(config: HdrConfig) -> bool:
     """The predicate the decode paths use to decide to merge a bracket."""
     return bool(config.hdr_enabled and config.hdr_paths)
+
+
+def hdr_bracket(config: HdrConfig) -> bool:
+    """A merge of different exposures: what the render exposure and the held autos are for."""
+    return hdr_active(config) and not config.hdr_stack
 
 
 def hdr_merge_token(config: HdrConfig) -> str:
@@ -81,11 +90,12 @@ def hdr_stem(frame_paths: Sequence[str]) -> str:
     return os.path.splitext(os.path.basename(min(frame_paths, key=lambda p: os.path.basename(p).lower())))[0]
 
 
-def hdr_name(frame_paths: Sequence[str]) -> str:
+def hdr_name(frame_paths: Sequence[str], stack: bool = False) -> str:
     """Display name of a merge: the naming stem plus the extra frame count."""
+    label = "(Stack)" if stack else "(HDR)"
     if not frame_paths:
-        return "(HDR)"
-    return f"{hdr_stem(frame_paths)} +{len(frame_paths) - 1} (HDR)"
+        return label
+    return f"{hdr_stem(frame_paths)} +{len(frame_paths) - 1} {label}"
 
 
 def hdr_frame_paths(asset: dict) -> list:
@@ -94,9 +104,9 @@ def hdr_frame_paths(asset: dict) -> list:
     return [asset["path"], *others] if others else []
 
 
-def hdr_hash(frame_hashes: Sequence[str]) -> str:
+def hdr_hash(frame_hashes: Sequence[str], stack: bool = False) -> str:
     """Edit-key identity of a merge: content hashes of the frames, order-sensitive (order
     defines which frame is the exposure reference). The ``#`` suffix follows the half-frame
     convention so ``base_hash`` strips it to a plain digest."""
     digest = hashlib.sha256("|".join(frame_hashes).encode()).hexdigest()
-    return f"{digest}#hdr"
+    return f"{digest}#stack" if stack else f"{digest}#hdr"

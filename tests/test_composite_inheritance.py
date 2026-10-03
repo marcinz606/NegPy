@@ -377,11 +377,14 @@ class TestMergeRefusals(unittest.TestCase):
     """
 
     def _controller(self, files):
+        from negpy.desktop.controller import AppController
+
         ctrl = MagicMock()
         ctrl.state.uploaded_files = files
         ctrl.state.selected_indices = list(range(len(files)))
         ctrl._batch_busy.return_value = False
         ctrl._begin_batch.return_value = None  # stops before the worker
+        ctrl._merge_candidates = AppController._merge_candidates.__get__(ctrl)
         return ctrl
 
     def _merge(self, ctrl):

@@ -41,6 +41,9 @@ RATIO_FLOOR = 0.02
 #: the merge. The clipped fraction is not subsampled, because it picks the reference
 #: against a hard threshold and a different reference is a different white.
 MEASURE_PIXELS = 1_500_000
+#: How far a rescan's content may sit from the reference's, as a fraction of its width. Each
+#: scan crops the film edge on its own, so this is wider than a bracket's camera drift.
+STACK_MAX_SHIFT = 0.08
 
 
 @dataclass(frozen=True)
@@ -353,8 +356,10 @@ def merge_providers(
     ratios: Sequence[float],
     reference: int = 0,
     align: bool = True,
+    stack: bool = False,
 ) -> np.ndarray:
     """Merge a bracket into one float32 image in the reference frame's units, **unscaled**.
+    With ``stack``, frames of other sizes are placed on the reference canvas (``_place``).
 
     The render exposure is deliberately *not* applied here. It is a single multiply, while
     this is seconds of decoding and accumulation, so keeping them apart lets the expensive
@@ -385,6 +390,11 @@ def merge_providers(
 
     for i, (provider, ratio) in enumerate(zip(providers, ratios)):
         f = ref if i == reference else to_float(provider())
+        if stack and i != reference:
+            placed, covered = _place(ref_gray, f, STACK_MAX_SHIFT * ref.shape[1])
+            _accumulate_covered(num, den, placed, covered)
+            del f, placed, covered
+            continue
         if f.shape != ref.shape:
             raise ValueError(f"bracket frames differ in shape: {f.shape}, {ref.shape}")
         if align and i != reference:
@@ -424,6 +434,49 @@ def _align(ref_gray: np.ndarray, mov: np.ndarray, max_shift: float) -> np.ndarra
     return cv2.warpAffine(mov, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
+@parallel_njit(cache=True, fastmath=True)
+def _accumulate_covered(num: np.ndarray, den: np.ndarray, values: np.ndarray, covered: np.ndarray) -> None:
+    """_accumulate at ratio 1.0 for a stacked scan, where ``covered`` is 0 on the part of the
+    reference canvas the scan does not reach: a stack averages only the scans present."""
+    inv_span = np.float32(1.0) / np.float32(SATURATION - ROLLOFF_START)
+    height, width, channels = values.shape
+    for y in prange(height):
+        for x in range(width):
+            cov = covered[y, x]
+            if cov <= np.float32(0.0):
+                continue
+            for c in range(channels):
+                v = values[y, x, c]
+                rolloff = (np.float32(SATURATION) - v) * inv_span
+                if rolloff < np.float32(0.0):
+                    rolloff = np.float32(0.0)
+                elif rolloff > np.float32(1.0):
+                    rolloff = np.float32(1.0)
+                w = cov * rolloff
+                num[y, x, c] += w * v
+                den[y, x, c] += w
+
+
+def _place(ref_gray: np.ndarray, mov: np.ndarray, max_shift: float) -> Tuple[np.ndarray, np.ndarray]:
+    """A rescan registered onto the reference canvas by translation, and the coverage of that
+    canvas (1 where the scan lands, 0 past its edge). The scans differ in size, so the
+    estimate runs on the scan padded to the canvas with its own mean."""
+    h, w = ref_gray.shape
+    mh, mw = min(h, mov.shape[0]), min(w, mov.shape[1])
+    mov_gray = mov.mean(axis=2)
+    padded = np.full((h, w), float(mov_gray.mean()), dtype=np.float32)
+    padded[:mh, :mw] = mov_gray[:mh, :mw]
+    dx, dy = estimate_shift(ref_gray, padded)
+    if max(abs(dx), abs(dy)) > max_shift:
+        dx = dy = 0.0
+    matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32)
+    placed = cv2.warpAffine(mov, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    ones = np.ones(mov.shape[:2], dtype=np.float32)
+    covered = cv2.warpAffine(ones, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    # A pixel bordering the scan's edge blends with the zero border, so it counts only whole.
+    return placed, np.where(covered > 0.999, np.float32(1.0), np.float32(0.0)).astype(np.float32)
+
+
 def merge_frames(
     frames: Sequence[np.ndarray],
     ratios: Sequence[float],
@@ -449,6 +502,6 @@ def merge_bracket(decode_fn: Callable[[str], np.ndarray], reference_path: str, c
     if len(ratios) != len(paths):
         raise ValueError(f"{len(paths)} frames but {len(ratios)} ratios")
     merged = merge_providers(  # type: ignore[misc]
-        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=config.hdr_align
+        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=config.hdr_align, stack=config.hdr_stack
     )
     return apply_render_exposure(merged, ratios, resolve_anchor(paths, ratios, config))

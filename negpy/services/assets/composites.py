@@ -75,6 +75,7 @@ def composite_entry(asset: dict) -> Optional[dict]:
             "align": bool(asset.get("hdr_align", True)),
             "anchor": str(asset.get("hdr_anchor", "") or ""),
             "anchor_ev": float(asset.get("hdr_anchor_ev", ANCHOR_EV_UNSET)),
+            "stack": bool(asset.get("hdr_stack", False)),
             "hash": asset["hash"],
             "process_mode": asset.get("process_mode", ""),
         }
