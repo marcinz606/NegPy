@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QRectF, QEvent, QLocale
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.styles.templates import EditedDot, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, FieldLabel, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
 
 
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
@@ -109,12 +109,6 @@ class _NoScrollSpinBox(QDoubleSpinBox):
 
     def valueFromText(self, text: str) -> float:
         return super().valueFromText(text.replace(",", "."))
-
-    def wheelEvent(self, event) -> None:
-        if self.hasFocus():
-            super().wheelEvent(event)
-        else:
-            event.ignore()
 
 
 class BaseSlider(QWidget):
@@ -327,6 +321,7 @@ class CompactSlider(BaseSlider):
 
         self.label = QLabel(label)
         self.label.setStyleSheet(slider_label_qss(self._label_color))
+        self.label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setToolTip(label)
 
         # Keeps its slot while hidden, so the track does not shift.
@@ -757,19 +752,63 @@ class SliderGroup(QWidget):
         painter.drawRoundedRect(QRectF(0, 0, self.RAIL_WIDTH, self.height()), 1, 1)
 
 
-def _group_indent(slider: QWidget) -> int:
-    parent = slider.parentWidget()
-    return SliderGroup.INDENT if isinstance(parent, SliderGroup) else 0
+def _group_indent(widget: QWidget) -> int:
+    """Indent of every rail widget sits in, however deep its container."""
+    indent = 0
+    parent = widget.parentWidget()
+    while parent is not None:
+        if isinstance(parent, SliderGroup):
+            indent += SliderGroup.INDENT
+        parent = parent.parentWidget()
+    return indent
+
+
+def _row_layout(widget: QWidget) -> QHBoxLayout | None:
+    """The horizontal layout that opens with widget, if any."""
+    parent = widget.parentWidget()
+    # QWidget.layout, not parent.layout: BaseSidebar shadows it with an attribute.
+    root = QWidget.layout(parent) if parent is not None else None
+    pending = [root] if root is not None else []
+    while pending:
+        layout = pending.pop()
+        if layout.indexOf(widget) >= 0:
+            return layout if isinstance(layout, QHBoxLayout) and layout.indexOf(widget) == 0 else None
+        for k in range(layout.count()):
+            item = layout.itemAt(k)
+            child = item.layout() if item is not None else None
+            if child is not None:
+                pending.append(child)
+    return None
 
 
 def align_slider_columns(root: QWidget) -> None:
-    """Give every CompactSlider under root the widest label and value among them.
-    A grouped slider's label is shorter by the group's indent, so every track starts at one x."""
+    """Give every CompactSlider under root the widest label and value among them, and every
+    field label the slider label column, so labels end and tracks and fields start at one x.
+    A grouped row's label is shorter by the group's indent."""
     sliders = root.findChildren(CompactSlider)
     if not sliders:
         return
+    fields = [(f, row) for f in root.findChildren(FieldLabel) if (row := _row_layout(f)) is not None]
+    for field, _ in fields:
+        field.ensurePolished()
     widths = [slider.natural_column_widths() for slider in sliders]
-    label_width = max(w[0] + _group_indent(s) for w, s in zip(widths, sliders))
+    label_width = max(
+        [w[0] + _group_indent(s) for w, s in zip(widths, sliders)]
+        + [f.sizeHint().width() - f.contentsMargins().right() + _group_indent(f) for f, _ in fields]
+    )
     value_width = max(w[1] for w in widths)
     for slider in sliders:
         slider.set_column_widths(label_width - _group_indent(slider), value_width)
+    # A field row spans the slider's label cell and track: the label cell ends in the edited
+    # dot and the track gap, and the value column is left clear.
+    slider_row = QWidget.layout(sliders[0])
+    margins = slider_row.contentsMargins()
+    trail = THEME.space_xs + sliders[0]._edited_dot.width() + slider_row.spacing()
+    for field, row in fields:
+        pad = max(trail - max(row.spacing(), 0), 0)
+        field.setContentsMargins(0, 0, pad, 0)
+        field.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        field.setFixedWidth(margins.left() + label_width - _group_indent(field) + pad)
+        row_margins = row.contentsMargins()
+        row_margins.setRight(slider_row.spacing() + value_width + margins.right())
+        row.setContentsMargins(row_margins)

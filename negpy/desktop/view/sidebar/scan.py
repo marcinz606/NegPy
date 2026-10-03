@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.kernel.system.text import count_of, human_bytes
-from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
     field_row,
@@ -175,7 +174,6 @@ class ScanSidebar(QWidget):
         self._init_ui()
         self._connect_signals()
         self._sync_debug_log()
-        install_wheel_guards(self)
 
     # ── settings persistence ──────────────────────────────────────────
 

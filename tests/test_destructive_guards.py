@@ -28,25 +28,41 @@ def _wheel(widget) -> QWheelEvent:
     )
 
 
-def test_scan_panel_combos_ignore_the_wheel_unless_focused(qapp):
-    """ScanSidebar is not a BaseSidebar, so it never got the guard — scrolling the panel
-    changed scanner settings under the pointer."""
+def test_dropdowns_and_number_boxes_ignore_the_wheel(qapp):
+    """Scrolling a panel never changes a setting under the pointer, focused or not; the
+    ignored event goes on to the panel."""
+    from negpy.desktop.main import WheelScrollsPanel
+    from negpy.desktop.view.widgets.sliders import CompactSlider
+
     _, sidebar = _panel(ScanSidebar)
-    combos = sidebar.findChildren(QComboBox)
-    assert combos, "the scan panel should have combo boxes to guard"
     sidebar.device_combo.addItem("Second scanner", "second")
+    boxes = [c for c in sidebar.findChildren(QComboBox) if c.count() > 1]
+    assert boxes, "no combo had enough items to scroll — the test proved nothing"
+    boxes.append(_spin())
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    boxes.append(slider.spin)
 
-    exercised = 0
-    for combo in combos:
-        if combo.count() < 2:
-            continue
-        exercised += 1
-        combo.setCurrentIndex(0)
-        combo.clearFocus()
-        combo.wheelEvent(_wheel(combo))
-        assert combo.currentIndex() == 0
+    guard = WheelScrollsPanel(qapp)
+    qapp.installEventFilter(guard)
+    try:
+        for box in boxes:
+            before = box.currentIndex() if isinstance(box, QComboBox) else box.value()
+            event = _wheel(box)
+            qapp.sendEvent(box, event)
+            after = box.currentIndex() if isinstance(box, QComboBox) else box.value()
+            assert after == before
+            assert not event.isAccepted()
+    finally:
+        qapp.removeEventFilter(guard)
 
-    assert exercised, "no combo had enough items to scroll — the test proved nothing"
+
+def _spin():
+    from PyQt6.QtWidgets import QSpinBox
+
+    spin = QSpinBox()
+    spin.setRange(0, 100)
+    spin.setValue(50)
+    return spin
 
 
 def test_blank_rename_leaves_the_work_print_alone(qapp):

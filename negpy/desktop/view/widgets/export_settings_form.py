@@ -1,10 +1,8 @@
 import os
 from typing import Any, Dict, Optional
 
-import qtawesome as qta
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QLocale, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -12,7 +10,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -20,9 +17,8 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
-from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, header_row, section_subheader
-from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, icon_button, section_subheader, tool_toggle
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.domain.models import (
     EXPORT_COLOR_SPACES,
     JXL_TAGGABLE_SPACES,
@@ -86,9 +82,15 @@ class ExportSettingsForm(QWidget):
 
     @staticmethod
     def _row_label(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setFixedWidth(_LABEL_WIDTH)
-        return label
+        return field_label(text, _LABEL_WIDTH)
+
+    @classmethod
+    def _field_row(cls, text: str, field: QWidget) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(cls._row_label(text))
+        row.addWidget(field, 1)
+        return row
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -99,6 +101,7 @@ class ExportSettingsForm(QWidget):
         self._build_size(root)
         self._build_color(root)
         self._build_destination(root)
+        align_slider_columns(self)
 
     # --- FORMAT --------------------------------------------------------------
 
@@ -143,10 +146,11 @@ class ExportSettingsForm(QWidget):
         self.quality_spin = CompactSlider("JPEG Quality", 1, 100, 90, step=1, precision=1)
         self.quality_spin.valueChanged.connect(self._on_changed)
         quality_box.addWidget(self.quality_spin)
-        self.jpeg_progressive_check = QCheckBox("Progressive")
-        self.jpeg_progressive_check.setToolTip("Renders in passes while downloading; slightly smaller on large images")
-        self.jpeg_progressive_check.toggled.connect(self._on_changed)
-        quality_box.addWidget(self.jpeg_progressive_check)
+        self.jpeg_progressive_btn = tool_toggle(
+            "fa5s.stream", "Progressive", "Renders in passes while downloading; slightly smaller on large images", align_left=True
+        )
+        self.jpeg_progressive_btn.toggled.connect(self._on_changed)
+        quality_box.addWidget(self.jpeg_progressive_btn)
         options_box.addWidget(self._quality_container)
 
         self._build_tiff(options_box)
@@ -189,10 +193,10 @@ class ExportSettingsForm(QWidget):
         jxl_box = QVBoxLayout(self._jxl_container)
         jxl_box.setContentsMargins(0, 0, 0, 0)
 
-        self.jxl_lossless_check = QCheckBox("Lossless")
-        self.jxl_lossless_check.setChecked(True)
-        self.jxl_lossless_check.toggled.connect(self._on_jxl_lossless_toggled)
-        jxl_box.addWidget(self.jxl_lossless_check)
+        self.jxl_lossless_btn = tool_toggle("fa5s.gem", "Lossless", "Encode without loss; Distance applies only when off", align_left=True)
+        self.jxl_lossless_btn.setChecked(True)
+        self.jxl_lossless_btn.toggled.connect(self._on_jxl_lossless_toggled)
+        jxl_box.addWidget(self.jxl_lossless_btn)
 
         self.jxl_distance_spin = CompactSlider("Distance", 0.0, 15.0, 1.0, step=0.1)
         self.jxl_distance_spin.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
@@ -214,10 +218,11 @@ class ExportSettingsForm(QWidget):
         webp_box = QVBoxLayout(self._webp_container)
         webp_box.setContentsMargins(0, 0, 0, 0)
 
-        self.webp_lossless_check = QCheckBox("Lossless")
-        self.webp_lossless_check.setChecked(False)
-        self.webp_lossless_check.toggled.connect(self._on_changed)
-        webp_box.addWidget(self.webp_lossless_check)
+        self.webp_lossless_btn = tool_toggle(
+            "fa5s.gem", "Lossless", "Encode without loss; Quality then sets compression effort", align_left=True
+        )
+        self.webp_lossless_btn.toggled.connect(self._on_changed)
+        webp_box.addWidget(self.webp_lossless_btn)
 
         self.webp_quality_spin = CompactSlider("Quality", 1, 100, 90, step=1, precision=1)
         self.webp_quality_spin.setToolTip("Lossy: visual quality. Lossless: compression effort.")
@@ -253,39 +258,36 @@ class ExportSettingsForm(QWidget):
         mode_row.addWidget(self.mode_btn, 1)
         root.addLayout(mode_row)
 
-        # PRINT mode: cm + DPI
+        # PRINT mode: long edge in cm + DPI
         self._print_container = QWidget()
-        print_inner = QHBoxLayout(self._print_container)
+        print_inner = QVBoxLayout(self._print_container)
         print_inner.setContentsMargins(0, 0, 0, 0)
-        vbox_size = QVBoxLayout()
-        vbox_size.addWidget(QLabel(f'Size <span style="color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;">cm</span>'))
         self.size_input = QDoubleSpinBox()
         self.size_input.setRange(1.0, 500.0)
         self.size_input.setValue(30.0)
+        self.size_input.setSuffix(" cm")
+        self.size_input.setLocale(QLocale.c())
+        self.size_input.setToolTip("Long edge of the print")
         self.size_input.valueChanged.connect(self._on_changed)
-        vbox_size.addWidget(self.size_input)
-        vbox_dpi = QVBoxLayout()
-        vbox_dpi.addWidget(QLabel("DPI"))
+        print_inner.addLayout(self._field_row("Size", self.size_input))
         self.dpi_input = QSpinBox()
         self.dpi_input.setRange(72, 4800)
         self.dpi_input.setValue(300)
+        self.dpi_input.setToolTip("Print resolution in dots per inch")
         self.dpi_input.valueChanged.connect(self._on_changed)
-        vbox_dpi.addWidget(self.dpi_input)
-        print_inner.addLayout(vbox_size)
-        print_inner.addLayout(vbox_dpi)
+        print_inner.addLayout(self._field_row("DPI", self.dpi_input))
 
         # TARGET_PX mode: long edge in pixels
         self._target_px_container = QWidget()
         target_px_inner = QVBoxLayout(self._target_px_container)
         target_px_inner.setContentsMargins(0, 0, 0, 0)
-        target_px_inner.addWidget(
-            QLabel(f'Long edge <span style="color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;">px</span>')
-        )
         self.target_px_input = QSpinBox()
         self.target_px_input.setRange(256, 32768)
         self.target_px_input.setValue(2000)
+        self.target_px_input.setSuffix(" px")
+        self.target_px_input.setToolTip("Long edge of the exported image")
         self.target_px_input.valueChanged.connect(self._on_changed)
-        target_px_inner.addWidget(self.target_px_input)
+        target_px_inner.addLayout(self._field_row("Long edge", self.target_px_input))
         self._size_rail = SliderGroup(self._print_container, self._target_px_container)
         root.addWidget(self._size_rail)
 
@@ -310,10 +312,7 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._color_section)
 
-        self.icc_import_btn = QPushButton()
-        self.icc_import_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.icc_import_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.icc_import_btn.setToolTip(f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
+        self.icc_import_btn = icon_button("fa5s.folder-open", f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
         self.icc_import_btn.clicked.connect(self._import_icc)
         root.addLayout(header_row(section_subheader("COLOR MANAGEMENT"), self.icc_import_btn))
 
@@ -464,10 +463,7 @@ class ExportSettingsForm(QWidget):
         self.abspath_edit = QLineEdit()
         self.abspath_edit.setToolTip("Export folder")
         self.abspath_edit.textChanged.connect(self._on_changed)
-        self.abspath_browse_btn = QPushButton()
-        self.abspath_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.abspath_browse_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.abspath_browse_btn.setToolTip("Choose export folder")
+        self.abspath_browse_btn = icon_button("fa5s.folder-open", "Choose export folder")
         self.abspath_browse_btn.clicked.connect(self._browse_output_path)
         ap_inner.addWidget(self.abspath_edit)
         ap_inner.addWidget(self.abspath_browse_btn)
@@ -491,13 +487,15 @@ class ExportSettingsForm(QWidget):
         filename_row.addWidget(self.filename_edit)
         root.addLayout(filename_row)
 
-        self.overwrite_check = QCheckBox("Overwrite existing files")
-        self.overwrite_check.setToolTip(
-            "Checked: replace files that already exist, without asking. "
-            "Unchecked: ask before overwriting (Overwrite / Rename / Cancel) when a file already exists."
+        self.overwrite_btn = tool_toggle(
+            "fa5s.copy",
+            "Overwrite Existing Files",
+            "On: replace files that already exist, without asking. "
+            "Off: ask before overwriting (Overwrite / Rename / Cancel) when a file already exists.",
+            align_left=True,
         )
-        self.overwrite_check.stateChanged.connect(self._on_changed)
-        root.addWidget(self.overwrite_check)
+        self.overwrite_btn.toggled.connect(self._on_changed)
+        root.addWidget(self.overwrite_btn)
 
     # --- Change handling -----------------------------------------------------
 
@@ -540,8 +538,8 @@ class ExportSettingsForm(QWidget):
         # lossy toggle and distance rather than show a control the export silently overrides.
         flat_locked_lossless = self._flat_mode and is_jxl
         if flat_locked_lossless:
-            self.jxl_lossless_check.setChecked(True)
-        self.jxl_lossless_check.setVisible(not flat_locked_lossless)
+            self.jxl_lossless_btn.setChecked(True)
+        self.jxl_lossless_btn.setVisible(not flat_locked_lossless)
         self.jxl_distance_spin.setVisible(not flat_locked_lossless)
 
     def _on_jxl_lossless_toggled(self, lossless: bool) -> None:
@@ -693,20 +691,20 @@ class ExportSettingsForm(QWidget):
             self.bit_depth_combo.setCurrentIndex(depth_idx if depth_idx >= 0 else 1)
 
             self.quality_spin.setValue(v.get("jpeg_quality", 90))
-            self.jpeg_progressive_check.setChecked(v.get("jpeg_progressive", False))
+            self.jpeg_progressive_btn.setChecked(v.get("jpeg_progressive", False))
 
             comp_idx = self.tiff_compression_combo.findData(TiffCompression(v.get("tiff_compression", TiffCompression.ZIP)))
             self.tiff_compression_combo.setCurrentIndex(comp_idx if comp_idx >= 0 else 0)
 
             self.png_level_spin.setValue(v.get("png_compress_level", 6))
 
-            self.jxl_lossless_check.setChecked(v.get("jxl_lossless", True))
+            self.jxl_lossless_btn.setChecked(v.get("jxl_lossless", True))
             self.jxl_distance_spin.setValue(v.get("jxl_distance", 1.0))
             self.jxl_distance_spin.setEnabled(not v.get("jxl_lossless", True))
             self.jxl_effort_spin.setValue(v.get("jxl_effort", 7))
 
             self.webp_quality_spin.setValue(v.get("webp_quality", 90))
-            self.webp_lossless_check.setChecked(v.get("webp_lossless", False))
+            self.webp_lossless_btn.setChecked(v.get("webp_lossless", False))
             self.webp_method_spin.setValue(v.get("webp_method", 4))
 
             self._update_format_visibility(v["export_fmt"])
@@ -735,7 +733,7 @@ class ExportSettingsForm(QWidget):
             self._set_text_preserving_edit(self.subfolder_edit, v.get("output_subfolder", ""))
             self._set_text_preserving_edit(self.abspath_edit, v.get("output_path", ""))
             self._set_text_preserving_edit(self.filename_edit, v["filename_pattern"])
-            self.overwrite_check.setChecked(v["overwrite"])
+            self.overwrite_btn.setChecked(v["overwrite"])
             self._apply_jxl_constraints()
             self._refresh_jxl_warning()
         finally:
@@ -749,14 +747,14 @@ class ExportSettingsForm(QWidget):
             "export_fmt": self.fmt_combo.currentData(),
             "export_bit_depth": int(self.bit_depth_combo.currentData()),
             "jpeg_quality": int(self.quality_spin.value()),
-            "jpeg_progressive": self.jpeg_progressive_check.isChecked(),
+            "jpeg_progressive": self.jpeg_progressive_btn.isChecked(),
             "tiff_compression": self.tiff_compression_combo.currentData(),
             "png_compress_level": int(self.png_level_spin.value()),
-            "jxl_lossless": self.jxl_lossless_check.isChecked(),
+            "jxl_lossless": self.jxl_lossless_btn.isChecked(),
             "jxl_distance": self.jxl_distance_spin.value(),
             "jxl_effort": int(self.jxl_effort_spin.value()),
             "webp_quality": int(self.webp_quality_spin.value()),
-            "webp_lossless": self.webp_lossless_check.isChecked(),
+            "webp_lossless": self.webp_lossless_btn.isChecked(),
             "webp_method": int(self.webp_method_spin.value()),
             "export_resolution_mode": self._current_mode_value(),
             "paper_aspect_ratio": self.ratio_combo.currentText(),
@@ -767,7 +765,7 @@ class ExportSettingsForm(QWidget):
             "output_subfolder": self.subfolder_edit.text(),
             "output_path": self.abspath_edit.text(),
             "filename_pattern": self.filename_edit.text(),
-            "overwrite": self.overwrite_check.isChecked(),
+            "overwrite": self.overwrite_btn.isChecked(),
             "export_color_space": profile if is_space else self._export_space,
             "icc_input_path": self.input_combo.currentData(),
             "icc_output_path": None if is_space else profile,

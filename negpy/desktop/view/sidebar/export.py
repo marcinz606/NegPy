@@ -1,20 +1,18 @@
 import os
 from dataclasses import replace
 
-import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
     QMenu,
+    QPushButton,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,7 +33,7 @@ from negpy.desktop.view.styles.templates import (
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import make_section
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
@@ -61,12 +59,18 @@ class ExportSidebar(BaseSidebar):
 
         # Task-flow order: the output intent reframes the whole form, so it comes first; the
         # Export action follows the form it reads, and the occasional tools sit collapsed below.
+        # The body shares one label column; each card below aligns its own.
+        body = QWidget()
+        self._body = QVBoxLayout(body)
+        self._body.setContentsMargins(0, 0, 0, 0)
+        self._body.setSpacing(THEME.space_lg)
+        self.layout.addWidget(body)
         self._add_flat_master_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
         self.form = ExportSettingsForm()
         self.form.load(self._config_to_form_values())
-        self.layout.addWidget(self.form)
+        self._body.addWidget(self.form)
         self._add_proof_controls()
         self._add_export_section()
 
@@ -83,6 +87,7 @@ class ExportSidebar(BaseSidebar):
 
         self._rebuild_preset_rows()
         self._refresh_export_enabled()
+        align_slider_columns(body)
 
     def _connect_signals(self) -> None:
         self.controller.flush_export_settings = self._flush_export_settings
@@ -91,16 +96,16 @@ class ExportSidebar(BaseSidebar):
         self.form.changed.connect(self._refresh_proof_mismatch_warning)
         self.form.changed.connect(self._refresh_export_enabled)
 
-        self.soft_proof_checkbox.toggled.connect(self.controller.set_soft_proof)
-        self.soft_proof_checkbox.toggled.connect(lambda _: self._sync_proof_controls())
+        self.soft_proof_btn.toggled.connect(self.controller.set_soft_proof)
+        self.soft_proof_btn.toggled.connect(lambda _: self._sync_proof_controls())
         self.proof_profile_combo.currentIndexChanged.connect(self._on_proof_profile_changed)
         self.proof_intent_combo.currentIndexChanged.connect(
             lambda: self.controller.set_proof_field("proof_intent", self.proof_intent_combo.currentData())
         )
-        self.proof_bpc_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_black_point", v))
-        self.proof_paper_white_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_paper_white", v))
-        self.proof_ink_black_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_ink_black", v))
-        self.proof_gamut_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_gamut_warning", v))
+        self.proof_bpc_btn.toggled.connect(lambda v: self.controller.set_proof_field("proof_black_point", v))
+        self.proof_paper_white_btn.toggled.connect(lambda v: self.controller.set_proof_field("proof_paper_white", v))
+        self.proof_ink_black_btn.toggled.connect(lambda v: self.controller.set_proof_field("proof_ink_black", v))
+        self.proof_gamut_btn.toggled.connect(lambda v: self.controller.set_proof_field("proof_gamut_warning", v))
         self.proof_save_btn.clicked.connect(self._on_save_proof_condition)
         self.proof_delete_btn.clicked.connect(self._on_delete_proof_condition)
         self.proof_condition_combo.currentIndexChanged.connect(self._on_proof_condition_selected)
@@ -144,18 +149,14 @@ class ExportSidebar(BaseSidebar):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(6)
 
-        self._presets_container = QWidget()
-        # Border-only grouping: a filled box reads as a darker plate behind the buttons against
-        # the section card.
-        self._presets_container.setStyleSheet(f"border: 1px solid {THEME.border_primary}; background: transparent;")
-        self._presets_inner = QVBoxLayout(self._presets_container)
-        self._presets_inner.setContentsMargins(4, 4, 4, 4)
-        self._presets_inner.setSpacing(2)
-        content_layout.addWidget(self._presets_container)
+        self._presets_inner = QVBoxLayout()
+        self._presets_inner.setContentsMargins(0, 0, 0, 0)
+        self._presets_inner.setSpacing(THEME.space_xs)
+        content_layout.addLayout(self._presets_inner)
 
         self._no_presets_label = hint_label("No presets — click Manage to add some.")
-        self._presets_inner.addWidget(self._no_presets_label)
-        self._preset_checkboxes: list[QCheckBox] = []
+        content_layout.addWidget(self._no_presets_label)
+        self._preset_toggles: list[QPushButton] = []
 
         preset_btn_row = QHBoxLayout()
         self.manage_presets_btn = labeled_action("fa5s.sliders-h", " Manage", "Add, edit and remove export presets")
@@ -165,7 +166,7 @@ class ExportSidebar(BaseSidebar):
         self._export_presets_menu = preset_menu
 
         self.export_presets_group, self.export_presets_btn, self.export_presets_menu_btn = make_split_button(
-            " Export Presets", "fa5s.layer-group", preset_menu, primary=True
+            " Export Presets", "fa5s.layer-group", preset_menu
         )
         self.export_presets_menu_btn.setToolTip("Choose what the Export Presets button does")
 
@@ -202,7 +203,6 @@ class ExportSidebar(BaseSidebar):
             "Save this frame as a marked-up work print — the map plus the print recipe below it — as its "
             "own JPEG in the export folder. The print itself is untouched. Resolution follows the "
             "preview, so turn HQ on for a full-resolution sheet.",
-            primary=True,
         )
         self.printing_notes_btn.setObjectName("printing_notes_btn")
 
@@ -233,8 +233,7 @@ class ExportSidebar(BaseSidebar):
         content_layout.setSpacing(6)
 
         cs_path_row = QHBoxLayout()
-        cs_path_label = field_label("Path")
-        cs_path_label.setFixedWidth(FIELD_LABEL_WIDTH)
+        cs_path_label = field_label("Path", FIELD_LABEL_WIDTH)
         cs_path_row.addWidget(cs_path_label)
         self.cs_output_path_edit = QLineEdit(conf.contact_sheet_output_path)
         self.cs_output_path_edit.setPlaceholderText("Uses export destination")
@@ -254,7 +253,6 @@ class ExportSidebar(BaseSidebar):
             "fa5s.th",
             " Contact Sheet…",
             "Lay every visible frame out as film strips on photographic paper, then export the sheet",
-            primary=True,
         )
         self.contact_sheet_btn.setObjectName("contact_sheet_btn")
         content_layout.addWidget(self.contact_sheet_btn)
@@ -269,13 +267,13 @@ class ExportSidebar(BaseSidebar):
             self.cs_output_path_edit.setText(path)
 
     def apply_shortcut_tooltips(self) -> None:
-        """Contact Sheet… carries its bound key, as every shortcut-bearing control does."""
-        btn = self.contact_sheet_btn
-        btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, "contact_sheet")))
+        """Contact Sheet… and Proof on Screen carry their bound keys, as every shortcut-bearing control does."""
+        for btn, action in ((self.contact_sheet_btn, "contact_sheet"), (self.soft_proof_btn, "toggle_soft_proof")):
+            btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action)))
 
     def _add_flat_master_section(self) -> None:
         """Output-intent override: Print (default) or Flat digital intermediate."""
-        self.layout.addWidget(section_subheader("OUTPUT INTENT"))
+        self._body.addWidget(section_subheader("OUTPUT INTENT"))
 
         # What Flat and Linear turn on rides a rail under the choice; Print has none.
         rail_body = QWidget()
@@ -284,7 +282,7 @@ class ExportSidebar(BaseSidebar):
         box.setSpacing(THEME.space_md)
 
         self.intent_btn = ChoiceButton(
-            (("", "Print"), ("", "Flat"), ("", "Linear")),
+            (("fa5s.image", "Print"), ("mdi6.math-log", "Flat"), ("mdi6.filmstrip", "Linear")),
             "Print: export the print as you see it, with the full NegPy look applied.<br><br>"
             "Flat: export a flat, neutral, low-contrast master that keeps maximum tonal and color "
             "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
@@ -295,7 +293,7 @@ class ExportSidebar(BaseSidebar):
             "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files.",
         )
         self.intent_btn.setCurrentIndex(self._state_intent())
-        self.layout.addWidget(self.intent_btn)
+        self._body.addWidget(self.intent_btn)
 
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
@@ -334,7 +332,7 @@ class ExportSidebar(BaseSidebar):
 
         fmt_row = QHBoxLayout()
         fmt_row.setContentsMargins(0, 0, 0, 0)
-        fmt_row.addWidget(field_label("Format"))
+        fmt_row.addWidget(field_label("Format", FIELD_LABEL_WIDTH))
         self.linear_format_combo = QComboBox()
         self.linear_format_combo.addItem("TIFF", "tiff")
         self.linear_format_combo.addItem("JPEG XL (lossless)", "jxl")
@@ -358,7 +356,7 @@ class ExportSidebar(BaseSidebar):
 
         expansion_row = QHBoxLayout()
         expansion_row.setContentsMargins(0, 0, 0, 0)
-        self.linear_expansion_label = field_label("Expansion")
+        self.linear_expansion_label = field_label("Expansion", FIELD_LABEL_WIDTH)
         expansion_row.addWidget(self.linear_expansion_label)
         self.linear_expansion_combo = QComboBox()
         self.linear_expansion_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -372,48 +370,48 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.linear_expansion_hint)
         self.linear_expansion_combo.currentIndexChanged.connect(self._on_linear_expansion_changed)
 
-        self.linear_corrections_label = field_label("Corrections")
+        self.linear_corrections_label = section_subheader("Corrections")
         self.linear_corrections_label.setVisible(False)
         box.addWidget(self.linear_corrections_label)
 
-        self.linear_wb_checkbox = QCheckBox("Apply white balance")
-        self.linear_wb_checkbox.setToolTip("Multiply by the as-shot WB gains before writing")
-        self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
-        self.linear_wb_checkbox.setVisible(False)
-        self.linear_wb_checkbox.toggled.connect(self._on_linear_correction_changed)
-        box.addWidget(self.linear_wb_checkbox)
+        self.linear_wb_btn = self._small_toggle(
+            "fa5s.palette", "White Balance", self.state.linear_apply_wb, "Multiply by the as-shot WB gains before writing", align_left=True
+        )
+        self.linear_wb_btn.setVisible(False)
+        self.linear_wb_btn.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_wb_btn)
 
-        self.linear_flatfield_checkbox = QCheckBox("Apply Flat Field")
-        self.linear_flatfield_checkbox.setToolTip("Apply the Flat Field gain correction")
-        self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
-        self.linear_flatfield_checkbox.setVisible(False)
-        self.linear_flatfield_checkbox.toggled.connect(self._on_linear_correction_changed)
-        box.addWidget(self.linear_flatfield_checkbox)
+        self.linear_flatfield_btn = self._small_toggle(
+            "fa5s.square", "Flat Field", self.state.linear_apply_flatfield, "Apply the Flat Field gain correction", align_left=True
+        )
+        self.linear_flatfield_btn.setVisible(False)
+        self.linear_flatfield_btn.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_flatfield_btn)
 
-        self.linear_sensor_checkbox = QCheckBox("Apply sensor correction")
-        self.linear_sensor_checkbox.setToolTip("Apply the sensor crosstalk unmixing matrix")
-        self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
-        self.linear_sensor_checkbox.setVisible(False)
-        self.linear_sensor_checkbox.toggled.connect(self._on_linear_correction_changed)
-        box.addWidget(self.linear_sensor_checkbox)
+        self.linear_sensor_btn = self._small_toggle(
+            "fa5s.vials", "Sensor Correction", self.state.linear_apply_sensor, "Apply the sensor crosstalk unmixing matrix", align_left=True
+        )
+        self.linear_sensor_btn.setVisible(False)
+        self.linear_sensor_btn.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_sensor_btn)
 
-        self.linear_lens_checkbox = QCheckBox("Apply lens correction")
-        self.linear_lens_checkbox.setToolTip(wrap_tooltip(self._LINEAR_LENS_TOOLTIP))
-        self.linear_lens_checkbox.setChecked(self.state.linear_apply_lens)
-        self.linear_lens_checkbox.setVisible(False)
-        self.linear_lens_checkbox.toggled.connect(self._on_linear_correction_changed)
-        box.addWidget(self.linear_lens_checkbox)
+        self.linear_lens_btn = self._small_toggle(
+            "fa5s.circle-notch", "Lens Correction", self.state.linear_apply_lens, self._LINEAR_LENS_TOOLTIP, align_left=True
+        )
+        self.linear_lens_btn.setVisible(False)
+        self.linear_lens_btn.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_lens_btn)
 
-        self.linear_ice_checkbox = QCheckBox("Apply ICE dust removal")
-        self.linear_ice_checkbox.setToolTip("Apply IR-based dust and scratch correction")
-        self.linear_ice_checkbox.setChecked(self.state.linear_apply_ice)
-        self.linear_ice_checkbox.setVisible(False)
-        self.linear_ice_checkbox.toggled.connect(self._on_linear_correction_changed)
-        box.addWidget(self.linear_ice_checkbox)
+        self.linear_ice_btn = self._small_toggle(
+            "fa5s.broom", "IR Dust Removal", self.state.linear_apply_ice, "Apply IR-based dust and scratch correction", align_left=True
+        )
+        self.linear_ice_btn.setVisible(False)
+        self.linear_ice_btn.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_ice_btn)
 
         gamma_row = QHBoxLayout()
         gamma_row.setContentsMargins(0, 0, 0, 0)
-        self.linear_gamma_label = field_label("Input gamma")
+        self.linear_gamma_label = field_label("Input gamma", FIELD_LABEL_WIDTH)
         gamma_row.addWidget(self.linear_gamma_label)
         self.linear_gamma_combo = QComboBox()
         self.linear_gamma_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -434,7 +432,7 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.linear_corrections_hint)
 
         self.intent_rail = SliderGroup(rail_body)
-        self.layout.addWidget(self.intent_rail)
+        self._body.addWidget(self.intent_rail)
 
     def _sync_flat_enabled(self) -> None:
         flat_on = self.intent_btn.currentIndex() == 1
@@ -462,11 +460,11 @@ class ExportSidebar(BaseSidebar):
             self.linear_gamma_hint.setVisible(False)
         if hasattr(self, "linear_corrections_label") and not linear_on:
             self.linear_corrections_label.setVisible(False)
-            self.linear_wb_checkbox.setVisible(False)
-            self.linear_flatfield_checkbox.setVisible(False)
-            self.linear_sensor_checkbox.setVisible(False)
-            self.linear_lens_checkbox.setVisible(False)
-            self.linear_ice_checkbox.setVisible(False)
+            self.linear_wb_btn.setVisible(False)
+            self.linear_flatfield_btn.setVisible(False)
+            self.linear_sensor_btn.setVisible(False)
+            self.linear_lens_btn.setVisible(False)
+            self.linear_ice_btn.setVisible(False)
             self.linear_corrections_hint.setVisible(False)
         if hasattr(self, "_presets_section"):
             self._presets_section.setVisible(not linear_on)
@@ -557,44 +555,44 @@ class ExportSidebar(BaseSidebar):
         lens_visible, has_lens = self._linear_lens_state(path, is_camera)
         show_corrections = is_camera or has_ir or lens_visible
         self.linear_corrections_label.setVisible(show_corrections)
-        self.linear_lens_checkbox.setVisible(lens_visible)
-        self.linear_lens_checkbox.setEnabled(has_lens)
-        self.linear_lens_checkbox.setToolTip(wrap_tooltip(self._LINEAR_LENS_TOOLTIP if has_lens else "Distortion and CA are off in Optics"))
-        self.linear_wb_checkbox.setVisible(is_camera)
-        self.linear_flatfield_checkbox.setVisible(is_camera)
-        self.linear_sensor_checkbox.setVisible(is_camera)
-        self.linear_ice_checkbox.setVisible(has_ir)
-        self.linear_ice_checkbox.setEnabled(has_ir)
+        self.linear_lens_btn.setVisible(lens_visible)
+        self.linear_lens_btn.setEnabled(has_lens)
+        self.linear_lens_btn.setToolTip(wrap_tooltip(self._LINEAR_LENS_TOOLTIP if has_lens else "Distortion and CA are off in Optics"))
+        self.linear_wb_btn.setVisible(is_camera)
+        self.linear_flatfield_btn.setVisible(is_camera)
+        self.linear_sensor_btn.setVisible(is_camera)
+        self.linear_ice_btn.setVisible(has_ir)
+        self.linear_ice_btn.setEnabled(has_ir)
         if not has_ir:
-            self.linear_ice_checkbox.setToolTip("Source has no IR channel")
+            self.linear_ice_btn.setToolTip("Source has no IR channel")
         else:
-            self.linear_ice_checkbox.setToolTip("Apply IR-based dust and scratch correction")
+            self.linear_ice_btn.setToolTip("Apply IR-based dust and scratch correction")
 
         wb_reason = wb_bake_block_reason(self.state.config.rgbscan, self.state.config.process)
         wb_available = not wb_reason
-        self.linear_wb_checkbox.setEnabled(wb_available)
+        self.linear_wb_btn.setEnabled(wb_available)
         if wb_reason == "trichrome":
-            self.linear_wb_checkbox.setToolTip(
+            self.linear_wb_btn.setToolTip(
                 "No practical use: each Trichrome channel is its own narrowband exposure, not a broadband as-shot gain"
             )
         elif wb_reason == "narrowband":
-            self.linear_wb_checkbox.setToolTip("No practical use: as-shot WB gains do not correct a narrowband capture")
+            self.linear_wb_btn.setToolTip("No practical use: as-shot WB gains do not correct a narrowband capture")
         else:
-            self.linear_wb_checkbox.setToolTip("Multiply by the as-shot WB gains before writing")
+            self.linear_wb_btn.setToolTip("Multiply by the as-shot WB gains before writing")
 
         has_flatfield = bool(self.state.config.flatfield.apply and self.state.config.flatfield.profile_id)
-        self.linear_flatfield_checkbox.setEnabled(has_flatfield)
+        self.linear_flatfield_btn.setEnabled(has_flatfield)
         if not has_flatfield:
-            self.linear_flatfield_checkbox.setToolTip("No Flat Field profile configured")
+            self.linear_flatfield_btn.setToolTip("No Flat Field profile configured")
         else:
-            self.linear_flatfield_checkbox.setToolTip("Apply the Flat Field gain correction")
+            self.linear_flatfield_btn.setToolTip("Apply the Flat Field gain correction")
 
         has_matrix = self.state.config.process.sensor_matrix is not None
-        self.linear_sensor_checkbox.setEnabled(has_matrix)
+        self.linear_sensor_btn.setEnabled(has_matrix)
         if not has_matrix:
-            self.linear_sensor_checkbox.setToolTip("No sensor correction matrix configured")
+            self.linear_sensor_btn.setToolTip("No sensor correction matrix configured")
         else:
-            self.linear_sensor_checkbox.setToolTip("Apply the sensor crosstalk unmixing matrix")
+            self.linear_sensor_btn.setToolTip("Apply the sensor crosstalk unmixing matrix")
 
         any_on = (
             (self.state.linear_apply_wb and wb_available)
@@ -667,11 +665,11 @@ class ExportSidebar(BaseSidebar):
             self.controller.session.save_flat_output_prefs()
 
     def _on_linear_correction_changed(self, _checked: bool) -> None:
-        self.state.linear_apply_wb = self.linear_wb_checkbox.isChecked()
-        self.state.linear_apply_flatfield = self.linear_flatfield_checkbox.isChecked()
-        self.state.linear_apply_sensor = self.linear_sensor_checkbox.isChecked()
-        self.state.linear_apply_lens = self.linear_lens_checkbox.isChecked()
-        self.state.linear_apply_ice = self.linear_ice_checkbox.isChecked()
+        self.state.linear_apply_wb = self.linear_wb_btn.isChecked()
+        self.state.linear_apply_flatfield = self.linear_flatfield_btn.isChecked()
+        self.state.linear_apply_sensor = self.linear_sensor_btn.isChecked()
+        self.state.linear_apply_lens = self.linear_lens_btn.isChecked()
+        self.state.linear_apply_ice = self.linear_ice_btn.isChecked()
         self.controller.session.save_flat_output_prefs()
         any_on = (
             self.state.linear_apply_wb
@@ -706,6 +704,17 @@ class ExportSidebar(BaseSidebar):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(6)
 
+        self.soft_proof_btn = self._small_toggle(
+            "fa5s.print",
+            "Proof on Screen",
+            self.state.soft_proof_enabled,
+            "Simulate the proof profile and Input ICC in the preview, so what you see matches "
+            "what you'll get. Preview only — the export is unaffected either way. Turn off to "
+            "preview at full gamut.",
+            align_left=True,
+        )
+        col.addWidget(self.soft_proof_btn)
+
         # Saved printer x paper conditions.
         self.proof_condition_combo = QComboBox()
         constrain_combo(self.proof_condition_combo)
@@ -713,32 +722,11 @@ class ExportSidebar(BaseSidebar):
             "A saved printer and paper set-up: profile, intent and simulation toggles in one pick. "
             "None proofs the export target and simulates no paper."
         )
-        self.proof_save_btn = QToolButton()
-        self.proof_save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_hint))
-        self.proof_save_btn.setToolTip("Save the current proof set-up as a named preset")
-        self.proof_delete_btn = QToolButton()
-        self.proof_delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_hint))
-        self.proof_delete_btn.setToolTip("Delete the selected preset")
-        cond_row = QHBoxLayout()
-        cond_label = field_label("Preset")
-        cond_label.setFixedWidth(FIELD_LABEL_WIDTH)
-        cond_row.addWidget(cond_label)
-        cond_row.addWidget(self.proof_condition_combo, 1)
+        self.proof_save_btn = icon_button("fa5s.save", "Save the current proof set-up as a named preset")
+        self.proof_delete_btn = icon_button("fa5s.trash", "Delete the selected preset")
+        cond_row = self._proof_row("Preset", self.proof_condition_combo, railed=True)
         cond_row.addWidget(self.proof_save_btn)
         cond_row.addWidget(self.proof_delete_btn)
-        col.addLayout(cond_row)
-
-        self.soft_proof_checkbox = QCheckBox("Proof on screen")
-        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
-        self.soft_proof_checkbox.setToolTip(
-            tooltip_with_shortcut(
-                "Simulate the proof profile and Input ICC in the preview, so what you see matches "
-                "what you'll get. Preview only — the export is unaffected either way. Turn off to "
-                "preview at full gamut.",
-                "toggle_soft_proof",
-            )
-        )
-        col.addWidget(self.soft_proof_checkbox)
 
         # Proof profile: defaults to the export target, so the proof answers "what will the
         # file look like" until a print is named.
@@ -748,7 +736,6 @@ class ExportSidebar(BaseSidebar):
             "What the preview is proofed through. Follows the Export profile unless you name a "
             "printer or paper here. Set one to proof a print while exporting something else."
         )
-        col.addLayout(self._proof_row("Profile", self.proof_profile_combo))
 
         self.proof_intent_combo = QComboBox()
         constrain_combo(self.proof_intent_combo)
@@ -760,35 +747,46 @@ class ExportSidebar(BaseSidebar):
             "whole picture inward so the relationships between colors survive, which a printer "
             "profile carries its own table for. Saturation favours vividness over accuracy."
         )
-        col.addLayout(self._proof_row("Intent", self.proof_intent_combo))
 
-        self.proof_bpc_checkbox = QCheckBox("Black point compensation")
-        self.proof_bpc_checkbox.setToolTip(
+        self.proof_bpc_btn = self._tool_toggle(
+            "fa5s.adjust",
+            "Black Point Compensation",
             "Scale the darkest tone in the picture onto the darkest the paper can make, instead of "
-            "clipping everything below it. Off is only useful for judging what falls off the bottom."
+            "clipping everything below it. Off is only useful for judging what falls off the bottom.",
+            align_left=True,
         )
-        col.addWidget(self.proof_bpc_checkbox)
-
-        self.proof_paper_white_checkbox = QCheckBox("Simulate paper white")
-        self.proof_paper_white_checkbox.setToolTip(
+        self.proof_paper_white_btn = self._tool_toggle(
+            "fa5s.file",
+            "Simulate Paper White",
             "Show the paper's own white instead of the screen's. The picture goes dimmer and takes "
-            "the paper's tint, which is the print you will hold. Give your eyes a moment to adapt."
+            "the paper's tint, which is the print you will hold. Give your eyes a moment to adapt.",
+            align_left=True,
         )
-        col.addWidget(self.proof_paper_white_checkbox)
-
-        self.proof_ink_black_checkbox = QCheckBox("Simulate ink black")
-        self.proof_ink_black_checkbox.setToolTip(
+        self.proof_ink_black_btn = self._tool_toggle(
+            "fa5s.tint",
+            "Simulate Ink Black",
             "Show the paper's real deepest black rather than mapping it onto the screen's. Shadows "
-            "lift and lose separation, which is what the print does."
+            "lift and lose separation, which is what the print does.",
+            align_left=True,
         )
-        col.addWidget(self.proof_ink_black_checkbox)
-
-        self.proof_gamut_checkbox = QCheckBox("Gamut warning")
-        self.proof_gamut_checkbox.setToolTip(
+        self.proof_gamut_btn = self._tool_toggle(
+            "fa5s.exclamation-triangle",
+            "Gamut Warning",
             "Flatten every color the profile cannot print to gray, so the unprintable areas are "
-            "visible rather than merely counted. The Analysis panel's Gamut row counts them."
+            "visible rather than merely counted. The Analysis panel's Gamut row counts them.",
+            align_left=True,
         )
-        col.addWidget(self.proof_gamut_checkbox)
+        col.addWidget(
+            SliderGroup(
+                cond_row,
+                self._proof_row("Profile", self.proof_profile_combo, railed=True),
+                self._proof_row("Intent", self.proof_intent_combo, railed=True),
+                self.proof_bpc_btn,
+                self.proof_paper_white_btn,
+                self.proof_ink_black_btn,
+                self.proof_gamut_btn,
+            )
+        )
 
         # The monitor is the other half of the proof chain: a proof judged on an unknown
         # screen is not a proof.
@@ -820,12 +818,12 @@ class ExportSidebar(BaseSidebar):
         self._sync_proof_controls()
 
     @staticmethod
-    def _proof_row(label: str, widget: QWidget) -> QHBoxLayout:
+    def _proof_row(label: str, widget: QWidget, railed: bool = False) -> QHBoxLayout:
+        """railed: the row sits on a rail, so its label is shorter by the rail's indent."""
         row = QHBoxLayout()
-        name = field_label(label)
-        name.setFixedWidth(FIELD_LABEL_WIDTH)
+        name = field_label(label, FIELD_LABEL_WIDTH - (SliderGroup.INDENT if railed else 0))
         row.addWidget(name)
-        row.addWidget(widget)
+        row.addWidget(widget, 1)
         return row
 
     def _reload_proof_profiles(self) -> None:
@@ -879,11 +877,11 @@ class ExportSidebar(BaseSidebar):
     def _sync_proof_controls(self) -> None:
         st = self.state
         for widget, value in (
-            (self.soft_proof_checkbox, st.soft_proof_enabled),
-            (self.proof_bpc_checkbox, st.proof_black_point),
-            (self.proof_paper_white_checkbox, st.proof_paper_white),
-            (self.proof_ink_black_checkbox, st.proof_ink_black),
-            (self.proof_gamut_checkbox, st.proof_gamut_warning),
+            (self.soft_proof_btn, st.soft_proof_enabled),
+            (self.proof_bpc_btn, st.proof_black_point),
+            (self.proof_paper_white_btn, st.proof_paper_white),
+            (self.proof_ink_black_btn, st.proof_ink_black),
+            (self.proof_gamut_btn, st.proof_gamut_warning),
         ):
             widget.blockSignals(True)
             widget.setChecked(bool(value))
@@ -897,10 +895,10 @@ class ExportSidebar(BaseSidebar):
         for w in (
             self.proof_profile_combo,
             self.proof_intent_combo,
-            self.proof_bpc_checkbox,
-            self.proof_paper_white_checkbox,
-            self.proof_ink_black_checkbox,
-            self.proof_gamut_checkbox,
+            self.proof_bpc_btn,
+            self.proof_paper_white_btn,
+            self.proof_ink_black_btn,
+            self.proof_gamut_btn,
         ):
             w.setEnabled(st.soft_proof_enabled)
         self._select_matching_preset()
@@ -953,15 +951,13 @@ class ExportSidebar(BaseSidebar):
 
         self.sidecars_enabled_btn = self._small_toggle(
             "fa5s.file-export",
-            "Save on export",
+            "Save on Export",
             conf.export_sidecars_enabled,
             "When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too.",
         )
         btn_row.addWidget(self.sidecars_enabled_btn)
 
-        self.export_sidecars_btn = labeled_action(
-            "fa5s.file-code", " Export Sidecars", "Write edit sidecars for all visible frames now", primary=True
-        )
+        self.export_sidecars_btn = labeled_action("fa5s.file-code", " Export Sidecars", "Write edit sidecars for all visible frames now")
         self.export_sidecars_btn.setObjectName("export_sidecars_btn")
         btn_row.addWidget(self.export_sidecars_btn)
 
@@ -1039,7 +1035,7 @@ class ExportSidebar(BaseSidebar):
 
         container, self.export_main_btn, self.export_menu_btn = make_split_button(" Export", "fa5s.check-circle", menu, primary=True)
         self.export_menu_btn.setToolTip("Choose what the Export button does")
-        self.layout.addWidget(container)
+        self._body.addWidget(container)
 
         saved = self.controller.session.repo.get_global_setting("export_scope", "current")
         saved = self._RETIRED_EXPORT_SCOPES.get(saved, saved)
@@ -1108,29 +1104,27 @@ class ExportSidebar(BaseSidebar):
             self.controller.request_preset_export()
 
     def _rebuild_preset_rows(self) -> None:
-        """Rebuild the preset checkbox list from state."""
-        for cb in self._preset_checkboxes:
-            self._presets_inner.removeWidget(cb)
-            cb.deleteLater()
-        self._preset_checkboxes.clear()
+        """Rebuild the preset toggles from state."""
+        for btn in self._preset_toggles:
+            self._presets_inner.removeWidget(btn)
+            btn.deleteLater()
+        self._preset_toggles.clear()
 
         presets = self.state.export_presets
         self._no_presets_label.setVisible(not presets)
 
         for i, preset in enumerate(presets):
-            cb = QCheckBox(preset_display_name(preset))
-            cb.setChecked(preset.enabled)
-            cb.setStyleSheet(f"color: {THEME.text_primary};")
-            cb.stateChanged.connect(lambda state, idx=i: self._on_preset_toggled(idx, state))
-            self._presets_inner.addWidget(cb)
-            self._preset_checkboxes.append(cb)
+            btn = self._small_toggle(
+                "fa5s.layer-group", preset_display_name(preset), preset.enabled, "Export with this preset", align_left=True
+            )
+            btn.toggled.connect(lambda checked, idx=i: self._on_preset_toggled(idx, checked))
+            self._presets_inner.addWidget(btn)
+            self._preset_toggles.append(btn)
 
-        self._presets_inner.addStretch()
-
-    def _on_preset_toggled(self, idx: int, state: int) -> None:
+    def _on_preset_toggled(self, idx: int, checked: bool) -> None:
         presets = self.state.export_presets
         if 0 <= idx < len(presets):
-            presets[idx].enabled = state == Qt.CheckState.Checked.value
+            presets[idx].enabled = checked
             self.controller.session.save_export_presets()
 
     def _open_presets_dialog(self) -> None:
@@ -1247,7 +1241,7 @@ class ExportSidebar(BaseSidebar):
         vals = self.form.values()
         export_cs = vals["export_color_space"]
         retargets = bool(vals["icc_output_path"]) or export_cs not in (ColorSpace.SAME_AS_SOURCE.value, WORKING_COLOR_SPACE)
-        if not self.soft_proof_checkbox.isChecked():
+        if not self.soft_proof_btn.isChecked():
             self.proof_mismatch_label.setText("Soft proof is off, so the preview won't show the export's color clipping")
             self.proof_mismatch_label.setVisible(retargets)
             return
@@ -1291,11 +1285,11 @@ class ExportSidebar(BaseSidebar):
             self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
             self.intent_btn.setCurrentIndex(self._state_intent())
             self.flat_peek_btn.setChecked(self.state.flat_peek)
-            self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
-            self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
-            self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
-            self.linear_lens_checkbox.setChecked(self.state.linear_apply_lens)
-            self.linear_ice_checkbox.setChecked(self.state.linear_apply_ice)
+            self.linear_wb_btn.setChecked(self.state.linear_apply_wb)
+            self.linear_flatfield_btn.setChecked(self.state.linear_apply_flatfield)
+            self.linear_sensor_btn.setChecked(self.state.linear_apply_sensor)
+            self.linear_lens_btn.setChecked(self.state.linear_apply_lens)
+            self.linear_ice_btn.setChecked(self.state.linear_apply_ice)
             self._refresh_linear_gamma_combo()
         finally:
             self.block_signals(False)
@@ -1308,24 +1302,24 @@ class ExportSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
-            self.soft_proof_checkbox,
+            self.soft_proof_btn,
             self.proof_condition_combo,
             self.proof_profile_combo,
             self.proof_intent_combo,
-            self.proof_bpc_checkbox,
-            self.proof_paper_white_checkbox,
-            self.proof_ink_black_checkbox,
-            self.proof_gamut_checkbox,
+            self.proof_bpc_btn,
+            self.proof_paper_white_btn,
+            self.proof_ink_black_btn,
+            self.proof_gamut_btn,
             self.display_combo,
             self.cs_output_path_edit,
             self.sidecars_enabled_btn,
             self.flat_peek_btn,
             self.printing_notes_preview_btn,
-            self.linear_wb_checkbox,
-            self.linear_flatfield_checkbox,
-            self.linear_sensor_checkbox,
-            self.linear_lens_checkbox,
-            self.linear_ice_checkbox,
+            self.linear_wb_btn,
+            self.linear_flatfield_btn,
+            self.linear_sensor_btn,
+            self.linear_lens_btn,
+            self.linear_ice_btn,
             self.linear_gamma_combo,
         ]
         for w in widgets:

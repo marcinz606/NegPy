@@ -364,10 +364,19 @@ def field_label_qss() -> str:
     return f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary}; font-weight: {THEME.weight_semibold};"
 
 
-def field_label(text: str) -> QLabel:
-    """Muted semibold label for a combo/entry field."""
-    lbl = QLabel(text)
+class FieldLabel(QLabel):
+    """A field_label; its own type so a card can find it and align it with the slider labels."""
+
+
+def field_label(text: str, width: int | None = None) -> QLabel:
+    """Muted semibold label for a combo/entry field. With a width it is a label column,
+    its text right-aligned against the field."""
+    lbl = FieldLabel(text)
     lbl.setStyleSheet(field_label_qss())
+    if width is not None:
+        lbl.setFixedWidth(width)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lbl.setContentsMargins(0, 0, THEME.space_md, 0)
     return lbl
 
 
@@ -375,8 +384,7 @@ def field_row(label: str, field: QWidget, *trailing: QWidget) -> QHBoxLayout:
     """A field_label at FIELD_LABEL_WIDTH, the field taking the rest, then any icon buttons.
     The label is the layout's first item, so a caller can hide the row with its field."""
     row = QHBoxLayout()
-    caption = field_label(label)
-    caption.setFixedWidth(FIELD_LABEL_WIDTH)
+    caption = field_label(label, FIELD_LABEL_WIDTH)
     row.addWidget(caption)
     row.addWidget(field, 1)
     for widget in trailing:

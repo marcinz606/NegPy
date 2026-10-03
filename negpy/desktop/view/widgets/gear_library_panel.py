@@ -38,7 +38,6 @@ from negpy.desktop.settings_catalog import (
     selected_flat_dict,
 )
 from negpy.desktop.view.confirm import confirm_delete_named
-from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import field_label, hint_label, icon_button, section_subheader, tool_toggle, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
@@ -299,7 +298,6 @@ class GearItemsPanel(QWidget):
         root.addStretch()
 
         self.category_list.currentIndexChanged.connect(self._on_category_changed)
-        install_wheel_guards(self)
 
     def _register_form_row(self, key: str, label_text: str, widget: QWidget) -> None:
         label = field_label(label_text)
@@ -726,7 +724,6 @@ class GearPresetsPanel(QWidget):
         root.addStretch()
 
         self.add_btn.setEnabled(self._current_config_fn() is not None)
-        install_wheel_guards(self)
 
     def _build_preset_form(self) -> None:
         self.preset_camera_combo = SearchableGearCombo(placeholder="Search cameras…")

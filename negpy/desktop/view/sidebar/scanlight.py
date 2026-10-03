@@ -26,7 +26,6 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
-from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
     field_row,
@@ -341,7 +340,6 @@ class ScanlightSidebar(QWidget):
         foot.addWidget(self.scan_btn)
         layout.addWidget(self.footer)
 
-        install_wheel_guards(self)
         self._apply_gating()
         layout.addStretch()
 

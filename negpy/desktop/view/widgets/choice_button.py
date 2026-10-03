@@ -129,15 +129,6 @@ class ChoiceButton(_MenuButton):
         self._actions[index].setChecked(True)
         self.edited_dot.set_active(self._edited[index])
 
-    def wheelEvent(self, event) -> None:  # noqa: N802
-        step = -1 if event.angleDelta().y() > 0 else 1
-        i = self._index + step
-        while 0 <= i < len(self._actions) and not self._actions[i].isEnabled():
-            i += step
-        if 0 <= i < len(self._actions):
-            self.setCurrentIndex(i)
-        event.accept()
-
 
 class ToggleMenuButton(_MenuButton):
     """Several independent on/off options behind one button: the multi-select twin of

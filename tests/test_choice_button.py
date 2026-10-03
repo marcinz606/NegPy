@@ -34,33 +34,24 @@ def test_edited_marks_the_menu_item_and_the_button_for_the_current_choice(qapp):
     assert btn.edited_dot.isHidden()
 
 
-def test_scroll_wheel_steps_through_enabled_choices_and_stops_at_the_ends(qapp):
+def test_scroll_wheel_leaves_the_choice_and_scrolls_the_panel(qapp):
     from PyQt6.QtCore import QPoint, QPointF, Qt
     from PyQt6.QtGui import QWheelEvent
 
-    def wheel(btn, dy):
-        btn.wheelEvent(
-            QWheelEvent(
-                QPointF(5, 5),
-                QPointF(5, 5),
-                QPoint(0, 0),
-                QPoint(0, dy),
-                Qt.MouseButton.NoButton,
-                Qt.KeyboardModifier.NoModifier,
-                Qt.ScrollPhase.NoScrollPhase,
-                False,
-            )
-        )
-
     btn = ChoiceButton(_CHOICES, "tip")
-    btn.choice_menu.actions()[1].setEnabled(False)
-
-    wheel(btn, -120)
-    assert btn.currentIndex() == 2
-    wheel(btn, -120)
-    assert btn.currentIndex() == 2
-    wheel(btn, 120)
+    event = QWheelEvent(
+        QPointF(5, 5),
+        QPointF(5, 5),
+        QPoint(0, 0),
+        QPoint(0, -120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    btn.wheelEvent(event)
     assert btn.currentIndex() == 0
+    assert not event.isAccepted()
 
 
 def test_toggle_menu_button_is_checked_while_any_option_is_on(qapp):
@@ -103,19 +94,8 @@ def test_choices_can_be_replaced_and_carry_values(qapp):
     assert btn.count() == 1 and btn.currentData() == 14
 
 
-def test_a_disabled_choice_is_skipped_by_the_wheel(qapp):
+def test_a_choice_can_be_disabled(qapp):
     btn = ChoiceButton(_CHOICES, "tip")
     btn.set_choice_enabled(1, False)
     assert not btn.is_choice_enabled(1)
-
-    class _Wheel:
-        def angleDelta(self):  # noqa: N802
-            from PyQt6.QtCore import QPoint
-
-            return QPoint(0, -120)
-
-        def accept(self):
-            pass
-
-    btn.wheelEvent(_Wheel())
-    assert btn.currentIndex() == 2
+    assert not btn.choice_menu.actions()[1].isEnabled()

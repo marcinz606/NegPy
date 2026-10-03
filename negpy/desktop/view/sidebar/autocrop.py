@@ -15,8 +15,7 @@ class AutocropSidebar(BaseSidebar):
 
     @staticmethod
     def _field_label(text: str) -> QLabel:
-        lbl = field_label(text)
-        lbl.setFixedWidth(42)
+        lbl = field_label(text, 42)
         return lbl
 
     def _init_ui(self) -> None:

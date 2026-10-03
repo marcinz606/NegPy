@@ -397,8 +397,7 @@ class ContactSheetDialog(QDialog):
         col.addWidget(self.frame_size_rail)
 
         paper_row = QHBoxLayout()
-        label = field_label("Paper")
-        label.setFixedWidth(FIELD_LABEL_WIDTH)
+        label = field_label("Paper", FIELD_LABEL_WIDTH)
         paper_row.addWidget(label)
         self.paper_btn = ChoiceButton(
             tuple(("", paper.label) for paper in ILFORD_PAPERS) + (("", "Custom"),),
@@ -505,8 +504,7 @@ class ContactSheetDialog(QDialog):
     @staticmethod
     def _row(text: str, control: QWidget) -> QHBoxLayout:
         row = QHBoxLayout()
-        label = field_label(text)
-        label.setFixedWidth(FIELD_LABEL_WIDTH)
+        label = field_label(text, FIELD_LABEL_WIDTH)
         row.addWidget(label)
         row.addWidget(control, 1)
         return row

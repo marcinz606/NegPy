@@ -263,18 +263,18 @@ def test_flat_mode_forces_jxl_lossless_and_hides_the_toggle(qapp):
     and pins the checkbox rather than showing a control with no effect."""
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.JXL, jxl_lossless=False, export_color_space=ColorSpace.SRGB.value))
-    assert not form.jxl_lossless_check.isChecked()
-    assert not form.jxl_lossless_check.isHidden()
+    assert not form.jxl_lossless_btn.isChecked()
+    assert not form.jxl_lossless_btn.isHidden()
 
     form.set_flat_mode(True)
     assert form.fmt_combo.currentData() == ExportFormat.JXL.value
-    assert form.jxl_lossless_check.isChecked()
-    assert form.jxl_lossless_check.isHidden()
+    assert form.jxl_lossless_btn.isChecked()
+    assert form.jxl_lossless_btn.isHidden()
     assert form.jxl_distance_spin.isHidden()
 
     form.set_flat_mode(False)
     assert form.fmt_combo.currentData() == ExportFormat.JXL.value
-    assert not form.jxl_lossless_check.isHidden()
+    assert not form.jxl_lossless_btn.isHidden()
     assert not form.jxl_distance_spin.isHidden()
 
 
