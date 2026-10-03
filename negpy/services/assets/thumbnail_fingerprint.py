@@ -11,6 +11,7 @@ fingerprinted (legacy files, the quick source-preview thumbnail, a render whose 
 is unknown) reads as stale.
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -19,8 +20,8 @@ from typing import Any, Optional
 
 from negpy.domain.models import WorkspaceConfig
 
-# Bump when a pipeline change alters rendered pixels for unchanged settings, so every
-# thumbnail rendered by older code reads as stale once.
+# Bump when a pipeline change or a changed default alters rendered pixels for unchanged
+# settings, so every thumbnail rendered by older code reads as stale once.
 THUMBNAIL_RENDER_VERSION = 1
 
 # Marker for a thumbnail made from the source preview (``get_thumbnail_worker``), which
@@ -57,6 +58,22 @@ def _file_identity(path: Optional[str]) -> Optional[str]:
     return f"{path}|{stat.st_size}|{stat.st_mtime_ns}"
 
 
+def _serialize(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+@functools.cache
+def _section_defaults(section_type: type) -> dict[str, str]:
+    return {name: _serialize(value) for name, value in asdict(section_type()).items()}
+
+
+def _changed_fields(section: Any, skip: frozenset[str]) -> dict[str, Any]:
+    """The section's fields that differ from their defaults. A field at its default is left
+    out, so a new defaulted field leaves every fingerprint as it was."""
+    defaults = _section_defaults(type(section))
+    return {k: v for k, v in asdict(section).items() if k not in skip and _serialize(v) != defaults.get(k)}
+
+
 def _companion_paths(config: WorkspaceConfig) -> list[str]:
     """Files besides the frame's own that a composite reads. The frame's own content is in
     its hash, so the thumbnail key covers it; these are named only by path."""
@@ -76,14 +93,14 @@ def thumbnail_fingerprint(
     ``config`` must be the frame's *resolved* config (roll defaults applied), the one the
     render ran on. The display transform is left out: the JPEG has it baked in, but a
     monitor-profile or soft-proof change would otherwise make every thumbnail stale and
-    force a full source read per frame for a color shift.
+    force a full source read per frame for a color shift. A field at its default is left
+    out, so a changed default needs a ``THUMBNAIL_RENDER_VERSION`` bump.
     """
     sections = {}
     for f in fields(config):
         if f.name in _NON_PIXEL_SECTIONS or f.name in _BELOW_THUMBNAIL_SECTIONS:
             continue
-        skip = _UNHASHED_FIELDS.get(f.name, frozenset())
-        sections[f.name] = {k: v for k, v in asdict(getattr(config, f.name)).items() if k not in skip}
+        sections[f.name] = _changed_fields(getattr(config, f.name), _UNHASHED_FIELDS.get(f.name, frozenset()))
     payload = {
         "v": THUMBNAIL_RENDER_VERSION,
         "config": sections,
