@@ -61,6 +61,7 @@ _LENS_FIELDS = (
 )
 _SENSOR_FIELDS = (
     "sensor_profile",
+    "sensor_unmix",
     "crosstalk_profile",
     "crosstalk_strength",
     "hue_trim",

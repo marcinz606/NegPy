@@ -703,7 +703,7 @@ class ImageProcessor:
             # each channel from its own single-band exposure, so unmixing them would inject
             # crosstalk that was never captured.
             if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
-                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
+                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process), settings.process.sensor_unmix)
             # Both no-op'd: caching would pin a second reference to the same buffer.
             if img is not source:
                 self._precorrect_key = precorrect_key
@@ -1167,7 +1167,7 @@ class ImageProcessor:
         else:
             f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if not is_triplet:
-            f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process))
+            f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
         return f32_buffer, ir_full, source_cs

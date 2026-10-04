@@ -1913,7 +1913,7 @@ class NormalizationWorker(QObject):
                     # Triplet composites are never sensor-corrected there.
                     sensor_matrix = effective_sensor_matrix(params.process)
                     if sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
-                        raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix)
+                        raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix, params.process.sensor_unmix)
 
                     ctx = PipelineContext(
                         original_size=(raw.shape[1], raw.shape[0]),

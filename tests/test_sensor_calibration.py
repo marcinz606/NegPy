@@ -167,7 +167,7 @@ def test_run_pipeline_gates_triplets(monkeypatch):
 
     calls = []
 
-    def _recorder(img, matrix):
+    def _recorder(img, matrix, mode="linear"):
         calls.append(matrix)
         return img
 

@@ -724,6 +724,7 @@ Applying it sets the defaults for new files and rewrites every edited frame in t
 **Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where each color leaks into the others through the sensor's filters.
 
 *   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
+*   **Method**: how the matrix is applied. *Linear* (default) subtracts the leak from the capture; where the film passes almost none of a color, as in neon or deep blue, the result prints as speckled, fully saturated color. *Soft Floor* is Linear but holds each color at 15% or more of its uncorrected value, so it never reaches zero. *Adaptive* is Linear but fades the correction out on those pixels only. *Density* applies the matrix to densities, so it never reaches zero and gives less grain in saturated colors, which come out slightly less vivid.
 *   **Calibrate** (vials icon on the header): build a profile from three bare-light R/G/B exposures.
 
 Needs **Linear RAW**; grayed out on Transparency and skipped for triplets. **Re-run Roll Analysis** after changing it.

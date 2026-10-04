@@ -412,7 +412,7 @@ def _decode_source(
         if apply_flatfield and flatfield is not None:
             rgb = _apply_flatfield_correction(rgb, flatfield)
         if apply_sensor and process is not None and process.sensor_matrix is not None:
-            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix, process.sensor_unmix)
         if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, None, wb, meta
@@ -459,7 +459,7 @@ def _decode_source(
             lens_corrected=warped,
         )
         if apply_sensor and process is not None and process.sensor_matrix is not None:
-            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix, process.sensor_unmix)
         if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, None, wb, merged
@@ -793,7 +793,7 @@ def _decode_stitch_part(
     if flatfield is not None:
         f32 = _apply_flatfield_correction(f32, flatfield)
     if not is_triplet and process is not None and process.sensor_matrix is not None:
-        f32 = apply_sensor_correction(f32, process.sensor_matrix)
+        f32 = apply_sensor_correction(f32, process.sensor_matrix, process.sensor_unmix)
     return f32
 
 

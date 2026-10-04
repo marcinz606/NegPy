@@ -27,6 +27,19 @@ class ProcessMode(StrEnum):
 _LEGACY_MODES = {"C41": ProcessMode.C41, "B&W": ProcessMode.BW, "E-6": ProcessMode.E6}
 
 
+class SensorUnmix(StrEnum):
+    """How the sensor matrix is applied to the linear capture."""
+
+    LINEAR = "linear"
+    SOFT_FLOOR = "soft_floor"
+    ADAPTIVE = "adaptive"
+    DENSITY = "density"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "SensorUnmix":
+        return cls.LINEAR
+
+
 class DemosaicMode(StrEnum):
     """CFA interpolation, mapped to rawpy in loaders/helpers.py. AUTO keeps NegPy's own
     choice per path. Availability is asked of rawpy at runtime, never assumed here."""
@@ -166,6 +179,7 @@ class ProcessConfig:
     # (features/process/sensor.py). 9 floats row-major; None = off.
     sensor_matrix: Optional[tuple] = None
     sensor_profile: str = "None"
+    sensor_unmix: SensorUnmix = SensorUnmix.LINEAR
 
     # Light-source hue rotation in degrees, applied to the print in CIELAB a*b*
     # (features/process/hue.py); 0.0 = off.
@@ -184,6 +198,7 @@ class ProcessConfig:
         # Not a MIGRATIONS entry: the old mode names also reach us from sticky settings
         # and asset dicts, not only a loaded flat config, so this runs on every build.
         object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
+        object.__setattr__(self, "sensor_unmix", SensorUnmix(self.sensor_unmix))
         # Slide-only, and every path into a config -- saved row, sticky settings, roll
         # default, asset dict -- has to land where the panel does.
         if self.positive_source and self.process_mode != ProcessMode.E6:

@@ -451,6 +451,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             "narrowband_scan",
             "sensor_profile",
             "sensor_matrix",
+            "sensor_unmix",
             "crosstalk_strength",
             "crosstalk_profile",
             "crosstalk_matrix",
