@@ -1,5 +1,3 @@
-"""The Export panel follows the panel conventions: toggles, one call to action, one label column."""
-
 from conftest import FakeController, FakeRepo
 from PyQt6.QtWidgets import QCheckBox, QPushButton
 

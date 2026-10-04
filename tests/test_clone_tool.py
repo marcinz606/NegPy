@@ -1,6 +1,3 @@
-"""Clone strokes: the copy itself, the tone match, the incremental bake and the controller's
-aligned offset."""
-
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch

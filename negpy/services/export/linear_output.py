@@ -1,12 +1,5 @@
 """Linear Output: export a loader's decoded buffer as an untagged 16-bit file.
 
-Bypasses the darkroom pipeline: no normalization, exposure, lab, toning or finish.
-Flat Field, sensor unmix and white balance run only when their toggle is on,
-after EXIF orientation and before the user rotation and flips.
-
-A stitch composite always gets Flat Field and sensor correction per part, before
-assembly, so the output has no vignetting seams or channel crosstalk.
-
 Output format is TIFF (zlib-compressed) or lossless JPEG XL.
 """
 
@@ -191,7 +184,7 @@ def is_linear_output_supported(file_path: str) -> bool:
     return False
 
 
-# The source types whose decode reads Input gamma; every other decode ignores it.
+# The only decodes that read Input gamma.
 GAMMA_SOURCE_TYPES = ("tiff", "nef")
 
 
@@ -354,10 +347,7 @@ def _decode_linear(
     half: int = 0,
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
-    """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta).
-
-    ``half`` names the half-frame asset the dump is for; the dump itself is the whole scan.
-    """
+    """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     lens = LensCorrections()
     if apply_lens and geometry is not None:
         lens = LensCorrections(geometry.lens_distortion_from_metadata, geometry.lens_ca_from_metadata)
@@ -379,9 +369,8 @@ def _decode_linear(
         rgb = _apply_user_geometry(rgb, geometry)
         if ir is not None:
             ir = _apply_user_geometry(ir, geometry)
-    # After rot90 and flips, as in GeometryProcessor, so the CPU resample is bit-identical. A
-    # half's k1 is centered on that half, not on the whole scan the dump holds, so it is skipped.
-    # IR takes the same warp so that ICE stays aligned.
+    # After rot90 and flips, in GeometryProcessor's order; IR takes the same warp so ICE stays aligned.
+    # A half skips it: its k1 is centered on the half, not on the whole scan the dump holds.
     if apply_lens and geometry is not None and geometry.distortion_k1 != 0.0 and not half:
         rgb = apply_radial_distortion(rgb, geometry.distortion_k1)
         if ir is not None:
@@ -404,11 +393,9 @@ def _decode_source(
     lens: LensCorrections = LensCorrections(),
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
-    """Decode and apply the source bakes: EXIF orientation only, no user geometry.
+    """Source bakes and EXIF orientation, no user geometry. Flat Field runs before the lens warp.
 
-    The flat-field gain map is laid out on the EXIF-oriented decode, so it must run before a
-    rotation, a flip or the embedded lens warp. The embedded warp applies to a single camera RAW
-    only, as in `prepare_lens_source`: composite registrations refer to the unwarped parts.
+    Only a single camera RAW takes the embedded warp, as in `prepare_lens_source`.
     """
     wb_blocked = bool(wb_bake_block_reason(rgbscan, process))
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
@@ -583,7 +570,6 @@ def _decode_via_loader(
     gamma_key: str = "linear",
     expansion: Optional[float] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
-    """Decode through a main-path loader with linear_raw=True, then apply EXIF orientation."""
     ctx_mgr, metadata = loader.load(file_path, linear_raw=True)
     with ctx_mgr as wrapper:
         f32 = wrapper.data if isinstance(wrapper, NonStandardFileWrapper) else np.asarray(wrapper)
@@ -678,9 +664,7 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
 def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO) -> tuple[np.ndarray, _CameraWB, _SourceMeta, LensMetadata]:
     """Decode a camera RAW to an oriented float32 buffer without applying user geometry.
 
-    Returns (f32, camera_wb, source_meta, lens). EXIF orientation *is* applied (lossless,
-    baked into the file) but user rotation/flip is not — the caller decides that. The lens
-    metadata is bound to this decode's own visible area.
+    Returns (f32, camera_wb, source_meta, lens); `lens` is bound to this decode's visible area.
     """
     raw = rawpy.imread(file_path)
     wb = _CameraWB(
@@ -723,10 +707,6 @@ def _decode_hdr(
     bracket decodes exactly as its frames do on their own — whatever the format. Source
     corrections are left to the caller: they belong after the merge, since the decode pins
     the white level the merge's thresholds key on.
-
-    Frames are decoded without user geometry, so registration is not fighting a per-frame
-    rotation. Frames are pulled one at a time by merge_bracket — a full-res bracket held all
-    at once is several GB.
     """
 
     # `process` rides along for the demosaic choice only; corrections stay after the merge.
@@ -997,8 +977,7 @@ def _linear_description(
     return f"NegPy Linear Output -- {', '.join(parts)}."
 
 
-# A linear dump keeps the source's pixel dimensions, so it keeps the source's own
-# resolution; only an opt-in correction such as the lens warp resamples pixels. This is
+# A linear dump keeps the source's pixel dimensions, so it keeps its resolution. This is
 # the fallback for a source that declares none: readers report tifffile's unit-less
 # default as 1 DPI.
 NOMINAL_DPI = 300
@@ -1281,8 +1260,7 @@ def export_linear_output(
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
     wb_applied = apply_wb and not wb_bake_block_reason(rgbscan, process)
-    # The setting is global, so it can arrive from an earlier TIFF; the description records it
-    # only for a source whose decode reads it.
+    # Input gamma is global and can carry over from an earlier TIFF.
     if linear_output_source_type(file_path) not in GAMMA_SOURCE_TYPES:
         gamma_key = "linear"
     f32, ir, camera_wb, meta = _decode_linear(

@@ -21,9 +21,7 @@ class TestThumbnailRefreshController:
         self.session.state = AppState()
         self.session.repo = MagicMock()
         self.session.asset_model = MagicMock()
-        # A private thumbnail cache: the refresh writes real JPEGs (and their fingerprints)
-        # through the thumbnail worker, which must not land in the user's own cache or
-        # leak from one test into the next.
+        # A private thumbnail cache, so real JPEGs never land in the user's cache or leak between tests.
         self._thumb_cache = tempfile.mkdtemp(prefix="negpy-thumb-test-")
         with (
             patch("negpy.desktop.controller.RenderWorker") as render_worker,
@@ -550,7 +548,6 @@ class TestThumbnailRefreshController:
         assert self.controller.thumbnail_render_worker._live_preview_service is self.controller.preview_service
 
     def test_neighbor_prefetch_key_matches_the_thumbnail_refresh_key(self) -> None:
-        """A plain whole frame the neighbor prefetch cached is a live-cache hit for the refresh."""
         asset = self.files[1]
         self.session.repo.load_file_settings.return_value = WorkspaceConfig()
         task = self.controller._neighbor_prefetch_task(asset, 0, ())
@@ -580,9 +577,6 @@ class TestThumbnailRefreshController:
 
         assert worker._peek_live_preview(frame, self.tasks[0].workspace_color_space) is not None
         self.controller._on_thumbnail_render_cancelled()
-
-    # Fingerprints: roll-scope Update Thumbnails renders only frames whose stored
-    # fingerprint does not match their current settings.
 
     def _save(self, asset_hash: str, fingerprint) -> None:
         from PIL import Image
@@ -777,12 +771,10 @@ class TestThumbnailRefreshController:
         assert self.thumbnail_updates == []
 
     def _file_it_here(self) -> None:
-        """The test writes the JPEG itself; the worker thread writing the same file would race it."""
+        # The test writes the JPEG itself; the worker writing the same file would race it.
         self.controller.thumbnail_update_requested.disconnect(self.controller.thumb_worker.update_rendered)
 
     def _leave_after_bounds_writeback(self) -> None:
-        """Render the active frame, land its measured bounds, file its thumbnail on the
-        way out, then make it a background frame that reads its config back from storage."""
         from types import SimpleNamespace
 
         def update_config(config, **_kw):
@@ -857,8 +849,6 @@ class TestThumbnailRefreshController:
 
         assert len(self.thumbnail_updates) == count
 
-    # A batch turn keeps a current thumbnail current.
-
     def _batch_turn(self, turned: WorkspaceConfig) -> dict:
         from negpy.services.assets.thumbnails import asset_thumbnail_key
 
@@ -891,8 +881,6 @@ class TestThumbnailRefreshController:
         keys = self._batch_turn(replace(keystoned, geometry=replace(keystoned.geometry, rotation=1, converge_h=4.0, converge_v=0.0)))
 
         assert self.controller.asset_store.get_thumbnail_fingerprint(keys["other"]) == self._current("other")
-
-    # Seeding the Film Strip's stale dot from fingerprints when a roll opens.
 
     def _seed(self, assets=None) -> set:
         from negpy.services.assets.thumbnails import asset_thumbnail_key

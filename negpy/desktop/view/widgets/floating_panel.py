@@ -16,9 +16,8 @@ def float_over_app(widget: QWidget, platform: str | None = None, *, claim_keys: 
     NSPanel. Windows and Linux already keep an owned window above its owner, and the panel
     chrome there costs a taskbar button, so they are left alone.
 
-    claim_keys=False leaves the main window's shortcuts live while the panel has focus, for a
-    panel with no control that takes a key. Call before the first show(): setting flags on a
-    visible window hides it.
+    claim_keys=False leaves the main window's shortcuts live while the panel has focus.
+    Call before the first show(): setting flags on a visible window hides it.
     """
     if (sys.platform if platform is None else platform) != "darwin":
         return
@@ -32,13 +31,10 @@ def float_over_app(widget: QWidget, platform: str | None = None, *, claim_keys: 
 
 
 class _PanelKeyGuard(QObject):
-    """Keeps the main window's shortcuts out of a focused panel.
+    """Keeps the main window's shortcuts out of a focused panel; Ctrl and Cmd chords pass.
 
-    Qt matches a Tool window's keys against its parent window's shortcuts as well, so Esc,
-    the arrows and bare letters would run main-window actions instead of reaching the panel.
-    Accepting the ShortcutOverride sends every key to the focused control as a key press, so
-    a panel handles its own keys in keyPressEvent; a QShortcut on a panel never fires. A
-    Ctrl or Cmd chord passes, so the menu bar and the app-wide commands keep their keys.
+    Qt matches a Tool window's keys against its parent's shortcuts too. Accepting ShortcutOverride
+    sends each key to the panel's keyPressEvent, so a QShortcut on a panel never fires.
     """
 
     def eventFilter(self, obj, ev) -> bool:

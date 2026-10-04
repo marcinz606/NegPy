@@ -258,7 +258,6 @@ class ExportSettingsForm(QWidget):
         mode_row.addWidget(self.mode_btn, 1)
         root.addLayout(mode_row)
 
-        # PRINT mode: long edge in cm + DPI
         self._print_container = QWidget()
         print_inner = QVBoxLayout(self._print_container)
         print_inner.setContentsMargins(0, 0, 0, 0)
@@ -490,8 +489,7 @@ class ExportSettingsForm(QWidget):
         self.overwrite_btn = tool_toggle(
             "fa5s.copy",
             "Overwrite Existing Files",
-            "On: replace files that already exist, without asking. "
-            "Off: ask before overwriting (Overwrite / Rename / Cancel) when a file already exists.",
+            "On: replace existing files without asking. Off: ask first (Overwrite / Rename / Cancel).",
             align_left=True,
         )
         self.overwrite_btn.toggled.connect(self._on_changed)

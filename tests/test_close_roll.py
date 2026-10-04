@@ -1,6 +1,3 @@
-"""Close Roll empties the Film Strip after asking, naming the open roll. With no roll
-open it reads Unload All, and with nothing loaded it does nothing."""
-
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 

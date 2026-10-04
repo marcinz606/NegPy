@@ -82,12 +82,12 @@ _MANUAL_PRESET = "\x00create-manual"
 # 10 ms and set_color is a fire-and-forget serial write, so 50 ms keeps an
 # order-of-magnitude margin. A fixed tuning constant, not a persisted setting.
 _LED_SETTLE_S = 0.05
-#: A body takes a second or two to switch between its full and magnified view.
+#: Time a body takes to switch between its full and magnified view.
 _MAGNIFIER_SETTLE_MS = 2500
 
 
 def _gray_array(pixmap: QPixmap) -> np.ndarray:
-    """A live frame as an HxW uint8 array, for the focus meter."""
+    """HxW uint8 gray copy of a live frame."""
     image = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
     bits = image.constBits()
     bits.setsize(image.sizeInBytes())
@@ -98,12 +98,11 @@ def _gray_array(pixmap: QPixmap) -> np.ndarray:
 class ScanlightSidebar(QWidget):
     """Trichromatic RGB-scan capture panel."""
 
-    cards_changed = pyqtSignal()  # a body was gated in or out, so its card follows
+    cards_changed = pyqtSignal()
 
     def __init__(self, controller, output: ScanOutputPanel | None = None) -> None:
         super().__init__()
         self.controller = controller
-        # Shared with the Film Scanner on the Scan tab; a standalone panel keeps its own.
         self.output = output if output is not None else ScanOutputPanel(controller.session.repo)
         self._settings: ScanlightSettings = self._load_settings()
         self._presets = PresetStore(self.controller.session.repo)
@@ -117,10 +116,9 @@ class ScanlightSidebar(QWidget):
         self._status_pinned = False  # a pinned status (calibration outcome) outranks the light echo
         self._exposure_popup = None  # the over/under pop-up (kept referenced; replaced per calibration)
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
-        self._magnifier_available = True  # false once the body reports it cannot stream the magnified view
+        self._magnifier_available = True
         self._focus_meter = FocusMeter()
-        # The magnified view replaces the full frame a moment after the click, and the two do
-        # not share a sharpness scale, so the peak resets again once the body has switched.
+        # Full and magnified views do not share a sharpness scale: reset the peak once the body has switched.
         self._focus_settle_timer = QTimer()
         self._focus_settle_timer.setSingleShot(True)
         self._focus_settle_timer.setInterval(_MAGNIFIER_SETTLE_MS)
@@ -223,8 +221,7 @@ class ScanlightSidebar(QWidget):
         return slider
 
     def _init_ui(self) -> None:
-        """Three bodies, each its own card on the Scan tab: the camera, the Scanlight's preset
-        and light, and the footer with the scan controls. Standalone they stack here."""
+        """Three bodies that the Scan tab puts in cards; a standalone panel stacks them."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(THEME.space_lg)
@@ -265,8 +262,7 @@ class ScanlightSidebar(QWidget):
         cam.addWidget(self._rgb_hint)
         layout.addWidget(self.camera_body)
 
-        # Scanlight only: presets, light levels and the preset's exposure. Hidden for normal
-        # white-light camera scanning (_set_rgb_mode).
+        # Scanlight only: _set_rgb_mode hides it for white-light scanning.
         self.light_body = QWidget()
         rgb = QVBoxLayout(self.light_body)
         rgb.setContentsMargins(0, 0, 0, 0)
@@ -286,8 +282,6 @@ class ScanlightSidebar(QWidget):
         self.preset_del_btn = icon_button("fa5s.trash", "Delete the selected preset")
         rgb.addLayout(header_row(section_subheader("PRESET"), self.preset_new_btn, self.preset_save_btn, self.preset_del_btn))
         rgb.addWidget(self.preset_combo)
-        # A one-line note about the current preset, right under the dropdown. Hidden when it has
-        # nothing to say.
         self.preset_hint = hint_label("")
         self.preset_hint.setVisible(False)
         rgb.addWidget(self.preset_hint)
@@ -312,7 +306,7 @@ class ScanlightSidebar(QWidget):
         # in "manual preset" mode, where it steps through this body's own choices. Calibration
         # normally solves the shutter.
         self._exposure_widget = QWidget()
-        self._exposure_widget.setObjectName("collapsible_content_body")  # transparent inside the card
+        self._exposure_widget.setObjectName("collapsible_content_body")
         _exp = QVBoxLayout(self._exposure_widget)
         _exp.setContentsMargins(0, 0, 0, 0)
         _exp.setSpacing(THEME.space_md)
@@ -338,7 +332,6 @@ class ScanlightSidebar(QWidget):
         rgb.addWidget(self.inter_exposure_delay_slider)
         layout.addWidget(self.light_body)
 
-        # Scan controls: what still blocks a scan, the capture's progress, then the actions.
         self.footer = QWidget()
         foot = QVBoxLayout(self.footer)
         foot.setContentsMargins(0, 0, 0, 0)
@@ -821,17 +814,10 @@ class ScanlightSidebar(QWidget):
         self._maybe_release_camera_session(closing=self.calib_window)
 
     def _maybe_release_camera_session(self, *, closing=None) -> None:
-        """Once neither camera pop-up is open and nothing is mid-capture, release the held
-        PTP session rather than leaving it open indefinitely. Some bodies (Fuji in
-        particular) get stuck in a tethered-capture state on the camera side until the
-        session is cleanly exited — holding it open past the last window that uses it
-        makes the next connection attempt hang instead of reconnecting.
+        """Release the held PTP session once neither camera pop-up is open and nothing is mid-capture.
 
-        `closing`, when given, names the window that is closing: `closed` is emitted from
-        inside done(), before Qt actually hides the widget, so
-        `closing.isVisible()` would still (wrongly) read True here — treat it as already
-        gone instead. Omit it when called after the fact (e.g. once a cancelled
-        calibration actually stops), when both windows' visibility is already accurate.
+        Some bodies (Fuji) stay in tethered capture until the session exits; one held open hangs the next connect.
+        `closing` names a window whose `closed` fired inside done(), where its isVisible() still reads True.
         """
         if self._suppress_camera_release:
             return  # a hand-off between the two pop-ups, not a real exit
@@ -902,7 +888,7 @@ class ScanlightSidebar(QWidget):
             # The body may have drifted since a preset was picked with the stream down, because
             # the write lands only once a session is open. Re-assert the preset's exposure.
             self._apply_active_preset_camera_settings()
-        self._magnifier_available = True  # a new session can be a different body
+        self._magnifier_available = True
         self._reset_focus_meter()
         self._lv_timer.start()
         self._set_status("Live view running.")
@@ -1033,7 +1019,6 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(str)
     def _on_magnifier_unavailable(self, reason: str) -> None:
-        """The body cannot stream its magnified view: a click only resets the focus meter."""
         self._magnifier_available = False
         self._magnifier_on = False
         self._focus_settle_timer.stop()
@@ -1041,7 +1026,7 @@ class ScanlightSidebar(QWidget):
 
     def _on_magnifier_click(self, fx: float, fy: float) -> None:
         """Click the live view to magnify at that spot; click again for the full frame.
-        Every click resets the focus meter's peak. Only while the stream is running."""
+        Only while the stream is running."""
         if not self.lv_btn.isChecked():
             return
         self._reset_focus_meter()
@@ -1397,7 +1382,6 @@ class ScanlightSidebar(QWidget):
         self.lv_window.set_status(text)
 
     def _set_conn_status(self, label, state, short: str, detail: str = "") -> None:
-        """Compact dot: success when connected, error when it failed, muted while unknown (detail in tooltip)."""
         label.setText(f"● {short}")
         set_hint_kind(label, "success" if state else ("error" if state is False else "muted"))
         label.setToolTip(detail or short)
@@ -1450,7 +1434,7 @@ class ScanlightSidebar(QWidget):
         RGB-only bodies (v1-v3) have no temperature sensor and report a bogus 0 °C, so hide it there
         (no white channel is our proxy for those models)."""
         if isinstance(temp, (int, float)) and self._light_has_white:
-            set_hint_kind(self.light_temp, "warning" if temp >= 55 else "muted")  # amber once it's getting warm
+            set_hint_kind(self.light_temp, "warning" if temp >= 55 else "muted")
             self.light_temp.setText(f"{temp:.0f} °C")
             self.light_temp.show()
         else:
@@ -1519,8 +1503,7 @@ class ScanlightSidebar(QWidget):
         button only needs camera+light. When scanning is blocked, say why (task 5)."""
         missing = self._missing_requirements()
         can_scan = not missing
-        # Live view frames and focuses, so it needs only the camera; kept enabled while open so it
-        # can be toggled off.
+        # Live view needs only the camera; it stays enabled while open so it can be toggled off.
         self.lv_btn.setEnabled((self._camera_verified and not self._calibrating_preset) or self.lv_btn.isChecked())
         self.scan_btn.setEnabled(can_scan or self._scanning)
         self.retake_btn.setEnabled(can_scan and not self._scanning)
@@ -1633,8 +1616,7 @@ class ScanlightSidebar(QWidget):
         self.scan_btn.setIcon(
             qta.icon("fa5s.stop" if active else "fa5s.camera", color=THEME.accent_secondary if active else THEME.text_on_accent)
         )
-        # The filled/hollow swap is a QSS property selector, and Qt only re-reads those on a
-        # repolish.
+        # Qt re-reads a QSS property selector only on a repolish.
         self.scan_btn.setProperty("scanning", "true" if active else "false")
         style = self.scan_btn.style()
         style.unpolish(self.scan_btn)

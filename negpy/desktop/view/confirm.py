@@ -34,8 +34,6 @@ def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
 
 
 def confirm_close_roll(parent, roll_name: str | None) -> bool:
-    """Ask before emptying the Film Strip: the open roll by *roll_name*, or, with no roll
-    open, every loaded frame."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Question)
     if roll_name is None:
@@ -176,7 +174,6 @@ def confirm_clear_heals(parent, count: int) -> bool:
 
 
 def confirm_clear_clones(parent, count: int) -> bool:
-    """Ask before wiping every clone stroke on the frame, like confirm_clear_heals."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Question)
     box.setWindowTitle("Clear All Clones")
@@ -205,31 +202,22 @@ def confirm_assembly_mode(parent, mode: str, count: int) -> bool:
 
 
 def confirm_frame_merge(parent, title: str, counts: dict, skipped: list) -> Optional[bool]:
-    """Ask before a Merge to TIFF Negative. None on Cancel, else whether the sources go to the Trash.
-
-    *counts* is mergeable frames per composite kind, so the question names what it found.
-    """
+    """None on Cancel, else whether the sources go to the Trash. *counts* is frames per composite kind."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Question)
     box.setWindowTitle(title)
     one = sum(counts.values()) == 1
     box.setText(f"Merge {_merge_subject(counts)} into {'a TIFF negative' if one else 'TIFF negatives'}?")
-    lines = [
-        "Each one is a linear negative, not a positive export: it is written next to its primary source "
-        "file and takes over the frame's edit. The export demosaic is fixed in the file."
-    ]
+    lines = ["Each frame becomes a linear TIFF negative beside its primary source and keeps its edit. The demosaic is baked in."]
     if counts.get("stitch"):
-        lines.append(
-            "A stitch also bakes in its flat field and per-part sensor correction, and its parts stop "
-            "being one composite. Unstitch is not available afterward."
-        )
+        lines.append("A stitch also bakes in its flat field and sensor correction; the TIFF cannot be unstitched.")
     if skipped:
         shown = skipped[:8]
         more = f"\n…and {len(skipped) - len(shown)} more" if len(skipped) > len(shown) else ""
         lines.append("Skipped:\n" + "\n".join(shown) + more)
     box.setInformativeText("\n\n".join(lines))
     trash = QCheckBox("Move each merged frame's source files to the Trash")
-    trash.setToolTip("Off keeps the source files, and the frame they make stays in the film strip beside the merged file")
+    trash.setToolTip("Off keeps the source files, and the frame stays in the Film Strip beside the TIFF")
     trash.setChecked(True)
     box.setCheckBox(trash)
     merge = box.addButton("Merge", QMessageBox.ButtonRole.AcceptRole)
@@ -242,7 +230,6 @@ def confirm_frame_merge(parent, title: str, counts: dict, skipped: list) -> Opti
 
 
 def _merge_subject(counts: dict) -> str:
-    """ "4 triplets and 1 stitch", in a fixed kind order so the wording is stable."""
     names = {"rgb": ("triplet", ""), "stitch": ("stitch", "stitches")}
     parts = [count_of(counts[k], *names[k]) for k in ("rgb", "stitch") if counts.get(k)]
     return " and ".join(parts) if parts else count_of(0, "frame")

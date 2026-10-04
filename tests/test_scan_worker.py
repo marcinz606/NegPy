@@ -417,8 +417,6 @@ def test_run_batch_keeps_film_loaded_when_asked() -> None:
 
 
 class _ReturnedService(_BatchService):
-    """A unit that returned the strip while idle: the first open raises."""
-
     def run_scan(self, device_id, params, progress, cancel):
         from negpy.infrastructure.scanners.base import StripReturned
 

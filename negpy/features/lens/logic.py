@@ -10,8 +10,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.lens.models import LensCorrections, LensMetadata, LensWarp
 from negpy.kernel.image.logic import apply_exif_orientation
 
-# Rows sampled down the left and right edges when searching the fill scale; the top and
-# bottom rows are read whole.
+# Rows sampled down the side edges in the fill-scale search; the top and bottom rows are read whole.
 _FILL_EDGE_ROWS = 64
 _FILL_STEPS = 24
 # Below this the profile is not a lens correction; the edge is left replicated instead.
@@ -93,9 +92,8 @@ _cached_fill_scale = lru_cache(maxsize=16)(_search_fill_scale)
 def fill_scale(lens: LensMetadata, shape: tuple[int, ...], corrections: LensCorrections) -> float:
     """Largest scale up to 1 at which the corrected frame reads no pixel from past the source edge.
 
-    Only a distortion correction moves the edge that far. A CA-only correction keeps 1: its green map
-    is the identity, and scaling red and blue alone would misregister them. Never above 1, so a
-    profile is not extrapolated past the frame it was calibrated on.
+    Never above 1, so a profile is not extrapolated past the frame it was calibrated on. A CA-only
+    correction keeps 1: its green map is the identity, and scaling red and blue alone would misregister them.
     """
     applied = _applied(lens, corrections)
     if not corrections.distortion or not any(w.has_distortion for w in applied):

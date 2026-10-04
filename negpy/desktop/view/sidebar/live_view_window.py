@@ -35,7 +35,6 @@ from negpy.desktop.view.widgets.floating_panel import float_over_app
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text}
 _DONE_COLOR = THEME.status_success
 _FLASH_MS = 1500
-#: A focus reading at or above this fraction of the peak counts as at the peak.
 _FOCUS_AT_PEAK = 0.99
 
 
@@ -169,8 +168,8 @@ class LiveViewWindow(QDialog):
         self.focus_label = hint_label("")
         self.focus_label.setToolTip(
             wrap_tooltip(
-                "Sharpness of the live image against the best value seen. Turn the focus ring through "
-                "best focus, then back until the reading returns to the peak. Click the image to reset the peak."
+                "Sharpness as a share of the best seen. Turn the focus ring past the peak and back to it; "
+                "click the image to reset the peak."
             )
         )
         self._focus_kind = "muted"
@@ -238,8 +237,7 @@ class LiveViewWindow(QDialog):
         # once made Enter keep retaking until Scan was clicked again to reclaim it (issue #997).
         pin_dialog_default(self.scan_btn, self.retake_btn)
 
-        # Keys while the pop-up is focused; there are no text fields here. The buttons respect
-        # their gated state.
+        # Plain letter keys are safe: the pop-up has no text fields.
         self._key_buttons = {"live_view_scan": self.scan_btn, "live_view_retake": self.retake_btn}
         remember_dialog_geometry(self, repo, "live_view")
 
@@ -249,8 +247,7 @@ class LiveViewWindow(QDialog):
 
     def _key_button(self, ev):
         modifiers = ev.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
-        # A shifted symbol such as "?" arrives as Key_Question with Shift held, so Shift is
-        # dropped only after no binding matches the exact chord.
+        # "?" arrives as Key_Question with Shift held: drop Shift only when the exact chord has no match.
         for mods in (modifiers, modifiers & ~Qt.KeyboardModifier.ShiftModifier):
             pressed = QKeySequence(ev.key() | mods.value)
             for action_id, btn in self._key_buttons.items():

@@ -1,10 +1,3 @@
-"""Contact-sheet tiles must come back small, and a failed tile must be reported.
-
-The worker holds a sheet's tiles in memory at once, so a tile rendered at full source
-resolution scales peak cost with frames x full resolution. A tile that fails to render
-prints as a blank frame and is reported, never silently left out.
-"""
-
 import os
 import tempfile
 import unittest
@@ -148,9 +141,6 @@ def _job(n: int, out_dir: str, **kwargs) -> ContactSheetJob:
 
 
 class TestContactSheetWorker(unittest.TestCase):
-    """The worker prints every frame, reports the ones it could not render, and always
-    releases the batch lane."""
-
     def _worker_with(self, tile_results):
         worker = ExportWorker()
         worker._processor = MagicMock()

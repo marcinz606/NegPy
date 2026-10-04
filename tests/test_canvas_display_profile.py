@@ -1,5 +1,3 @@
-"""The overlay's host-side images (the before/after baseline, the test strip) use the canvas shader's display profile."""
-
 from unittest.mock import MagicMock, patch
 
 from negpy.desktop.session import AppState

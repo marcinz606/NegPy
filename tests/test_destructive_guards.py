@@ -29,8 +29,6 @@ def _wheel(widget) -> QWheelEvent:
 
 
 def test_dropdowns_and_number_boxes_ignore_the_wheel(qapp):
-    """Scrolling a panel never changes a setting under the pointer, focused or not; the
-    ignored event goes on to the panel."""
     from negpy.desktop.main import WheelScrollsPanel
     from negpy.desktop.view.widgets.sliders import CompactSlider
 

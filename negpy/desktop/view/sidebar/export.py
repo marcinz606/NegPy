@@ -59,7 +59,6 @@ class ExportSidebar(BaseSidebar):
 
         # Task-flow order: the output intent reframes the whole form, so it comes first; the
         # Export action follows the form it reads, and the occasional tools sit collapsed below.
-        # The body shares one label column; each card below aligns its own.
         body = QWidget()
         self._body = QVBoxLayout(body)
         self._body.setContentsMargins(0, 0, 0, 0)
@@ -224,7 +223,6 @@ class ExportSidebar(BaseSidebar):
     # --- Contact sheet -------------------------------------------------------
 
     def _add_contact_sheet_section(self) -> None:
-        """Collapsible CONTACT SHEET section: where sheets go, and the dialog that lays them out."""
         conf = self.state.config.export
 
         content = QWidget()
@@ -267,7 +265,6 @@ class ExportSidebar(BaseSidebar):
             self.cs_output_path_edit.setText(path)
 
     def apply_shortcut_tooltips(self) -> None:
-        """Contact Sheet… and Proof on Screen carry their bound keys, as every shortcut-bearing control does."""
         for btn, action in ((self.contact_sheet_btn, "contact_sheet"), (self.soft_proof_btn, "toggle_soft_proof")):
             btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action)))
 
@@ -603,7 +600,7 @@ class ExportSidebar(BaseSidebar):
         )
         self.linear_corrections_hint.setVisible(show_corrections and any_on)
 
-    _LINEAR_LENS_TOOLTIP = "Apply the scanning-lens correction set in Optics: the embedded Distortion and CA, and Distortion Correction"
+    _LINEAR_LENS_TOOLTIP = "Apply the lens correction set in Optics: embedded Distortion and CA, and Distortion Correction"
 
     def _linear_lens_state(self, path: str, is_camera: bool) -> tuple[bool, bool]:
         """(visible, enabled): visible for an embedded profile or a nonzero k1, enabled when Optics has one on."""
@@ -819,7 +816,6 @@ class ExportSidebar(BaseSidebar):
 
     @staticmethod
     def _proof_row(label: str, widget: QWidget, railed: bool = False) -> QHBoxLayout:
-        """railed: the row sits on a rail, so its label is shorter by the rail's indent."""
         row = QHBoxLayout()
         name = field_label(label, FIELD_LABEL_WIDTH - (SliderGroup.INDENT if railed else 0))
         row.addWidget(name)
@@ -1104,7 +1100,6 @@ class ExportSidebar(BaseSidebar):
             self.controller.request_preset_export()
 
     def _rebuild_preset_rows(self) -> None:
-        """Rebuild the preset toggles from state."""
         for btn in self._preset_toggles:
             self._presets_inner.removeWidget(btn)
             btn.deleteLater()

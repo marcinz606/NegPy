@@ -1,4 +1,4 @@
-"""Where both scanners write: one folder, one roll, shared by the Film Scanner and Camera Scanning."""
+"""The output folder and roll that both scanners share."""
 
 import os
 from dataclasses import asdict, dataclass, fields, replace
@@ -13,11 +13,8 @@ from negpy.services.assets.rolls import roll_folder_name
 
 SETTINGS_KEY = "scan_output_settings"
 
-_AS_ROLL_TIP = (
-    "Make the folder the frames go to a roll in the Library and open it, so Half Frame, roll "
-    "defaults and Roll Analysis apply to the frames as they are scanned."
-)
-_FOLDER_ROLL_TIP = "Scan straight into the output folder, which is the roll and gives it its name. Off scans into a Roll subfolder."
+_AS_ROLL_TIP = "Open the folder the frames go to as a Library roll, so Half Frame, roll defaults and Roll Analysis apply as you scan."
+_FOLDER_ROLL_TIP = "Scan into the output folder itself and name the roll after it. Off scans into a Roll subfolder."
 
 
 @dataclass(frozen=True)
@@ -29,7 +26,7 @@ class ScanOutputSettings:
 
 
 def load_scan_output_settings(repo) -> ScanOutputSettings:
-    """The saved output, or on first run the folder and roll each scanner kept before they shared one."""
+    """The saved output; on first run, seeded from the folder and roll each scanner kept."""
     data = repo.get_global_setting(SETTINGS_KEY, default=None)
     if isinstance(data, dict):
         known = {f.name for f in fields(ScanOutputSettings)}
@@ -46,8 +43,6 @@ def load_scan_output_settings(repo) -> ScanOutputSettings:
 
 
 class ScanOutputPanel(QWidget):
-    """Folder, roll and the two roll options; both scan panels read their target from here."""
-
     changed = pyqtSignal()
 
     def __init__(self, repo) -> None:

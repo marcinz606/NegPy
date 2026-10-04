@@ -181,7 +181,6 @@ def test_label_with_shortcut_leaves_an_unbound_action_plain():
 
 
 def test_a_command_chord_clashes_across_windows():
-    # A floating panel passes Ctrl/Cmd chords to the main window, so only bare keys may repeat.
     assert clash_scope("live_view_scan", "S") == "live_view"
     assert clash_scope("live_view_scan", "Ctrl+E") == "main"
     assert clash_scope("live_view_scan", "Meta+E") == "main"

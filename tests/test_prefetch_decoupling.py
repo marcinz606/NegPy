@@ -1,12 +1,3 @@
-"""A click must not wait behind a neighbor prefetch (#1231).
-
-The prefetch worker runs on its own thread, and the decode gate admits a
-foreground preview alongside a prefetch decode of another file: LibRaw's unpack
-cannot stop mid-read, so an abandoned prefetch would otherwise hold the click
-back for its whole file read. A prefetch of the clicked file itself still makes
-the foreground wait, so the decode lands in the cache once instead of twice.
-"""
-
 import threading
 import unittest
 from unittest.mock import MagicMock
@@ -59,7 +50,7 @@ class TestDecodeGate(unittest.TestCase):
         with gate.hold("prefetch", "/clicked.arw"):
             with gate.hold("foreground", "/clicked.arw", abandoned=lambda: True) as entered:
                 self.assertFalse(entered)
-        # Giving up held nothing, so the release path must leave the gate reusable.
+        # Giving up held nothing; the gate stays reusable.
         with gate.hold("foreground", "/clicked.arw") as entered:
             self.assertTrue(entered)
 
@@ -113,7 +104,7 @@ class TestForegroundOverlapsPrefetch(unittest.TestCase):
         prefetch_thread.start()
         self.assertTrue(prefetch_started.wait(5))
 
-        # The click: a new generation obsoletes the prefetch, which is stuck mid-read.
+        # The click, while the prefetch is stuck mid-read.
         state.expect_generation(2, "/clicked.arw")
         state.cancel_prefetch(1)
         finished = threading.Event()

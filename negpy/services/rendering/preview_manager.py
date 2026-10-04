@@ -222,8 +222,7 @@ class PreviewManager:
         lens_corrections: LensCorrections = LensCorrections(),
         lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
     ) -> Optional[Tuple[ImageBuffer, Dimensions, dict]]:
-        """The cached decode ``load_linear_preview`` would return for these arguments, or None.
-        Never decodes and never reorders the LRU. The buffer is shared: do not mutate it."""
+        """Cached ``load_linear_preview`` result, or None; never decodes or reorders the LRU. The buffer is shared."""
         if not file_hash:
             return None
         key = _linear_preview_key(
@@ -310,12 +309,6 @@ class PreviewManager:
         Decode and resize a linear preview from an already-open raw object.
         Handles cache write on completion.
 
-        ``half_slice``: (half, split_x, crop_rect, gutter_thickness, split_axis) —
-        when set,
-        the half-frame slice is applied to the full-res decode BEFORE the preview
-        downsample so analysis sees the same pixels export analyzes (slice then
-        downsample), not whole-scan-averaged pixels (downsample then slice).
-
         ``bake_camera_wb`` applies this file's own white balance even on a path that
         otherwise decodes neutral — resolved by the caller via
         ``highlight_reconstruction_bakes_wb``, this method never re-derives the gate.
@@ -335,8 +328,7 @@ class PreviewManager:
             raise InterruptedError("preview load cancelled")
 
         if isinstance(raw, rawpy.RawPy):
-            # The first raw_pattern touch runs LibRaw's unpack: the whole-file read happens
-            # here, not in postprocess, so it gets its own timing line and a cancel point.
+            # Touching raw_pattern runs LibRaw's unpack (the file read), so it gets its own timing and cancel point.
             t_unpack = time.perf_counter()
             try:
                 _ = raw.raw_pattern
@@ -604,9 +596,6 @@ class PreviewManager:
         """
         Loads linear RGB, downsamples for display.
         If color_space is None, uses the source's declared space (metadata).
-
-        ``half_slice``: (half, split_x, crop_rect, gutter_thickness, split_axis) —
-        slice the half before the preview downsample so analysis matches export.
 
         ``wb_override`` is not part of the cache key: a caller that passes it must also
         pass ``file_hash=None``, the way a bracket sibling already does, or a decode on

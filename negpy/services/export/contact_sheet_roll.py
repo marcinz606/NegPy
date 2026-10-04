@@ -1,7 +1,4 @@
-"""What a contact sheet reads from each frame: its dates, its scan shape and its film.
-
-Nothing here touches Qt; the header reads run on a worker thread.
-"""
+"""What a contact sheet reads from each frame. No Qt: the header reads run on a worker thread."""
 
 import math
 import os
@@ -28,13 +25,12 @@ from negpy.services.export.contact_sheet_layout import (
 
 @dataclass(frozen=True)
 class FrameFacts:
-    """File facts read off the GUI thread. `scan_size` is (width, height) after EXIF
-    orientation and the half-frame split, or None when the header does not say."""
+    """`scan_size` is (width, height) after EXIF orientation and the half-frame split."""
 
     capture_time: str = ""
     birth_time: float = 0.0
     scan_size: Optional[tuple[int, int]] = None
-    # log2(shutter × ISO / f-number²) of a camera raw scan; None when the file does not say.
+    # log2(shutter × ISO / f-number²) of a camera raw scan.
     scan_ev: Optional[float] = None
 
 
@@ -54,7 +50,6 @@ class SheetFrame:
 
 
 def asset_paths(asset: dict) -> list[str]:
-    """Every file a frame is made of; a composite's parts, else its one source."""
     parts = asset.get("hdr_paths") or asset.get("stitch_paths")
     if parts:
         return [str(p) for p in parts]
@@ -62,11 +57,7 @@ def asset_paths(asset: dict) -> list[str]:
 
 
 def read_capture_time(path: str) -> str:
-    """The EXIF capture time as "YYYY-MM-DD HH:MM:SS", from the header only; "" when absent.
-
-    A whole-file EXIF parse costs a full read of a large TIFF or raw, so only JPEG goes through
-    piexif and TIFF-based files through tifffile's tag directory.
-    """
+    """EXIF capture time as "YYYY-MM-DD HH:MM:SS", or "". piexif reads a whole TIFF or raw, so only JPEG uses it."""
     from negpy.features.metadata.exif_read import format_exif_datetime
 
     try:
@@ -98,7 +89,6 @@ def read_capture_time(path: str) -> str:
 
 
 def read_birth_time(path: str) -> float:
-    """File creation time where the OS records one, else the modification time."""
     try:
         st = os.stat(path)
     except OSError:
@@ -107,7 +97,6 @@ def read_birth_time(path: str) -> float:
 
 
 def read_scan_size(asset: dict) -> Optional[tuple[int, int]]:
-    """The frame's source (width, height) as the pipeline sees it, from the file header."""
     from negpy.infrastructure.loaders.constants import (
         SUPPORTED_JPEG_EXTENSIONS,
         SUPPORTED_JXL_EXTENSIONS,
@@ -167,8 +156,7 @@ def read_scan_size(asset: dict) -> Optional[tuple[int, int]]:
 
 
 def read_scan_ev(path: str) -> Optional[float]:
-    """The exposure a camera raw scan was made with, from the raw header. Only a camera raw
-    counts: its decode is linear, so an exposure difference is exactly a scale on the data."""
+    """Camera raw only: its decode is linear, so an exposure difference is a pure scale on the data."""
     from negpy.infrastructure.loaders.constants import (
         SUPPORTED_JPEG_EXTENSIONS,
         SUPPORTED_JXL_EXTENSIONS,
@@ -205,9 +193,7 @@ def read_frame_facts(asset: dict) -> FrameFacts:
 
 
 def creation_order(frames: Sequence[SheetFrame]) -> list[SheetFrame]:
-    """Frames in the order they were created: EXIF capture time when every frame states one,
-    else file creation time. Mixing the two would interleave two clocks. Name, then half,
-    breaks ties."""
+    """EXIF capture time when every frame has one, else file creation time: mixing them interleaves two clocks."""
     by_exif = bool(frames) and all(f.facts.capture_time for f in frames)
 
     def key(frame: SheetFrame) -> tuple[Any, ...]:
@@ -226,9 +212,7 @@ def _crop_fractions(config: WorkspaceConfig) -> tuple[float, float]:
 
 
 def upright_aspect(frame: SheetFrame, tile_shape: Optional[tuple[int, int]] = None) -> Optional[float]:
-    """Width over height of the frame's whole picture after the user's rotation, uncropped.
-
-    From the scan size when known; else recovered from a rendered tile and the crop."""
+    """Width over height of the whole picture after the user's rotation, uncropped."""
     size = frame.facts.scan_size
     if size and size[0] > 0 and size[1] > 0:
         w, h = size
@@ -242,7 +226,6 @@ def upright_aspect(frame: SheetFrame, tile_shape: Optional[tuple[int, int]] = No
 
 
 def cropped_aspect(frame: SheetFrame) -> Optional[float]:
-    """Long over short side of the picture as the user cropped it."""
     whole = upright_aspect(frame)
     if whole is None:
         return None
@@ -265,7 +248,6 @@ _FRAME_120_PATTERN = re.compile(r"6\s*[x×]\s*(4[.,]5|6|7|8|9|12|17)|645")
 
 
 def parse_frame_120(text: str) -> str:
-    """ "6x7", "6×4,5" or "645" as a FRAME_SIZES_120 key; "" when it names none."""
     match = _FRAME_120_PATTERN.search(text.lower())
     if not match:
         return ""
@@ -283,13 +265,7 @@ def _nearest_frame_120(aspect: float) -> str:
 
 
 def infer_format(frames: Sequence[SheetFrame], half_frame_roll: bool = False) -> tuple[SheetFormat, str]:
-    """The roll's film format and 120 frame size, from the frames themselves.
-
-    Split halves or the roll's Half Frame mode mean half frame. Otherwise the metadata format
-    decides by majority; a free-text "Other" naming a 120 size counts as 120. Without any, a
-    squarish crop (at most 1.3:1) reads as 120, anything longer as 35mm: a 6×9 roll with no
-    metadata cannot be told from 35mm and needs picking by hand.
-    """
+    """Without format metadata a 6×9 roll reads as 35mm: both are 3:2."""
     if half_frame_roll or any(f.half for f in frames):
         return SheetFormat.HALF_FRAME, DEFAULT_FRAME_120
 
@@ -331,7 +307,6 @@ def _gear_stock(frame: SheetFrame, library: Any) -> Optional[FilmStock]:
 
 
 def film_name(frame: SheetFrame, library: Any = None) -> str:
-    """The stock as a person writes it ("Kodak Portra 400")."""
     stock = _gear_stock(frame, library)
     if stock is not None:
         if stock.display_name.strip():
@@ -345,8 +320,7 @@ def film_name(frame: SheetFrame, library: Any = None) -> str:
 
 
 def film_color_type(frame: SheetFrame, library: Any = None) -> Optional[FilmColorType]:
-    """The film's own type; the process mode only when the metadata names none. A scan
-    already made positive (Positive) says nothing about the film it came from."""
+    """A Positive frame's process mode says nothing about the film it came from."""
     stated = frame.config.metadata.film_color_type
     if stated:
         return FilmColorType.from_storage(stated)
@@ -370,8 +344,6 @@ def _majority(values: Sequence[Any], default: Any) -> Any:
 
 @dataclass(frozen=True)
 class SheetLook:
-    """Everything about a sheet's print that is not geometry."""
-
     palette: str = "bw"
     black: int = 0
     edge: EdgeStyle = EdgeStyle()
@@ -379,7 +351,6 @@ class SheetLook:
 
 
 def sheet_black(paper_black: bool) -> int:
-    """The paper's maximum black in sRGB, as the frames' own paper model prints it."""
     if not paper_black:
         return 0
     linear = 10.0 ** -float(EXPOSURE_CONSTANTS["d_max"])
@@ -410,7 +381,6 @@ def sheet_look(frames: Sequence[SheetFrame], fmt: SheetFormat, label: str = "", 
 
 
 def roll_label_text(roll_name: str, frames: Sequence[SheetFrame], library: Any = None) -> str:
-    """Roll · stock (at its exposure index when pushed) · developer · camera · date."""
     if not frames:
         return roll_name
     metas = [f.config.metadata for f in frames]
@@ -448,10 +418,7 @@ def roll_label_text(roll_name: str, frames: Sequence[SheetFrame], library: Any =
 
 
 def tile_params(config: WorkspaceConfig) -> WorkspaceConfig:
-    """A frame's edit as it prints on a contact sheet: the negative alone, without the print
-    layout (border, filed carrier, paper ratio) that belongs to an enlargement. A Film edge
-    auto crop keeps the scanned rebate, which the sheet draws itself, so it is re-detected
-    as Image."""
+    """The sheet draws its own rebate, so a Film edge auto crop re-detects as Image."""
     geometry = config.geometry
     if geometry.crop_from_auto and geometry.autocrop_mode == AutocropMode.FILM:
         geometry = replace(geometry, autocrop_mode=AutocropMode.IMAGE)
@@ -467,16 +434,15 @@ def tile_params(config: WorkspaceConfig) -> WorkspaceConfig:
     )
 
 
-# ISO R of a grade 2 paper, the grade a darkroom proof is printed on.
+# ISO R of grade 2 paper.
 PROOF_GRADE = 110.0
-# Scan exposures closer than this are one exposure: shutter speeds are nominal to about a sixth of a stop.
+# Stops: shutter speeds are nominal to about this much.
 _SAME_EXPOSURE_EV = 1 / 6
 
 
 @dataclass(frozen=True)
 class StraightProof:
-    """The roll printed at one exposure: each frame's proof config, or why it cannot be made.
-    `note` says what the proof assumes or corrected."""
+    """`reason` says why the proof cannot be made; `note` what it assumes or corrected."""
 
     frames: tuple[SheetFrame, ...] = ()
     reason: str = ""
@@ -488,9 +454,7 @@ class StraightProof:
 
 
 def scan_exposure_offsets(frames: Sequence[SheetFrame]) -> list[float]:
-    """Per-frame log10 shift that brings each scan to the roll's median scan exposure. A
-    brighter scan reads every density thinner by the same log amount, so its bounds move up
-    by it. A frame whose exposure is unknown keeps its scan as it is."""
+    """Per-frame log10 shift that brings each scan to the median scan exposure; 0.0 when unknown."""
     evs = [f.facts.scan_ev for f in frames]
     known = [ev for ev in evs if ev is not None]
     if not known:
@@ -500,12 +464,7 @@ def scan_exposure_offsets(frames: Sequence[SheetFrame]) -> list[float]:
 
 
 def straight_proof_config(config: WorkspaceConfig, floors: Optional[tuple], ceils: Optional[tuple], shift: float = 0.0) -> WorkspaceConfig:
-    """A frame as a darkroom proof prints it: one exposure and grade for the whole roll, no
-    per-frame metering, dodging or toning, so thin and dense negatives print light and dark.
-
-    A negative takes the roll's pooled bounds (moved by its scan-exposure `shift`); a slide
-    prints through its own fixed transfer window. The paper stays the frame's own.
-    """
+    """One exposure and grade for the roll. A slide keeps its own transfer window."""
     from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
     frame_exposure = config.exposure
@@ -550,9 +509,6 @@ def scene_of(frame: SheetFrame) -> Optional[str]:
 
 
 def scene_order(frames: Sequence[SheetFrame]) -> list[int]:
-    """Frame indices grouped by scene, scenes in the roll's order and the frames in no scene
-    last, each group keeping the order it came in."""
-
     def rank(index: int) -> tuple[int, int]:
         scene = frames[index].asset.get("scene")
         return (1, 0) if not scene else (0, int(scene[0]))
@@ -561,7 +517,6 @@ def scene_order(frames: Sequence[SheetFrame]) -> list[int]:
 
 
 def scene_breaks(frames: Sequence[SheetFrame]) -> list[int]:
-    """Positions where the scene changes: each starts a new strip."""
     return [i for i in range(1, len(frames)) if scene_of(frames[i]) != scene_of(frames[i - 1])]
 
 
@@ -570,21 +525,13 @@ def straight_proof(
     baseline: Optional[dict],
     scene_baselines: Optional[Mapping[str, dict]] = None,
 ) -> StraightProof:
-    """The roll's straight proof, when its scans can tell how dense each negative is.
-
-    A positive made by the scanning software has had its tones set frame by frame, so it
-    cannot be proofed. A negative needs Roll Analysis: the roll's baseline, or with
-    `scene_baselines` its scene's own, the roll's standing in for a scene never analyzed.
-    Scan exposures that differ are evened out from camera raw EXIF within each baseline's
-    frames; any other scan is taken to share one exposure, which is what an exposure lock gives.
-    """
+    """With `scene_baselines`, each scene prints at its own baseline; the roll's covers a scene with none."""
     if not frames:
         return StraightProof(reason="No frames to proof.")
     positives = sum(1 for f in frames if f.config.process.positive_source)
     if positives:
         return StraightProof(
-            reason=f"{positives} of the frames are positives made by the scanning software, which set each one's tones; "
-            "a straight proof needs the negatives' own densities."
+            reason=f"{positives} of the frames are positives made by the scanning software. A straight proof needs the negatives."
         )
 
     by_scene = scene_baselines is not None

@@ -322,8 +322,6 @@ def test_sync_modified_dots_counts_tonal_range_on_normalization():
 
 
 def test_sync_modified_dots_leaves_the_scanning_setup_uncounted():
-    """Linear RAW and the demosaic choices describe the rig, so they are no card's edit:
-    no dot, and no reset arrow that would offer to clear one."""
     panel = MagicMock()
     panel.controller.state = AppState()
     cfg = DEFAULT_WORKSPACE_CONFIG
@@ -343,9 +341,6 @@ def test_sync_modified_dots_leaves_the_scanning_setup_uncounted():
 
 
 def test_a_card_reset_leaves_the_scanning_setup_alone():
-    """A card reset persists, and _persist_sticky_settings writes the rig keys from the
-    config it is given, so a reset that wrote the shipped value here would also make it the
-    value every later import inherits."""
     panel = MagicMock()
     panel.controller.state = AppState()
     cfg = DEFAULT_WORKSPACE_CONFIG
@@ -370,7 +365,6 @@ def test_a_card_reset_leaves_the_scanning_setup_alone():
         assert process.linear_raw is True
         assert process.narrowband_scan is True
         assert process.demosaic_preview == DemosaicMode.DHT
-    # Each card still resets what it does own.
     assert after_calibration.hue_trim == DEFAULT_WORKSPACE_CONFIG.process.hue_trim
     assert after_demosaic.highlight_reconstruction == DEFAULT_WORKSPACE_CONFIG.process.highlight_reconstruction
 

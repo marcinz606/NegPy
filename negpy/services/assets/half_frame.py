@@ -1,12 +1,6 @@
-"""Half-frame scans: one file holds two frames side by side.
+"""Half-frame scans: an asset with ``half`` (1 left/top, 2 right/bottom), ``split_x`` and ``split_axis`` ("x" or "y").
 
-A half asset is a normal asset dict plus ``half`` (1 = left/top, 2 = right/bottom),
-``split_x`` (normalized gutter position along the split axis) and ``split_axis``
-("x" = vertical gutter, side-by-side halves; "y" = horizontal gutter, stacked
-halves, as a rotated scan lays them). Its identity is the file hash
-suffixed with ``#<half>``, so every hash-keyed store (edits, history, marks,
-thumbnails) is per-frame automatically. Decode caches key on the unsuffixed
-hash so both halves share one decode.
+Its hash is the file hash plus ``#<half>``, so hash-keyed stores are per frame; decode caches key on the file hash.
 """
 
 from dataclasses import dataclass, replace
@@ -116,8 +110,7 @@ def _slice_half_bounds(
     gutter_thickness: float = 0.0,
     split_axis: str = "x",
 ) -> tuple[int, int, int, int]:
-    """Pixel bounds read by ``slice_half``. A "y" split is the transposed problem:
-    solve it on swapped dimensions and a transposed rect, then swap the pairs back."""
+    """Pixel bounds read by ``slice_half``; a "y" split is the transposed "x" problem."""
     if split_axis == "y":
         t_rect = (crop_rect[1], crop_rect[0], crop_rect[3], crop_rect[2]) if crop_rect is not None else None
         ty1, ty2, tx1, tx2 = _slice_half_bounds(width, height, half, split_x, t_rect, gutter_thickness)
@@ -170,12 +163,8 @@ def slice_half(
 ) -> np.ndarray:
     """View of one half of a decoded buffer; ``half=0`` crops only, without splitting.
 
-    The scan is first cropped to ``crop_rect`` (normalized x1,y1,x2,y2; None =
-    full frame), then split at the normalized gutter ``split_x`` relative to the
-    cropped extent along ``split_axis`` ("x" cuts left/right, "y" top/bottom). A
-    ``gutter_thickness`` (normalized fraction of that extent) discards a band
-    centered on the split so the physical black separator between the two
-    exposures does not bleed into either half.
+    ``crop_rect`` is normalized x1,y1,x2,y2 (None = full frame); ``split_x`` and ``gutter_thickness`` are
+    fractions of the cropped extent along ``split_axis`` ("x" cuts left/right, "y" top/bottom).
     """
     h, w = buf.shape[:2]
     y1, y2, x1, x2 = _slice_half_bounds(h, w, half, split_x, crop_rect, gutter_thickness, split_axis)
@@ -185,10 +174,7 @@ def slice_half(
 def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:
     """Apply the asset's half slice; no-op for whole-frame assets without a crop rect.
 
-    Recognizes an optional ``crop_rect`` (normalized x1,y1,x2,y2) and
-    ``gutter_thickness`` (normalized fraction of the cropped extent along
-    ``split_axis``) set by the half-frame rectangle editor. A whole-frame asset that carries a crop rect is a
-    diptych: cropped to the rect, still whole, split later per half.
+    A whole-frame asset with a ``crop_rect`` is a diptych: cropped to the rect, still whole, split later per half.
     """
     half = int(file_info.get("half") or 0)
     if not half and not file_info.get("crop_rect"):
@@ -310,13 +296,10 @@ def remap_workspace_config(config: "WorkspaceConfig", half: int, old_geom: HalfG
 
 
 def gap_px(left_width: int, right_width: int, gutter_thickness: float) -> int:
-    """Width of the diptych gap, from the two rendered halves' extents along the
-    split axis (widths for an "x" split, heights for "y").
+    """Width of the diptych gap, from the two rendered halves' extents along the split axis.
 
-    Derived from the halves rather than from the source: an export can resize, so the
-    discarded band's pixel count on the scan is not the gap's pixel count on the output.
-    ``gutter_thickness`` is a fraction of the cropped scan extent, of which the two
-    halves hold the remaining ``1 - gutter_thickness``.
+    Derived from the halves, not the source, since an export can resize. ``gutter_thickness`` is a
+    fraction of the cropped scan extent; the halves hold the remaining ``1 - gutter_thickness``.
     """
     if gutter_thickness <= 0 or gutter_thickness >= 1:
         return 0
@@ -333,15 +316,10 @@ def _pad_to(a: np.ndarray, length: int, pad_axis: int) -> np.ndarray:
 
 
 def join_halves(left: np.ndarray, right: np.ndarray, gap: int = 0, axis: str = "x") -> np.ndarray:
-    """Join two rendered halves, with a ``gap``-wide band where the gutter was:
-    side by side for ``axis`` "x", half 1 on top for "y".
+    """Join two rendered halves with a ``gap``-wide filled band: side by side for "x", half 1 on top for "y".
 
-    The gap is filled rather than copied from the scan: the source gutter is
-    scene-linear negative data, so pasting it in gives a bright bar, and running the
-    pipeline on a thin dark strip renormalizes it into noise.
-
-    Unequal cross sizes (a per-half crop aspect or border) are centre-padded, never
-    resampled — an export must not resize pixels the pipeline already sized.
+    The gap is filled, not copied: the source gutter is scene-linear negative data and renders as a bright bar.
+    Unequal cross sizes are center-padded, never resampled: an export must not resize pixels the pipeline sized.
     """
     join_axis = 1 if axis == "x" else 0
     pad_axis = 1 - join_axis
@@ -388,17 +366,14 @@ def detect_gutter(buf: np.ndarray) -> tuple[float, float]:
     return split, thickness
 
 
-# How much stronger the horizontal band must read before the split turns top/bottom.
-# Side by side is the common layout, and an in-scene horizontal band (a horizon over
-# sky or water) can pass every gutter gate, so the turn needs a clear margin.
+# How much stronger the horizontal band must read before the split turns top/bottom: an in-scene
+# horizon can pass every gutter gate, and side by side is the common layout.
 _AXIS_MARGIN = 1.5
 
 
 def detect_gutter_axis(buf: np.ndarray) -> tuple[float, float, str]:
-    """Normalized (split, gutter_thickness, split_axis) of the gutter, over both
-    axes. The two frames sit along the scan's own layout, which EXIF orientation
-    can turn, so the axis is measured, not assumed; "y" only past ``_AXIS_MARGIN``,
-    and "x" when neither axis shows a gutter."""
+    """Normalized (split, gutter_thickness, split_axis) of the gutter, measured on both axes since EXIF
+    orientation can turn the layout; "y" only past ``_AXIS_MARGIN``, "x" when neither axis shows a gutter."""
     a = _luma(buf)
     x_split, x_thick, x_strength = _gutter_scan(a)
     y_split, y_thick, y_strength = _gutter_scan(np.ascontiguousarray(a.T))
@@ -408,16 +383,10 @@ def detect_gutter_axis(buf: np.ndarray) -> tuple[float, float, str]:
 
 
 def _gutter_scan(a: np.ndarray) -> tuple[float, float, float]:
-    """(split, thickness, strength) of a vertical gutter in a 2-D luma array.
+    """(split, thickness, strength) of a vertical gutter in a 2-D luma array; strength is its contrast, 0.0 for none.
 
-    The gutter is a narrow column extremal against its surroundings in either polarity,
-    bright film base on a negative and dark on a positive, so the pick is the column whose
-    smoothed luma deviates most from a local running-median background, over a window much
-    wider than the gutter. Its edges are the steepest slope on each side of that peak,
-    searched in a window sized to the smoothing rather than to the deviation band, since an
-    in-scene gradient blending into the gutter widens that band on one side and drags the
-    center with it. ``strength`` is the band's contrast against both sides, 0.0 when no
-    gutter stands out — what ``detect_gutter_axis`` compares across the two axes.
+    The pick is the column deviating most from a running-median background, in either polarity. Its edges are
+    the steepest slope each side, searched in a smoothing-sized window: an in-scene gradient widens the deviation band.
     """
     h, w = a.shape[:2]
     if w < 64 or h < 8:
@@ -608,8 +577,7 @@ def detect_split_and_crop_for_file(
         img.thumbnail((1024, 1024))
         buf = np.asarray(img)
         crop_rect = detect_film_crop(buf)
-        # The split is relative to the cropped extent (slice_half's own convention), so
-        # the gutter search has to run inside the new crop, not the full, uncropped scan.
+        # The split is relative to the crop (slice_half's convention): search for the gutter inside it.
         detect_buf = slice_half(buf, 0, 0.5, crop_rect=crop_rect) if crop_rect is not None else buf
         split, thickness, axis = detect_gutter_axis(detect_buf)
         return split, thickness, crop_rect, axis

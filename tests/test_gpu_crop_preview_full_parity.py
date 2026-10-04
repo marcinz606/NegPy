@@ -1,14 +1,3 @@
-"""GPU/CPU parity for the crop tool's full-frame preview.
-
-crop_preview_full shows the whole rotated frame, ignoring crop_rect, while the
-crop tool is active. The GPU engine widens only its late-stage dispatch extent
-(toning/finish) to match and drops the border and the filed carrier, which frame
-the crop -- the meter, the contrast mask and the
-reported active_roi stay on the real crop, so this must render identically to
-the CPU engine (which always computed the whole frame and only skips the
-final CropProcessor slice) and to itself with the crop tool off.
-"""
-
 import unittest
 from dataclasses import replace
 
@@ -107,8 +96,6 @@ class TestCropPreviewFullParity(unittest.TestCase):
         self.assertEqual(cropped.shape, back_to_cropped.shape)
 
     def test_full_frame_drops_border_and_carrier(self):
-        """A border or a filed carrier frames the crop, so the crop tool's preview shows
-        neither: padding the uncropped frame misplaces the crop handles (#1224)."""
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -132,8 +119,6 @@ class TestCropPreviewFullParity(unittest.TestCase):
             self.assertLessEqual(float(np.max(np.abs(full - plain))), tolerance + 1e-9)
 
     def test_cached_late_stages_keep_the_finish_pass(self):
-        """tex_finish is pooled, so a render whose late stages are cached must still
-        display it: falling back to the toning texture drops the vignette."""
         from negpy.features.geometry.models import AspectRatio
         from negpy.services.rendering.image_processor import ImageProcessor
 
@@ -148,8 +133,7 @@ class TestCropPreviewFullParity(unittest.TestCase):
         cached, _ = self._render(processor, vignetted, img, prefer_gpu=True, crop_preview_full=True)
         self.assertLessEqual(float(np.max(np.abs(cached - fresh))), 1e-6)
 
-        # An export-only change re-runs layout over the cached finish texture; it must
-        # composite the same pixels a fresh engine computes.
+        # An export-only change re-runs layout over the cached finish texture.
         bordered = replace(vignetted, finish=replace(vignetted.finish, border_size=0.5))
         self._render(processor, bordered, img, prefer_gpu=True, crop_preview_full=False)
         relayout = replace(bordered, export=replace(bordered.export, paper_aspect_ratio=AspectRatio.R_1_1))

@@ -197,8 +197,7 @@ RING_GRID = (5, 5)
 
 
 def strip_center() -> Tuple[float, float]:
-    """(density, grade) of the middle patch. A proof's memo key pins these, so the mosaic
-    is one cache entry whatever the frame's own density and grade are."""
+    """(density, grade) of the middle patch; a proof's memo key pins these, so the mosaic is one cache entry."""
     return STRIP_DENSITIES[len(STRIP_DENSITIES) // 2], STRIP_GRADES[len(STRIP_GRADES) // 2]
 
 

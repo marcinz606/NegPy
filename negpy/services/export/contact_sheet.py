@@ -1,9 +1,4 @@
-"""A darkroom contact print: the roll's strips laid 1:1 on paper and printed to the base.
-
-Everything that is clear on a negative (paper, strip gaps, perforations) prints the paper's
-maximum black; the rebate prints just above it; the maker's edge print prints light. The same
-renderer draws the dialog's preview (`draft`) and the exported sheet.
-"""
+"""Darkroom contact print, strips laid 1:1 on paper; draws the dialog preview (`draft`) and the export."""
 
 import math
 from dataclasses import dataclass
@@ -38,15 +33,14 @@ from negpy.services.export.contact_sheet_roll import SheetLook
 
 RGB = tuple[int, int, int]
 
-# Pillow's bundled face (Aileron): the same on every platform, capitals 0.70 em tall.
+# Pillow's bundled Aileron, the same on every platform; capitals are 0.70 em tall.
 EDGE_CAP_EM = 0.70
-# An edit within this much of the film window's shape fills it; a larger difference is fitted
-# whole and the rest of the window prints as unexposed film.
+# Aspect tolerance to fill the film window; a tile further off fits whole inside it.
 COVER_TOLERANCE = 0.03
 PERF_RIM = 0.08
 LABEL_CAP = 2.0
 LABEL_ABOVE_STRIP = 3.0
-# The bottom band reaches past the 2.0 mm rebate: a DX clock track runs up between the holes.
+# A DX clock track runs past the rebate, up between the holes.
 DX_BAND = DX_CLOCK_TRACK[1] + 0.1
 
 
@@ -66,11 +60,11 @@ def palette_for(look: SheetLook) -> Palette:
         return (level, level, level)
 
     if look.palette == "slide":
-        # Reversal paper: light that met no film prints white, the slide's D-max prints black.
+        # Reversal paper: bare light prints white, the slide's D-max black.
         white = (241, 240, 236)
         return Palette(white, grey(b), None, white, grey(b))
     if look.palette == "color":
-        # The filter pack neutralizes the orange mask, so light that met no mask prints reddish.
+        # The filter pack cancels the orange mask, so bare light prints reddish.
         warm = (236, 222, 188)
         return Palette((b + 8, b + 2, b + 2), grey(b + 5), (b + 15, b + 7, b + 6), warm, warm)
     return Palette(grey(b), grey(b + 5), grey(b + 10), grey(224), grey(224))
@@ -87,7 +81,7 @@ def _px(mm: float, s: float) -> int:
 
 @lru_cache(maxsize=8)
 def _perforation_sprites(s_key: int) -> tuple[np.ndarray, np.ndarray]:
-    """(hole, rim) coverage of one perforation, drawn 4x oversampled for smooth corners."""
+    """(hole, rim) coverage of one perforation."""
     s = s_key / 100.0
     ss = 4
     w_px, h_px = PERF_ALONG * s, PERF_ACROSS * s
@@ -146,8 +140,6 @@ def _place_tile(canvas: np.ndarray, tile: np.ndarray, box: tuple[int, int, int, 
 
 
 class _Band:
-    """Coverage of one edge band of a strip; band y runs away from the paper's top."""
-
     def __init__(self, width_px: int, height_mm: float, s: float, band: Band) -> None:
         self.s = s
         self.band = band
@@ -156,7 +148,6 @@ class _Band:
         self.draw = ImageDraw.Draw(self.image)
 
     def y_of(self, offset_mm: float) -> float:
-        """Pixel row of a point `offset_mm` from this band's film edge."""
         from_top = offset_mm if self.band == Band.TOP else self.height_mm - offset_mm
         return from_top * self.s
 
@@ -327,13 +318,10 @@ def _draw_strip(
 
 
 def label_caps(text: str) -> str:
-    """The roll label as edge print sets it: capitals the edge face can draw, parts kept apart
-    by the middle dot."""
     return " · ".join(ascii_upper(part) for part in text.split("·") if part.strip())
 
 
 def _draw_label(canvas: np.ndarray, plan: SheetPlan, page: int, s: float, look: SheetLook, pal: Palette) -> None:
-    """The roll label, set like the stock name on the film edge: the same face, weight and ink."""
     block_x, block_y, block_w, _block_h = plan.pages[page].block
     size = max(1, int(round(LABEL_CAP * s / EDGE_CAP_EM)))
     font = _edge_font(size)
@@ -373,8 +361,6 @@ def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont
 
 
 class ContactSheetService:
-    """Renders one sheet of a `SheetPlan` at a given resolution."""
-
     @staticmethod
     def render_sheet(
         plan: SheetPlan,
@@ -386,9 +372,7 @@ class ContactSheetService:
         draft: bool = False,
         numbers: Optional[Sequence[int]] = None,
     ) -> np.ndarray:
-        """uint8 sRGB sheet. `tiles`/`turns` are indexed by frame slot; a missing tile prints
-        as an unexposed frame with its edge print. `numbers` places each slot on the original
-        roll, for the edge numbers (see `edge_items`)."""
+        """uint8 sRGB sheet. `tiles` and `turns` are indexed by frame slot; a None tile prints unexposed."""
         s = float(px_per_mm)
         pal = palette_for(look)
         canvas = np.empty((max(1, _px(plan.paper_height, s)), max(1, _px(plan.paper_width, s)), 3), np.uint8)

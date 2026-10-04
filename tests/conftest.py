@@ -119,7 +119,6 @@ class FakeController:
 
 
 def dialog_classes() -> list[tuple[Path, ast.ClassDef]]:
-    """Every QDialog subclass under negpy/desktop/view with its file, the mixin-based ones included."""
     view = Path(__file__).resolve().parents[1] / "negpy" / "desktop" / "view"
     found = []
     for path in sorted(view.rglob("*.py")):

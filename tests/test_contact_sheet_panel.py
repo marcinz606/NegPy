@@ -1,5 +1,3 @@
-"""The Export panel's Contact Sheet section, its shortcut, and the retired grid settings."""
-
 from conftest import FakeController, FakeRepo
 
 import negpy.desktop.view.shortcut_registry as registry

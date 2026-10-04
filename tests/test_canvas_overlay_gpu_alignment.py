@@ -1,11 +1,3 @@
-"""The overlay places the image where the GPU shader draws it, at every zoom and pan.
-
-The shader (gpu_widget.vs_main) fits the image into the area above the toolbar reserve,
-then zooms about the widget center and pans. The overlay paints the before/after
-baseline, the crop box and masks into its own view rect, so any disagreement shows as an
-offset between those and the image once the reserve is non-zero and zoom is not 1.
-"""
-
 import sys
 
 import pytest
@@ -21,7 +13,6 @@ W, H, IMG_W, IMG_H = 1000, 800, 1600, 1064
 
 
 def _shader_rect(reserve: float, zoom: float, pan_x: float, pan_y: float) -> tuple:
-    """Logical (x, y, w, h) the shader draws, from _draw_frame's uniforms and vs_main."""
     fit_h = H - reserve
     r = min(W / IMG_W, fit_h / IMG_H)
     nw, nh = IMG_W * r, IMG_H * r

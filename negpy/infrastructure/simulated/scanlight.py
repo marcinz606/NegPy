@@ -10,7 +10,6 @@ _FIRMWARE_ID = 7
 _HARDWARE_ID = 3  # Scanlight v4b: has the white channel
 _TELEMETRY_INTERVAL_S = 0.2
 
-# (r, g, b, w) the light shows now. The simulated camera exposes its shots with it.
 _color = [0, 0, 0, 0]
 
 

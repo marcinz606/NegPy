@@ -1,15 +1,6 @@
-"""Which rendered settings a cached thumbnail shows, so staleness survives a restart.
+"""Thumbnail fingerprints, stored in the JPEG comment so the record lives and dies with the image.
 
-A thumbnail JPEG carries its fingerprint in the JPEG comment field. The record then
-lives and dies with the image: ``clear_thumbnails`` removes both, and a crash cannot
-leave one without the other. A thumbnail is current only when its stored fingerprint
-equals the fingerprint of the frame's current resolved settings.
-
-Every mismatch errs toward "stale": a false stale costs one background render, a false
-"current" leaves a wrong thumbnail up indefinitely. So anything that cannot be
-fingerprinted (legacy files, the quick source-preview thumbnail, a render whose config
-is unknown) reads as stale.
-"""
+Anything that cannot be fingerprinted reads as stale: a false stale costs one render, a false current leaves a wrong thumbnail up."""
 
 import hashlib
 import json
@@ -19,35 +10,28 @@ from typing import Any, Optional
 
 from negpy.domain.models import WorkspaceConfig
 
-# Bump when a pipeline change alters rendered pixels for unchanged settings, so every
-# thumbnail rendered by older code reads as stale once.
+# Bump in any change that alters rendered pixels for unchanged settings.
 THUMBNAIL_RENDER_VERSION = 1
 
-# Marker for a thumbnail made from the source preview (``get_thumbnail_worker``), which
-# does not run the frame's settings at all.
+# Marks a thumbnail made from the source preview, which runs none of the frame's settings.
 QUICK = "quick"
 
 _COMMENT_PREFIX = "negpy-thumb:"
 
-# Sections that never reach the pixels: metadata is text, export settings apply only to
-# the exported file. Everything else is assumed to shape the thumbnail.
+# Sections that never reach the pixels; every other section counts as shaping the thumbnail.
 _NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
 
-# Fields left out of a hashed section. Export-only and label fields never reach a
-# thumbnail. The rest change only detail a thumbnail is too small to show, and a roll push
-# or paste of them would otherwise cost a full source read per frame.
+# Fields left out of a hashed section: export-only, labels, and detail too fine for a thumbnail.
 _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
     "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview"}),
     "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "chroma_denoise"}),
 }
 
-# Sections whose every field is below thumbnail size: dust, scratch and heal repairs.
 _BELOW_THUMBNAIL_SECTIONS = frozenset({"retouch"})
 
 
 def _file_identity(path: Optional[str]) -> Optional[str]:
-    """A profile path plus size and mtime: replacing the file under the same name changes
-    the render, so it has to change the fingerprint too."""
+    """Path plus size and mtime: a file replaced under the same name changes the render."""
     if not path:
         return None
     try:
@@ -58,8 +42,7 @@ def _file_identity(path: Optional[str]) -> Optional[str]:
 
 
 def _companion_paths(config: WorkspaceConfig) -> list[str]:
-    """Files besides the frame's own that a composite reads. The frame's own content is in
-    its hash, so the thumbnail key covers it; these are named only by path."""
+    """Files a composite reads besides the frame's own, which its hash already covers."""
     triplets = [path for pair in config.stitch.stitch_triplets for path in pair]
     paths = [*config.hdr.hdr_paths, config.rgbscan.green_path, config.rgbscan.blue_path, *config.stitch.stitch_paths, *triplets]
     return [p for p in paths if p]
@@ -71,12 +54,9 @@ def thumbnail_fingerprint(
     workspace_color_space: str,
     input_icc_path: Optional[str],
 ) -> str:
-    """Identity of the render a frame's thumbnail shows.
+    """``config`` must be the resolved config the render ran on.
 
-    ``config`` must be the frame's *resolved* config (roll defaults applied), the one the
-    render ran on. The display transform is left out: the JPEG has it baked in, but a
-    monitor-profile or soft-proof change would otherwise make every thumbnail stale and
-    force a full source read per frame for a color shift.
+    The display transform is left out, so a monitor-profile or soft-proof change re-renders nothing.
     """
     sections = {}
     for f in fields(config):
@@ -96,14 +76,12 @@ def thumbnail_fingerprint(
 
 
 def encode_comment(fingerprint: Optional[str]) -> Optional[bytes]:
-    """JPEG comment payload for a fingerprint, or None to write no comment."""
     if not fingerprint:
         return None
     return f"{_COMMENT_PREFIX}{fingerprint}".encode("ascii")
 
 
 def decode_comment(raw: Any) -> Optional[str]:
-    """The fingerprint stored in a JPEG comment, or None when absent or not ours."""
     if isinstance(raw, bytes):
         try:
             raw = raw.decode("ascii")
@@ -115,5 +93,4 @@ def decode_comment(raw: Any) -> Optional[str]:
 
 
 def is_current(stored: Optional[str], current: str) -> bool:
-    """True only for a real fingerprint that matches. Unknown and quick read as stale."""
     return stored is not None and stored != QUICK and stored == current

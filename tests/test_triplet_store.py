@@ -1,5 +1,3 @@
-"""A trichrome grouping found once is not found again: reopening a roll skips the raw read."""
-
 import os
 import unittest
 from unittest.mock import MagicMock, patch

@@ -10,11 +10,7 @@ from negpy.features.rgbscan.models import is_rgb_triplet
 
 
 class TrichromeSidebar(BaseSidebar):
-    """
-    Trichromatic capture: whether a roll groups into red/green/blue triplets, and which
-    three exposures the open frame is assembled from. Each roll remembers its own mode,
-    so rolls scanned different ways can be opened in turn without regrouping.
-    """
+    """Trichrome Mode per roll, and the three exposures the open frame is assembled from."""
 
     def _init_ui(self) -> None:
         self.enable_btn = self._small_toggle(
@@ -22,8 +18,8 @@ class TrichromeSidebar(BaseSidebar):
             "Trichrome Mode",
             self.controller.rgb_scan_mode_for_roll(self.state.active_roll_id),
             wrap_tooltip(
-                "Assemble each frame from its red, green and blue exposures. A folder is grouped into "
-                "triplets in capture order on load. Each roll remembers its own mode."
+                "Assemble each frame from its red, green and blue exposures, grouped in capture order on load. "
+                "Each roll keeps its own mode."
             ),
             align_left=True,
         )

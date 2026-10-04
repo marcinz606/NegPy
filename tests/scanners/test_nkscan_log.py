@@ -1,5 +1,3 @@
-"""nkscan_log: nkscan's diagnostics reach nkscan.log at the chosen level, and only there."""
-
 from __future__ import annotations
 
 import os
@@ -12,8 +10,7 @@ import pytest
 
 from negpy.infrastructure.scanners import nkscan_log
 
-# Stands in for the Rust extension: nkscan 0.12 writes its lines to stdout behind Python's back,
-# and a later release may write them to stderr as documented.
+# Stands in for the Rust extension, which writes to stdout (0.12) or to stderr (as documented).
 _FAKE_NKSCAN = """
 import os
 

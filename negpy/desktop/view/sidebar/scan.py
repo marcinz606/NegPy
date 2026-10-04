@@ -152,12 +152,11 @@ class ScanSidebar(QWidget):
 
     _INDETERMINATE_SCAN_PHASES = frozenset({"Preparing long exposure", "Merging exposures"})
 
-    cards_changed = pyqtSignal()  # a body was gated in or out, so its card follows
+    cards_changed = pyqtSignal()
 
     def __init__(self, controller, output: ScanOutputPanel | None = None) -> None:
         super().__init__()
         self.controller = controller
-        # Shared with Camera Scanning on the Scan tab; a standalone panel keeps its own.
         self.output = output if output is not None else ScanOutputPanel(controller.session.repo)
         self._settings: ScannerSettings = self._load_settings()
         self._devices: list[ScannerDevice] = []
@@ -191,8 +190,7 @@ class ScanSidebar(QWidget):
         # Drop backends that no longer ship on this platform (e.g. saved "sane" on Windows).
         if settings.backend not in {bid for bid, _ in backend_choices()}:
             settings = replace(settings, backend=DEFAULT_BACKEND_ID)
-        # Picks, crops and per-frame corrections describe the strip they were set on. The unit
-        # may have returned it while NegPy was closed, and a new app run measures the film again.
+        # Frame picks belong to the loaded strip; the unit can return it while NegPy is closed.
         return replace(settings, selected_frames=(), frame_windows={}, frame_offsets={})
 
     def _save_settings(self) -> None:
@@ -226,16 +224,14 @@ class ScanSidebar(QWidget):
 
     @staticmethod
     def _row_widget(row: QHBoxLayout) -> QWidget:
-        """A field_row as one widget, so device gating can hide caption and field together."""
         row.setContentsMargins(0, 0, 0, 0)
         widget = QWidget()
-        widget.setObjectName("collapsible_content_body")  # transparent inside the card
+        widget.setObjectName("collapsible_content_body")
         widget.setLayout(row)
         return widget
 
     def _init_ui(self) -> None:
-        """Five bodies, each its own card on the Scan tab (the output fields sit in the shared
-        Output card, the footer under every card). Standalone they stack here."""
+        """Five bodies that the Scan tab puts in cards; a standalone panel stacks them."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(THEME.space_lg)
@@ -259,9 +255,8 @@ class ScanSidebar(QWidget):
 
         self.debug_log_btn = ChoiceButton(
             tuple(("", level.title()) for level in nkscan_log.LEVELS),
-            "Write nkscan's diagnostics to nkscan.log in the NegPy folder, to attach to a bug report. "
-            "Debug records each scan's decisions; Trace also records every command sent to the scanner "
-            "and is what a bug report usually needs.",
+            "Write nkscan's diagnostics to nkscan.log in the NegPy folder. "
+            "Use Trace for a bug report: it adds every command sent to the scanner.",
         )
         level = self._settings.nkscan_log_level
         self.debug_log_btn.setCurrentIndex(nkscan_log.LEVELS.index(level) if level in nkscan_log.LEVELS else 0)
@@ -281,7 +276,6 @@ class ScanSidebar(QWidget):
         layout.addWidget(self.device_body)
 
         # ── FILM & QUALITY ───────────────────────────────────
-        # What is on the film, then how to read it. Every row keeps its own capability gate.
         self.quality_body, quality = self._body()
 
         # What is on the film: it decides which way the frame boundaries read on a strip, and
@@ -316,8 +310,6 @@ class ScanSidebar(QWidget):
             self.mode_btn.set_choice_tooltip(i, tip)
         self.mode_widget = self._row_widget(field_row("Scan mode", self.mode_btn))
         quality.addWidget(self.mode_widget)
-        # Independent axis folded into the mode above: only meaningful (and only shown) for the
-        # two stacking modes (Multi-Pass / Adaptive Multi-Pass).
         self.passes_slider = CompactSlider("Passes", MIN_PASSES_UI, MAX_N_PASSES, DEFAULT_N_PASSES, step=1, precision=1)
         self.passes_slider.setToolTip(
             f"Number of exposures to stack ({MIN_PASSES_UI}-{MAX_N_PASSES}). Each extra pass adds roughly one more scan pass per exposure."
@@ -331,10 +323,9 @@ class ScanSidebar(QWidget):
         self.samples_widget = self._row_widget(field_row("Samples", self.samples_btn))
         quality.addWidget(self.samples_widget)
 
-        # Device switches, peers side by side; each hides where the device lacks it.
         self.ir_btn = tool_toggle("", "IR", "Scan a separate infrared channel for dust detection")
         self.clean_btn = tool_toggle(
-            "", "ICE", "Remove dust and scratches with the infrared channel while scanning. Baked into the file — color film only."
+            "", "ICE", "Remove dust and scratches with the infrared channel while scanning. Color film only; baked into the file."
         )
         self.superfine_btn = tool_toggle("", "Superfine", "Read one line per pass: slower, and free of line registration")
         self.autofocus_btn = tool_toggle("", "Autofocus", "Autofocus before scanning (film is rarely perfectly flat)")
@@ -356,7 +347,6 @@ class ScanSidebar(QWidget):
         layout.addWidget(self.quality_body)
 
         # ── FRAMING ──────────────────────────────────────────
-        # Which frames and which part of each: strip, window, prescan and exposure lock.
         self.framing_body, framing = self._body()
 
         # Which frames the batch scans, for roll and strip feeders only.
@@ -382,8 +372,7 @@ class ScanSidebar(QWidget):
             "fa5s.eject",
             " Eject When Done",
             self._settings.eject_after_batch,
-            "Return the strip after a batch. Off keeps it loaded, with its previews, for more "
-            "frames; the scanner may still return it by itself when idle.",
+            "Return the strip after a batch. Off keeps it and its previews loaded; an idle scanner can still return it.",
         )
         self.eject_after_btn.setVisible(False)
         framing.addWidget(self.eject_after_btn)
@@ -403,7 +392,6 @@ class ScanSidebar(QWidget):
         self._set_exposure_lock_visible(False)
 
         # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
-        # The crop it sets is reported next to Frame info (self.crop_label).
         self.prescan_btn = labeled_action("", "Prescan…", "Scan a low-DPI preview and set the crop for the next scan")
         self.prescan_clear_btn = labeled_action("", "Clear", "Scan the full window instead of a crop")
         self.prescan_widget = self._row_widget(field_row("Crop", self.prescan_btn, self.prescan_clear_btn))
@@ -411,7 +399,7 @@ class ScanSidebar(QWidget):
         framing.addWidget(self.prescan_widget)
         layout.addWidget(self.framing_body)
 
-        # ── OUTPUT (the scanner's own part of the shared Output card) ──
+        # ── OUTPUT ───────────────────────────────────────────
         self.output_body, out = self._body()
         self.fmt_btn = ChoiceButton(
             tuple(("", fmt) for fmt in OUTPUT_FORMATS),
@@ -1200,7 +1188,6 @@ class ScanSidebar(QWidget):
             self.scan_window_status.setText(f"{br_x - tl_x:.1f} × {br_y - tl_y:.1f} mm{offset_txt}")
 
     def _sync_bodies(self) -> None:
-        """The Framing card only earns its space when the device offers one of its rows."""
         self.framing_body.setVisible(
             any(not w.isHidden() for w in (self.frame_spec_widget, self.scan_window_widget, self.exposure_lock_widget, self.prescan_widget))
         )
@@ -1426,7 +1413,6 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(bool)
     def _on_strip_returned(self, loaded: bool) -> None:
-        # The unit's idle timeout is an Eject nobody pressed: the same state goes.
         stale = self._drop_strip_state()
         if not loaded:
             message = "The scanner returned the strip while idle — insert it again"
@@ -1437,11 +1423,9 @@ class ScanSidebar(QWidget):
         self.status_strip.set_message(message)
 
     def _drop_strip_state(self) -> bool:
-        """Forget the frame picks, crops and per-frame offsets, and say whether there were any.
+        """Forget the frame picks, crops and per-frame offsets; True when there were any.
 
-        They describe the piece of film that just came out; the next strip is a different one, or
-        the same one landing elsewhere, and silently reusing them scans the wrong frames. Offset
-        and Drift belong to the scanner, not the strip, and stay.
+        Offset and Drift belong to the scanner, not the strip, and stay.
         """
         from dataclasses import replace
 
@@ -1463,7 +1447,6 @@ class ScanSidebar(QWidget):
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
         device = self._current_device()
-        # The setup is what the running scan was asked for; only Stop stays live.
         for body in (self.device_body, self.quality_body, self.framing_body, self.output_body):
             body.setEnabled(not active)
         self.backend_btn.setEnabled(not active)

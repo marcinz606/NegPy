@@ -1,11 +1,3 @@
-"""The uncropped-preview tools and the buffers they produce.
-
-UNCROPPED_PREVIEW_TOOLS is the one list of tools whose renders carry
-crop_preview_full; every consumer reads it from session.py. The border
-compositing gate reads the buffer's own flag, never the live tool, because a
-render can land after the tool changed.
-"""
-
 import pathlib
 import unittest
 from types import SimpleNamespace
@@ -68,7 +60,7 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
                 last_metrics=metrics,
                 gpu_enabled=False,
                 config=cfg,
-                # The live tool contradicts the buffer on purpose: the gate must not read it.
+                # The live tool contradicts the buffer: the gate must not read it.
                 active_tool=ToolMode.NONE,
             ),
             empty_state=MagicMock(),
@@ -89,7 +81,7 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
         update = self._update({"base_positive": buf, "crop_preview_full": False})
         rect = update.call_args.kwargs["content_rect"]
         self.assertIsNotNone(rect)
-        self.assertGreater(rect[0], 0)  # the picture sits inset in the paper
+        self.assertGreater(rect[0], 0)
 
 
 class TestTheToolSetIsSpelledOnce(unittest.TestCase):

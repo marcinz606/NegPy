@@ -1,10 +1,5 @@
-"""Clone strokes: copy film from a chosen source area over a painted destination.
-
-A stroke is ``(points, size, src_dx, src_dy, strength, feather, match_tone)``: raw-frame
-normalized points and offset (destination + offset = source), ``size`` a diameter at
-HEAL_SIZE_REF, ``strength`` and ``feather`` in 0-1. Strokes apply in order on the linear
-source, so a later stroke can copy from an earlier one, as it would in a darkroom.
-"""
+"""Clone strokes (RetouchConfig.clone_strokes), applied in order on the linear source, so a later
+stroke can copy from an earlier one."""
 
 import hashlib
 from typing import Iterable, Tuple
@@ -15,8 +10,7 @@ import numpy as np
 from negpy.features.geometry.logic import smooth_polyline
 from negpy.features.retouch.models import HEAL_SIZE_REF
 
-# Tone match gain bounds, six stops either way: wide enough to bring a highlight source into a
-# shadow, and a bound on the ratio where the source surround reads near black.
+# Tone match gain, six stops either way; also bounds the ratio where the source surround is near black.
 _MATCH_GAIN_MIN = 1.0 / 64.0
 _MATCH_GAIN_MAX = 64.0
 _EPS = 1e-6
@@ -52,7 +46,6 @@ def _local_mean(plane: np.ndarray, weight: np.ndarray, sigma: float) -> np.ndarr
 
 
 def apply_clone_stroke(out: np.ndarray, stroke) -> None:
-    """Applies one stroke to ``out`` in place."""
     points, size, dx, dy, strength, feather, match_tone = stroke
     if not points or strength <= 0.0:
         return
@@ -90,9 +83,8 @@ def apply_clone_stroke(out: np.ndarray, stroke) -> None:
 
     patch = src
     if match_tone:
-        # Healing-brush tone match: the source keeps its texture and takes on the low
-        # frequencies of the film around the destination. Both means read only pixels
-        # outside the brush, so the defect being covered never tints its own patch.
+        # Healing-brush tone match: the source keeps its texture and takes the destination's low frequencies.
+        # Both means read only pixels outside the brush, so the covered defect never tints its patch.
         ring = ((cover == 0) & valid).astype(np.float32)
         if ring.any():
             gain = _local_mean(dst, ring, sigma) / np.maximum(_local_mean(src, ring, sigma), _EPS)

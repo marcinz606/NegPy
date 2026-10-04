@@ -395,8 +395,6 @@ def test_open_roll_settings_dialog_routes_rows_and_scope_to_session(browser, ses
 
 
 def test_roll_settings_scope_counts_include_the_active_frame(browser, session):
-    """The dialog's fields are the source, so the active frame is a target too and the
-    counts must match what apply_preset_fields will change (#1188)."""
     session.state.selected_indices = [0, 1, 2]
     session.state.selected_file_idx = 0
     with patch("negpy.desktop.view.sidebar.files.RollSettingsDialog") as ctor:
@@ -1251,8 +1249,7 @@ def test_context_menu_offers_merge_to_tiff_only_for_an_assembled_frame(browser, 
     session.state.uploaded_files[0].update(green_path="", blue_path="", stitch_paths=("/p.ARW",))
     assert "Merge Frame to TIFF Negative…" in _action_labels(browser._build_context_menu())
 
-    # Not for a bracket: the item would always fail, like Unstitch on a plain frame. A mixed
-    # roll still reports it, in the confirm dialog's skip list.
+    # A bracket cannot merge, so it gets no item.
     session.state.uploaded_files[0].update(stitch_paths=(), hdr_paths=("/e.ARW",))
     assert "Merge Frame to TIFF Negative…" not in _action_labels(browser._build_context_menu())
 

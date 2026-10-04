@@ -1,5 +1,3 @@
-"""Contact Sheet dialog: a low-res proof of the sheet whose paper edges drag to resize it."""
-
 from dataclasses import replace
 from typing import Callable, Optional, Protocol, Sequence
 
@@ -65,16 +63,12 @@ _PRINTS = ("As Edited", "Straight Proof")
 _AS_EDITED, _STRAIGHT_PROOF = 0, 1
 _ORDERS = ("Date", "Scene")
 _BY_DATE, _BY_SCENE = 0, 1
-# Tile sets: as edited, straight proof at the roll's metering, straight proof at each scene's.
 _EDITED_TILES, _PROOF_TILES, _SCENE_PROOF_TILES = 0, 1, 2
 _CANVAS_PAD = 28.0
-# Tiles arrive one by one; a repaint per batch keeps a fast roll from re-rendering per frame.
 _TILE_REPAINT_MS = 120
 
 
 class PreviewTiles(Protocol):
-    """Where the dialog's preview tiles come from (the controller's worker, or a test double)."""
-
     tile_ready: object
 
     def render(self, frames: tuple[SheetFrame, ...]) -> int: ...
@@ -87,11 +81,6 @@ def _mm(value: float) -> str:
 
 
 class SheetCanvas(QWidget):
-    """The sheet on the canvas background; corner and edge handles resize the paper about its
-    center. The scale is held while a handle is dragged, so the handle stays under the pointer.
-    While picking, a click on a frame toggles it and left-out frames carry the Film Strip's
-    reject mark."""
-
     paper_dragged = pyqtSignal(float, float)
     paper_released = pyqtSignal()
     frame_clicked = pyqtSignal(int)
@@ -99,7 +88,7 @@ class SheetCanvas(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setMouseTracking(True)
-        # Taking focus on press commits a half-typed size box before the drag moves the paper.
+        # Taking focus on press commits a half-typed size box.
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setMinimumSize(420, 420)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -124,7 +113,7 @@ class SheetCanvas(QWidget):
         self.update()
 
     def set_frames(self, frames: list[tuple[int, QRectF]], left_out: set[int], picking: bool) -> None:
-        """Frame windows on the shown sheet, in paper millimetres, by frame index."""
+        """`frames` are (frame index, window in paper mm)."""
         self._frames = frames
         self._left_out = set(left_out)
         self._picking = picking
@@ -149,7 +138,6 @@ class SheetCanvas(QWidget):
         return None
 
     def px_per_mm(self) -> float:
-        """Logical pixels per millimetre the sheet is shown at."""
         if self._held_scale is not None:
             return self._held_scale
         w, h = self._paper
@@ -209,8 +197,7 @@ class SheetCanvas(QWidget):
         handle = self._handle_at(event.position())
         if event.button() == Qt.MouseButton.LeftButton and handle is not None:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
-            # Scale and center hold for the whole drag: the size is measured from them, and any
-            # layout change under a moving pointer would otherwise feed back into it.
+            # Scale and center hold for the drag; a layout change would otherwise feed back into the size.
             self._held_scale = self.px_per_mm()
             self._held_center = self._center()
             self._drag = handle
@@ -267,8 +254,7 @@ class SheetCanvas(QWidget):
 
 
 class ContactSheetDialog(QDialog):
-    """Lay the roll out on paper, then export. The frames arrive sorted and resolved; the
-    dialog chooses the format, the paper and the resolution."""
+    """The frames arrive sorted and resolved."""
 
     def __init__(
         self,
@@ -303,8 +289,7 @@ class ContactSheetDialog(QDialog):
         self._repo = repo
         self._paper = (settings.paper_width, settings.paper_height)
         self._dpi = settings.dpi
-        # Print variants: the frames as edited, and as a straight proof at the roll's or at each
-        # scene's metering, when one can be made. Every variant keeps the frames' order.
+        # Every print variant keeps the frames' order, so one index serves all tile sets.
         self._proof = proof if proof is not None else StraightProof(reason="")
         self._scene_proof = scene_proof if scene_proof is not None else StraightProof(reason="")
         self._variant_frames: list[Optional[tuple[SheetFrame, ...]]] = [
@@ -326,7 +311,6 @@ class ContactSheetDialog(QDialog):
         self._page = 0
         self._plan: Optional[SheetPlan] = None
         self._look = look_for(film_format)
-        # Frames rejected in triage start left out; a click in Pick Frames puts them back.
         self._left_out: set[int] = {i for i, frame in enumerate(self._frames) if frame.asset.get("excluded")}
 
         self._render_timer = QTimer(self)
@@ -352,8 +336,7 @@ class ContactSheetDialog(QDialog):
         self.next_btn = icon_button("fa5s.chevron-right", "Next sheet")
         self.next_btn.clicked.connect(lambda: self._set_page(self._page + 1))
         for widget in (self.prev_btn, self.page_label, self.next_btn):
-            # Hidden on a one-sheet roll, but the row keeps its height: the preview must not
-            # change size when a drag crosses into a second sheet.
+            # Keeps its height when hidden, so a drag into a second sheet does not resize the preview.
             policy = widget.sizePolicy()
             policy.setRetainSizeWhenHidden(True)
             widget.setSizePolicy(policy)
@@ -373,8 +356,6 @@ class ContactSheetDialog(QDialog):
         self._apply_variant()
         remember_dialog_geometry(self, repo, "contact_sheet")
 
-    # ── controls ────────────────────────────────────────────────────────
-
     def _build_controls(self, settings: ContactSheetSettings) -> QWidget:
         panel = QWidget()
         panel.setFixedWidth(340)
@@ -384,7 +365,7 @@ class ContactSheetDialog(QDialog):
 
         self.format_btn = ChoiceButton(
             tuple(("", fmt.value) for fmt in _FORMATS),
-            "The film the frames were shot on; read from the frames' Format metadata and the roll's Half Frame mode",
+            "Film format, read from the frames' Format metadata and the roll's Half Frame mode",
         )
         self.format_btn.setCurrentIndex(_FORMATS.index(self._format))
         self.format_btn.currentChanged.connect(self._on_format_changed)
@@ -416,7 +397,7 @@ class ContactSheetDialog(QDialog):
         self.height_slider.setToolTip("Paper height; drag the sheet's top or bottom edge to change it")
         for slider in (self.width_slider, self.height_slider):
             slider.valueChanged.connect(self._on_size_slider)
-            # Return in a size box commits the size; without this the dialog's Export takes it.
+            # Return commits the size box instead of pressing Export.
             slider.spin.installEventFilter(self)
         col.addWidget(SliderGroup(self.width_slider, self.height_slider))
 
@@ -429,8 +410,7 @@ class ContactSheetDialog(QDialog):
 
         self.order_btn = ChoiceButton(
             tuple(("", order) for order in _ORDERS),
-            "Date lays the frames out in the order they were created. Scene groups them by scene, "
-            "each scene starting a new strip, and a straight proof then meters each scene on its own",
+            "Date: the order the frames were made. Scene: a new strip for each scene, metered on its own in a straight proof",
         )
         scene_action = self.order_btn.choice_menu.actions()[_BY_SCENE]
         scene_action.setEnabled(self._has_scenes)
@@ -442,8 +422,7 @@ class ContactSheetDialog(QDialog):
 
         self.print_btn = ChoiceButton(
             tuple(("", name) for name in _PRINTS),
-            "As Edited prints each frame with its own edit. Straight Proof prints the whole roll at one "
-            "exposure and grade, as a darkroom proof, so thin and dense negatives show as they are",
+            "As Edited prints each frame with its own edit. Straight Proof prints the roll at one exposure and grade",
         )
         self.print_btn.currentChanged.connect(lambda _index: self._apply_variant())
         col.addLayout(self._row("Print", self.print_btn))
@@ -457,7 +436,7 @@ class ContactSheetDialog(QDialog):
             "fa5s.barcode",
             " Edge Print",
             settings.edge_print,
-            "Print the maker's edge markings: stock name, frame numbers and the DX barcode. Off leaves plain film",
+            "Print the maker's edge markings: stock name, frame numbers and the DX barcode",
         )
         self.edge_btn.toggled.connect(lambda _checked: self._restyle())
         toggles.addWidget(self.edge_btn, 1)
@@ -471,7 +450,7 @@ class ContactSheetDialog(QDialog):
         self.pick_btn = tool_toggle(
             "fa5s.times-circle",
             "Pick Frames",
-            "Show every frame; click one to leave it out of the sheet or put it back. Frames rejected in the Film Strip start left out",
+            "Show every frame; click one to leave it out or put it back. Rejected frames start left out",
         )
         self.pick_btn.toggled.connect(lambda _checked: self._schedule_render())
         col.addWidget(self.pick_btn)
@@ -509,8 +488,6 @@ class ContactSheetDialog(QDialog):
         row.addWidget(control, 1)
         return row
 
-    # ── state ───────────────────────────────────────────────────────────
-
     def _geometry(self):
         return film_geometry(self._format, self._frame_size)
 
@@ -543,8 +520,6 @@ class ContactSheetDialog(QDialog):
         self._schedule_render()
 
     def _refresh_choices(self) -> None:
-        """Paper sizes that cannot hold one frame, and resolutions over the pixel budget, are
-        not offered; a current choice that became one steps down."""
         geometry = self._geometry()
         landscape = self._paper[0] > self._paper[1]
         for i, paper in enumerate(ILFORD_PAPERS):
@@ -596,7 +571,6 @@ class ContactSheetDialog(QDialog):
         self._schedule_render()
 
     def _shown(self) -> list[int]:
-        """Frames the preview lays out, in sheet order: all of them while picking, else the ones printed."""
         if self.pick_btn.isChecked():
             return list(self._display)
         return [i for i in self._display if i not in self._left_out]
@@ -605,7 +579,6 @@ class ContactSheetDialog(QDialog):
         return scene_breaks([self._frames[i] for i in indices]) if self._by_scene else []
 
     def _film_changed(self) -> None:
-        """A new film turns the paper when that holds the roll on fewer sheets."""
         geometry = self._geometry()
         self._look = self._look_for(self._format)
         self._turns = [turns_for(frame, geometry, shape) if shape else 0 for frame, shape in zip(self._frames, self._tile_shapes)]
@@ -634,8 +607,6 @@ class ContactSheetDialog(QDialog):
         self._apply_variant()
 
     def _apply_variant(self) -> None:
-        """Point the preview at the tiles of the chosen print and order. A straight proof that
-        cannot be made in this order falls back to the frames as edited, and says why."""
         proof = self._scene_proof if self._by_scene else self._proof
         proof_action = self.print_btn.choice_menu.actions()[_STRAIGHT_PROOF]
         proof_action.setEnabled(proof.available)
@@ -678,10 +649,8 @@ class ContactSheetDialog(QDialog):
     def _schedule_render(self) -> None:
         self._render_timer.start(0)
 
-    # ── render ──────────────────────────────────────────────────────────
-
     def plan(self) -> SheetPlan:
-        """The sheet as it exports: the frames not left out."""
+        """The exported plan, without the left-out frames."""
         kept = self.numbers()
         return plan_sheets(*self._paper, self._geometry(), len(kept), self._label_on(), self._breaks(kept))
 
@@ -748,8 +717,6 @@ class ContactSheetDialog(QDialog):
         if not self.canvas.dragging():
             self._schedule_render()
 
-    # ── result ──────────────────────────────────────────────────────────
-
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if obj in (self.width_slider.spin, self.height_slider.spin):
@@ -789,7 +756,7 @@ class ContactSheetDialog(QDialog):
         )
 
     def kept_frames(self) -> tuple[SheetFrame, ...]:
-        """The frames to print in sheet order, each with the config of the chosen print."""
+        """In sheet order, with the chosen print's configs."""
         frames = self._variant_frames[self._variant] or self._frames
         return tuple(frames[i] for i in self.numbers())
 
@@ -797,11 +764,10 @@ class ContactSheetDialog(QDialog):
         return self._variant != _EDITED_TILES
 
     def numbers(self) -> tuple[int, ...]:
-        """Each kept frame's place on the roll, in sheet order, so its edge numbers stay its own."""
+        """Each kept frame's place on the roll, in sheet order."""
         return tuple(i for i in self._display if i not in self._left_out)
 
     def breaks(self) -> tuple[int, ...]:
-        """Where a new scene starts a new strip among the kept frames."""
         return tuple(self._breaks(self.numbers()))
 
     def film(self) -> tuple[SheetFormat, str]:

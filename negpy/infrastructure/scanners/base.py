@@ -22,11 +22,9 @@ class TransientScanError(RuntimeError):
 
 
 class StripReturned(RuntimeError):
-    """The unit returned a measured strip by itself (an idle timeout).
+    """The unit returned a measured strip by itself (an idle timeout); its frame picks no longer line up.
 
-    The frame picks, crops and per-frame offsets set on it no longer line up, so the operation
-    stops instead of using them. The unit cannot take the strip back by itself: `loaded` is
-    True where one waited in the adapter, or where a long idle may hide a strip put back in.
+    `loaded` is True where a strip waited in the adapter, or where a long idle may hide one put back in.
     """
 
     def __init__(self, *, loaded: bool) -> None:
@@ -68,8 +66,7 @@ class ScannerCapabilities:
     #: Frames are detected per strip, not addressed by index: the count is unknown until a
     #: strip is measured, so the UI must grow its slots from what the preview reports.
     roll_discovery: bool = False
-    #: Previews are cut from one pass over the whole strip, so previewing one frame again
-    #: shows the same pixels.
+    #: Previews are cut from one pass over the whole strip; previewing one frame again shows the same pixels.
     strip_pass: bool = False
     #: Film formats the transport must be told, because it cannot measure the frame length
     #: itself. Empty when the holder fixes it.

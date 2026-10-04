@@ -1,9 +1,3 @@
-"""Mtime-stamped cache on the gear library.
-
-It runs on the debounced sidebar resync; the cache must serve unchanged files
-without disk reads and must pick up an on-disk change immediately.
-"""
-
 import json
 import os
 

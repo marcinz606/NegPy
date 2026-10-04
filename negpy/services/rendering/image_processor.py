@@ -200,7 +200,7 @@ def _resolve_armed_autocrop(
 
 
 def _use_half_size_decode(raw: Any) -> bool:
-    """Mirrors the PreviewManager fast path: half_size aliases the X-Trans 6x6 CFA."""
+    """half_size aliases the X-Trans 6x6 CFA; must match the PreviewManager fast path."""
     return not isinstance(raw, NonStandardFileWrapper) and not is_xtrans(raw)
 
 
@@ -338,8 +338,7 @@ class ImageProcessor:
         self._manual_inc_threshold: Optional[float] = None
         self._manual_inc_score: Optional[np.ndarray] = None
         self._manual_inc_out: Optional[np.ndarray] = None
-        # Clone strokes over the repaired source, extended in place of re-run on a strict
-        # append. Keyed on input identity like the manual baseline, and for the same reason.
+        # Clone cache, keyed on input identity like the manual baseline; a strict append extends it.
         self._clone_img: Optional[np.ndarray] = None
         self._clone_strokes: tuple = ()
         self._clone_out: Optional[np.ndarray] = None
@@ -555,8 +554,7 @@ class ImageProcessor:
         return value
 
     def _clone_bake(self, img: np.ndarray, settings: WorkspaceConfig) -> np.ndarray:
-        """Clone strokes over the repaired linear source, the last source bake: a clone
-        copies film that is already clean."""
+        """The last source bake: a clone copies film that is already clean."""
         strokes = tuple(getattr(settings.retouch, "clone_strokes", ()))
         if self._is_flat(settings) or not strokes:
             return img
@@ -731,9 +729,7 @@ class ImageProcessor:
             + heal_token
             + luma_bake_token(settings.retouch)
         )
-        # Each bake keys only on what runs ahead of it: the IR and luma passes never read
-        # the heals, and nothing before the clone bake reads the clones, so painting either
-        # re-runs only its own pass.
+        # Each bake keys only on what runs ahead of it, so a heal or clone stroke re-runs only its own pass.
         auto_hash = base_hash.replace(heal_token, "", 1) if heal_token else base_hash
         clone_tok = clone_token(settings.retouch)
         base_hash += clone_tok
@@ -786,10 +782,8 @@ class ImageProcessor:
         if resolved_crop is not None:
             context.metrics["autocrop_resolved_rect"] = resolved_crop[0]
             context.metrics["autocrop_resolved_key"] = resolved_crop[1]
-        # Display-overlay data: the detection-scale sets that were repaired, and the wash over
-        # the inpainted hairs (they emit no stroke capsules). Written as None/empty when nothing
-        # was found: the controller merges metrics into the last frame's, so an absent key
-        # would keep the previous frame's marks on the overlay.
+        # Overlay data, written even when empty: the controller merges metrics into the last
+        # frame's, so an absent key keeps the previous frame's marks.
         dust_mask = detected_dust < 1.0 if detected_dust is not None else None
         context.metrics["detected_dust_mask"] = dust_mask
         context.metrics["hair_inpaint_masks"] = hair_masks
@@ -1706,9 +1700,7 @@ class ImageProcessor:
             if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
                 th, tw = f32_buffer.shape[:2]
                 ir_full = cv2.resize(ir_full, (tw, th), interpolation=cv2.INTER_AREA)
-            # A contact sheet decodes each file once; only the other half of the same scan,
-            # rendered next, reuses the decode. Anything else would pin ~300MB (24MP) across
-            # the next frame's decode.
+            # Keep the decode only for the other half of the same scan, rendered next; else it pins memory across the next decode.
             if not keep_source:
                 self._source_cache_key = None
                 self._source_cache_value = None

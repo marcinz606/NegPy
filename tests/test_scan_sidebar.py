@@ -849,7 +849,6 @@ def test_the_film_type_reaches_the_request_and_the_settings() -> None:
 
 def test_a_row_hides_where_the_device_has_nothing_for_it() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    # Nothing to say about the film.
     assert sidebar.film_type_widget.isVisibleTo(sidebar) is False
     assert sidebar.quality_body.isVisibleTo(sidebar) is True
 
@@ -1023,7 +1022,6 @@ def test_ejecting_drops_the_per_frame_corrections_of_the_film_that_left() -> Non
 
 
 def test_a_new_app_run_drops_the_per_strip_state_of_the_last_one() -> None:
-    # The unit may have returned the strip while NegPy was closed; nothing in memory says so.
     settings = {
         "selected_frames": [1, 3],
         "frame_windows": {"1": [0.1, 0.1, 0.9, 0.9]},
@@ -1048,8 +1046,6 @@ def test_ejecting_keeps_the_registration_offsets() -> None:
 
 
 def test_the_unit_returning_the_strip_clears_what_an_eject_clears() -> None:
-    # An idle timeout is an Eject nobody pressed: the same per-strip state goes, and the
-    # transport's own registration stays.
     settings = {
         "selected_frames": [1, 3],
         "frame_windows": {"1": [0.1, 0.1, 0.9, 0.9]},

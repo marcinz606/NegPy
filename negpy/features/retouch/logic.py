@@ -28,7 +28,7 @@ _DETECT_PAD_PX = 2.5
 _DETECT_AVG_PX = 3
 _DETECT_MAD_GAIN = 4.0
 _DETECT_SIGMA_MIN = 0.003
-# Slider → seed bar in σ: linear to the default, geometric toward _DETECT_Z_TIGHT above it.
+# Slider → seed bar in σ: linear to the default, geometric above it.
 _DETECT_Z_LOOSE = 3.0
 _DETECT_Z_DEFAULT = 9.0
 _DETECT_Z_TIGHT = 48.0
@@ -44,13 +44,11 @@ _DETECT_GROW_REACH = 2  # times dust_size, px
 # defect raises its own bar. Clean film of any grain sits under the knee.
 _DETECT_TEXTURE_KNEE = 0.02
 _DETECT_TEXTURE_GAIN = 40.0  # bar multiplier per unit of σ over the knee
-# A hair-shaped component (_is_hair) reads the median σ along itself against a higher, steeper
-# knee. A hair lying across busy film stays under it; a seed grown along a tonal edge carries
-# the step in its window and sits far above it. The σ is capped at a multiple of the σ with the
-# hairs filled by the background, so a deep hair on flat film cannot raise its own bar.
+# A hair-shaped component (_is_hair) tests its median σ against a higher, steeper knee: a hair across
+# busy film stays under it, a seed grown along a tonal edge does not.
 _DETECT_HAIR_TEXTURE_KNEE = 0.075
 _DETECT_HAIR_TEXTURE_GAIN = 150.0
-_DETECT_HAIR_FILL_GAIN = 2.0
+_DETECT_HAIR_FILL_GAIN = 2.0  # cap on that σ, × the σ with hairs filled, so a deep hair cannot raise its own bar
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
@@ -320,8 +318,7 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
 
 
 def detect_bar(slider: float) -> float:
-    """UI Threshold (higher = conservative) → the seed bar in local σ; the top of the range
-    is off, since a frame edge or a specular rim clears any finite bar."""
+    """UI Threshold (higher = conservative) → the seed bar in local σ; 1.0 is off (inf)."""
     s = float(np.clip(slider, 0.0, 1.0))
     if s >= 1.0:
         return math.inf
@@ -338,15 +335,9 @@ def detect_luma_score(
     stats: Optional[Tuple[np.ndarray, ...]] = None,
     hair_threshold: Optional[float] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Statistical dust detection on the linear source → ``(score, hair_mask)``.
-
-    Seeds above the lower of the two bars grow through connected pixels down to a grow bar,
-    so the mark covers the defect's footprint rather than its brightest pixel and a hair joins
-    into one component. A compact component must clear ``dust_threshold``'s bar, a hair-shaped
-    one ``hair_threshold``'s (default: the same slider), each raised by its own texture ramp.
-    Compact specks become a score for the shared fill; hairs a mask for structure-following
-    inpaint.
-    """
+    """Statistical dust detection on the linear source → ``(score, hair_mask)``: a fill score for
+    compact specks, an inpaint mask for hairs. A speck must clear ``dust_threshold``'s bar, a hair
+    ``hair_threshold``'s (default: the same), each raised by its own texture ramp."""
     if stats is None:
         stats = compute_dust_stats(img, dust_size)
     proxy, background, z, texture = stats[:4]

@@ -17,8 +17,7 @@ class _MenuButton(QPushButton):
         # Not setMenu: any ::menu-indicator rule then drops the button's padding.
         self.choice_menu = menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        # Qt hides the popup on the press and replays that press as clicked on the
-        # release; swallowing it keeps one click closing the menu.
+        # Qt hides the popup on the press, then emits clicked on the release; that click is swallowed.
         self._swallow_next_click = False
         menu.aboutToHide.connect(self._note_menu_hidden)
         self.clicked.connect(self._open_menu)
@@ -35,8 +34,6 @@ class _MenuButton(QPushButton):
         self.edited_dot = EditedDot(self)
 
     def _dismissed_by_press_on_button(self) -> bool:
-        """True when the hide happening now comes from a mouse press on this button.
-        An Esc, an item pick or a click elsewhere leaves the next click live."""
         pressed = bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
         return pressed and self.rect().contains(self.mapFromGlobal(QCursor.pos()))
 
@@ -50,8 +47,7 @@ class _MenuButton(QPushButton):
         self.choice_menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        # clicked fires inside the super call; a release off the button fires nothing,
-        # so the flag is cleared here rather than left armed for an unrelated click.
+        # clicked fires inside super(); clearing after it also disarms a release off the button.
         super().mouseReleaseEvent(event)
         self._swallow_next_click = False
 
@@ -66,8 +62,7 @@ class _MenuButton(QPushButton):
 class ChoiceButton(_MenuButton):
     """One choice out of a few, as a button that opens a menu of them. A choice is
     (icon, label) or (icon, label, icon color); an empty icon name shows none. The button's dot marks the current choice as
-    edited; the menu marks every edited choice. `data` gives each choice a value, for a list
-    built from what a device offers."""
+    edited; the menu marks every edited choice."""
 
     currentChanged = pyqtSignal(int)
 

@@ -1,8 +1,6 @@
-"""Trichrome triplet membership: which green and blue exposures belong to a red one.
+"""Trichrome triplet membership, keyed by the red exposure's path, so a roll reopens without a raw read.
 
-Grouping a folder reads every raw file, so a grouping found once is kept here, keyed
-by the red exposure's path, for every roll. Each record holds the three content hashes:
-a file that changed on disk since the grouping was found does not re-attach.
+Each record holds the three content hashes: a file changed on disk since the grouping does not re-attach.
 """
 
 from typing import Any, Dict

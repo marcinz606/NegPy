@@ -267,9 +267,6 @@ def get_rendered_thumbnail(
     ``AppController.display_transform_params``. Rendered buffers are always in the
     working space: a soft proof rides the display LUT rather than the buffer, so
     dropping ``proof`` here leaves the filmstrip unproofed beside a proofed canvas.
-
-    ``fingerprint`` identifies the settings this buffer was rendered with
-    (``thumbnail_fingerprint``); None stores the thumbnail as unknown.
     """
     try:
         from negpy.infrastructure.display.color_mgmt import apply_display_transform

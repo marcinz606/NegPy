@@ -67,9 +67,8 @@ _SENSOR_FIELDS = (
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
-# Linear RAW, Narrowband and the two demosaic choices are in none: they describe the rig and
-# the decode, not this frame's look, so they come from the scanning setup and no reset -- a
-# card's or the frame's (_with_scan_setup) -- changes them.
+# Linear RAW, Narrowband and the two demosaic choices are in none: they come from the scanning
+# setup, which no card or frame reset changes (_with_scan_setup).
 # locked_floors/locked_ceils/locked_neutral_axis are in none: they are Roll Analysis's measured result.
 _FILM_FIELDS = (
     "process_mode",
@@ -98,8 +97,7 @@ _BASELINE_FIELDS = (
 
 # Constant frozen-dataclass defaults, built once rather than per resync. Exposure/process/
 # geometry/config come from DEFAULT_WORKSPACE_CONFIG, not their own bare dataclass default:
-# the autocrop fields are the shipped ones only there, which is also what an untouched or
-# reset file actually carries.
+# the autocrop fields hold the shipped values only there, as an untouched or reset file does.
 _DEFAULT_EXPOSURE = DEFAULT_WORKSPACE_CONFIG.exposure
 _DEFAULT_LAB = LabConfig()
 _DEFAULT_TONING = ToningConfig()
@@ -201,8 +199,7 @@ class ControlsPanel(QWidget):
             icon_name="mdi6.film",
             collapsible=False,
         )
-        # How the files become frames: each roll keeps its own Trichrome and Half Frame state,
-        # so neither has a scope pair.
+        # Each roll keeps its own Trichrome and Half Frame state, so neither has a scope pair.
         self.trichrome_sidebar = TrichromeSidebar(self.controller)
         self.half_frame_sidebar = HalfFrameSidebar(self.controller)
         assembly_body = QWidget()
@@ -558,8 +555,8 @@ class ControlsPanel(QWidget):
         )
         exp.grade_slider.setToolTip(
             tooltip_with_shortcut(
-                f"Contrast (ISO R paper exposure range): R{EXPOSURE_CONSTANTS['iso_r_max']:.0f} = very soft, "
-                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} = very hard; R110 ≈ grade 2 paper",
+                f"Paper contrast (ISO R): R{EXPOSURE_CONSTANTS['iso_r_max']:.0f} is very soft, "
+                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} very hard, R110 ≈ grade 2",
                 ["grade_up", "grade_down"],
             )
         )
@@ -631,8 +628,7 @@ class ControlsPanel(QWidget):
         )
         geo.auto_skew_btn.setToolTip(
             tooltip_with_shortcut(
-                "Auto Skew — find the film and frame edges and square the frame to them: Fine Rotation, "
-                "and Tilt and Swing where both edges of a pair show. Reads only the edges, never the picture",
+                "Auto Skew: square the frame to its film edges, not to the picture. Sets Fine Rotation, Tilt and Swing",
                 "auto_skew",
             )
         )
@@ -646,9 +642,8 @@ class ControlsPanel(QWidget):
         )
         geo.keystone_lines_btn.setToolTip(
             tooltip_with_shortcut(
-                "Tilt and swing with reference lines — drag a short line along each of the four "
-                "rebate edges (top, bottom, left, right); NegPy solves the Tilt and Swing that make "
-                "them parallel and square again. Stays open until you toggle it off",
+                "Tilt and swing with reference lines: drag a line along each rebate edge, and Tilt and "
+                "Swing square them. Stays on until you turn it off",
                 "keystone_lines",
             )
         )
@@ -814,23 +809,20 @@ class ControlsPanel(QWidget):
         )
         ret.clone_btn.setToolTip(
             tooltip_with_shortcut(
-                "Clone Tool: copy film from another area over a defect the heal cannot rebuild. Alt-click the area "
-                "to copy from, then paint; the source follows the brush. Uses the Brush Size above",
+                "Clone Tool: copy film from another area over a defect. Alt-click the source, then paint. Uses Brush Size",
                 "clone_tool",
             )
         )
         ret.threshold_slider.setToolTip(
             tooltip_with_shortcut(
-                "How far a speck must stand out from the film's grain to be repaired. Lower catches more, "
-                "with more false positives on fine detail. 1.0 turns speck detection off",
+                "How far a speck must stand out from the grain to be repaired. Lower catches more, with more false positives. 1.0 is off",
                 ["threshold_inc", "threshold_dec"],
             )
         )
         ret.hair_threshold_slider.setToolTip(
             tooltip_with_shortcut(
-                "How far a hair or other long thin mark must stand out from the grain to be repaired. The bar rises "
-                "along tonal edges and in busy detail, where a thin image line looks like a hair. Lower it if a hair "
-                "across busy detail is missed. 1.0 turns hair detection off",
+                "How far a hair-shaped mark must stand out from the grain to be repaired. Lower it for a hair "
+                "missed in busy detail. 1.0 is off",
                 ["hair_threshold_inc", "hair_threshold_dec"],
             )
         )

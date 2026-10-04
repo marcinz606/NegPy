@@ -251,16 +251,11 @@ def _border_without_a_film_box(image: ImageBuffer) -> tuple[ROI, tuple[float, ..
 
 
 def _edge_fit(image: ImageBuffer) -> float | None:
-    """The residual rotation the four-edge fit trusts, within the automatic deskew limit.
-
-    trusted_frame_skew gates on box-led lines and an opposite pair, which is what lets
-    batch apply the angle to a whole roll with nobody watching.
-    """
+    """The rotation the four-edge fit trusts, within the automatic deskew limit, else None."""
     try:
         skew = trusted_frame_skew(image, fit_keystone=False)
     except Exception:
-        # The frame still resolves from its contour angle, but a fit that raises on
-        # every frame must not degrade the whole roll in silence.
+        # A fit that raises on every frame must not degrade the whole roll in silence.
         logger.exception("four-edge fit failed; frame falls back to the contour angle")
         return None
     if skew is None:
@@ -279,8 +274,7 @@ def _no_box_evidence(
     target_ratio: str,
     rebate_trim: float,
 ) -> CropEvidence:
-    """A frame with no film box at any rotation: the threshold box and the border walk are
-    its only geometry, and they ride along for the roll's fallback template."""
+    """A frame with no film box at any rotation; its border walk feeds the roll's fallback template."""
     h, w = image.shape[:2]
     fallback_roi, fallback_border, fallback_bright = _border_without_a_film_box(image)
     return CropEvidence(
@@ -349,13 +343,8 @@ def detect_crop_candidate(
     # Before rotating, not after: the re-detection below then measures the ROI at the final
     # angle, so no rect has to be remapped.
     #
-    # The top-edge fit reads the film's own top edge on the unrotated frame, so it returns
-    # the whole angle, not a residual on top of the contour's. It replaces that angle when
-    # the two agree, and confirms it by agreeing. Where they disagree past
-    # _MAX_EDGE_FIT_DELTA, or the top edge is unreadable, the four-edge fit arbitrates: it
-    # reads every film and gate edge, so it holds where the box's long side is a canvas
-    # border or the box is near square. It runs several detections of its own, so a frame
-    # the two cheap measurements already settle never pays for it.
+    # The top-edge fit returns the whole angle; agreeing with the contour's, it replaces and confirms it.
+    # Otherwise the costly four-edge fit decides.
     fitted = _top_edge_slope(_detection_luma(image), initial.roi) if initial.roi is not None else None
     angle_confident = fitted is not None and abs(fitted - correction) <= _MAX_EDGE_FIT_DELTA
     if angle_confident:
@@ -369,12 +358,11 @@ def detect_crop_candidate(
             return _no_box_evidence(key, image, initial, 0.0, False, target_ratio, rebate_trim)
 
     corrected = apply_fine_rotation(image, correction) if abs(correction) > 1e-4 else image
-    # The detector is deterministic, so an unrotated frame reuses the detection it has.
+    # The detector is deterministic, so an unrotated frame reuses its detection.
     final = initial if corrected is image else detect_film_bounds_with_confidence(corrected)
     if final.roi is None:
         if initial.roi is None:
-            # Still a no-box frame, just with a measured angle: it keeps the fallback payload,
-            # or an opaque-holder roll would lose the border evidence its template rests on.
+            # Keeps the fallback payload: an opaque-holder roll's template rests on it.
             return _no_box_evidence(key, corrected, final, correction, angle_confident, target_ratio, rebate_trim)
         return CropEvidence(
             key,
@@ -841,8 +829,7 @@ def resolve_roll_crops(
     safety_border: float = _DEFAULT_SAFETY_BORDER,
 ) -> list[ResolvedCrop]:
     """Resolve trustworthy and template-supported frames; ambiguous frames abstain."""
-    # A portrait frame takes no part in the roll, so its evidence must not shape the
-    # template either: its rect and its fitted angle describe a different canvas.
+    # A portrait frame's rect and fitted angle describe a different canvas.
     pooled = [item for item in evidence if item.reason != "unsupported_orientation"]
     templates = {
         ratio: build_roll_template([item for item in pooled if item.target_ratio == ratio])

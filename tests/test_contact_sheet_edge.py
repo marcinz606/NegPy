@@ -1,5 +1,3 @@
-"""Film edge print: label sequences, the DX film edge barcode and the maker families."""
-
 from negpy.services.export.contact_sheet_edge import (
     DX_MODULE,
     DX_START,
@@ -20,11 +18,8 @@ FULL = film_geometry(SheetFormat.FULL_FRAME)
 HALF = film_geometry(SheetFormat.HALF_FRAME)
 
 
+# Independent of the encoder: written from zxing-cpp's ODDXFilmEdgeReader layout.
 def _decode_dx(clock, data):
-    """A reader written from zxing-cpp's ODDXFilmEdgeReader layout, separately from the encoder:
-    start 10101, a 23-bit payload (0, product 7, 0, sub-product 4, frame 6, half flag, 0,
-    even parity over the bits before it, 0), stop 101; the clock track is 11111, 23
-    alternating bits from 0, 111."""
     assert len(clock) == len(data) == 31
     assert list(clock[:5]) == [1] * 5 and list(clock[-3:]) == [1] * 3
     assert list(clock[5:28]) == [i % 2 for i in range(23)]
@@ -81,7 +76,6 @@ def test_numbering_continues_across_strips():
     inside = [i.text for i in second_strip if 6 * 38.0 < i.x < 12 * 38.0]
     on_cuts = [i.text for i in second_strip if i.x in (6 * 38.0, 12 * 38.0)]
     assert inside[0] == "7" and inside[-1] == "12"
-    # An A number falls on a cut and is printed half on each strip.
     assert on_cuts == ["6A", "12A"]
 
 

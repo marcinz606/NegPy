@@ -1,7 +1,6 @@
-"""Stand-ins for the camera, the Scanlight and film scanners, for development without hardware.
+"""Stand-ins for the camera, the Scanlight and film scanners; `make run-sim` sets the flag.
 
-Each fake replaces the lowest layer only (the gphoto2 module, the serial port, a scanner
-backend), so the real drivers, workers and panels run on top of it. `make run-sim` sets the flag.
+Each replaces only the lowest layer, so the real drivers, workers and panels run on top of it.
 """
 
 import os

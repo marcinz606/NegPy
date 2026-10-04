@@ -49,7 +49,6 @@ def _palette_open(_w: "MainWindow") -> bool:
 
 
 def _put_down(w: "MainWindow") -> None:
-    """Esc until the canvas is plain, so a tool or view picked up on one step never rides into the next."""
     from negpy.desktop.session import ToolMode
 
     st = w.state
@@ -96,19 +95,15 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def fb(w: "MainWindow"):
         return w.session_panel.file_browser
 
-    # The picture stays undimmed on every step, so an edit shows as it will print, and each step
-    # leaves the canvas as it found it.
     step = partial(TutorialStep, also=canvas, post_hook=_put_down)
 
     return [
         step(
             BASICS,
             "Welcome to NegPy",
-            "NegPy prints your film scans through a <b>virtual darkroom</b>: it reads a scan as film "
-            "density and prints it on a model of real paper. The controls are darkroom controls: "
-            "exposure, grade, filtration, dodge and burn.<br><br>"
-            "The chapter menu above jumps anywhere in the tour. A circle marks a task to try; Undo "
-            "reverses its edit.",
+            "NegPy is a <b>virtual darkroom</b>: it reads a scan as film density and prints it on a "
+            "model of real paper.<br><br>"
+            "The chapter menu jumps anywhere in the tour. A circle marks a task; Undo reverses its edit.",
             lambda w: None,
             offer=_resume_offer(),
         ),
@@ -116,9 +111,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             BASICS,
             "The Screen",
             "Left: the <b>Library</b> and the <b>Film Strip</b>. Center: the canvas, where tools act. "
-            "Right: the controls. The <b>Roll</b> tab holds what a whole roll shares; the <b>Frame</b> "
-            "tab holds one picture's print, from Geometry to Finish. Export, Metadata, Gear and Scan "
-            "sit beside them. Edits save by themselves, keyed to the image content.",
+            "Right: the controls. The <b>Roll</b> tab holds what a roll shares, the <b>Frame</b> tab one "
+            "picture's print. Edits save automatically, keyed to the image content.",
             lambda w: rp(w).group_switcher,
         ),
         step(
@@ -133,10 +127,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             BASICS,
             "The Library: Rolls",
-            "A <b>roll</b> is a named group of frames. <b>+</b> imports a folder as a roll, or each "
-            "folder inside a parent as a roll. NegPy never moves, renames or deletes your files. "
-            "Double-click a roll to open it. Any hand-picked set of frames can also be a roll: "
-            "<b>Save as Roll…</b> in the Film Strip.",
+            "A <b>roll</b> is a named group of frames. <b>+</b> imports a folder, or each subfolder, as a "
+            "roll. NegPy never moves, renames or deletes your files. <b>Save as Roll…</b> in the Film "
+            "Strip makes a roll of any frames.",
             lambda w: w.session_panel.library_tree.tree,
             task="Open a frame: double-click a roll, or load the demo negative.",
             watch=lambda w: w.state.current_file_path,
@@ -146,10 +139,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             BASICS,
             "Filter and Search",
-            f"{_k('focus_search')} filters the open frames. A word matches the file name; "
-            "<code>field:value</code> terms match what a frame is, for example "
-            "<code>film:portra iso:&gt;=400</code>. "
-            f"{_k('search_library')} runs the same search over the whole library. "
+            f"{_k('focus_search')} filters the open frames by file name or by <code>field:value</code> "
+            "terms, such as <code>film:portra iso:&gt;=400</code>. "
+            f"{_k('search_library')} searches the whole library. "
             "<b>Search by meaning</b> (Preferences → Performance) finds “a dog on a beach”.",
             lambda w: fb(w).search_input,
             guide=("frames", "Film Strip"),
@@ -168,28 +160,26 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             BASICS,
             "Light Table, Stitch and HDR",
-            f"{_k('toggle_light_table')} opens the <b>Light Table</b>: large thumbnails over the whole "
-            "window. Select frames and right-click for more: <b>Stitch Selected Frames</b> joins the "
-            "parts of a large negative, <b>Merge Exposures (HDR)</b> joins a bracket into one frame, and "
-            "<b>Scene</b> groups frames of one subject. The files on disk stay as they are.",
+            f"{_k('toggle_light_table')} opens the <b>Light Table</b>: large thumbnails over the window. "
+            "Right-click a selection: <b>Stitch Selected Frames</b> joins parts of a large negative, "
+            "<b>Merge Exposures (HDR)</b> joins a bracket, and <b>Scene</b> groups frames of one subject.",
             lambda w: fb(w).light_table_btn,
             guide=("frames", "Film Strip"),
         ),
         step(
             ROLL,
             "Frame or Roll",
-            "Each card header has a <b>Frame / Roll</b> pair. A Roll tab card follows the roll; move a "
-            "slider and it flips to Frame, click Roll to give the roll this value. On a Frame card, Roll "
-            "copies chosen settings to the selected frames or the roll. <b>Reset to Roll</b> pulls the "
-            "roll's value back.",
+            "Each card header has a <b>Frame / Roll</b> pair. Roll tab cards follow the roll until you "
+            "edit one. Roll pushes a card's settings to the roll or the selection; <b>Reset to Roll</b> "
+            "pulls the roll's value back.",
             lambda w: cp(w).tone_section.roll_btn or cp(w).tone_section,
         ),
         step(
             ROLL,
             "Film Mode",
-            "The first choice: <b>Color</b> negative, <b>B&amp;W</b> negative or <b>Slide</b>. Each one "
-            "changes the conversion. The wand detects the mode when a file opens. <b>Positive</b>, on "
-            "Slide, is for a file that is already a positive, such as a scanned print.",
+            "The first choice: <b>Color</b> negative, <b>B&amp;W</b> negative or <b>Slide</b>. The wand "
+            "detects the mode when a file opens. <b>Positive</b>, on Slide, is for a file that is already "
+            "a positive, such as a scanned print.",
             lambda w: cp(w).film_section,
             task="Change the film mode, then set it back.",
             watch=lambda w: w.state.config.process.process_mode,
@@ -208,10 +198,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             ROLL,
             "Calibration",
-            "This card corrects the capture, not the look. The <b>bulb</b> asks how you scan and what "
-            "light you use, then sets Linear RAW and Narrowband. <b>Narrowband</b> corrects RGB-LED "
-            "light. <b>Single-Shot Narrowband Calibration</b> removes the sensor's leak between bands. "
-            "<b>Hue Trim</b> turns all hues back for an unusual lamp.",
+            "This card corrects the capture, not the look. The <b>bulb</b> asks how you scan, then sets "
+            "Linear RAW and <b>Narrowband</b> (RGB-LED light). <b>Single-Shot Narrowband Calibration</b> "
+            "removes sensor leak between bands. <b>Hue Trim</b> rotates hues for an unusual lamp.",
             lambda w: cp(w).sensor_section,
             focus=lambda w: cp(w).sensor_sidebar.scan_setup_btn,
             guide=("sensor", "Calibration"),
@@ -219,9 +208,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             ROLL,
             "Crosstalk",
-            "Each film dye also absorbs outside its own band, which mutes color. A <b>Crosstalk</b> "
-            "matrix unmixes the dyes in density, before metering. Pick the matrix for your process and "
-            "blend it with Strength; <b>+</b> edits a matrix. Run Roll Analysis again after a change.",
+            "Film dyes absorb outside their own bands, which mutes color. <b>Crosstalk</b> unmixes them "
+            "before metering. Pick the matrix for your process and set Strength; <b>+</b> edits a "
+            "matrix. Run Roll Analysis again after a change.",
             lambda w: cp(w).sensor_section,
             focus=lambda w: cp(w).sensor_sidebar.crosstalk_combo,
             guide=("sensor", "Calibration"),
@@ -229,10 +218,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             ROLL,
             "Cast Removal",
-            "A negative's cast changes with density, so one white balance leaves shadows and highlights "
-            "off. <b>Cast Removal</b> gives each channel its own slope, so grays stay neutral from "
-            "shadow to highlight. It adapts to the neutrals in each frame. It starts on for color "
-            "negatives and off for slides.",
+            "A negative's cast changes with density, so one white balance cannot fix it. "
+            "<b>Cast Removal</b> gives each channel its own slope, set from the frame's neutrals, so "
+            "grays stay neutral from shadow to highlight.",
             lambda w: cp(w).sensor_section,
             focus=lambda w: cp(w).sensor_sidebar.cast_removal_slider,
             guide=("sensor", "Calibration"),
@@ -240,20 +228,18 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             ROLL,
             "Metering",
-            "NegPy meters the negative to find its black and white points and its orange mask. Rebate, "
-            "sprocket holes and holder are not picture: crop tight, set an <b>Analysis Buffer</b>, or "
-            f"draw a region ({_k('analysis_draw')}). <b>Lock Bounds</b> keeps the result once it looks "
-            "right. White Point and Black Point trim it.",
+            "NegPy meters the black point, white point and orange mask. Keep rebate and holder out: crop "
+            f"tight, set an <b>Analysis Buffer</b> or draw a region ({_k('analysis_draw')}). "
+            "<b>Lock Bounds</b> keeps the result; White and Black Point trim it.",
             lambda w: cp(w).process_section,
             guide=("process", "Metering"),
         ),
         step(
             ROLL,
             "Roll Analysis",
-            "One enlarger setting for the roll. <b>Reanalyze</b> meters every frame and keeps a roll "
-            "baseline. <b>Use average</b> (Luma, Color, Cast) lets frames borrow it, so exposure and "
-            "color do not jump. <b>Use This Frame</b> makes one frame the reference. <b>Scenes</b> get "
-            "a baseline of their own.",
+            "One enlarger setting for the roll. <b>Reanalyze</b> meters every frame into a roll baseline; "
+            "<b>Use average</b> (Luma, Color, Cast) applies it, so frames print alike. <b>Use This "
+            "Frame</b> makes one frame the reference. <b>Scenes</b> get their own baseline.",
             lambda w: cp(w).baseline_section,
             guide=("baseline", "Roll Analysis"),
         ),
@@ -276,10 +262,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             FRAMING,
             "Crop",
-            "The crop sets the framing and what the meter reads. Drag a corner to resize, drag inside to "
-            "move. The wand finds the film edge. "
-            f"{_k('crop_guide_next')} changes the guide lines and {_k('crop_guide_orient')} turns them. "
-            "The handles outside the box rotate the frame by hand.",
+            "The crop sets the framing and what the meter reads. Drag a corner to resize, inside to move, "
+            "a handle outside the box to rotate. The wand finds the film edge. "
+            f"{_k('crop_guide_next')} changes the guides; {_k('crop_guide_orient')} turns them.",
             lambda w: cp(w).geometry_section,
             focus=lambda w: cp(w).geometry_sidebar.manual_crop_btn,
             task="Click the crop tool and drag a new rectangle on the picture. Enter confirms.",
@@ -290,10 +275,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             FRAMING,
             "Straighten, Tilt and Swing",
-            "<b>Straighten</b>: draw a line along a horizon and the frame levels to it. Fine Rotation "
+            "<b>Straighten</b>: draw a line along a horizon and the frame levels to it; Fine Rotation "
             "trims by hand. <b>Tilt</b> and <b>Swing</b> are easel movements for converging verticals "
-            "and horizontals. <b>Crop by Default</b> trims the wedge they leave, so no edge shows "
-            "invented pixels.",
+            "and horizontals. <b>Crop by Default</b> trims the wedge they leave.",
             lambda w: cp(w).geometry_section,
             focus=lambda w: cp(w).geometry_sidebar.straighten_btn,
             guide=("geometry", "Geometry"),
@@ -301,9 +285,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             FRAMING,
             "The Roll's Crop",
-            "The crop's shape and what the detector looks for belong to the roll: Ratio, Mode (image or "
-            "full film edge), Crop Offset and Rebate Trim. <b>Auto-crop the roll</b> analyzes all "
-            "frames together, so weak detections borrow from strong ones. Crops you drew stay.",
+            "Ratio, Mode (image or full film edge), Crop Offset and Rebate Trim belong to the roll. "
+            "<b>Auto-crop the roll</b> analyzes all frames together, so weak detections borrow from "
+            "strong ones. Crops you drew stay.",
             lambda w: cp(w).autocrop_section,
             guide=("autocrop", "Crop"),
         ),
@@ -336,9 +320,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             PRINTING,
             "Auto and Set Targets",
             "The <b>Auto</b> menu turns Auto Density and Auto Grade on or off. <b>Set Targets…</b> moves "
-            "their aim: print density, contrast, how far each meter is trusted, the metering band, "
-            "<b>Shadow Reach</b> and <b>Highlight Hold</b>. Targets are a calibration for every image, "
-            "not an edit.",
+            "their aim: density, contrast, metering band, <b>Shadow Reach</b> and <b>Highlight Hold</b>. "
+            "Targets apply to every image, not to one edit.",
             lambda w: cp(w).tone_section,
             focus=lambda w: cp(w).tone_sidebar.auto_btn,
             guide=("tone", "Tone"),
@@ -373,9 +356,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             PRINTING,
             "One Dye Layer",
-            "Pick <b>R</b>, <b>G</b> or <b>B</b> and the curve controls act on one dye layer. "
-            "Filtration can only shift a layer; these trims change its shape, which removes a cast that "
-            "is different in shadows and highlights. A dot marks a trimmed layer.",
+            "Pick <b>R</b>, <b>G</b> or <b>B</b> and the curve controls trim one dye layer. Filtration "
+            "only shifts a layer; a trim changes its shape, for a cast that differs in shadows and "
+            "highlights. A dot marks a trimmed layer.",
             lambda w: cp(w).tone_section,
             focus=lambda w: cp(w).tone_sidebar.ch_btn,
             guide=("tone", "Tone"),
@@ -383,10 +366,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             PRINTING,
             "Paper Response",
-            "A <b>paper profile</b> gives the print the character of a real paper, from its datasheet. "
-            "<b>Toe</b> and <b>Shoulder</b> shape the ends of the curve, <b>Snap</b> the midtones, and "
-            "<b>Dye Separation</b> the color strength, in density. <b>Paper White</b> and <b>Paper "
-            "Black</b> show the real paper base and maximum black.",
+            "A <b>paper profile</b> takes a real paper's curve from its datasheet. <b>Toe</b> and "
+            "<b>Shoulder</b> shape the curve's ends, <b>Snap</b> the midtones, <b>Dye Separation</b> the "
+            "color strength. <b>Paper White</b> and <b>Paper Black</b> show the paper's base and deepest "
+            "black.",
             lambda w: cp(w).tone_section,
             focus=lambda w: cp(w).tone_sidebar.paper_combo,
             guide=("tone", "Tone"),
@@ -394,10 +377,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             PRINTING,
             "Preflash and Contrast Mask",
-            "<b>Preflash</b> is a short even exposure before the print: thin highlight detail prints "
-            "and the shadows stay clean. <b>Contrast Mask</b> is the darkroom unsharp mask, a soft copy "
-            "of the negative that lowers overall contrast and keeps local detail. <b>Mask Spacer</b> "
-            "sets its softness.",
+            "<b>Preflash</b>, a short even exposure before the print, brings in thin highlight detail and "
+            "keeps shadows clean. <b>Contrast Mask</b>, the darkroom unsharp mask, lowers overall "
+            "contrast and keeps local detail. <b>Mask Spacer</b> sets its softness.",
             lambda w: cp(w).tone_section,
             focus=lambda w: cp(w).tone_sidebar.preflash_slider,
             guide=("tone", "Tone"),
@@ -405,10 +387,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             PRINTING,
             "Filtration",
-            "White balance here is CC filtration, as on a color enlarger head. Cyan, Magenta and Yellow "
-            f"move the pack; Temperature turns it warm or cool ({_k('temp_warm')} / {_k('temp_cool')}). "
+            "White balance is CC filtration, as on a color enlarger. The CMY sliders move the pack; "
+            f"Temperature warms or cools ({_k('temp_warm')} / {_k('temp_cool')}). "
             "The region menu limits it to shadows or highlights. "
-            f"{_k('toggle_ring_around')} opens a <b>Ring-around</b> of filter steps.",
+            f"{_k('toggle_ring_around')} opens a <b>Ring-around</b>.",
             lambda w: cp(w).color_section,
             task="Click Pick WB, then a gray area in the picture, or drag a filter slider.",
             watch=lambda w: (w.state.config.exposure.wb_cyan, w.state.config.exposure.wb_magenta, w.state.config.exposure.wb_yellow),
@@ -418,9 +400,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             PRINTING,
             "Dodge and Burn",
-            "<b>Draw Mask</b> is a cut card, <b>Oval</b> the hole in a card, <b>Card Edge</b> a graded "
-            "burn. Burn is in stops; a negative value dodges. Grade prints the area at another contrast. "
-            "<b>Tone Limit</b> keeps a mask to one zone, so a sky burn leaves the trees. "
+            "<b>Draw Mask</b> is a cut card, <b>Oval</b> a hole in a card, <b>Card Edge</b> a graded "
+            "burn. Burn is in stops (negative dodges); Grade sets contrast. "
+            "<b>Tone Limit</b> keeps a mask to one zone. "
             f"{_k('toggle_printing_notes')} shows the printing map.",
             lambda w: cp(w).local_section,
             task="Draw a mask on the picture with any of the three tools, then drag its Burn or Grade.",
@@ -431,10 +413,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             LOOK,
             "Lab",
-            "The look after the print. <b>Chroma</b> scales color evenly; <b>Skin Protection</b> keeps "
-            "faces natural. <b>Chroma Denoise</b> removes color noise, not grain. <b>Sharpening</b> acts "
-            "on lightness only. <b>CLAHE</b> adds local contrast. <b>Glow</b> and <b>Halation</b> copy "
-            "lens bloom and the red halo of film.",
+            "The look after the print. <b>Chroma</b> scales color; <b>Skin Protection</b> keeps faces "
+            "natural. <b>Chroma Denoise</b> removes color noise, not grain. <b>Sharpening</b> acts on "
+            "lightness only. <b>CLAHE</b> adds local contrast. <b>Glow</b> and <b>Halation</b> add lens "
+            "bloom and film's red halo.",
             lambda w: cp(w).lab_section,
             task="Drag any Lab slider and watch the print.",
             watch=lambda w: w.state.config.lab,
@@ -489,9 +471,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             LOOK,
             "Finishing",
             "Presentation, after the crop. <b>Vignette</b> is an edge burn in stops. <b>Filed "
-            "Carrier</b> prints the black edge of a filed-out carrier, with rough edges and flare. "
-            "<b>Border</b> puts a mat around the print; <b>Paper White</b> makes it match the toned "
-            "paper.",
+            "Carrier</b> prints the rough black edge of a filed-out carrier. <b>Border</b> puts a mat "
+            "around the print; <b>Paper White</b> matches it to the toned paper.",
             lambda w: cp(w).finish_section,
             task="Drag Vignette Burn, or give the print a Border.",
             watch=lambda w: w.state.config.finish,
@@ -501,9 +482,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             SEEING,
             "The Analysis Readout",
-            "The densitometer above the tabs. The <b>H&amp;D chart</b> shows the paper curve and where "
-            "this frame sits on it. The histograms show output or density, with clip marks. The zone "
-            "strip maps the print to Zones 0 to X. <b>Probe</b> reads the density under the cursor.",
+            "The densitometer above the tabs: an <b>H&amp;D chart</b> with this frame on the paper curve, "
+            "histograms with clip marks, and a strip of Zones 0 to X. <b>Probe</b> reads the density "
+            "under the cursor.",
             lambda w: rp(w).analysis_section,
             guide=("analysis", "Analysis"),
         ),
@@ -566,10 +547,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             OUTPUT,
             "Metadata and Gear",
-            "Film, camera, lens, developer and scan details go into the exported EXIF and XMP. The "
-            "cards follow the roll, as on the Roll tab. <b>Protect Original Metadata</b> leaves the "
-            "source file's tags alone. The <b>Gear</b> tab keeps your cameras, lenses and film stocks "
-            "for every picker.",
+            "Film, camera, lens and scan details go into the exported EXIF and XMP; the cards follow the "
+            "roll. <b>Protect Original Metadata</b> exports the source's own tags instead. The "
+            "<b>Gear</b> tab keeps your cameras, lenses and films for every picker.",
             lambda w: rp(w).metadata_sidebar,
             focus=lambda w: rp(w).metadata_sidebar.protect_btn,
             pre_hook=lambda w: rp(w).show_tab_by_key("metadata"),
@@ -578,9 +558,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             OUTPUT,
             "Roll Settings",
-            "Tag a whole roll in one dialog: gear, capture, place, process and scan fields, for this "
-            "frame, a selection or the roll. A new roll whose folder name matches your gear, such as "
-            "“penf” for “Pen F”, opens this dialog filled in.",
+            "One dialog tags gear, capture, place, process and scan fields for this frame, a selection "
+            "or the roll. A new roll whose folder name matches your gear, such as “penf” for “Pen F”, "
+            "opens it filled in.",
             lambda w: fb(w).roll_settings_btn,
         ),
         step(
@@ -597,10 +577,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             OUTPUT,
             "Export",
-            "Pick a format (JPEG, 16-bit TIFF, PNG, WebP, JPEG XL), a color space and a size. The "
-            "arrow on the button picks this frame, the selection or all visible frames. <b>Presets</b> "
-            "run several recipes in one pass. <b>Contact Sheet</b> prints the roll as film strips on photographic paper, and "
-            "<b>Sidecars</b> write each edit to a file beside its scan.",
+            "Pick a format, color space and size. The button's arrow chooses this frame, the selection "
+            "or all visible frames. <b>Presets</b> run several recipes at once. <b>Contact Sheet</b> prints "
+            "the roll as film strips; <b>Sidecars</b> save edits beside the scans.",
             lambda w: rp(w).export_sidebar,
             focus=lambda w: rp(w).export_sidebar.export_main_btn,
             pre_hook=lambda w: rp(w).show_tab_by_key("export"),
@@ -609,9 +588,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             SCANNING,
             "Film Scanners",
-            "Scan straight into NegPy. Pick <b>Film Scanner</b> in the Scanner card: it drives SANE scanners, "
-            "the Nikon Coolscan (with ICE, multi-sampling and Superfine) and Plustek. Prescan a strip, set an "
-            "offset per frame, and the frames open as a roll while they are scanned.",
+            "Scan straight into NegPy. Pick <b>Film Scanner</b> in the Scanner card for SANE scanners, the "
+            "Nikon Coolscan and Plustek. Prescan a strip, set an offset per frame, and the frames open as a "
+            "roll while they are scanned.",
             lambda w: rp(w).scan_device_section,
             pre_hook=lambda w: (rp(w).show_tab_by_key("scan"), rp(w).show_scan_source("film")),
             guide=("scan_device", "Device"),

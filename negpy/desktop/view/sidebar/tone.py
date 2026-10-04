@@ -28,8 +28,7 @@ class ToneSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
-        # The travel is the curve's own clamp, so the slider cannot offer a grade the
-        # kernel would clip (grade_to_slope, split_grade_deltas, the local-grade map).
+        # Travel matches the kernel's grade clamp, so the slider never offers a grade it would clip.
         self.grade_slider = CompactSlider("ISO-R Grade", _ISO_R_MIN, _ISO_R_MAX, conf.grade, step=1.0, inverted=True, unit=" R")
         self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True, unit=" R")
         self.grade_trim_slider.setToolTip(

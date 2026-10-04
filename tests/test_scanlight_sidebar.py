@@ -390,7 +390,7 @@ def test_gate_hint_lists_missing_requirements():
     assert "output folder" in w.gate_hint.text()
     assert "preset" in w.gate_hint.text()
     assert not w.scan_btn.isEnabled()
-    assert w.lv_btn.isEnabled()  # live view frames and focuses with the camera alone
+    assert w.lv_btn.isEnabled()  # needs only the camera
 
 
 def test_new_preset_button_needs_only_camera_and_light():

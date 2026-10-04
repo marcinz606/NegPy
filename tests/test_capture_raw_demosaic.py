@@ -278,8 +278,7 @@ def test_raw_clip_plateau_does_not_false_positive_on_a_quiet_clean_base(monkeypa
 
 
 def test_raw_clip_plateau_does_not_false_positive_on_a_lossy_compressed_raw(monkeypatch):
-    # A lossy raw encoding stores every Nth code only, so a clean base reads as a comb: each
-    # populated code is followed by empty ones. The gaps must not read as a falling tail.
+    # A lossy raw stores every Nth code only: the gaps of this comb must not read as a falling tail.
     rng = np.random.default_rng(13)
     step = 10
     values = (np.round((3000 + rng.normal(0.0, 30.0, size=20000)) / step) * step).astype(np.int64)

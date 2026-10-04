@@ -1,5 +1,3 @@
-"""Straight Proof: one exposure and grade for the roll, with scan exposures evened out."""
-
 import math
 import os
 import tempfile
@@ -120,8 +118,6 @@ def test_scan_ev_is_read_from_camera_raws_only(monkeypatch):
 
 
 def test_a_brighter_scan_prints_the_same_once_its_exposure_is_evened_out():
-    """The proof's claim through the real pipeline: a negative scanned a stop brighter prints
-    darker at the shared exposure, and prints alike with its shift."""
     rgb, _ir = negative(400, 600, 3)
     linear = rgb.astype(np.float64) / 65535.0
     darker = np.clip(linear * 0.45 / linear.max(), 0, 1)
@@ -178,5 +174,5 @@ def test_scan_exposures_are_evened_out_within_each_scene():
     s2 = {"floors": (-2.0, -2.0, -2.0), "ceils": (-0.5, -0.5, -0.5)}
     frames = [_in_scene(_frame("a", ev=10.0), 1, "s1"), _in_scene(_frame("b", ev=10.0), 1, "s1"), _in_scene(_frame("c", ev=12.0), 2, "s2")]
     proof = straight_proof(frames, BASELINE, {"s1": s1, "s2": s2})
-    # Each scene's metering was taken at its own scan exposure, so a lone brighter scene is not moved.
+    # A scene's metering is at its own scan exposure, so a lone brighter scene is not moved.
     assert [f.config.process.locked_floors[0] for f in proof.frames] == [-3.0, -3.0, -2.0]

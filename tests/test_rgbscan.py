@@ -642,7 +642,6 @@ def test_grouping_leaves_an_assembled_asset_alone(tmp_path, monkeypatch):
 
 
 def test_grouping_passes_over_a_merged_triplet_tiff(tmp_path, monkeypatch):
-    """A TIFF merged from a triplet is one frame: never probed, grouped or counted loose."""
     from negpy.desktop.workers.render import AssetDiscoveryWorker
     from negpy.services.export.frame_merge import write_merged_frame
 

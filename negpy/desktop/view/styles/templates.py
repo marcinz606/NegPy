@@ -369,8 +369,7 @@ class FieldLabel(QLabel):
 
 
 def field_label(text: str, width: int | None = None) -> QLabel:
-    """Muted semibold label for a combo/entry field. With a width it is a label column,
-    its text right-aligned against the field."""
+    """Muted semibold label for a combo/entry field."""
     lbl = FieldLabel(text)
     lbl.setStyleSheet(field_label_qss())
     if width is not None:
@@ -381,8 +380,7 @@ def field_label(text: str, width: int | None = None) -> QLabel:
 
 
 def field_row(label: str, field: QWidget, *trailing: QWidget) -> QHBoxLayout:
-    """A field_label at FIELD_LABEL_WIDTH, the field taking the rest, then any icon buttons.
-    The label is the layout's first item, so a caller can hide the row with its field."""
+    """The label is the layout's first item, so a caller can hide it with its field."""
     row = QHBoxLayout()
     caption = field_label(label, FIELD_LABEL_WIDTH)
     row.addWidget(caption)

@@ -701,8 +701,6 @@ def test_detect_candidate_takes_the_four_edge_fit_over_the_contour_angle(
 
 
 def test_an_agreeing_top_edge_fit_skips_the_four_edge_fit(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The four-edge fit runs several detections of its own, so a frame the contour and the
-    # top-edge fit already settle must never pay for it.
     profile = np.zeros(600, dtype=np.float32)
     detection = SimpleNamespace(
         roi=(100, 300, 50, 550),
@@ -728,7 +726,6 @@ def test_an_agreeing_top_edge_fit_skips_the_four_edge_fit(monkeypatch: pytest.Mo
 
 
 def test_a_portrait_frame_takes_the_four_edge_fit(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A portrait canvas takes no part in the roll, but its own crop still deskews.
     monkeypatch.setattr(batch_autocrop, "_edge_fit", lambda _image: -0.8)
     monkeypatch.setattr(batch_autocrop, "get_autocrop_coords", lambda *_a, **_k: (10, 110, 5, 75))
 
@@ -828,9 +825,6 @@ def test_roll_angle_keeps_every_frame_below_the_fitted_minimum() -> None:
 def test_a_no_box_frame_with_a_fitted_angle_keeps_its_fallback_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The fallback box and border feed the borderless-roll template, so a frame whose
-    # angle the four-edge fit measured must still carry them when no box is found at
-    # either rotation; an opaque-holder roll otherwise loses Auto Crop All entirely.
     profile = np.zeros(600, dtype=np.float32)
     empty = SimpleNamespace(
         roi=None,
@@ -862,8 +856,6 @@ def test_a_no_box_frame_with_a_fitted_angle_keeps_its_fallback_payload(
 
 
 def test_portrait_evidence_does_not_shape_the_roll_template() -> None:
-    # Portrait frames resolve alone, so their fitted angles and rects must not steer the
-    # fallback template the landscape frames are placed from.
     portraits = [
         _evidence(
             f"portrait-{index}",

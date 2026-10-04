@@ -18,7 +18,7 @@ class ShortcutEntry:
     default_key: str
     description: str
     category: str
-    # The window that dispatches the key. A key only clashes with another bound in the same window.
+    # The window that dispatches the key; keys clash only within one window.
     window: str = "main"
 
 

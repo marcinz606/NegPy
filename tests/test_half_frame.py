@@ -882,8 +882,6 @@ class TestDiptychAsset:
 
 
 class TestSplitAxisY:
-    """A "y" split is the transposed "x" problem: same math, swapped axes."""
-
     def test_slice_matches_the_transposed_x_slice(self):
         rng = np.random.default_rng(3)
         a = rng.random((37, 53, 3)).astype(np.float32)
@@ -914,15 +912,13 @@ class TestSplitAxisY:
         bottom = np.ones((5, 8, 3), np.float32)
         joined = join_halves(top, bottom, gap=3, axis="y")
         assert joined.shape == (6 + 3 + 5, 10, 3)
-        assert float(joined[7].max()) == 0.0  # the gap row is filled, not copied
+        assert float(joined[7].max()) == 0.0
 
     def test_remap_holds_a_point_across_an_axis_change(self):
         geom_x = HalfGeometry(split_x=0.5, split_axis="x")
         geom_y = HalfGeometry(split_x=0.5, split_axis="y")
         x, y = remap_point(0.5, 0.5, 1, geom_x, geom_x)
         assert (round(x, 6), round(y, 6)) == (0.5, 0.5)
-        # Half 1 of an x split is the left quarter of the scan; under a y geometry
-        # the same scan point sits in the top half, past its own split.
         fx, fy = 0.25, 0.5
         gx, gy = remap_point(*remap_point(fx, fy, 1, geom_x, geom_x), 1, geom_x, geom_y)
         from negpy.services.assets.half_frame import _to_scan
@@ -949,8 +945,6 @@ class TestDetectGutterAxis:
         assert detect_gutter_axis(flat) == (0.5, 0.0, "x")
 
     def test_an_equal_horizontal_band_does_not_flip_the_axis(self):
-        """An in-scene horizontal band (a horizon) can pass every gutter gate, so the
-        turn to a stacked split needs a clear margin over the vertical gutter."""
         scan = _two_frame_scan(0.95).copy()
         mid = scan.shape[0] // 2
         scan[mid - 8 : mid + 8] = 0.95

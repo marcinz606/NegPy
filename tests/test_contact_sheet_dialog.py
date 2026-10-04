@@ -1,5 +1,3 @@
-"""The Contact Sheet dialog: dragging the paper, the choices, Return, and closing cleanly."""
-
 from dataclasses import replace
 
 import numpy as np
@@ -334,8 +332,6 @@ def test_a_proof_unavailable_in_scene_order_falls_back_to_as_edited(dialog):
 
 
 def test_the_preview_keeps_its_size_when_the_roll_spills_onto_a_second_sheet(dialog):
-    # The page arrows appear with a second sheet; if they took room from the preview, its
-    # center would move under a drag and the size would flip back and forth at the threshold.
     d = dialog(n=38)
     d.show()
     d._render()

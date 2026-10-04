@@ -1,5 +1,3 @@
-"""Physical layout of the darkroom contact sheet: capacities, centering, perforations, settings."""
-
 import math
 
 import pytest
@@ -189,8 +187,6 @@ class TestFrameTurns:
         assert frame_turns(1.33, HALF, 2, False, False) == 3
 
     def test_a_vertical_strip_scan_turned_landscape_stays(self):
-        # The whole strip was scanned upright, so a level shot needed a quarter turn: its
-        # upright picture is landscape, like the window, and stays as the user sees it.
         assert frame_turns(1.5, FULL, 1, False, False) == 0
 
 

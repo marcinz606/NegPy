@@ -1,5 +1,3 @@
-"""What the contact sheet reads from frames: dates, order, format, look, label."""
-
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -130,7 +128,7 @@ class TestFormat:
     def test_no_metadata_reads_the_shape(self):
         assert infer_format([_frame(size=(4000, 4000))] * 3) == (SheetFormat.MEDIUM, "6×6")
         assert infer_format([_frame(size=(3000, 2000))] * 3)[0] == SheetFormat.FULL_FRAME
-        # A 6x9 roll has the 35mm shape: it needs picking by hand.
+        # A 6x9 roll has the 35mm shape.
         assert infer_format([_frame(size=(8400, 5600))] * 3)[0] == SheetFormat.FULL_FRAME
 
     def test_parse_frame_120(self):

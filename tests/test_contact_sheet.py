@@ -1,5 +1,3 @@
-"""The darkroom contact print: tones by region, perforations, frames, edge print and label."""
-
 import numpy as np
 import pytest
 from negpy.services.export.contact_sheet import ContactSheetService, label_caps, palette_for

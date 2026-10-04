@@ -39,10 +39,9 @@ _RIGHT_CLICK_TIP = (
 
 
 def _clone_hint(picking: bool, has_source: bool) -> str:
-    """What the next click on the photo does with the Clone tool."""
     if picking or not has_source:
         return "Click the photo to pick the area to copy from."
-    return "Paint over the defect. The dashed circle shows where it copies from; Set Source picks a new area."
+    return "Paint over the defect; the dashed circle marks the source."
 
 
 class RetouchSidebar(BaseSidebar):
@@ -135,15 +134,13 @@ class RetouchSidebar(BaseSidebar):
         self.clone_btn = self._tool_toggle(
             "fa5s.clone",
             "Clone",
-            "Clone Tool: copy film from another area over a defect the heal cannot rebuild. Alt-click the area to "
-            "copy from, then paint; the source follows the brush. Uses the Brush Size above",
+            "Clone Tool: copy film from another area over a defect. Alt-click the source, then paint. Uses Brush Size",
         )
         self.clone_match_btn = self._small_toggle(
             "fa5s.adjust",
             "Match Tone",
             conf.clone_match_tone,
-            "Keep the copied grain and detail but take the brightness and color of the film around the "
-            "destination, so the patch does not show as a lighter or darker area",
+            "Keep the copied grain and detail, but match the brightness and color around the destination",
         )
         self.clone_undo_btn = self._icon_action("fa5s.undo", "Undo Last: remove the most recent clone stroke")
         self.clone_clear_btn = self._icon_action("fa5s.trash-alt", "Clear All: remove all clone strokes")
@@ -151,7 +148,7 @@ class RetouchSidebar(BaseSidebar):
         self.clone_source_btn = self._tool_toggle(
             "fa5s.crosshairs",
             "Set Source",
-            "Pick the area to copy from: the next click on the photo sets it. Alt-click with the Clone tool does the same",
+            "Pick a new source with the next click on the photo",
         )
         clone_row = QHBoxLayout()
         for btn in (self.clone_btn, self.clone_source_btn, self.clone_match_btn):
@@ -164,9 +161,7 @@ class RetouchSidebar(BaseSidebar):
             wrap_tooltip("How much of the source covers the destination. Lower lets the original show through")
         )
         self.clone_feather_slider = CompactSlider("Feather", 0.0, 100.0, conf.clone_feather * 100.0, step=1.0, precision=0, unit="%")
-        self.clone_feather_slider.setToolTip(
-            wrap_tooltip("How far in from the brush edge the copy fades in, as a share of the brush radius. 0 is a hard edge")
-        )
+        self.clone_feather_slider.setToolTip(wrap_tooltip("Fade width at the brush edge, as a share of the radius. 0 is a hard edge"))
         self.layout.addWidget(SliderGroup(self.clone_strength_slider, self.clone_feather_slider))
 
         self.layout.addStretch()

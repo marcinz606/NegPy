@@ -251,7 +251,6 @@ def test_film_is_loaded_when_the_holder_is_empty() -> None:
 
 
 def test_film_the_unit_returned_is_loaded_again_and_the_scan_stops() -> None:
-    # The picks, crops and per-frame offsets riding on the request describe where the film was.
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
     module.media_loaded_at_open = False
@@ -293,7 +292,6 @@ def test_film_reloaded_after_the_unit_returned_it_is_measured_again() -> None:
 
 
 def test_film_ejected_by_negpy_loads_again_without_a_word() -> None:
-    # An Eject already cleared the strip's state; only the unit's own return is news.
     backend, module = make_backend(with_eject=True)
     _scan(backend)
     backend.eject(DEVICE_ID)
@@ -688,7 +686,7 @@ def test_ejecting_a_strip_the_unit_already_returned_counts_as_ejected() -> None:
 def test_an_eject_that_does_nothing_leaves_the_return_to_report() -> None:
     backend, module = make_backend(with_eject=False)
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False  # the strip waits in the adapter, so load() takes it in
+    module.media_loaded_at_open = False  # the strip waits in the adapter
 
     assert backend.eject(DEVICE_ID) is False
 
@@ -714,7 +712,6 @@ def clock(monkeypatch) -> _Clock:
 
 
 def test_a_long_idle_counts_as_a_return_though_the_strip_reads_as_loaded(clock) -> None:
-    # The unit gives no notice of its own eject, so a strip put back in looks as if it never left.
     from negpy.infrastructure.scanners.nkscan_backend import _IDLE_RETURN_S
 
     backend, module = make_backend()
@@ -748,7 +745,7 @@ def test_each_contact_starts_the_idle_clock_again(clock) -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
     clock.now += _IDLE_RETURN_S - 1
-    _scan(backend)  # the unit starts its idle timer again after this
+    _scan(backend)
     clock.now += _IDLE_RETURN_S - 1
 
     _scan(backend)
@@ -766,7 +763,6 @@ def test_a_long_idle_with_nothing_measured_is_not_a_return(clock) -> None:
 
 
 def test_a_holder_with_its_own_frame_table_keeps_the_plain_reload() -> None:
-    # Only a strip feeder with a strip pass is known to return a strip by itself.
     backend, module = make_backend(caps=FakeCapabilities(framing="published"))
     backend.detect_frames(DEVICE_ID)
     module.media_loaded_at_open = False

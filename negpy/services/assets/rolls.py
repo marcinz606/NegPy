@@ -101,8 +101,7 @@ def recognize_folder(repo: Any, path: str, name: str = "") -> str:
 
 
 def _import_name(repo: Any, path: str) -> str:
-    """*path* named as Import Subfolders as Rolls names it, from the deepest import source
-    that holds it, so the Library tree nests it there; "" outside every source."""
+    """*path* named as Import Subfolders as Rolls names it, from the deepest import source; "" outside every source."""
     key = _folder_key(path)
     sources = [os.path.normpath(s) for s in import_sources(repo) if key != _folder_key(s) and _under(key, _folder_key(s))]
     if not sources:
@@ -341,12 +340,10 @@ def adopt_replacement(
     dropped_paths: List[str],
     keep_source: bool = False,
 ) -> List[str]:
-    """Give *new_path* the roll records of the file it replaces: its membership, its card
-    locks, its scene and its forks. *dropped_paths* leave every roll. The old hash keeps
-    its locks, scene and forks, so a file restored from the Trash keeps them. With
-    *keep_source* the old path stays a member beside the new one, for a replacement whose
-    sources are left on disk and stay frames of their own. Returns the ids of
-    the rolls whose fork of *old_hash* the caller must copy."""
+    """Give *new_path* the membership, card locks, scene and forks of the file it replaces; *dropped_paths* leave every roll.
+
+    The old hash keeps its records for a restore from the Trash; *keep_source* keeps the old path a member too.
+    Returns the ids of the rolls whose fork of *old_hash* the caller must copy."""
     store = _read(repo)
     gone = set(dropped_paths)
     forked_in = []

@@ -45,8 +45,8 @@ class RetouchConfig:
     # detection is released under the pixels the band covers, so film the detector read as
     # dust keeps its own. Toggling dust_remove clears the list.
     dust_exclusion_strokes: List[Tuple] = field(default_factory=list)
-    # Each stroke: (points, size, src_dx, src_dy, strength, feather, match_tone), see
-    # features/retouch/clone.py. A stroke keeps the settings it was painted with.
+    # Each stroke: (points, size, src_dx, src_dy, strength, feather, match_tone); the first four as in
+    # manual_heal_strokes, then the brush settings it was painted with (strength and feather 0-1).
     clone_strokes: List[Tuple] = field(default_factory=list)
     # The Clone brush settings the next stroke takes.
     clone_strength: float = 1.0

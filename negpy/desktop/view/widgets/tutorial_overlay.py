@@ -20,8 +20,6 @@ Window = Callable[["MainWindow"], object]
 
 
 class Offer:
-    """A button on the step's card, shown while visible(window) holds."""
-
     __slots__ = ("label", "run", "visible")
 
     def __init__(self, label: str, run: Callable[["MainWindow"], None], visible: Callable[["MainWindow"], bool]) -> None:
@@ -31,12 +29,9 @@ class Offer:
 
 
 class TutorialStep:
-    """target is the area lit and kept clickable, usually a whole card; focus is the control
-    inside it the step talks about, scrolled into view. task + watch make a step interactive: it
-    is done once watch(window) differs from its value when the step opened. also is a second area
-    kept clear and clickable, without the ring: the canvas, so an edit shows undimmed and a tool
-    can act on it. guide is a (USER_GUIDE panel key, panel title) pair. post_hook runs as the step
-    is left, by any route."""
+    """target is lit and clickable; focus is the control in it, ringed and scrolled into view; also is a
+    second clear area without a ring. A task is done once watch(window) differs from its value when the
+    step opened. guide is (USER_GUIDE panel key, panel title); post_hook runs whenever the step is left."""
 
     __slots__ = ("chapter", "title", "body", "target", "focus", "task", "watch", "also", "guide", "offer", "pre_hook", "post_hook")
 
@@ -74,7 +69,7 @@ _NAV_KEYS = {Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Return, Qt.Key.Key_En
 
 
 class TutorialOverlay(QWidget):
-    """Full-window tour: a scrim with a cutout over the target, which stays clickable, and a card."""
+    """Full-window tour: a scrim, a clickable cutout over the target, and a card."""
 
     finished = pyqtSignal(bool)  # True = completed all steps, False = skipped/dismissed
 
@@ -447,7 +442,6 @@ class TutorialOverlay(QWidget):
         hi = self._hole.adjusted(-self._PAD, -self._PAD, self._PAD, self._PAD)
         top = max(m, min(int(hi.top()), oh - ph - m))
         center_x = max(m, min(int(hi.center().x()) - pw // 2, ow - pw - m))
-        # Beside the target first (the controls dock is on the right), below or above it, then at a window edge.
         spots = [
             QRectF(x, y, pw, ph)
             for x, y in (
@@ -512,7 +506,6 @@ class TutorialOverlay(QWidget):
 
         card = QRectF(self._popup.geometry())
         if not card.intersects(hi):
-            # A leader from the card's nearest edge to the target's.
             c = hi.center()
             start = QPointF(min(max(c.x(), card.left()), card.right()), min(max(c.y(), card.top()), card.bottom()))
             end = QPointF(min(max(start.x(), hi.left()), hi.right()), min(max(start.y(), hi.top()), hi.bottom()))

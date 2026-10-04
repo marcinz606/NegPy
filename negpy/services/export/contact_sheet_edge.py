@@ -1,10 +1,6 @@
-"""The film maker's edge print, laid out in roll millimetres.
+"""Film edge print, in roll millimeters. `offset` is the distance from the film edge to an item's center.
 
-135 carries a label every half frame on the bottom edge (`N`, `NA`), each followed by a DX
-barcode on DX films, and the stock name or full-frame numbers on the top edge (ISO 1007). 120
-has no perforations; its numbers run at the maker's own pitch, not in step with the camera.
-Positions are along the roll; `offset` is the distance of an item's center from its film edge.
-"""
+120 numbers run at the maker's own pitch, not in step with the camera's frames."""
 
 import unicodedata
 import zlib
@@ -20,7 +16,7 @@ DX_MODULES = 31
 DX_START = 1.9
 DX_DATA_TRACK = (0.0, 1.0)
 DX_CLOCK_TRACK = (1.0, 2.2)
-# A label group ends this far left of its label's own position, so it clears the code's quiet zone.
+# A DX label ends this far past its position, clear of the barcode's quiet zone.
 DX_LABEL_END = 1.5
 
 
@@ -39,8 +35,7 @@ class Band(StrEnum):
 
 @dataclass(frozen=True)
 class EdgeText:
-    """One word of edge print. `lead`/`trail` draw a mark before/after it, `under` beneath it
-    ("triangle", "outline", "arrow", "dots")."""
+    """`lead`, `trail` and `under` name a mark: "triangle", "outline", "arrow" or "dots"."""
 
     x: float
     band: Band
@@ -56,7 +51,7 @@ class EdgeText:
 
 @dataclass(frozen=True)
 class EdgeCode:
-    """A DX film edge barcode starting at `x`; bits read left to right, 1 prints light."""
+    """Bits read left to right; 1 prints light."""
 
     x: float
     clock: tuple[int, ...]
@@ -75,7 +70,7 @@ _FUJI_MAKERS = ("FUJIFILM", "FUJICOLOR", "FUJICHROME", "FUJI")
 
 
 def ascii_upper(text: str) -> str:
-    """Edge print is plain capitals; accents are folded so every glyph exists in the face."""
+    """Folds accents so every glyph exists in the edge face."""
     folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     return " ".join(folded.upper().split())
 
@@ -98,7 +93,7 @@ class EdgeStyle:
     family: EdgeFamily = EdgeFamily.GENERIC
     stock: str = ""
     dx: bool = False
-    # False prints plain film: the rebate and perforations without any edge print.
+    # False: rebate and perforations only.
     printed: bool = True
 
     def _split_maker(self, makers: tuple[str, ...]) -> tuple[str, str]:
@@ -121,13 +116,12 @@ class EdgeStyle:
 
     @property
     def dx_product(self) -> tuple[int, int]:
-        """A stable stand-in for the stock's DX product number (never 0, which readers reject)."""
+        """Stand-in DX product number from the stock name; never 0, which readers reject."""
         digest = zlib.crc32(self.stock.encode("ascii", "ignore"))
         return 1 + digest % 127, (digest >> 8) % 16
 
 
 def label_text(index: int) -> str:
-    """The `index`-th half-frame label of a roll: 1, 1A, 2, 2A, …"""
     return f"{index // 2 + 1}{'A' if index % 2 else ''}"
 
 
@@ -153,12 +147,9 @@ def edge_items(
     x1: float,
     numbers: Optional[Sequence[int]] = None,
 ) -> list[EdgeItem]:
-    """Every edge-print item that can touch roll positions x0..x1 (items straddling a cut are
-    returned too; the strip clips them).
+    """Items that can touch x0..x1; the strip clips the ones that straddle a cut.
 
-    `numbers` gives each frame slot its place on the original roll, so a frame keeps its own
-    edge numbers when others are left out of the sheet; by default the slots run 0, 1, 2 …
-    """
+    `numbers` is each frame slot's place on the roll; None means 0, 1, 2 …"""
     if not style.printed:
         return []
     if geometry.format == SheetFormat.MEDIUM:
@@ -171,8 +162,7 @@ def edge_items(
 
 
 def _label_slots(geometry: FilmGeometry, slots: Sequence[int]) -> list[tuple[float, int]]:
-    """(roll position, label index) of every half-frame label: one per half frame, two per
-    full frame (its number over the frame, the A number in the gap after it)."""
+    """(roll position, label index) of every half-frame label."""
     if geometry.format == SheetFormat.HALF_FRAME:
         return [(geometry.frame_center(i), roll_index) for i, roll_index in enumerate(slots)]
     labels: list[tuple[float, int]] = []

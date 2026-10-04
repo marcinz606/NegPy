@@ -62,8 +62,7 @@ class ToolMode(Enum):
     ZONE_PLACE = auto()
 
 
-# Tools that frame against the whole uncropped frame: their renders carry
-# crop_preview_full, which skips the crop, the border and the filed carrier.
+# These tools' renders carry crop_preview_full, which skips the crop, the border and the filed carrier.
 UNCROPPED_PREVIEW_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES})
 
 
@@ -76,9 +75,8 @@ class AppState:
     current_file_path: Optional[str] = None
     current_file_hash: Optional[str] = None
     source_cs: str = ""
-    # The shipped defaults, not a bare WorkspaceConfig(): the sidebars build every slider
-    # against this config, and a slider's double-click restores the value it was built with,
-    # which has to be the value a card's Reset lands on.
+    # Not a bare WorkspaceConfig(): a slider's double-click restores the value it was built with,
+    # which must be the value a card's Reset lands on.
     config: WorkspaceConfig = field(default_factory=lambda: DEFAULT_WORKSPACE_CONFIG)
     workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
@@ -227,7 +225,7 @@ class AppState:
     # session-only, never persisted.
     printing_notes: bool = False
 
-    # Dodge/burn mask outlines draw only while their tab shows. Display-only, session-only.
+    # Display-only, session-only.
     local_masks_shown: bool = True
 
     # Zone-placement pins (ZonePin: probed spot + target zone). Session-only and dropped by
@@ -928,10 +926,7 @@ class DesktopSessionManager(QObject):
     def _carry_thumbnail(self, old: Dict[str, Any], new: Dict[str, Any]) -> None:
         """Give a replacement frame the thumbnail of the frame it was made from.
 
-        A merged file renders the same picture as the assembly it replaces, so the icon is
-        already right. The background pass that would otherwise fill it reads no geometry
-        (`get_thumbnail_worker`), so a rotated frame would come back unrotated beside
-        neighbours that kept a real render.
+        The background pass reads no geometry (`get_thumbnail_worker`), so it would render a rotated frame unrotated.
         """
         old_key, new_key = asset_thumbnail_key(old), asset_thumbnail_key(new)
         icon = self.state.thumbnails.get(old_key)
@@ -1246,9 +1241,8 @@ class DesktopSessionManager(QObject):
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
         #
-        # DEFAULT_WORKSPACE_CONFIG, not a bare WorkspaceConfig(): the autocrop fields are
-        # the shipped ones only here, and the print/transfer curves are an identity at this
-        # exact config (transfer_grade_ref, test_transparency_transfer.py).
+        # Not a bare WorkspaceConfig(): only this config holds the shipped autocrop fields, and the
+        # print/transfer curves are an identity at it (transfer_grade_ref, test_transparency_transfer.py).
         config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset)
         return self._asset_defaults(config, asset), True
 
@@ -1367,9 +1361,8 @@ class DesktopSessionManager(QObject):
         self.files_changed.emit()
 
     def _scope_indices(self, scope: str) -> List[int]:
-        """Frames a scoped apply targets, for "roll" (every visible frame) or "selection"
-        (the file-list selection). A filename filter is a non-destructive view, so a
-        hidden frame is never a target in either scope."""
+        """Frames a scoped apply targets: "roll" (every visible frame) or "selection".
+        A hidden frame is never a target: a filename filter is a non-destructive view."""
         ordered = self.asset_model.visible_actual_indices_ordered()
         if scope == "roll":
             return ordered
@@ -1832,11 +1825,8 @@ class DesktopSessionManager(QObject):
     def reset_section(self, section: str) -> None:
         """Reset a single feature section to its default config.
 
-        Exposure/process/geometry reset to DEFAULT_WORKSPACE_CONFIG's own section rather
-        than the bare dataclass default: the autocrop fields are the shipped ones only there,
-        not on GeometryConfig()'s own field defaults. Cast Removal's default is further
-        mode-dependent (cast_removal_for_mode) on top of that -- resetting Process can change
-        process_mode, so exposure is re-synced to the new mode too.
+        Exposure/process/geometry reset to DEFAULT_WORKSPACE_CONFIG's section, which alone holds the shipped autocrop fields.
+        Resetting Process can change process_mode, so exposure re-syncs to the mode's Cast Removal default.
         """
         from negpy.features.finish.models import FinishConfig
         from negpy.features.lab.models import LabConfig
@@ -2082,8 +2072,6 @@ class DesktopSessionManager(QObject):
             m = marks.get(unforked_hash(asset["hash"]))
             self.state.uploaded_files.insert(i + 1, {**asset, "keeper": m == "keeper", "excluded": m == "excluded"})
 
-        # Every insertion pushes the frames after it along, so a selection recorded as an
-        # index has to move with them or it names a different frame.
         def shifted(idx: int) -> int:
             return idx + sum(1 for i in valid if i < idx)
 

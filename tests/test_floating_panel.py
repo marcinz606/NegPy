@@ -49,7 +49,6 @@ def test_progress_dialog_floats_and_stays_modeless() -> None:
 
 @pytest.fixture
 def panel_over_main():
-    """A panel over a main window that binds Esc, the arrows and a letter."""
     main = QMainWindow()
     fired: list[str] = []
     for key in ("Esc", "Left", "Right", "K"):
@@ -93,7 +92,6 @@ def test_arrows_move_a_panel_slider_and_letters_stay_in_the_panel(panel_over_mai
 
 
 def test_no_panel_binds_a_qshortcut() -> None:
-    # The key guard claims every key in a panel, so a QShortcut there would never fire.
     root = Path(__file__).resolve().parents[1] / "negpy"
     offenders = [
         str(path.relative_to(root))
@@ -135,7 +133,7 @@ def test_esc_and_close_both_end_a_scan_window_session(panel_over_main, window) -
 
 def test_esc_leaves_a_running_job_visible(panel_over_main) -> None:
     main, _, _ = panel_over_main
-    dlg = ProgressDialog(main)  # on macOS Esc reaches the main window instead; neither hides the job
+    dlg = ProgressDialog(main)
     aborts: list[str] = []
     dlg.abort_requested.connect(lambda: aborts.append("abort"))
     dlg.start("Exporting", abortable=True)

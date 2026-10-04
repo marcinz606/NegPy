@@ -147,7 +147,7 @@ class _Camera:
             # Fujifilm behaviour (issue #658): post-shot events left unread block the preview.
             raise _Err("[-1] Unspecified error")
         if self._fake.magnifier_stalls and self._fake.props["eoszoom"].value != "1":
-            return _File(b"")  # the D3300: an enlarged view answers every frame request busy
+            return _File(b"")  # the D3300 answers busy while enlarged
         self._fake.previews += 1
         return _File(b"\xff\xd8JPEG")
 
@@ -210,7 +210,7 @@ class FakeGP:
         self.operations = operations
         self.abilities_error = False
         self.preview_error = None  # set to a message so capture_preview fails but config reads do not
-        self.magnifier_stalls = False  # a body that sends no frames while its magnifier is on
+        self.magnifier_stalls = False  # no frames while the magnifier is on
         self.late_events = 0  # post-shot events the body only hands over after a pause (Fujifilm, #658)
         self.event_gap = False
         self.event_waits: list[int] = []  # the quiet-window ms passed to each wait_for_event
@@ -985,7 +985,7 @@ def test_a_magnifier_that_stops_the_stream_is_switched_off_and_retired(tmp_path)
     assert camera.is_running()
 
     writes = len(fake.writes)
-    camera.set_focus_magnifier_at(320, 240)  # retired: reports again, writes nothing
+    camera.set_focus_magnifier_at(320, 240)
     assert len(fake.writes) == writes
     assert len(reasons) == 2
     camera.close()

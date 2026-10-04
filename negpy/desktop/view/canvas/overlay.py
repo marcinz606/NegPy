@@ -122,7 +122,6 @@ def draw_view_badge(painter: QPainter, text: str, x: float, y: float, width: flo
 
 
 def hit_resize_handle(pos: QPointF, handles: Dict[str, QPointF]) -> Optional[str]:
-    """The resize handle (corner or edge midpoint) under `pos`, or None."""
     for name, pt in handles.items():
         dx, dy = pos.x() - pt.x(), pos.y() - pt.y()
         if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
@@ -131,7 +130,6 @@ def hit_resize_handle(pos: QPointF, handles: Dict[str, QPointF]) -> Optional[str
 
 
 def resize_cursor(handle: str) -> Qt.CursorShape:
-    """The cursor that says which way a corner ("tl" …) or edge ("left" …) handle drags."""
     if handle in ("tl", "br"):
         return Qt.CursorShape.SizeFDiagCursor
     if handle in ("tr", "bl"):
@@ -140,7 +138,6 @@ def resize_cursor(handle: str) -> Qt.CursorShape:
 
 
 def draw_resize_handles(painter: QPainter, corners: Dict[str, QPointF], edges: Optional[Dict[str, QPointF]] = None) -> None:
-    """Corner squares and edge bars of a resizable box, as the crop tool draws them."""
     handle_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
     handle_pen.setCosmetic(True)
     painter.setPen(handle_pen)
@@ -296,8 +293,8 @@ class CanvasOverlay(QWidget):
     cursor_left = pyqtSignal()
     local_mask_created = pyqtSignal(str, list)  # (shape value, viewport-normalised points)
     scratch_completed = pyqtSignal(list)
-    clone_stroke_completed = pyqtSignal(list)  # viewport-normalized points of a Clone drag
-    clone_source_picked = pyqtSignal(float, float)  # viewport-normalized Alt-click
+    clone_stroke_completed = pyqtSignal(list)  # viewport-normalized points
+    clone_source_picked = pyqtSignal(float, float)  # viewport-normalized x, y
     dust_exclusion_painted = pyqtSignal(list)  # viewport-normalized points of a right-drag
     local_mask_selected = pyqtSignal(int)
     local_mask_edited = pyqtSignal(int, list)  # (mask index, viewport-normalized vertices)
@@ -375,12 +372,10 @@ class CanvasOverlay(QWidget):
         # Same, for the auto-corrected-region magenta wash (ir_corrected_mask +
         # inpainted hair masks), keyed per mask object identity.
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
-        # Placed heals in viewport-normalized coords, keyed on (uv_grid, retouch config)
-        # identity, and their screen shapes, keyed on that plus the content rect. The inverse
-        # uv lookup per point is the cost of a paint, and the heal tool repaints per mouse move.
+        # Placed heals in viewport-normalized coords, keyed on (uv_grid, retouch config) identity,
+        # and their screen shapes, keyed on that plus the content rect.
         self._heal_norm_cache: Optional[Tuple[Any, Any, tuple]] = None
         self._heal_shape_cache: Optional[Tuple[tuple, tuple, list]] = None
-        # The shapes rasterized once, so a repaint is one blit at any heal count.
         self._heal_layer_cache: Optional[Tuple[list, tuple, QPixmap]] = None
 
         # The rendered frame as NumPy, for the instruments that measure pixels (zone grid,
@@ -461,7 +456,6 @@ class CanvasOverlay(QWidget):
         self._line_hover_timer.setSingleShot(True)
         self._line_hover_timer.timeout.connect(self._trace_line_hover)
 
-        # Continues panning while the pointer rests in an active edge zone.
         self._auto_pan_timer = QTimer(self)
         self._auto_pan_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._auto_pan_timer.setInterval(_AUTO_PAN_INTERVAL_MS)
@@ -769,8 +763,7 @@ class CanvasOverlay(QWidget):
         final_w = img_w * total_scale
         final_h = img_h * total_scale
 
-        # Zoom scales about the widget center, as the GPU shader and anchored zoom do, so the
-        # fit area's center (above the toolbar reserve) moves with zoom rather than staying put.
+        # Zoom scales about the widget center to match the GPU shader; the fit area's center moves with it.
         center_x = (w / 2) + (self.pan_x * w)
         center_y = (h / 2) + ((fit_h - h) / 2) * self.zoom_level + (self.pan_y * h)
 
@@ -836,7 +829,6 @@ class CanvasOverlay(QWidget):
         self._auto_pan_timer.stop()
 
     def _auto_pan_velocity(self) -> QPointF:
-        """Return the viewport-pixel velocity for a clipped image edge zone."""
         if not self._auto_pan_active or self._auto_pan_pointer is None:
             return QPointF()
         width, height = float(self.width()), float(self.height())
@@ -1101,9 +1093,8 @@ class CanvasOverlay(QWidget):
         if self.state.dust_overlay_mode != "off":
             self._draw_dust_overlay(painter)
 
-        # Crop, analysis, and tilt/swing modes show the uncropped frame, so the boxes wouldn't line up.
-        # Both gates: the tool hides these the moment it opens, and the buffer's flag
-        # keeps them hidden while an uncropped frame is still on screen after it closes.
+        # UNCROPPED_PREVIEW_TOOLS show the uncropped frame, where the boxes would not line up. The tool test hides
+        # them as the tool opens; crop_preview_full keeps them hidden while that frame is still on screen after it closes.
         content_aligned = (
             not self.state.flat_peek
             and not self.state.negative_peek
@@ -1342,8 +1333,7 @@ class CanvasOverlay(QWidget):
         return region
 
     def _clone_source_screen(self) -> Optional[QPointF]:
-        """Where the Clone brush copies from: the cursor while a source is being picked, the
-        brush position plus the aligned offset, or the picked source until a stroke fixes it."""
+        """The Clone source on screen: the cursor while picking, the picked source, or the brush plus the offset."""
         if self.state.clone_picking:
             return self._mouse_pos if self._content_view_rect().contains(self._mouse_pos) else None
         with self.state.metrics_lock:
@@ -1790,8 +1780,8 @@ class CanvasOverlay(QWidget):
         )
 
     def _placed_heals_norm(self, conf: Any, uv_grid: np.ndarray) -> tuple:
-        """(heal stroke point lists, spot centers, clone stroke point lists) in viewport-normalized
-        coords. The cache holds both keys, so their ids cannot be reused while it lives."""
+        """(heal stroke points, spot centers, clone stroke points), viewport-normalized. The cache
+        holds both keys, so their ids cannot be reused while it lives."""
         cached = self._heal_norm_cache
         if cached is not None and cached[0] is uv_grid and cached[1] is conf:
             return cached[2]
@@ -1808,8 +1798,7 @@ class CanvasOverlay(QWidget):
         return QPointF(rect.x() + nx * rect.width(), rect.y() + ny * rect.height())
 
     def _placed_heal_shapes(self, conf: Any, uv_grid: np.ndarray) -> list:
-        """Screen shapes of the placed heals: ("dab", center, radius), ("region", path),
-        ("spot", center, radius) and ("clone", path)."""
+        """Screen shapes: ("dab", center, radius), ("region", path), ("spot", center, radius), ("clone", path)."""
         norm = self._placed_heals_norm(conf, uv_grid)
         rect = self._content_view_rect()
         key = (rect.x(), rect.y(), rect.width(), rect.height())
@@ -1854,7 +1843,7 @@ class CanvasOverlay(QWidget):
         fill.setAlpha(40)
         for shape in shapes:
             if shape[0] in ("region", "clone"):
-                # A clone carries the spot outline too, so it reads apart from a heal.
+                # The outline sets a clone apart from a heal.
                 p.setPen(pen if shape[0] == "clone" else Qt.PenStyle.NoPen)
                 p.setBrush(fill)
                 p.drawPath(shape[1])
@@ -3224,9 +3213,7 @@ class CanvasOverlay(QWidget):
     def heal_hit_test(self, pos: QPointF) -> Optional[Tuple[str, int]]:
         """Placed heal under `pos`, as ("stroke"|"spot"|"line"|"clone", index), or None.
 
-        Mirrors the geometry `_draw_placed_heals` renders: raw-normalized points
-        mapped to screen through the uv grid, hit within the brush band radius
-        (plus a small slop so thin strokes stay clickable).
+        Mirrors the geometry `_draw_placed_heals` renders, hit within the brush radius plus a slop.
         """
         conf = self.state.config.retouch
         if not (conf.manual_heal_strokes or conf.manual_dust_spots or conf.scratch_lines or conf.clone_strokes):

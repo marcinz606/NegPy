@@ -1,16 +1,4 @@
-"""Modal pop-up: position a crop rectangle and a split centerline for half-frame scans.
-
-The widget shows a positive preview of one scan. A draggable/resizable rectangle
-defines what is kept (everything outside is discarded). A centerline inside the
-rectangle marks the split between the two halves, vertical or horizontal per the
-split direction; its thickness discards a band centered on it (the physical black
-separator between exposures).
-
-Read after ``exec()`` via ``crop_rect()``, ``split_x()``, ``gutter_thickness()``,
-``split_axis()`` and ``scope()`` — the Apply button's own split-button picks what the result gets
-applied to (this frame, the selection, or the whole roll); the caller only carries
-out whichever the user picked.
-"""
+"""Half-frame crop and split dialog. After ``exec()``, ``scope()`` names the frames Apply targets."""
 
 from typing import Optional
 
@@ -293,7 +281,7 @@ class _HalfFrameLabel(QLabel):
             painter.setPen(Qt.PenStyle.NoPen)
             for corner in (wr.topLeft(), wr.topRight(), wr.bottomRight(), wr.bottomLeft()):
                 painter.drawRect(QRect(corner.x() - _HANDLE_PX, corner.y() - _HANDLE_PX, 2 * _HANDLE_PX, 2 * _HANDLE_PX))
-            # Split centerline + gutter band, along the split axis
+            # Split centerline + gutter band
             x1, y1, x2, y2 = r
             c = self._split_in_widget(draw_rect)
             if self._axis == "y":
@@ -460,8 +448,7 @@ class HalfFrameDialog(QDialog):
         from negpy.services.assets.half_frame import detect_film_crop, detect_gutter_axis, slice_half
 
         crop_rect = detect_film_crop(self._preview_rgb)
-        # The split is relative to the cropped extent (slice_half's own convention), so
-        # the gutter search has to run inside the new crop, not the full, uncropped scan.
+        # The split is relative to the crop (slice_half's convention): search for the gutter inside it.
         detect_buf = self._preview_rgb
         if crop_rect is not None:
             self._label.set_rect(crop_rect)

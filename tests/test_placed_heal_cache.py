@@ -1,7 +1,3 @@
-"""The heal tool repaints the overlay per mouse move, so the placed heals' uv lookups and
-raster are cached: a repaint with nothing changed maps no point, and an edit or a new
-render re-maps."""
-
 from dataclasses import replace
 from unittest.mock import patch
 

@@ -1,12 +1,5 @@
-"""Merge an assembled frame into one TIFF negative that replaces the files it is made of.
-
-A Trichrome triplet and a stitch composite both become a single linear working negative --
-not a positive export: fewer files to keep, and the frame's edit carries over.
-
-The buffer comes from the render decode (`ImageProcessor._load_source_f32`), not Linear
-Output's own decode, so the file holds exactly the source the pipeline inverted. Which
-corrections are baked differs by kind, and `decode_params` is where that is decided.
-"""
+"""Merge an assembled frame into one linear TIFF negative that replaces its source files.
+The buffer is the render decode (`ImageProcessor._load_source_f32`), not Linear Output's."""
 
 import hashlib
 import os
@@ -32,16 +25,13 @@ from negpy.services.export.linear_output import (
     _write_tiff,
 )
 
-#: Composite kinds (`desktop.session.composite_kind`) that merge into one file. A bracket
-#: is absent on purpose: its merge is float32 because the detail it recovers sits below a
-#: 16-bit step, and writing it would also freeze the render exposure.
+#: No "hdr": a bracket's recovered detail sits below a 16-bit step.
 MERGEABLE_KINDS = frozenset({"rgb", "stitch"})
 
 MERGED_SUFFIX: Dict[str, str] = {"rgb": "_RGB", "stitch": "_STITCH"}
 MERGED_EXT = ".tif"
 
-#: Descriptions `_source_format_label` gives NegPy's own merged output. A file carrying one
-#: is already a single frame and never takes part in grouping again.
+#: Must match the labels `_source_format_label` gives a merged file.
 _MERGED_FORMATS = ("camera RAW (RGB triplet)", "camera RAW (stitch ")
 
 
@@ -50,15 +40,11 @@ class MergeVerifyError(RuntimeError):
 
 
 class MergeCancelled(RuntimeError):
-    """Abort was pressed. Nothing was written, so the frame keeps its sources."""
+    """Abort was pressed; nothing was written."""
 
 
 def part_files(asset: dict, kind: str) -> List[str]:
-    """Every file *asset* is assembled from except its primary, in a stable order.
-
-    For a stitch these are the other parts plus each part's own R/G/B exposures, so a
-    4-part stitch of triplets names 11 files.
-    """
+    """Every source file of *asset* but its primary, in a stable order."""
     if kind == "rgb":
         return [p for p in (asset.get("green_path"), asset.get("blue_path")) if p]
     if kind != "stitch":
@@ -72,11 +58,7 @@ def part_files(asset: dict, kind: str) -> List[str]:
 
 
 def frame_files(asset: dict, kind: str) -> List[str]:
-    """The sources that were frames in their own right, so can carry a `.negpy` sidecar.
-
-    A stitch part was a frame before it was stitched. A triplet's green and blue exposures
-    never were.
-    """
+    """The sources that were frames in their own right, so can carry a `.negpy` sidecar."""
     primary = asset.get("path") or ""
     if kind == "stitch":
         return [primary, *(asset.get("stitch_paths") or ())]
@@ -84,7 +66,6 @@ def frame_files(asset: dict, kind: str) -> List[str]:
 
 
 def can_merge(asset: dict, kind: str) -> bool:
-    """Whether *asset* is an assembly whose sources are all present and mergeable."""
     if kind not in MERGEABLE_KINDS:
         return False
     primary = asset.get("path") or ""
@@ -92,19 +73,14 @@ def can_merge(asset: dict, kind: str) -> bool:
         return False
     if kind == "stitch" and not registration_complete(asset):
         return False
-    # Every source, not just the primary: a TIFF part is labelled plain "TIFF".
+    # Every source, not just the primary: a TIFF part is labeled plain "TIFF".
     sources = (primary, *part_files(asset, kind))
     return all(os.path.exists(p) and _is_camera_raw(p) for p in sources)
 
 
 def describes_a_merge(primary_path: str, params: WorkspaceConfig) -> bool:
-    """Whether the file written from *primary_path* would name itself as an assembly.
-
-    `is_merged_source` reads that name back to keep a merged file out of grouping, so a
-    source whose label carries no assembly — a TIFF part, a LinearRaw DNG, which
-    `_source_format_label` names for its own format before it looks at the assembly — must
-    be refused rather than written as a file nothing can recognize again.
-    """
+    """Whether the written file would carry the merge label `is_merged_source` reads back.
+    A TIFF or LinearRaw DNG source is labeled for its own format, so it cannot merge."""
     return is_merge_description(_source_format_label(primary_path, params.rgbscan, params.stitch))
 
 
@@ -113,7 +89,6 @@ def is_merge_description(label: str) -> bool:
 
 
 def registration_complete(asset: dict) -> bool:
-    """Whether a stitch asset carries a replayable registration for every one of its parts."""
     n = 1 + len(asset.get("stitch_paths") or ())
     canvas = asset.get("stitch_canvas") or (0, 0)
     return len(asset.get("stitch_transforms") or ()) == n and len(asset.get("stitch_sizes") or ()) == n and all(canvas)
@@ -132,13 +107,8 @@ def merged_path_for(primary_path: str, kind: str, taken: frozenset = frozenset()
 
 
 def decode_params(params: WorkspaceConfig, kind: str) -> WorkspaceConfig:
-    """The params to decode *kind* with, deciding what the file bakes.
-
-    A triplet bakes nothing the edit re-applies, so flat-field stays live. A stitch is the
-    opposite: the registration is only valid on per-part flat-fielded buffers, so the gain
-    map is an input to the assembly and lands in the file. `merged_edit` clears whatever is
-    baked here.
-    """
+    """The params to decode *kind* with; `merged_edit` clears whatever this bakes.
+    A stitch bakes its flat field: the registration is valid only on flat-fielded parts."""
     if kind == "rgb":
         return replace(params, flatfield=FlatFieldConfig(), stitch=StitchConfig(), hdr=HdrConfig())
     if kind == "stitch":
@@ -147,13 +117,7 @@ def decode_params(params: WorkspaceConfig, kind: str) -> WorkspaceConfig:
 
 
 def needs_camera_matrix(params: WorkspaceConfig) -> bool:
-    """Whether the frame's renderer reads the camera colour matrix, which a TIFF cannot carry.
-
-    A slide reaches the working space through `camera_to_working_matrix(context.cam_xyz)`,
-    read from the RAW at decode. Merged to a TIFF there is no matrix, the buffer is taken as
-    already in the working space, and the frame renders a different colour. The negative's
-    print path never asks for it.
-    """
+    """Whether the frame renders through the RAW's camera color matrix, which a TIFF cannot carry."""
     return render_path(params.process) in (RenderPath.TRANSFER, RenderPath.POSITIVE)
 
 
@@ -181,15 +145,8 @@ def write_merged_frame(
     compression: TiffCompression = TiffCompression.ZIP,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> None:
-    """Write *f32* as an untagged 16-bit TIFF at *out_path* and prove it reads back identical.
-
-    The file is written and verified under a temporary name, then renamed, so *out_path*
-    exists only when it holds the whole buffer. An existing *out_path* is never replaced.
-
-    *should_cancel* is polled at the last moment before the rename, so an abort during the
-    write leaves nothing at *out_path* and the temporary file is removed. That rename is the
-    only irreversible step here: until it lands the frame still has all its sources.
-    """
+    """Write *f32* as an untagged 16-bit TIFF, verified under a temporary name, then renamed to
+    *out_path*. An existing *out_path* is never replaced; *should_cancel* is polled just before the rename."""
     expected = _digest(_to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32)))
     folder = os.path.dirname(out_path) or "."
     tmp_path: Optional[str] = None

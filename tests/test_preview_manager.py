@@ -317,7 +317,6 @@ def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None
 def test_load_linear_preview_fast_half_size_gated_on_xtrans(
     cfa_block: int, use_camera_wb: bool, half_expected: bool, demosaic_expected: object
 ) -> None:
-    """half_size is dropped for every X-Trans decode; under half_size the algorithm is moot."""
     rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
 
     raw = MagicMock()

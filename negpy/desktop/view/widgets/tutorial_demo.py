@@ -7,8 +7,7 @@ from negpy.infrastructure.simulated.images import negative
 
 
 def write_demo(folder: Path) -> Path:
-    """The tour's practice frame: a synthetic color negative with a rebate, a holder and dust,
-    written once as an untagged 16-bit TIFF, which the loader reads as linear."""
+    """The tour's demo negative, an untagged 16-bit TIFF, which the loader reads as linear."""
     path = folder / "demo_negative.tif"
     if not path.exists():
         folder.mkdir(parents=True, exist_ok=True)

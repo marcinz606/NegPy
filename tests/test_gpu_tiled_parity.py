@@ -133,8 +133,6 @@ class TestGpuTiledParity(unittest.TestCase):
         np.testing.assert_allclose(after, clean, atol=1e-6)
 
     def test_tiled_content_rect_describes_the_tiled_buffer(self):
-        # HQ preview of a large frame renders tiled at full size, while its metering pass
-        # runs at preview size; the before/after split maps the buffer through this rect.
         base = _base()
         long_edge = float(max(self.img.shape[:2]))
         for settings in (base, replace(base, finish=replace(base.finish, border_size=0.5))):

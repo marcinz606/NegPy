@@ -1,7 +1,3 @@
-"""Merge to TIFF Negative: a Trichrome triplet or a stitch composite becomes one linear
-negative that renders the same frame, carries the edit, and never costs a source it could
-not replace."""
-
 import os
 from dataclasses import replace
 
@@ -157,8 +153,6 @@ def test_can_merge_needs_every_exposure_on_disk_and_camera_raw(tmp_path):
     tif = str(tmp_path / "a.tif")
     open(tif, "wb").close()
     assert not can_merge(_asset(tif, green, red), "rgb")
-    # Every source, not just the primary: a TIFF source is labelled "TIFF" and the merged
-    # file would carry no marker is_merged_source could find again.
     assert not can_merge(_asset(red, green, tif), "rgb")
 
 
@@ -243,8 +237,7 @@ def _finish(tmp_path, monkeypatch, results, trash=True):
     ctrl.session.repo = _repo(tmp_path)
     ctrl._frame_merge_trash = trash
     ctrl._apply_roll_forks = lambda assets: None
-    # A real config, not a mock: the carry writes a row for a frame with no saved edit, so
-    # merged_edit runs on whatever this returns.
+    # A real config, not a mock: merged_edit runs on it.
     ctrl.session.config_for_asset = lambda asset: WorkspaceConfig()
     ctrl._already_merged_to = lambda r: AppController._already_merged_to(ctrl, r)
     return ctrl, trashed, AppController._on_frame_merge_finished
@@ -255,7 +248,6 @@ def _asset(red, green, blue, file_hash="red"):
 
 
 def _stitch_asset(primary, *parts, triplets=(), file_hash="digest#stitch"):
-    """A registered 2-part (or N-part) stitch asset, as _on_stitch_registered builds one."""
     n = 1 + len(parts)
     return {
         "name": "stitch",
@@ -338,8 +330,6 @@ def test_finish_without_trash_keeps_the_triplet_in_the_film_strip(tmp_path, monk
     finish(ctrl, results, False)
 
     assert trashed == []
-    # A source the user chose to keep is one they can still open, so the merged file is added
-    # beside the frame rather than replacing it.
     ctrl.session.replace_assets.assert_not_called()
     inserted = ctrl.session.insert_assets.call_args.args[0]
     assert inserted[0]["path"] == out
@@ -396,7 +386,7 @@ def test_plan_merges_a_stitch_and_refuses_a_bracket(tmp_path):
     )
     assert indices == [1, 2]
     assert skipped == [
-        "bracket: a bracket keeps its shadow detail and render exposure only unmerged",
+        "bracket: a bracket would lose its shadow detail in a TIFF",
         "halved: a half-frame scan cannot merge",
         "gone: a source file is missing or not a camera RAW",
     ]
@@ -425,8 +415,6 @@ def test_decode_params_keep_a_stitch_and_its_flat_field(tmp_path):
     cfg = _stitch_config("/a.ARW", "/b.ARW")
     cfg = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="abc"))
     out = decode_params(cfg, "stitch")
-    # The registration was estimated on per-part flat-fielded buffers, so the gain map is an
-    # input to the assembly here, not something the edit re-applies.
     assert out.flatfield.apply is True and out.flatfield.profile_id == "abc"
     assert out.stitch == cfg.stitch
     assert out.hdr == HdrConfig()
@@ -443,7 +431,6 @@ def test_merged_edit_clears_the_stitch_its_flat_field_and_the_unmix():
     assert edit.stitch == StitchConfig()
     assert edit.flatfield == FlatFieldConfig()
     assert effective_sensor_matrix(edit.process) is None
-    # A triplet bakes neither, so its flat field stays live in the edit.
     assert merged_edit(cfg, "rgb").flatfield.apply is True
 
 
@@ -464,7 +451,6 @@ def test_a_merged_stitch_is_named_and_recognized(tmp_path):
     assert is_merged_source(out)
     with tifffile.TiffFile(out) as tif:
         assert "camera RAW (stitch 2-part)" in (tif.pages[0].description or "")
-    # Collision numbering is what keeps a second merge from clobbering the first.
     assert merged_path_for(primary, "stitch").endswith("IMG_1_STITCH_2.tif")
 
 
@@ -483,7 +469,6 @@ def test_a_roll_flat_field_is_locked_out_of_a_merged_stitch(tmp_path):
     resolved = rolls.resolve_roll_config(repo, roll_id, "new", repo.load_file_settings("new"))
     assert resolved.flatfield.apply is False
     assert resolved.process.sensor_matrix is None
-    # A card the merge did not bake still follows the roll.
     assert resolved.process.narrowband_scan is True
 
 
@@ -495,8 +480,6 @@ def test_carry_edit_writes_a_row_even_when_the_composite_had_none(tmp_path):
 
     carry_edit(repo, "digest#stitch", primary, "new", new_path, [part], cfg, "stitch")
 
-    # Without a row of its own the frame is hydrated with the rig's flat field back on, which
-    # the merged file already holds.
     saved = repo.load_file_settings("new")
     assert saved is not None and saved.flatfield == FlatFieldConfig()
 
@@ -528,11 +511,9 @@ def test_finish_dissolves_the_composite_and_trashes_every_part(tmp_path, monkeyp
     finish(ctrl, results, False)
 
     assert primary not in saved_composites(ctrl.session.repo)
-    # A stitch part was a frame before it was stitched, so its sidecar goes too.
     assert trashed == [primary, part, green, blue, sidecar_path_for(primary), sidecar_path_for(part)]
     swapped = ctrl.session.replace_assets.call_args.args[0]
     assert swapped[0]["path"] == out
-    # A composite inherited its film process from its parts; the fresh hash must keep it.
     assert swapped[0]["process_mode"] == "Slide"
 
 
@@ -571,14 +552,11 @@ def test_a_part_left_on_disk_stays_in_its_roll(tmp_path, monkeypatch):
 
     assert trashed == []
     members = rolls.roll_for_id(ctrl.session.repo, roll_id)["member_paths"]
-    # The composite is still a frame, so it keeps its parts, its roll membership and its
-    # composite record; the merged file joins the roll beside it.
     assert part in members and primary in members and out in members
     assert primary in saved_composites(ctrl.session.repo)
 
 
 def test_a_merged_stitch_reads_back_as_the_composite_it_replaced(tmp_path):
-    """The whole point, end to end: the file holds the canvas the pipeline was inverting."""
     from negpy.features.stitch.models import StitchConfig
 
     rng = np.random.default_rng(3)
@@ -611,12 +589,10 @@ def test_a_merged_stitch_reads_back_as_the_composite_it_replaced(tmp_path):
     out = merged_path_for(p0, "stitch")
     write_merged_frame(merged, p0, out, params)
     reread, _ir, _cs = ImageProcessor()._decode_oriented_f32(out, merged_edit(cfg, "stitch"))
-    # One 16-bit step: the canvas is float32 and the archived file is 16-bit.
     assert np.allclose(reread, composite, atol=1.0 / 65535.0)
 
 
 def test_inserting_a_merged_frame_keeps_the_selection_on_the_same_frame():
-    """Every insertion pushes the frames after it along, so a recorded index has to move."""
     from unittest.mock import MagicMock
 
     from negpy.desktop.session import DesktopSessionManager
@@ -635,7 +611,6 @@ def test_inserting_a_merged_frame_keeps_the_selection_on_the_same_frame():
 
 
 def test_a_saved_row_is_still_resolved_against_the_roll(tmp_path):
-    """A lock freezes the whole card, so the row must already hold the roll's other fields."""
     repo = _repo(tmp_path)
     folder = tmp_path / "roll"
     folder.mkdir()
@@ -643,7 +618,7 @@ def test_a_saved_row_is_still_resolved_against_the_roll(tmp_path):
     new_path = str(folder / "IMG_1_RGB.tif")
     roll_id = rolls.recognize_folder(repo, str(folder))
     rolls.set_roll_defaults(repo, roll_id, sensor_matrix=_MATRIX, narrowband_scan=True, linear_raw=True)
-    # A row that predates those defaults: rendered through the overlay, never edited.
+    # A row that predates the roll defaults.
     cfg = _triplet_config(green, blue)
     repo.save_file_settings("red", cfg, file_path=red)
 
@@ -662,15 +637,13 @@ def test_a_slide_is_refused_because_a_tiff_carries_no_camera_matrix(tmp_path):
     slide = replace(_triplet_config(green, blue), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.E6))
     indices, skipped = _plan([{**_asset(red, green, blue), "name": "slide"}], params=slide)
     assert indices == []
-    assert skipped == ["slide: a slide renders through its camera's color matrix, which a TIFF cannot carry"]
+    assert skipped == ["slide: a TIFF cannot carry a slide's camera color matrix"]
     assert needs_camera_matrix(slide) and not needs_camera_matrix(_triplet_config(green, blue))
 
 
 def test_a_source_whose_label_names_no_assembly_is_refused(tmp_path):
-    """is_merged_source reads the label back, so a file it could never recognize is not written."""
     assert is_merge_description("camera RAW (RGB triplet)")
     assert is_merge_description("camera RAW (stitch 4-part, RGB triplet)")
-    # _source_format_label names these for their own format, before it looks at the assembly.
     assert not is_merge_description("DNG LinearRaw")
     assert not is_merge_description("TIFF")
 
@@ -687,7 +660,7 @@ def test_request_merges_by_path_so_a_stale_index_cannot_merge_the_wrong_frame(tm
     red, green, blue = _triplet(tmp_path)
     ctrl = MagicMock()
     ctrl._batch_busy.return_value = False
-    ctrl._begin_batch.return_value = None  # stop before emitting; the task list is what matters
+    ctrl._begin_batch.return_value = None  # stop before emitting
     # The list the dialog was built against is gone: a discovery replaced it.
     ctrl.state.uploaded_files = [{"path": "/elsewhere.ARW", "hash": "x"}]
 
@@ -717,7 +690,6 @@ def _thumb_session(uploaded):
 
 
 def test_a_merged_frame_keeps_the_rendered_thumbnail_of_the_frame_it_replaces():
-    """The background pass reads no geometry, so a regenerated icon loses the rotation."""
     from negpy.services.assets.thumbnails import asset_thumbnail_key
 
     triplet = {"path": "/r.ARW", "hash": "red", "green_path": "/g.ARW", "blue_path": "/b.ARW"}
@@ -732,7 +704,6 @@ def test_a_merged_frame_keeps_the_rendered_thumbnail_of_the_frame_it_replaces():
     new_key = asset_thumbnail_key(merged)
     assert session.state.thumbnails[new_key] == "icon"
     assert new_key in session.state.rendered_thumbnails
-    # The frame it replaced is gone, so its own icon is not kept.
     assert old_key not in session.state.thumbnails
 
 
@@ -753,7 +724,6 @@ def test_an_inserted_merged_frame_carries_the_thumbnail_and_the_source_keeps_its
 
 
 def test_abort_during_the_write_leaves_the_frame_untouched(tmp_path):
-    """The rename is the only irreversible step, so a cancel just before it costs nothing."""
     red, green, blue = _triplet(tmp_path)
     out = merged_path_for(red, "rgb")
 
@@ -772,8 +742,6 @@ def test_abort_during_the_write_leaves_the_frame_untouched(tmp_path):
 
 
 def test_a_cancelled_frame_is_neither_merged_nor_failed(tmp_path, monkeypatch):
-    """Abort during the decode must hand back no result, or the controller would trash the
-    sources of a frame that was never written."""
     import negpy.desktop.workers.frame_merge as worker_mod
 
     red, green, blue = _triplet(tmp_path)
@@ -786,7 +754,7 @@ def test_a_cancelled_frame_is_neither_merged_nor_failed(tmp_path, monkeypatch):
         kind="rgb",
     )
 
-    # Abort lands while the decode is running; the decode itself cannot be interrupted.
+    # Abort lands while the decode runs.
     def decode(path, params, fast_decode=False):
         w.cancel()
         return np.zeros((8, 10, 3), dtype=np.float32), None, "srgb"
@@ -817,8 +785,6 @@ def test_path_for_file_hash_finds_the_file_an_edit_was_saved_against(tmp_path):
 
 
 def test_a_second_merge_is_refused_and_changes_nothing(tmp_path, monkeypatch):
-    """The same frame merges to the same bytes, so the second copy is discarded and the
-    frame is left alone — its first negative keeps the edit it already carries."""
     from negpy.desktop.workers.frame_merge import FrameMergeResult
 
     red, green, blue = _triplet(tmp_path)
@@ -839,7 +805,6 @@ def test_a_second_merge_is_refused_and_changes_nothing(tmp_path, monkeypatch):
     assert os.path.exists(original)
     assert trashed == [], "the frame keeps its exposures"
     assert ctrl.session.replace_assets.call_args.args[0] == {}, "the film strip is untouched"
-    # The existing negative's edit is not overwritten, which is the whole point of refusing.
     assert ctrl.session.repo.load_file_settings("same").geometry.rotation == 2
     msg = ctrl.set_status.call_args.args[0]
     assert "already merged" in msg and "delete the negative" in msg

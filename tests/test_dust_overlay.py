@@ -64,8 +64,7 @@ def test_run_pipeline_surfaces_detected_dust_to_metrics(monkeypatch):
 
     cfg_off = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False))
     _, metrics_off = service.run_pipeline(_speck_image(), cfg_off, "h2", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
-    # Written as None, not left out: the controller merges metrics, so an absent key would
-    # keep the previous frame's marks on the overlay.
+    # None, not absent: the controller merges metrics, so a missing key keeps the last frame's marks.
     assert metrics_off["detected_dust_mask"] is None
     assert metrics_off["hair_inpaint_masks"] == []
 

@@ -21,7 +21,7 @@ def _label():
 
 
 def test_display_letterboxes_the_full_frame():
-    # 100×100 frame in a 200×200 label → a centred square, less the border on every side.
+    # 100×100 frame in a 200×200 label → a centered square, less the border on every side.
     rect = _label()._display()
     assert rect is not None
     assert rect == QRect(1, 1, 198, 198)
@@ -43,7 +43,7 @@ def test_the_frame_has_a_border_just_outside_its_pixels():
     assert shot.pixel(rect.right() + 1, mid_y) == border
     assert shot.pixel(rect.center().x(), rect.top() - 1) == border
     assert shot.pixel(rect.center().x(), rect.bottom() + 1) == border
-    assert shot.pixel(rect.left(), mid_y) == black  # the border covers no frame pixel
+    assert shot.pixel(rect.left(), mid_y) == black
     assert shot.pixel(rect.right(), mid_y) == black
 
 

@@ -1,9 +1,3 @@
-"""Every resizable dialog opens at the size and position it had when it last closed.
-
-The static walks keep a new dialog, or a new place that builds one, from shipping without the
-store. The behavior tests cover each way a dialog hides.
-"""
-
 import ast
 import re
 from pathlib import Path
@@ -19,11 +13,9 @@ from tests.conftest import FakeController, FakeRepo, dialog_classes
 
 NEGPY = Path(__file__).resolve().parents[1] / "negpy"
 KEY = "dialog_geometry_probe"
-# Windows that fix their own size: there is nothing for the user to resize.
 FIXED_SIZE = {"ProgressDialog", "CommandPalette"}
 # Callables that pass the store on to a dialog they build.
 FORWARDERS = {"resolve_other_gear_pick", "GearItemsPanel", "GearPresetsPanel"}
-# Calls on the dialog that set its default size or its window flags.
 SIZING = {"resize", "setMinimumSize", "setMinimumWidth", "setWindowFlags", "float_over_app"}
 
 
@@ -41,7 +33,6 @@ def _callee(call: ast.Call) -> str:
 
 
 def _on_self(call: ast.Call) -> bool:
-    """self.resize(...) and float_over_app(self): the call acts on the dialog itself."""
     receiver = call.func.value if isinstance(call.func, ast.Attribute) else call.args[0] if call.args else None
     return isinstance(receiver, ast.Name) and receiver.id == "self"
 
@@ -79,7 +70,6 @@ def test_dialog_geometry_names_are_unique_snake_case():
 
 
 def test_restore_runs_after_the_default_size():
-    """A default resize() or a window-flag change after the restore overrides it."""
     early = []
     for path, cls in dialog_classes():
         call = _remember_call(cls)
@@ -92,7 +82,6 @@ def test_restore_runs_after_the_default_size():
 
 
 def test_every_dialog_call_site_passes_the_store():
-    """A dialog built without repo= keeps its default size and saves nothing."""
     takes_repo = set(FORWARDERS)
     for _, cls in dialog_classes():
         init = _init(cls)
@@ -168,8 +157,6 @@ def test_without_a_store_nothing_is_wired(qapp):
 
 
 class _Overriding(QDialog):
-    """The override shapes in the tree: each does its own work, then calls super."""
-
     def accept(self) -> None:
         super().accept()
 
@@ -236,7 +223,6 @@ class _FailingRepo(FakeRepo):
 
 
 def test_a_failing_store_does_not_raise(qapp, caplog):
-    """An exception inside a Qt event filter aborts the process."""
     dlg = _shown(_dialog(_FailingRepo()), qapp)
     dlg.close()
     qapp.processEvents()
@@ -279,7 +265,6 @@ def test_rgb_triplet_dialog_reopens_at_its_last_geometry(qapp):
 
 
 def test_live_view_window_reopens_at_its_last_geometry(qapp):
-    """The Scanlight panel closes this window with a bare hide(), which finished never reports."""
     from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow
 
     _reopens_at_last_geometry(qapp, lambda repo: LiveViewWindow(None, repo=repo), "dialog_geometry_live_view")

@@ -459,7 +459,6 @@ def test_detect_bar_top_rejects_a_strong_mark():
 
 
 def test_threshold_at_max_turns_its_detection_off():
-    """A frame edge clears any finite bar, so the top of each slider is off."""
     img = _dusty_source(h=200, w=200)
     img[100:102, 40:120] = 0.02
     score, hair = detect_luma_score(img, 1.0, 4)
@@ -478,8 +477,6 @@ def test_detect_luma_score_grainy_clean_frame_is_empty():
 
 
 def test_texture_protects_a_compact_mark_and_a_loose_hair_bar_reaches_a_hair():
-    """The same speck marks on flat film and not inside busy image structure. A hair across
-    that structure clears a texture-raised hair bar only with a loose Hair Threshold."""
     rng = np.random.default_rng(5)
     img = _dusty_source(h=200, w=200)
     img[80:83, 80:83] = 0.18
@@ -497,8 +494,6 @@ def test_texture_protects_a_compact_mark_and_a_loose_hair_bar_reaches_a_hair():
 
 
 def test_bright_rim_along_a_tonal_edge_is_not_a_hair():
-    """A thin dense line on a step edge grows into a hair-shaped component; the step in its
-    texture window rejects it, and the same line on flat film is still a hair."""
     rng = np.random.default_rng(42)
     img = (np.full((200, 200, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (200, 200, 3)))).astype(np.float32)
     img[100:, :] *= 0.3
@@ -525,8 +520,6 @@ def test_hair_threshold_moves_hairs_only():
 
 
 def test_loose_hair_threshold_finds_a_hair_under_the_spot_bar():
-    """Seeds come from the lower of the two bars, so a hair is reachable when the spot bar
-    is above it."""
     img = _speck_and_hair_source()
     score, hair = detect_luma_score(img, 1.0, 4, hair_threshold=0.66)
     assert hair is not None and hair[120:122, 40:160].all()

@@ -285,7 +285,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.setBrush(QColor(color))
                 painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-        elif kind == "half":  # a split frame, this asset's own half filled, panes along the split axis
+        elif kind == "half":  # a split frame, this asset's own half filled
             painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
             panes = self._half_badge_panes(cx, cy, split_axis)
             painter.fillRect(panes[0] if half == 1 else panes[1], self._COMPOSITE_GLYPH)
@@ -296,8 +296,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
     @staticmethod
     def _half_badge_panes(cx: int, cy: int, split_axis: str) -> tuple[QRect, QRect]:
-        """(half 1, half 2) panes of the half/diptych glyph: left/right for an "x"
-        split, top/bottom for "y"."""
+        """(half 1, half 2) glyph panes: left/right for an "x" split, top/bottom for "y"."""
         if split_axis == "y":
             return QRect(cx - 5, cy - 3, 11, 3), QRect(cx - 5, cy + 1, 11, 3)
         return QRect(cx - 5, cy - 3, 5, 7), QRect(cx + 1, cy - 3, 5, 7)
@@ -1058,9 +1057,7 @@ class FileBrowser(QWidget):
         frames_menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(self._on_reset_roll)
         self.frames_section.set_actions_menu(
             frames_menu,
-            "New Roll clears the film strip so you can drag in a fresh batch of frames. "
-            "Close Roll empties it and returns to the Library. "
-            "Reset Roll to Defaults undoes every loaded frame's edit at once.",
+            "Start, close or reset the roll",
         )
 
         # A splitter, like the right panel's Analysis/Tabs one, so the boundary can be
@@ -1106,8 +1103,7 @@ class FileBrowser(QWidget):
         self.session.repo.save_global_setting("session_sections_splitter_sizes", list(self._section_sizes))
 
     def _remember_section_sizes(self) -> None:
-        """Record each open pane's size. A collapsed pane keeps the size it had open, which
-        is what it reopens to; its live size is only its header."""
+        """Record open panes only: a collapsed pane's live size is its header, not what it reopens to."""
         sizes = self.sections_splitter.sizes()
         for i, section in enumerate((self.library_section, self.frames_section)):
             if section.toggle_button.isChecked():
@@ -1276,11 +1272,7 @@ class FileBrowser(QWidget):
         self.sync_ui()
 
     def _on_unload_clicked(self) -> None:
-        """Same as the context menu's Unload…: always targets the selection -- at least
-        the active frame, ordinarily -- never the whole roll. Opening a different roll
-        already replaces the film strip, so wiping everything is not something this
-        button needs to reach for; Close Roll, in the Film Strip and Library menus, empties
-        the strip."""
+        """Same as the context menu's Unload…: the selection, never the whole roll."""
         self._on_remove_from_menu()
 
     def _sync_close_roll_action(self) -> None:
@@ -1700,9 +1692,8 @@ class FileBrowser(QWidget):
         src = state.selected_file_idx
         if src == -1:
             return None
-        # The dialog's own fields are the source, so the active frame is a target like
-        # any other and counts toward both scopes (apply_preset_fields, not
-        # sync_selected_settings).
+        # The dialog's fields are the source, so the active frame is a target in both scopes
+        # (apply_preset_fields, not sync_selected_settings).
         visible = self.session.asset_model.visible_actual_indices()
         sel_count = len([i for i in set(state.selected_indices) if i in visible])
         return RollSettingsDialog(
@@ -1940,11 +1931,7 @@ class FileBrowser(QWidget):
         act.triggered.connect(lambda: self.controller.request_hdr_merge_selected())
 
     def _add_merge_to_tiff_action(self, menu, state, scope: str) -> None:
-        """Merge to TIFF Negative for *scope*, hidden when nothing in scope is an assembled frame.
-
-        Why a frame is refused belongs in the confirm dialog, which can say it in a
-        sentence, not in a tooltip on a greyed-out item.
-        """
+        """Hidden when nothing in scope can merge; the confirm dialog explains a refused frame."""
         if not mergeable_in(state, scope):
             return
         menu.addAction(label_with_shortcut(LABELS[scope], ACTION_IDS[scope])).triggered.connect(

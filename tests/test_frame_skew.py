@@ -1,9 +1,3 @@
-"""Frame squaring: rotation and keystone read off the frame's own edges.
-
-Every scan here is built with the app's own warp functions, so the expected values are the
-fields that square it in the pipeline, sign included.
-"""
-
 import cv2
 import numpy as np
 import pytest
@@ -13,10 +7,6 @@ from negpy.features.geometry.skew import measure_frame_skew, trusted_frame_skew
 
 
 def _strip(h: int = 600, w: int = 900, frame: tuple[float, float] = (0.62, 0.55), gap: float = 0.03) -> np.ndarray:
-    """A backlit film strip crossing the canvas, three frames with the middle one centered.
-
-    `frame` is the frame's width and height as fractions of the canvas width and the strip.
-    """
     rng = np.random.default_rng(3)
     img = np.ones((h, w), np.float32)
     top, bottom = int(0.2 * h), int(0.8 * h)
@@ -31,7 +21,6 @@ def _strip(h: int = 600, w: int = 900, frame: tuple[float, float] = (0.62, 0.55)
 
 
 def _scan(straight: np.ndarray, angle: float = 0.0, converge_v: float = 0.0, converge_h: float = 0.0) -> np.ndarray:
-    """The scan that fine rotation `angle` then keystone (converge_v, converge_h) squares."""
     h, w = straight.shape[:2]
     img = straight
     if converge_v or converge_h:
@@ -60,7 +49,6 @@ def test_the_fitted_rotation_squares_the_frame_through_the_app_warp() -> None:
 
 
 def test_a_portrait_frame_whose_strip_runs_off_the_canvas() -> None:
-    # Half frame on a portrait canvas: the strip's long box side is the canvas border.
     straight = _strip(h=900, w=600, frame=(0.5, 0.55), gap=0.05)
 
     skew = measure_frame_skew(_scan(straight, 0.5))
@@ -118,7 +106,6 @@ def test_rotation_only_never_reports_keystone() -> None:
     ],
 )
 def test_the_fit_squares_the_frame_after_any_turn_or_flip(orient) -> None:
-    # Fine rotation applies after rot90 and flips, so the fit on the turned frame must square it.
     turned = np.ascontiguousarray(orient(_scan(_strip(), 1.3)))
     skew = measure_frame_skew(turned)
     assert skew is not None
@@ -137,8 +124,7 @@ def test_a_strip_fit_reports_its_film_box_lineage() -> None:
 
 
 def test_a_fit_without_a_film_box_is_not_box_led(monkeypatch: pytest.MonkeyPatch) -> None:
-    # With the film detector abstaining, the profile fallback carries the fit, and callers
-    # that demand box lineage can tell.
+    # The film detector abstains, so the profile fallback carries the fit.
     import negpy.features.geometry.skew as skew_module
 
     real = skew_module.detect_film_bounds_with_confidence
@@ -153,7 +139,6 @@ def test_a_fit_without_a_film_box_is_not_box_led(monkeypatch: pytest.MonkeyPatch
 
 
 def _tight_scan(h: int = 600, w: int = 900, border: float = 0.035) -> np.ndarray:
-    """A frame filling the canvas, only the rebate ring visible: no bed, no box."""
     rng = np.random.default_rng(5)
     img = np.full((h, w), 0.72, np.float32)
     by, bx = int(border * h), int(border * w)
@@ -173,8 +158,7 @@ def test_a_tight_scan_is_trusted(angle: float) -> None:
 def test_a_tight_scan_the_film_detector_cannot_box_is_trusted_through_its_border_ring(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Real tight scans often fail the detector's surround checks; the border ring at the
-    # canvas periphery is then the fit's pedigree.
+    # Real tight scans often fail the detector's surround checks.
     import negpy.features.geometry.skew as skew_module
 
     real = skew_module.detect_film_bounds_with_confidence
@@ -190,8 +174,6 @@ def test_a_tight_scan_the_film_detector_cannot_box_is_trusted_through_its_border
 
 
 def test_an_opaque_ring_is_a_holder_not_a_film_border(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Same periphery geometry as a tight scan, but the ring outside the lines is opaque:
-    # a holder window, which may sit twisted against the film it masks.
     import negpy.features.geometry.skew as skew_module
 
     real = skew_module.detect_film_bounds_with_confidence
@@ -208,7 +190,6 @@ def test_an_opaque_ring_is_a_holder_not_a_film_border(monkeypatch: pytest.Monkey
 
 
 def test_interior_picture_lines_are_not_canvas_border(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A strip's film edges sit well inside the canvas: paired, box-free, but not peripheral.
     import negpy.features.geometry.skew as skew_module
 
     real = skew_module.detect_film_bounds_with_confidence
@@ -258,7 +239,6 @@ def test_noise_is_not_trusted() -> None:
 
 
 def test_a_single_long_picture_line_is_not_a_frame() -> None:
-    # A tight scan with no film edge: one tilted line through the picture.
     img = np.full((500, 700, 3), 0.4, np.float32)
     cv2.line(img, (0, 200), (699, 260), (0.9, 0.9, 0.9), 6)
 

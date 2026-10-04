@@ -389,7 +389,6 @@ def test_thumbnail_render_uses_a_live_cache_hit_without_decoding(qapp, monkeypat
     assert [call["file_hash"] for call in live.peek_calls] == ["hash-a"]
     buffer = processor.run_calls[0]["buffer"]
     np.testing.assert_array_equal(buffer, cached)
-    # The pipeline gets its own copies; the navigation cache's arrays stay untouched.
     assert not np.shares_memory(buffer, cached)
     assert not np.shares_memory(processor.run_calls[0]["ir_buffer"], meta["ir_preview"])
 

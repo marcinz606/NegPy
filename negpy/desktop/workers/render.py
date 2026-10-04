@@ -35,11 +35,8 @@ logger = get_logger(__name__)
 
 
 class _DecodeGate:
-    """At most one native decode at a time across the selected frame, the filmstrip
-    and the neighbor prefetch, so their codec buffers never overlap. One exception:
-    a foreground preview may enter alongside a prefetch decode of another file,
-    because LibRaw's unpack cannot stop mid-read and a click must not wait behind
-    an abandoned one. Each kind names one thread."""
+    """One native decode at a time, so codec buffers never overlap. A foreground preview may run
+    beside a prefetch of another file: LibRaw's unpack cannot stop mid-read. Each kind is one thread."""
 
     def __init__(self) -> None:
         self._cond = threading.Condition()
@@ -54,9 +51,7 @@ class _DecodeGate:
 
     @contextmanager
     def hold(self, kind: str, path: str = "", abandoned: Optional[Callable[[], bool]] = None) -> Iterator[bool]:
-        """Enter as *kind*; yields whether the gate was taken. With *abandoned*, a parked
-        wait gives up once the predicate turns true and yields False, so a stale foreground
-        wait frees its thread for the next click instead of sitting out a whole decode."""
+        """Yields whether the gate was taken; a wait gives up and yields False once *abandoned* is true."""
         acquired = False
         with self._cond:
             while not self._may_enter(kind, path):
@@ -106,8 +101,7 @@ class RenderTask:
     interactive: bool = False
     # Only the controller knows whether the filmstrip is already current for this config.
     wants_thumbnail: bool = False
-    # `config` is a view of the edit (flat peek, zone preview, compare baseline), not the
-    # edit itself, so the pixels get no render identity.
+    # `config` is a view of the edit, not the edit, so the pixels get no render identity.
     config_override: bool = False
     # Decoder XYZ->camera matrix for this source; only the transparency transfer reads it.
     cam_xyz: Optional[list] = None
@@ -154,8 +148,7 @@ class ThumbnailUpdateTask:
     monitor_icc_bytes: Optional[bytes] = None
     proof: Optional[tuple] = None
     persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
-    # What the buffer was rendered from (services.assets.thumbnail_fingerprint), stored with
-    # the JPEG so staleness survives a restart. None stores it as unknown, i.e. stale.
+    # The render fingerprint stored with the JPEG; None reads as stale.
     fingerprint: Optional[str] = None
 
 
@@ -239,8 +232,8 @@ class AssetDiscoveryTask:
     paths: list[str]
     supported_extensions: tuple[str, ...]
     rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
-    restore_triplets: dict | None = None  # {red_path: [green, blue, align, hashes?]} — rebuild known triplets.
-    half_frame: bool = False  # Expand each file into two half-frame assets along the split axis.
+    restore_triplets: dict | None = None  # {red_path: [green, blue, align, hashes?]}
+    half_frame: bool = False  # Split each file into two half-frame assets.
     restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
     restore_hdr: dict | None = None  # {reference_path: {paths, ratios, align, hash}} (session restore).
     half_frame_profile: dict | None = None  # {crop_rect, split_x, gutter_thickness, split_axis} override
@@ -418,10 +411,8 @@ class RenderWorker(QObject):
             metrics["render_long_edge"] = int(max(task.buffer.shape[:2])) if isinstance(task.buffer, np.ndarray) else 0
             # Render identity, so the controller can reject stale/ephemeral bounds writeback.
             metrics["source_hash"] = task.source_hash
-            # The config these pixels were rendered from, paired with their hash, so the
-            # thumbnail written from them can be fingerprinted against what actually ran,
-            # not against a config the user has edited since. A crop-tool render shows the
-            # uncropped frame, which no config describes.
+            # The config these pixels ran on, so the thumbnail fingerprints what ran, not a later edit.
+            # A crop-tool render shows the uncropped frame, which no config describes.
             metrics["render_identity"] = None if task.crop_preview_full or task.config_override else (task.source_hash, task.config)
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
@@ -834,18 +825,9 @@ class AssetDiscoveryWorker(QObject):
         profile: dict | None = None,
         overrides: dict | None = None,
     ) -> list:
-        """Expand each file into two half-frame assets sharing the path, with
-        per-half hash/name identities. Composite assets (triplet, stitch, HDR) stay
-        whole — an unsupported combination.
+        """Two half-frame assets per file, sharing the path; composites stay whole.
 
-        Per-file resolution, highest priority first:
-          1. ``overrides[base_hash]`` — a {crop_rect, split_x, gutter_thickness,
-             split_axis} dict saved for this one file from the rectangle editor's
-             per-frame mode, for the odd frame the roll-wide setting still gets wrong.
-          2. ``profile`` (the same dict shape saved from the editor) — shared across
-             the roll, for every file without its own override.
-          3. No profile yet — every file auto-detects, so a first-time roll starts
-             from a real split rather than a blind center cut.
+        The split comes from ``overrides[base_hash]``, else the roll's ``profile``, else auto-detection.
         """
         import os
 
@@ -880,8 +862,7 @@ class AssetDiscoveryWorker(QObject):
                 split_x = float(override.get("split_x") or 0.5)
                 split_axis = str(override.get("split_axis") or "x")
             elif auto_split:
-                # (0.5, "x") is the detector's own "nothing found" sentinel; auto_split
-                # is only true with no profile, so there is no tuned value to fall back to.
+                # (0.5, "x") is the detector's "nothing found" value; with no profile there is nothing better.
                 found = splits.get(a["path"])
                 split_x, split_axis = (float(found[0]), str(found[1])) if found is not None else (0.5, "x")
             else:
@@ -911,8 +892,7 @@ class AssetDiscoveryWorker(QObject):
         """Re-attach known green/blue exposures to their red asset (no reclassification).
 
         A session manifest holds the red path alone, but a capture hands over all three,
-        so the two exposures that became part of a frame are dropped from the roll. A record
-        that states a member's hash re-attaches only while the file found here still has it.
+        so the two exposures that became part of a frame are dropped from the roll.
         """
         import os
 
@@ -928,6 +908,7 @@ class AssetDiscoveryWorker(QObject):
                 for path, want in zip(gb[:2], stored[1:]):
                     if want and path and path not in hashes and os.path.exists(path):
                         hashes[path] = calculate_file_hash(path)
+            # A stated member hash re-attaches only while the file still has it.
             changed = gb and any(want and path in hashes and hashes[path] != want for path, want in zip((a["path"], gb[0], gb[1]), stored))
             if gb and not changed and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
                 base = os.path.splitext(a["name"])[0]
@@ -1041,8 +1022,7 @@ class AssetDiscoveryWorker(QObject):
 
         from negpy.services.export.frame_merge import is_merged_source
 
-        # A file NegPy merged from an assembled frame is already one frame: it is neither
-        # grouped nor counted loose.
+        # A file NegPy merged from an assembled frame is already one frame.
         done = {a["path"] for a in assets if (a.get("green_path") and a.get("blue_path")) or is_merged_source(a["path"])}
         assembled = [a for a in assets if a["path"] in done]
         assets = [a for a in assets if a["path"] not in done]
@@ -1105,8 +1085,7 @@ class AssetDiscoveryWorker(QObject):
 
 
 class PreviewLoadState:
-    """Generation bookkeeping shared by the foreground preview worker and the prefetch
-    worker, so a click on one thread obsoletes work queued on the other."""
+    """Generations shared by the foreground and prefetch workers: a click on one obsoletes work queued on the other."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -1115,9 +1094,7 @@ class PreviewLoadState:
         self._foreground_path: str | None = None
 
     def expect_generation(self, generation: int, file_path: str | None = None) -> None:
-        """Make older queued and segment-based preview work obsolete. A running prefetch of
-        *file_path* itself keeps going: the foreground load waits for it and hits its cache
-        entry, where cancelling would throw that decode away and start it again."""
+        """Obsoletes older preview work, except a running prefetch of *file_path*: the foreground load waits for it."""
         with self._lock:
             self._latest_generation = generation
             self._foreground_path = file_path
@@ -1126,7 +1103,6 @@ class PreviewLoadState:
             }
 
     def cancel_prefetch(self, generation: int) -> None:
-        """Cancel low-priority work without invalidating the selected frame."""
         with self._lock:
             self._cancelled_prefetch_generations.add(generation)
 
@@ -1695,7 +1671,7 @@ class ThumbnailRenderWorker(QObject):
 
     rendered = pyqtSignal(object, object)  # ThumbnailRenderInput, ndarray — the frame rides
     # along so the controller can re-check the asset is still current before persisting.
-    frame_started = pyqtSignal(int, int, str)  # index, total, name — before the decode
+    frame_started = pyqtSignal(int, int, str)  # index, total, name; emitted before the decode
     progress = pyqtSignal(int, int, str, float, float)  # done, total, name, decode s, render s
     finished = pyqtSignal(int)  # frames rendered
     cancelled = pyqtSignal()
@@ -1731,10 +1707,10 @@ class ThumbnailRenderWorker(QObject):
             return generation in self._cancelled_generations
 
     def _peek_live_preview(self, frame: ThumbnailRenderInput, workspace_color_space: str) -> Optional[tuple[np.ndarray, dict]]:
-        """A plain frame's decode from the navigation cache, copied, or None; never writes or
-        reorders it. The key is the whole-scan one `_decode_asset_preview_with_meta` slices, so
-        a half-frame asset or roll fork the live path cached under its own hash and half slice
-        is not found."""
+        """Copy of a plain frame's decode from the navigation cache, or None; never writes or reorders it.
+
+        Keyed on the whole scan, as `_decode_asset_preview_with_meta` decodes it.
+        """
         from negpy.services.assets.half_frame import base_hash, slice_for_asset
 
         config = frame.config
@@ -1833,7 +1809,7 @@ class ThumbnailRenderWorker(QObject):
                 except Exception:
                     if self._cancel_requested(generation):
                         break
-                    # A failed read on a slow volume costs as much as a good one; the time left counts it.
+                    # A failed read costs time too; the time-left estimate counts it.
                     if decoding:
                         decode_s = time.perf_counter() - started
                     else:

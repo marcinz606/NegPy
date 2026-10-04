@@ -30,8 +30,7 @@ SUB_PATHS = {
 # Per sub-path: per-channel mean, then the pixels at SAMPLES, all of the CPU render.
 SAMPLES = ((4, 4), (20, 40), (40, 70), (60, 90))
 GOLDEN = {
-    # as_captured prints at the manual contrast, transfer_grade_ref / grade, so this row
-    # moves with the reference; the Positive row meters its own and does not.
+    # as_captured moves with transfer_grade_ref; the Positive row meters its own contrast and does not.
     "as_captured": [
         [0.354, 0.323, 0.2493],
         [0.0689, 0.0273, 0.0338],

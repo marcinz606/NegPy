@@ -1,9 +1,4 @@
-"""Frame squaring: rotation and easel tilt/swing measured from the frame's own edges.
-
-A film scan holds a rectangle whatever the picture shows: the film edge and the camera
-gate. Their straight edges fix how the frame sat under the camera, so the fit reads
-those edges and never the picture inside them.
-"""
+"""Frame squaring: rotation and easel tilt/swing measured from the film and gate edges, never the picture."""
 
 from __future__ import annotations
 
@@ -27,17 +22,15 @@ from negpy.features.geometry.models import FINE_ROTATION_LIMIT
 
 # Holder skew beyond this is a frame put in sideways or a picture edge, not a tilt.
 _MAX_SKEW_DEGREES = 10.0
-# Past this no copy stand is that far off square; the fit has read a bent or wrong edge.
+# No copy stand is this far off square; past it the fit has read a bent or wrong edge.
 _MAX_KEYSTONE = 5.0
-# Below this the fit is reading edge roughness, curl or lens residue, and a correction would
-# only resample the frame.
+# Below this the fit reads edge roughness, curl or lens residue.
 _MIN_KEYSTONE = 0.3
 # Keystone must explain the edges this much better than rotation alone to be kept.
 _KEYSTONE_GAIN = 2.5
 _KEYSTONE_MIN_RESIDUAL = 0.04
 _ANGLE_BIN = 0.05
-# A line must run this much of the canvas to count as a frame edge: sprocket holes,
-# edge print and most picture detail are shorter.
+# Sprocket holes, edge print and most picture detail run shorter than this.
 _MIN_SEGMENT = 0.04
 _MIN_LINE_SPAN = 0.25
 _MAX_LINE_RMS = 1.2
@@ -46,23 +39,17 @@ _MIN_INLIER_FRACTION = 0.5
 _MAX_LINE_RESIDUAL = 0.15
 # Opposite edges this close together cannot separate keystone from noise.
 _MIN_PAIR_SEPARATION = 0.3
-# How near the canvas edge a line must sit, as a fraction of its cross extent, for a
-# tight scan's border geometry: the frame fills the canvas and only the rebate and a
-# sliver of bed show. A strip in a holder puts its film edges well past this.
+# A tight scan's border lines sit within this fraction of the cross extent from the canvas edge.
 _CANVAS_EDGE_BAND = 0.12
-# A holder window also hugs the periphery, but outside it lies the opaque holder; outside
-# a film border lies film base or bed, and no film base reads this near black.
+# Film base or bed outside a border never reads this dark; an opaque holder does.
 _OPAQUE_RING = 0.04
-# Floor for a fit that already passed the trust gates (box-led, with an opposite pair);
-# it only trims fits whose lines were short or noisy. A strip that crosses the canvas
-# shows two film edges, not four, so the floor must admit a clean two-line pair.
+# Must admit a clean two-line pair: a strip across the canvas shows two film edges, not four.
 _SKEW_TRUSTED_CONFIDENCE = 0.5
 
 
 @dataclass(frozen=True)
 class EdgeLine:
-    """A fitted frame edge in detection-buffer pixel coordinates (the measured image
-    resampled to at most AUTOCROP_DETECT_RES on its long edge). `horizontal` is its axis."""
+    """A fitted frame edge, in pixels of the detection buffer (long edge at most AUTOCROP_DETECT_RES)."""
 
     p1: tuple[float, float]
     p2: tuple[float, float]
@@ -78,11 +65,8 @@ class EdgeLine:
 
 @dataclass(frozen=True)
 class FrameSkew:
-    """The correction that squares the frame in the measured image.
-
-    `fine_rotation` adds to the rotation already in that image; `converge_v` and
-    `converge_h` are the keystone for it, or None where no edge pair could measure one.
-    """
+    """`fine_rotation` adds to the rotation already in the measured image; `converge_v` and
+    `converge_h` are None where no edge pair measured them."""
 
     fine_rotation: float
     converge_v: float | None
@@ -90,22 +74,15 @@ class FrameSkew:
     confidence: float
     lines: tuple[EdgeLine, ...]
     residual: float
-    # Trust gates. A profile-line fit can rest on picture content, and a lone edge can be
-    # a picture line however cleanly it fits, so automatic application demands an opposite
-    # pair plus a structural pedigree: the film detector's boxes led the fit, or every
-    # line hugs the canvas periphery in pairs on both axes — a tight scan's film border,
-    # which a picture does not supply on all four sides at once.
+    # Trust gates; see trusted_frame_skew.
     from_film_box: bool = False
     has_opposite_pair: bool = False
     at_canvas_edges: bool = False
 
 
 def _coarse_angles(lum: np.ndarray) -> list[float]:
-    """The folded angles long straight segments share, strongest first, weighted by length squared.
-
-    A picture full of long lines at its own tilt can outvote the frame, so the runner-up
-    mode is kept as a second starting point.
-    """
+    """Dominant folded angles of long segments, strongest first. The runner-up is a second
+    start: picture lines at their own tilt can outvote the frame."""
     h, w = lum.shape
     lo, hi = np.percentile(lum, (1.0, 99.0))
     u8 = (np.clip((lum - lo) / max(hi - lo, 1e-6), 0.0, 1.0) * 255.0).astype(np.uint8)
@@ -150,11 +127,7 @@ def _profile_peaks(profile: np.ndarray) -> np.ndarray:
 
 
 def _ransac_line(xs: np.ndarray, ys: np.ndarray, expected: float, half: float, span: float) -> np.ndarray | None:
-    """The most complete straight run of peaks, preferring one near `expected`.
-
-    A film edge runs the whole side; sprocket holes, edge print and picture detail
-    break up, so counting distinct stations picks the edge over them.
-    """
+    """The straight run of peaks with the most distinct stations, preferring one near `expected`."""
     if xs.size < 12:
         return None
     rng = np.random.default_rng(0)
@@ -269,7 +242,7 @@ def _frame_lines(lum: np.ndarray, rotated: np.ndarray) -> list[EdgeLine]:
             line = _fit_side(lum, horizontal, float(at), float(start), float(stop), f"{source}-{side}")
             if line is None:
                 continue
-            # A film and a gate side can land on the same edge; counting it twice would weight it double.
+            # A film and a gate side can land on the same edge; count it once.
             placed = _line_position(line)
             if any(o == horizontal and abs(p - placed) < 4 for o, p in seen):
                 continue
@@ -279,7 +252,6 @@ def _frame_lines(lum: np.ndarray, rotated: np.ndarray) -> list[EdgeLine]:
 
 
 def _line_position(line: EdgeLine) -> float:
-    """Where a line sits across its axis: its mean y if horizontal, its mean x if vertical."""
     idx = 1 if line.horizontal else 0
     return 0.5 * (line.p1[idx] + line.p2[idx])
 
@@ -295,12 +267,8 @@ def _outer_peaks(coverage: np.ndarray, floor: float) -> tuple[int, int] | None:
 
 
 def _profile_lines(lum: np.ndarray) -> list[EdgeLine]:
-    """Outermost long edges found by how much of each row and column they cover.
-
-    For frames the film detector cannot box: a keystoned frame is no rectangle, and an
-    opaque holder leaves no bright surround. The spread keeps an edge a degree off the
-    axis inside one band.
-    """
+    """Outermost long edges by row and column coverage, for frames the film detector cannot box.
+    The spread keeps an edge a degree off axis inside one band."""
     h, w = lum.shape
     lines: list[EdgeLine] = []
     spread = max(3, int(0.02 * max(h, w)))
@@ -371,8 +339,7 @@ def _solve(lines: list[EdgeLine], w: int, h: int, fit_v: bool, fit_h: bool) -> t
 
 
 def _at_canvas_edges(lines: list[EdgeLine], lum: np.ndarray) -> bool:
-    """Whether every line sits within the border band of the canvas, paired on both axes,
-    with film base or bed outside it rather than an opaque holder."""
+    """Whether every line hugs the canvas edge, paired on both axes, with no opaque holder outside."""
     if not lines:
         return False
     h, w = lum.shape
@@ -420,12 +387,8 @@ def _measure_from(det: np.ndarray, coarse: float, fit_keystone: bool) -> tuple[F
             break
         lines = lines[:worst] + lines[worst + 1 :]
 
-    # Keystone is kept only where it is large enough to see, small enough to be a copy stand,
-    # and explains the edges clearly better than rotation alone; the rest is edge noise.
-    # Every gate re-runs after every re-solve: dropping one axis moves the survivor, and a
-    # survivor must still beat rotation alone, not merely sit inside the band. The solver's
-    # own clip sits past _MAX_KEYSTONE so an out-of-range solution is seen and rejected
-    # rather than silently clamped.
+    # Every gate re-runs after each re-solve: dropping one axis moves the survivor.
+    # The solver clips past _MAX_KEYSTONE, so an out-of-range solution is rejected here, not clamped.
     if fit_v or fit_h:
         _, _, _, rotation_only = _solve(lines, w, h, False, False)
         rot_rms = float(np.sqrt(np.mean(rotation_only**2)))
@@ -464,11 +427,8 @@ def _measure_from(det: np.ndarray, coarse: float, fit_keystone: bool) -> tuple[F
 
 def measure_frame_skew(img: ImageBuffer, fit_keystone: bool = True) -> FrameSkew | None:
     """Rotation and keystone that square the frame in `img`, or None when no frame edge is found.
-
-    `img` is the buffer as the pipeline has it before fine rotation and keystone. The
-    result's rotation adds to any rotation already in `img`; its keystone replaces the
-    keystone only when `img` carries none. Without `fit_keystone` only rotation is solved.
-    """
+    `img` is the pipeline buffer before fine rotation and keystone. The rotation adds to any
+    already in `img`; the keystone is absolute only when `img` carries none."""
     det, _ = _normalize_detection_input(img, AUTOCROP_DETECT_RES)
     det = np.ascontiguousarray(det, dtype=np.float32)
     modes = _coarse_angles(_detection_luma(det))
@@ -493,13 +453,9 @@ def measure_frame_skew(img: ImageBuffer, fit_keystone: bool = True) -> FrameSkew
 
 
 def trusted_frame_skew(img: ImageBuffer, fit_keystone: bool = True) -> FrameSkew | None:
-    """measure_frame_skew, or None when the fit may not be applied unwatched.
-
-    The gates are structural, not a score: a profile-led fit and a lone edge can both fit
-    perfectly and still be picture content, so no confidence value separates them. A fit
-    whose lines frame the canvas on both axes passes without a film box: that is a tight
-    scan's own border.
-    """
+    """measure_frame_skew, or None when the fit may not be applied unwatched. The gates are
+    structural: a profile-led fit or a lone edge can fit picture content perfectly. Lines that
+    frame the canvas on both axes pass without a film box: they are a tight scan's border."""
     skew = measure_frame_skew(img, fit_keystone)
     if skew is None or not skew.has_opposite_pair:
         return None

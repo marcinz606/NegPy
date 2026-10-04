@@ -397,9 +397,7 @@ class GPUEngine:
             or self._last_scale_factor != scale_factor
             or self._last_render_size_ref != render_size_ref
             or self._last_settings.process.process_mode != settings.process.process_mode
-            # Toggling the crop tool resizes every texture from toning on and swaps
-            # the carrier and layout passes in or out (see full_frame in
-            # process_to_texture), so nothing cached survives it.
+            # The crop tool resizes every texture from toning on, so nothing cached survives a toggle.
             or self._last_full_frame != full_frame
         ):
             return 0
@@ -441,9 +439,6 @@ class GPUEngine:
         Key is (w, h, usage, label). A 90°/270° rotation already swaps w and h
         upstream (see w_rot/h_rot computation), so the key naturally changes
         with geometry — no extra geometry field needed.
-        A pooled texture keeps its last dispatch's output between renders, and
-        cached late stages re-display it (see tex_for_layout), so the pool must
-        never zero or evict a texture the current frame may re-show.
 
         Invariant: callers must pass post-rotation dimensions. If rotation
         handling ever moves downstream of texture allocation, revisit this key.
@@ -591,17 +586,12 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask_override: Optional[Tuple[np.ndarray, float, Tuple[int, int, int, int]]] = None,
+        # Crop tool preview: toning and finish span the whole rotated frame, with no border or
+        # carrier; the meter, contrast mask and active_roi stay on the crop, as in the CPU engine.
         full_frame: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
-
-        ``full_frame``: the crop tool's own preview, which shows the whole rotated
-        frame outside the crop rectangle too. Widens only the late-stage dispatch
-        extent (toning/finish) and drops the border and the filed carrier, which
-        frame the crop and would misplace the overlay; the meter, the contrast mask
-        and the reported ``active_roi`` stay on the real crop, so the print exposure
-        matches the CPU engine.
 
         ``local_maps`` is the pre-rasterised (h, w, 2) dodge/burn EV + local grade
         map already in the post-geometry frame; tiled export passes a per-tile slice.
@@ -1328,8 +1318,8 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
-        # Pooled, so it still holds the last dispatch's output when the stage is
-        # cached; tex_toning is pre-vignette and never the display source.
+        # The pool never zeros or evicts it, so it still holds its last output when the stage
+        # is cached; tex_toning is pre-vignette and never the display source.
         tex_for_layout = tex_finish
 
         if not tiling_mode and apply_layout and not full_frame:

@@ -121,7 +121,7 @@ _DISCOVERY_EMPTY = "Finding the frames on the strip…"
 
 
 class _ZeroTickSlider(_ResetSlider):
-    """A reset slider with a tick at its default on the groove, as the panel sliders mark theirs."""
+    """A reset slider with a tick at its default."""
 
     def is_moved(self) -> bool:
         return self.value() != self._default
@@ -629,7 +629,6 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._update_ok_enabled()
 
     def _sync_tile_offset_cue(self, tile: _Tile) -> None:
-        """Tooltip and corner reading of a tile's own offset."""
         value = tile.offset_slider.value() / 10.0
         tile.offset_slider.setToolTip(f"Frame {tile.frame}: {value:+.1f} mm. {_TILE_OFFSET_TIP}")
         tile.offset_value.setText(f"{value:+.1f} mm")
@@ -748,8 +747,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
 
     @pyqtSlot(bool)
     def _on_strip_returned(self, loaded: bool) -> None:
-        """The unit returned the strip by itself. As after an Eject, nothing measured on it holds:
-        drop the tiles with their ticks, crops and own offsets, and measure the strip once it is in."""
+        """The unit returned the strip by itself: drop what was measured on it, and measure again once it is in."""
         self._recut.stop()
         self._initial_selected = ()
         self._initial_windows = {}

@@ -1,5 +1,3 @@
-"""The Contact Sheet dialog's worker: file facts before it opens, preview tiles while it is open."""
-
 from unittest.mock import MagicMock
 
 import numpy as np

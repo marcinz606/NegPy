@@ -58,8 +58,7 @@ def _filter_qt_messages(mode, context, message: str) -> None:
 
 
 class WheelScrollsPanel(QObject):
-    """Dropdowns and number boxes never take the wheel, so scrolling a panel edits nothing
-    under the pointer; the ignored event goes on to the panel, which scrolls."""
+    """Combo and spin boxes never take the wheel; the ignored event goes on to the panel, which scrolls."""
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.Wheel and isinstance(obj, (QComboBox, QAbstractSpinBox)):

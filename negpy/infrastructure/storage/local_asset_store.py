@@ -83,12 +83,7 @@ class LocalAssetStore(IAssetStore):
         return None
 
     def save_thumbnail(self, file_hash: str, image: Image.Image, fingerprint: Optional[str] = None) -> None:
-        """Persists thumb to disk.
-
-        ``fingerprint`` (see ``services.assets.thumbnail_fingerprint``) is written into the
-        JPEG comment, so the record of what the thumbnail shows lives and dies with it.
-        None writes no comment, which reads back as unknown, and so as stale.
-        """
+        """Persists thumb to disk."""
         from negpy.services.assets.thumbnail_fingerprint import encode_comment
 
         try:
@@ -99,9 +94,7 @@ class LocalAssetStore(IAssetStore):
             logger.error(f"Failed to save thumbnail {file_hash}: {e}")
 
     def get_thumbnail_fingerprint(self, file_hash: str) -> Optional[str]:
-        """The fingerprint a cached thumbnail was saved with, or None when there is no
-        thumbnail, it predates fingerprints, or it cannot be read. Reads the JPEG header
-        only, so checking a whole roll costs no pixel decode."""
+        """Stored fingerprint, or None; reads the JPEG header only, with no pixel decode."""
         from negpy.services.assets.thumbnail_fingerprint import decode_comment
 
         thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")

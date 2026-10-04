@@ -143,7 +143,6 @@ class TestAppController(unittest.TestCase):
         with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured) as fit:
             self.controller.auto_skew_frame()
 
-        # The fit sees the frame with no fine rotation or keystone, so its values replace them.
         fitted_on = fit.call_args.args[0]
         self.assertEqual(fitted_on.shape[:2], (100, 120))
         result = self.controller.state.config.geometry
@@ -567,7 +566,6 @@ class TestAppController(unittest.TestCase):
         self.assertIs(store["rgbscan_mode"], False)
 
     def test_a_rolls_first_discovery_records_its_trichrome_mode(self):
-        """Once recorded, a mode chosen on another roll does not regroup this one."""
         store = self._fake_settings_store()
         store["rgbscan_mode"] = True
         self.assertTrue(self.controller._rgb_scan_mode_for_discovery("r1"))
@@ -895,7 +893,6 @@ class TestAppController(unittest.TestCase):
 
         self.controller.request_render()
 
-        # The prefetch is cancelled, not waited for: its decode cannot stop mid-read.
         self.assertEqual(len(emitted), 1)
         self.assertTrue(self.controller._is_rendering)
         self.assertIsNone(self.controller._pending_render_task)
@@ -921,7 +918,6 @@ class TestAppController(unittest.TestCase):
 
         self.controller._on_neighbor_prefetch_finished(3, "/abandoned.dng")
 
-        # The stale finish frees the slot the current-generation queue was waiting for.
         self.assertEqual(emitted, [queued])
         self.assertEqual(self.controller._prefetch_in_flight_generation, 5)
 

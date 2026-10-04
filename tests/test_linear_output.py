@@ -2286,8 +2286,6 @@ _ORIENTATIONS = [
 
 
 class TestFlatFieldBeforeUserGeometry:
-    """The gain map is in sensor positions, so it multiplies the buffer before rotation and flips."""
-
     _H, _W = 20, 30
 
     def _gain(self) -> np.ndarray:
@@ -2359,8 +2357,6 @@ class TestFlatFieldBeforeUserGeometry:
 
 
 class _MirrorWarp:
-    """A distortion-only embedded warp that mirrors the sensor left to right."""
-
     has_distortion = True
     has_ca = False
 
@@ -2371,8 +2367,6 @@ class _MirrorWarp:
 
 
 class TestLinearLensCorrection:
-    """Apply lens correction: the Optics card's embedded warp and manual k1."""
-
     _H, _W = 20, 30
 
     def _gain(self) -> np.ndarray:

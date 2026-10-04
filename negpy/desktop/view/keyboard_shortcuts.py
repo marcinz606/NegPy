@@ -25,8 +25,7 @@ from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 
 
 def _context_undo(controller) -> None:
-    """Ctrl+Z targets what the user is working on: while a heal/scratch or Clone tool
-    is active it removes the last stroke that tool placed; otherwise it's the normal edit undo."""
+    """Undo the active retouch tool's last stroke, else the last edit."""
     if controller.session.state.active_tool == ToolMode.CLONE:
         controller.undo_last_clone()
     elif controller.session.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
@@ -201,7 +200,6 @@ class SpacePanKeyFilter(QObject):
             self._set_space_down(False)
 
     def eventFilter(self, watched, event) -> bool:
-        """Track Space in the active window and suppress the focused tool button's activation."""
         if self._replay_guard:
             return False
 
@@ -242,7 +240,6 @@ class SpacePanKeyFilter(QObject):
         return consumed
 
     def uninstall(self) -> None:
-        """Release Space state and remove the application event filter."""
         self._clear_pending_space()
         self._set_space_down(False)
         self._space_consumed = False

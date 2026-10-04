@@ -1,10 +1,5 @@
-"""nkscan's diagnostics, captured into nkscan.log for a bug report.
-
-nkscan writes its `tracing` output from Rust straight to the process's stdout (0.12 documents
-stderr), which Python's logging never sees and a packaged app has no terminal for. The capture
-points both descriptors at pipes once per process: nkscan's lines go to the log file at the
-chosen level and nowhere else, every other line to the stream it was written to.
-"""
+"""nkscan's diagnostics, captured into nkscan.log. Its Rust tracing goes to stdout (0.12 documents stderr), so fds 1 and 2
+go through pipes once per process: nkscan's lines go to the log at the chosen level, every other line back to its stream."""
 
 from __future__ import annotations
 
@@ -21,11 +16,8 @@ from typing import BinaryIO, TextIO
 from negpy.kernel.system.paths import get_default_user_dir
 
 LOG_NAME = "nkscan.log"
-# Debug shows each scan's decisions; trace adds every command sent to the unit.
 LEVELS = ("off", "debug", "trace")
 _MAX_BYTES = 20_000_000
-# nkscan's level is fixed at its first init, so it starts at trace and the pump drops what the
-# chosen level excludes. RUST_LOG overrides it.
 _NKSCAN_LINE = re.compile(rb"^\S+Z\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s")
 
 _lock = threading.Lock()
@@ -74,6 +66,7 @@ def _install() -> bool:
         pump.start()
         streams.append((fd, std_handle, original, pump))
     atexit.register(_restore, streams)
+    # nkscan fixes its level at the first init (RUST_LOG overrides it); the pump filters by the chosen level.
     nkscan.init_logging("trace")
     _installed = True
     return True
@@ -92,8 +85,7 @@ def _point(fd: int, std_handle: int, target: int) -> None:
 def _restore(streams: list[tuple[int, int, int | None, threading.Thread]]) -> None:
     """Give each stream its descriptor back and let its pump copy what is left.
 
-    Daemon pumps die with the process, which cuts off whatever was written last, such as the
-    traceback of an error at exit that Python prints before atexit runs.
+    A daemon pump dies with the process and cuts off the last output, such as an error at exit.
     """
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -140,7 +132,6 @@ def _pump(read_fd: int, original: int | None) -> None:
 
 
 def _wanted(line_level: bytes, level: str) -> bool:
-    """Whether an nkscan line at `line_level` belongs in a log at `level`."""
     return level == "trace" or (level == "debug" and line_level != b"TRACE")
 
 

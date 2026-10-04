@@ -171,11 +171,7 @@ class StorageRepository(IRepository):
         return None
 
     def path_for_file_hash(self, file_hash: str) -> Optional[str]:
-        """The file this hash's edit was last saved against, or None.
-
-        Identity is the content, so two files with the same bytes are one frame. This is how
-        a merge recognizes a negative it has already written.
-        """
+        """The file this hash's edit was last saved against, or None."""
         with self._connect(self.edits_db_path) as conn:
             row = conn.execute(
                 "SELECT file_path FROM file_settings WHERE file_hash = ? AND file_path IS NOT NULL AND file_path != ''",

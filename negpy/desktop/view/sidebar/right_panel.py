@@ -142,9 +142,7 @@ class RightPanel(QWidget):
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_group(idx))
             self.group_switcher.add_button(btn, tooltip)
 
-            # Frame, Metadata, Gear and Scan manage their own scrolling (a pinned section, subtab
-            # switcher or Scan button beside a scroll area); the other pages are one control
-            # column each, so the page itself needs it.
+            # These pages scroll inside, beside a pinned part; every other page scrolls whole.
             page = content if key in ("frame", "metadata", "gear", "scan") else wrap_scroll(content)
             self.group_stack.addWidget(page)
             self._group_buttons.append(btn)
@@ -359,14 +357,13 @@ class RightPanel(QWidget):
         open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
 
     def _build_scan_page(self) -> QWidget:
-        """The Scanner card picks which scanner the tab drives; its cards and the shared Output
-        card scroll, and its status and Scan button stay pinned under them."""
+        """Scanner choice and cards in a scroll area; the active scanner's footer stays pinned below."""
         repo = self.controller.session.repo
         scan, cam = self.scan_sidebar, self.scanlight_sidebar
 
         self.scan_source_btn = ChoiceButton(
             (("fa5s.camera-retro", "Film Scanner"), ("fa5s.camera", "Camera")),
-            "The scanner this tab drives: a film scanner, or a camera on a copy stand",
+            "Scan with a film scanner or a camera on a copy stand",
             data=("film", "camera"),
         )
         self.scan_source_btn.setCurrentIndex(max(self.scan_source_btn.findData(repo.get_global_setting("scan_source", "camera")), 0))
@@ -438,7 +435,6 @@ class RightPanel(QWidget):
             self._active_scan_sidebar().on_activated()
 
     def _sync_scan_cards(self) -> None:
-        """Only the chosen scanner's cards show, and of those only the ones its device fills."""
         film = self._scan_film()
         scan, cam = self.scan_sidebar, self.scanlight_sidebar
         for section, body, owned in (
@@ -551,12 +547,11 @@ class RightPanel(QWidget):
         self.group_switcher.set_pinned(index)
         self._sync_local_masks()
 
-        # Device detection or the connection poll starts for the scanner the tab shows.
         if index == self._scan_group_index:
             self._active_scan_sidebar().on_activated()
 
     def _sync_local_masks(self) -> None:
-        """Mask outlines are the Dodge & Burn card's editing handles, so they leave the canvas with its tab."""
+        """Mask outlines show only while the Dodge & Burn tab shows."""
         # The frame page switches its first tab while it is built, before the groups exist.
         if not getattr(self, "_group_keys", None):
             return

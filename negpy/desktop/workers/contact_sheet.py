@@ -1,5 +1,4 @@
-"""Background work for the Contact Sheet dialog: file facts before it opens, preview tiles while
-it is open. Its own CPU-only ImageProcessor never contends with the live render's GPU pool."""
+"""Contact Sheet background work. Its own CPU-only ImageProcessor never contends with the live render's GPU pool."""
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,7 +11,7 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.services.export.contact_sheet_roll import FrameFacts, SheetFrame, read_frame_facts, tile_params
 from negpy.services.rendering.image_processor import ImageProcessor
 
-# Header reads are I/O-bound; a few in flight is plenty and leaves the CPU to the app.
+# Header reads are I/O-bound; a few in flight leave the CPU to the app.
 _FACT_WORKERS = 4
 PREVIEW_TILE_PX = 320
 
@@ -57,8 +56,7 @@ class ContactSheetPreviewWorker(QObject):
 
     @pyqtSlot(object)
     def prepare(self, task: ContactSheetPrepTask) -> None:
-        """Always answers unless cancelled: the controller holds the request until it does. A
-        file that cannot be read keeps empty facts."""
+        """Always emits `prepared` unless cancelled: the controller waits for it."""
         generation = int(task.generation)
         facts: list[FrameFacts] = [FrameFacts()] * len(task.assets)
         try:
@@ -115,8 +113,7 @@ class ContactSheetPreviewWorker(QObject):
 
 
 class ContactSheetPreview(QObject):
-    """GUI-thread handle on the preview worker. Each request is a generation; a newer one
-    or a cancel makes the worker drop the older one's results."""
+    """GUI-thread handle on the preview worker."""
 
     prepared = pyqtSignal(int, object)
     tile_ready = pyqtSignal(int, int, object)
@@ -125,8 +122,7 @@ class ContactSheetPreview(QObject):
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        # Started on first use: a running QThread aborts when destroyed without quit(), and
-        # most sessions never open a contact sheet.
+        # Started on first use: a running QThread aborts if destroyed without quit().
         self._thread = QThread()
         self._worker = ContactSheetPreviewWorker()
         self._worker.moveToThread(self._thread)

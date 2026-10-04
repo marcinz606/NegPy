@@ -1,6 +1,3 @@
-"""Scan as Roll: the folder a scanner or camera writes to becomes a Library roll, open
-before discovery runs, so Half Frame and the roll-scoped cards apply to the new frames."""
-
 from types import MethodType, SimpleNamespace
 from unittest.mock import MagicMock
 

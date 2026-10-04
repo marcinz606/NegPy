@@ -1,5 +1,3 @@
-"""Focus meter tests: the sharpness measure and its peak hold."""
-
 import numpy as np
 
 from negpy.services.capture.focus_meter import FocusMeter, sharpness
@@ -8,7 +6,7 @@ from negpy.services.capture.focus_meter import FocusMeter, sharpness
 def _scene(blur: int = 0) -> np.ndarray:
     rng = np.random.default_rng(3)
     img = rng.uniform(40.0, 200.0, (120, 160))
-    for _ in range(blur):  # each pass is a 3x3 box blur
+    for _ in range(blur):
         img = sum(np.roll(np.roll(img, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
     return img
 
@@ -34,10 +32,10 @@ def test_the_meter_holds_the_peak_until_reset():
     assert meter.update(_scene(2)) == 1.0
     for _ in range(30):
         reading = meter.update(_scene(0))
-    assert reading == 1.0  # a sharper frame becomes the new peak
+    assert reading == 1.0
     for _ in range(30):
         reading = meter.update(_scene(2))
-    assert reading < 0.5  # back out of focus: well under the held peak
+    assert reading < 0.5
     meter.reset()
     assert meter.update(_scene(2)) == 1.0
 

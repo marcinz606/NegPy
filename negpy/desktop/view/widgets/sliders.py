@@ -252,8 +252,7 @@ class BaseSlider(QWidget):
         return self.spin.value()
 
     def set_range(self, min_val: float, max_val: float) -> None:
-        """New limits for a range that depends on the device, not on the setting; the reset
-        value moves inside them."""
+        """New limits, set without emitting; the reset value moves inside them."""
         self._min, self._max = min_val, max_val
         self._default = min(max(self._default, min_val), max_val)
         self.slider._default_slider_value = self._to_int(self._default)
@@ -753,7 +752,6 @@ class SliderGroup(QWidget):
 
 
 def _group_indent(widget: QWidget) -> int:
-    """Indent of every rail widget sits in, however deep its container."""
     indent = 0
     parent = widget.parentWidget()
     while parent is not None:
@@ -782,9 +780,8 @@ def _row_layout(widget: QWidget) -> QHBoxLayout | None:
 
 
 def align_slider_columns(root: QWidget) -> None:
-    """Give every CompactSlider under root the widest label and value among them, and every
-    field label the slider label column, so labels end and tracks and fields start at one x.
-    A grouped row's label is shorter by the group's indent."""
+    """Give every CompactSlider under root the widest label and value among them, and every field
+    label the label column. A grouped row's label is shorter by the group's indent."""
     sliders = root.findChildren(CompactSlider)
     if not sliders:
         return
@@ -799,8 +796,7 @@ def align_slider_columns(root: QWidget) -> None:
     value_width = max(w[1] for w in widths)
     for slider in sliders:
         slider.set_column_widths(label_width - _group_indent(slider), value_width)
-    # A field row spans the slider's label cell and track: the label cell ends in the edited
-    # dot and the track gap, and the value column is left clear.
+    # A field row spans the slider's label cell (edited dot and track gap included) and track; the value column stays clear.
     slider_row = QWidget.layout(sliders[0])
     margins = slider_row.contentsMargins()
     trail = THEME.space_xs + sliders[0]._edited_dot.width() + slider_row.spacing()

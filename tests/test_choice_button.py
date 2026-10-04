@@ -106,14 +106,12 @@ def test_the_click_that_dismissed_the_menu_does_not_reopen_it(qapp, monkeypatch)
     opened = []
     monkeypatch.setattr(btn.choice_menu, "exec", lambda *_: opened.append(True))
 
-    # A press on the button while the popup is open: Qt hides the menu, then the
-    # same press fires clicked on the button underneath.
+    # A press on the button while the menu is open: Qt hides the menu, then emits clicked.
     monkeypatch.setattr(btn, "_dismissed_by_press_on_button", lambda: True)
     btn.choice_menu.aboutToHide.emit()
     btn.clicked.emit()
     assert opened == []
 
-    # The swallow is one-shot: the next click opens again.
     btn.clicked.emit()
     assert opened == [True]
 
@@ -123,7 +121,6 @@ def test_a_hide_not_caused_by_the_button_leaves_the_next_click_live(qapp, monkey
     opened = []
     monkeypatch.setattr(btn.choice_menu, "exec", lambda *_: opened.append(True))
 
-    # Esc, an item pick or a click elsewhere: the very next click must open.
     monkeypatch.setattr(btn, "_dismissed_by_press_on_button", lambda: False)
     btn.choice_menu.aboutToHide.emit()
     btn.clicked.emit()
@@ -138,8 +135,7 @@ def test_a_release_off_the_button_disarms_the_swallow(qapp, monkeypatch):
     opened = []
     monkeypatch.setattr(btn.choice_menu, "exec", lambda *_: opened.append(True))
 
-    # The dismissing press is armed, but the drag ends off the button: no clicked
-    # fires, and the flag must not swallow a later unrelated click.
+    # Armed by the dismissing press; the release lands off the button, so no clicked fires.
     monkeypatch.setattr(btn, "_dismissed_by_press_on_button", lambda: True)
     btn.choice_menu.aboutToHide.emit()
     release = QMouseEvent(

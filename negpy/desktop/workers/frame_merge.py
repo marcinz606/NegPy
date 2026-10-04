@@ -14,7 +14,7 @@ from negpy.services.rendering.image_processor import ImageProcessor
 
 @dataclass(frozen=True)
 class FrameMergeTask:
-    """One assembled frame to merge. ``asset`` is a copy of its Film Strip entry."""
+    """``asset`` is a copy of the Film Strip entry."""
 
     asset: dict
     params: WorkspaceConfig
@@ -33,8 +33,7 @@ class FrameMergeResult:
 
 
 class FrameMergeWorker(QObject):
-    """Writes and verifies each merged TIFF. It deletes nothing: the controller moves the
-    source files to the Trash once the edits have followed the frames."""
+    """Writes and verifies each merged TIFF. It deletes nothing; the controller trashes the sources."""
 
     progress = pyqtSignal(int, int, str)  # current, total, label
     finished = pyqtSignal(list, bool)  # [FrameMergeResult], aborted
@@ -60,12 +59,10 @@ class FrameMergeWorker(QObject):
                     break
                 self.progress.emit(i + 1, len(tasks), os.path.basename(task.out_path))
                 try:
-                    # _load_source_f32, not _decode_oriented_f32: a stitch is assembled here,
-                    # and a single-file frame passes straight through it unchanged.
+                    # _load_source_f32, not _decode_oriented_f32: only it assembles a stitch.
                     params = decode_params(task.params, task.kind)
                     f32, _ir, _cs = self._processor._load_source_f32(task.asset["path"], params)
-                    # The decode cannot be interrupted, so Abort pressed during it is honoured
-                    # here — before anything is written, while the frame still has its sources.
+                    # The decode cannot stop, so an Abort during it is honored here, before any write.
                     if self._cancel.is_set():
                         raise MergeCancelled(os.path.basename(task.out_path))
                     write_merged_frame(f32, task.asset["path"], task.out_path, params, task.compression, self._cancel.is_set)
@@ -75,15 +72,13 @@ class FrameMergeWorker(QObject):
                         raise OSError(f"Could not read {os.path.basename(task.out_path)} back")
                     results.append(FrameMergeResult(task.asset, task.out_path, kind=task.kind, new_hash=new_hash))
                 except MergeCancelled:
-                    # No result at all: a cancelled frame is neither merged nor failed, and the
-                    # controller only trashes sources for a result it was handed.
+                    # No result: the controller trashes sources only for a result it was handed.
                     aborted = True
                     self._processor.release_source_cache()
                     break
                 except Exception as e:
                     results.append(FrameMergeResult(task.asset, task.out_path, kind=task.kind, error=str(e)))
-                # _load_source_f32 keeps its result in a single-slot cache; a stitch canvas
-                # held there across the batch is the largest buffer in the app.
+                # A stitch canvas in the single-slot source cache is the largest buffer in the app.
                 self._processor.release_source_cache()
                 gc.collect()
         finally:

@@ -20,7 +20,7 @@ class ScanRequest:
     output_folder: str
     filename_pattern: str
     output_format: str  # one of settings.OUTPUT_FORMATS
-    as_roll: bool = False  # output_folder becomes a Library roll and opens
+    as_roll: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,9 +96,8 @@ class ScanWorker(QObject):
     error = pyqtSignal(str)
     ejected = pyqtSignal(bool)
     eject_error = pyqtSignal(str)
-    # The unit returned the strip by itself: after the operation's own error, so a listener
-    # that clears the frame state has the last word.
-    strip_returned = pyqtSignal(bool)  # whether the strip is back in the holder
+    # Emitted after the operation's own error, so a listener that clears the frame state has the last word.
+    strip_returned = pyqtSignal(bool)  # the strip is back in the holder
     roll_preview_ready = pyqtSignal(object)  # roll preview: one RollPreview per slot
     roll_preview_finished = pyqtSignal()  # the whole strip is done (also after a failed slot)
     prescan_ready = pyqtSignal(object)  # ScanResult RGB preview (no file written)

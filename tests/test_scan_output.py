@@ -1,5 +1,3 @@
-"""The output both scanners share: where frames go, and which roll they make."""
-
 import os
 
 from negpy.desktop.view.sidebar.scan_output import SETTINGS_KEY, ScanOutputPanel, load_scan_output_settings

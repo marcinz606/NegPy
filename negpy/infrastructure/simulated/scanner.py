@@ -1,7 +1,6 @@
 """A film scanner backend with no device behind it: one device per shape of Scan panel.
 
-Feeder (frames by index, IR, eject), prescan (full-window preview, then crop) and roll
-(frames found on the strip, boundaries confirmed by the user).
+Feeder (frames by index, IR, eject), prescan (preview, then crop) and roll (frames found on the strip).
 """
 
 import threading
@@ -18,7 +17,7 @@ from negpy.infrastructure.scanners.roll import RollPreview
 from negpy.infrastructure.simulated.images import negative
 
 _AREA_MM = (36.0, 24.0)
-_MAX_EDGE_PX = 2000  # a 4000 dpi frame at full size makes every simulated scan slow
+_MAX_EDGE_PX = 2000
 _PROGRESS_STEPS = 10
 _STEP_S = 0.05
 _ROLL_FRAMES = 6

@@ -40,7 +40,7 @@ def _click(btn) -> None:
 def test_built_steps_are_consistent() -> None:
     steps = build(MagicMock())
     chapters = list(dict.fromkeys(s.chapter for s in steps))
-    # Each chapter is one run, so the chapter menu and Skip Chapter land on its start.
+    # Each chapter is one contiguous run.
     assert [s.chapter for s in steps] == [c for c in chapters for s in steps if s.chapter == c]
     for s in steps:
         words = len(re.sub(r"<[^>]+>", " ", s.body).split())

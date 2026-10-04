@@ -95,8 +95,7 @@ class ExportTask:
 
 @dataclass(frozen=True)
 class ContactSheetJob:
-    """One contact sheet run, resolved on the GUI thread: the frames in sheet order with the
-    edit each one prints with, and the paper they go on."""
+    """Built on the GUI thread; `frames` come in sheet order with the configs they print with."""
 
     frames: tuple[SheetFrame, ...]
     format: SheetFormat
@@ -108,14 +107,14 @@ class ContactSheetJob:
     working_color_space: str = WORKING_COLOR_SPACE
     jpeg_quality: int = 95
     jpeg_progressive: bool = False
-    # Each frame's place on the roll, for its edge numbers; empty runs 0, 1, 2 …
+    # Each frame's place on the roll; empty means 0, 1, 2 …
     numbers: tuple[int, ...] = ()
-    # Frames that start a new strip: the first frame of each scene.
+    # Frames that start a new strip.
     breaks: tuple[int, ...] = ()
 
 
 def contact_sheet_paths(out_dir: str, count: int) -> list[str]:
-    """File names for one run's sheets, with one suffix that is free for every sheet of the set."""
+    """One free suffix for every sheet of the set."""
     pages = [""] if count == 1 else [f"_{i + 1}of{count}" for i in range(count)]
     serial = 1
     while True:
@@ -398,11 +397,9 @@ class ExportWorker(QObject):
 
     @pyqtSlot(object)
     def run_contact_sheet(self, job: "ContactSheetJob") -> None:
-        """Renders the roll's frames and prints them sheet by sheet onto the planned paper.
+        """Sheets are written as `.part` files and moved into place together, so a run never leaves half a set.
 
-        The sheets of one run are written as `.part` files and moved into place together at
-        the end, so a cancel or failure never leaves half a set. Every exit emits `finished`
-        or `cancelled`, which is what releases the batch lane.
+        Every exit emits `finished` or `cancelled`: that releases the batch lane.
         """
         self._cancel.clear()
         parts: list[str] = []
@@ -417,7 +414,6 @@ class ExportWorker(QObject):
             dpi = best_dpi(settings.paper_width, settings.paper_height, settings.dpi)
             px_per_mm = dpi / MM_PER_INCH
             window_long_px = int(math.ceil(max(geometry.frame_along, geometry.frame_across) * px_per_mm))
-            # Rendered a little larger than the window, then shrunk by the sheet compositor.
             target_long_px = int(window_long_px * 1.5)
             paths = contact_sheet_paths(job.out_dir, len(plan.pages))
             os.makedirs(job.out_dir, exist_ok=True)
@@ -454,8 +450,7 @@ class ExportWorker(QObject):
                         keep_source=next_path == info.get("path"),
                     )
                     if tile is None:
-                        # The frame prints blank, so the numbering stays in step; say so, or
-                        # the run looks like a clean success with a frame missing.
+                        # The frame prints blank so the numbering stays in step.
                         self.error.emit(f"{frame.name}: could not be rendered for the contact sheet")
                         continue
                     turns[index] = turns_for(frame, geometry, tile.shape[:2])

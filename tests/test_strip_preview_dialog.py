@@ -1367,7 +1367,6 @@ def test_offset_and_drift_off_zero_show_a_dot_beside_their_name() -> None:
 
 
 def test_a_name_dot_stays_beside_its_name() -> None:
-    # EditedDot.set_active pins a dot to its parent's corner; one in a layout must not move.
     dialog = StripPreviewDialog(_FakeController(), _device(4), initial_offset=1.5)
     dialog.resize(1200, 700)
     dialog.show()
@@ -1403,11 +1402,11 @@ def test_the_unit_returning_the_strip_drops_its_frame_state_and_measures_it_agai
     controller.deliver_all((1, 2, 3))
     assert dialog.selected_frames() == (2,) and dialog.frame_offsets() == {2: 0.4, 7: -0.3}
 
-    dialog._on_preview_all()  # the pass the unit refuses: it raises, then reports the return
+    dialog._on_preview_all()
     controller.scan_error.emit("returned")
     controller.scan_strip_returned.emit(True)
 
-    assert dialog._tiles == {}  # the old strip's tiles go, as after an Eject
+    assert dialog._tiles == {}
     assert dialog.selected_frames() == ()
     assert dialog.frame_windows() == {}
     assert dialog.frame_offsets() == {}

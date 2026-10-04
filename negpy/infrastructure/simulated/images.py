@@ -4,15 +4,14 @@ import numpy as np
 BASE_DENSITY = np.array([0.25, 0.55, 0.85], np.float32)
 _HOLDER_T = 0.002
 _DUST_T = 0.05
-# Shapes past this many are gray, so the dye layers share the picture's structure as real film does.
+# Shapes past this many are gray, so the dye layers share the picture's structure.
 _COLOR_SHAPES = 8
 
 
 def film(h: int, w: int, seed: int = 0, shapes: int = 8) -> tuple[np.ndarray, np.ndarray]:
     """A color negative in a black holder, as float32 (rgb, ir) transmittance.
 
-    A band of clear base (the rebate) surrounds the picture, for metering. Dust specks block
-    RGB and IR at the same place, as real dust does. More *shapes* give a picture more texture; those past the first eight are gray.
+    A clear-base rebate surrounds the picture; dust blocks RGB and IR at the same place. More *shapes* add texture.
     """
     rng = np.random.default_rng(seed)
     y, x = np.mgrid[0:h, 0:w].astype(np.float32) / max(h, w, 1)

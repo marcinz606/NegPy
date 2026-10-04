@@ -52,8 +52,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process=ProcessConfig(
         process_mode=ProcessMode.C41,
         analysis_buffer=0.05,
-        # Off until a profile is calibrated: a crosstalk matrix describes one scanning
-        # setup, which the shipped config cannot know.
+        # Off until a profile is calibrated: a crosstalk matrix describes one scanning setup.
         crosstalk_strength=0.0,
     ),
     exposure=ExposureConfig(

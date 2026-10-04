@@ -1,5 +1,3 @@
-"""The simulated camera, Scanlight and scanners that `make run-sim` starts the app with."""
-
 import importlib
 import os
 import threading

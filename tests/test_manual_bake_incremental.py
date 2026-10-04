@@ -163,9 +163,6 @@ class TestIncrementalSkipsUnchangedWork:
                 assert call_counts == [1], f"expected exactly one fill for the new component at {n} strokes, got {len(call_counts)}"
 
     def test_dust_removal_on_detects_once_and_stays_incremental(self):
-        """Through run_pipeline with optical detection on: a new stroke must not re-run the
-        detector, and the luma bake handing back its cached buffer keeps the manual bake
-        incremental."""
         img, strokes = _scene()
         proc = ImageProcessor()
         stats_calls: list[int] = []

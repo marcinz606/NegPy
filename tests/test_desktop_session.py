@@ -1330,8 +1330,6 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved, {"hash1", "hash2"})  # c.jpg filtered out, not touched
 
     def test_reset_roll_settings_selection_scope_respects_active_filter(self):
-        # A hidden frame is not a target in either scope, so a stale selection entry
-        # cannot reach past the filter (#1220).
         self._seed_roll()
         self.session.asset_model.set_filter(".arw", regex=False)  # hides c.jpg
         self.session.state.selected_indices = [0, 1, 2]
@@ -1430,8 +1428,6 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(seen, ["hash1"])
 
     def test_active_file_changing_emitted_when_clean(self):
-        # A frame only looked at still has its render to file on disk; the controller
-        # skips the write when the stored thumbnail already matches.
         self.session.state.current_file_hash = "hash1"
         self.session.state.is_dirty = False
         seen = []
@@ -1708,9 +1704,6 @@ class TestSessionEmptied(unittest.TestCase):
 
 
 class TestEmptySessionConfig(unittest.TestCase):
-    """With no frame loaded, the session holds what the next fresh frame gets, so the
-    panels show the carried values and an edit there persists on top of them."""
-
     def setUp(self):
         self.store = {"sticky_config": {"distortion_k1": 0.05, "autocrop_ratio": "6:7"}, "flatfield_active_profile": "rig-a"}
         self.mock_repo = MagicMock(spec=StorageRepository)

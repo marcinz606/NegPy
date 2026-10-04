@@ -79,7 +79,6 @@ def test_the_notes_sheet_has_pixels_to_annotate():
 
 
 def test_the_notes_sheet_is_converted_for_srgb_not_the_monitor(monkeypatch):
-    """The sheet is saved as an untagged JPEG, which viewers read as sRGB."""
     overlay = CanvasOverlay(AppState())
     overlay.update_buffer(None, "Adobe RGB", gpu_size=(W, H), monitor_icc_bytes=b"monitor-icc", gpu_texture=_FakeTexture())
     overlay._view_rect = QRectF(0, 0, W, H)

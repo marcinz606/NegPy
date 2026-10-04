@@ -1,7 +1,4 @@
-"""Physical model of a darkroom contact sheet: film geometry, Ilford paper and strip layout.
-
-All lengths are millimetres. Strips run horizontally; along means along the strip.
-"""
+"""Darkroom contact sheet geometry. Lengths in millimeters; "along" means along the horizontal strip."""
 
 import math
 from dataclasses import dataclass
@@ -19,12 +16,11 @@ PERF_ACROSS = 2.80
 PERF_RADIUS = 0.5
 PERF_FROM_EDGE = 2.0
 PERF_PITCH = 4.75
-# Hole centers sit at PERF_PHASE + j * PERF_PITCH in roll millimetres, symmetric about every
-# frame center, so each cut (at a frame-gap center) falls in the land between two holes.
+# Half a pitch puts every cut, at a frame-gap center, between two holes.
 PERF_PHASE = PERF_PITCH / 2
 EDGE_BAND_135 = 2.0
 
-# 120 (ISO 732). The camera sets the frame spacing; FRAME_GAP_120 is a typical value.
+# 120 (ISO 732). FRAME_GAP_120 is typical; the camera sets the real gap.
 FILM_120_WIDTH = 61.0
 FRAME_120_ACROSS = 56.0
 FRAME_GAP_120 = 4.0
@@ -41,14 +37,13 @@ DEFAULT_FRAME_120 = "6×6"
 
 SHEET_MARGIN = 5.0
 STRIP_GAP = 3.0
-# The roll label sits above the strips, where a sleeve's header strip prints.
 LABEL_BAND = 8.0
 PAPER_MIN = 50.0
 PAPER_MAX = 610.0
 
 DPI_CHOICES: tuple[int, ...] = (150, 300, 600)
 DEFAULT_DPI = 300
-# Pillow warns on opening anything larger, so a sheet above it is not a usable file.
+# Pillow's decompression-bomb warning limit.
 MAX_SHEET_PIXELS = 89_000_000
 
 
@@ -60,8 +55,6 @@ class SheetFormat(StrEnum):
 
 @dataclass(frozen=True)
 class FilmGeometry:
-    """One film format as it lies on the sheet."""
-
     format: SheetFormat
     width: float
     frame_along: float
@@ -89,7 +82,6 @@ class FilmGeometry:
         return self.frame_along / self.frame_across
 
     def frame_center(self, index: int) -> float:
-        """Roll position of a frame's center; frame 0 starts half a frame gap after the cut."""
         return self.pitch * (index + 0.5)
 
 
@@ -104,7 +96,6 @@ def film_geometry(fmt: SheetFormat, frame_size: str = DEFAULT_FRAME_120) -> Film
 
 
 def perforation_centers(x0: float, x1: float) -> list[float]:
-    """Roll positions of the perforation centers between x0 and x1."""
     first = math.ceil((x0 - PERF_PHASE) / PERF_PITCH)
     last = math.floor((x1 - PERF_PHASE) / PERF_PITCH)
     return [PERF_PHASE + j * PERF_PITCH for j in range(first, last + 1)]
@@ -117,8 +108,7 @@ class PaperSize:
     height: float
 
 
-# Ilford Multigrade sheet sizes, portrait. Most are inch sizes sold under a rounded cm label,
-# so the true size is kept: a black-to-edge proof laid out 1 mm short leaves a white sliver.
+# Ilford Multigrade sheets, portrait, at their true inch sizes: the cm labels are rounded.
 ILFORD_PAPERS: tuple[PaperSize, ...] = (
     PaperSize("12.7 × 17.8 cm", 127.0, 177.8),
     PaperSize("16.5 × 21.6 cm", 165.1, 215.9),
@@ -132,12 +122,11 @@ ILFORD_PAPERS: tuple[PaperSize, ...] = (
     PaperSize("40.6 × 50.8 cm", 406.4, 508.0),
     PaperSize("50.8 × 61 cm", 508.0, 609.6),
 )
-# The smallest Ilford sheet that holds a 36-exposure roll (37-38 frames in practice) whole.
+# The smallest sheet that holds a whole 36-exposure roll (37-38 frames).
 DEFAULT_PAPER = ILFORD_PAPERS[6]
 
 
 def paper_preset(width: float, height: float, tolerance: float = 0.05) -> Optional[PaperSize]:
-    """The Ilford sheet of this size in either orientation, or None."""
     for paper in ILFORD_PAPERS:
         for w, h in ((paper.width, paper.height), (paper.height, paper.width)):
             if abs(width - w) <= tolerance and abs(height - h) <= tolerance:
@@ -146,7 +135,6 @@ def paper_preset(width: float, height: float, tolerance: float = 0.05) -> Option
 
 
 def snap_paper(width: float, height: float, tolerance: float = 2.0) -> tuple[float, float]:
-    """A dragged size: an Ilford sheet within `tolerance` in either orientation, else whole mm."""
     for paper in ILFORD_PAPERS:
         for w, h in ((paper.width, paper.height), (paper.height, paper.width)):
             if abs(width - w) <= tolerance and abs(height - h) <= tolerance:
@@ -155,7 +143,6 @@ def snap_paper(width: float, height: float, tolerance: float = 2.0) -> tuple[flo
 
 
 def min_paper_size(geometry: FilmGeometry, label: bool = True) -> tuple[float, float]:
-    """The smallest paper, in this orientation, that holds one frame."""
     band = LABEL_BAND if label else 0.0
     return geometry.pitch + 2 * SHEET_MARGIN, geometry.width + 2 * SHEET_MARGIN + band
 
@@ -178,7 +165,6 @@ def dpi_allowed(width: float, height: float, dpi: int) -> bool:
 
 
 def best_dpi(width: float, height: float, wanted: int) -> int:
-    """`wanted`, or the highest lower choice that stays inside the pixel budget."""
     for dpi in sorted(DPI_CHOICES, reverse=True):
         if dpi <= wanted and dpi_allowed(width, height, dpi):
             return dpi
@@ -187,7 +173,7 @@ def best_dpi(width: float, height: float, wanted: int) -> int:
 
 @dataclass(frozen=True)
 class StripPlacement:
-    """One cut strip on the paper: its top-left corner, and the frames it carries."""
+    """(x, y) is the strip's top-left corner on the paper."""
 
     x: float
     y: float
@@ -229,8 +215,7 @@ def plan_capacity(width: float, height: float, geometry: FilmGeometry, label: bo
 
 
 def cut_strips(frame_count: int, per_strip: int, breaks: Sequence[int] = ()) -> list[tuple[int, int]]:
-    """(first frame, count) of each strip: as long as the paper allows, and cut at every break,
-    where the next frame must start a new strip."""
+    """(first frame, count) per strip; a frame in `breaks` starts a new strip."""
     stops = sorted({b for b in breaks if 0 < b < frame_count}) + [frame_count]
     strips: list[tuple[int, int]] = []
     first = 0
@@ -250,12 +235,6 @@ def plan_sheets(
     label: bool = True,
     breaks: Sequence[int] = (),
 ) -> SheetPlan:
-    """Cut the roll into strips as long as the paper allows and lay them out, sheet by sheet.
-
-    `breaks` are the frames that start a new strip (a new scene). The strip block is centered
-    on the paper; a short strip starts at the block's left edge, as a strip pushed against a
-    proofer's stop does. The label band stays clear above it.
-    """
     per_strip, strips = plan_capacity(width, height, geometry, label)
     if per_strip == 0 or strips == 0:
         reason = "The paper is too narrow for one frame." if per_strip == 0 else "The paper is too short for one strip."
@@ -281,8 +260,6 @@ def plan_sheets(
 
 
 def better_orientation(width: float, height: float, geometry: FilmGeometry, frame_count: int, label: bool = True) -> tuple[float, float]:
-    """This size or its turn, whichever needs fewer sheets; ties keep the size as it is."""
-
     def sheets(w: float, h: float) -> float:
         per_strip, strips = plan_capacity(w, h, geometry, label)
         capacity = per_strip * strips
@@ -292,13 +269,9 @@ def better_orientation(width: float, height: float, geometry: FilmGeometry, fram
 
 
 def frame_turns(upright_aspect: Optional[float], geometry: FilmGeometry, rotation: int, flip_h: bool, flip_v: bool) -> int:
-    """Quarter turns (`np.rot90` k) that lay an upright frame on the strip as it lies on the film.
+    """`np.rot90` k that lays an upright frame on the strip as it lies on the film.
 
-    `upright_aspect` is the uncropped picture's width over height after the user's rotation. A
-    crop never changes how the camera was held, so only that picture's shape is compared with
-    the film window. A frame the user turned upright is turned back; one scanned already upright
-    goes clockwise, top toward the higher numbers, as a vertical held shutter-release up lies.
-    """
+    A frame scanned upright turns clockwise, as a vertical shot held release-up lies on the film."""
     if upright_aspect is None or abs(math.log(upright_aspect)) < 0.02 or abs(math.log(geometry.window_aspect)) < 0.02:
         return 0
     if (upright_aspect > 1) == (geometry.window_aspect > 1):
@@ -311,7 +284,7 @@ def frame_turns(upright_aspect: Optional[float], geometry: FilmGeometry, rotatio
 
 @dataclass(frozen=True)
 class ContactSheetSettings:
-    """The dialog's remembered choices; the film format is read from the frames each time."""
+    """The film format is not stored: it is read from the frames each time."""
 
     paper_width: float = DEFAULT_PAPER.width
     paper_height: float = DEFAULT_PAPER.height
@@ -322,8 +295,6 @@ class ContactSheetSettings:
 
     @classmethod
     def from_dict(cls, data: Optional[Mapping[str, Any]]) -> "ContactSheetSettings":
-        """Unknown keys and bad values fall back to the defaults, so a stale record never
-        blocks the dialog."""
         if not isinstance(data, Mapping):
             return cls()
         default = cls()

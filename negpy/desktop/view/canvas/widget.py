@@ -626,7 +626,6 @@ class ImageCanvas(QWidget):
             super().mouseMoveEvent(event)
 
     def pan_by_viewport_delta(self, dx: float, dy: float) -> None:
-        """Move the displayed image by a canvas-relative pixel delta."""
         if self.width() <= 0 or self.height() <= 0:
             return
         self.pan_offset += QPointF(dx / self.width(), dy / self.height())
@@ -769,8 +768,7 @@ class ImageCanvas(QWidget):
         menu.exec(global_pos)
 
     def _add_merge_to_tiff_action(self, menu: QMenu) -> None:
-        """Merge to TIFF Negative for the frame on the canvas. Frame scope only: the canvas shows one
-        frame, and a selection-scoped item here would act on frames the user cannot see."""
+        """Frame scope only: a selection-scoped item here would act on frames the user cannot see."""
         if self._controller is None or not mergeable_in(self.state, SCOPE_FRAME):
             return
         menu.addAction(label_with_shortcut(LABELS[SCOPE_FRAME], ACTION_IDS[SCOPE_FRAME])).triggered.connect(
@@ -807,7 +805,6 @@ class ImageCanvas(QWidget):
             self._controller.session.remove_current_file()
 
     def _exec_clone_menu(self, pos: QPointF, global_pos) -> None:
-        """Context menu while the Clone tool is active."""
         controller = self._controller
         assert controller is not None
         count = len(self.state.config.retouch.clone_strokes)

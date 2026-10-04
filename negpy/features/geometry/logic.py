@@ -2497,9 +2497,7 @@ def rotate_geometry_and_analysis(
     own geometry, crop rect and analysis rect. `direction` is +1/-1 quarter-turns
     CCW as seen on screen; a mirror inverts pipeline rotation handedness, so the
     stored `rotation` field turns the opposite way under a flip while the crop and
-    analysis rects, being display-space, always turn by `direction`. The keystone is
-    applied last, in display space, so its two convergences swap axes with the turn.
-    Takes and
+    analysis rects, being display-space, always turn by `direction`. Takes and
     returns the two WorkspaceConfig fields separately, not the config itself: a
     WorkspaceConfig import here would be the only one under features/, and the
     reverse import already runs domain.models -> geometry.models.
@@ -2525,8 +2523,7 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     mirror must negate the fine-rotation angle, or toggling a flip visibly
     changes the horizon (the tilt doubles instead of mirroring). The crop
     rect lives in transformed space and mirrors along with the content
-    it frames, and the keystone, applied last, mirrors its convergence on the
-    flipped axis.
+    it frames.
     """
     if horizontal:
         new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal, converge_h=0.0 - geo.converge_h)

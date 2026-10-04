@@ -88,10 +88,8 @@ _MAGNIFIERS = (
     _Magnifier(ratio="liveviewimagezoomratio"),  # PTP_VENDOR_NIKON
 )
 
-#: Driver entries whose magnifier stops the preview stream: the body enters its enlarged view
-#: and answers every frame request "Device Busy" until the ratio is back at full frame. A
-#: body not listed here is caught by the preview loop, at the cost of one stalled frame
-#: request.
+#: Driver entries whose magnifier stops the preview: the body answers every frame request "Device Busy"
+#: until the ratio is back at full frame. The preview loop catches an unlisted body after one stalled frame.
 _STALLING_MAGNIFIER_DRIVERS = frozenset({"Nikon DSC D3300"})
 
 #: Where the camera should put the file it just took. Tethered capture wants it in memory,
