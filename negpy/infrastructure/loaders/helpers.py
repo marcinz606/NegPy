@@ -322,7 +322,7 @@ def dng_bounded_preview(
             segment_height = int(page.tilelength if page.is_tiled else page.rowsperstrip or height)
             segment_width = int(page.tilewidth if page.is_tiled else width)
             segment_bytes = segment_height * segment_width * int(page.samplesperpixel) * itemsize
-            if page.dtype not in (np.uint8, np.uint16) or segment_bytes > _DNG_STREAM_PREVIEW_MAX_BYTES:
+            if page.dtype not in (np.uint8, np.uint16, np.float16, np.float32) or segment_bytes > _DNG_STREAM_PREVIEW_MAX_BYTES:
                 return True, None
 
             scale = min(1.0, max(1, int(max_edge)) / max(height, width))
@@ -333,7 +333,7 @@ def dng_bounded_preview(
             def tag(name: str) -> Any:
                 return page.tags.get(name) or pages[0].tags.get(name)
 
-            dtype_max = float(np.iinfo(page.dtype).max)
+            dtype_max = float(np.iinfo(page.dtype).max) if np.issubdtype(page.dtype, np.integer) else 1.0
             black = _dng_rgb_values(_dng_tag_floats(tag("BlackLevel")), 0.0)
             white = _dng_rgb_values(_dng_tag_floats(tag("WhiteLevel")), dtype_max)
             neutral = _dng_tag_floats(pages[0].tags.get("AsShotNeutral"))

@@ -141,7 +141,13 @@ _EXT = {
     ExportFormat.PNG: "png",
     ExportFormat.JXL: "jxl",
     ExportFormat.WEBP: "webp",
+    ExportFormat.DNG: "dng",
 }
+
+# Formats whose encoder takes the EXIF/XMP payload at the first write. TIFF and PNG
+# keep the post-hoc rewrite as the fallback when no plan could be built; a DNG has
+# no post-hoc path, since the rewrite would corrupt its SubIFD layout.
+EMBED_AT_ENCODE_FORMATS = frozenset({ExportFormat.TIFF, ExportFormat.PNG, ExportFormat.DNG})
 
 
 def resolve_output_dir(source_path: str, settings: ExportPreset, roll_export_root: Optional[str] = None) -> str:
@@ -324,10 +330,8 @@ class ExportWorker(QObject):
                 if prefetch_next and i > 0:
                     self._submit_prefetch(prefetcher, nxt)
 
-                # TIFF/PNG take the metadata at the first encode; the post-hoc
-                # rewrite re-compresses the full-res file.
                 embed_plan = None
-                if task.metadata_config is not None and task.export_settings.export_fmt in (ExportFormat.TIFF, ExportFormat.PNG):
+                if task.metadata_config is not None and task.export_settings.export_fmt in EMBED_AT_ENCODE_FORMATS:
                     embed_plan = export_embed_plan(
                         task.metadata_config,
                         task.source_exif,
@@ -422,7 +426,12 @@ class ExportWorker(QObject):
         if not bits:
             return status
 
-        if task.metadata_config is not None and embed_plan is None:
+        dng_metadata_dropped = False
+        if task.metadata_config is not None and embed_plan is None and task.export_settings.export_fmt == ExportFormat.DNG:
+            # Protect mode on a source with no readable EXIF has nothing to embed, so
+            # nothing was dropped.
+            dng_metadata_dropped = not (task.metadata_config.protect_original_metadata and not task.source_exif)
+        elif task.metadata_config is not None and embed_plan is None:
             if task.metadata_config.protect_original_metadata:
                 bits = preserve_source_metadata(
                     bits,
@@ -455,6 +464,9 @@ class ExportWorker(QObject):
             # The write above stamps the filesystem dates with the export time; the EXIF
             # dates are already right. Tools that sort by file date read the former.
             sync_export_filesystem_dates(path, task.file_info["path"])
+            if dng_metadata_dropped:
+                # A DNG has no post-hoc metadata path, so the drop must reach the user.
+                self.warning.emit(f"{task.file_info['name']}: metadata could not be embedded; the DNG was written without it")
         except Exception as write_err:
             if tmp_path is not None and os.path.exists(tmp_path):
                 os.unlink(tmp_path)

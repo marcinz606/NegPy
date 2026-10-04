@@ -225,17 +225,18 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict({"use_roll_average": True})
 
-    def test_retired_dng_export_migrates_to_tiff(self):
-        # DNG export was removed; a saved edit must land on the other 16-bit
-        # format, not fall through the encoder to 8-bit JPEG.
-        config = WorkspaceConfig.from_flat_dict({"export_fmt": "DNG"})
-        self.assertEqual(config.export.export_fmt, ExportFormat.TIFF)
+    def test_dng_export_is_a_live_format_again(self):
+        # DNG spent releases 0.33-0.62 retired to TIFF; a saved edit, the sticky
+        # last_export_config path (ExportConfig(**filtered)) and saved export
+        # presets must all keep DNG now that the writer is back.
+        self.assertEqual(WorkspaceConfig.from_flat_dict({"export_fmt": "DNG"}).export.export_fmt, ExportFormat.DNG)
+        self.assertEqual(ExportConfig(export_fmt="DNG").export_fmt, ExportFormat.DNG)
+        self.assertEqual(ExportPreset.from_dict({"export_fmt": "DNG"}).export_fmt, ExportFormat.DNG)
 
-    def test_retired_dng_export_migrates_outside_flat_dict(self):
-        # Covers the sticky last_export_config path (ExportConfig(**filtered))
-        # and saved export presets, neither of which goes through from_flat_dict.
-        self.assertEqual(ExportConfig(export_fmt="DNG").export_fmt, ExportFormat.TIFF)
-        self.assertEqual(ExportPreset.from_dict({"export_fmt": "DNG"}).export_fmt, ExportFormat.TIFF)
+    def test_unknown_export_format_falls_back_to_jpeg(self):
+        # The retirement map is empty, so coerce_enum is what still guards a
+        # format a future version removes.
+        self.assertEqual(ExportConfig(export_fmt="HEIF").export_fmt, ExportFormat.JPEG)
 
     def test_legacy_tiff_compression_value_coerces_to_zip(self):
         # The key was dropped while TIFF was zlib-only. It is a live setting again,

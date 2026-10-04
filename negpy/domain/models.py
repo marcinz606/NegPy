@@ -38,6 +38,7 @@ class ExportFormat(StrEnum):
     PNG = "PNG"
     JXL = "JXL"
     WEBP = "WEBP"
+    DNG = "DNG"
 
 
 class ExportPresetOutputMode(StrEnum):
@@ -63,6 +64,15 @@ class TiffCompression(StrEnum):
     NONE = "none"
     LZW = "lzw"
     ZIP = "zlib"
+
+
+class DngVariant(StrEnum):
+    """DNG sample encoding. INTEGER is uncompressed 16-bit, which every LinearRaw
+    reader decodes; FLOAT is float16 with Deflate, smaller and headroom-ready, but
+    readable only by Adobe-SDK readers and NegPy's own loader."""
+
+    INTEGER = "integer"
+    FLOAT = "float"
 
 
 _EnumT = TypeVar("_EnumT", bound=Enum)
@@ -186,6 +196,7 @@ class ExportConfig:
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4  # PIL encode effort 0-6, higher = slower/smaller
+    dng_variant: DngVariant = DngVariant.INTEGER
     export_color_space: str = ColorSpace.SRGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
@@ -215,6 +226,7 @@ class ExportConfig:
         )
         object.__setattr__(self, "output_mode", coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.ABSOLUTE))
         object.__setattr__(self, "tiff_compression", coerce_enum(TiffCompression, self.tiff_compression, TiffCompression.ZIP))
+        object.__setattr__(self, "dng_variant", coerce_enum(DngVariant, self.dng_variant, DngVariant.INTEGER))
 
 
 @dataclass
@@ -242,6 +254,7 @@ class ExportPreset:
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4
+    dng_variant: DngVariant = DngVariant.INTEGER
 
     # Sizing (same field names as ExportConfig for PrintService compatibility)
     export_resolution_mode: ExportResolutionMode = ExportResolutionMode.ORIGINAL
@@ -267,6 +280,7 @@ class ExportPreset:
         self.export_resolution_mode = coerce_enum(ExportResolutionMode, self.export_resolution_mode, ExportResolutionMode.ORIGINAL)
         self.output_mode = coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.SAME_AS_SOURCE)
         self.tiff_compression = coerce_enum(TiffCompression, self.tiff_compression, TiffCompression.ZIP)
+        self.dng_variant = coerce_enum(DngVariant, self.dng_variant, DngVariant.INTEGER)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -286,6 +300,7 @@ class ExportPreset:
             "webp_quality": self.webp_quality,
             "webp_lossless": self.webp_lossless,
             "webp_method": self.webp_method,
+            "dng_variant": self.dng_variant,
             "export_resolution_mode": self.export_resolution_mode,
             "paper_aspect_ratio": self.paper_aspect_ratio,
             "export_print_size": self.export_print_size,
@@ -332,6 +347,7 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         webp_quality=conf.webp_quality,
         webp_lossless=conf.webp_lossless,
         webp_method=conf.webp_method,
+        dng_variant=conf.dng_variant,
         export_resolution_mode=conf.export_resolution_mode,
         paper_aspect_ratio=conf.paper_aspect_ratio,
         export_print_size=conf.export_print_size,

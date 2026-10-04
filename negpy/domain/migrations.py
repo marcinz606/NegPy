@@ -97,9 +97,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# Retired export formats -> the closest surviving one. DNG maps to TIFF, the other
-# 16-bit master, so a saved DNG preset keeps its bit depth instead of 8-bit JPEG.
-RETIRED_EXPORT_FORMATS: Dict[str, str] = {"DNG": "TIFF"}
+# Retired export formats -> the closest surviving one, so a saved preset keeps its
+# bit depth instead of falling through the encoder to 8-bit JPEG.
+RETIRED_EXPORT_FORMATS: Dict[str, str] = {}
 
 
 def migrate_export_fmt(fmt: str) -> str:

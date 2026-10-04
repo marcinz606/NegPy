@@ -958,9 +958,10 @@ A gear library for Metadata (§11), Roll Settings and every gear picker. **My Ge
 
 ### Format / Size / Color Management / Destination
 
-*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL` or `WebP`, each with quality or effort options. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Grayscale`**; `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC give an error.
-*   **Bit Depth**: `8-bit` or `16-bit` (TIFF, PNG, JPEG XL). Hidden for JPEG, WebP and a flat master (always 16-bit).
+*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, `WebP` or `DNG`, each with quality or effort options. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Grayscale`**; `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC give an error.
+*   **Bit Depth**: `8-bit` or `16-bit` (TIFF, PNG, JPEG XL). Hidden for JPEG, WebP, DNG and a flat master (always 16-bit).
 *   **Compression** (TIFF): `Uncompressed`, `LZW` or `ZIP`, all lossless; ZIP is usually smallest.
+*   **Variant** (DNG): `16-bit integer (universal)` opens in every DNG reader; `Float, compressed` stores float16 samples with lossless Deflate, so the file is smaller; Lightroom, Camera Raw, darktable and NegPy itself read it, while RawTherapee and LibRaw-based viewers need the integer variant. A DNG carries the rendered frame scene-linear with NegPy's working primaries, so a raw editor opens it with full Temp/Tint white balance; the Export profile does not apply. The embedded NegPy Linear profile makes Lightroom and Camera Raw open the file as NegPy rendered it; picking an Adobe profile applies that look instead, and darktable and RawTherapee apply their own default look over NegPy's pixels.
 *   **Compression** (PNG): `0` to `9`, lossless; higher is slower and smaller.
 *   **Progressive** (JPEG): renders in passes while it downloads.
 *   **Input ICC**: treat an untagged source as this profile. Primaries only: a matrix profile's TRC is ignored; a LUT profile's input curves still apply.

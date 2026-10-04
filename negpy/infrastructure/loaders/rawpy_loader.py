@@ -50,6 +50,13 @@ def _find_linearraw_page(tif: "tifffile.TiffFile", samples: int) -> Optional[Any
     return None
 
 
+def _libraw_blind_3ch(page: Any) -> bool:
+    """LinearRaw pages LibRaw cannot decode: DNG 1.7 JPEG-XL payloads, and
+    floating-point samples, which a LibRaw built without the Adobe DNG SDK opens
+    black or not at all — NegPy's own float DNG export among them."""
+    return int(page.compression) in _JPEG_XL_COMPRESSIONS or page.dtype.kind == "f"
+
+
 def _is_dng(file_path: str) -> bool:
     return os.path.splitext(file_path)[1].lower() == ".dng"
 
@@ -103,7 +110,7 @@ def _stream_linearraw_preview(
     def tag(name: str) -> Optional[Any]:
         return page.tags.get(name) or page0.tags.get(name)
 
-    dtype_max = float(np.iinfo(page.dtype).max)
+    dtype_max = float(np.iinfo(page.dtype).max) if np.issubdtype(page.dtype, np.integer) else 1.0
     linearization_tag = tag("LinearizationTable") if normalize_tags else None
     linearization = np.asarray(linearization_tag.value, dtype=np.float32) if linearization_tag is not None else None
     black = _broadcast3(_tag_floats(tag("BlackLevel")), 0.0).astype(np.float32).reshape(1, 1, 3)
@@ -182,7 +189,7 @@ def _linearraw_page_is_streamable(page: Any) -> bool:
 
 def _linearraw_segment_bytes(page: Any) -> Optional[int]:
     shape = tuple(int(value) for value in page.shape)
-    if len(shape) != 3 or shape[2] not in (3, 4) or page.dtype not in (np.uint8, np.uint16):
+    if len(shape) != 3 or shape[2] not in (3, 4) or page.dtype not in (np.uint8, np.uint16, np.float16, np.float32):
         return None
     height, width, samples = shape
     segment_height = int(page.tilelength if page.is_tiled else page.rowsperstrip or height)
@@ -236,7 +243,7 @@ def _peek_linear_dng_rgb_preview(
         with tifffile.TiffFile(file_path) as tif:
             page0 = tif.pages[0]
             main = _find_linearraw_page(tif, samples=3)
-            if main is None or int(main.compression) not in _JPEG_XL_COMPRESSIONS:
+            if main is None or not _libraw_blind_3ch(main):
                 return False, None
             handled = True
             streamed = _stream_linearraw_preview(
@@ -297,7 +304,26 @@ def _peek_linearraw_4ch_preview(
     return True, (np.ascontiguousarray(full[:, :, :3]), np.ascontiguousarray(full[:, :, 3]), full_dims)
 
 
-def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[Tuple[float, float, float]]]]:
+def _linear_dng_fallback_result(file_path: str, *, only_libraw_blind: bool = False) -> Optional[Tuple[Any, dict]]:
+    """Full-resolution tifffile decode of a LinearRaw DNG as (wrapper, metadata)."""
+    fallback = _peek_linear_dng_rgb(file_path, only_libraw_blind=only_libraw_blind)
+    if fallback is None:
+        return None
+    rgb, wb_gains = fallback
+    metadata: dict = {
+        "orientation": read_orientation(file_path),
+        "raw_flip": 0,
+        "color_space": None,
+        "ir": None,
+    }
+    wrapper = NonStandardFileWrapper(rgb, wb_gains=wb_gains)
+    metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), wrapper, fallback=True)
+    return wrapper, metadata
+
+
+def _peek_linear_dng_rgb(
+    file_path: str, *, only_libraw_blind: bool = False
+) -> Optional[Tuple[np.ndarray, Optional[Tuple[float, float, float]]]]:
     """Decode a 3-sample LinearRaw DNG that libraw can't read (DNG 1.7 JPEG-XL from DxO
     PhotoLab/PureRAW and Lightroom Enhance, and similar) directly via tifffile/imagecodecs,
     replaying the linearization/black-white steps libraw's postprocess() would otherwise
@@ -315,6 +341,8 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
             page0 = tif.pages[0]
             main = _find_linearraw_page(tif, samples=3)
             if main is None:
+                return None
+            if only_libraw_blind and not _libraw_blind_3ch(main):
                 return None
             arr = main.asarray()  # type: ignore[attr-defined]
             if arr.ndim != 3 or arr.shape[2] != 3:
@@ -463,7 +491,7 @@ class RawpyLoader(IImageLoader):
                 if page_4ch is not None:
                     return _streaming_linearraw_memory_estimate(page_4ch, page0, max_edge, normalize_tags=False)
                 page_3ch = _find_linearraw_page(tif, samples=3)
-                if page_3ch is None or int(page_3ch.compression) not in _JPEG_XL_COMPRESSIONS:
+                if page_3ch is None or not _libraw_blind_3ch(page_3ch):
                     return None
                 return _streaming_linearraw_memory_estimate(
                     page_3ch,
@@ -527,6 +555,13 @@ class RawpyLoader(IImageLoader):
             return NonStandardFileWrapper(rgb), metadata
 
         if _is_dng(file_path):
+            # Detection, not failure, routes a LibRaw-blind page: a floating-point
+            # LinearRaw opens through rawpy without error and decodes to zeros, so
+            # waiting for an exception would hand the pipeline a black frame.
+            if preview_max_edge is None:
+                direct = _linear_dng_fallback_result(file_path, only_libraw_blind=True)
+                if direct is not None:
+                    return direct
             raw = None
             try:
                 raw = rawpy.imread(file_path)
@@ -540,19 +575,10 @@ class RawpyLoader(IImageLoader):
             except rawpy.LibRawError:
                 if raw is not None:
                     raw.close()
-                fallback = _peek_linear_dng_rgb(file_path) if preview_max_edge is None else None
-                if fallback is None:
+                result = _linear_dng_fallback_result(file_path) if preview_max_edge is None else None
+                if result is None:
                     raise
-                rgb, wb_gains = fallback
-                metadata = {
-                    "orientation": read_orientation(file_path),
-                    "raw_flip": 0,
-                    "color_space": None,
-                    "ir": None,
-                }
-                wrapper = NonStandardFileWrapper(rgb, wb_gains=wb_gains)
-                metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), wrapper, fallback=True)
-                return wrapper, metadata
+                return result
         else:
             raw = rawpy.imread(file_path)
             if should_cancel is not None and should_cancel():

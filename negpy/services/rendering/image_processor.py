@@ -15,6 +15,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.domain.types import ImageBuffer
 from negpy.domain.models import (
     WorkspaceConfig,
+    DngVariant,
     ExportConfig,
     ExportFormat,
     ExportResolutionMode,
@@ -1539,6 +1540,38 @@ class ImageProcessor:
         icc_output = export_settings.icc_output_path
         if resolution is _DERIVE_RESOLUTION:
             resolution = Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
+
+        if fmt == ExportFormat.DNG:
+            # No ICC leg: the DNG carries working-space primaries through ColorMatrix1,
+            # and the pixels go out scene-linear (the OETF is a pure power, so the
+            # decode is exact in float32).
+            from negpy.services.export.dng import encode_dng
+
+            meta_kwargs = None
+            if embed_plan is not None:
+                from negpy.features.metadata.writer import tiff_metadata_kwargs
+
+                plan_exif, plan_xmp, fold = embed_plan
+                meta_kwargs = tiff_metadata_kwargs(plan_exif, plan_xmp, fold_user_comment=fold)
+            arr = np.asarray(buffer, dtype=np.float32)
+            if arr.ndim == 2:
+                arr = np.stack([arr, arr, arr], axis=2)
+            # A matrix Input ICC re-interprets an untagged source's primaries; it must
+            # land in the pixels here, since ColorMatrix1 asserts working primaries. A
+            # LUT profile needs the CMS leg DNG does not have, so it cannot apply.
+            arr, bypassed = self._try_matrix_bypass(arr, icc_input)
+            if icc_input and not bypassed and os.path.exists(icc_input):
+                logger.warning("Input ICC is a LUT profile; DNG export cannot apply it and the working-space pixels go out as they are")
+            linear = np.clip(np.asarray(working_oetf_decode(arr)), 0.0, 1.0)
+            return (
+                encode_dng(
+                    linear,
+                    float_variant=export_settings.dng_variant != DngVariant.INTEGER,
+                    resolution=_tiff_resolution(resolution, export_settings),
+                    meta_kwargs=meta_kwargs,
+                ),
+                "dng",
+            )
 
         # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be neither
         # converted to nor tagged, so the file would carry untagged working-space pixels.

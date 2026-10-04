@@ -282,6 +282,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("JXL Lossless", "export", "jxl_lossless", sticky=True),
         _row("JXL Distance", "export", "jxl_distance", sticky=True),
         _row("JXL Effort", "export", "jxl_effort", sticky=True),
+        _row("DNG Variant", "export", "dng_variant", sticky=True),
         _row("WebP Quality", "export", "webp_quality", sticky=True),
         _row("WebP Lossless", "export", "webp_lossless", sticky=True),
         _row("WebP Method", "export", "webp_method", sticky=True),

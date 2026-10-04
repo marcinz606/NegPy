@@ -17,13 +17,22 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
-from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, icon_button, section_subheader, tool_toggle
+from negpy.desktop.view.styles.templates import (
+    field_label,
+    header_row,
+    hint_label,
+    icon_button,
+    section_subheader,
+    tool_toggle,
+    wrap_tooltip,
+)
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.domain.models import (
     EXPORT_COLOR_SPACES,
     JXL_TAGGABLE_SPACES,
     AspectRatio,
     ColorSpace,
+    DngVariant,
     ExportFormat,
     ExportPresetOutputMode,
     ExportResolutionMode,
@@ -157,6 +166,7 @@ class ExportSettingsForm(QWidget):
         self._build_png(options_box)
         self._build_jxl(options_box)
         self._build_webp(options_box)
+        self._build_dng(options_box)
         format_box.addWidget(SliderGroup(options))
         root.addWidget(self._format_section)
 
@@ -177,6 +187,29 @@ class ExportSettingsForm(QWidget):
         self.tiff_compression_combo.currentIndexChanged.connect(self._on_changed)
         tiff_row.addWidget(self.tiff_compression_combo)
         root.addWidget(self._tiff_container)
+
+    def _build_dng(self, root: QVBoxLayout) -> None:
+        self._dng_container = QWidget()
+        dng_row = QHBoxLayout(self._dng_container)
+        dng_row.setContentsMargins(0, 0, 0, 0)
+        dng_row.addWidget(self._row_label("Variant"))
+        self.dng_variant_combo = QComboBox()
+        for label, data in (
+            ("16-bit integer (universal)", DngVariant.INTEGER),
+            ("Float, compressed", DngVariant.FLOAT),
+        ):
+            self.dng_variant_combo.addItem(label, data)
+        self.dng_variant_combo.setToolTip(
+            wrap_tooltip(
+                "Both are lossless. Integer opens in every DNG reader. Float is smaller "
+                "(Deflate); Lightroom, Camera Raw and darktable read it, RawTherapee and "
+                "simpler viewers do not"
+            )
+        )
+        constrain_combo(self.dng_variant_combo)
+        self.dng_variant_combo.currentIndexChanged.connect(self._on_changed)
+        dng_row.addWidget(self.dng_variant_combo)
+        root.addWidget(self._dng_container)
 
     def _build_png(self, root: QVBoxLayout) -> None:
         self._png_container = QWidget()
@@ -507,6 +540,10 @@ class ExportSettingsForm(QWidget):
         self._png_container.setVisible(fmt == ExportFormat.PNG)
         self._jxl_container.setVisible(fmt == ExportFormat.JXL)
         self._webp_container.setVisible(fmt == ExportFormat.WEBP)
+        self._dng_container.setVisible(fmt == ExportFormat.DNG)
+        # DNG carries working-space primaries through ColorMatrix1; the target
+        # profile never reaches it.
+        self.export_profile_combo.setEnabled(fmt != ExportFormat.DNG)
         # A flat master is always 16-bit, so the row would name a choice the export overrides.
         depth_formats = (ExportFormat.TIFF, ExportFormat.PNG, ExportFormat.JXL)
         self._depth_container.setVisible(fmt in depth_formats and not self._flat_mode)
@@ -694,6 +731,9 @@ class ExportSettingsForm(QWidget):
             comp_idx = self.tiff_compression_combo.findData(TiffCompression(v.get("tiff_compression", TiffCompression.ZIP)))
             self.tiff_compression_combo.setCurrentIndex(comp_idx if comp_idx >= 0 else 0)
 
+            dng_idx = self.dng_variant_combo.findData(DngVariant(v.get("dng_variant", DngVariant.INTEGER)))
+            self.dng_variant_combo.setCurrentIndex(dng_idx if dng_idx >= 0 else 0)
+
             self.png_level_spin.setValue(v.get("png_compress_level", 6))
 
             self.jxl_lossless_btn.setChecked(v.get("jxl_lossless", True))
@@ -747,6 +787,7 @@ class ExportSettingsForm(QWidget):
             "jpeg_quality": int(self.quality_spin.value()),
             "jpeg_progressive": self.jpeg_progressive_btn.isChecked(),
             "tiff_compression": self.tiff_compression_combo.currentData(),
+            "dng_variant": self.dng_variant_combo.currentData(),
             "png_compress_level": int(self.png_level_spin.value()),
             "jxl_lossless": self.jxl_lossless_btn.isChecked(),
             "jxl_distance": self.jxl_distance_spin.value(),
