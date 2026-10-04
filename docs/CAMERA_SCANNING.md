@@ -159,6 +159,7 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
 | The aperture stepper is grayed out | The lens has no electronic diaphragm. | Expected. Set the aperture on the lens itself. |
 | A setting snaps back to its old value | Property writes are asynchronous, so the body needs a moment. | NegPy polls until the value lands and logs a warning if it never does. If it never does, that setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | The Scanlight has two ports and only one carries data. The other is power only. Use the data port. |
+| The Scanlight is not detected on Linux, and the data port is right | The user cannot open the serial port. The Scanlight is a USB serial device, and most distributions give its port to the `dialout` group. | `sudo usermod -aG dialout $USER`, then log out and back in. Running NegPy with sudo also works, but the group is the fix. |
 
 ---
 
