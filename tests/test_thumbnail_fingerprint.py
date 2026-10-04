@@ -197,10 +197,7 @@ def _current_defaults() -> dict[str, dict[str, str]]:
 
 
 def test_a_changed_default_bumps_the_render_version() -> None:
-    """A field at its default is not hashed, so a changed default leaves old thumbnails
-    current unless THUMBNAIL_RENDER_VERSION moves. Fields missing from the golden are not
-    checked; NEGPY_RECORD_THUMBNAIL_DEFAULTS=1 records them, and rewrites the golden after
-    a bump."""
+    # Fields missing from the golden are not checked; NEGPY_RECORD_THUMBNAIL_DEFAULTS=1 records them.
     with open(_DEFAULTS_GOLDEN) as fh:
         golden = json.load(fh)
     current = _current_defaults()

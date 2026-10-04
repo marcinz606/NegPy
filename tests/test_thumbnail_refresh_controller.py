@@ -838,8 +838,6 @@ class TestThumbnailRefreshController:
         assert self.controller.state.last_metrics["render_identity"] == ("active", base)
 
     def test_switching_away_writes_even_when_the_stored_fingerprint_matches(self) -> None:
-        """A pipeline or default change made without a THUMBNAIL_RENDER_VERSION bump keeps
-        the fingerprint, so only the write replaces the old pixels on disk."""
         self._file_it_here()
         self._live_render(("active", self.controller.state.config))
         self.controller._update_thumbnail_from_state(persist=True)
