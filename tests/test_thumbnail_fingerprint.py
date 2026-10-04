@@ -1,10 +1,12 @@
+import json
 import os
 import tempfile
-from dataclasses import replace
+from dataclasses import dataclass, fields, replace
 
 from PIL import Image
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.hdr.models import HdrConfig
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -81,6 +83,21 @@ class TestThumbnailFingerprint:
         config = WorkspaceConfig()
         assert _fp(replace(config, lab=replace(config.lab, saturation=config.lab.saturation + 0.2))) != _fp(config)
         assert _fp(replace(config, process=replace(config.process, highlight_reconstruction=1))) != _fp(config)
+
+    def test_a_new_defaulted_field_leaves_it_unchanged(self) -> None:
+        @dataclass(frozen=True)
+        class GrownHdr(HdrConfig):
+            hdr_new_field: bool = False
+
+        config = WorkspaceConfig()
+        assert _fp(replace(config, hdr=GrownHdr())) == _fp(config)
+        assert _fp(replace(config, hdr=GrownHdr(hdr_new_field=True))) != _fp(config)
+
+    def test_a_value_set_back_to_its_default_matches_the_default(self) -> None:
+        config = WorkspaceConfig()
+        density = config.exposure.density
+        edited = replace(config, exposure=replace(config.exposure, density=density + 0.1))
+        assert _fp(replace(edited, exposure=replace(edited.exposure, density=density))) == _fp(config)
 
     def test_workspace_color_space_changes_it(self) -> None:
         assert _fp(WorkspaceConfig(), workspace_color_space="ProPhoto RGB") != _fp(WorkspaceConfig())
@@ -165,6 +182,42 @@ class TestAssetStoreFingerprint:
         self.store.save_thumbnail("h3", self.img, fingerprint="deadbeef")
         self.store.clear_thumbnails()
         assert self.store.get_thumbnail_fingerprint("h3") is None
+
+
+_DEFAULTS_GOLDEN = os.path.join(os.path.dirname(__file__), "thumbnail_fingerprint_defaults.json")
+
+
+def _current_defaults() -> dict[str, dict[str, str]]:
+    config = WorkspaceConfig()
+    return {
+        f.name: dict(tf._section_defaults(type(getattr(config, f.name))))
+        for f in fields(config)
+        if f.name not in tf._NON_PIXEL_SECTIONS and f.name not in tf._BELOW_THUMBNAIL_SECTIONS
+    }
+
+
+def test_a_changed_default_bumps_the_render_version() -> None:
+    """A field at its default is not hashed, so a changed default leaves old thumbnails
+    current unless THUMBNAIL_RENDER_VERSION moves. Fields missing from the golden are not
+    checked; NEGPY_RECORD_THUMBNAIL_DEFAULTS=1 records them, and rewrites the golden after
+    a bump."""
+    with open(_DEFAULTS_GOLDEN) as fh:
+        golden = json.load(fh)
+    current = _current_defaults()
+    changed = [
+        f"{section}.{name}"
+        for section, recorded in golden["defaults"].items()
+        for name, value in recorded.items()
+        if name in current.get(section, {}) and current[section][name] != value
+    ]
+    if golden["render_version"] == tf.THUMBNAIL_RENDER_VERSION:
+        assert not changed, f"defaults changed without a THUMBNAIL_RENDER_VERSION bump: {changed}"
+    else:
+        assert os.environ.get("NEGPY_RECORD_THUMBNAIL_DEFAULTS"), "render version moved: rerun with NEGPY_RECORD_THUMBNAIL_DEFAULTS=1"
+    if os.environ.get("NEGPY_RECORD_THUMBNAIL_DEFAULTS"):
+        with open(_DEFAULTS_GOLDEN, "w") as fh:
+            json.dump({"render_version": tf.THUMBNAIL_RENDER_VERSION, "defaults": current}, fh, indent=1, sort_keys=True)
+            fh.write("\n")
 
 
 def _other_value(value):
