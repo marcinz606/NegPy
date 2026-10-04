@@ -1046,7 +1046,7 @@ Capture film directly into NegPy. The **Scanner** card picks the scanner; the ta
 
 **Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls follow what the device reports; a row or card with nothing for the device is hidden.
 
-*   **Device**: the scanner; the arrows refresh the list, the eject button returns the film.
+*   **Device**: the scanner; the arrows refresh the list. The eject button's menu holds **Eject Now** and, on a strip feeder, **Eject When Done** (on by default), which returns the strip after a batch. Off keeps it loaded with its picks and previews, so more frames scan without a new preview. A strip the scanner returns by itself (its idle timeout) counts as an eject: insert it again, then **Detect frames**. After 9 minutes with no scanner activity NegPy measures the strip again.
 *   **Debug log** (nkscan; Off, Debug, Trace): writes `nkscan.log` in the NegPy folder; the folder button opens it. For a bug report, set Trace, reproduce the problem and attach the file.
 
 **pyOpticfilm (Plustek)**: the **OpticFilm 8200i SE** (`07b3:1825`) and **8100 V2** (`07b3:1824`) scan; for other models try **SANE** on Linux and macOS. **IR** comes in the same pass. On Windows, bind the device to **WinUSB** with Zadig first ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). From source, install with `uv sync --group plustek` or `pip install negpy[plustek]`.
@@ -1069,9 +1069,8 @@ Capture film directly into NegPy. The **Scanner** card picks the scanner; the ta
 <!-- panel:scan_framing -->
 ### Framing
 
-*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
+*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes, approximate disk use and, in amber, an active exposure lock.
 *   **Batch** / **Window**: on a feeder, **Preview strip…** previews every frame, to set windows and pick frames; with a manual holder, **Preview…** sets one crop window. Only the window is scanned; **Clear** resets it. On nkscan the preview reads the whole strip in one pass; **Detect frames** reads it again after the film moves.
-*   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its picks and previews, so more frames scan without a new preview. A strip the scanner returns by itself (its idle timeout) counts as an eject: insert it again, then **Detect frames**. After 9 minutes with no scanner activity NegPy measures the strip again.
 *   **Exposure lock** (**Meter Frame…** / **Unlock**, nkscan): nkscan meters each frame alone, so an end frame can scan in a different color. **Meter Frame…** meters one frame inside the strip (such as frame 2), and every later scan reuses that exposure, across strips and restarts, until **Unlock**. Meter again for each roll.
 *   **Crop** (**Prescan…**, Plustek): a 1200 dpi full-window preview; drag a crop and leave with **Apply Crop** or **Scan Frame**, and the next scan reads only that area. **Clear** scans the full window.
 

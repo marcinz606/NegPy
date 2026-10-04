@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -20,9 +21,9 @@ from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
     field_row,
     hint_label,
+    set_hint_kind,
     icon_button as _icon_button,
     labeled_action,
-    labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     StatusStrip,
     tool_toggle,
@@ -249,7 +250,19 @@ class ScanSidebar(QWidget):
         self.device_combo.setToolTip(wrap_tooltip("Select scanner"))
         self.device_combo.addItem("Detecting scanners…", None)
         self.refresh_btn = _icon_button("fa5s.redo", "Refresh device list")
-        self.eject_btn = _icon_button("fa5s.eject", "Eject film")
+        self.eject_btn = _icon_button("fa5s.eject", "Eject now, or eject the strip when a batch is done")
+        self.eject_btn.setObjectName("icon_menu_btn")
+        eject_menu = QMenu(self.eject_btn)
+        eject_menu.setToolTipsVisible(True)
+        self.eject_now_act = eject_menu.addAction("Eject Now")
+        self.eject_after_act = eject_menu.addAction("Eject When Done")
+        self.eject_after_act.setCheckable(True)
+        self.eject_after_act.setChecked(self._settings.eject_after_batch)
+        self.eject_after_act.setToolTip(
+            "Return the strip after a batch. Off keeps it and its previews loaded; an idle scanner can still return it."
+        )
+        self.eject_after_act.setVisible(False)
+        self.eject_btn.setMenu(eject_menu)
         self.eject_btn.setVisible(False)
         device.addLayout(field_row("Device", self.device_combo, self.refresh_btn, self.eject_btn))
 
@@ -323,14 +336,14 @@ class ScanSidebar(QWidget):
         self.samples_widget = self._row_widget(field_row("Samples", self.samples_btn))
         quality.addWidget(self.samples_widget)
 
-        self.ir_btn = tool_toggle("", "IR", "Scan a separate infrared channel for dust detection")
+        self.ir_btn = tool_toggle("fa5s.layer-group", "IR", "Scan a separate infrared channel for dust detection")
         self.clean_btn = tool_toggle(
-            "", "ICE", "Remove dust and scratches with the infrared channel while scanning. Color film only; baked into the file."
+            "fa5s.broom", "ICE", "Remove dust and scratches with the infrared channel while scanning. Color film only; baked into the file."
         )
-        self.superfine_btn = tool_toggle("", "Superfine", "Read one line per pass: slower, and free of line registration")
-        self.autofocus_btn = tool_toggle("", "Autofocus", "Autofocus before scanning (film is rarely perfectly flat)")
+        self.superfine_btn = tool_toggle("fa5s.align-justify", "Superfine", "Read one line per pass: slower, and free of line registration")
+        self.autofocus_btn = tool_toggle("fa5s.bullseye", "Autofocus", "Autofocus before scanning (film is rarely perfectly flat)")
         self.autofocus_btn.setChecked(True)
-        self.ae_btn = tool_toggle("", "Auto-exposure", "Meter exposure in hardware before the scan")
+        self.ae_btn = tool_toggle("fa5s.sun", "Auto-exposure", "Meter exposure in hardware before the scan")
         for row_btns in ((self.ir_btn, self.clean_btn, self.superfine_btn), (self.autofocus_btn, self.ae_btn)):
             row = QHBoxLayout()
             for btn in row_btns:
@@ -357,8 +370,8 @@ class ScanSidebar(QWidget):
         framing.addWidget(self.frame_spec_widget)
 
         # Scan window (strip/roll feeders): set once from a preview, reused per frame.
-        self.scan_window_btn = labeled_action("", "Preview…", "Preview a frame and set the scan window reused for every frame")
-        self.scan_window_clear_btn = labeled_action("", "Clear", "Scan the whole default frame instead")
+        self.scan_window_btn = labeled_action("fa5s.eye", " Preview…", "Preview a frame and set the scan window reused for every frame")
+        self.scan_window_clear_btn = labeled_action("fa5s.times", " Clear", "Scan the whole default frame instead")
         scan_window_row = field_row("Batch", self.scan_window_btn, self.scan_window_clear_btn)
         self.scan_window_row_label = scan_window_row.itemAt(0).widget()
         self.scan_window_widget = self._row_widget(scan_window_row)
@@ -368,23 +381,14 @@ class ScanSidebar(QWidget):
         self.scan_window_widget.setVisible(False)
         self.scan_window_status.setVisible(False)
 
-        self.eject_after_btn = labeled_toggle(
-            "fa5s.eject",
-            " Eject When Done",
-            self._settings.eject_after_batch,
-            "Return the strip after a batch. Off keeps it and its previews loaded; an idle scanner can still return it.",
-        )
-        self.eject_after_btn.setVisible(False)
-        framing.addWidget(self.eject_after_btn)
-
         # Exposure lock: meter one frame, then every scan of the roll reuses its exposure.
         self.exposure_meter_btn = labeled_action(
-            "",
-            "Meter Frame…",
+            "fa5s.lock",
+            " Meter Frame…",
             "Meter one frame and reuse its exposure for every scan until unlocked. Pick a frame "
             "inside the strip: a strip end meters on the bare light past the cut.",
         )
-        self.exposure_unlock_btn = labeled_action("", "Unlock", "Meter every frame on its own again")
+        self.exposure_unlock_btn = labeled_action("fa5s.lock-open", " Unlock", "Meter every frame on its own again")
         self.exposure_lock_widget = self._row_widget(field_row("Exposure lock", self.exposure_meter_btn, self.exposure_unlock_btn))
         framing.addWidget(self.exposure_lock_widget)
         self.exposure_lock_status = hint_label("")
@@ -392,8 +396,8 @@ class ScanSidebar(QWidget):
         self._set_exposure_lock_visible(False)
 
         # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
-        self.prescan_btn = labeled_action("", "Prescan…", "Scan a low-DPI preview and set the crop for the next scan")
-        self.prescan_clear_btn = labeled_action("", "Clear", "Scan the full window instead of a crop")
+        self.prescan_btn = labeled_action("fa5s.eye", " Prescan…", "Scan a low-DPI preview and set the crop for the next scan")
+        self.prescan_clear_btn = labeled_action("fa5s.times", " Clear", "Scan the full window instead of a crop")
         self.prescan_widget = self._row_widget(field_row("Crop", self.prescan_btn, self.prescan_clear_btn))
         self.prescan_widget.setVisible(False)
         framing.addWidget(self.prescan_widget)
@@ -441,7 +445,7 @@ class ScanSidebar(QWidget):
 
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
-        self.eject_btn.clicked.connect(self._on_eject)
+        self.eject_now_act.triggered.connect(self._on_eject)
         self.debug_log_btn.currentChanged.connect(self._on_debug_log_changed)
         self.debug_log_folder_btn.clicked.connect(self._on_show_debug_log)
         self.backend_btn.currentChanged.connect(self._on_backend_changed)
@@ -455,7 +459,7 @@ class ScanSidebar(QWidget):
         self.mode_btn.currentChanged.connect(self._on_mode_changed)
         self.passes_slider.valueChanged.connect(lambda _v: self._update_settings_from_ui())
         self.autofocus_btn.toggled.connect(lambda: self._update_settings_from_ui())
-        self.eject_after_btn.toggled.connect(lambda: self._update_settings_from_ui())
+        self.eject_after_act.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_btn.toggled.connect(lambda: self._on_ae_toggled())
         self.clean_btn.toggled.connect(lambda on: self._on_ir_pass_toggled(self.ir_btn, on))
         self.superfine_btn.toggled.connect(lambda: self._update_settings_from_ui())
@@ -609,7 +613,7 @@ class ScanSidebar(QWidget):
             self.mode_btn.setEnabled(False)
             self.eject_btn.setVisible(False)
             self.frame_spec_widget.setVisible(False)
-            self.eject_after_btn.setVisible(False)
+            self.eject_after_act.setVisible(False)
             self.scan_window_widget.setVisible(False)
             self.scan_window_status.setVisible(False)
             self._set_exposure_lock_visible(False)
@@ -835,7 +839,7 @@ class ScanSidebar(QWidget):
         # counts slots or measures them off the film.
         is_strip = _reaches_a_strip(caps)
         self.frame_spec_widget.setVisible(is_strip)
-        self.eject_after_btn.setVisible(is_strip and caps.can_eject)
+        self.eject_after_act.setVisible(is_strip and caps.can_eject)
         if is_strip:
             self._sync_frame_spec()
 
@@ -847,10 +851,10 @@ class ScanSidebar(QWidget):
         if use_window:
             self.scan_window_row_label.setText("Batch" if is_strip else "Window")
             if is_strip:
-                self.scan_window_btn.setText("Preview strip…")
+                self.scan_window_btn.setText(" Preview strip…")
                 self.scan_window_btn.setToolTip("Preview each frame, set a window per frame, and pick which frames to scan")
             else:
-                self.scan_window_btn.setText("Preview…")
+                self.scan_window_btn.setText(" Preview…")
                 self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
             self._update_scan_window_status()
 
@@ -1100,6 +1104,8 @@ class ScanSidebar(QWidget):
 
         locked = self._locked_exposures(self._current_device()) is not None
         self.exposure_unlock_btn.setEnabled(locked and not self._scanning)
+        set_hint_kind(self.exposure_lock_status, "warning" if locked else "muted")
+        self._update_summary()
         if not locked:
             self.exposure_lock_status.setText("Each frame is metered on its own. Meter a mid-strip frame to lock the roll.")
             return
@@ -1259,6 +1265,8 @@ class ScanSidebar(QWidget):
             *passes,
             strong.format(size),
         ]
+        if self._locked_exposures(device) is not None:
+            parts.append(f'<span style="color: {THEME.warn_amber}">Exposure locked (frame {self._settings.exposure_lock_frame})</span>')
         self.status_strip.set_summary("  ·  ".join(parts))
 
     def _on_scan(self) -> None:
@@ -1507,6 +1515,6 @@ class ScanSidebar(QWidget):
             selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),
             output_format=str(self.fmt_btn.currentData()),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
-            eject_after_batch=self.eject_after_btn.isChecked(),
+            eject_after_batch=self.eject_after_act.isChecked(),
         )
         self._update_summary()
