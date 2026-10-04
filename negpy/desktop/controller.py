@@ -7927,8 +7927,6 @@ class AppController(QObject):
                 self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
                 self.session.asset_model.refresh()
                 return
-            if fingerprint == self.asset_store.get_thumbnail_fingerprint(asset_thumbnail_key(asset)):
-                return  # the disk already holds this render; the filmstrip got it when it landed
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
         task = ThumbnailUpdateTask(

@@ -845,7 +845,9 @@ class TestThumbnailRefreshController:
 
         assert self.controller.state.last_metrics["render_identity"] == ("active", base)
 
-    def test_switching_away_skips_the_write_when_the_disk_already_holds_the_render(self) -> None:
+    def test_switching_away_writes_even_when_the_stored_fingerprint_matches(self) -> None:
+        """A pipeline or default change made without a THUMBNAIL_RENDER_VERSION bump keeps
+        the fingerprint, so only the write replaces the old pixels on disk."""
         self._file_it_here()
         self._live_render(("active", self.controller.state.config))
         self.controller._update_thumbnail_from_state(persist=True)
@@ -855,7 +857,8 @@ class TestThumbnailRefreshController:
 
         self.controller._update_thumbnail_from_state(persist=True)
 
-        assert len(self.thumbnail_updates) == count
+        assert len(self.thumbnail_updates) == count + 1
+        assert self.thumbnail_updates[-1].fingerprint == task.fingerprint
 
     # A batch turn keeps a current thumbnail current.
 
