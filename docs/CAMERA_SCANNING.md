@@ -73,17 +73,16 @@ automatically. There is no address to type, no login and no pairing.
 
 **Frame and focus.** Open **Live View & Scan**. Click anywhere on the image to aim the
 camera's *hardware* focus magnifier at that spot. Click again to return to the full frame.
-The **Focus meter** under the image reads the sharpness of the live image against the best
-value seen since the last click. Turn the focus ring through best focus, then back until
-the meter reads **at peak**. It needs no magnifier, so it works on every body with live view.
+The **Focus meter** under the image reads live sharpness against the best value since the
+last click: turn the focus ring past best focus, then back until it reads **at peak**. It
+works on every body with live view.
 In white-light and normal (camera-only) scanning, you can set ISO, shutter and aperture
 live from the toolbar. With a calibrated RGB preset those controls are hidden and locked to
 the preset instead (see **Presets**), so the scan cannot drift. A control the body cannot
 offer is grayed out. Aperture on a lens with no electronic diaphragm is the usual case, and
 that is most enlarging and macro glass.
 
-A thin border marks the edge of the captured frame, so a dark film holder inside the frame
-does not read as the area outside it.
+A thin border marks the edge of the captured frame.
 
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**
 beside the preset dropdown, place the small rectangle on the clear film base, name the
@@ -159,7 +158,7 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
 | The aperture stepper is grayed out | The lens has no electronic diaphragm. | Expected. Set the aperture on the lens itself. |
 | A setting snaps back to its old value | Property writes are asynchronous, so the body needs a moment. | NegPy polls until the value lands and logs a warning if it never does. If it never does, that setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | The Scanlight has two ports and only one carries data. The other is power only. Use the data port. |
-| The Scanlight is not detected on Linux, and the data port is right | The user cannot open the serial port. The Scanlight is a USB serial device, and most distributions give its port to the `dialout` group. | `sudo usermod -aG dialout $USER`, then log out and back in. Running NegPy with sudo also works, but the group is the fix. |
+| The Scanlight is not detected on Linux, and the data port is right | Your user cannot open the serial port; most distributions give it to the `dialout` group. | `sudo usermod -aG dialout $USER`, then log out and back in. |
 
 ---
 
@@ -178,10 +177,9 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
   point into one property, so a click both magnifies *and* aims. Canon (`eoszoom`) and
   Nikon (`liveviewimagezoomratio`) split them, and their coordinate space is unknown here,
   so a click magnifies where the body already looks. Every other body has no magnifier at
-  all, and the feature disables itself. The Nikon D3300 has one but sends no live view frames
-  while it is on, so NegPy keeps it off there. A body that does the same is switched back
-  to full frame when its stream stops, and its magnifier stays off for the session. On all
-  of these, focus with the Focus meter.
+  all, and the feature disables itself. A body that stops streaming while magnified (the
+  Nikon D3300) returns to full frame, and its magnifier stays off for the session. On all of
+  these, focus with the Focus meter.
 - **Tested on macOS.** The Python is portable and libgphoto2 is a Linux-first project, so
   Linux should be at least as good. This is unverified.
 - **Speed.** A three-shot RGB triplet takes about six seconds on an a7C II over USB. Almost

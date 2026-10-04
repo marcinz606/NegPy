@@ -98,20 +98,17 @@ Two things stay outside the user directory:
 make run-sim
 ```
 
-This starts the app with a simulated camera, Scanlight and film scanners
-(`NEGPY_SIMULATE_HARDWARE=1`), so the Camera Scanning and Film Scanner panels and their
-dialogs work with no device attached. Only the lowest layer is fake: the gphoto2 module,
-the serial port and one scanner backend. The drivers, workers and panels above it are the
-real code.
+Starts the app with a simulated camera, Scanlight and film scanners
+(`NEGPY_SIMULATE_HARDWARE=1`). Only the gphoto2 module, the serial port and one scanner
+backend are fake; the drivers, workers and panels above them are the real code.
 
-- **Camera**: every frame is exposed from a synthetic negative, the Scanlight's current
-  color and the body's shutter and ISO, so live view, calibration and the triplet channels
-  respond to the light. A still is a Bayer DNG, decoded like any camera RAW. The negative
-  has a band of clear base around the picture: put the calibration ROI there.
+- **Camera**: frames are exposed from a synthetic negative under the Scanlight's color and
+  the body's shutter and ISO, and saved as Bayer DNGs. Put the calibration ROI on the clear
+  base band around the picture.
 - **Scanlight**: a v4b that answers the firmware query and reports LED temperature.
-- **Film Scanner**: choose the "Simulated" backend. It has one device for each panel
-  shape: a feeder (frames by index, IR, Eject), a prescan device (full-window preview, then
-  crop) and a roll device (frames found on the strip, the last boundary to confirm).
+- **Film Scanner**: the "Simulated" backend has a feeder (frames by index, IR, Eject), a
+  prescan device (full-window preview, then crop) and a roll device (frames found on the
+  strip).
 
 ## 🏗️ Project Structure
 
