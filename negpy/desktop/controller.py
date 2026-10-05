@@ -127,7 +127,7 @@ from negpy.services.assets.half_frame import (
     split_scans,
 )
 from negpy.services.export.templating import path_safe, render_export_filename
-from negpy.services.assets.sidecar import load_or_promote, sidecar_path_for, write_sidecar
+from negpy.services.assets.sidecar import load_or_promote, promote_sidecars, sidecar_path_for, write_sidecar
 from negpy.services.assets.frame_merge import carry_edit, carry_sidecar
 from negpy.services.export.frame_merge import (
     MERGEABLE_KINDS,
@@ -2250,6 +2250,7 @@ class AppController(QObject):
         remember_split_scans(self.session.repo, {base_hash(a["hash"]) for a in valid_assets if a.get("half")})
         self._mark_diptychs(valid_assets)
         self._apply_roll_forks(valid_assets)
+        promote_sidecars(self.session.repo, valid_assets)
         self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
         self._hot_folder_sequence_active = False
@@ -7380,7 +7381,12 @@ class AppController(QObject):
         for f in files:
             half = int(f.get("half") or 0)
             params = load_or_promote(
-                repo, f["hash"], f["path"], half=half, composite=bool(f.get("hdr_paths") or f.get("stitch_paths"))
+                repo,
+                f["hash"],
+                f["path"],
+                half=half,
+                composite=bool(f.get("hdr_paths") or f.get("stitch_paths")),
+                forked="#roll:" in f["hash"],
             ) or self.session.config_for_asset(f)
             try:
                 write_sidecar(f["path"], params, half=half)

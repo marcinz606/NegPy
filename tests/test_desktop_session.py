@@ -2189,6 +2189,28 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.assertFalse(self.session.state.config.process.narrowband_scan)
         self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
 
+    def test_loading_a_sidecar_replaces_the_edit_as_one_undo_step(self):
+        import tempfile
+
+        from negpy.services.assets import rolls
+        from negpy.services.assets.sidecar import write_sidecar
+
+        roll_id = self._own_narrowband_then_reset()
+        own = self.session.state.config
+        before = self.session.state.undo_index
+        with tempfile.TemporaryDirectory() as d:
+            path = write_sidecar(
+                f"{d}/frame.tif",
+                replace(own, process=replace(own.process, narrowband_scan=False), exposure=replace(own.exposure, density=0.77)),
+            )
+            self.assertTrue(self.session.load_edit_from_sidecar(path))
+            self.assertFalse(self.session.load_edit_from_sidecar(f"{d}/missing.negpy"))
+
+        self.assertEqual(self.session.state.config.exposure.density, 0.77)
+        self.assertEqual(self.repo.load_file_settings("hash1").exposure.density, 0.77)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertEqual(self.session.state.undo_index, before + 1)
+
     def test_a_paste_locks_a_card_that_differs_from_the_roll(self):
         from negpy.services.assets import rolls
 

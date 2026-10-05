@@ -9,7 +9,7 @@ from negpy.features.exposure.models import ExposureConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.sidecar import load_or_promote, load_sidecar, sidecar_path_for, write_sidecar
+from negpy.services.assets.sidecar import load_or_promote, load_sidecar, promote_sidecars, sidecar_path_for, write_sidecar
 
 
 def _rich_config() -> WorkspaceConfig:
@@ -266,3 +266,82 @@ def test_e2e_migration_on_fresh_db(tmp_path):
     path_result = repo.load_file_settings_by_path("/tmp/mig_test.RAW")
     assert path_result is not None
     assert path_result[0] == "h_mig"
+
+
+_FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "sidecars")
+
+
+@pytest.mark.parametrize("version", sorted(f[: -len(".negpy")] for f in os.listdir(_FIXTURES)))
+def test_sidecar_from_older_release_loads(tmp_path, version, caplog):
+    """Each fixture is a release's own write_sidecar output for the same edit."""
+    src = str(tmp_path / "frame.tif")
+    with open(os.path.join(_FIXTURES, f"{version}.negpy"), encoding="utf-8") as f_in:
+        payload = f_in.read()
+    with open(sidecar_path_for(src), "w", encoding="utf-8") as f_out:
+        f_out.write(payload)
+
+    with caplog.at_level("WARNING", logger="negpy"):
+        cfg = load_sidecar(src)
+
+    assert cfg is not None
+    assert not [r for r in caplog.records if "Dropping" in r.getMessage()]
+    assert cfg.exposure.density == 0.42
+    assert cfg.exposure.grade == 80.0  # paper grade 3.5 on the ISO R scale
+    assert cfg.exposure.toe == 0.3
+    assert cfg.process.process_mode == "B&W Negative"
+    assert cfg.geometry.crop_rect == (0.1, 0.1, 0.8, 0.8)
+    assert cfg.geometry.rotation == 1
+    assert cfg.geometry.fine_rotation == 0.5
+    assert cfg.lab.saturation == 1.3
+    assert len(cfg.local.masks) == 1
+    # A pre-0.51 mask was a +0.5 dodge; the same mask is a -0.5 stop burn now.
+    assert cfg.local.masks[0].stops == (-0.5 if version < "0.51" else 0.5)
+
+
+def test_invalid_value_drops_only_that_field(tmp_path):
+    src = str(tmp_path / "IMG_011.NEF")
+    data = json.loads(json.dumps(_rich_config().to_dict(), default=str))
+    data["locked_floors"] = None
+    data["hdr_ratios"] = "garbage"
+    data["local_masks"]["masks"].append({"vertices": [], "shape": "no-such-shape"})
+    with open(sidecar_path_for(src), "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    cfg = load_sidecar(src)
+
+    assert cfg is not None
+    assert cfg.process.locked_floors == WorkspaceConfig().process.locked_floors
+    assert cfg.hdr.hdr_ratios == ()
+    assert cfg.exposure.density == 0.42
+    assert cfg.geometry.crop_rect == (0.1, 0.2, 0.8, 0.9)
+    assert [m.stops for m in cfg.local.masks] == [-0.7]
+
+
+def test_saved_hashes(repo):
+    repo.save_file_settings("a", _rich_config())
+    assert repo.saved_hashes(["a", "b"]) == {"a"}
+    assert repo.saved_hashes([]) == set()
+
+
+def test_promote_sidecars_fills_db_before_open(tmp_path, repo):
+    plain, edited, half, composite, forked = (str(tmp_path / f"{n}.NEF") for n in ("plain", "edited", "half", "comp", "fork"))
+    for p in (plain, edited, composite, forked):
+        write_sidecar(p, _rich_config())
+    write_sidecar(half, _rich_config(), half=2)
+    repo.save_file_settings("edited", replace(_rich_config(), exposure=ExposureConfig(density=0.99)), file_path=edited)
+
+    promote_sidecars(
+        repo,
+        [
+            {"hash": "plain", "path": plain},
+            {"hash": "edited", "path": edited},
+            {"hash": "half#2", "path": half, "half": 2},
+            {"hash": "comp", "path": composite, "hdr_paths": [composite]},
+            {"hash": "fork#roll:r1", "path": forked},
+        ],
+    )
+
+    assert repo.load_file_settings("plain").exposure.density == 0.42
+    assert repo.load_file_settings("edited").exposure.density == 0.99
+    assert repo.load_file_settings("half#2").exposure.density == 0.42
+    assert repo.saved_hashes(["comp", "fork#roll:r1"]) == set()
