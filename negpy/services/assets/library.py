@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Iterator, Optional
 
-from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS, is_ir_sidecar_path
+from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS, is_hidden_path, is_ir_sidecar_path
 from negpy.services.assets.search import Term, facts_for, match
 
 
@@ -38,7 +38,7 @@ def folder_counts(path: str) -> tuple[int, int]:
     images = subfolders = 0
     try:
         for entry in os.scandir(path):
-            if entry.name.startswith("."):
+            if is_hidden_path(entry.name):
                 continue
             if entry.is_dir():
                 subfolders += 1
@@ -75,6 +75,8 @@ def iter_library_files(roots: list[str]) -> Iterator[dict[str, Any]]:
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             for filename in filenames:
+                if is_hidden_path(filename):
+                    continue
                 if not filename.lower().endswith(extensions):
                     continue
                 path = os.path.join(dirpath, filename)
