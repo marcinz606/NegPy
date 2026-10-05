@@ -26,13 +26,12 @@ _EPS = 1e-4
 # Soft floor: no channel is corrected below this fraction of its raw value.
 SOFT_FLOOR = 0.15
 
-# Adaptive: full correction while the weakest channel keeps ADAPTIVE_FULL of its signal,
-# none below ADAPTIVE_NONE. No channel is ever corrected below ADAPTIVE_NONE of its raw value.
-ADAPTIVE_NONE = 0.05
-ADAPTIVE_FULL = 0.25
-# The strength map is computed at this long edge, so grain does not steer it and preview
-# and export get the same map.
-_GUIDE_EDGE = 2048
+# Two-Scale: exact Linear while its gain on a channel's own value stays within TWO_SCALE_START
+# of its gain at the film base; the capped detail takes over fully at TWO_SCALE_FULL.
+TWO_SCALE_START = 1.15
+TWO_SCALE_FULL = 1.5
+# Color-layer blur as a fraction of the long edge, so preview and export split at the same detail.
+_TWO_SCALE_SIGMA = 1.0 / 1200.0
 
 # Density: the film base is the thinnest negative in the frame interior.
 _BASE_PERCENTILE = 99.5
@@ -77,15 +76,13 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str
     m = np.asarray(matrix, dtype=np.float32).reshape(3, 3)
     x = img[:, :, :3].astype(np.float32, copy=False)
     mode = SensorUnmix(mode)
-    if mode == SensorUnmix.DENSITY:
-        out = _density_unmix(x, m)
+    if mode in (SensorUnmix.DENSITY, SensorUnmix.TWO_SCALE):
+        out = _density_unmix(x, m) if mode == SensorUnmix.DENSITY else _two_scale_unmix(x, m)
         if out is not None:
             return out
     out = np.einsum("ck,hwk->hwc", m, x)
     if mode == SensorUnmix.SOFT_FLOOR:
         out = _soft_floor(x, out, m)
-    elif mode == SensorUnmix.ADAPTIVE:
-        out = _fade_unreliable(x, out, m)
     return np.clip(out, 0.0, None)
 
 
@@ -106,29 +103,6 @@ def _soft_floor(x: np.ndarray, full: np.ndarray, m: np.ndarray) -> np.ndarray:
     gap += floor
     gap *= 0.5
     return gap
-
-
-def _fade_unreliable(x: np.ndarray, full: np.ndarray, m: np.ndarray) -> np.ndarray:
-    """Blend each pixel from the full unmix toward its uncorrected value as its weakest
-    channel's surviving signal falls. One strength per pixel, so the hue does not turn."""
-    diag = np.diag(m).astype(np.float32)
-    h, w = x.shape[:2]
-    scale = min(1.0, _GUIDE_EDGE / max(h, w))
-    guide = x if scale >= 1.0 else cv2.resize(x, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
-    surviving = np.einsum("ck,hwk->hwc", m, guide) / np.maximum(guide * diag, _EPS * _EPS)
-    strength = _smoothstep(ADAPTIVE_NONE, ADAPTIVE_FULL, surviving.min(axis=2)).astype(np.float32)
-    if scale < 1.0:
-        strength = cv2.resize(strength, (w, h), interpolation=cv2.INTER_LINEAR)
-
-    raw = x * diag
-    full -= raw  # now the (negative) amount the unmix removes
-    for c in range(3):
-        removed = -full[:, :, c]
-        cap = np.where(removed > 0, (1.0 - ADAPTIVE_NONE) * raw[:, :, c] / np.maximum(removed, _EPS * _EPS), 1.0)
-        np.minimum(strength, cap, out=strength)
-    full *= strength[:, :, None]
-    full += raw
-    return full
 
 
 def density_unmix_matrix(matrix, base) -> np.ndarray:
@@ -157,6 +131,36 @@ def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     out = np.einsum("ck,hwk->hwc", c, logs)
     out += np.log(at_base).astype(np.float32)
     return np.exp(out, out=out)
+
+
+def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
+    """Linear where the unmix amplifies a channel no more than it does at the film base.
+    Elsewhere the color comes from a blurred, soft-floored unmix and the detail is added back
+    with the base's log gain, so grain is never amplified past it. Never reaches zero.
+    None when the base gives no usable linearisation point."""
+    base = film_base(x)
+    if np.any(base <= _LOG_FLOOR) or np.any(m.astype(np.float64) @ base <= _LOG_FLOOR):
+        return None
+    c = density_unmix_matrix(m, base).astype(np.float32)
+    own = np.diag(m).astype(np.float32) / np.diag(c)
+    h, w = x.shape[:2]
+    sigma = max(1.0, max(h, w) * _TWO_SCALE_SIGMA)
+    # The color layer and the weight are smooth by construction, so they are built small.
+    step = max(1, int(sigma // 2))
+    small = x if step == 1 else cv2.resize(x, (-(-w // step), -(-h // step)), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), sigma / step)
+    color = np.maximum(_soft_floor(small, cv2.transform(small, m), m), _LOG_FLOOR)
+    weight = _smoothstep(TWO_SCALE_START, TWO_SCALE_FULL, (small * own / color).max(axis=2))
+    if step > 1:
+        small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
+    out = np.clip(cv2.transform(x, m), 0.0, None)
+    hit = weight > 0
+    if hit.any():
+        detail = np.log(np.maximum(x[hit], _LOG_FLOOR)) - np.log(np.maximum(small[hit], _LOG_FLOOR))
+        capped = color[hit] * np.exp(detail @ c.T)
+        linear = out[hit]
+        out[hit] = linear + weight[hit][:, None] * (capped - linear)
+    return out
 
 
 def unmix_block_reason(process: ProcessConfig) -> str:

@@ -32,12 +32,12 @@ class SensorUnmix(StrEnum):
 
     LINEAR = "linear"
     SOFT_FLOOR = "soft_floor"
-    ADAPTIVE = "adaptive"
+    TWO_SCALE = "two_scale"
     DENSITY = "density"
 
     @classmethod
     def _missing_(cls, value: object) -> "SensorUnmix":
-        return cls.LINEAR
+        return cls.TWO_SCALE
 
 
 class DemosaicMode(StrEnum):
@@ -179,7 +179,7 @@ class ProcessConfig:
     # (features/process/sensor.py). 9 floats row-major; None = off.
     sensor_matrix: Optional[tuple] = None
     sensor_profile: str = "None"
-    sensor_unmix: SensorUnmix = SensorUnmix.LINEAR
+    sensor_unmix: SensorUnmix = SensorUnmix.TWO_SCALE
 
     # Light-source hue rotation in degrees, applied to the print in CIELAB a*b*
     # (features/process/hue.py); 0.0 = off.

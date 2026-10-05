@@ -162,6 +162,7 @@
    "roll_name": "null",
    "sensor_matrix": "null",
    "sensor_profile": "\"None\"",
+   "sensor_unmix": "\"two_scale\"",
    "use_cast_average": "false",
    "use_color_average": "false",
    "use_luma_average": "false",
@@ -198,5 +199,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 1
+ "render_version": 2
 }

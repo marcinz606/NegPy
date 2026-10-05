@@ -26,10 +26,11 @@ _UNMIX_CHOICES = (
         "never reaches zero. Values just above the floor are lifted slightly.",
     ),
     (
-        SensorUnmix.ADAPTIVE,
-        "Adaptive",
-        "Linear, but the correction fades out on pixels where almost no signal is left after the "
-        "subtraction. Every other pixel matches Linear.",
+        SensorUnmix.TWO_SCALE,
+        "Two-Scale",
+        "Linear wherever the calibration can be trusted. Where a color is mostly leak, as in neon, "
+        "the color is unmixed from a slightly blurred copy and the fine detail is added back without "
+        "extra amplification, so it never reaches zero and the grain stays at the film's own.",
     ),
     (
         SensorUnmix.DENSITY,

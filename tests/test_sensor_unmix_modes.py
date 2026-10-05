@@ -5,8 +5,6 @@ import numpy as np
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessConfig, SensorUnmix
 from negpy.features.process.sensor import (
-    ADAPTIVE_FULL,
-    ADAPTIVE_NONE,
     SOFT_FLOOR,
     apply_sensor_correction,
     density_unmix_matrix,
@@ -38,9 +36,9 @@ def test_linear_mode_is_the_plain_unmix():
     assert np.array_equal(apply_sensor_correction(img, _M, SensorUnmix.LINEAR), _linear(img))
 
 
-def test_adaptive_matches_linear_where_the_signal_survives():
+def test_two_scale_matches_linear_where_the_calibration_holds():
     img = _negative(np.random.default_rng(2))
-    out = apply_sensor_correction(img, _M, SensorUnmix.ADAPTIVE)
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
     assert np.allclose(out, _linear(img), rtol=1e-5, atol=1e-7)
 
 
@@ -55,38 +53,45 @@ def _neon_pixels():
     return img
 
 
-def test_adaptive_never_drops_a_channel_below_its_floor():
-    img = _neon_pixels()
-    assert (_linear(img)[:, :, 2] == 0).any()  # the case Linear clips to infinite density
-    out = apply_sensor_correction(img, _M, SensorUnmix.ADAPTIVE)
-    raw = img * np.diag(np.asarray(_M).reshape(3, 3))
-    assert (out >= ADAPTIVE_NONE * raw - 1e-7).all()
+def _neon_frame(rng, noise=0.03):
+    """Clear film base beside a blue light through dense yellow dye, with multiplicative grain:
+    nine tenths of the blue record is green leak there."""
+    img = np.empty((96, 192, 3), np.float32)
+    img[:] = _BASE
+    neon = np.array([0.23, 0.29, 0.29 * 0.2706 / 1.104 / 0.9], np.float32)
+    img[:, 96:] = neon
+    img[:, 96:] *= np.exp(rng.normal(0.0, noise, (96, 96, 3))).astype(np.float32)
+    return img
 
 
-def test_adaptive_fades_every_channel_together():
-    img = _neon_pixels()
-    out = apply_sensor_correction(img, _M, SensorUnmix.ADAPTIVE)
-    raw = img * np.diag(np.asarray(_M).reshape(3, 3))
-    full = np.einsum("ck,hwk->hwc", np.asarray(_M, np.float32).reshape(3, 3), img)
-    moved = (out - raw) / np.where(np.abs(full - raw) > 1e-6, full - raw, np.nan)
-    spread = np.nanmax(moved, axis=2) - np.nanmin(moved, axis=2)
-    assert np.nanmax(spread) < 1e-4
+def test_two_scale_never_reaches_zero():
+    img = _neon_frame(np.random.default_rng(5), noise=0.3)
+    assert (_linear(img)[:, 96:, 2] == 0).any()
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
+    assert (out > 0).all() and np.isfinite(out).all()
 
 
-def test_adaptive_strength_follows_the_surviving_fraction():
-    img = _neon_pixels()
-    out = apply_sensor_correction(img, _M, SensorUnmix.ADAPTIVE)
-    m = np.asarray(_M, np.float32).reshape(3, 3)
-    surviving = (np.einsum("ck,hwk->hwc", m, img) / (img * np.diag(m)))[:, :, 2]
-    healthy = surviving > ADAPTIVE_FULL + 0.02
-    assert healthy.any()
-    assert np.allclose(out[healthy], _linear(img)[healthy], rtol=1e-5)
+def test_two_scale_does_not_amplify_grain_past_the_film_base():
+    img = _neon_frame(np.random.default_rng(6))
+    c = density_unmix_matrix(_M, film_base(img))
+    core = (slice(16, 80), slice(120, 168))
+    linear = np.log(np.maximum(_linear(img)[core][:, :, 2], 1e-6)).std()
+    two_scale = np.log(apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)[core][:, :, 2]).std()
+    assert two_scale < 0.3 * linear
+    assert two_scale < 1.2 * np.hypot(c[2, 2], c[2, 1]) * 0.03
 
 
-def test_adaptive_guide_handles_a_frame_above_the_guide_size():
-    img = np.tile(_neon_pixels(), (2, 140, 1))  # 32 x 2240
-    out = apply_sensor_correction(img, _M, SensorUnmix.ADAPTIVE)
-    assert out.shape == img.shape and np.isfinite(out).all() and (out > 0).all()
+def test_two_scale_keeps_the_color_of_a_flat_area():
+    img = _neon_frame(np.random.default_rng(7), noise=0.0)
+    img[:, 96:, 2] *= 1.4  # a third of the blue survives: past the base gain, still above zero
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
+    shift = np.abs(np.log10(out[40:56, 130:150]) - np.log10(_linear(img)[40:56, 130:150]))
+    assert shift.max() < 0.035  # only Soft Floor's knee on the color layer
+
+
+def test_two_scale_falls_back_to_linear_without_a_usable_base():
+    img = np.zeros((8, 8, 3), np.float32)
+    assert np.array_equal(apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE), _linear(img))
 
 
 def test_density_matrix_rows_sum_to_one():
@@ -119,17 +124,17 @@ def test_density_falls_back_to_linear_without_a_usable_base():
 
 
 def test_sensor_token_names_a_non_linear_mode_only():
-    process = replace(ProcessConfig(), linear_raw=True, sensor_matrix=_M)
+    process = replace(ProcessConfig(), linear_raw=True, sensor_matrix=_M, sensor_unmix=SensorUnmix.LINEAR)
     linear = sensor_token(process)
-    assert "|adaptive" not in linear and "|density" not in linear
+    assert "|two_scale" not in linear and "|density" not in linear
     tokens = {sensor_token(replace(process, sensor_unmix=mode)) for mode in SensorUnmix}
     assert len(tokens) == len(SensorUnmix)
 
 
-def test_mode_roundtrips_and_an_unknown_value_reads_linear():
+def test_mode_roundtrips_and_an_unknown_value_reads_the_default():
     cfg = replace(WorkspaceConfig(), process=replace(ProcessConfig(), sensor_unmix=SensorUnmix.DENSITY))
     assert WorkspaceConfig.from_flat_dict(cfg.to_dict()).process.sensor_unmix == SensorUnmix.DENSITY
-    assert ProcessConfig(sensor_unmix="bogus").sensor_unmix == SensorUnmix.LINEAR
+    assert ProcessConfig(sensor_unmix="bogus").sensor_unmix == ProcessConfig().sensor_unmix
 
 
 def test_soft_floor_holds_every_channel_above_its_floor():
