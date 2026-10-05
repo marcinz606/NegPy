@@ -48,8 +48,9 @@ _LOG_FLOOR = 1e-6
 # No channel is read denser than this transmission relative to the base, 3 D, past any film:
 # a dead or black-clipped pixel would otherwise reach the other channels through the log.
 _DENSITY_RANGE = 1e-3
-# Two-Scale: a channel below this fraction of its blurred neighborhood is a defect, not film,
-# and carries no detail.
+# Two-Scale: a channel this far below the other two, relative to each one's blurred
+# neighborhood, is a defect (a dead or black-clipped photosite), not film. A real edge moves
+# all three channels together.
 _DEFECT_RATIO = 1.0 / 64.0
 
 
@@ -162,21 +163,23 @@ def _two_scale_kernel(
     m: np.ndarray,
     c: np.ndarray,
     floor: float,
-    defect: float,
+    log_defect: float,
     out: np.ndarray,
 ) -> None:
     """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c.
-    A channel under ``defect`` of its neighborhood carries no detail."""
+    A channel whose detail sits ``log_defect`` below both others takes their mean instead."""
     h, w = x.shape[0], x.shape[1]
     for i in prange(h):
         for j in range(w):
             x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
             wt = weight[i, j]
             if wt > 0.0:
-                b0, b1, b2 = max(blurred[i, j, 0], floor), max(blurred[i, j, 1], floor), max(blurred[i, j, 2], floor)
-                d0 = np.log(x0 / b0) if x0 >= defect * b0 else 0.0
-                d1 = np.log(x1 / b1) if x1 >= defect * b1 else 0.0
-                d2 = np.log(x2 / b2) if x2 >= defect * b2 else 0.0
+                e0 = np.log(max(x0, floor) / max(blurred[i, j, 0], floor))
+                e1 = np.log(max(x1, floor) / max(blurred[i, j, 1], floor))
+                e2 = np.log(max(x2, floor) / max(blurred[i, j, 2], floor))
+                d0 = 0.5 * (e1 + e2) if e0 < log_defect + min(e1, e2) else e0
+                d1 = 0.5 * (e0 + e2) if e1 < log_defect + min(e0, e2) else e1
+                d2 = 0.5 * (e0 + e1) if e2 < log_defect + min(e0, e1) else e2
             for k in range(3):
                 lin = max(m[k, 0] * x0 + m[k, 1] * x1 + m[k, 2] * x2, 0.0)
                 if wt > 0.0:
@@ -248,7 +251,7 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     if step > 1:
         small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
     out = np.empty_like(x)
-    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, _DEFECT_RATIO, out)
+    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, float(np.log(_DEFECT_RATIO)), out)
     return out
 
 

@@ -236,3 +236,59 @@ def test_two_scale_still_acts_when_the_base_is_mostly_leak():
     out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)[core][:, :, 2]
     assert (linear == 0).any() and (out > 0).all()
     assert np.log(out).std() < 0.5 * np.log(np.maximum(linear, 1e-6)).std()
+
+
+def test_contact_sheet_unmixes_a_half_frame_after_slicing_it(monkeypatch, tmp_path):
+    from negpy.services.rendering import image_processor as ip
+
+    unmix_flags: list[bool] = []
+    shapes: list[tuple[int, ...]] = []
+
+    def decode(self, path, params, fast_decode=False, wb_override=None, unmix=True):
+        unmix_flags.append(unmix)
+        return np.full((40, 120, 3), 0.3, np.float32), None, "Adobe RGB"
+
+    def record(img, matrix, mode):
+        shapes.append(img.shape)
+        return img
+
+    def stop(*args, **kwargs):
+        raise RuntimeError("stop after the unmix")
+
+    monkeypatch.setattr(ip.ImageProcessor, "_decode_oriented_f32", decode)
+    monkeypatch.setattr(ip, "apply_sensor_correction", record)
+    monkeypatch.setattr(ip, "_downsample_to_long_edge", stop)
+    (tmp_path / "a.nef").touch()
+    cfg = replace(WorkspaceConfig(), process=replace(ProcessConfig(), linear_raw=True, sensor_matrix=_M))
+    ip.ImageProcessor().render_display_array(str(tmp_path / "a.nef"), cfg, "hash", 64, prefer_gpu=False, half=1)
+    assert unmix_flags == [False]
+    assert len(shapes) == 1 and shapes[0][1] < 120
+
+
+def test_two_scale_keeps_a_hard_light_edge():
+    """A light's core far denser than its surround drops every channel together; that is an
+    edge, not a dead photosite, and keeps its detail."""
+    import negpy.features.process.sensor as sensor
+
+    img = _neon_frame(np.random.default_rng(13), noise=0.0)
+    img = np.repeat(img, 13, axis=1)  # wide enough for a blur of a few pixels
+    img[:, 1800:] *= 1e-3  # 3 D denser than the light's rim
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
+    saved = sensor._DEFECT_RATIO
+    try:
+        sensor._DEFECT_RATIO = 1e-30
+        no_rule = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
+    finally:
+        sensor._DEFECT_RATIO = saved
+    assert np.allclose(out[:, 1790:1810], no_rule[:, 1790:1810], rtol=1e-4)
+
+
+def test_density_reads_no_channel_past_its_range():
+    img = _negative(np.random.default_rng(14))
+    dead = img.copy()
+    dead[30, 30, 1] = 0.0
+    held = img.copy()
+    held[30, 30, 1] = film_base(img)[1] * 1e-3
+    a = apply_sensor_correction(dead, _M, SensorUnmix.DENSITY)[30, 30]
+    b = apply_sensor_correction(held, _M, SensorUnmix.DENSITY)[30, 30]
+    assert np.allclose(a, b, rtol=1e-4)

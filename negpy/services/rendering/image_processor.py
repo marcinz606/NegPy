@@ -257,8 +257,9 @@ def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
 
 
 def _unmix_source(f32_buffer: np.ndarray, params: WorkspaceConfig) -> np.ndarray:
-    """The unmix `_load_source_f32(unmix=False)` left out, on the whole source or one half of
-    it. Triplets are never unmixed; a stitch holding one unmixes its other parts alone."""
+    """The unmix `_load_source_f32(unmix=False)` left out, on the whole source or on one half,
+    as the preview unmixes a half alone. Triplets are never unmixed; a stitch holding one
+    unmixes its other parts alone."""
     if (is_rgb_triplet(params.rgbscan) and not hdr_active(params.hdr)) or stitch_has_triplets(params.stitch):
         return f32_buffer
     return apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
@@ -1265,7 +1266,6 @@ class ImageProcessor:
         gutter_thickness: float,
         split_axis: str = "x",
     ) -> Tuple[np.ndarray, str, str]:
-        # A half is unmixed alone, as the preview unmixes it: the unmix reads the film base from the frame.
         f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params, unmix=not half)
         f32_buffer, ir_full = self._slice_half_source(
             f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness, split_axis=split_axis
