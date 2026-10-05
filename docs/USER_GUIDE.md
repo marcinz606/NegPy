@@ -724,7 +724,7 @@ Applying it sets the defaults for new files and rewrites every edited frame in t
 **Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where each color leaks into the others through the sensor's filters.
 
 *   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
-*   **Method**: how the matrix is applied. *Two-Scale* (default) is *Linear* wherever the calibration can be trusted; where a color is mostly leak, as in neon or deep blue, it stops the speckle and keeps the grain at the film's own. *Linear* subtracts the leak exactly and prints those colors as speckled, fully saturated color. *Density* applies the matrix to densities: no speckle, but strong colors come out slightly less vivid. Two-Scale and Density read the film base color from the frame; a scan clipped there uses Linear.
+*   **Method**: how the matrix is applied. *Two-Scale* (default for a new calibration; an edit calibrated before the choice existed keeps *Linear*) is *Linear* wherever the calibration can be trusted; where a color is mostly leak, as in neon or deep blue, it stops the speckle and keeps the grain at the film's own. *Linear* subtracts the leak exactly and prints those colors as speckled, fully saturated color. *Density* applies the matrix to densities: no speckle, but strong colors come out slightly less vivid. Two-Scale and Density read the film base color from the frame; a scan clipped there uses Linear.
 *   **Calibrate** (vials icon on the header): build a profile from three bare-light R/G/B exposures.
 
 Needs **Linear RAW**; grayed out on Transparency and skipped for triplets. **Re-run Roll Analysis** after changing it.
