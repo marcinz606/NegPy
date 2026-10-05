@@ -27,10 +27,10 @@ def _section_keys() -> set[str]:
     keys: set[str] = set()
     pattern = re.compile(r'make_section\(\s*(?:self\.controller\.session\.repo|self\.session\.repo|repo)?,?\s*"[^"]+",\s*"([a-z_]+)"', re.S)
     for path in DESKTOP.rglob("*.py"):
-        keys.update(pattern.findall(path.read_text()))
+        keys.update(pattern.findall(path.read_text(encoding="utf-8")))
     # controls_panel goes through its own thin wrapper; a comment may sit before the title.
     wrapper = re.compile(r'self\._make_section\(\s*(?:#[^\n]*\n\s*)*"[^"]+",\s*"([a-z_]+)"', re.S)
-    keys.update(wrapper.findall((DESKTOP / "sidebar" / "controls_panel.py").read_text()))
+    keys.update(wrapper.findall((DESKTOP / "sidebar" / "controls_panel.py").read_text(encoding="utf-8")))
     return keys | DYNAMIC_KEYS
 
 

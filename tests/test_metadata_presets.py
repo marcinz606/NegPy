@@ -531,7 +531,7 @@ class TestReviewFixes:
     def test_load_action_is_registered_and_dispatches(self):
         assert "metadata_preset_load" in REGISTRY
         assert REGISTRY["metadata_preset_load"].default_key == ""
-        source = (Path(__file__).parent.parent / "negpy/desktop/view/keyboard_shortcuts.py").read_text()
+        source = (Path(__file__).parent.parent / "negpy/desktop/view/keyboard_shortcuts.py").read_text(encoding="utf-8")
         assert '"metadata_preset_load": lambda: right.metadata_sidebar.metadata_preset_load_btn.click()' in source
 
 

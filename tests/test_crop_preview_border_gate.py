@@ -90,7 +90,7 @@ class TestTheToolSetIsSpelledOnce(unittest.TestCase):
         offenders = [
             str(p.relative_to(root))
             for p in root.rglob("*.py")
-            if p.name != "session.py" and "ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW" in p.read_text()
+            if p.name != "session.py" and "ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW" in p.read_text(encoding="utf-8")
         ]
         self.assertEqual(offenders, [], "spell the set once: UNCROPPED_PREVIEW_TOOLS in session.py")
 
