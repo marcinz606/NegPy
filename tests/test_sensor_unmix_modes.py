@@ -5,7 +5,6 @@ import numpy as np
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessConfig, SensorUnmix
 from negpy.features.process.sensor import (
-    SOFT_FLOOR,
     apply_sensor_correction,
     density_unmix_matrix,
     film_base,
@@ -22,7 +21,7 @@ def _negative(rng, h=256, w=384):
     patch of clear base in the interior, where film_base reads it."""
     density = rng.uniform(0.1, 1.2, (h, w, 1)) + rng.normal(0.0, 0.03, (h, w, 3))
     img = _BASE * 10.0 ** (-density)
-    img[96:160, 160:224] = _BASE
+    img[96:160, 160:224] = _BASE * np.exp(rng.normal(0.0, 0.01, (64, 64, 3)))
     return img.astype(np.float32)
 
 
@@ -42,22 +41,12 @@ def test_two_scale_matches_linear_where_the_calibration_holds():
     assert np.allclose(out, _linear(img), rtol=1e-5, atol=1e-7)
 
 
-def _neon_pixels():
-    """Blue light through dense yellow dye: almost all of the blue record is green leak."""
-    g = np.float32(0.29)
-    blues = np.linspace(0.055, 0.15, 16, dtype=np.float32)  # unmixed blue from below zero to healthy
-    img = np.empty((16, 16, 3), np.float32)
-    img[:, :, 0] = 0.23
-    img[:, :, 1] = g
-    img[:, :, 2] = blues[None, :]
-    return img
-
-
 def _neon_frame(rng, noise=0.03):
     """Clear film base beside a blue light through dense yellow dye, with multiplicative grain:
     nine tenths of the blue record is green leak there."""
     img = np.empty((96, 192, 3), np.float32)
     img[:] = _BASE
+    img[:, :96] *= np.exp(rng.normal(0.0, 0.01, (96, 96, 3))).astype(np.float32)  # unclipped base has grain
     neon = np.array([0.23, 0.29, 0.29 * 0.2706 / 1.104 / 0.9], np.float32)
     img[:, 96:] = neon
     img[:, 96:] *= np.exp(rng.normal(0.0, noise, (96, 96, 3))).astype(np.float32)
@@ -86,7 +75,7 @@ def test_two_scale_keeps_the_color_of_a_flat_area():
     img[:, 96:, 2] *= 1.4  # a third of the blue survives: past the base gain, still above zero
     out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
     shift = np.abs(np.log10(out[40:56, 130:150]) - np.log10(_linear(img)[40:56, 130:150]))
-    assert shift.max() < 0.035  # only Soft Floor's knee on the color layer
+    assert shift.max() < 0.035  # only the color layer's floor knee
 
 
 def test_two_scale_falls_back_to_linear_without_a_usable_base():
@@ -104,16 +93,18 @@ def test_density_is_exact_at_the_film_base_and_close_near_it():
     base = film_base(img)
     out = apply_sensor_correction(img, _M, SensorUnmix.DENSITY)
     m = np.asarray(_M, np.float64).reshape(3, 3)
-    assert np.allclose(base, _BASE, rtol=1e-6)
-    assert np.allclose(np.asarray(out[96:160, 160:224], np.float64), (m @ base)[None, None, :], rtol=1e-4)
+    ratio = base / _BASE  # only the base's color is used, not its level
+    assert np.allclose(ratio, ratio.mean(), rtol=0.005)
+    patch = np.median(img[96:160, 160:224], axis=(0, 1)).astype(np.float64)
+    assert np.allclose(np.median(out[96:160, 160:224], axis=(0, 1)), m @ patch, rtol=0.005)
     near = np.log10(out) - np.log10(np.maximum(_linear(img), 1e-6))
     near -= np.median(near, axis=(0, 1))
     assert np.median(np.abs(near)) < 0.01
 
 
 def test_density_never_reaches_zero():
-    img = _neon_pixels()
-    img[:2, :2] = _BASE
+    img = _neon_frame(np.random.default_rng(8), noise=0.3)
+    assert (_linear(img)[:, 96:, 2] == 0).any()
     out = apply_sensor_correction(img, _M, SensorUnmix.DENSITY)
     assert (out > 0).all() and np.isfinite(out).all()
 
@@ -137,16 +128,58 @@ def test_mode_roundtrips_and_an_unknown_value_reads_the_default():
     assert ProcessConfig(sensor_unmix="bogus").sensor_unmix == ProcessConfig().sensor_unmix
 
 
-def test_soft_floor_holds_every_channel_above_its_floor():
-    img = _neon_pixels()
-    out = apply_sensor_correction(img, _M, SensorUnmix.SOFT_FLOOR)
-    raw = img * np.diag(np.asarray(_M).reshape(3, 3))
-    assert (out >= SOFT_FLOOR * raw - 1e-7).all()
+def test_film_base_reads_one_shared_set_of_cells():
+    """No clear base in frame: neutral shadows, plus a deep red and a deep blue area that are
+    each thinner than the shadows in one channel only. Per-channel thin ends would mix them."""
+    rng = np.random.default_rng(9)
+    density = np.full((240, 360, 3), 0.8)
+    density[60:180, 40:90] = 0.1  # neutral shadows
+    density[60:180, 120:240] = (0.02, 0.8, 0.8)  # thin in red alone
+    density[60:180, 260:340] = (0.8, 0.8, 0.02)  # thin in blue alone
+    img = (_BASE * 10.0 ** (-density) * np.exp(rng.normal(0.0, 0.01, density.shape))).astype(np.float32)
+    ratio = film_base(img) / _BASE
+    assert np.allclose(ratio, ratio.mean(), rtol=0.01)
 
 
-def test_soft_floor_stays_close_to_linear_where_the_signal_is_strong():
-    img = _negative(np.random.default_rng(4))
-    lin = _linear(img)
-    out = apply_sensor_correction(img, _M, SensorUnmix.SOFT_FLOOR)
-    assert (out >= lin - 1e-7).all()
-    assert np.median(np.log10(out) - np.log10(np.maximum(lin, 1e-6))) < 0.02
+def test_a_clipped_base_falls_back_to_linear():
+    img = _negative(np.random.default_rng(10))
+    img[96:160, 160:224, 1] = img[:, :, 1].max()  # the thin end of green clipped in the capture
+    assert film_base(img) is None
+    for mode in (SensorUnmix.TWO_SCALE, SensorUnmix.DENSITY):
+        assert np.allclose(apply_sensor_correction(img, _M, mode), _linear(img), rtol=1e-6, atol=1e-8)
+
+
+def test_render_source_unmixes_a_stitch_once_assembled(monkeypatch, tmp_path):
+    from negpy.features.stitch.models import StitchConfig
+    from negpy.services.rendering import image_processor as ip
+
+    h, w = 40, 60
+    parts = {"a.nef": np.full((h, w, 3), 0.4, np.float32), "b.nef": np.full((h, w, 3), 0.6, np.float32)}
+    for name in parts:
+        (tmp_path / name).touch()
+    unmix_flags: list[bool] = []
+
+    def decode(self, path, params, fast_decode=False, wb_override=None, unmix=True):
+        unmix_flags.append(unmix)
+        return parts[path.rsplit("/", 1)[-1]], None, "Adobe RGB"
+
+    shapes: list[tuple[int, ...]] = []
+
+    def record(img, matrix, mode=SensorUnmix.LINEAR):
+        shapes.append(img.shape)
+        return img
+
+    monkeypatch.setattr(ip.ImageProcessor, "_decode_oriented_f32", decode)
+    monkeypatch.setattr(ip, "apply_sensor_correction", record)
+    stitch = StitchConfig(
+        stitch_enabled=True,
+        stitch_paths=(str(tmp_path / "b.nef"),),
+        stitch_transforms=((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 50.0, 0.0, 1.0, 0.0)),
+        stitch_canvas=(110, h),
+        stitch_sizes=((w, h), (w, h)),
+    )
+    process = replace(ProcessConfig(), linear_raw=True, sensor_matrix=_M)
+    cfg = replace(WorkspaceConfig(), process=process, stitch=stitch)
+    ip.ImageProcessor()._load_source_f32(str(tmp_path / "a.nef"), cfg)
+    assert unmix_flags == [False, False]
+    assert shapes == [(h, 110, 3)]

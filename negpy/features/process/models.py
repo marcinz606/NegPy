@@ -31,7 +31,6 @@ class SensorUnmix(StrEnum):
     """How the sensor matrix is applied to the linear capture."""
 
     LINEAR = "linear"
-    SOFT_FLOOR = "soft_floor"
     TWO_SCALE = "two_scale"
     DENSITY = "density"
 

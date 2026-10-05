@@ -1145,6 +1145,30 @@ class TestStitchExport:
             expected_w = w + (w - 10)
             assert arr.shape == (h, expected_w, 3)
 
+    def test_stitch_is_unmixed_once_assembled(self, tmp_path: str) -> None:
+        from negpy.features.process.models import ProcessConfig
+
+        p0 = os.path.join(str(tmp_path), "part0.nef")
+        p1 = os.path.join(str(tmp_path), "part1.nef")
+        for p in (p0, p1):
+            open(p, "wb").close()
+        h, w = 40, 60
+        bufs = {p0: np.full((h, w, 3), 0.4, dtype=np.float32), p1: np.full((h, w, 3), 0.6, dtype=np.float32)}
+        proc = ProcessConfig(sensor_matrix=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        shapes: list[tuple[int, ...]] = []
+
+        def record(img, matrix, mode="linear"):
+            shapes.append(img.shape)
+            return img
+
+        with (
+            self._patch_decode(bufs),
+            mock.patch("negpy.services.export.linear_output.apply_sensor_correction", side_effect=record),
+        ):
+            export_linear_output(p0, os.path.join(str(tmp_path), "out.tiff"), stitch=_make_stitch_config(p1, w=w, h=h), process=proc)
+
+        assert shapes == [(h, w + (w - 10), 3)]
+
     def test_stitch_description_mentions_stitch(self, tmp_path: str) -> None:
         p0 = os.path.join(str(tmp_path), "part0.nef")
         p1 = os.path.join(str(tmp_path), "part1.nef")

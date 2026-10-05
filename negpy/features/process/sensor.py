@@ -25,8 +25,8 @@ from negpy.kernel.system.parallel import parallel_njit
 
 _EPS = 1e-4
 
-# Soft floor: no channel is corrected below this fraction of its raw value.
-SOFT_FLOOR = 0.15
+# Two-Scale's color layer: no channel is corrected below this fraction of its raw value.
+COLOR_FLOOR = 0.15
 
 # Two-Scale: exact Linear while its gain on a channel's own value stays within TWO_SCALE_START
 # of its gain at the film base; the capped detail takes over fully at TWO_SCALE_FULL.
@@ -36,8 +36,14 @@ TWO_SCALE_FULL = 1.5
 _TWO_SCALE_SIGMA = 1.0 / 1200.0
 
 # Density: the film base is the thinnest negative in the frame interior.
-_BASE_PERCENTILE = 99.5
 _BASE_BUFFER = 0.1
+# The base is the median color of this share of an averaged grid, the cells thinnest in all
+# three channels together. _BASE_PERCENTILE is each channel's thin end.
+_BASE_SHARE = 0.005
+_BASE_GRID_EDGE = 512
+_BASE_PERCENTILE = 99.5
+# A channel whose thin end sits within this fraction of its maximum is clipped.
+_CLIP_PLATEAU = 0.998
 _LOG_FLOOR = 1e-6
 
 
@@ -83,25 +89,19 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str
         if out is not None:
             return out
     out = np.empty_like(x)
-    _unmix_kernel(x, m, SOFT_FLOOR if mode == SensorUnmix.SOFT_FLOOR else 0.0, out)
+    _unmix_kernel(x, m, out)
     return out
 
 
 @parallel_njit(cache=True, fastmath=True)
-def _unmix_kernel(x: np.ndarray, m: np.ndarray, floor: float, out: np.ndarray) -> None:
-    """Unmix, clipped at zero. With ``floor`` > 0, the smooth maximum of each unmixed channel
-    and ``floor`` of its raw value: never below either, the knee as wide as the floor."""
+def _unmix_kernel(x: np.ndarray, m: np.ndarray, out: np.ndarray) -> None:
+    """The unmix, clipped at zero."""
     h, w = x.shape[0], x.shape[1]
     for i in prange(h):
         for j in range(w):
             x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
             for c in range(3):
-                u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
-                if floor > 0.0:
-                    f = floor * m[c, c] * x[i, j, c]
-                    d = u - f
-                    u = 0.5 * (u + f + np.sqrt(d * d + f * f))
-                out[i, j, c] = max(u, 0.0)
+                out[i, j, c] = max(m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2, 0.0)
 
 
 @parallel_njit(cache=True, fastmath=True)
@@ -176,16 +176,30 @@ def density_unmix_matrix(matrix, base) -> np.ndarray:
     return (m * b[None, :]) / (m @ b)[:, None]
 
 
-def film_base(x: np.ndarray) -> np.ndarray:
-    """Per-channel film base estimate: the thinnest negative in the frame interior."""
-    region = get_analysis_crop(np.asarray(x[::8, ::8, :3], dtype=np.float32), _BASE_BUFFER)
-    return np.percentile(region.reshape(-1, 3), _BASE_PERCENTILE, axis=0).astype(np.float64)
+def film_base(x: np.ndarray) -> Optional[np.ndarray]:
+    """Film base color: the median of the frame-interior cells thinnest in all three channels
+    together. One shared cell set, so a colored object cannot pass for the base in a single
+    channel. Only the color is meaningful. None when the thin end is clipped in the capture."""
+    sample = np.ascontiguousarray(get_analysis_crop(x[::4, ::4, :3], _BASE_BUFFER), dtype=np.float32)
+    flat = sample.reshape(-1, 3)
+    if flat.shape[0] == 0 or np.any(np.percentile(flat, _BASE_PERCENTILE, axis=0) >= _CLIP_PLATEAU * flat.max(axis=0)):
+        return None
+    h, w = sample.shape[:2]
+    scale = _BASE_GRID_EDGE / max(h, w)
+    if scale < 1.0:
+        sample = cv2.resize(sample, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    logs = np.log(np.maximum(sample.reshape(-1, 3), _LOG_FLOOR)).astype(np.float64)
+    # A cell is as thin as its least-thin channel, each channel against its own thin end.
+    thin = (logs - np.percentile(logs, _BASE_PERCENTILE, axis=0)).min(axis=1)
+    return np.exp(np.median(logs[thin >= np.quantile(thin, 1.0 - _BASE_SHARE)], axis=0))
 
 
 def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     """The unmix applied to log transmittance, exact at the film base; never reaches zero.
     None when the base gives no usable linearisation point."""
     base = film_base(x)
+    if base is None:
+        return None
     at_base = m.astype(np.float64) @ base
     if np.any(base <= _LOG_FLOOR) or np.any(at_base <= _LOG_FLOOR):
         return None
@@ -202,7 +216,7 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     with the base's log gain, so grain is never amplified past it. Never reaches zero.
     None when the base gives no usable linearisation point."""
     base = film_base(x)
-    if np.any(base <= _LOG_FLOOR) or np.any(m.astype(np.float64) @ base <= _LOG_FLOOR):
+    if base is None or np.any(base <= _LOG_FLOOR) or np.any(m.astype(np.float64) @ base <= _LOG_FLOOR):
         return None
     c = density_unmix_matrix(m, base).astype(np.float32)
     own = (np.diag(m) / np.diag(c)).astype(np.float32)
@@ -214,7 +228,7 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     small = cv2.GaussianBlur(small, (0, 0), sigma / step)
     color = np.empty_like(small)
     weight = np.empty(small.shape[:2], np.float32)
-    _two_scale_layer_kernel(small, m, own, SOFT_FLOOR, _LOG_FLOOR, TWO_SCALE_START, TWO_SCALE_FULL, color, weight)
+    _two_scale_layer_kernel(small, m, own, COLOR_FLOOR, _LOG_FLOOR, TWO_SCALE_START, TWO_SCALE_FULL, color, weight)
     if step > 1:
         small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
     out = np.empty_like(x)

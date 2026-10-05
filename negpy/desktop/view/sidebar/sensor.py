@@ -20,12 +20,6 @@ _UNMIX_CHOICES = (
         "prints as speckled, fully saturated color.",
     ),
     (
-        SensorUnmix.SOFT_FLOOR,
-        "Soft Floor",
-        "Linear, but no channel is corrected below 15% of its uncorrected value, so the result "
-        "never reaches zero. Values just above the floor are lifted slightly.",
-    ),
-    (
         SensorUnmix.TWO_SCALE,
         "Two-Scale",
         "Linear wherever the calibration can be trusted. Where a color is mostly leak, as in neon, "

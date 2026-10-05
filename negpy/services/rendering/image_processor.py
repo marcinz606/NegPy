@@ -1001,14 +1001,22 @@ class ImageProcessor:
         if params.stitch.stitch_enabled and params.stitch.stitch_paths:
             # libraw/tifffile release the GIL, so the parts decode concurrently.
             all_paths = (file_path, *params.stitch.stitch_paths)
+            # The sensor unmix reads the film base from the frame, so a stitch is unmixed once,
+            # assembled, or each part would read its own base.
+            whole = not stitch_has_triplets(params.stitch)
             with ThreadPoolExecutor(max_workers=min(3, len(all_paths))) as pool:
                 decoded = list(
-                    pool.map(lambda ip: self._decode_oriented_f32(ip[1], _part_params(params, ip[0]), fast_decode), enumerate(all_paths))
+                    pool.map(
+                        lambda ip: self._decode_oriented_f32(ip[1], _part_params(params, ip[0]), fast_decode, unmix=not whole),
+                        enumerate(all_paths),
+                    )
                 )
             parts = [f32 for f32, _ir, _cs in decoded]
             irs = [ir for _f32, ir, _cs in decoded]
             source_cs = decoded[0][2]
             f32_buffer, ir_full = stitch_composite(parts, irs, params.stitch)
+            if whole:
+                f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
             result = (f32_buffer, ir_full, source_cs)
         else:
             result = self._decode_oriented_f32(file_path, params, fast_decode)
@@ -1018,7 +1026,12 @@ class ImageProcessor:
         return result
 
     def _decode_oriented_f32(
-        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False, wb_override: Optional[Sequence[float]] = None
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        fast_decode: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
+        unmix: bool = True,
     ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Single-file decode tail: sensor RGB -> float32 -> EXIF orientation -> flatfield.
 
@@ -1166,7 +1179,7 @@ class ImageProcessor:
             f32_buffer = prepare_lens_source(f32_buffer, metadata, params.flatfield, metadata_lens_corrections(params))
         else:
             f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
-        if not is_triplet:
+        if not is_triplet and unmix:
             f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)

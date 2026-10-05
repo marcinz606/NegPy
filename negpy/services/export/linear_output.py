@@ -764,8 +764,9 @@ def _decode_stitch_part(
     rgbscan: Optional[RgbScanConfig],
     flatfield: Optional[FlatFieldConfig],
     process: Optional[ProcessConfig],
+    unmix: bool = True,
 ) -> np.ndarray:
-    """Decode one stitch part with flatfield and sensor correction applied.
+    """Decode one stitch part with flatfield and, when ``unmix``, sensor correction applied.
 
     Triplet merge is performed when *rgbscan* is a valid triplet config.
     Sensor correction is skipped for triplets (no cross-channel leakage
@@ -792,7 +793,7 @@ def _decode_stitch_part(
 
     if flatfield is not None:
         f32 = _apply_flatfield_correction(f32, flatfield)
-    if not is_triplet and process is not None and process.sensor_matrix is not None:
+    if unmix and not is_triplet and process is not None and process.sensor_matrix is not None:
         f32 = apply_sensor_correction(f32, process.sensor_matrix, process.sensor_unmix)
     return f32
 
@@ -823,10 +824,13 @@ def _decode_stitch(
             green, blue = stitch.stitch_triplets[i]
             if green and blue:
                 part_rgbscan = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
-        parts.append(_decode_stitch_part(path, part_rgbscan, flatfield, process))
+        # Unmixed once, assembled: the unmix reads the film base from the frame.
+        parts.append(_decode_stitch_part(path, part_rgbscan, flatfield, process, unmix=has_triplets))
 
     irs: list[None] = [None] * len(parts)
     f32, _ = stitch_composite(parts, irs, stitch)
+    if not has_triplets and process is not None and process.sensor_matrix is not None:
+        f32 = apply_sensor_correction(f32, process.sensor_matrix, process.sensor_unmix)
     return f32, None, wb if not has_triplets else None, merged_meta
 
 
