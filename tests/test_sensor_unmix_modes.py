@@ -31,7 +31,6 @@ def _linear(img):
 
 def test_linear_mode_is_the_plain_unmix():
     img = _negative(np.random.default_rng(1))
-    assert np.allclose(apply_sensor_correction(img, _M), _linear(img), rtol=1e-6, atol=1e-8)
     assert np.allclose(apply_sensor_correction(img, _M, SensorUnmix.LINEAR), _linear(img), rtol=1e-6, atol=1e-8)
 
 
@@ -183,3 +182,57 @@ def test_render_source_unmixes_a_stitch_once_assembled(monkeypatch, tmp_path):
     ip.ImageProcessor()._load_source_f32(str(tmp_path / "a.nef"), cfg)
     assert unmix_flags == [False, False]
     assert shapes == [(h, 110, 3)]
+
+
+def test_export_unmixes_a_half_frame_after_slicing_it(monkeypatch, tmp_path):
+    """The preview slices a half before the unmix, so the export must too: Two-Scale and
+    Density read the film base from the buffer they are given."""
+    from negpy.services.rendering import image_processor as ip
+
+    class Stop(Exception):
+        pass
+
+    unmix_flags: list[bool] = []
+
+    def decode(self, path, params, fast_decode=False, wb_override=None, unmix=True):
+        unmix_flags.append(unmix)
+        return np.full((40, 120, 3), 0.3, np.float32), None, "Adobe RGB"
+
+    def record(img, matrix, mode):
+        raise Stop(img.shape)
+
+    monkeypatch.setattr(ip.ImageProcessor, "_decode_oriented_f32", decode)
+    monkeypatch.setattr(ip, "apply_sensor_correction", record)
+    (tmp_path / "a.nef").touch()
+    cfg = replace(WorkspaceConfig(), process=replace(ProcessConfig(), linear_raw=True, sensor_matrix=_M))
+    try:
+        ip.ImageProcessor()._prepare_export_source_locked(str(tmp_path / "a.nef"), cfg, "hash", 1, 0.5, None, 0.0)
+    except Stop as unmixed:
+        shape = unmixed.args[0]
+    assert unmix_flags == [False]
+    assert shape[1] < 120
+
+
+def test_a_dead_pixel_does_not_blow_up_two_scale():
+    img = _neon_frame(np.random.default_rng(11))
+    img[48, 140, 1] = 0.0  # a dead green pixel inside the light
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)
+    around = np.median(out[40:56, 130:150], axis=(0, 1))
+    assert np.all(out[48, 140] < 2.0 * around)
+
+
+def test_two_scale_still_acts_when_the_base_is_mostly_leak():
+    """A light so unbalanced that most of the base's own blue is green leak: the floor must not
+    hide how far Linear amplifies the neon."""
+    rng = np.random.default_rng(12)
+    base = np.array([0.23, 1.0, 0.3], np.float32)
+    assert density_unmix_matrix(_M, base)[2, 2] > 5.0
+    img = np.empty((96, 3600, 3), np.float32)  # wide enough for a blur of a few pixels
+    img[:] = base * np.exp(rng.normal(0.0, 0.01, img.shape))
+    neon = np.array([0.23, 0.5, 0.5 * 0.2706 / 1.104 / 0.9], np.float32)
+    img[:, 1800:] = neon * np.exp(rng.normal(0.0, 0.1, (96, 1800, 3)))
+    core = (slice(16, 80), slice(2000, 3400))
+    linear = _linear(img)[core][:, :, 2]
+    out = apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE)[core][:, :, 2]
+    assert (linear == 0).any() and (out > 0).all()
+    assert np.log(out).std() < 0.5 * np.log(np.maximum(linear, 1e-6)).std()

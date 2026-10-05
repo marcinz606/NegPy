@@ -14,21 +14,18 @@ from negpy.services.assets.sensor import SensorProfiles
 _UNMIX_CHOICES = (
     (
         SensorUnmix.LINEAR,
-        "Linear",
         "Subtracts the measured leak from the linear capture. Exact while the calibration holds, "
         "but where the film passes almost none of a band's light the result reaches zero and "
         "prints as speckled, fully saturated color.",
     ),
     (
         SensorUnmix.TWO_SCALE,
-        "Two-Scale",
         "Linear wherever the calibration can be trusted. Where a color is mostly leak, as in neon, "
         "the color is unmixed from a slightly blurred copy and the fine detail is added back without "
         "extra amplification, so it never reaches zero and the grain stays at the film's own.",
     ),
     (
         SensorUnmix.DENSITY,
-        "Density",
         "Applies the calibration to densities, linearized at the film base read from the frame. "
         "Never reaches zero and gives less grain in saturated colors, which come out slightly less vivid.",
     ),
@@ -101,13 +98,13 @@ class SensorSidebar(BaseSidebar):
         unmix_row = QHBoxLayout()
         self.unmix_label = field_label("Method")
         self.unmix_btn = ChoiceButton(
-            tuple(("", label) for _mode, label, _tip in _UNMIX_CHOICES),
+            tuple(("", mode.label) for mode, _tip in _UNMIX_CHOICES),
             "How the calibration is applied. "
-            + " ".join(f"<b>{label}</b>: {tip}" for _mode, label, tip in _UNMIX_CHOICES)
+            + " ".join(f"<b>{mode.label}</b>: {tip}" for mode, tip in _UNMIX_CHOICES)
             + " Re-run Roll Analysis after changing this.",
-            data=tuple(mode for mode, _label, _tip in _UNMIX_CHOICES),
+            data=tuple(mode for mode, _tip in _UNMIX_CHOICES),
         )
-        for i, (_mode, _label, tip) in enumerate(_UNMIX_CHOICES):
+        for i, (_mode, tip) in enumerate(_UNMIX_CHOICES):
             self.unmix_btn.set_choice_tooltip(i, wrap_tooltip(tip))
         self.unmix_btn.setCurrentIndex(max(0, self.unmix_btn.findData(conf.sensor_unmix)))
         unmix_row.addWidget(self.unmix_label)

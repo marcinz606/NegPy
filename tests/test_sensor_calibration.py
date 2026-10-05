@@ -12,7 +12,7 @@ from negpy.features.process.sensor import (
     sensor_token,
     unmix_block_reason,
 )
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, SensorUnmix
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -50,13 +50,13 @@ def test_rejects_zero_own_channel_and_singular():
 
 def test_apply_none_is_same_object():
     img = np.random.default_rng(0).random((8, 8, 3)).astype(np.float32)
-    assert apply_sensor_correction(img, None) is img
+    assert apply_sensor_correction(img, None, SensorUnmix.LINEAR) is img
 
 
 def test_apply_unmixes_clips_and_keeps_float32():
     clean = np.array([[[0.6, 0.2, 0.1]]], dtype=np.float32)
     mixed = np.einsum("ck,hwk->hwc", _s_norm().astype(np.float32), clean)
-    out = apply_sensor_correction(mixed, build_sensor_matrix(_RGB_R, _RGB_G, _RGB_B))
+    out = apply_sensor_correction(mixed, build_sensor_matrix(_RGB_R, _RGB_G, _RGB_B), SensorUnmix.LINEAR)
     assert np.allclose(out[0, 0], clean[0, 0], atol=1e-5)
     assert out.dtype == np.float32
     assert np.all(out >= 0.0)

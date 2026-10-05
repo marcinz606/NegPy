@@ -24,7 +24,7 @@ from negpy.features.geometry.logic import apply_radial_distortion
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lens.logic import apply_lens
 from negpy.features.lens.models import LensCorrections, LensMetadata
-from negpy.features.process.models import DemosaicMode, ProcessConfig
+from negpy.features.process.models import DemosaicMode, ProcessConfig, SensorUnmix
 from negpy.features.process.sensor import apply_sensor_correction
 from negpy.features.hdr.logic import merge_bracket
 from negpy.features.hdr.models import HdrConfig, hdr_active
@@ -941,6 +941,13 @@ def _parse_tiff_datetime(dt_str: Optional[str]) -> Optional[str]:
     return None
 
 
+def _sensor_record(process: Optional[ProcessConfig]) -> bool | str:
+    """The unmix as the description records it: its Method's name when a matrix was applied."""
+    if process is None or process.sensor_matrix is None:
+        return True
+    return SensorUnmix(process.sensor_unmix).label
+
+
 def _linear_description(
     source_name: str,
     camera_wb: Optional[_CameraWB],
@@ -948,7 +955,7 @@ def _linear_description(
     source_format: str,
     wb_applied: bool,
     flatfield_applied: bool,
-    sensor_applied: bool,
+    sensor_applied: bool | str,
     ice_applied: bool,
     gamma_key: str,
     demosaic: Optional[str] = None,
@@ -973,7 +980,8 @@ def _linear_description(
             parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
     else:
         parts.append("no WB applied")
-    applied = (("flatfield", flatfield_applied), ("lens", lens_applied), ("sensor", sensor_applied), ("ICE", ice_applied))
+    sensor = f"sensor ({sensor_applied})" if isinstance(sensor_applied, str) else "sensor"
+    applied = (("flatfield", flatfield_applied), ("lens", lens_applied), (sensor, sensor_applied), ("ICE", ice_applied))
     corrections = [s for s, on in applied if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
@@ -1014,7 +1022,7 @@ def _write_tiff(
     source_format: str = "",
     wb_applied: bool = False,
     flatfield_applied: bool = False,
-    sensor_applied: bool = False,
+    sensor_applied: bool | str = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
     compression: TiffCompression = TiffCompression.ZIP,
@@ -1175,7 +1183,7 @@ def _write_jxl(
     source_format: str = "",
     wb_applied: bool = False,
     flatfield_applied: bool = False,
-    sensor_applied: bool = False,
+    sensor_applied: bool | str = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
     resolution: Optional[Resolution] = None,
@@ -1305,7 +1313,7 @@ def export_linear_output(
             source_format=fmt,
             wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
-            sensor_applied=apply_sensor or is_stitch,
+            sensor_applied=_sensor_record(process) if apply_sensor or is_stitch else False,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
             resolution=resolution,
@@ -1322,7 +1330,7 @@ def export_linear_output(
             source_format=fmt,
             wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
-            sensor_applied=apply_sensor or is_stitch,
+            sensor_applied=_sensor_record(process) if apply_sensor or is_stitch else False,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
             resolution=resolution,

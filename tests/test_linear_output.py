@@ -1169,6 +1169,18 @@ class TestStitchExport:
 
         assert shapes == [(h, w + (w - 10), 3)]
 
+    def test_description_names_the_unmix_method(self, tmp_path: str) -> None:
+        from negpy.features.process.models import SensorUnmix
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+        proc = ProcessConfig(sensor_matrix=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0), sensor_unmix=SensorUnmix.DENSITY)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        with self._patch_decode({p: np.full((10, 10, 3), 0.3, dtype=np.float32)}):
+            export_linear_output(p, out, process=proc, apply_sensor=True)
+        with tifffile.TiffFile(out) as tf:
+            assert "sensor (Density)" in tf.pages[0].description
+
     def test_stitch_description_mentions_stitch(self, tmp_path: str) -> None:
         p0 = os.path.join(str(tmp_path), "part0.nef")
         p1 = os.path.join(str(tmp_path), "part1.nef")

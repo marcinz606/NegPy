@@ -38,6 +38,10 @@ class SensorUnmix(StrEnum):
     def _missing_(cls, value: object) -> "SensorUnmix":
         return cls.TWO_SCALE
 
+    @property
+    def label(self) -> str:
+        return {"linear": "Linear", "two_scale": "Two-Scale", "density": "Density"}[self.value]
+
 
 class DemosaicMode(StrEnum):
     """CFA interpolation, mapped to rawpy in loaders/helpers.py. AUTO keeps NegPy's own

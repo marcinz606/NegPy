@@ -13,7 +13,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lens.logic import apply_lens
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, SensorUnmix
 from negpy.features.lens.models import LensCorrections, LensMetadata, LensWarp
 from negpy.features.lens.warps import IDENTITY, RectilinearWarp, SonyWarp
 from negpy.infrastructure.loaders.lens_metadata import bind_decode, parse_opcodes, read_lens_metadata
@@ -244,9 +244,9 @@ def test_lens_preserves_flatfield_values_above_one_for_sensor_unmix(monkeypatch,
     np.testing.assert_allclose(out, image * gain, atol=1e-6)
 
     matrix = build_sensor_matrix((1, 0.25, 0.25), (0.25, 1, 0.25), (0.25, 0.25, 1))
-    expected = apply_sensor_correction(image * gain, matrix)
+    expected = apply_sensor_correction(image * gain, matrix, SensorUnmix.LINEAR)
     assert expected.max() < 1.0
-    np.testing.assert_allclose(apply_sensor_correction(out, matrix), expected, atol=1e-6)
+    np.testing.assert_allclose(apply_sensor_correction(out, matrix, SensorUnmix.LINEAR), expected, atol=1e-6)
     np.testing.assert_array_equal(image, np.float32(0.8))
 
 

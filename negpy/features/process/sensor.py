@@ -45,6 +45,12 @@ _BASE_PERCENTILE = 99.5
 # A channel whose thin end sits within this fraction of its maximum is clipped.
 _CLIP_PLATEAU = 0.998
 _LOG_FLOOR = 1e-6
+# No channel is read denser than this transmission relative to the base, 3 D, past any film:
+# a dead or black-clipped pixel would otherwise reach the other channels through the log.
+_DENSITY_RANGE = 1e-3
+# Two-Scale: a channel below this fraction of its blurred neighborhood is a defect, not film,
+# and carries no detail.
+_DEFECT_RATIO = 1.0 / 64.0
 
 
 def measure_capture(img: ImageBuffer, center: float = 0.5) -> tuple[float, float, float]:
@@ -77,7 +83,7 @@ def build_sensor_matrix(
     return tuple(float(x) for x in correction.reshape(-1))
 
 
-def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str = SensorUnmix.LINEAR) -> ImageBuffer:
+def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str) -> ImageBuffer:
     """Un-mix a linear (H, W, 3) capture with the baked 3x3; identity when None."""
     if matrix is None:
         return img
@@ -105,14 +111,14 @@ def _unmix_kernel(x: np.ndarray, m: np.ndarray, out: np.ndarray) -> None:
 
 
 @parallel_njit(cache=True, fastmath=True)
-def _log_unmix_kernel(x: np.ndarray, c: np.ndarray, offset: np.ndarray, floor: float, out: np.ndarray) -> None:
-    """exp(c @ ln x + offset) per pixel, with x held at ``floor`` or above."""
+def _log_unmix_kernel(x: np.ndarray, c: np.ndarray, offset: np.ndarray, floor: np.ndarray, out: np.ndarray) -> None:
+    """exp(c @ ln x + offset) per pixel, with each channel held at its ``floor`` or above."""
     h, w = x.shape[0], x.shape[1]
     for i in prange(h):
         for j in range(w):
-            l0 = np.log(max(x[i, j, 0], floor))
-            l1 = np.log(max(x[i, j, 1], floor))
-            l2 = np.log(max(x[i, j, 2], floor))
+            l0 = np.log(max(x[i, j, 0], floor[0]))
+            l1 = np.log(max(x[i, j, 1], floor[1]))
+            l2 = np.log(max(x[i, j, 2], floor[2]))
             for k in range(3):
                 out[i, j, k] = np.exp(c[k, 0] * l0 + c[k, 1] * l1 + c[k, 2] * l2 + offset[k])
 
@@ -130,7 +136,8 @@ def _two_scale_layer_kernel(
     weight: np.ndarray,
 ) -> None:
     """Soft-floored unmix of the blurred capture, and the blend weight: a smoothstep on the
-    largest ratio of a channel's unmix gain to its gain at the film base (``own``)."""
+    largest ratio of a channel's unmix gain to its gain at the film base (``own``). The gain
+    is the unfloored unmix's, so a channel the floor holds up still reads as amplified."""
     h, w = blurred.shape[0], blurred.shape[1]
     for i in prange(h):
         for j in range(w):
@@ -138,29 +145,38 @@ def _two_scale_layer_kernel(
             ratio = 0.0
             for c in range(3):
                 u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
+                ratio = max(ratio, blurred[i, j, c] * own[c] / max(u, log_floor))
                 f = floor * m[c, c] * blurred[i, j, c]
                 d = u - f
-                u = max(0.5 * (u + f + np.sqrt(d * d + f * f)), log_floor)
-                color[i, j, c] = u
-                ratio = max(ratio, blurred[i, j, c] * own[c] / u)
+                color[i, j, c] = max(0.5 * (u + f + np.sqrt(d * d + f * f)), log_floor)
             t = min(max((ratio - start) / (full - start), 0.0), 1.0)
             weight[i, j] = t * t * (3.0 - 2.0 * t)
 
 
 @parallel_njit(cache=True, fastmath=True)
 def _two_scale_kernel(
-    x: np.ndarray, blurred: np.ndarray, color: np.ndarray, weight: np.ndarray, m: np.ndarray, c: np.ndarray, floor: float, out: np.ndarray
+    x: np.ndarray,
+    blurred: np.ndarray,
+    color: np.ndarray,
+    weight: np.ndarray,
+    m: np.ndarray,
+    c: np.ndarray,
+    floor: float,
+    defect: float,
+    out: np.ndarray,
 ) -> None:
-    """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c."""
+    """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c.
+    A channel under ``defect`` of its neighborhood carries no detail."""
     h, w = x.shape[0], x.shape[1]
     for i in prange(h):
         for j in range(w):
             x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
             wt = weight[i, j]
             if wt > 0.0:
-                d0 = np.log(max(x0, floor) / max(blurred[i, j, 0], floor))
-                d1 = np.log(max(x1, floor) / max(blurred[i, j, 1], floor))
-                d2 = np.log(max(x2, floor) / max(blurred[i, j, 2], floor))
+                b0, b1, b2 = max(blurred[i, j, 0], floor), max(blurred[i, j, 1], floor), max(blurred[i, j, 2], floor)
+                d0 = np.log(x0 / b0) if x0 >= defect * b0 else 0.0
+                d1 = np.log(x1 / b1) if x1 >= defect * b1 else 0.0
+                d2 = np.log(x2 / b2) if x2 >= defect * b2 else 0.0
             for k in range(3):
                 lin = max(m[k, 0] * x0 + m[k, 1] * x1 + m[k, 2] * x2, 0.0)
                 if wt > 0.0:
@@ -206,7 +222,7 @@ def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     c = density_unmix_matrix(m, base)
     offset = (np.log(at_base) - c @ np.log(base)).astype(np.float32)
     out = np.empty_like(x)
-    _log_unmix_kernel(x, c.astype(np.float32), offset, _LOG_FLOOR, out)
+    _log_unmix_kernel(x, c.astype(np.float32), offset, (base * _DENSITY_RANGE).astype(np.float32), out)
     return out
 
 
@@ -232,7 +248,7 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     if step > 1:
         small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
     out = np.empty_like(x)
-    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, out)
+    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, _DEFECT_RATIO, out)
     return out
 
 
