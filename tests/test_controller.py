@@ -6260,10 +6260,12 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_rediscover_rolls_walks_every_import_source_again(self):
         self._dict_repo()
-        found = {"/scans": ["/scans/roll_a"]}
+        # Both the import and the rewalk walk the source in its normalized spelling.
+        source = os.path.normpath("/scans")
+        found = {source: ["/scans/roll_a"]}
         with patch("negpy.services.assets.rolls.discover_roll_folders", side_effect=lambda p, _filters: found[p]):
             self.controller.import_subfolders_as_rolls("/scans")
-            found["/scans"] = ["/scans/roll_a", "/scans/roll_b"]
+            found[source] = ["/scans/roll_a", "/scans/roll_b"]
             new, dropped = self.controller.rediscover_rolls()
 
         self.assertEqual((new, dropped), (1, 0))
