@@ -32,8 +32,8 @@ def _linear(img):
 
 def test_linear_mode_is_the_plain_unmix():
     img = _negative(np.random.default_rng(1))
-    assert np.array_equal(apply_sensor_correction(img, _M), _linear(img))
-    assert np.array_equal(apply_sensor_correction(img, _M, SensorUnmix.LINEAR), _linear(img))
+    assert np.allclose(apply_sensor_correction(img, _M), _linear(img), rtol=1e-6, atol=1e-8)
+    assert np.allclose(apply_sensor_correction(img, _M, SensorUnmix.LINEAR), _linear(img), rtol=1e-6, atol=1e-8)
 
 
 def test_two_scale_matches_linear_where_the_calibration_holds():
@@ -91,7 +91,7 @@ def test_two_scale_keeps_the_color_of_a_flat_area():
 
 def test_two_scale_falls_back_to_linear_without_a_usable_base():
     img = np.zeros((8, 8, 3), np.float32)
-    assert np.array_equal(apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE), _linear(img))
+    assert np.allclose(apply_sensor_correction(img, _M, SensorUnmix.TWO_SCALE), _linear(img))
 
 
 def test_density_matrix_rows_sum_to_one():
@@ -120,7 +120,7 @@ def test_density_never_reaches_zero():
 
 def test_density_falls_back_to_linear_without_a_usable_base():
     img = np.zeros((8, 8, 3), np.float32)
-    assert np.array_equal(apply_sensor_correction(img, _M, SensorUnmix.DENSITY), _linear(img))
+    assert np.allclose(apply_sensor_correction(img, _M, SensorUnmix.DENSITY), _linear(img))
 
 
 def test_sensor_token_names_a_non_linear_mode_only():

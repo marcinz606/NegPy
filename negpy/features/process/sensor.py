@@ -15,11 +15,13 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from numba import prange
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.logic import narrowband_allowed
 from negpy.features.process.models import ProcessConfig, SensorUnmix
+from negpy.kernel.system.parallel import parallel_njit
 
 _EPS = 1e-4
 
@@ -80,29 +82,91 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str
         out = _density_unmix(x, m) if mode == SensorUnmix.DENSITY else _two_scale_unmix(x, m)
         if out is not None:
             return out
-    out = np.einsum("ck,hwk->hwc", m, x)
-    if mode == SensorUnmix.SOFT_FLOOR:
-        out = _soft_floor(x, out, m)
-    return np.clip(out, 0.0, None)
+    out = np.empty_like(x)
+    _unmix_kernel(x, m, SOFT_FLOOR if mode == SensorUnmix.SOFT_FLOOR else 0.0, out)
+    return out
 
 
-def _smoothstep(lo: float, hi: float, v: np.ndarray) -> np.ndarray:
-    t = np.clip((v - lo) / (hi - lo), 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
+@parallel_njit(cache=True, fastmath=True)
+def _unmix_kernel(x: np.ndarray, m: np.ndarray, floor: float, out: np.ndarray) -> None:
+    """Unmix, clipped at zero. With ``floor`` > 0, the smooth maximum of each unmixed channel
+    and ``floor`` of its raw value: never below either, the knee as wide as the floor."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
+            for c in range(3):
+                u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
+                if floor > 0.0:
+                    f = floor * m[c, c] * x[i, j, c]
+                    d = u - f
+                    u = 0.5 * (u + f + np.sqrt(d * d + f * f))
+                out[i, j, c] = max(u, 0.0)
 
 
-def _soft_floor(x: np.ndarray, full: np.ndarray, m: np.ndarray) -> np.ndarray:
-    """Smooth maximum of the unmix and SOFT_FLOOR of each channel's raw value, per channel.
-    Never below either; the knee is as wide as the floor."""
-    floor = x * (SOFT_FLOOR * np.diag(m).astype(np.float32))
-    gap = full - floor
-    gap *= gap
-    gap += floor * floor
-    np.sqrt(gap, out=gap)
-    gap += full
-    gap += floor
-    gap *= 0.5
-    return gap
+@parallel_njit(cache=True, fastmath=True)
+def _log_unmix_kernel(x: np.ndarray, c: np.ndarray, offset: np.ndarray, floor: float, out: np.ndarray) -> None:
+    """exp(c @ ln x + offset) per pixel, with x held at ``floor`` or above."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            l0 = np.log(max(x[i, j, 0], floor))
+            l1 = np.log(max(x[i, j, 1], floor))
+            l2 = np.log(max(x[i, j, 2], floor))
+            for k in range(3):
+                out[i, j, k] = np.exp(c[k, 0] * l0 + c[k, 1] * l1 + c[k, 2] * l2 + offset[k])
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _two_scale_layer_kernel(
+    blurred: np.ndarray,
+    m: np.ndarray,
+    own: np.ndarray,
+    floor: float,
+    log_floor: float,
+    start: float,
+    full: float,
+    color: np.ndarray,
+    weight: np.ndarray,
+) -> None:
+    """Soft-floored unmix of the blurred capture, and the blend weight: a smoothstep on the
+    largest ratio of a channel's unmix gain to its gain at the film base (``own``)."""
+    h, w = blurred.shape[0], blurred.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = blurred[i, j, 0], blurred[i, j, 1], blurred[i, j, 2]
+            ratio = 0.0
+            for c in range(3):
+                u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
+                f = floor * m[c, c] * blurred[i, j, c]
+                d = u - f
+                u = max(0.5 * (u + f + np.sqrt(d * d + f * f)), log_floor)
+                color[i, j, c] = u
+                ratio = max(ratio, blurred[i, j, c] * own[c] / u)
+            t = min(max((ratio - start) / (full - start), 0.0), 1.0)
+            weight[i, j] = t * t * (3.0 - 2.0 * t)
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _two_scale_kernel(
+    x: np.ndarray, blurred: np.ndarray, color: np.ndarray, weight: np.ndarray, m: np.ndarray, c: np.ndarray, floor: float, out: np.ndarray
+) -> None:
+    """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
+            wt = weight[i, j]
+            if wt > 0.0:
+                d0 = np.log(max(x0, floor) / max(blurred[i, j, 0], floor))
+                d1 = np.log(max(x1, floor) / max(blurred[i, j, 1], floor))
+                d2 = np.log(max(x2, floor) / max(blurred[i, j, 2], floor))
+            for k in range(3):
+                lin = max(m[k, 0] * x0 + m[k, 1] * x1 + m[k, 2] * x2, 0.0)
+                if wt > 0.0:
+                    capped = color[i, j, k] * np.exp(c[k, 0] * d0 + c[k, 1] * d1 + c[k, 2] * d2)
+                    lin += wt * (capped - lin)
+                out[i, j, k] = lin
 
 
 def density_unmix_matrix(matrix, base) -> np.ndarray:
@@ -125,12 +189,11 @@ def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     at_base = m.astype(np.float64) @ base
     if np.any(base <= _LOG_FLOOR) or np.any(at_base <= _LOG_FLOOR):
         return None
-    c = density_unmix_matrix(m, base).astype(np.float32)
-    logs = np.log(np.maximum(x, _LOG_FLOOR))
-    logs -= np.log(base).astype(np.float32)
-    out = np.einsum("ck,hwk->hwc", c, logs)
-    out += np.log(at_base).astype(np.float32)
-    return np.exp(out, out=out)
+    c = density_unmix_matrix(m, base)
+    offset = (np.log(at_base) - c @ np.log(base)).astype(np.float32)
+    out = np.empty_like(x)
+    _log_unmix_kernel(x, c.astype(np.float32), offset, _LOG_FLOOR, out)
+    return out
 
 
 def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
@@ -142,24 +205,20 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     if np.any(base <= _LOG_FLOOR) or np.any(m.astype(np.float64) @ base <= _LOG_FLOOR):
         return None
     c = density_unmix_matrix(m, base).astype(np.float32)
-    own = np.diag(m).astype(np.float32) / np.diag(c)
+    own = (np.diag(m) / np.diag(c)).astype(np.float32)
     h, w = x.shape[:2]
     sigma = max(1.0, max(h, w) * _TWO_SCALE_SIGMA)
     # The color layer and the weight are smooth by construction, so they are built small.
     step = max(1, int(sigma // 2))
     small = x if step == 1 else cv2.resize(x, (-(-w // step), -(-h // step)), interpolation=cv2.INTER_AREA)
     small = cv2.GaussianBlur(small, (0, 0), sigma / step)
-    color = np.maximum(_soft_floor(small, cv2.transform(small, m), m), _LOG_FLOOR)
-    weight = _smoothstep(TWO_SCALE_START, TWO_SCALE_FULL, (small * own / color).max(axis=2))
+    color = np.empty_like(small)
+    weight = np.empty(small.shape[:2], np.float32)
+    _two_scale_layer_kernel(small, m, own, SOFT_FLOOR, _LOG_FLOOR, TWO_SCALE_START, TWO_SCALE_FULL, color, weight)
     if step > 1:
         small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
-    out = np.clip(cv2.transform(x, m), 0.0, None)
-    hit = weight > 0
-    if hit.any():
-        detail = np.log(np.maximum(x[hit], _LOG_FLOOR)) - np.log(np.maximum(small[hit], _LOG_FLOOR))
-        capped = color[hit] * np.exp(detail @ c.T)
-        linear = out[hit]
-        out[hit] = linear + weight[hit][:, None] * (capped - linear)
+    out = np.empty_like(x)
+    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, out)
     return out
 
 
