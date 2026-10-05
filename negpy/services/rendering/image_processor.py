@@ -256,6 +256,13 @@ def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
     return cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) > 0
 
 
+def preview_takes_unmix(params: WorkspaceConfig) -> bool:
+    """Whether a preview source gets the sensor unmix. Triplet composites take each channel
+    from its own single-band exposure, so unmixing them would inject crosstalk that was never
+    captured; that holds for a stitch with a triplet part too."""
+    return not is_rgb_triplet(params.rgbscan) and not stitch_has_triplets(params.stitch)
+
+
 def _unmix_source(f32_buffer: np.ndarray, params: WorkspaceConfig) -> np.ndarray:
     """The unmix `_load_source_f32(unmix=False)` left out, on the whole source or on one half,
     as the preview unmixes a half alone. Triplets are never unmixed; a stitch holding one
@@ -708,10 +715,8 @@ class ImageProcessor:
             if not skip_flatfield and not settings.stitch.stitch_enabled and not metadata_lens_corrections(settings):
                 img = apply_flatfield(img, settings.flatfield)
             # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
-            # come from _load_source_f32, which already applied it. Triplet composites take
-            # each channel from its own single-band exposure, so unmixing them would inject
-            # crosstalk that was never captured.
-            if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
+            # come from _load_source_f32, which already applied it.
+            if not skip_flatfield and preview_takes_unmix(settings):
                 img = apply_sensor_correction(img, effective_sensor_matrix(settings.process), settings.process.sensor_unmix)
             # Both no-op'd: caching would pin a second reference to the same buffer.
             if img is not source:

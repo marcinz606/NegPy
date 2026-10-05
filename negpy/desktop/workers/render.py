@@ -29,7 +29,7 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
-from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.services.rendering.image_processor import ImageProcessor, preview_takes_unmix
 
 logger = get_logger(__name__)
 
@@ -1909,10 +1909,9 @@ class NormalizationWorker(QObject):
                         params,
                         task.workspace_color_space,
                     )
-                    # Bounds must be measured on the same channel mix the render path normalizes.
-                    # Triplet composites are never sensor-corrected there.
+                    # Bounds must be measured on the same channel mix the preview normalizes.
                     sensor_matrix = effective_sensor_matrix(params.process)
-                    if sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
+                    if sensor_matrix is not None and preview_takes_unmix(params):
                         raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix, params.process.sensor_unmix)
 
                     ctx = PipelineContext(

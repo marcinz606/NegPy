@@ -292,3 +292,17 @@ def test_density_reads_no_channel_past_its_range():
     a = apply_sensor_correction(dead, _M, SensorUnmix.DENSITY)[30, 30]
     b = apply_sensor_correction(held, _M, SensorUnmix.DENSITY)[30, 30]
     assert np.allclose(a, b, rtol=1e-4)
+
+
+def test_no_preview_unmix_for_a_triplet_or_a_stitch_holding_one():
+    from negpy.features.rgbscan.models import RgbScanConfig
+    from negpy.features.stitch.models import StitchConfig
+    from negpy.services.rendering.image_processor import preview_takes_unmix
+
+    plain = WorkspaceConfig()
+    triplet = replace(plain, rgbscan=RgbScanConfig(enabled=True, green_path="g.nef", blue_path="b.nef"))
+    stitch = StitchConfig(stitch_enabled=True, stitch_paths=("b.nef",))
+    single_parts = replace(plain, stitch=stitch)
+    triplet_part = replace(plain, stitch=replace(stitch, stitch_triplets=(("", ""), ("g.nef", "b.nef"))))
+    assert preview_takes_unmix(plain) and preview_takes_unmix(single_parts)
+    assert not preview_takes_unmix(triplet) and not preview_takes_unmix(triplet_part)
