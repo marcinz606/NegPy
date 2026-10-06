@@ -405,17 +405,14 @@ class ToneSidebar(BaseSidebar):
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
             (self.paper_black_btn, "paper_black"),
+            (self.auto_density_action, "auto_exposure"),
+            (self.auto_grade_action, "auto_normalize_contrast"),
         ):
             btn.toggled.connect(
                 lambda checked, f=field: self.update_config_section(
                     "exposure", render=True, persist=True, readback_metrics=True, **{f: checked}
                 )
             )
-        for action, field in (
-            (self.auto_density_action, "auto_exposure"),
-            (self.auto_grade_action, "auto_normalize_contrast"),
-        ):
-            action.toggled.connect(lambda checked, f=field: self.controller.set_auto(f, checked))
 
     def _driven_sliders(self) -> dict:
         return {"density": self.density_slider, "grade": self.grade_slider, "highlight_density": self.highlight_density_slider}

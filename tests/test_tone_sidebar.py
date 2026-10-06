@@ -313,8 +313,19 @@ def test_reset_on_an_auto_driven_slider_restores_the_neutral_offset(qapp):
     assert controller.apply_config.call_args.args[0].exposure.density == 1.0
 
 
-def test_auto_toggles_go_through_the_controller(qapp):
+def test_auto_toggle_flips_only_the_flag_so_the_slider_drops_the_meter(qapp):
     controller, sidebar = _metered_sidebar()
+    conf = controller.state.config
+    controller.state.config = replace(conf, exposure=replace(conf.exposure, density=1.2))
     sidebar.sync_ui()
-    sidebar.auto_grade_action.setChecked(False)
-    controller.set_auto.assert_called_once_with("auto_normalize_contrast", False)
+    metered = sidebar.density_slider.value()
+
+    sidebar.auto_density_action.setChecked(False)
+    off = controller.apply_config.call_args.args[0]
+    assert not off.exposure.auto_exposure
+    assert off.exposure.density == 1.2
+
+    controller.state.config = off
+    sidebar.sync_ui()
+    assert sidebar.density_slider.value() == pytest.approx(1.2)
+    assert metered != pytest.approx(1.2)

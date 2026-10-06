@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QMessageBox
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
 from negpy.kernel.image.logic import working_oetf_encode
-from negpy.desktop.auto_sliders import record_meters, shown_values
+from negpy.desktop.auto_sliders import record_meters
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import (
@@ -150,7 +150,6 @@ from negpy.features.exposure.analysis import (
     strip_center,
     strip_overrides,
 )
-from negpy.features.exposure.auto_sliders import enable_auto, freeze_auto
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
@@ -3211,17 +3210,6 @@ class AppController(QObject):
         )
         self.set_active_tool(ToolMode.NONE)  # drops the pins; no preview left to restore
         self.request_render()
-
-    def set_auto(self, toggle: str, on: bool) -> None:
-        """Auto Density / Auto Grade toggle. Off keeps the print: the sliders take the values
-        they showed. On resets the offsets, so the sliders move to the meter."""
-        cfg = self.state.config
-        if on:
-            exposure, local = enable_auto(cfg.exposure, cfg.local, toggle)
-        else:
-            meters = self.state.auto_meters.get(self.state.current_file_hash or "", {})
-            exposure, local = freeze_auto(cfg.exposure, cfg.local, toggle, shown_values(cfg, meters))
-        self.apply_config(replace(cfg, exposure=exposure, local=local), persist=True)
 
     def remove_zone_pin(self, index: int) -> None:
         """Drop one pin; what remains re-solves. Dropping the last one puts the committed

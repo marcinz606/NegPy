@@ -418,7 +418,7 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there.
 *   **Auto Grade**: sets the grade partly from the frame's textured density range, harder when needed so textured shadows reach black (Shadow Reach), and holds textured highlights off paper white (Highlight Hold).
 *   **Set Targets…** (last item in the Auto menu): the brightness and contrast the helpers aim for, for all frames.
-*   With a helper on, its sliders show what prints: **Print Density** the metered density, **ISO-R Grade** the grade the frame prints at, **Highlights Density** with the automatic burn. Moving one trims the helper, the tick marks the helper's own choice and a double-click returns to it. Turning a helper off keeps the print; turning it on moves the sliders back to the meter.
+*   With a helper on, its sliders show what prints: **Print Density** the metered density, **ISO-R Grade** the grade the frame prints at, **Highlights Density** with the automatic burn. Moving one trims the helper, the tick marks the helper's own choice and a double-click returns to it. Turning a helper off drops its share, so the sliders show your own values; turning it on adds it back.
 
 **Test strip** (grid icon, or `Shift+T`): a 5×5 grid, Print Density rising left to right, ISO-R Grade softening top to bottom; one patch is your current setting. Click a patch to keep it; `Escape` or a second press clears it.
 

@@ -1,11 +1,10 @@
 """Auto Density and Auto Grade on their sliders.
 
 The stored value stays an offset on the meter; the slider shows meter + offset in the
-slider's own units, and an edit converts back. Turning an auto off writes the shown
-values, so the print holds; turning it on resets the offsets so the meter decides.
+slider's own units, and an edit converts back. A toggle flips only the flag, so the
+slider gains or drops the meter's share.
 """
 
-from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from negpy.features.exposure.logic import (
@@ -17,24 +16,9 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.exposure.papers import effective_constants, effective_paper_profile
-from negpy.features.local.models import LocalAdjustmentsConfig
-
-AUTO_DENSITY = "auto_exposure"
-AUTO_GRADE = "auto_normalize_contrast"
-
-# Slider field -> the toggle that drives it.
-DRIVEN_BY: Dict[str, str] = {"density": AUTO_DENSITY, "grade": AUTO_GRADE, "highlight_density": AUTO_GRADE}
 
 # The offsets at which the meter alone decides.
-NEUTRAL: Dict[str, float] = {f: float(getattr(ExposureConfig(), f)) for f in DRIVEN_BY}
-
-# Grade deltas in ISO-R points that act as R/(R+delta) ratios on the global grade.
-_GRADE_DELTAS = (
-    "shadow_grade",
-    "highlight_grade",
-    *(f"{zone}_grade_trim_{ch}" for zone in ("shadow", "highlight") for ch in ("red", "green", "blue")),
-    *(f"grade_trim_{ch}" for ch in ("red", "green", "blue")),
-)
+NEUTRAL: Dict[str, float] = {f: float(getattr(ExposureConfig(), f)) for f in ("density", "grade", "highlight_density")}
 
 
 def _paper(exposure: ExposureConfig, process_mode: Optional[str]) -> Tuple[Any, float]:
@@ -92,34 +76,3 @@ def print_stored_value(
     if field == "highlight_density" and exposure.auto_normalize_contrast and metrics.get("highlight_point") is not None:
         return shown - auto_highlight_from_metrics(exposure, process_mode, metrics)
     return shown
-
-
-def rescale_grade_deltas(
-    exposure: ExposureConfig, local: LocalAdjustmentsConfig, new_grade: float
-) -> Tuple[ExposureConfig, LocalAdjustmentsConfig]:
-    """Move Grade to `new_grade`, scaling every grade delta by the same ratio so each
-    R/(R+delta) contrast ratio holds (exact while no grade reaches the ISO R limits)."""
-    k = float(new_grade) / float(exposure.grade)
-    if k == 1.0:
-        return exposure, local
-    exposure = replace(exposure, grade=float(new_grade), **{f: getattr(exposure, f) * k for f in _GRADE_DELTAS})
-    local = replace(local, masks=tuple(replace(m, grade=m.grade * k) for m in local.masks))
-    return exposure, local
-
-
-def freeze_auto(
-    exposure: ExposureConfig, local: LocalAdjustmentsConfig, toggle: str, shown: Mapping[str, float]
-) -> Tuple[ExposureConfig, LocalAdjustmentsConfig]:
-    """Turn `toggle` off with its sliders holding `shown`, the values it printed at."""
-    if "grade" in shown and toggle == AUTO_GRADE:
-        exposure, local = rescale_grade_deltas(exposure, local, shown["grade"])
-    values = {f: v for f, v in shown.items() if DRIVEN_BY[f] == toggle and f != "grade"}
-    return replace(exposure, **{toggle: False}, **values), local
-
-
-def enable_auto(exposure: ExposureConfig, local: LocalAdjustmentsConfig, toggle: str) -> Tuple[ExposureConfig, LocalAdjustmentsConfig]:
-    """Turn `toggle` on with its offsets at neutral, so its sliders move to the meter."""
-    if toggle == AUTO_GRADE:
-        exposure, local = rescale_grade_deltas(exposure, local, NEUTRAL["grade"])
-    values = {f: v for f, v in NEUTRAL.items() if DRIVEN_BY[f] == toggle and f != "grade"}
-    return replace(exposure, **{toggle: True}, **values), local
