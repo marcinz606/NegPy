@@ -23,6 +23,12 @@ catches leakage from the red and the blue light at once. One narrow band at a ti
 that crosstalk by construction, and every channel gets the full dynamic range of the sensor
 instead of sharing it.
 
+**Single-capture narrowband scanning.** An RGB preset can instead light red, green and blue
+together for one exposure. The frame is imported as an ordinary RAW, and its roll is
+recorded with Trichrome Mode off. It takes one shutter actuation per frame and has no registration between channels.
+The channels overlap on the sensor, so pair it with a
+[sensor calibration](#sensor-calibration) profile.
+
 ---
 
 ## What you need
@@ -90,6 +96,12 @@ preset and run it. The rebate strip between frames is an ideal target. Calibrati
 that patch and solves one shared shutter plus a per-channel LED level, so each channel
 lands just under clipping. It records the ISO and the aperture with them.
 
+The dropdown beside the name picks the capture mode. **Triplet** solves each channel under
+its own LED. **Single Capture** solves the three levels together for one exposure with all
+three LEDs lit: each sensor channel also reads the neighboring LEDs, so the run measures
+that overlap and lowers the levels to match. If the overlap leaves no levels that balance
+the channels, the run stops and says so. Calibrate a triplet preset instead.
+
 That highlight matters, because the clear base becomes the *black point* after inversion. A
 clip guard therefore checks the raw Bayer photosites and backs the exposure off if any
 channel saturates. Save the preset once per film stock and reuse it.
@@ -103,13 +115,14 @@ window that stayed open.
 aperture. The scan forces that exposure on the body before every frame, so a bumped dial
 cannot falsify the result. To build a preset by hand instead, pick **Create a manual
 preset…** from the dropdown. The sliders and the exposure steppers unlock. Dial them in,
-then press the save (floppy) button to name and store the preset. White is the white-light
+**Capture mode** marks the manual preset as a triplet or a single capture. Then press the
+save (floppy) button to name and store the preset. White is the white-light
 preset's channel only, because the Scanlight cannot light it together with RGB.
 
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files
 land in a per-roll subfolder, auto-numbered, and are imported and merged automatically, so
-the inverted positive appears a moment after the shutter. **Retake** re-shoots the current
-frame without advancing the counter. The **Delay between exposures** control adds a pause
+the inverted positive appears a moment after the shutter. A single-capture preset writes
+one file per frame. **Retake** re-shoots the current frame without advancing the counter. The **Delay between exposures** control adds a pause
 between red/green/blue captures so older bodies can finish flushing the previous shot before
 the next one arrives; this avoids the USB/PTP lockups that some cameras trigger when they are
 bombarded with a new capture command too quickly.

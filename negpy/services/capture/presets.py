@@ -42,6 +42,7 @@ class ScanlightPreset:
     shutter_b: str = ""
     iso: str = ""  # camera ISO label baked at calibration (e.g. "100"); "" = not captured
     aperture: str = ""  # aperture label (e.g. "f/8"); "" for a manual lens (no electronic aperture)
+    single_capture: bool = False  # one exposure with R, G and B lit together, not a triplet
 
 
 class PresetStore:

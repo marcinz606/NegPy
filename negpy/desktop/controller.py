@@ -5979,23 +5979,25 @@ class AppController(QObject):
 
     def _on_capture_finished(self, paths: list) -> None:
         """Feed the captured frame(s) into NegPy. A 3-file RGB triplet → RGB-Scan negative
-        (C-41) pipeline; a single white-light slide → E-6/positive; a normal white-light
-        camera scan → an ordinary single RAW (RGB-Scan off, process left to NegPy)."""
+        (C-41) pipeline; a single-capture RGB frame → an ordinary single RAW, C-41; a single
+        white-light slide → E-6/positive; a normal white-light camera scan → an ordinary
+        single RAW (RGB-Scan off, process left to NegPy)."""
         self.capture_finished.emit(paths)
         if not paths:
             return
         req = getattr(self, "_last_capture_req", None)
         white = bool(req is not None and req.white_mode)
         rgb = bool(req is not None and getattr(req, "rgb_mode", True))
+        single = bool(req is not None and getattr(req, "single_capture", False))
         # RGB-Scan (triplet merge) is on only for an actual RGB triplet. Off for a single
-        # white-light slide and for a normal camera scan.
+        # white-light slide, a single-capture RGB frame and a normal camera scan.
         # It belongs to the roll of the folder the files land in, not to the open roll.
         as_roll = bool(getattr(req, "as_roll", False))
         folder = os.path.dirname(paths[0])
         target_roll = (
             rolls.recognize_folder(self.session.repo, folder) if as_roll else rolls.folder_roll_id_for_path(self.session.repo, folder)
         )
-        self._save_rgb_scan_mode(rgb and not white, target_roll)
+        self._save_rgb_scan_mode(rgb and not white and not single, target_roll)
         capture_roll = getattr(req, "roll_name", "") if req is not None else ""
         capture_frame = getattr(req, "frame_number", None) if req is not None else None
         if white:  # slides / B&W negatives force a positive process
@@ -6008,9 +6010,9 @@ class AppController(QObject):
                 capture_frame=capture_frame,
             )
         elif rgb:
-            # Independently exposed RGB channels carry no broadband orange-mask signal for
-            # the normal classifier. They are negative scans unless capture metadata says
-            # otherwise, so carry C-41 through discovery instead of guessing from the merge.
+            # Narrowband RGB exposures, three or one, carry no broadband orange-mask signal
+            # for the normal classifier. They are negative scans unless capture metadata says
+            # otherwise, so carry C-41 through discovery instead of guessing from the pixels.
             self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
                 process_mode=ProcessMode.C41,
                 capture_roll=capture_roll,

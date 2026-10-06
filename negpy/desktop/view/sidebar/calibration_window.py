@@ -19,8 +19,15 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.templates import hint_label, labeled_action
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
+
+# The index is the preset's `single_capture` flag.
+CAPTURE_MODES = (("", "Triplet"), ("", "Single Capture"))
+CAPTURE_MODE_TOOLTIP = (
+    "Triplet takes one exposure per LED and merges them. Single Capture takes one exposure with red, green and blue lit together."
+)
 
 
 class CalibrationWindow(QDialog):
@@ -42,6 +49,8 @@ class CalibrationWindow(QDialog):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. Portra 400")
         name_row.addWidget(self.name_edit, 1)
+        self.capture_btn = ChoiceButton(CAPTURE_MODES, CAPTURE_MODE_TOOLTIP)
+        name_row.addWidget(self.capture_btn)
         self.calibrate_btn = labeled_action(
             "fa5s.crosshairs", " Calibrate && Save", "Meter the clicked film base and save the result as this preset"
         )
@@ -93,11 +102,12 @@ class CalibrationWindow(QDialog):
         self.calibrateRequested.emit(self.name_edit.text().strip())
 
     def set_inputs_locked(self, locked: bool) -> None:
-        """Freeze the calibration inputs while a run is in progress: the film-stock name, the base
+        """Freeze the calibration inputs while a run is in progress: the film-stock name, the capture mode, the base
         ROI (clicking the image must not move the patch being metered), and the ISO/aperture the
         base is metered at. Re-enabled at any terminal outcome so a failed run can be retried."""
         self._running = locked
         self.name_edit.setEnabled(not locked)
+        self.capture_btn.setEnabled(not locked)
         self.iso_stepper.setEnabled(not locked)
         self.aperture_stepper.setEnabled(not locked)
         self.image.set_roi_locked(locked)

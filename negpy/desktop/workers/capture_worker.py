@@ -50,6 +50,7 @@ class CaptureRequest:
     iso: str = ""  # RGB preset's baked ISO/aperture — the triplet forces them; "" = leave as set
     aperture: str = ""
     as_roll: bool = False
+    single_capture: bool = False  # RGB preset shot as one exposure with all three LEDs lit
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class CalibrationRequest:
     # defaults keep the fixed reference (ISO 100 / f8) when the caller supplies none.
     start_levels: tuple[int, int, int] = REFERENCE_LEVELS
     start_shutter: str = REFERENCE_SHUTTER
+    single_capture: bool = False  # solve for R, G and B lit together in one exposure
 
 
 def _shutters_or_none(shutters: tuple[str, str, str]):
@@ -272,6 +274,11 @@ class CaptureWorker(QObject):
                 iso=req.iso or None,  # force the preset's exposure on the body before each shot
                 aperture=req.aperture or None,
             )
+            if req.single_capture:  # one narrowband exposure, imported as an ordinary single RAW
+                self.status.emit("Capturing…")
+                self.finished.emit([service.capture_rgb_single(settings, cancel=self._cancel)])
+                return
+
             self.status.emit("Capturing R / G / B…")
             _names = {"R": "red", "G": "green", "B": "blue"}
 
@@ -306,8 +313,8 @@ class CaptureWorker(QObject):
         Skipped for white-light captures (a single frame is already complete, not a triplet)
         and for retakes (the frame existed complete; overwriting leaves three files in place).
         """
-        if req.white_mode or req.is_retake or not req.rgb_mode:
-            return  # single-file captures (white / normal) aren't triplets → nothing to keep aligned
+        if req.white_mode or req.single_capture or req.is_retake or not req.rgb_mode:
+            return  # single-file captures (white / single RGB / normal) aren't triplets → nothing to keep aligned
         prefix = f"{req.roll_name}_Frame{req.frame_number:03d}_"  # trailing _ → only channel files
         try:
             names = os.listdir(req.output_folder)
@@ -524,6 +531,7 @@ class CaptureWorker(QObject):
                     candidates=req.shutter_candidates,  # empty → calibrate falls back to the built-in ladder
                     progress=self.calibration_progress.emit,
                     cancel=self._cancel,
+                    single_capture=req.single_capture,
                 )
             self.calibration_finished.emit(result)
         except CalibrationExposureError as e:

@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
+from negpy.desktop.view.sidebar.calibration_window import CAPTURE_MODE_TOOLTIP, CAPTURE_MODES, CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
@@ -42,6 +42,7 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
@@ -311,6 +312,9 @@ class ScanlightSidebar(QWidget):
         _exp.setContentsMargins(0, 0, 0, 0)
         _exp.setSpacing(THEME.space_md)
         _exp.addWidget(section_subheader("EXPOSURE"))
+        self.capture_btn = ChoiceButton(CAPTURE_MODES, CAPTURE_MODE_TOOLTIP)
+        self.capture_btn.setEnabled(False)  # the preset's mode, editable only while building a manual preset
+        _exp.addLayout(field_row("Capture mode", self.capture_btn))
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper()
         self.aperture_stepper = SettingStepper()
@@ -363,6 +367,7 @@ class ScanlightSidebar(QWidget):
         self.scan_btn.clicked.connect(self._on_scan)
         self.retake_btn.clicked.connect(self._on_retake)
         self.preset_combo.activated.connect(self._on_preset_selected)
+        self.capture_btn.currentChanged.connect(lambda _i: self._push_light())
         self.preset_new_btn.clicked.connect(self._on_preset_new)
         self.preset_save_btn.clicked.connect(self._on_preset_save)
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
@@ -423,11 +428,12 @@ class ScanlightSidebar(QWidget):
             # the R/G/B mix from the sliders, so it works on every Scanlight and never assumes a
             # white LED an RGB-only body lacks. White stays off: the Scanlight cannot mix both.
             r, g, b = (int(slider.value()) for slider in (self.r_slider, self.g_slider, self.b_slider))
-            if not self._manual_mode and self._preset_selected():
-                # A stored RGB preset frames by its own mix, but dimmed (issue #573): all three
+            if not self._manual_mode and self._preset_selected() and not self._settings.single_capture:
+                # A stored triplet preset frames by its own mix, but dimmed (issue #573): all three
                 # channels burn at once against a single-channel scan exposure, so full levels
                 # blow the live view out. The scan never reads this, since capture levels come
-                # from the preset. Manual building keeps full levels for the operator.
+                # from the preset. Manual building keeps full levels for the operator, and a
+                # single-capture preset frames under its own scan light.
                 r, g, b = framing_levels(r, g, b)
             self.controller.set_scanlight_color(r, g, b, 0, self._settings.port)
         self._update_settings_from_ui()
@@ -472,6 +478,14 @@ class ScanlightSidebar(QWidget):
         sliders itself, and the sliders reflect the *preset*, not the live LED level."""
         slider.setValue(value)
 
+    def _set_capture_mode(self, single: bool) -> None:
+        """Point the Capture mode button and the settings at a preset's mode, without the push
+        a user's own pick triggers."""
+        self.capture_btn.blockSignals(True)
+        self.capture_btn.setCurrentIndex(int(single))
+        self.capture_btn.blockSignals(False)
+        self._settings = replace(self._settings, single_capture=single)
+
     def _show_lone(self, stepper, label: str) -> None:
         """Make a stepper display one fixed value (a preset's baked setting): no options to step
         through, just the recalled label — or blank (shown as “—”) when the preset stores none."""
@@ -505,6 +519,7 @@ class ScanlightSidebar(QWidget):
         ):
             self._set_slider(slider, value)
         self._show_lone(self.shutter_stepper, preset.shutter_r)  # one shared shutter (r/g/b are equal)
+        self._set_capture_mode(preset.single_capture)
         self._settings = replace(
             self._settings,
             white_mode=False,
@@ -584,7 +599,13 @@ class ScanlightSidebar(QWidget):
         """One-line note under the preset row for the current selection — white-light presets
         do a single exposure. Empty/hidden for RGB film-stock presets or no selection."""
         name = self.preset_combo.currentData()
-        self.preset_hint.setText("Single white-light exposure — for B&W or slide film." if name in _BUILTIN_WHITE_PRESETS else "")
+        if name in _BUILTIN_WHITE_PRESETS:
+            text = "Single white-light exposure — for B&W or slide film."
+        elif self._preset_selected() and getattr(self._presets.get(name), "single_capture", False):
+            text = "Single exposure with red, green and blue lit together."
+        else:
+            text = ""
+        self.preset_hint.setText(text)
         self.preset_hint.setVisible(bool(self.preset_hint.text()))
 
     def _on_preset_save(self) -> None:
@@ -621,6 +642,7 @@ class ScanlightSidebar(QWidget):
                 shutter_b=s.shutter_b,
                 iso=s.iso,
                 aperture=s.aperture,
+                single_capture=s.single_capture,
             ),
         )
         self._reload_presets(select=name)
@@ -791,6 +813,7 @@ class ScanlightSidebar(QWidget):
                 shutter_candidates=candidates,
                 start_levels=start_levels,
                 start_shutter=start_shutter,
+                single_capture=self.calib_window.capture_btn.currentIndex() == 1,
             )
         )
 
@@ -1152,6 +1175,7 @@ class ScanlightSidebar(QWidget):
         self._set_slider(self.w_slider, 0)
         shutter = shutters[0]  # one shared shutter (all three are equal)
         self._show_lone(self.shutter_stepper, shutter)
+        self._set_capture_mode(result.single_capture)
         self._settings = replace(
             self._settings, white_mode=False, shutter_r=shutter, shutter_g=shutter, shutter_b=shutter, shutter_w=shutter
         )
@@ -1283,6 +1307,7 @@ class ScanlightSidebar(QWidget):
         last = self._last_frame_number(roll_folder, roll)
         frame_number = max(1, last if retake else last + 1)
         rgb = self._rgb_mode
+        single = rgb and not s.white_mode and s.single_capture
         req = CaptureRequest(
             roll_name=roll,
             frame_number=frame_number,
@@ -1305,11 +1330,12 @@ class ScanlightSidebar(QWidget):
             iso=s.iso if rgb and not s.white_mode else "",
             aperture=s.aperture if rgb and not s.white_mode else "",
             as_roll=self.output.as_roll(),
+            single_capture=single,
         )
         self.set_scanning(True)
-        if rgb and not req.white_mode:
+        if rgb and not req.white_mode and not single:
             # Triplet progress arrives only after each channel, so show the bar at 0% right away
-            # and the click has immediate feedback. White and normal captures emit no progress
+            # and the click has immediate feedback. Single-exposure captures emit no progress
             # events, so a bar there would sit at 0%. Skip it.
             self.lv_window.set_progress(0.0)
         self.controller.start_capture(req)
@@ -1544,10 +1570,12 @@ class ScanlightSidebar(QWidget):
         fixed recipe."""
         locked = self._rgb_mode and not self._settings.white_mode
         self.lv_window.settings_widget.setVisible(not locked)
-        if not hasattr(self, "_exposure_widget"):
+        if not hasattr(self, "inter_exposure_delay_slider"):
             return  # first call lands during __init__, before the RGB section is built
         self._exposure_widget.setVisible(not self._settings.white_mode)
         editable = self._manual_mode
+        self.capture_btn.setEnabled(editable)
+        self.inter_exposure_delay_slider.setEnabled(not self._settings.single_capture)
         for slider in (self.r_slider, self.g_slider, self.b_slider):
             slider.setEnabled(editable)
         self.w_slider.setEnabled(False)  # the Scanlight can't light white with RGB → a manual RGB preset keeps W off
@@ -1641,6 +1669,7 @@ class ScanlightSidebar(QWidget):
             b_level=int(self.b_slider.value()),
             w_level=int(self.w_slider.value()),
             inter_exposure_delay_ms=int(self.inter_exposure_delay_slider.value()),
+            single_capture=self.capture_btn.currentIndex() == 1,
             shutter_r=shutter,
             shutter_g=shutter,
             shutter_b=shutter,

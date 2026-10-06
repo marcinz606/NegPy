@@ -72,6 +72,17 @@ def test_rgb_triplet_import_defaults_to_c41_without_autodetect():
     assert task.detect_mode is False
 
 
+def test_single_capture_rgb_frame_is_an_ordinary_c41_raw():
+    c = _run(["frame.ARW"], rgb_mode=True, white_mode=False, single_capture=True)
+    c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", False)  # one file → no merge
+    c.request_asset_discovery.assert_called_once_with(["frame.ARW"], restore_triplets=None)
+
+    task = _hydrate_and_load(c, "frame.ARW", ProcessMode.E6, autodetect=True)
+
+    assert c.state.config.process.process_mode == ProcessMode.C41
+    assert task.detect_mode is False
+
+
 def test_normal_single_scan_leaves_merge_off():
     c = _run(["frame.ARW"], rgb_mode=False)
     c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", False)  # single RAW → no merge

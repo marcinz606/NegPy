@@ -151,3 +151,33 @@ def test_capture_without_as_roll_records_on_its_folders_own_roll():
     AppController._on_capture_finished(c, ["/hot/R1/w.ARW"])
 
     assert c._store["rgbscan_mode_by_roll"] == {roll_id: False}
+
+
+def _rgb_req(roll_name, **kw):
+    return SimpleNamespace(
+        white_mode=False, rgb_mode=True, white_process_mode="auto", roll_name=roll_name, frame_number=1, as_roll=True, **kw
+    )
+
+
+def test_single_capture_records_trichrome_mode_off_on_its_roll():
+    c = _controller(capture_req=_rgb_req("R1", single_capture=True))
+
+    AppController._on_capture_finished(c, ["/hot/R1/R1_Frame001.ARW"])
+
+    roll_id = folder_roll_id_for_path(c.session.repo, "/hot/R1")
+    assert c._store["rgbscan_mode_by_roll"] == {roll_id: False}
+    assert c._store["rgbscan_mode"] is False
+    assert c.request_asset_discovery.call_args.kwargs["restore_triplets"] is None
+
+
+def test_triplet_and_single_capture_rolls_each_keep_their_own_trichrome_mode():
+    c = _controller(capture_req=_rgb_req("Triplet"))
+    AppController._on_capture_finished(c, ["/hot/Triplet/r.ARW", "/hot/Triplet/g.ARW", "/hot/Triplet/b.ARW"])
+    c._last_capture_req = _rgb_req("Single", single_capture=True)
+    AppController._on_capture_finished(c, ["/hot/Single/Single_Frame001.ARW"])
+
+    triplet = folder_roll_id_for_path(c.session.repo, "/hot/Triplet")
+    single = folder_roll_id_for_path(c.session.repo, "/hot/Single")
+    assert c._store["rgbscan_mode_by_roll"] == {triplet: True, single: False}
+    assert AppController.rgb_scan_mode_for_roll(c, triplet) is True
+    assert AppController.rgb_scan_mode_for_roll(c, single) is False
