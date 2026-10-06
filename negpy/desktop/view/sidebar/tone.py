@@ -75,7 +75,7 @@ class ToneSidebar(BaseSidebar):
             "range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
         )
         # Not an add_toggle option: the button's checked look follows the two real ones.
-        self.auto_both_action = self.auto_btn.choice_menu.addAction("Both")
+        self.auto_both_action = self.auto_btn.choice_menu.addAction("Auto Density and Grade")
         self.auto_both_action.setCheckable(True)
         self.auto_both_action.plain_tooltip = "Turn Auto Density and Auto Grade on or off together"
         self.auto_btn.choice_menu.addSeparator()
