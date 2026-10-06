@@ -112,6 +112,8 @@ class AppState:
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
+    # file_hash -> the meters its last plain render published (desktop.auto_sliders).
+    auto_meters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     preview_raw: Optional[Any] = None
     # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it.
     # None for sources that carry no camera matrix (scanner TIFF, JPEG).
@@ -2139,6 +2141,7 @@ class DesktopSessionManager(QObject):
         self._config_dirty = False
         with self.state.metrics_lock:
             self.state.last_metrics.clear()
+        self.state.auto_meters.clear()
         self.session_emptied.emit()
 
     def clear_files(self) -> None:

@@ -1159,6 +1159,26 @@ def cast_solve_inputs(
     return effective_cast_strength(slider_strength, confidence), shadow_refs_norm, neutral_axis_norm
 
 
+def auto_base_slope(
+    grade: float,
+    auto_normalize_contrast: bool,
+    lum_range: Optional[float],
+    textural_range: Optional[float],
+    shadow_point: Optional[float],
+    anchor: Optional[float],
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+) -> float:
+    """Shared straight-line slope before the per-layer gammas: Grade on the effective range,
+    raised to Auto Grade's Shadow Reach floor."""
+    slope = grade_to_slope(grade, effective_grade_range(auto_normalize_contrast, lum_range, textural_range))
+    if auto_normalize_contrast and shadow_point is not None:
+        c = effective_constants(paper)
+        ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
+        slope = shadow_reach_slope(slope, ref, shadow_point, d_min=d_min, paper=paper)
+    return slope
+
+
 def per_channel_curve_params(
     grade: float,
     density: float,
@@ -1198,11 +1218,7 @@ def per_channel_curve_params(
         )
     slope_min = float(c["slope_min"])
     slope_max = float(c["slope_max"])
-    r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
-    base_slope = grade_to_slope(grade, r_eff)
-    if auto_normalize_contrast and shadow_point is not None:
-        ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
-        base_slope = shadow_reach_slope(base_slope, ref, shadow_point, d_min=d_min, paper=paper)
+    base_slope = auto_base_slope(grade, auto_normalize_contrast, lum_range, textural_range, shadow_point, anchor, d_min, paper)
 
     epsilon = 1e-6
 

@@ -549,14 +549,16 @@ class ControlsPanel(QWidget):
         )
         exp.density_slider.setToolTip(
             tooltip_with_shortcut(
-                "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker",
+                "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker. "
+                "With Auto Density on, it shows the metered density; moving it trims the meter",
                 ["density_up", "density_down"],
             )
         )
         exp.grade_slider.setToolTip(
             tooltip_with_shortcut(
                 f"Paper contrast (ISO R): R{EXPOSURE_CONSTANTS['iso_r_max']:.0f} is very soft, "
-                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} very hard, R110 ≈ grade 2",
+                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} very hard, R110 ≈ grade 2. "
+                "With Auto Grade on, it shows the grade the frame prints at; moving it trims the auto",
                 ["grade_up", "grade_down"],
             )
         )
@@ -601,7 +603,8 @@ class ControlsPanel(QWidget):
         exp.highlight_density_slider.setToolTip(
             tooltip_with_shortcut(
                 "Highlight zone density (ΔD): weighted to the highlights, bounded by paper white. "
-                "Positive burns highlights in; negative bleaches them",
+                "Positive burns highlights in; negative bleaches them. With Auto Grade on, it includes "
+                "the automatic highlight burn",
                 ["highlight_density_inc", "highlight_density_dec"],
             )
         )

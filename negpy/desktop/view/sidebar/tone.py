@@ -1,5 +1,8 @@
+from dataclasses import replace
+
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QVBoxLayout
 
+from negpy.desktop.auto_sliders import shown_values, stored_value
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, header_row, section_subheader, wrap_tooltip
@@ -8,6 +11,7 @@ from negpy.desktop.view.widgets.choice_button import ChoiceButton, ToggleMenuBut
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.hdr.models import hdr_active
+from negpy.features.exposure.auto_sliders import NEUTRAL
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _ISO_R_MIN = float(EXPOSURE_CONSTANTS["iso_r_min"])
@@ -326,13 +330,17 @@ class ToneSidebar(BaseSidebar):
         # White Point/Black Point live on ProcessConfig, not ExposureConfig like the rest of
         # this panel, so they write to a different config section than the loop below.
 
+        for field, slider in self._driven_sliders().items():
+            slider.valueChanged.connect(lambda v, f=field: self._set_driven(f, v, persist=False))
+            slider.valueCommitted.connect(lambda v, f=field: self._set_driven(f, v, persist=True))
+            slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
+            slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
+        self.controller.image_updated.connect(self._sync_driven)
+
         for slider, field in (
-            (self.density_slider, "density"),
-            (self.grade_slider, "grade"),
             (self.toe_w_slider, "toe_width"),
             (self.sh_w_slider, "shoulder_width"),
             (self.shadow_density_slider, "shadow_density"),
-            (self.highlight_density_slider, "highlight_density"),
             (self.dye_separation_slider, "dye_separation"),
             (self.separation_damping_slider, "separation_damping"),
             (self.contrast_mask_slider, "contrast_mask"),
@@ -397,14 +405,45 @@ class ToneSidebar(BaseSidebar):
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
             (self.paper_black_btn, "paper_black"),
-            (self.auto_density_action, "auto_exposure"),
-            (self.auto_grade_action, "auto_normalize_contrast"),
         ):
             btn.toggled.connect(
                 lambda checked, f=field: self.update_config_section(
                     "exposure", render=True, persist=True, readback_metrics=True, **{f: checked}
                 )
             )
+        for action, field in (
+            (self.auto_density_action, "auto_exposure"),
+            (self.auto_grade_action, "auto_normalize_contrast"),
+        ):
+            action.toggled.connect(lambda checked, f=field: self.controller.set_auto(f, checked))
+
+    def _driven_sliders(self) -> dict:
+        return {"density": self.density_slider, "grade": self.grade_slider, "highlight_density": self.highlight_density_slider}
+
+    def _meters(self) -> dict:
+        return self.state.auto_meters.get(self.state.current_file_hash or "", {})
+
+    def _sync_driven(self) -> None:
+        """Sliders an auto drives show meter + offset, and reset to the meter's own choice."""
+        config, meters = self.state.config, self._meters()
+        shown = shown_values(config, meters)
+        for field, slider in self._driven_sliders().items():
+            default = NEUTRAL[field]
+            if field in shown:
+                neutral = replace(config, exposure=replace(config.exposure, **{field: NEUTRAL[field]}))
+                default = shown_values(neutral, meters)[field]
+            slider.blockSignals(True)
+            slider.set_default(default)
+            slider.setValue(shown.get(field, getattr(config.exposure, field)))
+            slider.blockSignals(False)
+
+    def _set_driven(self, field: str, value: float, persist: bool) -> None:
+        # A value at the slider's default is a reset: back to the neutral offset exactly.
+        if self._driven_sliders()[field].is_default(value):
+            stored = NEUTRAL[field]
+        else:
+            stored = stored_value(self.state.config, self._meters(), field, value)
+        self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, **{field: stored})
 
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
@@ -502,12 +541,10 @@ class ToneSidebar(BaseSidebar):
 
             for i, fields in enumerate(self._channel_fields, start=1):
                 self.ch_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
-            self.density_slider.setValue(conf.density)
-            self.grade_slider.setValue(conf.grade)
+            self._sync_driven()
             self.toe_w_slider.setValue(conf.toe_width)
             self.sh_w_slider.setValue(conf.shoulder_width)
             self.shadow_density_slider.setValue(conf.shadow_density)
-            self.highlight_density_slider.setValue(conf.highlight_density)
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
             self.contrast_mask_slider.setValue(conf.contrast_mask)
