@@ -362,6 +362,38 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertIn("last_export_config", saved)
         self.assertIn("last_narrowband_scan", saved)
 
+    def _with_global(self, **values):
+        base = self.mock_repo.get_global_setting.side_effect
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: values[key] if key in values else base(key, default)
+
+    def test_a_saved_frame_opens_with_the_users_brush_size(self):
+        saved = replace(WorkspaceConfig(), retouch=replace(WorkspaceConfig().retouch, manual_dust_size=40))
+        self.mock_repo.load_file_settings.return_value = saved
+        self._with_global(last_brush_size=12)
+        self.session.select_file(0)
+        self.assertEqual(self.session.state.config.retouch.manual_dust_size, 12)
+
+    def test_a_fresh_frame_and_a_reset_take_the_users_brush_size(self):
+        self._with_global(last_brush_size=20)
+        self.assertEqual(self.session._apply_sticky_settings(WorkspaceConfig()).retouch.manual_dust_size, 20)
+        reset = self.session._reset_frame({"name": "file1.dng", "path": "path1", "hash": ""})
+        self.assertEqual(reset.retouch.manual_dust_size, 20)
+
+    def test_a_stored_brush_size_out_of_range_is_clamped_and_garbage_ignored(self):
+        self._with_global(last_brush_size=999)
+        self.assertEqual(self.session._apply_sticky_settings(WorkspaceConfig()).retouch.manual_dust_size, 64)
+        self._with_global(last_brush_size="big")
+        self.assertEqual(
+            self.session._apply_sticky_settings(WorkspaceConfig()).retouch.manual_dust_size, WorkspaceConfig().retouch.manual_dust_size
+        )
+
+    def test_changing_the_brush_size_records_it_for_every_frame(self):
+        self.session.select_file(0)
+        self.mock_repo.save_global_settings.reset_mock()
+        cfg = self.session.state.config
+        self.session.update_config(replace(cfg, retouch=replace(cfg.retouch, manual_dust_size=33)), persist=True)
+        self.assertEqual(self.mock_repo.save_global_settings.call_args.args[0]["last_brush_size"], 33)
+
     def test_persist_active_batch_config_saves_before_exposing_state(self):
         original = self.session.state.config
         updated = replace(original, geometry=replace(original.geometry, fine_rotation=1.25))
