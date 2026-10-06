@@ -74,6 +74,10 @@ class ToneSidebar(BaseSidebar):
             "Aim each frame at a contrast target instead of printing the negative's own density "
             "range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
         )
+        # Not an add_toggle option: the button's checked look follows the two real ones.
+        self.auto_both_action = self.auto_btn.choice_menu.addAction("Both")
+        self.auto_both_action.setCheckable(True)
+        self.auto_both_action.plain_tooltip = "Turn Auto Density and Auto Grade on or off together"
         self.auto_btn.choice_menu.addSeparator()
         targets_action = self.auto_btn.choice_menu.addAction("Set Targets…")
         targets_action.setToolTip(
@@ -413,6 +417,11 @@ class ToneSidebar(BaseSidebar):
                     "exposure", render=True, persist=True, readback_metrics=True, **{f: checked}
                 )
             )
+        self.auto_both_action.toggled.connect(
+            lambda checked: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked, auto_normalize_contrast=checked
+            )
+        )
 
     def _driven_sliders(self) -> dict:
         return {"density": self.density_slider, "grade": self.grade_slider, "highlight_density": self.highlight_density_slider}
@@ -532,7 +541,7 @@ class ToneSidebar(BaseSidebar):
                 w.setEnabled(global_mode)
             # WorkspaceConfig holds both off on a merge; greyed so the reason can show.
             merged = hdr_active(self.state.config.hdr)
-            for action in (self.auto_density_action, self.auto_grade_action):
+            for action in (self.auto_density_action, self.auto_grade_action, self.auto_both_action):
                 action.setEnabled(not merged)
             self.auto_merged_hint.setVisible(merged)
 
@@ -562,6 +571,7 @@ class ToneSidebar(BaseSidebar):
             self.paper_black_btn.setChecked(conf.paper_black)
             self.auto_density_action.setChecked(conf.auto_exposure)
             self.auto_grade_action.setChecked(conf.auto_normalize_contrast)
+            self.auto_both_action.setChecked(conf.auto_exposure and conf.auto_normalize_contrast)
             self.auto_btn.refresh()
         finally:
             self.block_signals(False)
@@ -594,5 +604,6 @@ class ToneSidebar(BaseSidebar):
             self.paper_black_btn,
             self.auto_density_action,
             self.auto_grade_action,
+            self.auto_both_action,
         ):
             w.blockSignals(blocked)

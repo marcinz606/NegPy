@@ -329,3 +329,22 @@ def test_auto_toggle_flips_only_the_flag_so_the_slider_drops_the_meter(qapp):
     sidebar.sync_ui()
     assert sidebar.density_slider.value() == pytest.approx(1.2)
     assert metered != pytest.approx(1.2)
+
+
+def test_both_autos_toggle_together(qapp):
+    controller, sidebar = _metered_sidebar()
+    conf = controller.state.config
+    controller.state.config = replace(conf, exposure=replace(conf.exposure, auto_exposure=True, auto_normalize_contrast=False))
+    sidebar.sync_ui()
+    assert not sidebar.auto_both_action.isChecked()
+
+    sidebar.auto_both_action.trigger()
+    on = controller.apply_config.call_args.args[0].exposure
+    assert on.auto_exposure and on.auto_normalize_contrast
+
+    controller.state.config = controller.apply_config.call_args.args[0]
+    sidebar.sync_ui()
+    assert sidebar.auto_both_action.isChecked()
+    sidebar.auto_both_action.trigger()
+    off = controller.apply_config.call_args.args[0].exposure
+    assert not off.auto_exposure and not off.auto_normalize_contrast

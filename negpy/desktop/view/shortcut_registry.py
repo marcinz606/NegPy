@@ -82,6 +82,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "batch_autocrop": ShortcutEntry("", "Auto crop the whole roll", "Geometry"),
     "toggle_auto_density": ShortcutEntry("", "Toggle Auto Density", "Exposure"),
     "toggle_auto_grade": ShortcutEntry("", "Toggle Auto Grade", "Exposure"),
+    "toggle_auto_both": ShortcutEntry("", "Toggle Auto Density and Auto Grade together", "Exposure"),
     "preset_apply": ShortcutEntry("", "Apply the selected preset", "Actions"),
     "preset_save": ShortcutEntry("", "Save a preset from the current settings", "Actions"),
     "toggle_test_strip": ShortcutEntry("Shift+T", "Density × grade test strip", "Tools"),
