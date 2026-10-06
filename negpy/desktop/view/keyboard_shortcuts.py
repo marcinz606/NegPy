@@ -322,6 +322,7 @@ class ShortcutManager:
             "metadata_clear_gear": lambda: right.metadata_sidebar.gear_clear_btn.click(),
             "metadata_clear_process": lambda: right.metadata_sidebar.process_clear_btn.click(),
             "metadata_clear_scanning": lambda: right.metadata_sidebar.scan_clear_btn.click(),
+            "assign_sequential_frame": lambda: right.metadata_sidebar.frame_sequence_btn.click(),
             "scan_setup": lambda: controls.sensor_sidebar.scan_setup_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "scan_meter_frame": (

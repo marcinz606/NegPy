@@ -893,6 +893,7 @@ Searches your own gear (§12). **Other…** opens the full built-in catalog.
 *   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
 *   **Clear**: empties the saved setup and the note. Roll and Frame stay.
 *   **Roll / Frame**: the capture roll name and frame number, stamped on capture; filename template fields `{{ roll }}` and `{{ frame }}`.
+*   **Sequence…**: assign a running capture frame number to the selected frames or the whole roll, in film order. Set a start number, a step and ascending or descending order, and each frame gets its own number. Tick **Skip Rejected Frames** to leave frames in the rejected state out of the run.
 
 <!-- panel:metadata_exposure -->
 ### Exposure
