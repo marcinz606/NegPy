@@ -629,6 +629,28 @@ class MainWindow(QMainWindow):
         self.controller.batch_progress.connect(self.progress_dialog.set_progress)
         self.controller.batch_finished.connect(self.progress_dialog.finish)
         self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
+        self.controller.duplicates_found.connect(self._on_duplicates_found)
+
+    def _on_duplicates_found(self, groups: list) -> None:
+        from negpy.desktop.view.confirm import confirm_trash_duplicates
+        from negpy.desktop.view.widgets.duplicates_dialog import DuplicatesDialog
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        by_path = {f["path"]: f for f in self.state.uploaded_files}
+
+        def pixmap_for(path: str):
+            asset = by_path.get(path)
+            icon = self.state.thumbnails.get(asset_thumbnail_key(asset)) if asset else None
+            return icon.pixmap(320, 320) if icon is not None else None
+
+        dialog = DuplicatesDialog(groups, pixmap_for, self.controller.session.repo, self)
+        if dialog.exec() != DuplicatesDialog.DialogCode.Accepted:
+            return
+        decisions = dialog.decisions()
+        trash = sum(len(paths) - 1 for paths, _keep, action in decisions if action == "trash")
+        if trash and not confirm_trash_duplicates(self, trash):
+            return
+        self.controller.apply_duplicate_decisions(decisions)
 
     def _on_batch_started(self, title: str, abortable: bool) -> None:
         """Hot Folder polls every 2 s, so its per-frame import batches (the only

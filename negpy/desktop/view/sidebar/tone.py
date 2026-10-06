@@ -7,7 +7,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton, ToggleMenuButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.exposure.logic import per_channel_dye_separation
-from negpy.features.hdr.models import hdr_active
+from negpy.features.hdr.models import hdr_bracket
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _ISO_R_MIN = float(EXPOSURE_CONSTANTS["iso_r_min"])
@@ -495,7 +495,7 @@ class ToneSidebar(BaseSidebar):
             for w in self._global_only:
                 w.setEnabled(global_mode)
             # WorkspaceConfig holds both off on a merge; greyed so the reason can show.
-            merged = hdr_active(self.state.config.hdr)
+            merged = hdr_bracket(self.state.config.hdr)
             for action in (self.auto_density_action, self.auto_grade_action):
                 action.setEnabled(not merged)
             self.auto_merged_hint.setVisible(merged)

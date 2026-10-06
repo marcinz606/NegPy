@@ -26,11 +26,27 @@ def _files(n, keepers=(), rejected=()):
     ]
 
 
+# Panels shown by a test, held until it ends and closed then. A shown panel whose Python
+# wrapper is collected mid-run leaves Qt painting through a freed delegate.
+_PANELS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _close_panels(qapp):
+    yield
+    while _PANELS:
+        panel = _PANELS.pop()
+        panel.close()
+        panel.deleteLater()
+    qapp.processEvents()
+
+
 def _browser(qapp, repo=None, files=None):
     controller = _Controller(repo if repo is not None else _Repo())
     controller.state.uploaded_files = files if files is not None else _files(36)
     controller.session.asset_model = AssetListModel(controller.state)
     panel = SessionPanel(controller)
+    _PANELS.append(panel)
     panel.resize(300, 700)
     panel.show()
     qapp.processEvents()

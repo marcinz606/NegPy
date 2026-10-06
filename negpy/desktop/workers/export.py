@@ -252,7 +252,7 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
         border_size=task.params.finish.border_size,
         half=int(task.file_info.get("half") or 0),
         metadata=task.metadata_config,
-        composite="DIPTYCH" if task.diptych else ("HDR" if frames else ""),
+        composite="DIPTYCH" if task.diptych else (("STACK" if task.file_info.get("hdr_stack") else "HDR") if frames else ""),
     )
     return out_dir, filename, ext
 

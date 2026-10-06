@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import FIELD_LABEL_WIDTH, field_label, hint_label, section_subheader, wrap_tooltip
-from negpy.features.hdr.models import hdr_active
+from negpy.features.hdr.models import hdr_bracket
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.infrastructure.loaders.helpers import supported_demosaic_modes
@@ -144,7 +144,7 @@ class DemosaicSidebar(BaseSidebar):
             # when the source has no camera matrix (a scanner TIFF, JPEG, or other
             # already-rendered file), and on a merge, which the hint explains.
             is_e6 = conf.process_mode == ProcessMode.E6
-            merged = hdr_active(self.state.config.hdr)
+            merged = hdr_bracket(self.state.config.hdr)
             # No camera matrix: not a camera RAW decode, so nothing here is demosaiced.
             self.hint.setVisible(bool(self.state.current_file_hash) and self.state.preview_cam_xyz is None)
             self.highlight_header.setVisible(is_e6)

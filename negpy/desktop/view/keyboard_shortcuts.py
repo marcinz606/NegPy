@@ -298,6 +298,8 @@ class ShortcutManager:
             "toggle_scene_overlay": lambda: self.window.session_panel.file_browser.scenes_btn.click(),
             "hdr_merge": controller.request_hdr_merge_selected,
             "hdr_unmerge": controller.request_unmerge_hdr,
+            "stack_scans": controller.request_stack_selected,
+            "find_duplicates": controller.request_find_duplicates,
             # The view method, not the controller's: it carries the confirm the deletion needs.
             "half_frame_undiptych": self.window.session_panel.file_browser.prompt_undiptych,
             "update_thumbnails_selection": (

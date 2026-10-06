@@ -852,21 +852,25 @@ class PreviewManager:
         bracket_wb = meta.get("camera_wb") if bake_camera_wb else None
 
         def _load(path: str) -> np.ndarray:
-            arr = np.asarray(
-                self.load_linear_preview(
-                    path,
-                    color_space,
-                    use_camera_wb,
-                    full_resolution,
-                    None,
-                    demosaic=demosaic,
-                    should_cancel=should_cancel,
-                    highlight_mode=highlight_mode,
-                    bake_camera_wb=bake_camera_wb,
-                    wb_override=bracket_wb,
-                )[0],
-                dtype=np.float32,
+            out, frame_dims, _meta = self.load_linear_preview(
+                path,
+                color_space,
+                use_camera_wb,
+                full_resolution,
+                None,
+                demosaic=demosaic,
+                should_cancel=should_cancel,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
+                wb_override=bracket_wb,
             )
+            arr = np.asarray(out, dtype=np.float32)
+            if hdr.hdr_stack:
+                # Rescans differ in size, so each is brought to the reference's scale, not its
+                # size; merge_providers then places it on the reference canvas.
+                scale = ref.shape[1] / max(1, dims[1])
+                size = (max(1, round(frame_dims[1] * scale)), max(1, round(frame_dims[0] * scale)))
+                return arr if (arr.shape[1], arr.shape[0]) == size else cv2.resize(arr, size, interpolation=cv2.INTER_AREA)
             if arr.shape[:2] != ref.shape[:2]:
                 # Preview sizing rounds per file, so a pixel or two between frames of one
                 # bracket is ordinary and resampling is right. A different *aspect* is not: a
@@ -881,7 +885,7 @@ class PreviewManager:
             return arr
 
         providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]
-        merged = merge_providers(providers, list(ratios), reference=0, align=align)
+        merged = merge_providers(providers, list(ratios), reference=0, align=align, stack=hdr.hdr_stack)
         if merged_key is not None:
             # Cache it unscaled: the exposure is applied below and can change without costing
             # another merge.

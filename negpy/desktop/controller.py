@@ -65,6 +65,7 @@ from negpy.desktop.workers.render import (
 from negpy.desktop.workers.embedding import EmbeddingWorker
 from negpy.desktop.workers.scan_worker import BatchRequest, MeterRequest, PrescanRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
+from negpy.desktop.workers.duplicates import DuplicateWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.desktop.workers.frame_merge import FrameMergeTask, FrameMergeWorker
@@ -459,6 +460,9 @@ class AppController(QObject):
     stitch_requested = pyqtSignal(object)
     contact_sheet_requested = pyqtSignal(object)  # ContactSheetJob
     hdr_requested = pyqtSignal(object)
+    duplicates_requested = pyqtSignal(object)
+    # Groups of frames scanned more than once, for the view to put in front of the user.
+    duplicates_found = pyqtSignal(object)
     frame_merge_requested = pyqtSignal(list)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_cancel_requested = pyqtSignal()
@@ -556,6 +560,7 @@ class AppController(QObject):
         self._export_start_time = 0.0
         self._export_failures = 0
         self._frame_merge_trash = True
+        self._duplicates_searched = 0
         self._discovery_running = False
         self._auto_open_after_discovery = False
         self._replace_after_discovery = False
@@ -639,6 +644,8 @@ class AppController(QObject):
         self.stitch_worker.moveToThread(self.export_thread)
         self.hdr_worker = HdrWorker()
         self.hdr_worker.moveToThread(self.export_thread)
+        self.duplicate_worker = DuplicateWorker()
+        self.duplicate_worker.moveToThread(self.export_thread)
         self.frame_merge_worker = FrameMergeWorker()
         self.frame_merge_worker.moveToThread(self.export_thread)
         self.export_thread.start()
@@ -902,6 +909,11 @@ class AppController(QObject):
         self.hdr_worker.solved.connect(self._on_hdr_solved)
         self.hdr_worker.cancelled.connect(self._on_hdr_cancelled)
         self.hdr_worker.error.connect(self._on_hdr_error)
+
+        self.duplicates_requested.connect(self.duplicate_worker.run)
+        self.duplicate_worker.progress.connect(self._on_batch_progress)
+        self.duplicate_worker.found.connect(self._on_duplicates_found)
+        self.duplicate_worker.cancelled.connect(lambda: self._on_batch_cancelled("duplicates"))
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumbnail_cancel_requested.connect(self.thumb_worker.cancel)
@@ -1449,6 +1461,8 @@ class AppController(QObject):
             self.stitch_worker.cancel()
         elif self._active_batch == "hdr":
             self.hdr_worker.cancel()
+        elif self._active_batch == "duplicates":
+            self.duplicate_worker.cancel()
         elif self._active_batch == "frame_merge":
             self.frame_merge_worker.cancel()
         elif self._active_batch == "library_index":
@@ -5435,6 +5449,11 @@ class AppController(QObject):
         if any(f.get("stitch_paths") for f in ordered):
             self.set_status("Stitching an already-stitched frame is not supported", 4000)
             return
+        # A stitch decodes each part's primary alone, and its membership entry would take over
+        # the stack's or bracket's.
+        if any(f.get("hdr_paths") for f in ordered):
+            self.set_status("Stitching a stacked or merged frame is not supported", 4000)
+            return
         if self._begin_batch("stitch", "Stitching frames", abortable=True) is None:
             return
         self.stitch_requested.emit(
@@ -5496,6 +5515,8 @@ class AppController(QObject):
             # Before the kind test: a triplet half reads as "rgb", and two halves share one path.
             if f.get("half"):
                 skipped.append(f"{f['name']}: a half-frame scan cannot merge")
+            elif kind == "hdr" and f.get("hdr_stack"):
+                skipped.append(f"{f['name']}: a stack cannot merge")
             elif kind == "hdr":
                 skipped.append(f"{f['name']}: a bracket would lose its shadow detail in a TIFF")
             elif kind not in MERGEABLE_KINDS:
@@ -5675,32 +5696,40 @@ class AppController(QObject):
 
     # ── HDR (bracketed-exposure merge) ─────────────────────────────────
 
-    def request_hdr_merge_selected(self) -> None:
-        """Solve the selected frames into one merged bracket asset."""
-        if self._batch_busy("HDR merge"):
-            return
+    def _merge_candidates(self, noun: str, too_few: str) -> Optional[List[dict]]:
+        """The selected frames, in filename order, when they can be merged into one; else
+        None, with the reason on the status bar."""
         files = [self.state.uploaded_files[i] for i in sorted(set(self.state.selected_indices)) if 0 <= i < len(self.state.uploaded_files)]
         by_path = {f["path"]: f for f in files}  # half-frame assets share a path
         ordered = sorted(by_path.values(), key=lambda f: os.path.basename(f["path"]).lower())
         if len(ordered) < 2:
-            self.set_status("Select two or more exposures of the same frame to merge", 4000)
-            return
+            self.set_status(too_few, 4000)
+            return None
         if any(f.get("hdr_paths") for f in ordered):
             self.set_status("Merging an already-merged frame is not supported", 4000)
-            return
+            return None
         # Both are multi-file source assembly and an asset carries one primary path. The
         # composition order is definable but not wired, so refuse instead of guessing.
         if any(f.get("stitch_paths") for f in ordered):
-            self.set_status("HDR merge of a stitched frame is not supported", 4000)
-            return
+            self.set_status(f"{noun} of a stitched frame is not supported", 4000)
+            return None
         if any(f.get("green_path") for f in ordered):
-            self.set_status("HDR merge of a Trichrome triplet is not supported", 4000)
-            return
+            self.set_status(f"{noun} of a Trichrome triplet is not supported", 4000)
+            return None
         # Halves share a path, so by_path already dropped one of each pair and merging them
         # would produce a whole-frame composite. Every other assembly leaves half-frame
         # assets whole for the same reason (see _expand_half_frames).
         if any(f.get("half") for f in ordered):
-            self.set_status("HDR merge of a half-frame asset is not supported", 4000)
+            self.set_status(f"{noun} of a half-frame asset is not supported", 4000)
+            return None
+        return ordered
+
+    def request_hdr_merge_selected(self) -> None:
+        """Solve the selected frames into one merged bracket asset."""
+        if self._batch_busy("HDR merge"):
+            return
+        ordered = self._merge_candidates("HDR merge", "Select two or more exposures of the same frame to merge")
+        if ordered is None:
             return
         if self._begin_batch("hdr", "Merging exposures", abortable=True) is None:
             return
@@ -5710,6 +5739,96 @@ class AppController(QObject):
                 params_by_path={f["path"]: self._batch_params_for(f) for f in ordered},
             )
         )
+
+    def request_stack_selected(self) -> None:
+        """Stack the selected rescans into one frame."""
+        ordered = self._merge_candidates("Stacking", "Select two or more scans of the same frame to stack")
+        if ordered is not None:
+            self.stack_frames([f["path"] for f in ordered])
+
+    def stack_frames(self, paths: List[str], reference: str = "") -> bool:
+        """Stack loaded frames, rescans of one negative, into one composite that averages them.
+
+        ``reference`` (default the first path) is the canvas the others are placed on and the
+        frame whose edit the stack starts from. Nothing is solved: a stack is a bracket whose
+        every ratio is 1.0, so it is built here rather than by the HDR worker.
+        """
+        by_path = {f["path"]: f for f in self.state.uploaded_files if not f.get("half")}
+        frames = [by_path[p] for p in dict.fromkeys(paths) if p in by_path]
+        if len(frames) < 2 or any(f.get("hdr_paths") or f.get("stitch_paths") or f.get("green_path") for f in frames):
+            return False
+        ref = next((f for f in frames if f["path"] == reference), frames[0])
+        ordered = [ref, *[f for f in frames if f is not ref]]
+        frame_paths = [f["path"] for f in ordered]
+        composite = {
+            "name": hdr_name(frame_paths, stack=True),
+            "path": frame_paths[0],
+            "hash": hdr_hash([f["hash"] for f in ordered], stack=True),
+            "hdr_paths": tuple(frame_paths[1:]),
+            "hdr_ratios": (1.0,) * len(frame_paths),
+            "hdr_align": True,
+            "hdr_anchor": "",
+            "hdr_anchor_ev": ANCHOR_EV_UNSET,
+            "hdr_stack": True,
+            "process_mode": self._composite_process_mode(ordered),
+        }
+        wanted = set(frame_paths)
+        indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
+        self.session.apply_composite(indices, composite)
+        self.set_status(f"Stacked {count_of(len(frame_paths), 'scan')}", 4000)
+        self.generate_missing_thumbnails()
+        return True
+
+    def request_find_duplicates(self) -> None:
+        """Look through the Film Strip's plain frames for any scanned more than once."""
+        if self._batch_busy("Find Duplicates"):
+            return
+        paths = tuple(dict.fromkeys(f["path"] for f in self.state.uploaded_files if not (f.get("half") or composite_kind(f))))
+        if len(paths) < 2:
+            self.set_status("Find Duplicates needs two or more single frames in the Film Strip", 4000)
+            return
+        if self._begin_batch("duplicates", "Finding duplicates", abortable=True) is None:
+            return
+        self._duplicates_searched = len(paths)
+        self.duplicates_requested.emit(paths)
+
+    def _on_duplicates_found(self, groups: list) -> None:
+        self._end_batch("duplicates")
+        if not groups:
+            self.set_status(f"No duplicates among {count_of(self._duplicates_searched, 'frame')}", 4000)
+            return
+        self.duplicates_found.emit(groups)
+
+    def apply_duplicate_decisions(self, decisions: List[Tuple[Tuple[str, ...], str, str]]) -> None:
+        """Acts on Find Duplicates' review: per group (paths, the one kept, action), where the
+        action is "stack", "reject", "trash" or "skip" and applies to the frames not kept."""
+        stacked = rejected = trashed = failed = 0
+        trash_paths: List[str] = []
+        for paths, keep, action in decisions:
+            others = [p for p in paths if p != keep]
+            if action == "stack":
+                stacked += self.stack_frames(list(paths), reference=keep)
+            elif action == "reject":
+                rejected += self.session.mark_paths(others, "excluded")
+            elif action == "trash":
+                for path in others:
+                    moved = [p for p in (path, sidecar_path_for(path)) if os.path.exists(p) and _move_to_trash(p)]
+                    if path in moved:
+                        trash_paths.append(path)
+                    else:
+                        failed += 1
+                        logger.warning("Find Duplicates could not move %s to the Trash", path)
+        if trash_paths:
+            trashed = self.session.remove_paths(trash_paths)
+        parts = [
+            f"stacked {count_of(stacked, 'group')}" if stacked else "",
+            f"rejected {count_of(rejected, 'frame')}" if rejected else "",
+            f"moved {count_of(trashed, 'file')} to the Trash" if trashed else "",
+            f"{count_of(failed, 'file')} could not be moved" if failed else "",
+        ]
+        summary = ", ".join(p for p in parts if p)
+        if summary:
+            self.set_status(summary[0].upper() + summary[1:], 5000)
 
     def _on_hdr_solved(self, payload: dict) -> None:
         self._end_batch("hdr")
@@ -6920,7 +7039,7 @@ class AppController(QObject):
                 min(frames, key=lambda p: os.path.basename(p).lower()) if frames else f["path"],
                 delivery,
                 metadata=params.metadata,
-                composite="HDR" if frames else "",
+                composite=("STACK" if f.get("hdr_stack") else "HDR") if frames else "",
             )
             # `_linear` always, on top of whatever the template rendered: without it a dump
             # written next to its source under the default pattern overwrites that source.
