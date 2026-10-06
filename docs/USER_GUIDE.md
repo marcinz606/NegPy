@@ -417,7 +417,9 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there.
 *   **Auto Grade**: sets the grade partly from the frame's textured density range, harder when needed so textured shadows reach black (Shadow Reach), and holds textured highlights off paper white (Highlight Hold).
+*   **Auto Density and Grade**: turns both helpers on or off together.
 *   **Set Targets…** (last item in the Auto menu): the brightness and contrast the helpers aim for, for all frames.
+*   With a helper on, its sliders show what prints: **Print Density** the metered density, **ISO-R Grade** the grade the frame prints at, **Highlights Density** with the automatic burn. Moving one trims the helper, the tick marks the helper's own choice and a double-click returns to it. Turning a helper off drops its share, so the sliders show your own values; turning it on adds it back.
 
 **Test strip** (grid icon, or `Shift+T`): a 5×5 grid, Print Density rising left to right, ISO-R Grade softening top to bottom; one patch is your current setting. Click a patch to keep it; `Escape` or a second press clears it.
 
@@ -974,7 +976,7 @@ A gear library for Metadata (§11), Roll Settings and every gear picker. **My Ge
 
 ### Export button
 
-**Export**, under the form; its chevron picks the scope: current frame (Ctrl+E), selected frames or all visible frames. For several formats or sizes in one run, use Export Presets.
+**Export**, under the form; its chevron picks the scope: current frame (Ctrl+E), selected frames or all visible frames. For several formats or sizes in one run, use Export Presets. A batch holding frames without a saved edit asks for confirmation first: they export with the current settings and may not match their thumbnails. After the batch, a warning names exports that rendered almost black with no crop set, where the bright scan border drove automatic levels.
 
 ### Collapsible sections
 
@@ -991,7 +993,7 @@ The printer's record for this frame: the numbered dodge/burn masks and a card wi
 <!-- panel:export_sidecars -->
 #### Sidecars
 
-**Save on Export** writes a `.negpy` sidecar next to each source on export. **Export Sidecars** writes them for all visible frames now and reports failures in read-only folders. Edits always stay in the database too.
+**Save on Export** writes a `.negpy` sidecar next to each source on export. **Export Sidecars** writes them for all visible frames now and reports failures in read-only folders. Edits always stay in the database too. A frame with no edit in the database takes its sidecar when its folder opens. **Load Edit from Sidecar…** (right-click a frame or the image) replaces the frame's edit with a chosen `.negpy`, as one undo step.
 
 <!-- panel:contact_sheet -->
 #### Contact Sheet
@@ -1047,7 +1049,7 @@ Capture film directly into NegPy. The **Scanner** card picks the scanner; the ta
 
 **Backend**: **SANE** (Linux/macOS), **Nikon Coolscan (nkscan)** (direct Coolscan driver, Linux, Windows, macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2, all three OSes). Controls follow what the device reports; a row or card with nothing for the device is hidden.
 
-*   **Device**: the scanner; the arrows refresh the list, the eject button returns the film.
+*   **Device**: the scanner; the arrows refresh the list. The eject button's menu holds **Eject Now** and, on a strip feeder, **Eject When Done** (on by default), which returns the strip after a batch. Off keeps it loaded with its picks and previews, so more frames scan without a new preview. A strip the scanner returns by itself (its idle timeout) counts as an eject: insert it again, then **Detect frames**. After 9 minutes with no scanner activity NegPy measures the strip again.
 *   **Debug log** (nkscan; Off, Debug, Trace): writes `nkscan.log` in the NegPy folder; the folder button opens it. For a bug report, set Trace, reproduce the problem and attach the file.
 
 **pyOpticfilm (Plustek)**: the **OpticFilm 8200i SE** (`07b3:1825`) and **8100 V2** (`07b3:1824`) scan; for other models try **SANE** on Linux and macOS. **IR** comes in the same pass. On Windows, bind the device to **WinUSB** with Zadig first ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). From source, install with `uv sync --group plustek` or `pip install negpy[plustek]`.
@@ -1070,9 +1072,8 @@ Capture film directly into NegPy. The **Scanner** card picks the scanner; the ta
 <!-- panel:scan_framing -->
 ### Framing
 
-*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes and approximate disk use.
+*   **Frames**: `1-6`, `1,2,5`, or empty for all. The strip preview writes its picks here. The line above **Scan** states frame count, resolution, extra passes, approximate disk use and, in amber, an active exposure lock.
 *   **Batch** / **Window**: on a feeder, **Preview strip…** previews every frame, to set windows and pick frames; with a manual holder, **Preview…** sets one crop window. Only the window is scanned; **Clear** resets it. On nkscan the preview reads the whole strip in one pass; **Detect frames** reads it again after the film moves.
-*   **Eject When Done** (on by default): returns the strip after a batch. Off keeps it loaded with its picks and previews, so more frames scan without a new preview. A strip the scanner returns by itself (its idle timeout) counts as an eject: insert it again, then **Detect frames**. After 9 minutes with no scanner activity NegPy measures the strip again.
 *   **Exposure lock** (**Meter Frame…** / **Unlock**, nkscan): nkscan meters each frame alone, so an end frame can scan in a different color. **Meter Frame…** meters one frame inside the strip (such as frame 2), and every later scan reuses that exposure, across strips and restarts, until **Unlock**. Meter again for each roll.
 *   **Crop** (**Prescan…**, Plustek): a 1200 dpi full-window preview; drag a crop and leave with **Apply Crop** or **Scan Frame**, and the next scan reads only that area. **Clear** scans the full window.
 

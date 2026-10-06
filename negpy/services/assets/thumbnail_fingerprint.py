@@ -24,7 +24,7 @@ _NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
 
 # Fields left out of a hashed section: export-only, labels, and detail too fine for a thumbnail.
 _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
-    "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview"}),
+    "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview", "crosstalk_profile"}),
     "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "chroma_denoise"}),
 }
 

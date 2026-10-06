@@ -1,4 +1,4 @@
-name = "Kodak Portra 800 (approx)"
+name = "Kodak Ektacolor Pro 800 / Portra 800 (approx)"
 type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0201,   0.0008],

@@ -246,7 +246,7 @@ def test_sane_backend_keeps_single_holder_window_control(monkeypatch) -> None:
     monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
     sidebar._update_device_caps()
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == "Preview…"
+    assert sidebar.scan_window_btn.text() == " Preview…"
     assert sidebar.scan_window_row_label.text() == "Window"
 
 
@@ -316,7 +316,7 @@ def test_full_capability_device_gets_the_strip_preview_window_control(monkeypatc
     monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
     sidebar._update_device_caps()
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == "Preview strip…"
+    assert sidebar.scan_window_btn.text() == " Preview strip…"
     assert sidebar.scan_window_row_label.text() == "Batch"
 
 
@@ -543,10 +543,21 @@ def test_scan_carries_the_per_frame_corrections_into_the_batch_request() -> None
     assert req.frame_offsets == {2: -0.4}
 
 
-def test_eject_button_calls_controller() -> None:
+def test_eject_now_in_the_eject_menu_calls_controller() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar._on_eject()
+    sidebar.eject_now_act.trigger()
     assert controller.ejected_ids == [FULL_DEVICE.id]
+
+
+def test_eject_when_done_sits_in_the_eject_menu_of_a_strip_feeder() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.eject_after_act in sidebar.eject_btn.menu().actions()
+    assert sidebar.eject_after_act.isVisible() is True
+    sidebar.eject_after_act.setChecked(not sidebar.settings.eject_after_batch)
+    assert sidebar.settings.eject_after_batch is sidebar.eject_after_act.isChecked()
+
+    minimal, _ = _sidebar(MINIMAL_DEVICE)
+    assert minimal.eject_after_act.isVisible() is False
 
 
 def test_ae_flag_flows_into_scan_params() -> None:
@@ -645,7 +656,7 @@ def test_a_sane_device_shows_none_of_them() -> None:
 def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings={"backend": "nkscan"})
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == "Preview strip…"
+    assert sidebar.scan_window_btn.text() == " Preview strip…"
 
 
 def test_a_measured_strip_scans_as_a_batch() -> None:
@@ -1322,3 +1333,16 @@ def test_a_scan_locks_its_setup_until_it_stops() -> None:
     assert sidebar.scan_btn.isEnabled()
     sidebar.set_scanning(False)
     assert sidebar.quality_body.isEnabled() and sidebar.device_body.isEnabled()
+
+
+def test_an_active_exposure_lock_shows_above_scan() -> None:
+    sidebar, _ = _sidebar(
+        LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": LOCKING_DEVICE.id, "exposure_lock_frame": 2}
+    )
+    assert "Exposure locked (frame 2)" in _summary(sidebar)
+    assert sidebar.exposure_lock_status.property("hint") == "warning"
+
+    sidebar.exposure_unlock_btn.click()
+
+    assert "Exposure locked" not in _summary(sidebar)
+    assert sidebar.exposure_lock_status.property("hint") == "muted"

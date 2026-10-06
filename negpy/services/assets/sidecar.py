@@ -1,7 +1,7 @@
 import json
 import os
 import tempfile
-from typing import Optional
+from typing import List, Optional
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.system.logging import get_logger
@@ -41,6 +41,11 @@ def load_sidecar(source_path: str, half: int = 0) -> Optional[WorkspaceConfig]:
     path = sidecar_path_for(source_path, half)
     if not os.path.exists(path):
         return None
+    return read_sidecar(path)
+
+
+def read_sidecar(path: str) -> Optional[WorkspaceConfig]:
+    """Load edits from the sidecar at *path*. None if unreadable or malformed."""
     try:
         with open(path, "r", encoding="utf-8") as f_in:
             data = json.load(f_in)
@@ -93,3 +98,20 @@ def load_or_promote(
     if cfg is not None:
         repo.save_file_settings(file_hash, cfg, file_path=source_path)
     return cfg
+
+
+def promote_sidecars(repo, assets: List[dict]) -> None:
+    """Promote the sidecar of every asset with no saved edit, so readers that go straight
+    to the DB (batch export, thumbnails, search) see it before the frame is opened."""
+    saved = repo.saved_hashes([a["hash"] for a in assets])
+    for a in assets:
+        if a["hash"] in saved:
+            continue
+        load_or_promote(
+            repo,
+            a["hash"],
+            a["path"],
+            half=int(a.get("half") or 0),
+            composite=bool(a.get("hdr_paths") or a.get("stitch_paths")),
+            forked="#roll:" in a["hash"],
+        )

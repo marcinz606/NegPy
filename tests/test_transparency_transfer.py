@@ -1231,7 +1231,7 @@ def test_normalization_shader_reads_the_transfer_decision_it_is_given():
 
     import negpy
 
-    src = (Path(negpy.__file__).parent / "features/exposure/shaders/normalization.wgsl").read_text()
+    src = (Path(negpy.__file__).parent / "features/exposure/shaders/normalization.wgsl").read_text(encoding="utf-8")
 
     assert "transfer_flag" in src
     assert "params.mode == 2u" not in src

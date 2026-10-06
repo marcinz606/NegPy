@@ -122,7 +122,7 @@ def dialog_classes() -> list[tuple[Path, ast.ClassDef]]:
     view = Path(__file__).resolve().parents[1] / "negpy" / "desktop" / "view"
     found = []
     for path in sorted(view.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ClassDef) and any(
                 (base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")) == "QDialog" for base in node.bases
             ):

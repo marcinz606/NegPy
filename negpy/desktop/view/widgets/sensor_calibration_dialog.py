@@ -6,8 +6,7 @@ the inverted mix is saved as a named sensor profile the Calibration panel select
 """
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -90,13 +89,13 @@ class SensorCalibrationDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
         self.compute_btn = QPushButton("Compute and Save")
         self.compute_btn.clicked.connect(self._compute_and_save)
-        btn_row.addWidget(cancel)
+        btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.compute_btn)
-        pin_dialog_default(self.compute_btn, cancel)
+        pin_dialog_default(self.compute_btn, self.cancel_btn)
         root.addLayout(btn_row)
         self._refresh()
 
@@ -128,7 +127,11 @@ class SensorCalibrationDialog(QDialog):
         name = self.name_edit.text().strip()
         if not name or not all(self._paths.values()):
             return
-        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        # An override cursor set inside this modal dialog can crash Qt on macOS while it
+        # builds the cursor image, so the button shows the busy state instead.
+        self.compute_btn.setEnabled(False)
+        self.compute_btn.setText("Computing…")
+        self.compute_btn.repaint()
         try:
             measured = {}
             clipped = []
@@ -142,11 +145,24 @@ class SensorCalibrationDialog(QDialog):
             self._show_result(f"Could not build the matrix: {exc}")
             return
         finally:
-            QGuiApplication.restoreOverrideCursor()
+            self.compute_btn.setText("Compute and Save")
+            self._refresh()
 
         SensorProfiles.save(name, list(matrix))
         self._show_result(self._summary(name, measured, clipped))
+        self._pin_close()
         self.profile_saved.emit(name)
+
+    def _pin_close(self) -> None:
+        # The dialog stays open to show the measured leakage; with the profile saved there
+        # is nothing left to cancel.
+        self.cancel_btn.setText("Close")
+        self.compute_btn.setDefault(False)
+        self.compute_btn.setProperty("primary", False)
+        pin_dialog_default(self.cancel_btn, self.compute_btn)
+        for btn in (self.cancel_btn, self.compute_btn):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def _summary(self, name: str, measured: dict, clipped: list) -> str:
         s = np.column_stack([measured["R"], measured["G"], measured["B"]])

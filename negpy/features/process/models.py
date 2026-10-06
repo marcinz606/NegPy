@@ -2,6 +2,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
+from negpy.domain.migrations import CROSSTALK_PROFILE_RENAMES
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 if TYPE_CHECKING:
@@ -202,6 +203,10 @@ class ProcessConfig:
         # and asset dicts, not only a loaded flat config, so this runs on every build.
         object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
         object.__setattr__(self, "sensor_unmix", SensorUnmix(self.sensor_unmix))
+        # Same reach for renamed crosstalk profiles: roll defaults overlay this field
+        # raw through dataclasses.replace, so the rename must run on every build too.
+        if isinstance(self.crosstalk_profile, str) and self.crosstalk_profile in CROSSTALK_PROFILE_RENAMES:
+            object.__setattr__(self, "crosstalk_profile", CROSSTALK_PROFILE_RENAMES[self.crosstalk_profile])
         # Slide-only, and every path into a config -- saved row, sticky settings, roll
         # default, asset dict -- has to land where the panel does.
         if self.positive_source and self.process_mode != ProcessMode.E6:

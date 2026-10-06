@@ -33,7 +33,7 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
                     (see logic.separation_damping_gain)
 """
 
-from typing import Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -46,6 +46,7 @@ from negpy.features.exposure.logic import (
     per_channel_toe_shoulder,
     per_channel_widths,
     separation_damping_gain_np,
+    slope_to_grade,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
@@ -309,6 +310,54 @@ def transfer_curve_params(
         (config.shoulder_trim_red, config.shoulder_trim_green, config.shoulder_trim_blue),
     )
     return exposure_offset, contrast, toe3, sh3
+
+
+def _transfer_totals(exposure: ExposureConfig, metrics: Mapping[str, Any]) -> Tuple[float, float, float, float]:
+    """(manual offset, total offset, total contrast, highlight hold) for `exposure`."""
+    manual_offset, manual_contrast, _, _ = transfer_curve_params(exposure)
+    offset, contrast, hl_auto = transfer_auto_terms(
+        exposure,
+        manual_offset,
+        manual_contrast,
+        metrics.get("textural_range"),
+        metrics.get("metered_anchor"),
+        metrics.get("shadow_point"),
+        metrics.get("highlight_point"),
+    )
+    return manual_offset, offset, contrast, hl_auto
+
+
+def _offset_per_density() -> float:
+    return float(TRANSFER_CONSTANTS["transfer_density_stops"]) * float(np.log10(2.0))
+
+
+def transfer_shown_values(exposure: ExposureConfig, metrics: Mapping[str, Any]) -> Dict[str, float]:
+    """Transfer-curve twin of auto_sliders.print_shown_values: the manual Density, Grade
+    and Highlights Density that print what the active, metered autos print."""
+    _, offset, contrast, hl_auto = _transfer_totals(exposure, metrics)
+    shown: Dict[str, float] = {}
+    if exposure.auto_exposure and metrics.get("metered_anchor") is not None:
+        shown["density"] = 1.0 - offset / _offset_per_density()
+    if exposure.auto_normalize_contrast and metrics.get("textural_range") is not None:
+        shown["grade"] = float(TRANSFER_CONSTANTS["transfer_grade_ref"]) / contrast
+    if exposure.auto_normalize_contrast and metrics.get("highlight_point") is not None:
+        shown["highlight_density"] = exposure.highlight_density + hl_auto
+    return shown
+
+
+def transfer_stored_value(exposure: ExposureConfig, metrics: Mapping[str, Any], field: str, shown: float) -> float:
+    """Inverse of transfer_shown_values for one field."""
+    if field not in transfer_shown_values(exposure, metrics):
+        return shown
+    manual_offset, offset, _, hl_auto = _transfer_totals(exposure, metrics)
+    if field == "density":
+        return shown + (offset - manual_offset) / _offset_per_density()
+    if field == "grade":
+        c = TRANSFER_CONSTANTS
+        k_ref = grade_to_slope(float(c["transfer_grade_ref"]), TRANSFER_DENSITY_RANGE)
+        slope = float(c["transfer_grade_ref"]) / shown * k_ref
+        return slope_to_grade(slope, effective_grade_range(True, TRANSFER_DENSITY_RANGE, metrics["textural_range"]))
+    return shown - hl_auto
 
 
 def apply_transfer_curve(

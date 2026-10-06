@@ -761,7 +761,7 @@ class AssetDiscoveryWorker(QObject):
         """
         import os
 
-        from negpy.infrastructure.loaders.constants import is_ir_sidecar_path
+        from negpy.infrastructure.loaders.constants import is_hidden_path, is_ir_sidecar_path
         from negpy.kernel.image.logic import file_hashes
         from negpy.services.assets.migrations.hash import blank_ambiguous_legacy_hashes
 
@@ -770,10 +770,12 @@ class AssetDiscoveryWorker(QObject):
             try:
                 if os.path.isdir(path):
                     for f in os.listdir(path):
+                        if is_hidden_path(f):
+                            continue
                         if f.lower().endswith(task.supported_extensions):
                             discovered_paths.append(os.path.join(path, f))
                 else:
-                    if path.lower().endswith(task.supported_extensions):
+                    if not is_hidden_path(path) and path.lower().endswith(task.supported_extensions):
                         discovered_paths.append(path)
             except Exception as e:
                 logger.error(f"Discovery error for {path}: {e}")

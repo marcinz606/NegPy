@@ -89,7 +89,7 @@ def test_every_dialog_call_site_passes_the_store():
             takes_repo.add(cls.name)
     seen, missing = set(), []
     for path in sorted(NEGPY.rglob("*.py")):
-        for call in _calls(ast.parse(path.read_text())):
+        for call in _calls(ast.parse(path.read_text(encoding="utf-8"))):
             name = _callee(call)
             if name not in takes_repo:
                 continue

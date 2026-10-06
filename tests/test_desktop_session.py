@@ -1,3 +1,4 @@
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,11 @@ _ROWS = {r.label: r for r in all_rows()}
 
 def _row(label: str):
     return _ROWS[label]
+
+
+def _native(path: str) -> str:
+    """*path* spelled with the OS separator, as the app's folder walk builds it."""
+    return path.replace("/", os.sep)
 
 
 class TestDesktopSessionSync(unittest.TestCase):
@@ -1113,50 +1119,50 @@ class TestDesktopSessionSync(unittest.TestCase):
 
     def test_rehome_folder_paths_repoints_every_matching_asset(self):
         self.session.state.uploaded_files = [
-            {"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"},
-            {"name": "b.tif", "path": "/scans/roll_a/sub/b.tif", "hash": "hb"},
-            {"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"},
+            {"name": "a.tif", "path": _native("/scans/roll_a/a.tif"), "hash": "ha"},
+            {"name": "b.tif", "path": _native("/scans/roll_a/sub/b.tif"), "hash": "hb"},
+            {"name": "c.tif", "path": _native("/elsewhere/c.tif"), "hash": "hc"},
         ]
 
-        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+        self.session.rehome_folder_paths(_native("/scans/roll_a"), _native("/scans/roll_b"))
 
         paths = [f["path"] for f in self.session.state.uploaded_files]
-        self.assertEqual(paths, ["/scans/roll_b/a.tif", "/scans/roll_b/sub/b.tif", "/elsewhere/c.tif"])
+        self.assertEqual(paths, [_native("/scans/roll_b/a.tif"), _native("/scans/roll_b/sub/b.tif"), _native("/elsewhere/c.tif")])
 
     def test_rehome_folder_paths_updates_the_active_file_path(self):
-        self.session.state.uploaded_files = [{"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"}]
-        self.session.state.current_file_path = "/scans/roll_a/a.tif"
+        self.session.state.uploaded_files = [{"name": "a.tif", "path": _native("/scans/roll_a/a.tif"), "hash": "ha"}]
+        self.session.state.current_file_path = _native("/scans/roll_a/a.tif")
 
-        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+        self.session.rehome_folder_paths(_native("/scans/roll_a"), _native("/scans/roll_b"))
 
-        self.assertEqual(self.session.state.current_file_path, "/scans/roll_b/a.tif")
+        self.assertEqual(self.session.state.current_file_path, _native("/scans/roll_b/a.tif"))
 
     def test_rehome_folder_paths_rewrites_composite_part_paths(self):
         self.session.state.uploaded_files = [
             {
                 "name": "triplet",
-                "path": "/scans/roll_a/r.tif",
+                "path": _native("/scans/roll_a/r.tif"),
                 "hash": "ha",
-                "green_path": "/scans/roll_a/g.tif",
-                "blue_path": "/scans/roll_a/b.tif",
+                "green_path": _native("/scans/roll_a/g.tif"),
+                "blue_path": _native("/scans/roll_a/b.tif"),
             },
             {
                 "name": "stitch",
-                "path": "/scans/roll_a/1.tif",
+                "path": _native("/scans/roll_a/1.tif"),
                 "hash": "hb",
-                "stitch_paths": ["/scans/roll_a/1.tif", "/scans/roll_a/2.tif"],
+                "stitch_paths": [_native("/scans/roll_a/1.tif"), _native("/scans/roll_a/2.tif")],
                 "stitch_transforms": [[1, 0, 0], [0, 1, 0]],
                 "stitch_canvas": [100, 100],
                 "stitch_sizes": [[50, 100], [50, 100]],
             },
         ]
 
-        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+        self.session.rehome_folder_paths(_native("/scans/roll_a"), _native("/scans/roll_b"))
 
         triplet, stitch = self.session.state.uploaded_files
-        self.assertEqual(triplet["green_path"], "/scans/roll_b/g.tif")
-        self.assertEqual(triplet["blue_path"], "/scans/roll_b/b.tif")
-        self.assertEqual(stitch["stitch_paths"], ["/scans/roll_b/1.tif", "/scans/roll_b/2.tif"])
+        self.assertEqual(triplet["green_path"], _native("/scans/roll_b/g.tif"))
+        self.assertEqual(triplet["blue_path"], _native("/scans/roll_b/b.tif"))
+        self.assertEqual(stitch["stitch_paths"], [_native("/scans/roll_b/1.tif"), _native("/scans/roll_b/2.tif")])
 
     def test_rehome_folder_paths_is_a_noop_when_nothing_matches(self):
         self.session.state.uploaded_files = [{"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"}]
@@ -2188,6 +2194,28 @@ class ResetKeepsScanSetup(unittest.TestCase):
 
         self.assertFalse(self.session.state.config.process.narrowband_scan)
         self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+    def test_loading_a_sidecar_replaces_the_edit_as_one_undo_step(self):
+        import tempfile
+
+        from negpy.services.assets import rolls
+        from negpy.services.assets.sidecar import write_sidecar
+
+        roll_id = self._own_narrowband_then_reset()
+        own = self.session.state.config
+        before = self.session.state.undo_index
+        with tempfile.TemporaryDirectory() as d:
+            path = write_sidecar(
+                f"{d}/frame.tif",
+                replace(own, process=replace(own.process, narrowband_scan=False), exposure=replace(own.exposure, density=0.77)),
+            )
+            self.assertTrue(self.session.load_edit_from_sidecar(path))
+            self.assertFalse(self.session.load_edit_from_sidecar(f"{d}/missing.negpy"))
+
+        self.assertEqual(self.session.state.config.exposure.density, 0.77)
+        self.assertEqual(self.repo.load_file_settings("hash1").exposure.density, 0.77)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertEqual(self.session.state.undo_index, before + 1)
 
     def test_a_paste_locks_a_card_that_differs_from_the_roll(self):
         from negpy.services.assets import rolls

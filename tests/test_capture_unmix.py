@@ -106,3 +106,30 @@ def test_legacy_default_crosstalk_profile_name_migrates():
     # A user profile that happens to sit alongside it is untouched.
     d["crosstalk_profile"] = "My Rig"
     assert WorkspaceConfig.from_flat_dict(d).process.crosstalk_profile == "My Rig"
+
+
+def test_portra_crosstalk_profile_names_migrate_to_ektacolor_pro():
+    """The Portra gallery profiles carry Kodak's Ektacolor Pro rebrand in their display
+    names; a saved edit naming the old row must select the renamed one."""
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.assets.crosstalk import CrosstalkProfiles
+
+    d = WorkspaceConfig().to_dict()
+    bundled = CrosstalkProfiles.scan_bundled()
+    for iso in ("160", "400", "800"):
+        d["crosstalk_profile"] = f"Kodak Portra {iso} (approx)"
+        migrated = WorkspaceConfig.from_flat_dict(d).process.crosstalk_profile
+        assert migrated == f"Kodak Ektacolor Pro {iso} / Portra {iso} (approx)"
+        assert migrated in bundled
+
+
+def test_renamed_crosstalk_profile_coerces_on_every_construction():
+    """A roll default overlays crosstalk_profile raw through dataclasses.replace,
+    outside any flat-config load, so the rename must run in __post_init__."""
+    from dataclasses import replace
+
+    from negpy.features.process.models import ProcessConfig
+
+    overlaid = replace(ProcessConfig(), crosstalk_profile="Kodak Portra 400 (approx)")
+    assert overlaid.crosstalk_profile == "Kodak Ektacolor Pro 400 / Portra 400 (approx)"
+    assert ProcessConfig(crosstalk_profile="My Rig").crosstalk_profile == "My Rig"

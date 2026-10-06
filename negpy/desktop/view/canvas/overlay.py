@@ -3,6 +3,7 @@ import math
 import os
 import sys
 import time
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
@@ -12,6 +13,7 @@ from PyQt6.QtCore import QEvent, QLineF, QPointF, QRectF, QSize, Qt, QTimer, pyq
 from PyQt6.QtGui import QColor, QCursor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from negpy.desktop.auto_sliders import shown_values
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import UNCROPPED_PREVIEW_TOOLS, AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
@@ -2471,7 +2473,9 @@ class CanvasOverlay(QWidget):
 
     def _recipe_lines(self) -> List[str]:
         conf = self.state.config
-        return recipe_lines(conf.exposure, conf.local, conf.finish, frame=self._frame_name())
+        meters = self.state.auto_meters.get(self.state.current_file_hash or "", {})
+        exposure = replace(conf.exposure, **shown_values(conf, meters))
+        return recipe_lines(exposure, conf.local, conf.finish, frame=self._frame_name())
 
     def _draw_printing_notes(self, painter: QPainter) -> None:
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,

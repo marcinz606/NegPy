@@ -1,0 +1,11 @@
+name = "Kodak Pro Image 100 (approx)"
+type = "specsheet-based"
+
+# 3x3 row-major density unmixing matrix (out R/G/B × in R/G/B)
+# Estimated from the aggregate midscale-neutral dye-density curve (datasheet E-4L)
+# plus C-41 dye chemistry; the sheet publishes no separated C/M/Y curves.
+matrix = [
+  [ 1.0000, -0.0681, -0.0159 ],
+  [-0.0488,  1.0000, -0.0590 ],
+  [-0.0140, -0.1190,  1.0000 ],
+]

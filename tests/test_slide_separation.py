@@ -52,7 +52,7 @@ def test_every_exposure_control_declares_its_slide_behaviour():
 def test_the_negative_package_never_imports_the_slide_package():
     root = pathlib.Path(__file__).resolve().parent.parent / "negpy" / "features" / "exposure"
     for path in root.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else []
             if isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]

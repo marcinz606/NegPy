@@ -76,6 +76,7 @@ from negpy.desktop.view.styles.templates import (
 )
 from negpy.desktop.view.styles.theme import THEME, scene_color
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_paste_dialog, open_sync_bounds_dialog
+from negpy.desktop.view.sidecar_action import LABEL as SIDECAR_LABEL, load_edit_from_sidecar
 from negpy.desktop.view.widgets.rgb_triplet_dialog import open_triplet_dialog
 from negpy.desktop.view.widgets.roll_settings_dialog import RollSettingsDialog
 from negpy.services.assets import rolls
@@ -1796,6 +1797,9 @@ class FileBrowser(QWidget):
             act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
             act_roll.triggered.connect(self.controller.revert_frame_to_roll)
             act_roll.setEnabled(self.controller.can_revert_frame_to_roll())
+            menu.addAction(label_with_shortcut(SIDECAR_LABEL, "load_sidecar")).triggered.connect(
+                lambda: load_edit_from_sidecar(self, self.controller)
+            )
         menu.addSeparator()
         act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
         act_keep.setCheckable(True)

@@ -703,10 +703,11 @@ class GPUEngine:
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
         transfer = render_path(settings.process) is not RenderPath.PRINT
-        # Measure the anchor for the render when Auto Density is on, and for the
-        # Analysis-panel stats on every preview whatever the toggle says. The render only
-        # *uses* it when auto_exposure is on (see uniforms).
-        needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
+        # Measure the anchor for every render that reads it: Auto Density, and on the
+        # transfer path Auto Grade's Shadow Reach, which reads it whatever Auto Density
+        # says. Previews also measure it for the Analysis-panel stats.
+        anchor_used = settings.exposure.auto_exposure or (transfer and settings.exposure.auto_normalize_contrast)
+        needs_anchor = metered_anchor_override is None and not tiling_mode and (anchor_used or readback_metrics)
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
         needs_shadow = shadow_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
         needs_highlight = highlight_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
@@ -2563,7 +2564,7 @@ class GPUEngine:
                 global_neutral_axis = blend_neutral_axis(global_neutral_axis, pooled_axis)
 
         global_metered_anchor = None
-        if settings.exposure.auto_exposure:
+        if settings.exposure.auto_exposure or (transfer and settings.exposure.auto_normalize_contrast):
             global_metered_anchor = measure_anchor_from_log(
                 _meter_grid(), meter_bounds, None, 0.0, assumed=transfer_assumed_anchor() if transfer else None
             )

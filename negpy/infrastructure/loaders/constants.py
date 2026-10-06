@@ -69,6 +69,13 @@ SUPPORTED_RAW_EXTENSIONS: Set[str] = (
 IR_SIDECAR_SUFFIXES: tuple[str, ...] = ("_ir_valid", "_ir")
 
 
+def is_hidden_path(path: str) -> bool:
+    """True for a dot-prefixed name. Asset discovery skips these: `.DS_Store` and a macOS
+    `._frame.dng` AppleDouble fork both pass an extension-only filter, since the fork keeps
+    the real file's extension."""
+    return os.path.basename(path).startswith(".")
+
+
 def is_ir_sidecar_path(path: str) -> bool:
     """True for an `_IR`/`_IR_VALID` TIFF whose main TIFF sits next to it. Asset discovery hides
     these; TiffLoader reads them off the main file instead. Case-insensitive name compare (not

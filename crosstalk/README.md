@@ -3,9 +3,9 @@
 Community-contributed channel-unmix matrices for NegPy's **Crosstalk** controls
 (Calibration panel: *Matrix* + *Strength*).
 
-Every `.toml` here is bundled with the app and copied into a user's
-`<Documents>/NegPy/crosstalk/` folder on first run, so they show up in the sidebar
-dropdown out of the box.
+Every `.toml` here is bundled with the app and read live, next to the user's own
+matrices in `<Documents>/NegPy/crosstalk/`, so they show up in the sidebar dropdown
+out of the box and update with each release.
 
 A matrix describes a **scanning setup**, not only a film. The dyes' unwanted absorptions
 are one cause of channel mixing; the light source's spectrum and the sensor's colour
@@ -44,7 +44,7 @@ correction. See [`../docs/CROSSTALK.md`](../docs/CROSSTALK.md).
 2. Use the format below (full reference in [`../docs/CROSSTALK.md`](../docs/CROSSTALK.md)):
 
    ```toml
-   name = "Kodak Portra 400 (Noritsu)"   # optional display name; falls back to filename
+   name = "Kodak Ektacolor Pro 400 (Noritsu)"   # optional display name; falls back to filename
    type = "measured"                     # measured | tuned | specsheet-based
    process = "C41"                       # C41 | E-6 — which film's dyes; C41 when absent
    matrix = [                            # 3x3, row-major (out R/G/B × in R/G/B)
@@ -55,7 +55,7 @@ correction. See [`../docs/CROSSTALK.md`](../docs/CROSSTALK.md).
    ```
 
 3. Name the file after the setup it was calibrated for — film stock plus light source and
-   camera/scanner where you know them (`portra_400_scanlight_a7c2.toml`).
+   camera/scanner where you know them (`ektacolor_pro_400_scanlight_a7c2.toml`).
 4. Note in your PR how the matrix was derived (datasheet, test chart, or tuned by eye on
    real scans — all three are welcome, just say which) and what rig it came from.
 

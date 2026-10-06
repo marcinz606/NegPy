@@ -13,6 +13,7 @@ from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialo
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.desktop.view.frame_merge_action import ACTION_IDS, LABELS, SCOPE_FRAME, merge_to_tiff, mergeable_in
+from negpy.desktop.view.sidecar_action import LABEL as SIDECAR_LABEL, load_edit_from_sidecar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.config import APP_CONFIG
@@ -783,6 +784,9 @@ class ImageCanvas(QWidget):
         act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
         act_roll.triggered.connect(controller.revert_frame_to_roll)
         act_roll.setEnabled(controller.can_revert_frame_to_roll())
+        menu.addAction(label_with_shortcut(SIDECAR_LABEL, "load_sidecar")).triggered.connect(
+            lambda: load_edit_from_sidecar(self, controller)
+        )
 
     def _add_exclude_action(self, menu: QMenu, pos: QPointF) -> None:
         """Adds the exclude item for the patch under the cursor, on the menus a right-click

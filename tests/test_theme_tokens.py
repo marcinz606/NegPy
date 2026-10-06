@@ -15,7 +15,7 @@ def _offenders(pattern: re.Pattern) -> list[str]:
     for path in VIEW.rglob("*.py"):
         if path.name in ALLOWED:
             continue
-        for n, line in enumerate(path.read_text().splitlines(), 1):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue
             if pattern.search(line):
@@ -28,7 +28,7 @@ def test_no_literal_hex_colour_outside_the_theme():
 
 
 def test_the_sheet_reads_every_colour_from_a_token():
-    qss = (VIEW / "styles" / "modern_dark.qss").read_text()
+    qss = (VIEW / "styles" / "modern_dark.qss").read_text(encoding="utf-8")
     assert re.findall(r"#[0-9a-fA-F]{3,6}\b", qss) == []
 
 

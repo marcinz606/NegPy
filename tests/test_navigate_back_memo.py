@@ -44,6 +44,7 @@ def _stub(memo, **overrides):
             config=object(),
             metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),
             last_metrics={},
+            auto_meters={},
             current_file_hash="h1",
             compare_mode=False,
             negative_peek=False,

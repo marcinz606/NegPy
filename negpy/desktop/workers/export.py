@@ -169,6 +169,75 @@ def resolve_export_dir(task: ExportTask) -> str:
     return resolve_output_dir(task.file_info["path"], task.export_settings, task.roll_export_root)
 
 
+def _looks_border_crushed(buffer, task: "ExportTask") -> bool:
+    """An uncropped scan whose bright holder border drove normalization renders as a
+    near-black print inside a black frame edge. Judged on the rendered positive:
+    no crop set, black border ring, and an inner region far darker than any
+    plausible print."""
+    if task.params.geometry.crop_rect is not None:
+        return False
+    arr = buffer[:: max(1, buffer.shape[0] // 512), :: max(1, buffer.shape[1] // 512)]
+    arr = arr if arr.ndim == 2 else arr[..., :3].mean(axis=2)
+    h, w = arr.shape[:2]
+    m = max(2, int(0.04 * min(h, w)))
+    ring = np.concatenate([arr[:m].ravel(), arr[-m:].ravel(), arr[:, :m].ravel(), arr[:, -m:].ravel()])
+    inner = arr[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
+    return float(np.median(ring)) < 0.02 and float(np.median(inner)) < 0.12
+
+
+def _companion_source_paths(task: "ExportTask") -> tuple:
+    """Every file this frame's render reads besides its own: triplet exposures,
+    bracket frames, stitch parts, IR sidecars."""
+    info = task.file_info
+    cfg = task.params
+    triplets = tuple(part for pair in cfg.stitch.stitch_triplets for part in pair)
+    from negpy.infrastructure.loaders.constants import IR_SIDECAR_SUFFIXES, SUPPORTED_TIFF_EXTENSIONS
+
+    stem = os.path.splitext(info["path"])[0]
+    # Constructed names, so only ones that exist count: a target merely spelled like
+    # a sidecar must not be refused.
+    ir_sidecars = tuple(
+        candidate
+        for token in IR_SIDECAR_SUFFIXES
+        for ext in SUPPORTED_TIFF_EXTENSIONS
+        if os.path.exists(candidate := f"{stem}{token}{ext}")
+    )
+    return tuple(
+        p
+        for p in (
+            info.get("green_path"),
+            info.get("blue_path"),
+            *hdr_frame_paths(info),
+            *cfg.stitch.stitch_paths,
+            *triplets,
+            *ir_sidecars,
+        )
+        if p
+    )
+
+
+def _export_target_is_a_source(path: str, task: "ExportTask") -> bool:
+    """An export must never land on a frame it was rendered from: a source under
+    Same as source with the default name pattern can resolve to its own path, and
+    the overwrite flag would replace the scan with the render."""
+    target = os.path.realpath(path)
+    target_norm = os.path.normcase(target)
+    for source in (task.file_info["path"], *_companion_source_paths(task)):
+        if not source:
+            continue
+        real = os.path.realpath(source)
+        if os.path.normcase(real) == target_norm:
+            return True
+        # normcase is the identity on macOS, so a case-variant target needs the
+        # filesystem's own answer: on case-insensitive APFS, same inode, same file.
+        try:
+            if os.path.samefile(target, real):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
     """(out_dir, filename-stem, extension) for a task — the shared source of truth for
     both conflict detection and the actual write, so they can never disagree."""
@@ -209,6 +278,8 @@ class ExportWorker(QObject):
     finished = pyqtSignal()
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
+    # Advisory about files that were written; never counted as a failure.
+    warning = pyqtSignal(str)
     contact_sheet_written = pyqtSignal(str)  # the folder the sheets went to
 
     def __init__(self) -> None:
@@ -238,6 +309,7 @@ class ExportWorker(QObject):
             if err:
                 self.error.emit(err)
 
+        border_crushed = 0
         try:
             for i, task in enumerate(tasks):
                 if self._cancel.is_set():
@@ -263,6 +335,15 @@ class ExportWorker(QObject):
                         resolution=_export_resolution(task),
                     )
 
+                if task.export_settings.overwrite:
+                    out_dir0, filename0, ext0 = resolve_export_naming(task)
+                    if _export_target_is_a_source(os.path.join(out_dir0, f"{filename0}.{ext0}"), task):
+                        self.error.emit(
+                            f"Export skipped for {task.file_info['name']}: it would overwrite the source file. "
+                            "Change the filename pattern or destination."
+                        )
+                        continue
+
                 buffer, status = self._processor.render_export(
                     task.file_info["path"],
                     task.params,
@@ -280,6 +361,9 @@ class ExportWorker(QObject):
                 if prefetch_next and i == 0:
                     self._submit_prefetch(prefetcher, nxt)
 
+                if buffer is not None and _looks_border_crushed(buffer, task):
+                    border_crushed += 1
+
                 if buffer is None:
                     # render_export returns (None, error) on failure. Surface it rather
                     # than skipping the file silently.
@@ -293,6 +377,11 @@ class ExportWorker(QObject):
             if pending is not None:
                 _drain(pending)
                 pending = None
+            if border_crushed:
+                self.warning.emit(
+                    f"{border_crushed} of {len(tasks)} exports rendered almost black with no crop set: "
+                    "the bright scan border drives automatic levels. Crop or Auto Crop, then re-export."
+                )
             if self._cancel.is_set():
                 self.cancelled.emit()
             else:
@@ -353,6 +442,9 @@ class ExportWorker(QObject):
             while os.path.exists(path):
                 path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
                 counter += 1
+
+        if _export_target_is_a_source(path, task):
+            return f"Export skipped for {task.file_info['name']}: it would overwrite the source file. Change the filename pattern or destination."
 
         tmp_path = None
         try:

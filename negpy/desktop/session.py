@@ -41,7 +41,7 @@ from negpy.services.assets import rolls
 from negpy.services.assets import semantic_model
 from negpy.services.assets.rolls import unforked_hash
 from negpy.services.assets.search import facts_for, match, parse_query
-from negpy.services.assets.sidecar import load_or_promote
+from negpy.services.assets.sidecar import load_or_promote, read_sidecar
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
@@ -112,6 +112,8 @@ class AppState:
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
+    # file_hash -> the meters its last plain render published (desktop.auto_sliders).
+    auto_meters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     preview_raw: Optional[Any] = None
     # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it.
     # None for sources that carry no camera matrix (scanner TIFF, JPEG).
@@ -1223,6 +1225,22 @@ class DesktopSessionManager(QObject):
         config = rolls.resolve_roll_config(self.repo, roll_id, file_hash, config)
         return rolls.resolve_roll_baseline(self.repo, roll_id, file_hash, config)
 
+    def load_edit_from_sidecar(self, path: str) -> bool:
+        """Replace the active frame's edit with the sidecar at *path*, as an undoable
+        history step. Like a work print, its own values beat the roll's, so diverged cards
+        lock. False when the file is not a readable sidecar."""
+        idx = self.state.selected_file_idx
+        if not 0 <= idx < len(self.state.uploaded_files):
+            return False
+        saved = read_sidecar(path)
+        if saved is None:
+            return False
+        asset = self.state.uploaded_files[idx]
+        config = self._apply_sticky_settings(saved, only_global=True)
+        self.update_config(resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), persist=True)
+        self._relock_diverged_cards()
+        return True
+
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
         """Build an asset's effective config and report whether it had saved edits."""
         saved_config = load_or_promote(
@@ -2123,6 +2141,7 @@ class DesktopSessionManager(QObject):
         self._config_dirty = False
         with self.state.metrics_lock:
             self.state.last_metrics.clear()
+        self.state.auto_meters.clear()
         self.session_emptied.emit()
 
     def clear_files(self) -> None:

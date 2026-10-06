@@ -989,6 +989,31 @@ class TestAppController(unittest.TestCase):
         self.assertIs(params, hydrated)
         self.assertIsNone(params.geometry.crop_rect)
 
+    def test_write_edit_sidecars_never_rehomes_a_forked_frame(self):
+        frame = {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2#roll:r1"}
+        with (
+            patch("negpy.desktop.controller.load_or_promote", return_value=None) as mock_load,
+            patch("negpy.desktop.controller.write_sidecar"),
+        ):
+            self.controller._write_edit_sidecars([frame])
+
+        self.assertTrue(mock_load.call_args.kwargs["forked"])
+
+    def test_discovery_promotes_sidecars_before_adding_files(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = []
+        order = []
+        self.mock_session_manager.add_files.side_effect = lambda *_a, **_k: order.append("add")
+        self.mock_session_manager.asset_model = MagicMock()
+        self.controller.generate_missing_thumbnails = MagicMock()
+        discovered = [{"name": "a", "path": "/a.dng", "hash": "h1"}]
+
+        with patch("negpy.desktop.controller.promote_sidecars", side_effect=lambda *_a: order.append("promote")) as mock_promote:
+            self.controller._on_discovery_finished(discovered)
+
+        mock_promote.assert_called_once_with(self.mock_session_manager.repo, discovered)
+        self.assertEqual(order[:2], ["promote", "add"])
+
     def _wire_repo_store(self) -> dict:
         """Backs the mocked repo's global settings with a real dict, so a roll write
         is readable back through rolls.py's own read/write helpers. Also makes
@@ -3094,6 +3119,7 @@ class TestPresetBatchExport(unittest.TestCase):
 
         self.controller._validate_preset_paths = MagicMock(return_value=True)
         self.controller._run_export_tasks = MagicMock()
+        self.controller._confirm_unopened_frames = MagicMock(return_value=True)
 
     def tearDown(self):
         import gc
@@ -3193,6 +3219,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         self.controller._validate_preset_paths = MagicMock(return_value=True)
         self.controller._run_export_tasks = MagicMock()
+        self.controller._confirm_unopened_frames = MagicMock(return_value=True)
 
     def tearDown(self):
         import gc
@@ -6233,10 +6260,12 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_rediscover_rolls_walks_every_import_source_again(self):
         self._dict_repo()
-        found = {"/scans": ["/scans/roll_a"]}
+        # Both the import and the rewalk walk the source in its normalized spelling.
+        source = os.path.normpath("/scans")
+        found = {source: ["/scans/roll_a"]}
         with patch("negpy.services.assets.rolls.discover_roll_folders", side_effect=lambda p, _filters: found[p]):
             self.controller.import_subfolders_as_rolls("/scans")
-            found["/scans"] = ["/scans/roll_a", "/scans/roll_b"]
+            found[source] = ["/scans/roll_a", "/scans/roll_b"]
             new, dropped = self.controller.rediscover_rolls()
 
         self.assertEqual((new, dropped), (1, 0))

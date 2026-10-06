@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QMessageBox
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
 from negpy.kernel.image.logic import working_oetf_encode
+from negpy.desktop.auto_sliders import record_meters
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import (
@@ -127,7 +128,7 @@ from negpy.services.assets.half_frame import (
     split_scans,
 )
 from negpy.services.export.templating import path_safe, render_export_filename
-from negpy.services.assets.sidecar import load_or_promote, sidecar_path_for, write_sidecar
+from negpy.services.assets.sidecar import load_or_promote, promote_sidecars, sidecar_path_for, write_sidecar
 from negpy.services.assets.frame_merge import carry_edit, carry_sidecar
 from negpy.services.export.frame_merge import (
     MERGEABLE_KINDS,
@@ -882,6 +883,7 @@ class AppController(QObject):
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
         self.export_worker.error.connect(self._on_export_task_error)
+        self.export_worker.warning.connect(self._on_export_task_warning)
         self.export_worker.contact_sheet_written.connect(self._on_contact_sheet_written)
         self.contact_sheet_requested.connect(self.export_worker.run_contact_sheet)
         self.contact_sheet_preview.prepared.connect(self._on_contact_sheet_prepared)
@@ -2249,6 +2251,7 @@ class AppController(QObject):
         remember_split_scans(self.session.repo, {base_hash(a["hash"]) for a in valid_assets if a.get("half")})
         self._mark_diptychs(valid_assets)
         self._apply_roll_forks(valid_assets)
+        promote_sidecars(self.session.repo, valid_assets)
         self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
         self._hot_folder_sequence_active = False
@@ -7049,6 +7052,8 @@ class AppController(QObject):
 
         if len(files) > 1 and not self._confirm_bulk_export(f"Export {count_of(len(files), 'frame')}?"):
             return
+        if not self._confirm_unopened_frames(files):
+            return
 
         if self.state.config.export.export_sidecars_enabled:
             self._write_edit_sidecars(files)
@@ -7149,6 +7154,23 @@ class AppController(QObject):
             )
         return tasks
 
+    def _confirm_unopened_frames(self, files: list[dict]) -> bool:
+        """A frame with no saved edit exports with the live session settings, while its
+        filmstrip thumbnail is a quick source-preview inversion, so the file can differ
+        badly from what the strip shows. The open frame is exempt: its preview is the
+        export."""
+        hashes = [f["hash"] for f in files if f["hash"] != self.state.current_file_hash]
+        if not hashes:
+            return True
+        saved = self.session.repo.load_file_settings_many(hashes)
+        unopened = sum(1 for h in hashes if h not in saved)
+        if not unopened:
+            return True
+        return self._confirm_bulk_export(
+            f"Frames without a saved edit: {unopened} of {count_of(len(files), 'frame')}. "
+            "They export with the current settings and may not match their thumbnails. Export anyway?"
+        )
+
     def _confirm_bulk_export(self, text: str) -> bool:
         reply = QMessageBox.question(
             None,
@@ -7182,6 +7204,8 @@ class AppController(QObject):
                 f"Export {count_of(n_frames, 'frame')} through {count_of(n_presets, 'preset')} ({count_of(n_files, 'file')})?"
             ):
                 return
+        if not self._confirm_unopened_frames(files):
+            return
 
         if self.state.config.export.export_sidecars_enabled:
             self._write_edit_sidecars(files)
@@ -7358,7 +7382,12 @@ class AppController(QObject):
         for f in files:
             half = int(f.get("half") or 0)
             params = load_or_promote(
-                repo, f["hash"], f["path"], half=half, composite=bool(f.get("hdr_paths") or f.get("stitch_paths"))
+                repo,
+                f["hash"],
+                f["path"],
+                half=half,
+                composite=bool(f.get("hdr_paths") or f.get("stitch_paths")),
+                forked="#roll:" in f["hash"],
             ) or self.session.config_for_asset(f)
             try:
                 write_sidecar(f["path"], params, half=half)
@@ -7554,6 +7583,7 @@ class AppController(QObject):
             self.state.last_metrics["proof"] = True
 
         self._freeze_resolved_auto_crop(metrics)
+        record_meters(self.state.auto_meters, self.state.current_file_hash or "", metrics)
 
         result = metrics.get("base_positive")
         memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
@@ -7742,6 +7772,10 @@ class AppController(QObject):
         self.load_failed.emit()
         self._dispatch_pending_render()
         AppController._continue_background_work(self)
+
+    def _on_export_task_warning(self, message: str) -> None:
+        """Advisory about files that were written; stays out of the failure count."""
+        self.set_status(message, 6000, kind="warning")
 
     def _on_export_task_error(self, message: str) -> None:
         self._export_failures += 1

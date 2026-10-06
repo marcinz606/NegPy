@@ -3,7 +3,7 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 import wgpu  # type: ignore
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QEvent, QTimer
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -223,6 +223,17 @@ class GPUCanvasWidget(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.resize_timer.start()
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            # A move to a screen with another scale factor delivers no resize, and
+            # only the render widget's resizeEvent recomputes its physical size
+            # (it ignores its event argument): re-run it, then reconfigure debounced.
+            subwidget = getattr(self.canvas, "_subwidget", None)
+            if subwidget is not None:
+                subwidget.resizeEvent(None)
+            self.resize_timer.start()
+        return super().event(event)
 
     def _perform_resize(self) -> None:
         if self.device and self.context:
