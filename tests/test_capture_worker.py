@@ -127,6 +127,29 @@ def test_scanlight_white_cancel_before_promotion_preserves_retake(tmp_path, monk
     assert finished == []
 
 
+def test_single_capture_emits_one_file_and_no_triplet(tmp_path, monkeypatch):
+    class Camera:
+        def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
+            path = os.path.splitext(out_path)[0] + ".ARW"
+            with open(path, "wb") as raw:
+                raw.truncate(8 * 1024 * 1024)
+            return path
+
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: Camera())
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    finished = []
+    worker.finished.connect(finished.append)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll01", frame_number=2, output_folder=str(tmp_path), levels=(200, 180, 255), settle_s=0, single_capture=True
+        )
+    )
+
+    assert finished == [[str(tmp_path / "Roll01_Frame002.ARW")]]
+
+
 @pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
 def test_calibration_uses_disposable_scratch_without_touching_roll(tmp_path, monkeypatch, outcome):
     import negpy.desktop.workers.capture_worker as capture_worker_module

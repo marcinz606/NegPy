@@ -42,6 +42,8 @@ class ScanlightPreset:
     shutter_b: str = ""
     iso: str = ""  # camera ISO label baked at calibration (e.g. "100"); "" = not captured
     aperture: str = ""  # aperture label (e.g. "f/8"); "" for a manual lens (no electronic aperture)
+    single_capture: bool = False  # one exposure with R, G and B lit together, not a triplet
+    sensor_profile: str = ""  # sensor profile measured with a single-capture preset; "" = none
 
 
 class PresetStore:
@@ -68,6 +70,10 @@ class PresetStore:
             return ScanlightPreset(**{k: v for k, v in raw.items() if k in fields})
         except Exception:
             return None
+
+    def owns_sensor_profile(self, profile: str) -> bool:
+        """Whether a preset was calibrated with this sensor profile."""
+        return bool(profile) and any(isinstance(raw, dict) and raw.get("sensor_profile") == profile for raw in self._all().values())
 
     def save(self, name: str, preset: ScanlightPreset) -> None:
         data = self._all()

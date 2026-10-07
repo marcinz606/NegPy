@@ -44,6 +44,10 @@ ALWAYS_STICKY_PROCESS: tuple[tuple[str, str], ...] = (
     ("last_demosaic_export", "demosaic_export"),
 )
 
+# The heal, scratch and exclusion brush belongs to the user, not to a frame: every frame
+# opens with the size last used, whatever size its own edit was saved with.
+BRUSH_SIZE_KEY = "last_brush_size"
+
 
 def load_sticky_rows(repo: IRepository) -> list[SettingRow]:
     """The rows the user has chosen to carry, defaults when they never chose."""

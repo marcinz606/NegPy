@@ -325,3 +325,17 @@ def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
         sidebar.sync_ui()
         visible = not sidebar.cast_removal_slider.isHidden()
         assert visible == render_honours_it, mode
+
+
+def test_profile_is_greyed_out_on_a_trichrome_triplet():
+    """The render skips the unmix for a triplet, so a carried-over profile must not read as live."""
+    w = _sidebar(linear_raw=True)
+    _to_rgbscan(w, enabled=True, green_path="/x/g.arw", blue_path="/x/b.arw")
+
+    assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
+    assert not w.sensor_combo.isEnabled()
+    assert "triplet" in w.sensor_hint.text().lower() and not w.sensor_hint.isHidden()
+    assert w.state.config.process.sensor_profile == _NAME  # display-only
+
+    _to_rgbscan(w, enabled=False)
+    assert w.sensor_combo.currentText() == _NAME and w.sensor_combo.isEnabled()

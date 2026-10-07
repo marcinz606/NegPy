@@ -9,8 +9,11 @@ import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
 from negpy.desktop.settings_catalog import GLOBAL_TIER_SECTIONS, apply_selected_fields
+from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
+from negpy.services.capture.presets import PresetStore
 from negpy.desktop.sticky import (
     ALWAYS_STICKY_PROCESS,
+    BRUSH_SIZE_KEY,
     DESCRIPTION_FIELDS_KEY,
     EXPORT_REMAINDER,
     STICKY_CONFIG_KEY,
@@ -1081,6 +1084,7 @@ class DesktopSessionManager(QObject):
         """
         from negpy.features.metadata.models import resolve_description_fields
 
+        config = self._with_brush_size(config)
         sticky_export = self.repo.get_global_setting("last_export_config")
         if sticky_export:
             remainder = {k: v for k, v in sticky_export.items() if k in EXPORT_REMAINDER}
@@ -1139,6 +1143,14 @@ class DesktopSessionManager(QObject):
         edit snapshots it as the sticky config, so it must hold the sticky values."""
         return self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False)
 
+    def _with_brush_size(self, config: WorkspaceConfig) -> WorkspaceConfig:
+        """The user's brush size (BRUSH_SIZE_KEY) over the frame's own."""
+        size = self.repo.get_global_setting(BRUSH_SIZE_KEY)
+        if isinstance(size, bool) or not isinstance(size, (int, float)):
+            return config
+        size = int(round(min(HEAL_SIZE_MAX, max(HEAL_SIZE_MIN, size))))
+        return replace(config, retouch=replace(config.retouch, manual_dust_size=size))
+
     def _with_scan_setup(self, config: WorkspaceConfig) -> WorkspaceConfig:
         """Overlay the scan-setup preferences (ALWAYS_STICKY_PROCESS): they describe the
         rig, so a fresh file and a reset both take them."""
@@ -1158,14 +1170,26 @@ class DesktopSessionManager(QObject):
         """
         from dataclasses import asdict
 
+        snapshot = sticky_snapshot(config)
+        if PresetStore(self.repo).owns_sensor_profile(config.process.sensor_profile):
+            # A Scanlight preset's profile reaches a roll through that preset's scans. Carried
+            # from here it would land on rolls scanned another way.
+            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+            stored = stored if isinstance(stored, dict) else {}
+            for key in ("sensor_profile", "sensor_matrix"):
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
         self.repo.save_global_settings(
             {
-                STICKY_CONFIG_KEY: sticky_snapshot(config),
+                STICKY_CONFIG_KEY: snapshot,
                 "last_export_config": asdict(config.export),
                 "last_linear_raw": config.process.linear_raw,
                 "last_narrowband_scan": config.process.narrowband_scan,
                 "last_demosaic_preview": str(config.process.demosaic_preview),
                 "last_demosaic_export": str(config.process.demosaic_export),
+                BRUSH_SIZE_KEY: int(config.retouch.manual_dust_size),
             }
         )
 
@@ -1796,7 +1820,7 @@ class DesktopSessionManager(QObject):
         """Unlock *asset*'s roll cards and return what a reset writes: what a fresh frame
         in its roll gets, less the sticky look. DEFAULT_WORKSPACE_CONFIG, the scan-setup
         preferences, the roll's defaults, then what the asset itself is."""
-        config = self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG)
+        config = self._with_brush_size(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG))
         if asset.get("hash"):
             roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
             if roll_id is not None:

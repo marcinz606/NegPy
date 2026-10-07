@@ -188,3 +188,22 @@ def test_per_channel_shutter_passed_through(tmp_path):
 
     svc.capture_triplet(_settings(tmp_path, shutters=("1/100", "1/100", "1/4")))
     assert cam.shutters == ["1/100", "1/100", "1/4"]
+
+
+def test_single_rgb_capture_lights_all_three_leds_for_one_file(tmp_path):
+    light, cam = FakeLight(), FakeCamera()
+    svc = CaptureService(light, cam, sleep=lambda _s: None)
+    path = svc.capture_rgb_single(_settings(tmp_path, shutters=("1/5", "1/5", "1/5"), iso="100", aperture="f/8"))
+    assert os.path.basename(path) == "Roll001_Frame001.ARW"  # no _R/_G/_B suffix
+    assert os.listdir(tmp_path) == ["Roll001_Frame001.ARW"]
+    assert light.colors == [(200, 180, 255, 0), (0, 0, 0, 0)]  # R, G and B together, then off
+    assert (cam.shutters, cam.isos, cam.apertures) == (["1/5"], ["100"], ["f/8"])  # the preset's exposure is forced
+
+
+def test_single_rgb_capture_turns_light_off_on_error(tmp_path):
+    light = FakeLight()
+    svc = CaptureService(light, FakeCamera(file_size=1024), sleep=lambda _s: None)
+    with pytest.raises(CaptureError):
+        svc.capture_rgb_single(_settings(tmp_path))
+    assert light.off_called
+    assert os.listdir(tmp_path) == []

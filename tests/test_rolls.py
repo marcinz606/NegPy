@@ -38,6 +38,7 @@ from negpy.services.assets.rolls import (
     import_subfolders_as_rolls,
     is_forked,
     recognize_folder,
+    next_roll_name,
     roll_folder_name,
     rename_folder_roll_disk,
     rename_roll,
@@ -984,3 +985,26 @@ def test_delete_folder_rolls_forgets_rolls_and_the_source_under_it(tmp_path):
 
     assert list(saved_rolls(repo)) == [other]
     assert import_sources(repo) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "following"),
+    [
+        ("Roll001", "Roll002"),
+        ("Roll099", "Roll100"),
+        ("portra400_1", "portra400_2"),
+        ("hp5-9", "hp5-10"),
+        ("Roll 7", "Roll 8"),
+        ("12", "13"),
+        ("portra400", "portra400_2"),
+        ("hp5", "hp5_2"),
+        ("Summer", "Summer_2"),
+    ],
+)
+def test_next_roll_name_steps_a_counter_and_suffixes_any_other_name(name, following):
+    assert next_roll_name(name, lambda _: False) == following
+
+
+def test_next_roll_name_skips_taken_names():
+    assert next_roll_name("Roll001", {"Roll002", "Roll003"}.__contains__) == "Roll004"
+    assert next_roll_name("portra", {"portra_2"}.__contains__) == "portra_3"

@@ -64,7 +64,8 @@ def _run(tmp_path: Path, driver: str = _DRIVER) -> subprocess.CompletedProcess[s
     fake.mkdir()
     (fake / "nkscan.py").write_text(_FAKE_NKSCAN)
     env = {k: v for k, v in os.environ.items() if k != "RUST_LOG"}
-    env.update(PYTHONPATH=os.pathsep.join([str(fake), str(Path.cwd())]), NEGPY_USER_DIR=str(tmp_path))
+    # The asserts read the child's traceback as plain text; PYTHON_COLORS outranks an inherited FORCE_COLOR.
+    env.update(PYTHONPATH=os.pathsep.join([str(fake), str(Path.cwd())]), NEGPY_USER_DIR=str(tmp_path), PYTHON_COLORS="0")
     return subprocess.run([sys.executable, "-c", textwrap.dedent(driver)], env=env, capture_output=True, text=True, timeout=30)
 
 

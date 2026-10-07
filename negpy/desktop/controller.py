@@ -104,6 +104,7 @@ from negpy.domain.models import (
 from negpy.services.assets.composites import forget_composite, restore_maps
 from negpy.services.assets.triplets import saved_triplets
 from negpy.services.assets import rolls
+from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.export.contact_sheet_layout import ContactSheetSettings
 from negpy.services.export.contact_sheet_roll import (
     FrameFacts,
@@ -242,6 +243,8 @@ class _PendingCaptureImport:
     detect_mode: bool = False
     capture_roll: str = ""
     capture_frame: Optional[int] = None
+    sensor_profile: str = ""
+    sensor_matrix: Optional[tuple] = None
 
 
 def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
@@ -2619,6 +2622,18 @@ class AppController(QObject):
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
             self.state.config = with_process_mode(self.state.config, pending_import.process_mode)
+            self.state.is_dirty = True
+        if pending_import is not None and pending_import.sensor_matrix is not None:
+            # The roll default covers a frame in a roll; this covers one scanned outside any.
+            self.state.config = replace(
+                self.state.config,
+                process=replace(
+                    self.state.config.process,
+                    linear_raw=True,
+                    sensor_profile=pending_import.sensor_profile,
+                    sensor_matrix=pending_import.sensor_matrix,
+                ),
+            )
             self.state.is_dirty = True
         if pending_import is not None and (pending_import.capture_roll or pending_import.capture_frame is not None):
             meta = self.state.config.metadata
@@ -5977,25 +5992,40 @@ class AppController(QObject):
         self._ensure_capture_thread()
         self.poll_light_temp_requested.emit(port)
 
+    def _set_roll_sensor_profile(self, roll_id: str, name: str, matrix: tuple) -> None:
+        """Make a single-capture preset's sensor profile the roll's own. The unmix needs
+        Linear RAW, so that goes with it."""
+        wanted = {"linear_raw": True, "sensor_profile": name, "sensor_matrix": matrix}
+        defaults = rolls.roll_defaults(self.session.repo, roll_id)
+        if not all(key in defaults and rolls.same_value(value, defaults[key]) for key, value in wanted.items()):
+            rolls.set_roll_defaults(self.session.repo, roll_id, **wanted)
+
     def _on_capture_finished(self, paths: list) -> None:
         """Feed the captured frame(s) into NegPy. A 3-file RGB triplet → RGB-Scan negative
-        (C-41) pipeline; a single white-light slide → E-6/positive; a normal white-light
-        camera scan → an ordinary single RAW (RGB-Scan off, process left to NegPy)."""
+        (C-41) pipeline; a single-capture RGB frame → an ordinary single RAW, C-41; a single
+        white-light slide → E-6/positive; a normal white-light camera scan → an ordinary
+        single RAW (RGB-Scan off, process left to NegPy)."""
         self.capture_finished.emit(paths)
         if not paths:
             return
         req = getattr(self, "_last_capture_req", None)
         white = bool(req is not None and req.white_mode)
         rgb = bool(req is not None and getattr(req, "rgb_mode", True))
+        single = bool(req is not None and getattr(req, "single_capture", False))
         # RGB-Scan (triplet merge) is on only for an actual RGB triplet. Off for a single
-        # white-light slide and for a normal camera scan.
+        # white-light slide, a single-capture RGB frame and a normal camera scan.
         # It belongs to the roll of the folder the files land in, not to the open roll.
         as_roll = bool(getattr(req, "as_roll", False))
         folder = os.path.dirname(paths[0])
         target_roll = (
             rolls.recognize_folder(self.session.repo, folder) if as_roll else rolls.folder_roll_id_for_path(self.session.repo, folder)
         )
-        self._save_rgb_scan_mode(rgb and not white, target_roll)
+        self._save_rgb_scan_mode(rgb and not white and not single, target_roll)
+        sensor_profile = getattr(req, "sensor_profile", "") if single else ""
+        sensor_matrix = SensorProfiles.get_matrix(sensor_profile) if sensor_profile else None
+        sensor_matrix = tuple(sensor_matrix) if sensor_matrix is not None else None
+        if sensor_matrix is not None and target_roll:
+            self._set_roll_sensor_profile(target_roll, sensor_profile, sensor_matrix)
         capture_roll = getattr(req, "roll_name", "") if req is not None else ""
         capture_frame = getattr(req, "frame_number", None) if req is not None else None
         if white:  # slides / B&W negatives force a positive process
@@ -6008,13 +6038,15 @@ class AppController(QObject):
                 capture_frame=capture_frame,
             )
         elif rgb:
-            # Independently exposed RGB channels carry no broadband orange-mask signal for
-            # the normal classifier. They are negative scans unless capture metadata says
-            # otherwise, so carry C-41 through discovery instead of guessing from the merge.
+            # Narrowband RGB exposures, three or one, carry no broadband orange-mask signal
+            # for the normal classifier. They are negative scans unless capture metadata says
+            # otherwise, so carry C-41 through discovery instead of guessing from the pixels.
             self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
                 process_mode=ProcessMode.C41,
                 capture_roll=capture_roll,
                 capture_frame=capture_frame,
+                sensor_profile=sensor_profile if sensor_matrix is not None else "",
+                sensor_matrix=sensor_matrix,
             )
         elif req is not None:
             self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
