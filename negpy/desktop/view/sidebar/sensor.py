@@ -5,7 +5,7 @@ from negpy.desktop.view.styles.templates import field_label, header_row, hint_la
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
-from negpy.features.process.models import ProcessMode, SensorUnmix, invalidate_local_bounds
+from negpy.features.process.models import ProcessConfig, ProcessMode, SensorUnmix, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
@@ -14,15 +14,15 @@ from negpy.services.assets.sensor import SensorProfiles
 _UNMIX_CHOICES = (
     (
         SensorUnmix.LINEAR,
-        "Subtracts the measured leak from the linear capture. Exact while the calibration holds, "
-        "but where the film passes almost none of a band's light the result reaches zero and "
-        "prints as speckled, fully saturated color.",
+        "Subtracts the measured leak from the linear capture. Exact while the calibration holds. "
+        "Where the film passes almost none of a band's light, the result reaches zero and prints "
+        "as speckled, fully saturated color.",
     ),
     (
         SensorUnmix.TWO_SCALE,
-        "Linear wherever the calibration can be trusted. Where a color is mostly leak, as in neon, "
-        "the color is unmixed from a slightly blurred copy and the fine detail is added back without "
-        "extra amplification, so it never reaches zero and the grain stays at the film's own.",
+        "Linear wherever the calibration holds. Where a color is mostly leak, as in neon, it takes "
+        "the color from a slightly blurred copy. It adds the fine detail back without extra gain, "
+        "so the color never reaches zero and the grain stays at the film's own level.",
     ),
     (
         SensorUnmix.DENSITY,
@@ -30,6 +30,7 @@ _UNMIX_CHOICES = (
         "Never reaches zero and gives less grain in saturated colors, which come out slightly less vivid.",
     ),
 )
+_DEFAULT_UNMIX = ProcessConfig().sensor_unmix
 
 
 class SensorSidebar(BaseSidebar):
@@ -99,9 +100,9 @@ class SensorSidebar(BaseSidebar):
         self.unmix_label = field_label("Method")
         self.unmix_btn = ChoiceButton(
             tuple(("", mode.label) for mode, _tip in _UNMIX_CHOICES),
-            "How the calibration is applied. "
-            + " ".join(f"<b>{mode.label}</b>: {tip}" for mode, tip in _UNMIX_CHOICES)
-            + " Re-run Roll Analysis after changing this.",
+            "How the calibration is applied.<br><br>"
+            + "".join(f"<b>{mode.label}</b>{' (default)' if mode == _DEFAULT_UNMIX else ''}: {tip}<br><br>" for mode, tip in _UNMIX_CHOICES)
+            + "Re-run Roll Analysis after changing this.",
             data=tuple(mode for mode, _tip in _UNMIX_CHOICES),
         )
         for i, (_mode, tip) in enumerate(_UNMIX_CHOICES):
