@@ -127,18 +127,6 @@ def test_mode_roundtrips_and_an_unknown_value_reads_the_default():
     assert ProcessConfig(sensor_unmix="bogus").sensor_unmix == ProcessConfig().sensor_unmix
 
 
-def test_a_calibrated_edit_saved_before_the_method_choice_stays_linear():
-    calibrated = replace(WorkspaceConfig(), process=replace(ProcessConfig(), sensor_matrix=tuple(np.eye(3).ravel())))
-    legacy = calibrated.to_dict()
-    del legacy["sensor_unmix"]
-    assert WorkspaceConfig.from_flat_dict(legacy).process.sensor_unmix == SensorUnmix.LINEAR
-
-    uncalibrated = WorkspaceConfig().to_dict()
-    del uncalibrated["sensor_unmix"]
-    assert WorkspaceConfig.from_flat_dict(uncalibrated).process.sensor_unmix == SensorUnmix.TWO_SCALE
-    assert WorkspaceConfig.from_flat_dict(calibrated.to_dict()).process.sensor_unmix == SensorUnmix.TWO_SCALE
-
-
 def test_film_base_reads_one_shared_set_of_cells():
     """No clear base in frame: neutral shadows, plus a deep red and a deep blue area that are
     each thinner than the shadows in one channel only. Per-channel thin ends would mix them."""

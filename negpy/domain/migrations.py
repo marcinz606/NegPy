@@ -213,11 +213,6 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     if "lith_enabled" in data and "alt_process" not in data:
         data["alt_process"] = "lith" if data["lith_enabled"] else "none"
 
-    # A calibrated edit saved before the Method choice keeps the unmix it was made with.
-    # Every save carries every field, so a missing key marks such an edit.
-    if data.get("sensor_matrix") and "sensor_unmix" not in data:
-        data["sensor_unmix"] = "linear"
-
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))
 
