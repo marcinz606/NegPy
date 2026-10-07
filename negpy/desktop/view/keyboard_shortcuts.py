@@ -330,6 +330,7 @@ class ShortcutManager:
             ),
             "scan_as_roll": lambda: right.scan_output.as_roll_btn.toggle(),
             "scan_folder_as_roll": lambda: right.scan_output.folder_roll_btn.toggle(),
+            "scan_new_roll": lambda: right.scan_output.new_roll_btn.click(),
             "mode_color_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(0),
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(1),
             "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),

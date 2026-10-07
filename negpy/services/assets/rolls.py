@@ -14,11 +14,12 @@ frame's own look.
 """
 
 import os
+import re
 import time
 import uuid
 from dataclasses import replace
 from fnmatch import fnmatchcase
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
 from negpy.features.process.models import neutral_axis_tuple, with_film_fields
@@ -75,6 +76,28 @@ def roll_folder_name(text: str) -> Optional[str]:
     if name in {".", ".."} or any(sep in name for sep in ("/", "\\", "\0")):
         return None
     return name
+
+
+_TRAILING_NUMBER = re.compile(r"^(.*?)(\d+)$")
+_COUNTER_SEPARATORS = "_- ."
+
+
+def next_roll_name(name: str, taken: Callable[[str], bool]) -> str:
+    """The roll name that follows *name*, skipping every name *taken* accepts.
+    A trailing number steps up when it is zero-padded or follows a separator; any other name
+    gains "_2", so the 400 of "portra400" stays."""
+    match = _TRAILING_NUMBER.match(name)
+    stem, digits = (match.group(1), match.group(2)) if match else (name, "")
+    padded = len(digits) > 1 and digits.startswith("0")
+    if digits and (padded or not stem or stem[-1] in _COUNTER_SEPARATORS):
+        number, width = int(digits), len(digits)
+    else:
+        stem, number, width = f"{name}_", 1, 1
+    while True:
+        number += 1
+        candidate = f"{stem}{number:0{width}d}"
+        if not taken(candidate):
+            return candidate
 
 
 def recognize_folder(repo: Any, path: str, name: str = "") -> str:

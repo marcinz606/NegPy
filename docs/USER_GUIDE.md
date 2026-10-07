@@ -1104,6 +1104,7 @@ Shared by both scanners.
 *   **Folder**: where frames are written.
 *   **Scan as Roll** (on by default): the output folder opens as a roll in the Library, so Half Frame, the Roll tab and Roll Analysis apply. Frames load as they are written.
 *   **Folder as Roll** (on by default): frames go into the output folder itself, which is the roll and gives it its name. Off writes into a **Roll** subfolder, and a new Roll name starts a new roll. A camera frame's file name starts with the roll name.
+*   **New Roll** (**+** beside Roll, with Folder as Roll off): steps the Roll name to the next one that has no subfolder yet. A trailing number that is zero-padded or follows `_`, `-`, a space or `.` counts up (`Roll001` to `Roll002`, `portra400_1` to `portra400_2`); any other name gains `_2` (`portra400` to `portra400_2`).
 *   **Format**, **Filename** (Film Scanner): `TIFF` or `TIFF (mono)` (one 16-bit gray plane, for B&W negatives), and the file name as a Jinja2 template of `{{ date }}` and `{{ seq }}`.
 
 <!-- panel:scan_strip -->

@@ -143,6 +143,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "scan_meter_frame": ShortcutEntry("", "Meter a frame and lock the scan exposure (Coolscan)", "Process"),
     "scan_as_roll": ShortcutEntry("", "Toggle Scan as Roll", "Process"),
     "scan_folder_as_roll": ShortcutEntry("", "Toggle Folder as Roll", "Process"),
+    "scan_new_roll": ShortcutEntry("", "Start the next scan roll", "Process"),
     "mode_color_negative": ShortcutEntry("", "Mode: Color Negative", "Process"),
     "mode_bw_negative": ShortcutEntry("", "Mode: B&W Negative", "Process"),
     "mode_transparency": ShortcutEntry("", "Mode: Transparency", "Process"),
