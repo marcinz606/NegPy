@@ -420,7 +420,7 @@ class TestLabParity:
     def test_chroma_denoise(self):
         # Isolate chroma denoise: disable the sharpen default. The GPU shader scales
         # its a*/b* blur radius by chroma_denoise * scale_factor (Fibonacci-disk taps
-        # approximating the CPU GaussianBlur sigma), so the two paths now track.
+        # approximating the CPU bilateralFilter sigmaSpace), so the two paths track.
         s = replace(
             _make_base_settings(),
             lab=LabConfig(chroma_denoise=3.0, sharpen=0.0),

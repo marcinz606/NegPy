@@ -684,7 +684,8 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     genesys's "Transparency Adapter Infrared") needs this: the carriage re-homes
     between the two scans and is not perfectly repeatable, so IR can land a few
     pixels off the visible frame. Inline RGBI/coolscan3 IR shares one photosite
-    read per line with RGB and is always aligned already.
+    read per line with RGB, so no carriage re-home separates them and it is not
+    registered here; a small optical offset between IR and RGB can remain.
 
     Whole pixels only, no sub-pixel interpolation: a dust defect is a *minimum* in
     the IR ratio, and resampling softens that dip — downsample_ir documents the same

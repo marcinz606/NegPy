@@ -434,7 +434,7 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken only the shadows or highlights, within paper black and white. They also work on slides.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): local contrast in the deep shadows or highlights.
 *   **Preflash** (0 to 1): an even flash over the sheet, as a fraction of the paper's threshold exposure. It pulls highlight detail off paper white and softens the print slightly; bare paper stays white. Hidden on slides.
-*   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive compresses the range by (1 − gamma) so a harder grade fits, keeping fine detail; past about 0.4 edges get a halo. Negative expands the range by (1 + gamma) for a negative too flat for Grade; past about −0.4 highlights clip.
+*   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive compresses the range by (1 − gamma) so a harder grade fits, keeping fine detail. Negative expands the range by (1 + gamma) for a negative too flat for Grade; past about −0.4, highlights clip. Past about ±0.2, strong edges get a halo.
 *   **Mask Spacer** (2 to 6%, default 4%): the gap between mask and negative, as percent of the frame. Thicker masks only broad masses; thinner reaches into detail and hazes shadows next to bright areas. Both mask controls gray out in R/G/B mode.
 
 **Paper Response**:
@@ -538,7 +538,7 @@ Chemical toners (B&W Negative only) and a split tint (any mode). On a lith print
 **Chemical Toning**, sequential baths in the order shown, each 0.0 to 2.0:
 
 *   **Selenium**: deeper blacks, cool eggplant shadows. On lith: further down the scale, strong Dmax lift, green-black shadows to magenta.
-*   **Sepia**: warms highlights first; partial strength gives split-sepia.
+*   **Sepia**: warms highlights first, and more strength reaches further into the mids; the deepest shadows stay black at any strength.
 *   **Gold**: blue-black on untoned silver; over sepia, orange-red highlights. On lith: all densities evenly, toward blue-violet.
 *   **Iron Blue**: Prussian-blue shadows to navy blacks.
 *   **Copper**: pink to brick-red, with the classic Dmax loss.

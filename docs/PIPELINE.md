@@ -404,7 +404,7 @@ This is not a pipeline stage. Every repair is baked into the **linear source bef
 
 Mimics lab scanners such as Frontier or Noritsu. Steps, in order:
 
-1.  **Chroma Denoise**: a Gaussian filter on the A and B channels in LAB. L, and its grain, stays untouched.
+1.  **Chroma Denoise**: a bilateral filter on the A and B channels in LAB. Its range term (`CHROMA_DENOISE_SIGMA_R` $= 15$ in $a^{\ast}b^{\ast}$) rejects taps of a different color, so a saturated object keeps its color inside its edge. L, and its grain, stays untouched.
 
 2.  **Global Saturation**: a lightness-preserving chroma scale ($a^{\ast}/b^{\ast}$) in CIELAB, post-decode and independent of the print curve. Paper-dependent color is §3's job (Dye Separation).
 
