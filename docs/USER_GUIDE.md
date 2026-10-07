@@ -582,7 +582,7 @@ Spotting, as with a brush on a finished print. Marks are found by local contrast
 *   **Scratch**: click points along a scratch or hair, then double-click or press Enter. Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
 *   **Line** (Transport Line): for long straight transport scratches across the frame. Click once anywhere on the scratch to trace and repair the whole line; hovering shows the band it would repair. Right-click a placed line to delete it.
 *   **Line Sensitivity** (0.05 to 0.95, live with the Line tool): lower catches fainter lines with a wider band; raise it if a line picks up film on either side. Applies to placed lines too.
-*   **Brush Size** (2 to 64 px): diameter of the heal, scratch and exclusion brushes. Hold `Alt` and scroll on the canvas, or pinch, while a brush is live.
+*   **Brush Size** (2 to 64 px): diameter of the heal, scratch and exclusion brushes, for new strokes. It stays the same from frame to frame; strokes already made keep their own size. Hold `Alt` and scroll on the canvas, or pinch, while a brush is live.
 *   **Undo Last** / **Clear All** (undo and bin icons, on the MANUAL HEAL header): remove the last or all manual heals and traced lines; auto-detected dust is unaffected.
 
 **Clone** (the header shows the stroke count): copies film from another area over a defect the heal cannot rebuild.
