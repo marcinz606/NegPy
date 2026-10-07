@@ -118,7 +118,11 @@ def _toggle_tool_button(window, tab_key: str, button) -> None:
     on switches, so activating a tool while its tab is hidden would leave it live
     with its controls off-screen."""
     window.right_panel.show_tab_by_key(tab_key)
-    button.toggle()
+    # toggle() bypasses the enabled state: a gated tool must not arm, but an armed one always goes down.
+    if button.isChecked() or (button.isEnabled() and not hidden_by_gating(button)):
+        button.toggle()
+    else:
+        window.controller.set_status(f"{button.text().strip()} not available", 1500, kind="warning")
 
 
 def _slider_name(slider: object, group: SliderShortcutGroup) -> str:

@@ -5,10 +5,11 @@ from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.logic import limited_indices
 from negpy.features.local.models import MAX_KEYED_MASKS, MaskKey, MaskShape
+from negpy.features.process.path import RenderPath, render_path
 from negpy.services.view.printing_notes import tone_limit_label
 
 
@@ -78,6 +79,12 @@ class LocalSidebar(BaseSidebar):
         for btn in (self.draw_btn, self.oval_btn, self.gradient_btn):
             tool_row.addWidget(btn, 1)
         self.layout.addLayout(tool_row)
+        self.slide_hint = hint_label("Not applied to slides.")
+        self.slide_hint.setToolTip(
+            wrap_tooltip("A slide prints through its transfer curve, which takes no dodge/burn map. The frame keeps its masks.")
+        )
+        self.slide_hint.setVisible(False)
+        self.layout.addWidget(self.slide_hint)
 
         self.mask_list = QListWidget()
         self.mask_list.setToolTip(
@@ -242,10 +249,17 @@ class LocalSidebar(BaseSidebar):
 
     def sync_ui(self) -> None:
         conf = self.state.config.local
+        transfer = render_path(self.state.config.process) is not RenderPath.PRINT
+        # Before the signal block: cancelling re-enters sync_ui through tool_sync_requested.
+        if transfer and self.state.active_tool in self._tool_modes().values():
+            self.controller.cancel_active_tool()
         self.block_signals(True)
         try:
             for btn, mode in self._tool_modes().items():
                 btn.setChecked(self.state.active_tool == mode)
+                btn.setEnabled(not transfer)
+            self.slide_hint.setVisible(transfer)
+            self.mask_list.setEnabled(not transfer)
 
             n = len(conf.masks)
             self.masks_header.setText(f"MASKS · {n}")
@@ -270,18 +284,19 @@ class LocalSidebar(BaseSidebar):
                 self.mask_list.setFixedHeight(_MASK_ROW_H * n + 2 * self.mask_list.frameWidth())
             self.mask_list.blockSignals(False)
             mask = conf.masks[idx] if has_selection else None
-            self.burn_slider.setEnabled(has_selection)
+            editable = has_selection and not transfer
+            self.burn_slider.setEnabled(editable)
             # The distance between the handles sets the card-edge softness, not a blur.
-            self.feather_slider.setEnabled(has_selection and mask.shape != MaskShape.GRADIENT)
-            self.grade_slider.setEnabled(has_selection)
+            self.feather_slider.setEnabled(editable and mask.shape != MaskShape.GRADIENT)
+            self.grade_slider.setEnabled(editable)
             limited = limited_indices(conf)
             full = has_selection and idx not in limited and len(limited) >= MAX_KEYED_MASKS
-            self.tone_btn.setEnabled(has_selection)
+            self.tone_btn.setEnabled(editable)
             for key, action in zip(self._tone_keys, self.tone_btn.choice_menu.actions()):
                 blocked = full and key != MaskKey.OFF
                 action.setEnabled(not blocked)
                 action.setToolTip(_TONE_FULL_TIP if blocked else _TONE_TIPS[key])
-            keyed = mask is not None and mask.key != MaskKey.OFF
+            keyed = editable and mask.key != MaskKey.OFF
             self.key_zone_slider.setEnabled(keyed)
             self.key_softness_slider.setEnabled(keyed)
             if mask is not None:

@@ -6,6 +6,7 @@ from PyQt6.QtGui import QMouseEvent
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
+from negpy.features.process.models import ProcessMode
 
 _TRIANGLE = [QPointF(20, 20), QPointF(80, 20), QPointF(50, 80)]
 
@@ -51,6 +52,24 @@ def test_selected_mask_editable_without_draw_tool() -> None:
     overlay.mousePressEvent(ev)
     assert overlay._local_drag_vertex == 0
     assert ev.isAccepted()
+
+
+def test_a_slide_mask_cannot_be_edited_on_the_canvas() -> None:
+    """A slide prints no masks and grays the panel, so the canvas must not edit them either."""
+    overlay = _overlay_with_mask(ToolMode.NONE)
+    cfg = overlay.state.config
+    overlay.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    ev = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(20, 20),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    overlay.mousePressEvent(ev)
+
+    assert overlay._local_drag_vertex is None
+    assert overlay.try_delete_local_vertex(QPointF(80, 20)) is False
 
 
 def test_press_grabs_mask_vertex() -> None:

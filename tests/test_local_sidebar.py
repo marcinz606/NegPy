@@ -4,10 +4,14 @@ labelled once it carries a grade as well as (or instead of) print exposure."""
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+from PyQt6.QtWidgets import QPushButton
+
 from negpy.desktop.session import AppState, ToolMode
+from negpy.desktop.view.keyboard_shortcuts import _toggle_tool_button
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
+from negpy.features.process.models import ProcessMode
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
 
@@ -234,3 +238,80 @@ def test_the_masks_header_counts_the_frames_masks(qapp):
     _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0), LocalMask(vertices=SQUARE, stops=-0.5))
     sidebar.sync_ui()
     assert sidebar.masks_header.text() == "MASKS · 2"
+
+
+def _set_mode(controller, mode: ProcessMode) -> None:
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
+
+
+def test_a_slide_grays_the_panel_and_says_why(qapp):
+    """The slide's transfer curve takes no dodge/burn map, so a mask drawn there would do nothing."""
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS))
+    _set_mode(controller, ProcessMode.E6)
+    sidebar.sync_ui()
+
+    controls = (
+        sidebar.draw_btn,
+        sidebar.oval_btn,
+        sidebar.gradient_btn,
+        sidebar.mask_list,
+        sidebar.burn_slider,
+        sidebar.grade_slider,
+        sidebar.feather_slider,
+        sidebar.tone_btn,
+        sidebar.key_zone_slider,
+        sidebar.key_softness_slider,
+    )
+    assert not any(w.isEnabled() for w in controls)
+    assert not sidebar.slide_hint.isHidden()
+    assert sidebar.burn_slider.value() == 1.0
+
+    _set_mode(controller, ProcessMode.C41)
+    sidebar.sync_ui()
+
+    assert all(w.isEnabled() for w in controls)
+    assert sidebar.slide_hint.isHidden()
+
+
+def test_a_slide_puts_an_armed_mask_tool_down(qapp):
+    controller, sidebar = _sidebar()
+    controller.state.active_tool = ToolMode.LOCAL_OVAL
+    sidebar.sync_ui()
+    controller.cancel_active_tool.assert_not_called()
+
+    _set_mode(controller, ProcessMode.E6)
+    sidebar.sync_ui()
+
+    controller.cancel_active_tool.assert_called_once()
+
+
+def test_a_grayed_tool_shortcut_shows_its_tab_without_arming(qapp):
+    window = MagicMock()
+    button = QPushButton("Draw")
+    button.setCheckable(True)
+    button.setEnabled(False)
+
+    _toggle_tool_button(window, "tone", button)
+
+    window.right_panel.show_tab_by_key.assert_called_once_with("tone")
+    assert not button.isChecked()
+    window.controller.set_status.assert_called_once_with("Draw not available", 1500, kind="warning")
+
+    button.setEnabled(True)
+    _toggle_tool_button(window, "tone", button)
+    assert button.isChecked()
+
+
+def test_a_shortcut_puts_down_an_armed_tool_on_a_grayed_page(qapp):
+    """A read-only page grays an armed tool's button; its shortcut must still put the tool down."""
+    window = MagicMock()
+    button = QPushButton("Heal")
+    button.setCheckable(True)
+    button.setChecked(True)
+    button.setEnabled(False)
+
+    _toggle_tool_button(window, "finish", button)
+
+    assert not button.isChecked()
+    window.controller.set_status.assert_not_called()

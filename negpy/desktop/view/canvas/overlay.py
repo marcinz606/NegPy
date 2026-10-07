@@ -49,6 +49,7 @@ from negpy.features.exposure.logic import tone_key_weight_np
 from negpy.features.exposure.placement import key_edges
 from negpy.features.local.logic import limited_indices, min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
 from negpy.services.view.coordinate_mapping import CoordinateMapping
@@ -2323,7 +2324,8 @@ class CanvasOverlay(QWidget):
         masks = self.state.config.local.masks
         self._local_mask_screen_polys = []
         self._local_mask_screen_ctrl = []
-        if not masks:
+        # A slide prints no masks, so it draws no tint and no handle to grab.
+        if not masks or render_path(self.state.config.process) is not RenderPath.PRINT:
             return
 
         with self.state.metrics_lock:
@@ -3025,6 +3027,8 @@ class CanvasOverlay(QWidget):
         """The selected mask and its screen control points, or None."""
         idx = getattr(self.state, "local_selected_mask", -1)
         masks = self.state.config.local.masks
+        if render_path(self.state.config.process) is not RenderPath.PRINT:
+            return None
         if 0 <= idx < len(masks) and idx < len(self._local_mask_screen_ctrl):
             pts = self._local_mask_screen_ctrl[idx]
             if len(pts) >= min_points(masks[idx].shape):

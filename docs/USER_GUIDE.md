@@ -453,7 +453,7 @@ In R/G/B mode these become per-layer trims: **Grade** (±30 ISO-R), **Toe** / **
 <!-- panel:local -->
 ### 5.3 Dodge & Burn: local exposure
 
-Draw masks and lighten or darken only those areas. The **MASKS** header shows how many the frame has:
+Draw masks and lighten or darken only those areas. On a **Slide** the panel grays out, because the slide's transfer curve takes no masks; the frame keeps them. The **MASKS** header shows how many the frame has:
 
 *   **Draw** (Draw Mask, the cut card): click to place vertices; double-click, Enter or click near the start to close; Esc cancels. To edit, select the mask, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete it.
 *   **Oval** (the hole in the card, or a dodging wand): drag out an oval. The center handle moves it; the other two set each axis, so you can stretch and tilt it.
