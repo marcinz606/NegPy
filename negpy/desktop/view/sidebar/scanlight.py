@@ -49,6 +49,7 @@ from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.focus_meter import FocusMeter
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
+from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text, "W": THEME.text_secondary}
@@ -625,7 +626,7 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()
         self._set_status(f"Saved preset “{name}”.")
 
-    def _save_current_as_preset(self, name: str) -> None:
+    def _save_current_as_preset(self, name: str, sensor_profile: str = "") -> None:
         self._update_settings_from_ui()
         s = self._settings
         # Bake the active recipe from settings, set either by calibration or by the manual-mode
@@ -643,6 +644,7 @@ class ScanlightSidebar(QWidget):
                 iso=s.iso,
                 aperture=s.aperture,
                 single_capture=s.single_capture,
+                sensor_profile=sensor_profile,
             ),
         )
         self._reload_presets(select=name)
@@ -1191,13 +1193,23 @@ class ScanlightSidebar(QWidget):
         if self._calibrating_preset:
             name = self._calibrating_preset
             self._calibrating_preset = ""
-            self._save_current_as_preset(name)  # persist + reload + select + re-gate (bakes settings.iso/aperture)
+            profile_note = ""
+            sensor_profile = ""
+            if self.calib_window.wants_sensor_profile():
+                if result.sensor_matrix is not None:
+                    SensorProfiles.save(name, list(result.sensor_matrix))
+                    sensor_profile = name
+                    profile_note = " and its sensor profile"
+                else:
+                    profile_note = ", with no sensor profile: the probe exposures were too dim to measure one"
+            # persist + reload + select + re-gate (bakes settings.iso/aperture)
+            self._save_current_as_preset(name, sensor_profile)
             self._lv_target = self.lv_image
             self.calib_window.hide()
             # Pinned: the slider writes above armed the light debounce, whose light_set echo lands
             # right after this line. Without the pin it replaced this outcome before anyone could
             # read it.
-            self._set_status(f"Saved preset “{name}”.", pinned=True)
+            self._set_status(f"Saved preset “{name}”{profile_note}.", pinned=True)
         self._stop_calibration_live_view()  # calibration ran inside live view → tear it down
 
     @pyqtSlot(str)
@@ -1308,6 +1320,9 @@ class ScanlightSidebar(QWidget):
         frame_number = max(1, last if retake else last + 1)
         rgb = self._rgb_mode
         single = rgb and not s.white_mode and s.single_capture
+        preset = (
+            self._presets.get(self.preset_combo.currentData()) if single and self._preset_selected() and not self._manual_mode else None
+        )
         req = CaptureRequest(
             roll_name=roll,
             frame_number=frame_number,
@@ -1331,6 +1346,7 @@ class ScanlightSidebar(QWidget):
             aperture=s.aperture if rgb and not s.white_mode else "",
             as_roll=self.output.as_roll(),
             single_capture=single,
+            sensor_profile=preset.sensor_profile if preset is not None else "",
         )
         self.set_scanning(True)
         if rgb and not req.white_mode and not single:

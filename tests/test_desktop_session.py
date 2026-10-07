@@ -425,6 +425,25 @@ class TestDesktopSessionSync(unittest.TestCase):
         config = self.session._apply_sticky_settings(base, only_global=True)
         self.assertEqual(config.metadata.description_fields, ("camera", "iso"))
 
+    def test_a_presets_sensor_profile_is_not_carried_to_other_frames(self):
+        from negpy.desktop.sticky import STICKY_CONFIG_KEY
+
+        matrix = (1.0, -0.1, 0.0, -0.1, 1.0, -0.3, 0.0, -0.3, 1.0)
+        store = {
+            "scanlight_presets": {"Portra": {"single_capture": True, "sensor_profile": "Portra"}},
+            STICKY_CONFIG_KEY: {"sensor_profile": "Hand Made", "sensor_matrix": [2.0] * 9},
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+
+        def persisted(profile):
+            process = replace(WorkspaceConfig().process, sensor_profile=profile, sensor_matrix=matrix)
+            self.session._persist_sticky_settings(replace(WorkspaceConfig(), process=process))
+            return self.mock_repo.save_global_settings.call_args.args[0][STICKY_CONFIG_KEY]
+
+        kept = persisted("Portra")
+        self.assertEqual((kept["sensor_profile"], kept["sensor_matrix"]), ("Hand Made", [2.0] * 9))
+        self.assertEqual(persisted("Other Hand Made")["sensor_profile"], "Other Hand Made")
+
     def test_persist_sticky_settings_does_not_write_description_fields(self):
         """Any metadata save must not clobber last Description… confirm."""
         config = WorkspaceConfig(

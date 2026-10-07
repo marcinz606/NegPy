@@ -841,7 +841,7 @@ def test_normal_mode_keeps_the_scan_live_view_steppers():
     assert not w.lv_window.settings_widget.isHidden()
 
 
-def _calibrate(w, monkeypatch, name="Portra 400", single_capture=False):
+def _calibrate(w, monkeypatch, name="Portra 400", single_capture=False, sensor_matrix=None):
     """Drive _on_calibration_finished as the worker would (a result exists only when every channel
     hit target — anything else arrives via _on_calibration_exposure). Returns the baked preset."""
     import types
@@ -851,7 +851,11 @@ def _calibrate(w, monkeypatch, name="Portra 400", single_capture=False):
     monkeypatch.setattr(w._presets, "get", lambda _n: None)
     monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
     w._calibrating_preset = name
-    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), single_capture=single_capture))
+    w._on_calibration_finished(
+        types.SimpleNamespace(
+            levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), single_capture=single_capture, sensor_matrix=sensor_matrix
+        )
+    )
     return saved["preset"]
 
 
@@ -1648,3 +1652,86 @@ def test_manual_preset_can_be_marked_single_capture(tmp_path, monkeypatch):
     assert w._settings.single_capture
     w._on_preset_save()
     assert saved["preset"].single_capture
+
+
+_UNMIX = (1.0, -0.1, 0.0, -0.1, 1.0, -0.3, 0.0, -0.3, 1.0)
+
+
+def _profile_saves(monkeypatch):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    saves: list = []
+    monkeypatch.setattr(sl.SensorProfiles, "save", staticmethod(lambda name, matrix: saves.append((name, tuple(matrix)))))
+    return saves
+
+
+def test_sensor_profile_toggle_follows_the_capture_mode():
+    w = _sidebar()
+    btn = w.calib_window.sensor_profile_btn
+    assert not btn.isChecked() and not btn.isEnabled() and not w.calib_window.wants_sensor_profile()  # Triplet
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    assert btn.isChecked() and btn.isEnabled() and w.calib_window.wants_sensor_profile()
+    w.calib_window.set_inputs_locked(True)
+    assert not btn.isEnabled() and btn.isChecked()
+
+
+def test_sensor_profile_toggle_keeps_the_operators_pick_across_triplet():
+    w = _sidebar()
+    btn = w.calib_window.sensor_profile_btn
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    btn.click()  # off
+    w.calib_window.capture_btn.setCurrentIndex(0)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    assert not btn.isChecked() and not w.calib_window.wants_sensor_profile()
+
+
+def test_single_capture_calibration_saves_a_sensor_profile_with_the_preset(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=_UNMIX)
+
+    assert saves == [("Portra 400", _UNMIX)]
+    assert preset.sensor_profile == "Portra 400"
+    assert "sensor profile" in w.status_strip.message()
+
+
+def test_sensor_profile_toggle_off_saves_the_preset_alone(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    w.calib_window.sensor_profile_btn.click()
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=_UNMIX)
+
+    assert saves == [] and preset.sensor_profile == ""
+
+
+def test_a_run_that_measured_no_unmix_saves_the_preset_and_says_so(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=None)
+
+    assert saves == [] and preset.sensor_profile == ""
+    assert "no sensor profile" in w.status_strip.message()
+
+
+def test_scan_request_carries_the_single_capture_presets_sensor_profile(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=True, sensor_profile="TestStock"))
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == "TestStock"
+
+
+def test_triplet_scan_request_carries_no_sensor_profile(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(sensor_profile="TestStock"))
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == ""

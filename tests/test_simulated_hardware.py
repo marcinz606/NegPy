@@ -135,6 +135,9 @@ def test_single_capture_calibration_reaches_target_on_the_simulated_rig(camera, 
     assert result.single_capture
     target = result.channels["R"].target
     assert _base_signal(frame) == pytest.approx([target] * 3, rel=0.1)
+    mixing = np.linalg.inv(np.array(result.sensor_matrix).reshape(3, 3))
+    leaks = mixing[~np.eye(3, dtype=bool)]
+    assert np.diag(mixing) == pytest.approx([1.0] * 3) and np.all((leaks > 0) & (leaks < 0.2))
 
 
 def test_flag_selects_the_simulated_gphoto_module(sim_env):

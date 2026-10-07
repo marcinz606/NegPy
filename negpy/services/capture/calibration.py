@@ -44,6 +44,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from negpy.features.process.sensor import build_sensor_matrix
 from negpy.infrastructure.capture.base import CAPTURE_ORDER, Camera, LightSource
 from negpy.kernel.system.logging import get_logger
 
@@ -76,6 +77,9 @@ PWM_MIN_SINGLE = 10
 PWM_MAX_SAFE = 250
 TARGET_FRACTION = 0.9  # expose the film base to 90 % of the usable range
 MIN_SIGNAL = 10.0  # counts; below this the channel read no real signal
+# A probe's own channel must reach this for its neighboring channels, a few percent of it, to
+# stand clear of the black level.
+MIN_PROFILE_SIGNAL = 0.05 * CLIP_CEILING
 # ETTR meters p99.9, so the base can read on-target while a sliver clips. The base is the
 # whitepoint (blackpoint after inversion) and must stay just below clipping. This budgets
 # genuine, physically-lost data — the shape-based plateau detector, which finds the true
@@ -98,6 +102,7 @@ MAX_TARGET_UNDER_FRACTION = 0.2
 # by exhaustion. Exhaustion would mislabel a blinding over-exposure as "no signal". Worst
 # case is ~9 shutter halvings + 3 LED halvings + the final measurement.
 _MAX_PROBE_STEPS = 14
+_MAX_SINGLE_TRIMS = 2  # matrix trims in a single-capture verify, before and after the clip guard
 _MAX_CLIP_GUARD_STEPS = 12  # LED-down steps (PWM_MAX→PWM_MIN at 0.85×) — keeps captures hard-bounded
 
 # Shutter ladder, fastest first (third-stops). Reaches 2 s so a closed-down aperture can
@@ -343,6 +348,9 @@ class CalibrationResult:
     channels: dict[str, ChannelCalibration]
     spread_stops: float = 0.0  # measured k spread in stops (confirms the shared-shutter assumption)
     single_capture: bool = False  # the levels are for R, G and B lit together in one exposure
+    # Sensor unmix from a single-capture run's probes (9 floats, row-major); None when they
+    # could not give one.
+    sensor_matrix: Optional[tuple[float, ...]] = None
 
     @property
     def levels(self) -> tuple[int, int, int]:
@@ -519,19 +527,21 @@ class CalibrationService:
         """The single-capture run: probe each LED alone for its column of the mixing matrix,
         solve the three levels together, then verify with all three lit."""
         m = np.zeros((3, 3))
-        probe: dict[int, tuple[np.ndarray, int, str]] = {}
+        mean_response = np.zeros((3, 3))
+        probe: dict[int, tuple[np.ndarray, np.ndarray, int, str]] = {}
 
         def _probe(i: int, ch, level: int, shutter: str) -> tuple[float, float, float]:
-            signals, linearity, plateau = self._meter_rgb(ch.rgb(level), shutter, roi, scratch_path, clip_channels=(i,))
-            probe[i] = (signals, level, shutter)
+            signals, linearity, plateau, means = self._meter_rgb(ch.rgb(level), shutter, roi, scratch_path, clip_channels=(i,))
+            probe[i] = (signals, means, level, shutter)
             return float(signals[i]), float(linearity[i]), float(plateau[i])
 
         for i, ch in enumerate(CAPTURE_ORDER):
             check_cancel()
             report(0.1 + 0.2 * i, f"Probing {ch.letter}…")
             self._measure_response(i, ch, start_levels[i], start_shutter, candidates, _probe)
-            signals, level, shutter = probe[i]
+            signals, means, level, shutter = probe[i]
             m[:, i] = signals / (level * true_seconds(shutter, candidates))
+            mean_response[:, i] = means
 
         k = {ch.letter: float(m[i, i]) for i, ch in enumerate(CAPTURE_ORDER)}
         spread = _spread_stops(k)
@@ -545,43 +555,55 @@ class CalibrationService:
         channels = self._verify_single(levels, shutter, T, m, candidates, roi, scratch_path, check_cancel)
 
         report(1.0, "Calibration done")
-        return CalibrationResult(channels=channels, spread_stops=spread, single_capture=True)
+        return CalibrationResult(channels=channels, spread_stops=spread, single_capture=True, sensor_matrix=_sensor_matrix(mean_response))
 
     def _meter_rgb(self, rgb, shutter: str, roi: Roi, scratch_path: str, clip_channels=(0, 1, 2)):
         """Light `rgb`, capture at `shutter`, meter every sensor channel → (base p99.9,
-        linearity_clip, plateau_clip), each one value per channel. The raw-Bayer clip check
-        reads the file once per channel, so it covers `clip_channels` only."""
+        linearity_clip, plateau_clip, ROI mean), each one value per channel. The raw-Bayer clip
+        check reads the file once per channel, so it covers `clip_channels` only."""
         self._light.set_color(*rgb)
         self._sleep(self._settle_s)
         img, written = self._capture(scratch_path, shutter=shutter)
         signals = np.array([meter_base(img[..., c], roi) for c in range(3)])
+        x0, y0, x1, y1 = roi.pixels(img.shape[1], img.shape[0])
+        means = img[y0:y1, x0:x1].reshape(-1, 3).mean(axis=0)
         linearity, plateau = np.zeros(3), np.zeros(3)
         for c in clip_channels:
             source_linearity, plateau[c] = self._source_clip_fraction(written, c, roi)
             linearity[c] = max(clip_fraction(img[..., c], roi), source_linearity)
-        return signals, linearity, plateau
+        return signals, linearity, plateau, means
 
     def _verify_single(self, levels, shutter, T, m, candidates, roi, scratch_path, check_cancel) -> dict[str, ChannelCalibration]:
-        """Capture with all three LEDs at the solved levels, one trim through the mixing matrix,
-        then a clip guard that dims the three together so the balance holds."""
+        """Capture with all three LEDs at the solved levels, then alternate two corrections until
+        the shot is in budget and on target. A clip guard dims the three together. A trim through
+        the mixing matrix moves each channel to target, and holds a channel the guard dimmed at
+        the signal it has, so the trim cannot raise it back into clipping."""
         levels = np.array(levels, dtype=float)
         secs = true_seconds(shutter, candidates)
+        held = np.zeros(3, dtype=bool)
+        trims = 0
 
         def _shoot():
             check_cancel()
-            return self._meter_rgb(tuple(int(v) for v in levels), shutter, roi, scratch_path)
-
-        def _in_budget(linearity, plateau) -> bool:
-            return bool(np.all(linearity <= MAX_LINEARITY_FRACTION) and np.all(plateau <= MAX_CLIP_FRACTION))
+            return self._meter_rgb(tuple(int(v) for v in levels), shutter, roi, scratch_path)[:3]
 
         measured, linearity, plateau = _shoot()
-        if _in_budget(linearity, plateau) and np.any(np.abs(measured - T) > 0.05 * T):
-            levels = np.clip(np.round(levels + np.linalg.solve(m, T - measured) / secs), PWM_MIN_SINGLE, PWM_MAX)
-            measured, linearity, plateau = _shoot()
-        for _ in range(_MAX_CLIP_GUARD_STEPS):
-            if _in_budget(linearity, plateau) or levels.min() <= PWM_MIN_SINGLE:
+        for _ in range(_MAX_CLIP_GUARD_STEPS + _MAX_SINGLE_TRIMS):
+            over = (linearity > MAX_LINEARITY_FRACTION) | (plateau > MAX_CLIP_FRACTION)
+            if over.any():
+                held |= over
+                trimmed = np.maximum(PWM_MIN_SINGLE, np.round(levels * 0.85))
+            elif trims < _MAX_SINGLE_TRIMS:
+                trims += 1
+                goal = np.where(held, np.minimum(measured, T), T)
+                if not np.any(np.abs(measured - goal) > 0.05 * T):
+                    break
+                trimmed = np.clip(np.round(levels + np.linalg.solve(m, goal - measured) / secs), PWM_MIN_SINGLE, PWM_MAX)
+            else:
                 break
-            levels = np.maximum(PWM_MIN_SINGLE, np.round(levels * 0.85))
+            if np.array_equal(trimmed, levels):
+                break
+            levels = trimmed
             measured, linearity, plateau = _shoot()
 
         letters = [ch.letter for ch in CAPTURE_ORDER]
@@ -760,6 +782,19 @@ def _solve_shared(k: dict[str, float], T: int, candidates: tuple[str, ...]) -> t
     secs = true_seconds(shutter, candidates)
     levels = {c: int(np.clip(round(T / (k[c] * secs)), PWM_MIN, PWM_MAX)) for c in k}
     return shutter, levels
+
+
+def _sensor_matrix(mean_response: np.ndarray) -> Optional[tuple[float, ...]]:
+    """The sensor unmix from the single-capture probes. `mean_response[c][j]` is sensor channel
+    c's ROI mean under LED j alone. The mean, not the p99.9 the exposure solve meters: a
+    percentile reads the weak neighboring channels high. None when a probe is too dim to
+    measure them, or the three are not independent."""
+    if np.diag(mean_response).min() < MIN_PROFILE_SIGNAL:
+        return None
+    try:
+        return build_sensor_matrix(*(tuple(mean_response[:, j]) for j in range(3)))
+    except ValueError:
+        return None
 
 
 def _solve_single(m: np.ndarray, T: int, candidates: tuple[str, ...]) -> tuple[str, tuple[int, int, int]]:

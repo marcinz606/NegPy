@@ -73,3 +73,15 @@ def test_single_capture_round_trips_and_defaults_to_triplet():
     assert not store.get("Old").single_capture  # a preset saved before the mode existed is a triplet
     store.save("Single", ScanlightPreset(r_level=120, shutter_r="1/5", single_capture=True))
     assert store.get("Single").single_capture
+    assert store.get("Single").sensor_profile == ""
+    store.save("Profiled", ScanlightPreset(r_level=120, shutter_r="1/5", single_capture=True, sensor_profile="Profiled"))
+    assert store.get("Profiled").sensor_profile == "Profiled"
+
+
+def test_store_knows_which_sensor_profiles_its_presets_own():
+    store = PresetStore(FakeRepo())
+    store.save("Portra", ScanlightPreset(single_capture=True, sensor_profile="Portra"))
+    store.save("Triplet", ScanlightPreset())
+    assert store.owns_sensor_profile("Portra")
+    assert not store.owns_sensor_profile("Hand Made")
+    assert not store.owns_sensor_profile("")

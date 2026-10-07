@@ -51,6 +51,7 @@ class CaptureRequest:
     aperture: str = ""
     as_roll: bool = False
     single_capture: bool = False  # RGB preset shot as one exposure with all three LEDs lit
+    sensor_profile: str = ""  # the single-capture preset's sensor profile, for the frame's roll
 
 
 @dataclass(frozen=True)

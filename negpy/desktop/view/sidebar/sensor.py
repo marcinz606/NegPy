@@ -6,6 +6,8 @@ from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
+from negpy.features.rgbscan.models import is_rgb_triplet
+from negpy.features.stitch.models import stitch_has_triplets
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
 
@@ -211,6 +213,11 @@ class SensorSidebar(BaseSidebar):
             "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
             "the matrix — so it is skipped. Your selection is remembered.",
         ),
+        "triplet": (
+            "Not used for a Trichrome triplet.",
+            "A triplet takes each channel from its own single-light exposure, so it holds no "
+            "sensor crosstalk to remove and the profile is skipped. Your selection is remembered.",
+        ),
         "transparency": (
             "Not applied to a transparency.",
             "The unmix corrects a narrowband light and your sensor's filters against each other, "
@@ -228,7 +235,9 @@ class SensorSidebar(BaseSidebar):
         after a Linear RAW or film-process round-trip. Crosstalk and Hue Trim depend on
         neither the decode basis nor the light, so they stay enabled.
         """
-        reason = unmix_block_reason(conf)
+        config = self.state.config
+        triplet = is_rgb_triplet(config.rgbscan) or stitch_has_triplets(config.stitch)
+        reason = unmix_block_reason(conf) or ("triplet" if triplet else "")
         available = not reason
         self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
         self.sensor_combo.setEnabled(available)

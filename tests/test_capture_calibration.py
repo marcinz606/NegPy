@@ -15,6 +15,7 @@ import pytest
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
     MAX_LINEARITY_FRACTION,
+    MIN_PROFILE_SIGNAL,
     PWM_MAX,
     PWM_MAX_SAFE,
     PWM_MIN,
@@ -27,6 +28,7 @@ from negpy.services.capture.calibration import (
     Roi,
     _channel_status,
     _solve_shared,
+    _sensor_matrix,
     _solve_single,
     _spread_stops,
     aperture_fnumber,
@@ -262,12 +264,13 @@ class FakeCamera:
         pass
 
 
-def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0, crosstalk=0.0):
+def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0, crosstalk=0.0, concave=1.0):
     """Linear fake sensor (128×128 so a sub-0.1 % clip sliver fits below the p99.9 cut). No bias.
     `k_scale` scales all channels uniformly (like aperture); `level_cap` saturates the LED above a
     level (a channel solved to max LED lands under target → under-exposed); `sliver` over-bright
     pixels clip at the solve but the LED-down clip guard resolves them; `crosstalk` is the share
-    of each neighboring LED a sensor channel also reads."""
+    of each neighboring LED a sensor channel also reads; `concave` below 1 makes a low LED level
+    brighter than its share of full drive."""
 
     def demosaic(_path):
         # A body exposes the ladder's TRUE time, not the label's fraction ("1/3" is 0.315 s). The
@@ -276,6 +279,7 @@ def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0, cros
         sec = true_seconds(camera.last_shutter, SHUTTER_CANDIDATES)
         img = np.zeros((128, 128, 3))
         lit = [min(level, level_cap) if level_cap is not None else level for level in light.last]
+        lit = [255.0 * (level / 255.0) ** concave for level in lit]
         for i, own in enumerate(lit):
             eff = own + crosstalk * (sum(lit) - own)
             val = K["RGB"[i]] * k_scale * eff * sec
@@ -601,3 +605,37 @@ def test_single_capture_clip_guard_dims_the_three_leds_together():
     light, cam = FakeLight(), FakeCamera()
     result = _service(light, cam, crosstalk=0.15, sliver=60).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
     assert all(ch.clip_fraction <= MAX_CLIP_FRACTION and ch.linearity_fraction <= MAX_LINEARITY_FRACTION for ch in result.channels.values())
+
+
+def test_single_capture_trim_recovers_the_channel_the_clip_guard_left_under():
+    # Low LED levels read brighter than the linear solve expects, so two channels clip and
+    # the guard dims all three.
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, k_scale=4.0, crosstalk=0.15, concave=0.8).calibrate(
+        Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True
+    )
+    T = target_signal()
+    for ch in result.channels.values():
+        assert ch.signal == pytest.approx(T, rel=0.08)
+        assert ch.linearity_fraction <= MAX_LINEARITY_FRACTION
+
+
+def test_single_capture_calibration_measures_the_sensor_unmix():
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    levels = np.array([120.0, 60.0, 30.0])
+    k = np.array([K[c] for c in "RGB"])
+    mixed = k * (levels + 0.15 * (levels.sum() - levels))  # all three LEDs lit, as the fake sensor reads them
+    unmixed = np.array(result.sensor_matrix).reshape(3, 3) @ mixed
+    assert unmixed == pytest.approx(k * levels, rel=1e-6)
+
+
+def test_triplet_calibration_measures_no_sensor_unmix():
+    light, cam = FakeLight(), FakeCamera()
+    assert _calibrate(_service(light, cam)).sensor_matrix is None
+
+
+def test_a_dim_probe_gives_no_sensor_unmix():
+    response = np.array([[1.0, 0.1, 0.04], [0.13, 1.0, 0.31], [0.04, 0.27, 1.0]])
+    assert _sensor_matrix(response * MIN_PROFILE_SIGNAL * 2) is not None
+    assert _sensor_matrix(response * MIN_PROFILE_SIGNAL * 0.5) is None

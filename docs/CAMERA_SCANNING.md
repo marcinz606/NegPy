@@ -102,6 +102,11 @@ three LEDs lit: each sensor channel also reads the neighboring LEDs, so the run 
 that overlap and lowers the levels to match. If the overlap leaves no levels that balance
 the channels, the run stops and says so. Calibrate a triplet preset instead.
 
+With **Sensor Profile** on, a Single Capture run also saves a
+[sensor calibration](#sensor-calibration) profile under the preset's name, measured from the
+same exposures. A roll scanned with the preset takes that profile and turns Linear RAW on.
+Turn the toggle off to keep a profile you made yourself.
+
 That highlight matters, because the clear base becomes the *black point* after inversion. A
 clip guard therefore checks the raw Bayer photosites and backs the exposure off if any
 channel saturates. Save the preset once per film stock and reuse it.
@@ -142,7 +147,8 @@ camera's color-filter passbands overlap the source's bands, so the green pixel s
 blue LED and some red, and every channel carries a share of its neighbours. It is a fixed
 property of your sensor and light pair, independent of the film.
 
-To correct it, photograph the bare light three times with no film in the holder: red only,
+A Single Capture preset calibrated with **Sensor Profile** on measures this for you. To
+build a profile by hand, photograph the bare light three times with no film in the holder: red only,
 green only, blue only. Use the same settings you scan with, exposed just below clipping.
 Then open the **Calibration** panel, find *Single-Shot Narrowband Calibration*, press the calibrate
 button, pick the three captures, name the profile and save it. The selected profile un-mixes

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState
-from negpy.services.assets.rolls import folder_roll_id_for_path, recognize_folder, roll_for_id, saved_rolls
+from negpy.services.assets.rolls import folder_roll_id_for_path, recognize_folder, roll_defaults, roll_for_id, saved_rolls
 
 
 def _controller(as_roll=False, capture_req=None):
@@ -19,6 +19,7 @@ def _controller(as_roll=False, capture_req=None):
     c._last_capture_req = capture_req
     c._discover_scanned = MethodType(AppController._discover_scanned, c)
     c._save_rgb_scan_mode = MethodType(AppController._save_rgb_scan_mode, c)
+    c._set_roll_sensor_profile = MethodType(AppController._set_roll_sensor_profile, c)
     c._RGB_SCAN_MODE_BY_ROLL_KEY = AppController._RGB_SCAN_MODE_BY_ROLL_KEY
     c._store = store
     return c
@@ -181,3 +182,44 @@ def test_triplet_and_single_capture_rolls_each_keep_their_own_trichrome_mode():
     assert c._store["rgbscan_mode_by_roll"] == {triplet: True, single: False}
     assert AppController.rgb_scan_mode_for_roll(c, triplet) is True
     assert AppController.rgb_scan_mode_for_roll(c, single) is False
+
+
+_UNMIX = [1.0, -0.1, 0.0, -0.1, 1.0, -0.3, 0.0, -0.3, 1.0]
+
+
+def _profiles(monkeypatch, **matrices):
+    import negpy.desktop.controller as controller_module
+
+    monkeypatch.setattr(controller_module.SensorProfiles, "get_matrix", staticmethod(lambda name: matrices.get(name)))
+
+
+def test_single_capture_gives_its_roll_the_presets_sensor_profile(monkeypatch):
+    _profiles(monkeypatch, Portra=_UNMIX)
+    c = _controller(capture_req=_rgb_req("R1", single_capture=True, sensor_profile="Portra"))
+
+    AppController._on_capture_finished(c, ["/hot/R1/R1_Frame001.ARW"])
+
+    defaults = roll_defaults(c.session.repo, folder_roll_id_for_path(c.session.repo, "/hot/R1"))
+    assert defaults["sensor_profile"] == "Portra" and tuple(defaults["sensor_matrix"]) == tuple(_UNMIX)
+    assert defaults["linear_raw"] is True  # the unmix is blocked without it
+    pending = next(iter(c._pending_capture_imports.values()))
+    assert pending.sensor_profile == "Portra" and pending.sensor_matrix == tuple(_UNMIX)
+
+
+def test_a_missing_sensor_profile_leaves_the_roll_alone(monkeypatch):
+    _profiles(monkeypatch)
+    c = _controller(capture_req=_rgb_req("R1", single_capture=True, sensor_profile="Gone"))
+
+    AppController._on_capture_finished(c, ["/hot/R1/R1_Frame001.ARW"])
+
+    assert "sensor_profile" not in roll_defaults(c.session.repo, folder_roll_id_for_path(c.session.repo, "/hot/R1"))
+    assert next(iter(c._pending_capture_imports.values())).sensor_matrix is None
+
+
+def test_a_triplet_capture_never_takes_a_sensor_profile(monkeypatch):
+    _profiles(monkeypatch, Portra=_UNMIX)
+    c = _controller(capture_req=_rgb_req("R1", sensor_profile="Portra"))
+
+    AppController._on_capture_finished(c, ["/hot/R1/r.ARW", "/hot/R1/g.ARW", "/hot/R1/b.ARW"])
+
+    assert "sensor_profile" not in roll_defaults(c.session.repo, folder_roll_id_for_path(c.session.repo, "/hot/R1"))

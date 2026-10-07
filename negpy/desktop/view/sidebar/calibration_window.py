@@ -7,18 +7,21 @@ preset and closes this window automatically.
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
 )
 
 from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
-from negpy.desktop.view.styles.templates import hint_label, labeled_action
+from negpy.desktop.view.styles.templates import hint_label, labeled_action, labeled_toggle
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
@@ -28,6 +31,22 @@ CAPTURE_MODES = (("", "Triplet"), ("", "Single Capture"))
 CAPTURE_MODE_TOOLTIP = (
     "Triplet takes one exposure per LED and merges them. Single Capture takes one exposure with red, green and blue lit together."
 )
+
+
+SENSOR_PROFILE_TOOLTIP = (
+    "Also save a sensor profile under the preset's name, measured from the same exposures. "
+    "A roll scanned with the preset takes the profile. Single Capture only."
+)
+
+
+def _reserve_checked_width(btn: QPushButton) -> None:
+    """Size a toggle for its checked label. The sheet draws a checked button semibold, and the
+    size hint measures the regular weight."""
+    btn.ensurePolished()
+    semibold = QFont(btn.font())
+    semibold.setWeight(QFont.Weight(THEME.weight_semibold))
+    extra = QFontMetrics(semibold).horizontalAdvance(btn.text()) - QFontMetrics(btn.font()).horizontalAdvance(btn.text())
+    btn.setMinimumWidth(btn.sizeHint().width() + max(0, extra))
 
 
 class CalibrationWindow(QDialog):
@@ -49,8 +68,16 @@ class CalibrationWindow(QDialog):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. Portra 400")
         name_row.addWidget(self.name_edit, 1)
+        self._running = False
         self.capture_btn = ChoiceButton(CAPTURE_MODES, CAPTURE_MODE_TOOLTIP)
         name_row.addWidget(self.capture_btn)
+        self._sensor_profile_wanted = True  # the operator's pick, kept while Triplet shows the toggle off
+        self.sensor_profile_btn = labeled_toggle("fa5s.vials", " Sensor Profile", True, SENSOR_PROFILE_TOOLTIP)
+        _reserve_checked_width(self.sensor_profile_btn)
+        self.sensor_profile_btn.clicked.connect(self._on_sensor_profile_clicked)
+        self.capture_btn.currentChanged.connect(lambda _i: self._sync_sensor_profile())
+        name_row.addWidget(self.sensor_profile_btn)
+        self._sync_sensor_profile()
         self.calibrate_btn = labeled_action(
             "fa5s.crosshairs", " Calibrate && Save", "Meter the clicked film base and save the result as this preset"
         )
@@ -101,13 +128,26 @@ class CalibrationWindow(QDialog):
     def _emit_calibrate(self) -> None:
         self.calibrateRequested.emit(self.name_edit.text().strip())
 
+    def _on_sensor_profile_clicked(self, checked: bool) -> None:
+        self._sensor_profile_wanted = checked
+
+    def _sync_sensor_profile(self) -> None:
+        single = self.capture_btn.currentIndex() == 1
+        self.sensor_profile_btn.setChecked(single and self._sensor_profile_wanted)
+        self.sensor_profile_btn.setEnabled(single and not self._running)
+
+    def wants_sensor_profile(self) -> bool:
+        """Whether a finished run saves a sensor profile with the preset."""
+        return self.capture_btn.currentIndex() == 1 and self._sensor_profile_wanted
+
     def set_inputs_locked(self, locked: bool) -> None:
-        """Freeze the calibration inputs while a run is in progress: the film-stock name, the capture mode, the base
+        """Freeze the calibration inputs while a run is in progress: the film-stock name, the capture mode, the Sensor Profile toggle, the base
         ROI (clicking the image must not move the patch being metered), and the ISO/aperture the
         base is metered at. Re-enabled at any terminal outcome so a failed run can be retried."""
         self._running = locked
         self.name_edit.setEnabled(not locked)
         self.capture_btn.setEnabled(not locked)
+        self._sync_sensor_profile()
         self.iso_stepper.setEnabled(not locked)
         self.aperture_stepper.setEnabled(not locked)
         self.image.set_roi_locked(locked)
