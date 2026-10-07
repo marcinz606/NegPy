@@ -342,8 +342,8 @@ def measure_neutral_axis_from_log(
     mid+shadow refs re-ranks chroma so pass 2 selects true neutrals under the strict cap.
     Returns (midtone, shadow, highlight, confidence) — highlight is None when that band has no
     trustworthy neutral set (callers then fit a 2-point line); confidence in [0,1] combines the
-    grey sets' corrected tightness, the midtone sample size and mid<->shadow deviation agreement
-    (drives Auto Cast Removal). None overall when midtone or shadow is missing (shadow tie).
+    grey sets' corrected tightness, the midtone sample size, mid<->shadow deviation agreement and
+    the width of each set's offsets from green (drives Auto Cast Removal). None overall when midtone or shadow is missing (shadow tie).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -371,7 +371,7 @@ def measure_neutral_axis_from_log(
 
     def _band_refs(
         lo: float, hi: float, chroma_vals: np.ndarray, cap_val: float
-    ) -> Optional[Tuple[Tuple[float, float, float], float, int]]:
+    ) -> Optional[Tuple[Tuple[float, float, float], float, int, float]]:
         band = (luma_f >= lo) & (luma_f <= hi)
         if int(band.sum()) < min_px:
             return None
@@ -384,8 +384,13 @@ def measure_neutral_axis_from_log(
             return None
         # One gather for all three channels: the per-channel fancy index is the cost here.
         sel = flat_log[idx]
-        refs = (float(np.median(sel[:, 0])), float(np.median(sel[:, 1])), float(np.median(sel[:, 2])))
-        return (refs, near_neutral_chroma, int(idx.size))
+        # R and B are green plus the set's median offset from green. Independent channel
+        # medians can each fall in a different cluster of a set that holds two colors.
+        green = float(np.median(sel[:, 1]))
+        refs = (green + float(np.median(sel[:, 0] - sel[:, 1])), green, green + float(np.median(sel[:, 2] - sel[:, 1])))
+        offsets = (norm_f[idx][:, (0, 2)] - norm_f[idx][:, 1:2]).astype(np.float64)
+        p10, p90 = np.percentile(offsets, (10.0, 90.0), axis=0)
+        return (refs, near_neutral_chroma, int(idx.size), float(np.max(p90 - p10)))
 
     def _norm_ref(refs: Tuple[float, float, float]) -> Tuple[float, float, float]:
         out = []
@@ -432,7 +437,9 @@ def measure_neutral_axis_from_log(
     dm, ds = _norm_ref(mid[0]), _norm_ref(shadow[0])
     spread = max(abs((dm[ch] - dm[1]) - (ds[ch] - ds[1])) for ch in (0, 2))
     agree = 1.0 - min(max(spread - dead, 0.0) / scale, 1.0)
-    confidence = float(np.clip(tight * size_term * agree, 0.0, 1.0))
+    width = max(mid[3], shadow[3])
+    single = 1.0 - min(max(width - float(c["neutral_axis_width_deadzone"]), 0.0) / float(c["neutral_axis_width_scale"]), 1.0)
+    confidence = float(np.clip(tight * size_term * agree * single, 0.0, 1.0))
     return (mid[0], shadow[0], highlight[0] if highlight is not None else None, confidence)
 
 

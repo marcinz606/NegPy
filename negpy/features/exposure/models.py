@@ -198,6 +198,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # and the roll-off width of the confidence agreement term beyond it.
     "neutral_axis_agreement_deadzone": 0.10,
     "neutral_axis_agreement_scale": 0.20,
+    # Interdecile width of a near-neutral set's R-G and B-G offsets (normalized density):
+    # free below the dead zone, then the confidence rolls off over the scale. A set as wide
+    # as this holds colored content beside its grays.
+    "neutral_axis_width_deadzone": 0.15,
+    "neutral_axis_width_scale": 0.30,
     # Width (percentile points) of the luma-extreme band the same-pixel color
     # floor refs read; Color Clip sets the band's depth.
     "color_bounds_band_width": 4.0,

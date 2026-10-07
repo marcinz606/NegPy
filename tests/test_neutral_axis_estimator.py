@@ -120,3 +120,31 @@ def test_pure_neutral_full_confidence_and_exact_refs():
         for ch in range(3):
             assert abs(_val_of(refs[ch]) - v) < 1e-3
     assert confidence > 0.9
+
+
+def _mixed_mid(spread: float) -> np.ndarray:
+    """Mid band whose near-neutral set holds a gray cluster between two colored ones,
+    offset from green by +spread and -spread in red."""
+    v = _val_img()
+    mid_rows = slice(_H // 3, 2 * (_H // 3))
+    v[mid_rows, 31:69] = (0.50 + spread, 0.50, 0.50)
+    v[mid_rows, 69:107] = (0.56 - spread, 0.56, 0.56)
+    v[mid_rows, 107:] = (0.90, 0.40, 0.40)
+    return v
+
+
+def test_mid_ref_is_a_real_offset_in_a_mixed_set():
+    # Red's median falls in one colored cluster and green's in the other, so their
+    # difference is the offset of no pixel in the set.
+    res = measure_neutral_axis_from_log(_to_log(_mixed_mid(0.08)), _BOUNDS)
+    assert res is not None
+    assert abs(_dev(res[0], 0)) < 2e-3
+    assert abs(_dev(res[0], 2)) < 2e-3
+
+
+def test_confidence_drops_with_a_wide_neutral_set():
+    narrow = measure_neutral_axis_from_log(_to_log(_mixed_mid(0.02)), _BOUNDS)
+    wide = measure_neutral_axis_from_log(_to_log(_mixed_mid(0.20)), _BOUNDS)
+    assert narrow is not None and wide is not None
+    assert narrow[3] > 0.6
+    assert wide[3] < 0.2
