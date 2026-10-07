@@ -164,7 +164,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var lab = rgb_to_lab(color);
 
         if (params.shadow_tint_strength > 0.0) {
-            let s_mask = smoothstep(50.0, 0.0, lab.x);
+            // Metal and SPIR-V leave smoothstep undefined for falling edges.
+            let s_mask = 1.0 - smoothstep(0.0, 50.0, lab.x);
             let ab = hue_to_ab(params.shadow_tint_hue, 20.0 * params.shadow_tint_strength * s_mask);
             lab.y += ab.x;
             lab.z += ab.y;

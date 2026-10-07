@@ -12,7 +12,7 @@ from typing import Any, Optional
 from negpy.domain.models import WorkspaceConfig
 
 # Bump in any change that alters rendered pixels for unchanged settings, a changed default included.
-THUMBNAIL_RENDER_VERSION = 1
+THUMBNAIL_RENDER_VERSION = 2
 
 # Marks a thumbnail made from the source preview, which runs none of the frame's settings.
 QUICK = "quick"

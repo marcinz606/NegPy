@@ -520,7 +520,7 @@ Not modelled: **solarisation** (the reversal dries back to blue, so the finished
     *   Sepia, iron blue, copper and vanadium are unchanged and inert or redundant on lith, so the sidebar disables them.
 
 *   **Split Toning** (all modes): an additive tint in LAB ($a^{\ast}b^{\ast}$), so luminance, grain and detail are kept. With $L$ the CIELAB lightness ($0$ to $100$):
-    $$m_{shadow} = \text{clip}(1 - L/50,\ 0,\ 1), \qquad m_{highlight} = \text{clip}((L - 50)/50,\ 0,\ 1)$$
+    $$m_{shadow} = 1 - \text{smoothstep}(0,\ 50,\ L), \qquad m_{highlight} = \text{smoothstep}(50,\ 100,\ L)$$
     For each region, with hue $\theta$, strength $S$ and mask $m$:
     $$a^{\ast} \mathrel{+}= \cos\theta \cdot 20 \cdot S \cdot m, \qquad b^{\ast} \mathrel{+}= \sin\theta \cdot 20 \cdot S \cdot m$$
 

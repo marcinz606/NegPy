@@ -559,6 +559,29 @@ class TestToningParity:
         )
         self._run_and_compare(s)
 
+    def test_split_toning_tight_parity(self):
+        """Full-strength split toning on a smooth ramp, where the untoned engines agree
+        exactly, so a mask-shape mismatch the class tolerance absorbs shows here."""
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.ascontiguousarray(np.stack([img, img * 0.95, img * 0.9], axis=-1))
+        base = _make_base_settings()
+        s = replace(
+            base,
+            toning=ToningConfig(shadow_tint_hue=210.0, shadow_tint_strength=1.0, highlight_tint_hue=45.0, highlight_tint_strength=1.0),
+        )
+
+        cpu = np.asarray(self.cpu.process(img, s, "parity_split_tight"))[..., :3].astype(np.float64)
+        tex, _ = self.gpu.process_to_texture(img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False)
+        gpu = np.asarray(self.gpu._readback_downsampled(tex))[..., :3].astype(np.float64)
+        untoned = np.asarray(self.cpu.process(img, base, "parity_split_tight_off"))[..., :3].astype(np.float64)
+
+        assert float(np.max(np.abs(cpu - untoned))) > 0.05, "split toning barely moves this ramp"
+        mx = float(np.max(np.abs(cpu - gpu)))
+        # The OETF compresses the highlight end, so a highlight-only mask mismatch moves RGB little.
+        assert mx < 2e-3, f"max abs diff {mx:.4f}"
+
     def _bw_settings(self, **toning_kwargs) -> WorkspaceConfig:
         base = _make_base_settings()
         return replace(
