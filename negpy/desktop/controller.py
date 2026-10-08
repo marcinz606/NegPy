@@ -5270,6 +5270,10 @@ class AppController(QObject):
         if roll_id is None or not pushed:
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
+        active_hash = self.state.current_file_hash
+        for card_key in [k for k in pushed if rolls.holds_own_crop(k, self.state.config)]:
+            # Never pushed, and never locked: drop a lock left from before the crop was drawn.
+            rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(active_hash), card_key, False)
         pushed = [k for k in pushed if not rolls.holds_own_crop(k, self.state.config)]
         if set(_CROP_CARDS) <= set(pushed):
             # Both differ: push the one edited last, so sharing a Ratio never switches the roll's Auto Crop.
@@ -5506,6 +5510,8 @@ class AppController(QObject):
         current value takes over immediately. No-op with no active roll."""
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
+            return
+        if locked and rolls.holds_own_crop(card_key, self.state.config):
             return
         if locked:
             frozen = self._card_values(self.state.config, card_key)

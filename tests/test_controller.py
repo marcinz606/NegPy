@@ -1155,6 +1155,19 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(defaults["crop_from_auto"])
         self.assertEqual(defaults["autocrop_ratio"], "4:3")
 
+    def test_a_hand_drawn_crop_never_locks_auto_crop_and_a_push_clears_an_old_lock(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        self.controller.set_card_scope(("autocrop", "auto_crop"), "frame")
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"autocrop"})
+
+        rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
+        self.controller.set_card_scope(("autocrop", "auto_crop"), "roll")
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
     def test_a_crop_push_only_shares_values(self):
         rolls, roll_id = self._roll_with_one_frame()
         self.controller.request_batch_auto_crop = MagicMock()
