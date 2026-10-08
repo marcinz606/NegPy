@@ -375,6 +375,7 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 **Crop:**
 
+*   **Auto** (magic wand on the CROP header): the same Auto Crop as the Crop card's wand ([§10.4](#104-crop)), for this frame.
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card; the crop tool snaps to it. **1:1.4142** is the ISO A paper shape (A4, A6).
 *   **Crop** tool (crop icon on the CROP header): draw a crop rectangle; with **Ratio** at **Free**, an edge midpoint resizes one axis. It opens on the current crop; a manual change turns **Auto Crop** ([§10.4](#104-crop)) off for this frame. Drag past the viewport edge to pan. **Reset** (undo icon on the CROP header) clears the crop and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides with orientations (spiral 8, triangles 2).

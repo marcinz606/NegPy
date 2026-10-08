@@ -368,6 +368,7 @@ def test_A14_crop_controls_are_disabled_while_the_run_goes(qapp):
         panel.autocrop_section.reset_btn,
         panel.geometry_section.reset_btn,
         geo.manual_crop_btn,
+        geo.auto_crop_btn,
         geo.clear_crop_btn,
         geo.ratio_combo,
     )

@@ -532,6 +532,7 @@ class ControlsPanel(QWidget):
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
             (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),
+            (self.geometry_sidebar.auto_crop_btn, "auto_crop"),
             (self.autocrop_sidebar.auto_crop_all_btn, "batch_autocrop"),
             (self.tone_sidebar.auto_density_action, "toggle_auto_density"),
             (self.tone_sidebar.auto_grade_action, "toggle_auto_grade"),
@@ -1144,6 +1145,7 @@ class ControlsPanel(QWidget):
             self.autocrop_section.roll_revert_btn,
             self.geometry_section.reset_btn,
             geo.manual_crop_btn,
+            geo.auto_crop_btn,
             geo.clear_crop_btn,
             geo.ratio_combo,
         ):
