@@ -136,7 +136,7 @@ class TestThumbnailRefreshController:
     def test_dispatch_is_not_blocked_by_another_batch_owning_the_lane(self) -> None:
         """The whole point of running off the shared lane: Apply Settings must not be
         refused just because Export, Auto Crop All or anything else is in progress."""
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         assert token is not None
 
         self.controller.refresh_thumbnails_for(["other"])
@@ -172,7 +172,7 @@ class TestThumbnailRefreshController:
         generation = self.controller._thumbnail_render_generation
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
 
         self.controller.thumbnail_render_worker.cancel.assert_called_once_with(generation)
         self.controller._end_batch("autocrop", token)
@@ -181,14 +181,14 @@ class TestThumbnailRefreshController:
     def test_begin_batch_does_not_preempt_when_no_refresh_is_running(self) -> None:
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
 
         self.controller.thumbnail_render_worker.cancel.assert_not_called()
         self.controller._end_batch("autocrop", token)
 
     def test_begin_batch_refused_while_another_batch_runs_does_not_preempt(self) -> None:
         self.controller.refresh_thumbnails_for(["other"])
-        first = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        first = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
         second = self.controller._begin_batch("normalization", "Analyzing roll", True)

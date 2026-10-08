@@ -300,13 +300,11 @@ _CROP_CARDS = ("autocrop", "auto_crop")
 
 
 def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -> tuple:
-    """Identity of every setting that changes detection pixels or crop coordinates, and of
-    Auto Crop's on/off, so a frame turned off or on mid-run is not written over."""
+    """Identity of every setting that changes detection pixels or crop coordinates."""
     geometry = config.geometry
     flatfield = config.flatfield
     rgbscan = config.rgbscan
     return (
-        bool(geometry.crop_from_auto),
         int(geometry.rotation),
         round(float(geometry.fine_rotation), 7),
         bool(geometry.flip_horizontal),
@@ -389,7 +387,7 @@ _KNEE_LABELS = {
 }
 
 # A background thumbnail refresh grows its own preview cache on top of whatever the
-# navigation and Roll auto crop caches already hold; deferred and retried rather than
+# navigation and Auto-crop all frames caches already hold; deferred and retried rather than
 # started under memory pressure.
 _THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
 # Mean decode seconds past which a refresh that decode dominates is read-bound.
@@ -621,6 +619,8 @@ class AppController(QObject):
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
         self._autocrop_roll_id: Optional[str] = None
+        # Per frame hash: its own saved Auto Crop when the run started (_own_auto_crop).
+        self._autocrop_own_auto: Dict[str, Optional[bool]] = {}
         # Per unforked frame hash: the Crop card ("autocrop" or "auto_crop") edited last.
         self._last_crop_card: Dict[str, str] = {}
         self._autocrop_cancel_requested = False
@@ -3838,13 +3838,20 @@ class AppController(QObject):
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset), asset)
         return self.session.config_for_asset(asset)
 
+    def _own_auto_crop(self, asset: dict) -> Optional[bool]:
+        """The frame's own saved Auto Crop, None with no saved edit. Unlike the resolved value,
+        a change to the carried setting or the roll's does not move it; the wand saves at once."""
+        saved = self.session.repo.load_file_settings(asset["hash"])
+        return None if saved is None else bool(saved.geometry.crop_from_auto)
+
     def request_batch_auto_crop(self) -> None:
         """Analyze the Film Strip's frames together, filtered out or not, and persist the
         crops. In a roll, a frame locked with Auto Crop off keeps its own."""
-        if self._batch_busy("Roll auto crop"):
+        if self._batch_busy("Auto-crop all frames"):
             return
         roll_id = self.state.active_roll_id
         if not self.state.uploaded_files:
+            self.set_status("No frames to auto-crop", 3000)
             return
 
         frames: list[BatchAutoCropInput] = []
@@ -3868,14 +3875,15 @@ class AppController(QObject):
             )
 
         if not frames:
-            self.set_status(f"Roll auto crop preserved {count_of(preflight_skipped, 'frame')}; nothing to analyze", 4000)
+            self.set_status(f"Auto-crop all frames kept {count_of(preflight_skipped, 'frame')}; nothing to analyze", 4000)
             return
 
-        token = self._begin_batch("autocrop", "Auto cropping roll", abortable=True)
+        token = self._begin_batch("autocrop", "Auto-cropping all frames", abortable=True)
         if token is None:
             return
         self._autocrop_batch_token = token
         self._autocrop_roll_id = roll_id
+        self._autocrop_own_auto = {frame.file_info["hash"]: self._own_auto_crop(frame.file_info) for frame in frames}
         self._autocrop_dispatched = len(frames)
         self._autocrop_preflight_skipped = preflight_skipped
         self._autocrop_cancel_requested = False
@@ -3920,6 +3928,11 @@ class AppController(QObject):
                     if _autocrop_fingerprint(latest, self.state.workspace_color_space) != result.fingerprint:
                         conflicted += 1
                         continue
+                    own = self._autocrop_own_auto
+                    if asset.get("hash") in own and self._own_auto_crop(asset) != own[asset["hash"]]:
+                        # Auto Crop turned on or off on this frame mid-run.
+                        conflicted += 1
+                        continue
 
                     rect = result.crop_rect
                     if len(rect) != 4 or not (0.0 <= rect[0] < rect[2] <= 1.0 and 0.0 <= rect[1] < rect[3] <= 1.0):
@@ -3955,7 +3968,7 @@ class AppController(QObject):
                     saved += 1
                 except Exception:
                     failed += 1
-                    logger.exception("Roll auto crop could not persist %s", asset.get("path", asset.get("hash", "frame")))
+                    logger.exception("Auto-crop all frames could not persist %s", asset.get("path", asset.get("hash", "frame")))
         finally:
             self._end_batch("autocrop", token)
             self._autocrop_batch_token = None
@@ -3969,7 +3982,7 @@ class AppController(QObject):
         preserved = self._autocrop_preflight_skipped + conflicted
         failure_suffix = f", failed {failed}" if failed else ""
         self.set_status(
-            f"Roll auto crop: saved {saved}, preserved {preserved}, unchanged {unresolved}{failure_suffix}",
+            f"Auto-crop all frames: saved {saved}, kept {preserved}, unchanged {unresolved}{failure_suffix}",
             5000,
         )
         if active_changed:
@@ -3984,7 +3997,7 @@ class AppController(QObject):
         self._autocrop_batch_token = None
         self._autocrop_cancel_requested = False
         self.status_progress_requested.emit(0, 0)
-        self.set_status("Roll auto crop aborted; no crops were saved", 4000)
+        self.set_status("Auto-crop all frames aborted; no crops were saved", 4000)
 
     def _on_batch_autocrop_error(self, message: str) -> None:
         token = self._autocrop_batch_token
@@ -3994,8 +4007,8 @@ class AppController(QObject):
         self._autocrop_batch_token = None
         self._autocrop_cancel_requested = False
         self.status_progress_requested.emit(0, 0)
-        logger.error("Roll auto crop failed: %s", message)
-        self.set_status(f"Roll auto crop failed: {message}", 5000, kind="error")
+        logger.error("Auto-crop all frames failed: %s", message)
+        self.set_status(f"Auto-crop all frames failed: {message}", 5000, kind="error")
 
     @property
     def thumbnail_refresh_running(self) -> bool:

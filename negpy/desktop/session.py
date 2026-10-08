@@ -1756,9 +1756,9 @@ class DesktopSessionManager(QObject):
             self.state_changed.emit()
 
     def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
-        """Persist the roll auto crop before exposing it as active in-memory state.
+        """Persist Auto-crop all frames before exposing it as active in-memory state.
 
-        Non-active roll auto crop results are written directly. This companion path
+        Non-active Auto-crop all frames results are written directly. This companion path
         preserves that behavior while ensuring a storage error cannot leave an
         unrendered crop live in memory.
         """

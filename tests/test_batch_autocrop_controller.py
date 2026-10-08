@@ -104,7 +104,7 @@ class TestBatchAutoCropController:
         self.controller.state.current_file_hash = "a"
         self.controller.state.active_roll_id = "another roll"
         self.session.config_for_asset.return_value = other
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_roll_id = "roll"
         self.controller._autocrop_dispatched = 1
@@ -121,22 +121,38 @@ class TestBatchAutoCropController:
 
         set_override.assert_called_once_with(self.session.repo, "roll", "b", "auto_crop", True)
 
-    def test_finish_skips_a_frame_whose_auto_crop_changed_mid_run(self) -> None:
+    def _finish_one(self, latest: WorkspaceConfig, saved_then, saved_now) -> None:
         asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
-        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
         self.controller.state.current_file_hash = "a"
-        self.session.config_for_asset.return_value = WorkspaceConfig()
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        self.session.config_for_asset.return_value = latest
+        self.session.repo.load_file_settings.return_value = saved_now
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 1
         self.controller._autocrop_preflight_skipped = 0
-        result = BatchAutoCropResult(
-            asset, _autocrop_fingerprint(armed, self.controller.state.workspace_color_space), (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False
-        )
+        self.controller._autocrop_own_auto = {"b": saved_then}
+        fingerprint = _autocrop_fingerprint(latest, self.controller.state.workspace_color_space)
+        self.controller._on_batch_autocrop_finished([BatchAutoCropResult(asset, fingerprint, (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False)])
 
-        self.controller._on_batch_autocrop_finished([result])
+    def test_finish_skips_a_frame_whose_own_auto_crop_changed_mid_run(self) -> None:
+        self._finish_one(WorkspaceConfig(), saved_then=None, saved_now=WorkspaceConfig())
 
         self.session.repo.save_file_settings.assert_not_called()
+
+    def test_finish_keeps_a_frame_when_only_the_carried_auto_crop_changed(self) -> None:
+        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
+
+        self._finish_one(armed, saved_then=None, saved_now=None)
+
+        assert self.session.repo.save_file_settings.call_args.args[0] == "b"
+
+    def test_request_with_no_frames_says_so(self) -> None:
+        self.controller.set_status = MagicMock()
+
+        self.controller.request_batch_auto_crop()
+
+        assert self.tasks == []
+        self.controller.set_status.assert_called_once_with("No frames to auto-crop", 3000)
 
     def test_batch_autocrop_uses_a_private_preview_cache(self) -> None:
         assert self.controller.batch_autocrop_preview_service is not self.controller.preview_service
@@ -179,7 +195,7 @@ class TestBatchAutoCropController:
         self.controller.state.config = active
         self.session.config_for_asset.return_value = other
         self.controller.request_render = MagicMock()
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 2
         self.controller._autocrop_preflight_skipped = 0
@@ -234,7 +250,7 @@ class TestBatchAutoCropController:
         config = WorkspaceConfig()
         self.session.config_for_asset.return_value = config
         self.session.repo.save_file_settings.side_effect = RuntimeError("database unavailable")
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 1
         result = BatchAutoCropResult(
@@ -259,7 +275,7 @@ class TestBatchAutoCropController:
         self.controller.state.config = config
         self.controller.request_render = MagicMock()
         self.session.persist_active_batch_config.side_effect = RuntimeError("database unavailable")
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 1
         result = BatchAutoCropResult(
@@ -280,7 +296,7 @@ class TestBatchAutoCropController:
     def test_cancel_requested_discards_a_queued_finished_result(self) -> None:
         asset = {"name": "late.dng", "path": "/roll/late.dng", "hash": "late"}
         config = WorkspaceConfig()
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_cancel_requested = True
         result = BatchAutoCropResult(
@@ -304,7 +320,7 @@ class TestBatchAutoCropController:
         manual = replace(original, geometry=replace(original.geometry, crop_rect=(0.1, 0.1, 0.8, 0.8)))
         changed = replace(original, geometry=replace(original.geometry, fine_rotation=2.0))
         self.session.config_for_asset.side_effect = [manual, changed]
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 2
         results = [
@@ -333,7 +349,7 @@ class TestBatchAutoCropController:
         assert self.controller._active_batch is None
 
     def test_active_batch_blocks_foreground_batches_but_not_thumbnail_queue(self) -> None:
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
         self.controller.state.uploaded_files = [{"name": "a", "path": "/a", "hash": "a"}]
         self.controller.state.thumbnails = {}
