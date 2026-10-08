@@ -1863,6 +1863,20 @@ class TestCarriedAutoCrop(unittest.TestCase):
         drawn = replace(config, geometry=replace(config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
         self.session.update_config(drawn, persist=True, render=False)
         self.assertTrue(self.store["sticky_config"]["crop_from_auto"])
+        self.assertIsNone(self.store["sticky_config"]["crop_rect"])
+
+    def test_with_the_crop_row_ticked_a_hand_drawn_crop_does_not_carry(self):
+        """The carried rect and Auto flag stay a consistent pair: a fresh frame gets the last
+        auto setup, not a hand-drawn rect marked auto."""
+        self.store["sticky_rows"] = ["geometry.crop_from_auto", "geometry.crop_rect"]
+        self._set_auto_crop(True)
+        config = self.session.state.config
+        drawn = replace(config, geometry=replace(config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+        self.session.update_config(drawn, persist=True, render=False)
+
+        fresh = self._fresh().geometry
+        self.assertTrue(fresh.crop_from_auto)
+        self.assertIsNone(fresh.crop_rect)
 
 
 class TestTriageMarks(unittest.TestCase):

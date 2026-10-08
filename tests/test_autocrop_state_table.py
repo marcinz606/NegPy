@@ -488,3 +488,32 @@ def test_E16_the_auto_crop_row_alone_switches_through_with_auto_crop(row, source
 
     assert _kind(out) == expected, row
     assert out.geometry.crop_rect == rect, row
+
+
+def test_E17_a_recorded_crop_carries_its_auto_flag():
+    from negpy.desktop.settings_catalog import selected_flat_dict
+
+    flat = selected_flat_dict(_cfg("auto"), _rows("geometry.crop_rect"))
+
+    assert flat["crop_from_auto"] is True and flat["crop_rect"] == RECT
+
+
+def test_E17_geometry_reset_to_roll_switches_auto_through_with_auto_crop_and_settles_the_lock(ctl):
+    rolls.set_section_push(ctl.repo, ctl.roll, "geometry", {"crop_from_auto": True})
+    ctl.state.config = _cfg("hand-drawn")
+
+    ctl.controller.revert_to_roll(("geometry",))
+
+    assert _kind(ctl.state.config) == "armed"
+    assert "auto_crop" in _locks(ctl)  # the roll has no Auto Crop value: a difference
+
+
+def test_E18_geometry_reset_to_roll_with_crop_fields_waits_for_the_run(ctl):
+    rolls.set_section_push(ctl.repo, ctl.roll, "geometry", {"crop_from_auto": True})
+    ctl.state.config = _cfg("hand-drawn")
+    ctl.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
+
+    assert ctl.controller.revert_to_roll(("geometry",)) == 0
+
+    assert _kind(ctl.state.config) == "hand-drawn"
+    assert _status(ctl) == "Crop is locked while Auto-crop all frames runs"

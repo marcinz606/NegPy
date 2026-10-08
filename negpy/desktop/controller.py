@@ -297,6 +297,8 @@ def _component_paths(files: List[Dict]) -> List[str]:
 
 
 _CROP_CARDS = ("autocrop", "auto_crop")
+# Fields a frame card's recorded apply can carry that move a frame's crop.
+_CROP_FIELDS = frozenset({"crop_rect", "crop_from_auto", "crop_detect_key"})
 
 
 def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -> tuple:
@@ -5488,9 +5490,13 @@ class AppController(QObject):
         the frame's own value. Returns how many cards moved."""
         available = self.roll_revert_cards(card_keys)
         cards = [k for k in dict.fromkeys(card_keys) if k in available]
-        crop_held = self.crop_edits_blocked() and bool(set(cards) & set(_CROP_CARDS))
+        pushes = self._section_pushes()
+        moves_crop = [
+            k for k in cards if k in _CROP_CARDS or (k not in rolls.ROLL_DEFAULT_FIELDS and _CROP_FIELDS & set(pushes.get(k, {})))
+        ]
+        crop_held = self.crop_edits_blocked() and bool(moves_crop)
         if crop_held:
-            cards = [k for k in cards if k not in _CROP_CARDS]
+            cards = [k for k in cards if k not in moves_crop]
             if not cards:
                 self.refuse_crop_edit()
                 return 0
@@ -5499,7 +5505,6 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         file_hash = rolls.unforked_hash(self.state.current_file_hash)
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
-        pushes = self._section_pushes()
         config = self.state.config
         for key in cards:
             if key in rolls.ROLL_DEFAULT_FIELDS:
@@ -5512,6 +5517,8 @@ class AppController(QObject):
             self.session.update_config(config, persist=True, render=False)
         else:
             self.apply_config(config, persist=True)
+        if any(_CROP_FIELDS & set(pushes.get(k, {})) for k in cards if k not in rolls.ROLL_DEFAULT_FIELDS):
+            self._lock_roll_card("auto_crop")
         self.config_updated.emit()
         labels = {**self._STATUS_LABELS, **self._FRAME_CARD_LABELS}
         held = "; Crop waits for Auto-crop all frames" if crop_held else ""
@@ -5552,6 +5559,9 @@ class AppController(QObject):
             if name in sections:
                 by_section.setdefault(sections[name], {})[name] = rolls.config_value(value)
         new = config
+        geometry = by_section.get("geometry", {})
+        if "crop_from_auto" in geometry and "crop_rect" not in geometry:
+            new = with_auto_crop_field(new, geometry)
         for section, values in by_section.items():
             new = replace(new, **{section: replace(getattr(new, section), **values)})
         remeter = any(

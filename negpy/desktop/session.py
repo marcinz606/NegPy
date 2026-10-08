@@ -1220,12 +1220,14 @@ class DesktopSessionManager(QObject):
                 else:
                     snapshot.pop(key, None)
         if has_manual_crop(config.geometry):
-            # A hand-drawn crop is one frame's placement; the next scan keeps the carried Auto Crop.
+            # A hand-drawn crop is one frame's placement: the carried crop stays as it was, whole.
             stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            if isinstance(stored, dict) and "crop_from_auto" in stored:
-                snapshot["crop_from_auto"] = stored["crop_from_auto"]
-            else:
-                snapshot.pop("crop_from_auto", None)
+            stored = stored if isinstance(stored, dict) else {}
+            for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,

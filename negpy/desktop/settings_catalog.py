@@ -531,8 +531,11 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
 
 def selected_flat_dict(cfg: WorkspaceConfig, rows: Iterable[SettingRow]) -> dict[str, Any]:
     """Flat dict of the chosen rows' fields (flat keys are field names). A row's
-    fields travel as a unit, default-valued ones included."""
-    return {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    fields travel as a unit, default-valued ones included; a crop rect brings its Auto flag."""
+    flat = {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    if "crop_rect" in flat:
+        flat["crop_from_auto"] = cfg.geometry.crop_from_auto
+    return flat
 
 
 def preset_config(data: Mapping[str, Any]) -> WorkspaceConfig:
