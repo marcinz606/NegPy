@@ -378,3 +378,35 @@ def test_A14_crop_controls_are_disabled_while_the_run_goes(qapp):
     controller.crop_edits_blocked.return_value = False
     panel._sync_crop_block()
     assert all(w.isEnabled() for w in widgets)
+
+
+def test_E13_a_restore_removes_an_old_auto_crop_lock_from_a_hand_drawn_frame(repo):
+    roll = rolls.create_virtual_roll(repo, "Roll", [])
+    rolls.set_roll_defaults(repo, roll, crop_from_auto=True)
+    rolls.set_frame_override(repo, roll, "h1", "auto_crop", True)
+    state = AppState()
+    state.config = _cfg("hand-drawn")
+    state.uploaded_files = [{"name": "h1.tif", "path": "/r/h1.tif", "hash": "h1"}]
+    state.selected_file_idx = 0
+    state.current_file_hash = "h1"
+    state.active_roll_id = roll
+
+    DesktopSessionManager._relock_diverged_cards(SimpleNamespace(state=state, repo=repo))
+
+    assert "auto_crop" not in rolls.frame_override_cards(repo, roll, "h1")
+
+
+def test_A13_reset_to_roll_settings_during_the_run_resets_all_but_crop(ctl):
+    rolls.set_roll_defaults(ctl.repo, ctl.roll, autocrop_ratio="5:4", hue_trim=4.0)
+    ctl.state.config = replace(_cfg("auto", autocrop_ratio="3:2"), process=replace(WorkspaceConfig().process, hue_trim=-6.0))
+    rolls.set_frame_override(ctl.repo, ctl.roll, "h1", "autocrop", True)
+    rolls.set_frame_override(ctl.repo, ctl.roll, "h1", "sensor", True)
+    ctl.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
+
+    moved = ctl.controller.revert_frame_to_roll()
+
+    assert moved == 1
+    assert ctl.state.config.process.hue_trim == 4.0
+    assert ctl.state.config.geometry.autocrop_ratio == "3:2"
+    assert _locks(ctl) == {"autocrop"}
+    assert _status(ctl) == "Reset to the roll: Calibration; Crop waits for Auto-crop all frames"

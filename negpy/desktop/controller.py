@@ -5207,7 +5207,9 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
             return set()
-        return rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash))
+        cards = rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash))
+        # A stored Auto Crop lock on a hand-drawn frame is stale (a copied crop, an old lock).
+        return {k for k in cards if not rolls.holds_own_crop(k, self.state.config)}
 
     def hand_drawn_crop_departs_from_roll(self) -> bool:
         """A hand-drawn crop on a frame of a roll with Auto Crop on. It differs from the roll
@@ -5246,9 +5248,11 @@ class AppController(QObject):
         current = self._card_values(self.state.config, card_key)
         matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
         diverged = not matches_roll and not rolls.holds_own_crop(card_key, self.state.config)
-        if diverged == self.roll_card_locked(card_key):
+        file_hash = rolls.unforked_hash(self.state.current_file_hash)
+        # The stored lock, not locked_roll_cards: that read hides a stale hand-drawn Auto Crop lock.
+        if diverged == (card_key in rolls.frame_override_cards(self.session.repo, roll_id, file_hash)):
             return
-        rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash), card_key, diverged)
+        rolls.set_frame_override(self.session.repo, roll_id, file_hash, card_key, diverged)
 
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
@@ -5307,22 +5311,12 @@ class AppController(QObject):
         if roll_id is None or not pushed:
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
-        active_hash = self.state.current_file_hash
-        released = [k for k in pushed if rolls.holds_own_crop(k, self.state.config)]
-        for card_key in released:
-            # Never pushed, and never locked: drop a lock left from before the crop was drawn.
-            rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(active_hash), card_key, False)
-        if released:
-            self.config_updated.emit()
         pushed = [k for k in pushed if not rolls.holds_own_crop(k, self.state.config)]
         if set(_CROP_CARDS) <= set(pushed):
             # Both differ: push the one edited last, so sharing a Ratio never switches the roll's Auto Crop.
             last = self._last_crop_card.get(rolls.unforked_hash(self.state.current_file_hash), "autocrop")
             pushed = [k for k in pushed if k not in _CROP_CARDS or k == last]
         if not pushed:
-            if released:
-                self.set_status("Auto Crop stays with this frame's hand-drawn crop", 3000)
-                return len(released)
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
         repo = self.session.repo
@@ -5466,7 +5460,11 @@ class AppController(QObject):
         available = set()
         for key in card_keys:
             if key in rolls.ROLL_DEFAULT_FIELDS:
-                if key in locked and any(f in defaults for f in rolls.card_fields(key)):
+                if (
+                    key in locked
+                    and any(f in defaults for f in rolls.card_fields(key))
+                    and not rolls.holds_own_crop(key, self.state.config)
+                ):
                     available.add(key)
             elif pushes.get(key) and not self._matches_push(pushes[key]):
                 available.add(key)
@@ -5479,8 +5477,12 @@ class AppController(QObject):
         the frame's own value. Returns how many cards moved."""
         available = self.roll_revert_cards(card_keys)
         cards = [k for k in dict.fromkeys(card_keys) if k in available]
-        if set(cards) & set(_CROP_CARDS) and self.refuse_crop_edit():
-            return 0
+        crop_held = self.crop_edits_blocked() and bool(set(cards) & set(_CROP_CARDS))
+        if crop_held:
+            cards = [k for k in cards if k not in _CROP_CARDS]
+            if not cards:
+                self.refuse_crop_edit()
+                return 0
         if not cards:
             return 0
         roll_id = self.state.active_roll_id
@@ -5501,7 +5503,8 @@ class AppController(QObject):
             self.apply_config(config, persist=True)
         self.config_updated.emit()
         labels = {**self._STATUS_LABELS, **self._FRAME_CARD_LABELS}
-        self.set_status(f"Reset to the roll: {', '.join(dict.fromkeys(labels[k] for k in cards))}", 3000)
+        held = "; Crop waits for Auto-crop all frames" if crop_held else ""
+        self.set_status(f"Reset to the roll: {', '.join(dict.fromkeys(labels[k] for k in cards))}{held}", 3000)
         return len(cards)
 
     def can_revert_frame_to_roll(self) -> bool:
@@ -5518,7 +5521,7 @@ class AppController(QObject):
         if card_key == "film":
             return with_film_fields(config, values)
         if card_key == "auto_crop":
-            return with_auto_crop_field(config, values)
+            return config if rolls.holds_own_crop(card_key, config) else with_auto_crop_field(config, values)
         ratio = values.pop("autocrop_ratio", config.geometry.autocrop_ratio)
         if ratio != config.geometry.autocrop_ratio:
             config = self._with_crop_ratio(config, ratio)

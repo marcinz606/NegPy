@@ -1794,7 +1794,8 @@ class DesktopSessionManager(QObject):
         """Lock each roll card on which the active frame's restored config differs from the
         roll's defaults. History, a work print and a paste restore a config but not its
         locks, and an unlocked card takes the roll's values on the next load. Never unlocks:
-        a card pinned at the roll's own value stays pinned."""
+        a card pinned at the roll's own value stays pinned. The one exception is Auto Crop on
+        a hand-drawn frame, which is never locked (rolls.holds_own_crop)."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
@@ -1810,6 +1811,8 @@ class DesktopSessionManager(QObject):
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             values = getattr(config, section)
             if rolls.holds_own_crop(card_key, config):
+                if card_key in locked:
+                    rolls.set_frame_override(self.repo, roll_id, base, card_key, False)
                 continue
             if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)

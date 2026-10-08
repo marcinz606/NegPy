@@ -1155,7 +1155,7 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(defaults["crop_from_auto"])
         self.assertEqual(defaults["autocrop_ratio"], "4:3")
 
-    def test_a_hand_drawn_crop_never_locks_auto_crop_and_a_push_clears_an_old_lock(self):
+    def test_a_hand_drawn_crop_never_locks_auto_crop_and_an_old_lock_reads_unlocked(self):
         rolls, roll_id = self._roll_with_one_frame()
         repo = self.controller.session.repo
         state = self.mock_session_manager.state
@@ -1166,13 +1166,9 @@ class TestAppController(unittest.TestCase):
 
         rolls.set_frame_override(repo, roll_id, "h1", "autocrop", False)
         rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
-        updated = MagicMock()
-        self.controller.config_updated.connect(updated)
-        self.controller.set_status = MagicMock()
+        self.assertEqual(self.controller.locked_roll_cards(), set())
         self.controller.set_card_scope(("autocrop", "auto_crop"), "roll")
-        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
-        updated.assert_called()
-        self.assertEqual(self.controller.set_status.call_args.args[0], "Auto Crop stays with this frame's hand-drawn crop")
+        self.assertNotIn("crop_from_auto", rolls.roll_defaults(repo, roll_id))
 
     def test_a_crop_push_only_shares_values(self):
         rolls, roll_id = self._roll_with_one_frame()
@@ -1208,14 +1204,28 @@ class TestAppController(unittest.TestCase):
         self.assertFalse(rolls.roll_defaults(repo, roll_id)["crop_from_auto"])
         self.assertEqual(self.controller.set_status.call_args.args[0], "Applied to the roll: Auto Crop")
 
-    def test_reset_to_roll_auto_crop_drops_a_hand_drawn_rect(self):
+    def test_reset_to_roll_auto_crop_arms_an_uncropped_frame_and_keeps_a_hand_drawn_one(self):
         state = self.mock_session_manager.state
         drawn = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
 
-        armed = self.controller._with_roll_card(drawn, "auto_crop", {"crop_from_auto": True})
+        armed = self.controller._with_roll_card(state.config, "auto_crop", {"crop_from_auto": True})
+        kept = self.controller._with_roll_card(drawn, "auto_crop", {"crop_from_auto": True})
 
         self.assertTrue(armed.geometry.crop_from_auto)
         self.assertIsNone(armed.geometry.crop_rect)
+        self.assertEqual(kept.geometry, drawn.geometry)
+
+    def test_an_old_auto_crop_lock_offers_no_reset_to_roll_on_a_hand_drawn_frame(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True)
+        rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        self.assertEqual(self.controller.roll_revert_cards(["auto_crop"]), set())
+        self.assertEqual(self.controller.revert_frame_to_roll(), 0)
+        self.assertEqual(state.config.geometry.crop_rect, (0.1, 0.1, 0.9, 0.9))
 
     def test_a_settled_auto_crop_edit_drops_the_frames_cached_bounds(self):
         """The crop feeds the meter, so a settled change to what auto crop looks for
