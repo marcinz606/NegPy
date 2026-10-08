@@ -20,13 +20,14 @@ from negpy.desktop.sticky import (
     load_sticky_config,
     load_sticky_rows,
     migrate_legacy,
+    migrate_auto_crop_sticky_row,
     migrate_legacy_export_destination,
     sticky_snapshot,
 )
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
-from negpy.features.geometry.logic import flip_geometry_and_analysis, rotate_geometry_and_analysis
+from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
 from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
@@ -832,6 +833,7 @@ class DesktopSessionManager(QObject):
 
         migrate_legacy(self.repo)
         migrate_legacy_export_destination(self.repo)
+        migrate_auto_crop_sticky_row(self.repo)
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -1217,6 +1219,13 @@ class DesktopSessionManager(QObject):
                     snapshot[key] = stored[key]
                 else:
                     snapshot.pop(key, None)
+        if has_manual_crop(config.geometry):
+            # A hand-drawn crop is one frame's placement; the next scan keeps the carried Auto Crop.
+            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+            if isinstance(stored, dict) and "crop_from_auto" in stored:
+                snapshot["crop_from_auto"] = stored["crop_from_auto"]
+            else:
+                snapshot.pop("crop_from_auto", None)
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,
@@ -1747,9 +1756,9 @@ class DesktopSessionManager(QObject):
             self.state_changed.emit()
 
     def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
-        """Persist Auto Crop All before exposing it as active in-memory state.
+        """Persist the roll auto crop before exposing it as active in-memory state.
 
-        Non-active Auto Crop All results are written directly. This companion path
+        Non-active roll auto crop results are written directly. This companion path
         preserves that behavior while ensuring a storage error cannot leave an
         unrendered crop live in memory.
         """
@@ -1800,6 +1809,8 @@ class DesktopSessionManager(QObject):
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             values = getattr(config, section)
+            if rolls.holds_own_crop(card_key, config):
+                continue
             if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 

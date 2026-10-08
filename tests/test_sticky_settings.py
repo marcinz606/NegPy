@@ -16,6 +16,7 @@ from negpy.desktop.sticky import (
     STICKY_CONFIG_KEY,
     STICKY_ROWS_KEY,
     load_sticky_rows,
+    migrate_auto_crop_sticky_row,
     migrate_legacy,
     migrate_legacy_export_destination,
     save_sticky_rows,
@@ -127,6 +128,23 @@ class TestLegacyMigration(unittest.TestCase):
         repo = _repo({"last_process_mode": "B&W Negative", "last_export_config": {"export_path": "/out"}})
         migrate_legacy(repo)
         self.assertNotIn("export_path", repo.store[STICKY_CONFIG_KEY])
+
+
+class TestAutoCropStickyRowMigration(unittest.TestCase):
+    def test_adds_auto_crop_to_a_saved_choice_once(self):
+        repo = _repo({STICKY_ROWS_KEY: ["geometry.autocrop_mode"]})
+        migrate_auto_crop_sticky_row(repo)
+        self.assertEqual(set(repo.store[STICKY_ROWS_KEY]), {"geometry.autocrop_mode", "geometry.crop_from_auto"})
+
+        save_sticky_rows(repo, ["geometry.autocrop_mode"])
+        migrate_auto_crop_sticky_row(repo)
+        self.assertEqual(repo.store[STICKY_ROWS_KEY], ["geometry.autocrop_mode"])
+
+    def test_a_user_who_never_chose_gets_it_from_the_defaults(self):
+        repo = _repo()
+        migrate_auto_crop_sticky_row(repo)
+        self.assertNotIn(STICKY_ROWS_KEY, repo.store)
+        self.assertIn("geometry.crop_from_auto", {r.id for r in load_sticky_rows(repo)})
 
 
 class TestExportDestinationMigration(unittest.TestCase):

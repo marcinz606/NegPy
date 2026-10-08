@@ -22,6 +22,7 @@ _DONE_FLAG = "roll_field_locks_migrated_v1"
 _BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
 _CAST_REMOVAL_FLAG = "cast_removal_roll_card_v1"
 _PAPER_SPLIT_FLAG = "paper_card_split_v1"
+_AUTO_CROP_FLAG = "auto_crop_roll_card_v1"
 
 # The Paper Response card's fields, which left the Tone card (settings_catalog.PAPER_FIELDS).
 _PAPER_FIELDS = (
@@ -152,3 +153,29 @@ def migrate_paper_card_split(repo) -> None:
     except Exception:
         logger.exception("Paper Response card split migration failed; continuing without it")
     repo.save_global_setting(_PAPER_SPLIT_FLAG, True)
+
+
+def migrate_auto_crop_roll_locks(repo) -> None:
+    """Auto Crop became a roll default (the ``auto_crop`` card). Locks that card on every
+    frame saved with Auto Crop on, so the first Roll push of it off does not clear their
+    crops. A hand-drawn crop needs no lock (rolls.holds_own_crop). Same guards as
+    migrate_new_roll_field_locks."""
+    if repo.get_global_setting(_AUTO_CROP_FLAG):
+        return
+    try:
+        locks = []
+        with closing(sqlite3.connect(repo.edits_db_path)) as conn:
+            for file_hash, settings_json, file_path in conn.execute("SELECT file_hash, settings_json, file_path FROM file_settings"):
+                try:
+                    data = json.loads(settings_json) if settings_json else {}
+                except (ValueError, TypeError):
+                    continue
+                if not data.get("crop_from_auto"):
+                    continue
+                for roll_id in _rolls_for_row(repo, file_hash, file_path):
+                    locks.append((roll_id, rolls.unforked_hash(file_hash)))
+        for roll_id, file_hash in locks:
+            rolls.set_frame_override(repo, roll_id, file_hash, "auto_crop", True)
+    except Exception:
+        logger.exception("Auto Crop roll-card lock migration failed; continuing without it")
+    repo.save_global_setting(_AUTO_CROP_FLAG, True)

@@ -6,6 +6,7 @@ from negpy.desktop.controller import AppController, _autocrop_fingerprint
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.workers.render import BatchAutoCropResult
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.logic import autocrop_detection_key
 from negpy.features.geometry.models import AutocropMode
 from negpy.services.rendering.preview_manager import PreviewManager
 
@@ -47,7 +48,7 @@ class TestBatchAutoCropController:
         del self.controller
         gc.collect()
 
-    def test_request_dispatches_visible_uncropped_frames_and_preserves_manual(self) -> None:
+    def test_request_dispatches_every_frame_filtered_or_not_and_preserves_manual(self) -> None:
         files = [
             {"name": "active.dng", "path": "/roll/active.dng", "hash": "active"},
             {"name": "manual.dng", "path": "/roll/manual.dng", "hash": "manual"},
@@ -62,17 +63,80 @@ class TestBatchAutoCropController:
         fresh = WorkspaceConfig()
         self.controller.state.config = active
         self.session.asset_model.visible_actual_indices_ordered.return_value = [0, 1, 2]
-        self.session.config_for_asset.side_effect = lambda asset: {"manual": manual, "fresh": fresh}[asset["hash"]]
+        self.session.config_for_asset.side_effect = lambda asset: {"manual": manual, "fresh": fresh, "hidden": fresh}[asset["hash"]]
 
         self.controller.request_batch_auto_crop()
 
         assert len(self.tasks) == 1
-        assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["active", "fresh"]
+        assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["active", "fresh", "hidden"]
         assert self.tasks[0].frames[0].config.geometry.autocrop_ratio == "4:3"
         assert self.controller._autocrop_preflight_skipped == 1
         assert self.controller._active_batch == "autocrop"
         assert self.tasks[0].generation == self.controller._autocrop_batch_token
         self.controller._on_batch_autocrop_cancelled()
+
+    def test_request_skips_only_frames_locked_with_auto_crop_off(self) -> None:
+        files = [
+            {"name": "a.dng", "path": "/roll/a.dng", "hash": "a"},
+            {"name": "off.dng", "path": "/roll/off.dng", "hash": "off"},
+            {"name": "on.dng", "path": "/roll/on.dng", "hash": "on"},
+        ]
+        self.controller.state.uploaded_files = files
+        self.controller.state.current_file_hash = "a"
+        self.controller.state.current_file_path = files[0]["path"]
+        self.controller.state.config = WorkspaceConfig()
+        self.controller.state.active_roll_id = "roll"
+        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
+        self.session.config_for_asset.side_effect = lambda asset: armed if asset["hash"] == "on" else WorkspaceConfig()
+
+        with patch(
+            "negpy.desktop.controller.rolls.frame_override_cards",
+            side_effect=lambda _repo, _roll, file_hash: {"auto_crop"} if file_hash in ("off", "on") else set(),
+        ):
+            self.controller.request_batch_auto_crop()
+
+        assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["a", "on"]
+        self.controller._on_batch_autocrop_cancelled()
+
+    def test_finish_locks_a_crop_the_rolls_auto_crop_off_would_clear(self) -> None:
+        asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
+        other = WorkspaceConfig()
+        self.controller.state.current_file_hash = "a"
+        self.controller.state.active_roll_id = "another roll"
+        self.session.config_for_asset.return_value = other
+        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        self.controller._autocrop_batch_token = token
+        self.controller._autocrop_roll_id = "roll"
+        self.controller._autocrop_dispatched = 1
+        self.controller._autocrop_preflight_skipped = 0
+        result = BatchAutoCropResult(
+            asset, _autocrop_fingerprint(other, self.controller.state.workspace_color_space), (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False
+        )
+
+        with (
+            patch("negpy.desktop.controller.rolls.roll_defaults", return_value={"crop_from_auto": False}),
+            patch("negpy.desktop.controller.rolls.set_frame_override") as set_override,
+        ):
+            self.controller._on_batch_autocrop_finished([result])
+
+        set_override.assert_called_once_with(self.session.repo, "roll", "b", "auto_crop", True)
+
+    def test_finish_skips_a_frame_whose_auto_crop_changed_mid_run(self) -> None:
+        asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
+        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
+        self.controller.state.current_file_hash = "a"
+        self.session.config_for_asset.return_value = WorkspaceConfig()
+        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        self.controller._autocrop_batch_token = token
+        self.controller._autocrop_dispatched = 1
+        self.controller._autocrop_preflight_skipped = 0
+        result = BatchAutoCropResult(
+            asset, _autocrop_fingerprint(armed, self.controller.state.workspace_color_space), (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False
+        )
+
+        self.controller._on_batch_autocrop_finished([result])
+
+        self.session.repo.save_file_settings.assert_not_called()
 
     def test_batch_autocrop_uses_a_private_preview_cache(self) -> None:
         assert self.controller.batch_autocrop_preview_service is not self.controller.preview_service
@@ -99,15 +163,6 @@ class TestBatchAutoCropController:
         film = replace(image, geometry=replace(image.geometry, autocrop_mode=AutocropMode.FILM))
 
         assert _autocrop_fingerprint(image, "Display P3") != _autocrop_fingerprint(film, "Display P3")
-
-    def test_request_rejects_film_mode(self) -> None:
-        geometry = replace(WorkspaceConfig().geometry, autocrop_mode=AutocropMode.FILM)
-        self.controller.state.config = replace(WorkspaceConfig(), geometry=geometry)
-
-        self.controller.request_batch_auto_crop()
-
-        assert self.tasks == []
-        assert self.controller._active_batch is None
 
     def test_finish_merges_only_crop_and_rotation_then_invalidates_bounds(self) -> None:
         active_asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a"}
@@ -154,7 +209,8 @@ class TestBatchAutoCropController:
         active_saved = self.session.persist_active_batch_config.call_args.args[0]
         assert active_saved.geometry.crop_rect == rect_a
         assert active_saved.geometry.fine_rotation == 1.75
-        assert not active_saved.geometry.crop_from_auto
+        assert active_saved.geometry.crop_from_auto
+        assert active_saved.geometry.crop_detect_key == autocrop_detection_key(active_saved.geometry)
         assert active_saved.process.local_floors == (0.0, 0.0, 0.0)
         assert active_saved.process.local_ceils == (0.0, 0.0, 0.0)
         self.session.persist_active_batch_config.assert_called_once_with(active_saved)
@@ -163,6 +219,8 @@ class TestBatchAutoCropController:
         _, other_saved = self.session.repo.save_file_settings.call_args.args[:2]
         assert other_saved.geometry.crop_rect == rect_b
         assert other_saved.geometry.fine_rotation == -0.25
+        assert other_saved.geometry.crop_from_auto
+        assert other_saved.geometry.crop_detect_key == autocrop_detection_key(other_saved.geometry)
         assert other_saved.process.local_floors == (0.0, 0.0, 0.0)
         self.controller.request_render.assert_called_once_with()
         assert self.controller._active_batch is None

@@ -1627,7 +1627,7 @@ class BatchAutoCropWorker(QObject):
         except Exception:
             if self._cancel_requested(generation):
                 return None
-            logger.exception("Auto Crop All skipped failed frame %s", file_info.get("name") or file_info.get("path") or index)
+            logger.exception("Roll auto crop skipped failed frame %s", file_info.get("name") or file_info.get("path") or index)
             return None
 
     @pyqtSlot(BatchAutoCropTask)
@@ -1673,7 +1673,7 @@ class BatchAutoCropWorker(QObject):
             for crop in resolved:
                 source = source_by_key.get(crop.key)
                 if source is None:
-                    logger.warning("Auto Crop All ignored result with unknown key %s", crop.key)
+                    logger.warning("Roll auto crop ignored result with unknown key %s", crop.key)
                     continue
                 results.append(
                     BatchAutoCropResult(
@@ -1692,7 +1692,7 @@ class BatchAutoCropWorker(QObject):
             with self._cancel_lock:
                 if self._active_generation == generation:
                     self._active_generation = None
-            logger.exception("Auto Crop All worker failure")
+            logger.exception("Roll auto crop worker failure")
             self.error.emit(str(exc))
 
 

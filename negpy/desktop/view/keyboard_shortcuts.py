@@ -351,7 +351,7 @@ class ShortcutManager:
             "keystone_lines": lambda: controls.geometry_sidebar.keystone_lines_btn.toggle(),
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
-            "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
+            "auto_crop": lambda: controls.autocrop_sidebar.auto_frame_btn.toggle(),
             "crop_to_valid": lambda: controls.geometry_sidebar.crop_to_valid_btn.toggle(),
             "lens_distortion_from_metadata": lambda: controls.lens_sidebar.metadata_distortion_btn.click(),
             "lens_ca_from_metadata": lambda: controls.lens_sidebar.metadata_ca_btn.click(),

@@ -66,7 +66,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `L` | Toggle straighten line tool |
 | `O` | Next crop guide overlay |
 | `Shift + O` | Rotate crop guide orientation |
-| `Shift + A` | Toggle autocrop |
+| `Shift + A` | Toggle Auto Crop |
 
 ## View
 | Key | Action |

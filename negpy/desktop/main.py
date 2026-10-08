@@ -22,6 +22,7 @@ from negpy.services.assets.migrations.gear_presets import migrate_gear_presets
 from negpy.services.assets.migrations.normalization_roll import migrate_legacy_normalization_rolls
 from negpy.services.assets.migrations.positive_auto import migrate_auto_meter_for_positive_frames
 from negpy.services.assets.migrations.roll_fields import (
+    migrate_auto_crop_roll_locks,
     migrate_baseline_card_split,
     migrate_cast_removal_roll_locks,
     migrate_new_roll_field_locks,
@@ -302,6 +303,7 @@ def main() -> None:
         migrate_paper_card_split(repo)
         migrate_new_roll_field_locks(repo)
         migrate_cast_removal_roll_locks(repo)
+        migrate_auto_crop_roll_locks(repo)
 
         scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
         scale = max(0.8, min(1.2, scale))

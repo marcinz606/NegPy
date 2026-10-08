@@ -61,11 +61,9 @@ class GeometrySidebar(BaseSidebar):
 
         # Icons on the header, like the Roll tab's Crop card.
         self.manual_crop_btn = self._tool_toggle("fa5s.crop-alt", "", "Crop: draw the crop by hand on the canvas")
-        self.reset_crop_btn = self._tool_toggle("fa5s.magic", "", "Auto: find the frame edges and crop to them")
-        for btn in (self.manual_crop_btn, self.reset_crop_btn):
-            btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.manual_crop_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.clear_crop_btn = self._icon_action("fa5s.undo", "Reset crop: clear the manual crop and disable auto crop")
-        self.layout.addLayout(header_row(section_subheader("CROP"), self.manual_crop_btn, self.reset_crop_btn, self.clear_crop_btn))
+        self.layout.addLayout(header_row(section_subheader("CROP"), self.manual_crop_btn, self.clear_crop_btn))
 
         # The same roll field as the Crop card's Ratio: the crop tool snaps to it.
         ratio_row = QHBoxLayout()
@@ -155,7 +153,6 @@ class GeometrySidebar(BaseSidebar):
         self.guide_orient_btn.clicked.connect(self.controller.cycle_crop_guide_orientation)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
-        self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
 
         self.auto_skew_btn.clicked.connect(self.controller.auto_skew_frame)
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
@@ -196,12 +193,6 @@ class GeometrySidebar(BaseSidebar):
     def _on_keystone_lines_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.KEYSTONE_LINES if checked else ToolMode.NONE)
 
-    def _on_auto_crop_toggled(self, checked: bool) -> None:
-        if checked:
-            self.controller.apply_auto_crop()
-        else:
-            self.controller.reset_crop()
-
     def _on_crop_to_valid_toggled(self, checked: bool) -> None:
         self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, crop_to_valid=checked)
         self.controller.show_rotation_guide()
@@ -222,9 +213,7 @@ class GeometrySidebar(BaseSidebar):
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
             self.keystone_lines_btn.setChecked(self.state.active_tool == ToolMode.KEYSTONE_LINES)
-            self.reset_crop_btn.setChecked(conf.crop_from_auto)
             self.manual_crop_btn.edited_dot.set_active(has_manual_crop(conf))
-            self.reset_crop_btn.edited_dot.set_active(conf.crop_from_auto)
             self.crop_to_valid_btn.setChecked(conf.crop_to_valid)
             self.crop_to_valid_btn.edited_dot.set_active(conf.crop_to_valid)
         finally:
@@ -240,5 +229,4 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.keystone_lines_btn.blockSignals(blocked)
-        self.reset_crop_btn.blockSignals(blocked)
         self.crop_to_valid_btn.blockSignals(blocked)

@@ -9,8 +9,8 @@ from negpy.features.geometry.models import AutocropMode
 
 class AutocropSidebar(BaseSidebar):
     """
-    Roll-wide auto crop: what the frame detector looks for, and the batch run over the
-    whole roll. The rect it finds stays each frame's own, on the Geometry card.
+    Roll-wide auto crop: whether frames auto-crop and what the frame detector looks for.
+    The rect it finds stays each frame's own.
     """
 
     @staticmethod
@@ -38,17 +38,16 @@ class AutocropSidebar(BaseSidebar):
 
         self.layout.addLayout(ratio_row)
 
-        # Run actions, not a scope: the card header's own Frame/Roll pair means something else.
-        self.auto_frame_btn = self._small_toggle(
-            "fa5s.magic", "", conf.crop_from_auto, "Auto-crop this frame: find its edges and crop to them; off clears the crop"
-        )
+        auto_tip = "Auto Crop: find the frame edges and crop to them; off clears the crop. New frames start with it"
+        self.auto_frame_btn = self._small_toggle("fa5s.magic", "", conf.crop_from_auto, auto_tip)
+        self.auto_frame_btn.plain_tooltip = auto_tip
         self.auto_frame_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        roll_tip = (
-            "Auto-crop the roll: analyze all visible landscape frames as one roll. Confident frames calibrate "
-            "weak ones; manual and ambiguous crops are preserved. Runs before Roll Analysis."
+        all_tip = (
+            "Auto-crop all frames together: confident frames calibrate weak ones; hand-drawn and ambiguous "
+            "crops are kept. Runs before Roll Analysis"
         )
-        self.auto_crop_all_btn = self._icon_action("fa5s.layer-group", roll_tip)
-        self.auto_crop_all_btn.plain_tooltip = roll_tip
+        self.auto_crop_all_btn = self._icon_action("fa5s.layer-group", all_tip)
+        self.auto_crop_all_btn.plain_tooltip = all_tip
         self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         self.layout.addLayout(header_row(section_subheader("AUTO CROP"), self.auto_frame_btn, self.auto_crop_all_btn))
 
@@ -95,8 +94,8 @@ class AutocropSidebar(BaseSidebar):
         self.ratio_combo.currentTextChanged.connect(self.controller.set_crop_ratio)
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self.auto_crop_all_btn.clicked.connect(self.controller.request_batch_auto_crop)
         self.auto_frame_btn.toggled.connect(self._on_auto_frame_toggled)
+        self.auto_crop_all_btn.clicked.connect(self.controller.request_batch_auto_crop)
 
         self.offset_slider.valueChanged.connect(
             lambda v: self.controller.set_roll_default("autocrop", persist=False, readback_metrics=False, autocrop_offset=int(v))

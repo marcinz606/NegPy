@@ -127,7 +127,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Cast Removal", "exposure", "cast_removal_strength", sticky=True),
     )),
     ("Crop", (
-        _row("Auto Crop", "geometry", "crop_from_auto"),
+        _row("Auto Crop", "geometry", "crop_from_auto", sticky=True),
         _row("Crop Offset", "geometry", "autocrop_offset", sticky=True),
         _row("Rebate Trim", "geometry", "autocrop_rebate_trim", sticky=True),
         _row("Crop Ratio", "geometry", "autocrop_ratio", sticky=True),

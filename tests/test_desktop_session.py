@@ -1826,6 +1826,45 @@ class TestEmptySessionConfig(unittest.TestCase):
         self.assertEqual(self.store["sticky_config"]["autocrop_ratio"], "6:7")
 
 
+class TestCarriedAutoCrop(unittest.TestCase):
+    """Auto Crop set with no frame loaded reaches the next fresh frame, such as a scan."""
+
+    def setUp(self):
+        self.store = {}
+        self.mock_repo = MagicMock(spec=StorageRepository)
+        self.mock_repo.load_file_settings.return_value = None
+        self.mock_repo.load_file_settings_by_path.return_value = None
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: self.store.get(key, default)
+        self.mock_repo.save_global_settings.side_effect = self.store.update
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.session = DesktopSessionManager(self.mock_repo)
+
+    def _set_auto_crop(self, on):
+        from negpy.features.geometry.models import with_auto_crop
+
+        self.session.update_config(with_auto_crop(self.session.state.config, on), persist=True, render=False)
+
+    def _fresh(self):
+        return self.session.config_for_asset({"name": "scan.tif", "path": "/scans/scan.tif", "hash": "scan"})
+
+    def test_auto_crop_on_with_no_frame_reaches_a_fresh_frame(self):
+        self._set_auto_crop(True)
+        self.assertTrue(self._fresh().geometry.crop_from_auto)
+        self.assertIsNone(self._fresh().geometry.crop_rect)
+
+    def test_auto_crop_off_with_no_frame_reaches_a_fresh_frame(self):
+        self._set_auto_crop(True)
+        self._set_auto_crop(False)
+        self.assertFalse(self._fresh().geometry.crop_from_auto)
+
+    def test_a_hand_drawn_crop_keeps_the_carried_auto_crop(self):
+        self._set_auto_crop(True)
+        config = self.session.state.config
+        drawn = replace(config, geometry=replace(config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+        self.session.update_config(drawn, persist=True, render=False)
+        self.assertTrue(self.store["sticky_config"]["crop_from_auto"])
+
+
 class TestTriageMarks(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=StorageRepository)
