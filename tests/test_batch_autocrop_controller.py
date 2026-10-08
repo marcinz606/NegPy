@@ -154,6 +154,13 @@ class TestBatchAutoCropController:
         assert self.tasks == []
         self.controller.set_status.assert_called_once_with("No frames to auto-crop", 3000)
 
+    def test_progress_names_the_run(self) -> None:
+        self.controller.set_status = MagicMock()
+
+        self.controller._on_batch_autocrop_progress(5, 6, "frame_03.tif")
+
+        self.controller.set_status.assert_called_once_with("Auto-crop all frames 5/6: frame_03.tif")
+
     def test_batch_autocrop_uses_a_private_preview_cache(self) -> None:
         assert self.controller.batch_autocrop_preview_service is not self.controller.preview_service
 

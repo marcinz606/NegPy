@@ -83,7 +83,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_ir_removal": ShortcutEntry("", "Toggle IR Removal", "Retouch"),
     "toggle_flat_field": ShortcutEntry("", "Toggle Apply Flat Field", "Geometry"),
     "toggle_flatfield_peek": ShortcutEntry("", "Check Flat Field (how well the profile corrects its reference)", "Geometry"),
-    "batch_autocrop": ShortcutEntry("", "Auto crop all frames together", "Geometry"),
+    "batch_autocrop": ShortcutEntry("", "Auto-crop all frames", "Geometry"),
     "toggle_auto_density": ShortcutEntry("", "Toggle Auto Density", "Exposure"),
     "toggle_auto_grade": ShortcutEntry("", "Toggle Auto Grade", "Exposure"),
     "toggle_auto_both": ShortcutEntry("", "Toggle Auto Density and Auto Grade together", "Exposure"),

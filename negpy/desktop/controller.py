@@ -3897,7 +3897,7 @@ class AppController(QObject):
         )
 
     def _on_batch_autocrop_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"Auto crop {current}/{total}: {name}")
+        self.set_status(f"Auto-crop all frames {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
