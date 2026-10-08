@@ -106,7 +106,7 @@ class TestBatchAutoCropController:
         self.session.config_for_asset.return_value = other
         token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller._autocrop_batch_token = token
-        self.controller._autocrop_roll_id = "roll"
+        self.controller._autocrop_frame_rolls = {"b": "roll"}
         self.controller._autocrop_dispatched = 1
         self.controller._autocrop_preflight_skipped = 0
         result = BatchAutoCropResult(

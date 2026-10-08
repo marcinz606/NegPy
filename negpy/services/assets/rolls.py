@@ -350,6 +350,23 @@ def unfork_edit(repo: Any, roll_id: str, from_hash: str) -> None:
     repo.delete_file_settings(roll_edit_hash(from_hash, roll_id))
 
 
+def home_roll(repo: Any, path: str) -> Optional[str]:
+    """The roll *path* belongs to when none is active: a folder roll wins over a virtual
+    one, being the file's physical home and the likeliest place its facts were set."""
+    containing = rolls_containing_path(repo, path) if path else []
+    for roll_id in containing:
+        entry = roll_for_id(repo, roll_id)
+        if entry and entry.get("kind") == "folder":
+            return roll_id
+    return containing[0] if containing else None
+
+
+def frame_roll(repo: Any, active_roll_id: Optional[str], asset: dict) -> Optional[str]:
+    """The roll a frame resolves through, and so the one its locks are written in: the
+    active roll, else the file's home roll (a library search's mixed results)."""
+    return active_roll_id or home_roll(repo, asset.get("path") or "")
+
+
 def rolls_containing_path(repo: Any, path: str) -> List[str]:
     """Every roll *path* belongs to: under a folder roll's own folder or in its
     extra_paths, or listed in a virtual roll's member_paths. A cheap path comparison

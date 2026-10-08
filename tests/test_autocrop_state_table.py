@@ -267,7 +267,7 @@ def test_H7_roll_writes_no_other_frame_and_starts_nothing(ctl):
 def _finish(t, results) -> None:
     token = t.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
     t.controller._autocrop_batch_token = token
-    t.controller._autocrop_roll_id = t.roll
+    t.controller._autocrop_frame_rolls = {r.file_info["hash"]: t.roll for r in results}
     t.controller._autocrop_dispatched = len(results)
     t.controller._autocrop_preflight_skipped = 0
     t.controller._autocrop_started_auto = {r.file_info["hash"]: True for r in results}
@@ -568,3 +568,46 @@ def test_E19_with_no_roll_open_a_copy_settles_in_the_frames_own_roll(repo):
     assert "auto_crop" in rolls.frame_override_cards(repo, roll, "h2")
     reopened = session.config_for_asset(session.state.uploaded_files[1])
     assert _kind(reopened) == "auto"
+
+
+# --- No roll open: locks follow the roll each frame resolves through (P3, P6, D35) ---------
+
+
+def _search_results(t):
+    """Search results: no active roll; h1 and h2 still belong to t.roll."""
+    t.state.active_roll_id = None
+
+
+def _reopen_in_home_roll(t, file_hash):
+    return rolls.resolve_roll_config(
+        t.repo, rolls.home_roll(t.repo, f"/r/{file_hash}.tif"), file_hash, t.repo.load_file_settings(file_hash)
+    )
+
+
+def test_D35_a_roll_card_edit_on_a_search_result_holds_in_its_own_roll(ctl):
+    rolls.set_roll_defaults(ctl.repo, ctl.roll, hue_trim=4.0)
+    _search_results(ctl)
+
+    ctl.controller.set_roll_default("sensor", hue_trim=-6.0)
+
+    assert "sensor" in _locks(ctl)
+    assert _reopen_in_home_roll(ctl, "h1").process.hue_trim == -6.0
+
+
+def test_D35_the_wand_on_a_search_result_keeps_its_auto_crop_in_a_roll_with_auto_off(ctl):
+    rolls.set_roll_defaults(ctl.repo, ctl.roll, crop_from_auto=False)
+    _search_results(ctl)
+
+    ctl.controller.apply_auto_crop()
+
+    assert "auto_crop" in _locks(ctl)
+    assert _kind(_reopen_in_home_roll(ctl, "h1")) == "armed"
+
+
+def test_D35_with_no_roll_open_the_run_records_each_frames_own_roll(ctl):
+    _search_results(ctl)
+    ctl.state.config = _cfg("none")
+
+    ctl.controller.request_batch_auto_crop()
+
+    assert ctl.controller._autocrop_frame_rolls == {"h1": ctl.roll, "h2": ctl.roll}

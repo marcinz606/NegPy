@@ -620,7 +620,8 @@ class AppController(QObject):
         self._autocrop_batch_token: Optional[int] = None
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
-        self._autocrop_roll_id: Optional[str] = None
+        # Per frame hash: the roll it resolved through when the run started (rolls.frame_roll).
+        self._autocrop_frame_rolls: Dict[str, Optional[str]] = {}
         # Per frame hash: its resolved Auto Crop when the run started.
         self._autocrop_started_auto: Dict[str, bool] = {}
         self._autocrop_cancel_requested = False
@@ -3865,15 +3866,16 @@ class AppController(QObject):
         crops. In a roll, a frame locked with Auto Crop off keeps its own."""
         if self._batch_busy("Auto-crop all frames"):
             return
-        roll_id = self.state.active_roll_id
         if not self.state.uploaded_files:
             self.set_status("No frames to auto-crop", 3000)
             return
 
         frames: list[BatchAutoCropInput] = []
+        frame_rolls: Dict[str, Optional[str]] = {}
         preflight_skipped = 0
         for asset in self.state.uploaded_files:
             config = self._config_for_batch_asset(asset)
+            roll_id = frame_rolls[asset["hash"]] = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
             turned_off = (
                 roll_id is not None
                 and not config.geometry.crop_from_auto
@@ -3900,7 +3902,7 @@ class AppController(QObject):
         self._autocrop_batch_token = token
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.set_active_tool(ToolMode.NONE)
-        self._autocrop_roll_id = roll_id
+        self._autocrop_frame_rolls = frame_rolls
         self._autocrop_started_auto = {frame.file_info["hash"]: frame.config.geometry.crop_from_auto for frame in frames}
         self._autocrop_dispatched = len(frames)
         self._autocrop_preflight_skipped = preflight_skipped
@@ -3932,9 +3934,8 @@ class AppController(QObject):
         failed = 0
         active_changed = False
         changed_hashes: list[str] = []
-        # The roll the run started in: another may be open by now.
-        roll_id = self._autocrop_roll_id
-        roll_auto = rolls.roll_defaults(self.session.repo, roll_id).get("crop_from_auto") if roll_id is not None else None
+        # The roll each frame resolved through when the run started: another may be open by now.
+        roll_autos: Dict[str, Any] = {}
         try:
             for result in results:
                 asset = result.file_info
@@ -3982,9 +3983,13 @@ class AppController(QObject):
                         self.session.repo.save_file_settings(asset["hash"], updated, file_path=asset["path"])
                         self.session.push_external_history(asset["hash"], latest, updated)
                         changed_hashes.append(asset["hash"])
-                    if roll_id is not None and roll_auto is not None and not roll_auto:
-                        # The roll's Auto Crop off would clear this crop on the next open.
-                        rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(asset["hash"]), "auto_crop", True)
+                    roll_id = self._autocrop_frame_rolls.get(asset["hash"])
+                    if roll_id is not None:
+                        if roll_id not in roll_autos:
+                            roll_autos[roll_id] = rolls.roll_defaults(self.session.repo, roll_id).get("crop_from_auto")
+                        if roll_autos[roll_id] is not None and not roll_autos[roll_id]:
+                            # The roll's Auto Crop off would clear this crop on the next open.
+                            rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(asset["hash"]), "auto_crop", True)
                     saved += 1
                 except Exception:
                     failed += 1
@@ -5253,10 +5258,12 @@ class AppController(QObject):
         then editing it back to what the roll already says is not a divergence, so the
         card must not stay marked This Frame Only just because it was touched. Shared
         tail of set_roll_default and set_process_mode/set_positive_source (the "film"
-        card). No-op with no active roll, or with no frame to lock: a lock belongs to a
-        physical frame, so an empty roll has nothing to record it against."""
-        roll_id = self.state.active_roll_id
-        if roll_id is None or not self.state.current_file_hash:
+        card). Written in the roll the frame resolves through (rolls.frame_roll), so a search
+        result's edit holds in its own roll. No-op with no frame, or a frame in no roll."""
+        if not self.state.current_file_hash:
+            return
+        roll_id = self._active_frame_roll()
+        if roll_id is None:
             return
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
         # A field the roll has never set at all cannot "match" -- there is nothing yet
@@ -5270,6 +5277,12 @@ class AppController(QObject):
         if diverged == (card_key in rolls.frame_override_cards(self.session.repo, roll_id, file_hash)):
             return
         rolls.set_frame_override(self.session.repo, roll_id, file_hash, card_key, diverged)
+
+    def _active_frame_roll(self) -> Optional[str]:
+        idx = self.state.selected_file_idx
+        files = self.state.uploaded_files
+        asset = files[idx] if 0 <= idx < len(files) else {}
+        return rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
 
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
