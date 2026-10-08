@@ -121,7 +121,7 @@ class TestBatchAutoCropController:
 
         set_override.assert_called_once_with(self.session.repo, "roll", "b", "auto_crop", True)
 
-    def _finish_one(self, latest: WorkspaceConfig, saved_then, saved_now) -> None:
+    def _finish_one(self, latest: WorkspaceConfig, started: bool, saved_now) -> None:
         asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
         self.controller.state.current_file_hash = "a"
         self.session.config_for_asset.return_value = latest
@@ -130,19 +130,28 @@ class TestBatchAutoCropController:
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 1
         self.controller._autocrop_preflight_skipped = 0
-        self.controller._autocrop_own_auto = {"b": saved_then}
+        self.controller._autocrop_own_auto = {"b": started}
         fingerprint = _autocrop_fingerprint(latest, self.controller.state.workspace_color_space)
         self.controller._on_batch_autocrop_finished([BatchAutoCropResult(asset, fingerprint, (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False)])
 
     def test_finish_skips_a_frame_whose_own_auto_crop_changed_mid_run(self) -> None:
-        self._finish_one(WorkspaceConfig(), saved_then=None, saved_now=WorkspaceConfig())
+        self._finish_one(WorkspaceConfig(), started=True, saved_now=WorkspaceConfig())
 
         self.session.repo.save_file_settings.assert_not_called()
 
     def test_finish_keeps_a_frame_when_only_the_carried_auto_crop_changed(self) -> None:
         armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
 
-        self._finish_one(armed, saved_then=None, saved_now=None)
+        self._finish_one(armed, started=False, saved_now=None)
+
+        assert self.session.repo.save_file_settings.call_args.args[0] == "b"
+
+    def test_finish_keeps_a_frame_first_saved_mid_run_with_auto_crop_unchanged(self) -> None:
+        """Opening a frame freezes its own crop and saves it; Auto Crop did not change."""
+        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
+        frozen = replace(armed, geometry=replace(armed.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8), crop_detect_key="k"))
+
+        self._finish_one(armed, started=True, saved_now=frozen)
 
         assert self.session.repo.save_file_settings.call_args.args[0] == "b"
 

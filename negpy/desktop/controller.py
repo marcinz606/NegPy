@@ -619,8 +619,8 @@ class AppController(QObject):
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
         self._autocrop_roll_id: Optional[str] = None
-        # Per frame hash: its own saved Auto Crop when the run started (_own_auto_crop).
-        self._autocrop_own_auto: Dict[str, Optional[bool]] = {}
+        # Per frame hash: its Auto Crop when the run started, saved or else resolved.
+        self._autocrop_own_auto: Dict[str, bool] = {}
         # Per unforked frame hash: the Crop card ("autocrop" or "auto_crop") edited last.
         self._last_crop_card: Dict[str, str] = {}
         self._autocrop_cancel_requested = False
@@ -3883,7 +3883,10 @@ class AppController(QObject):
             return
         self._autocrop_batch_token = token
         self._autocrop_roll_id = roll_id
-        self._autocrop_own_auto = {frame.file_info["hash"]: self._own_auto_crop(frame.file_info) for frame in frames}
+        self._autocrop_own_auto = {}
+        for frame in frames:
+            own = self._own_auto_crop(frame.file_info)
+            self._autocrop_own_auto[frame.file_info["hash"]] = frame.config.geometry.crop_from_auto if own is None else own
         self._autocrop_dispatched = len(frames)
         self._autocrop_preflight_skipped = preflight_skipped
         self._autocrop_cancel_requested = False
@@ -3928,9 +3931,11 @@ class AppController(QObject):
                     if _autocrop_fingerprint(latest, self.state.workspace_color_space) != result.fingerprint:
                         conflicted += 1
                         continue
-                    own = self._autocrop_own_auto
-                    if asset.get("hash") in own and self._own_auto_crop(asset) != own[asset["hash"]]:
-                        # Auto Crop turned on or off on this frame mid-run.
+                    # Auto Crop turned on or off on this frame mid-run. A frame still unsaved has no
+                    # value of its own: its resolved one follows the carried setting, not this frame.
+                    started = self._autocrop_own_auto.get(asset["hash"])
+                    now = self._own_auto_crop(asset)
+                    if started is not None and now is not None and now != started:
                         conflicted += 1
                         continue
 
@@ -5284,9 +5289,12 @@ class AppController(QObject):
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
         active_hash = self.state.current_file_hash
-        for card_key in [k for k in pushed if rolls.holds_own_crop(k, self.state.config)]:
+        released = [k for k in pushed if rolls.holds_own_crop(k, self.state.config)]
+        for card_key in released:
             # Never pushed, and never locked: drop a lock left from before the crop was drawn.
             rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(active_hash), card_key, False)
+        if released:
+            self.config_updated.emit()
         pushed = [k for k in pushed if not rolls.holds_own_crop(k, self.state.config)]
         if set(_CROP_CARDS) <= set(pushed):
             # Both differ: push the one edited last, so sharing a Ratio never switches the roll's Auto Crop.
