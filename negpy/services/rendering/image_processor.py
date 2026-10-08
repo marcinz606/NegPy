@@ -2188,13 +2188,13 @@ class ImageProcessor:
             )
             if result is None:
                 return pil_img
-            result = result if result.mode == "RGB" else result.convert("RGB")
             # Output-to-display transform, so the proof is shown in display space instead
             # of being reinterpreted by the viewer. Always runs, not only when a monitor
             # profile is known: without it the proof leaks output-space numbers to the
-            # screen and shifts per output space (issue #243). Skipped for GRAY outputs,
-            # whose `result` has left `p_dst`'s space after RGB-ising.
-            if out_mode == "RGB":
+            # screen and shifts per output space (issue #243). A GRAY result goes through
+            # it too, from "L", since its TRC matches only an sRGB-TRC display. A display
+            # profile lcms cannot target keeps the output-space result, not the unproofed source.
+            try:
                 proofed = ImageCms.profileToProfile(
                     result,
                     p_dst,
@@ -2203,9 +2203,12 @@ class ImageProcessor:
                     outputMode="RGB",
                     flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
                 )
-                if proofed is not None:
-                    result = proofed
-            return result
+            except Exception as e:
+                logger.warning(f"Soft-proof display transform failed, showing the output-space proof: {e}")
+                proofed = None
+            if proofed is not None:
+                result = proofed
+            return result if result.mode == "RGB" else result.convert("RGB")
         except Exception as e:
             logger.error(f"Soft-proof preview failed: {e}")
             return pil_img

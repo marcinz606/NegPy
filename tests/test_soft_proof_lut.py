@@ -95,6 +95,41 @@ class TestSoftProofLut(unittest.TestCase):
         on_p3 = ImageProcessor.soft_proof_lut(WORKING_COLOR_SPACE, None, out_path, monitor)
         self.assertFalse(np.array_equal(plain, on_p3), "the proof must land on the monitor profile")
 
+    def test_greyscale_proof_lands_on_a_non_srgb_trc_monitor(self):
+        """A neutral proofs the same to Greyscale as to an RGB space, on any monitor.
+
+        The gray profile carries the sRGB TRC, so its values shown raw are right only on
+        an sRGB-TRC display. A pure-gamma monitor (Adobe RGB here) shows the difference
+        in the shadows.
+        """
+        from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+        monitor = icc_bytes_for_space("Adobe RGB")
+        self.assertIsNotNone(monitor)
+        ramp = np.repeat(np.linspace(0.0, 1.0, 256, dtype=np.float32)[None, :, None], 3, axis=2)
+        rgb = self._per_pixel(ramp, ColorSpaceRegistry.get_icc_path("Adobe RGB"), monitor)
+        grey = self._per_pixel(ramp, ColorSpaceRegistry.get_icc_path("Greyscale"), monitor)
+        self.assertLessEqual(np.abs(grey - rgb).max() * 255.0, 3.0)
+
+    def test_greyscale_proof_lut_lands_on_the_monitor(self):
+        """The cached table the canvas samples carries the same gray-to-monitor leg."""
+        from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+        i = np.arange(PROOF_LUT_SIZE)
+        for monitor_space, tolerance in (("sRGB", 1.0), ("Adobe RGB", 3.0)):
+            monitor = icc_bytes_for_space(monitor_space)
+            with self.subTest(monitor=monitor_space):
+                rgb = _proof_lut(ColorSpaceRegistry.get_icc_path("Adobe RGB"), PROOF_LUT_SIZE, monitor)[i, i, i]
+                grey = _proof_lut(ColorSpaceRegistry.get_icc_path("Greyscale"), PROOF_LUT_SIZE, monitor)[i, i, i]
+                self.assertLessEqual(np.abs(grey - rgb).max() * 255.0, tolerance)
+
+    def test_greyscale_proof_stays_gray_when_the_display_leg_fails(self):
+        """A display profile lcms cannot target from gray must not bring back the color source."""
+        from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+        lut = _proof_lut(ColorSpaceRegistry.get_icc_path("Greyscale"), PROOF_LUT_SIZE, icc_bytes_for_space("Greyscale"))
+        self.assertLessEqual(np.ptp(lut, axis=-1).max() * 255.0, 0.5)
+
 
 class TestDisplayTransformCarriesTheProof(unittest.TestCase):
     """The proof reaches pixels through the display transform, not the render worker."""
