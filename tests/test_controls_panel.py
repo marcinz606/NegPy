@@ -409,6 +409,7 @@ def test_reset_film_fields_routes_through_the_controls_own_setters():
 
 def test_the_crop_card_reset_turns_auto_crop_off_and_keeps_a_hand_drawn_crop():
     panel = MagicMock()
+    panel.controller.refuse_crop_edit.return_value = False
     panel.controller.state = AppState()
     cfg = panel.controller.state.config
     panel.controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_from_auto=True))
@@ -426,6 +427,7 @@ def test_the_crop_card_reset_turns_auto_crop_off_and_keeps_a_hand_drawn_crop():
 
 def test_the_geometry_reset_clears_a_hand_drawn_crop_and_keeps_auto_crop():
     panel = MagicMock()
+    panel.controller.refuse_crop_edit.return_value = False
     panel.controller.state = AppState()
     cfg = panel.controller.state.config
     rotated = replace(cfg.geometry, rotation=1, crop_rect=(0.1, 0.1, 0.9, 0.9))

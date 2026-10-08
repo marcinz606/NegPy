@@ -3069,6 +3069,9 @@ class AppController(QObject):
         if mode != ToolMode.NONE and self._diptych_blocks_canvas():
             self.tool_sync_requested.emit()
             return
+        if mode == ToolMode.CROP_MANUAL and self.state.active_tool != mode and self.refuse_crop_edit():
+            self.tool_sync_requested.emit()
+            return
         # UNCROPPED_PREVIEW_TOOLS show the full uncropped frame, so
         # entering or leaving that set must re-render to swap the preview.
         preview_mode_changed = (self.state.active_tool in UNCROPPED_PREVIEW_TOOLS) != (mode in UNCROPPED_PREVIEW_TOOLS)
@@ -3556,7 +3559,7 @@ class AppController(QObject):
         """Live-updates (persist=False) or commits (persist=True) the manual crop rect
         while the crop tool is open. The tool stays active afterwards — darktable-style
         continuous adjustment, not a one-shot drag-then-close."""
-        if self.state.active_tool != ToolMode.CROP_MANUAL:
+        if self.state.active_tool != ToolMode.CROP_MANUAL or self.crop_edits_blocked():
             return
         # A drag takes ownership of the rect, auto or not, so nothing re-detects over it.
         new_geo = replace(
@@ -3766,6 +3769,8 @@ class AppController(QObject):
         a visible color shift from what is supposed to be a pure reframe."""
         if ratio == self.state.config.geometry.autocrop_ratio:
             return
+        if self.refuse_crop_edit():
+            return
         self.session.update_config(self._with_crop_ratio(self.state.config, ratio), persist=True)
         self._lock_roll_card("autocrop")
         self._render_crop_change()
@@ -3800,7 +3805,22 @@ class AppController(QObject):
         if self.state.active_tool == ToolMode.ANALYSIS_DRAW:
             self.set_active_tool(ToolMode.NONE)
 
+    def crop_edits_blocked(self) -> bool:
+        """Auto-crop all frames reads and writes every frame's crop, so crop edits wait for it."""
+        return self._active_batch == "autocrop"
+
+    def refuse_crop_edit(self) -> bool:
+        """True, with a status, while crop edits are blocked. config_updated puts back any
+        control that changed before the refusal (a toggle, a shortcut)."""
+        if not self.crop_edits_blocked():
+            return False
+        self.set_status("Crop is locked while Auto-crop all frames runs", 3000, kind="warning")
+        self.config_updated.emit()
+        return True
+
     def reset_crop(self) -> None:
+        if self.refuse_crop_edit():
+            return
         self._crop_bounds_dirty = False
         self._set_auto_crop(False)
 
@@ -3817,6 +3837,8 @@ class AppController(QObject):
         _on_render_finished freezes the rect that render found into the edit, so the
         exported crop is the one on screen."""
         # Autocrop supersedes a manual crop in progress: leave the tool.
+        if self.refuse_crop_edit():
+            return
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.state.active_tool = ToolMode.NONE
             self.tool_sync_requested.emit()
@@ -3876,6 +3898,8 @@ class AppController(QObject):
         if token is None:
             return
         self._autocrop_batch_token = token
+        if self.state.active_tool == ToolMode.CROP_MANUAL:
+            self.set_active_tool(ToolMode.NONE)
         self._autocrop_roll_id = roll_id
         self._autocrop_started_auto = {frame.file_info["hash"]: frame.config.geometry.crop_from_auto for frame in frames}
         self._autocrop_dispatched = len(frames)
@@ -4258,6 +4282,8 @@ class AppController(QObject):
             self.refresh_thumbnails_for(leftover)
 
     def detect_aspect_ratio(self) -> None:
+        if self.refuse_crop_edit():
+            return
         img = self.state.preview_raw
         if img is None:
             return
@@ -5256,6 +5282,8 @@ class AppController(QObject):
         any other live preview -- the lock only follows the settled value, not every
         intermediate tick.
         """
+        if card_key in _CROP_CARDS and self.refuse_crop_edit():
+            return
         section = getattr(self.state.config, rolls.ROLL_DEFAULT_FIELDS[card_key][0])
         moves_meter = any(name in BOUNDS_INPUT_FIELDS and value != getattr(section, name) for name, value in changes.items())
         previewed = card_key in self._previewed_meter_cards
@@ -5372,6 +5400,8 @@ class AppController(QObject):
         card, Frame pins the card here. The one click each button performs. A tuple is
         one section driving several cards (Optics), pushed in one go."""
         keys = (card_key,) if isinstance(card_key, str) else card_key
+        if scope == "roll" and any(k in _CROP_CARDS and self.roll_card_locked(k) for k in keys) and self.refuse_crop_edit():
+            return
         if scope == "roll":
             self._push_cards_to_roll([k for k in keys if self.roll_card_locked(k)])
         else:
@@ -5449,6 +5479,8 @@ class AppController(QObject):
         the frame's own value. Returns how many cards moved."""
         available = self.roll_revert_cards(card_keys)
         cards = [k for k in dict.fromkeys(card_keys) if k in available]
+        if set(cards) & set(_CROP_CARDS) and self.refuse_crop_edit():
+            return 0
         if not cards:
             return 0
         roll_id = self.state.active_roll_id

@@ -9,6 +9,8 @@ from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 def _panel():
     controller = MagicMock()
+    controller.refuse_crop_edit.return_value = False
+    controller.crop_edits_blocked.return_value = False
     controller.state = AppState()
     controller.state.config = DEFAULT_WORKSPACE_CONFIG
     return controller, ControlsPanel(controller)

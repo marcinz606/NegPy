@@ -495,6 +495,9 @@ class ControlsPanel(QWidget):
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
 
+        self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
+        self.controller.batch_finished.connect(self._sync_crop_block)
+
         for key, section in self._roll_sections() + self._frame_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll(_SECTION_CARDS.get(k, (k,))))
@@ -1124,10 +1127,28 @@ class ControlsPanel(QWidget):
         self._reset_card_fields("lens")
         self._reset_card_fields("flatfield")
 
+    def _sync_crop_block(self) -> None:
+        """Crop controls are disabled while Auto-crop all frames runs (controller.crop_edits_blocked)."""
+        enabled = not self.controller.crop_edits_blocked()
+        geo = self.geometry_sidebar
+        for widget in (
+            self.autocrop_sidebar,
+            self.autocrop_section.reset_btn,
+            self.autocrop_section.roll_revert_btn,
+            self.geometry_section.reset_btn,
+            geo.manual_crop_btn,
+            geo.clear_crop_btn,
+            geo.ratio_combo,
+        ):
+            widget.setEnabled(enabled)
+
     def _reset_geometry_fields(self) -> None:
         """Geometry's own fields alone: a plain session.reset_section("geometry") would
         take Crop and Lens Correction with it."""
         from dataclasses import replace
+
+        if self.controller.refuse_crop_edit():
+            return
 
         cfg = self.controller.state.config
         # Auto Crop and its rect belong to the Crop card; only a hand-drawn rect resets here.
@@ -1144,6 +1165,8 @@ class ControlsPanel(QWidget):
     def _reset_crop_card(self) -> None:
         """The Crop card's two roll cards. Auto Crop turns off through reset_crop, which
         clears the auto rect; a hand-drawn crop belongs to Geometry and stays."""
+        if self.controller.refuse_crop_edit():
+            return
         self._reset_card_fields("autocrop")
         if self.controller.state.config.geometry.crop_from_auto:
             self.controller.reset_crop()
