@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.models import invalidate_local_bounds, with_film_fields
@@ -515,6 +516,12 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     out = target
     # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
     out = with_film_fields(out, by_section.get("process", {}))
+    # A crop rect arrives with its own Auto flag; Auto Crop alone switches through with_auto_crop.
+    geometry = by_section.get("geometry", {})
+    if "crop_rect" in geometry:
+        geometry["crop_from_auto"] = source.geometry.crop_from_auto
+    elif "crop_from_auto" in geometry:
+        out = with_auto_crop_field(out, geometry)
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
     if any(f in BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):

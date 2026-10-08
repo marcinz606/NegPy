@@ -445,3 +445,46 @@ def test_H11_the_crop_roll_button_asks_and_cancel_pushes_nothing(answer):
 
     ask.assert_called_once_with(panel, False, 3)
     assert panel.controller.set_card_scope.called is answer
+
+
+# --- Copying settings (paste, apply dialog, presets, carried settings) ---------------------
+
+
+def _rows(*ids):
+    from negpy.desktop.settings_catalog import rows_by_id
+
+    by_id = rows_by_id()
+    return [by_id[i] for i in ids]
+
+
+@pytest.mark.parametrize(
+    "row, source, target, expected",
+    [
+        ("E15 auto rect onto Auto off", "auto", "none", "auto"),
+        ("E15 hand-drawn rect onto auto", "hand-drawn", "auto", "hand-drawn"),
+    ],
+)
+def test_E15_the_crop_row_brings_its_own_auto_flag(row, source, target, expected):
+    from negpy.desktop.settings_catalog import apply_selected_fields
+
+    out = apply_selected_fields(_cfg(source), _cfg(target), _rows("geometry.crop_rect"))
+
+    assert _kind(out) == expected, row
+    assert out.geometry.crop_rect == RECT, row
+
+
+@pytest.mark.parametrize(
+    "row, source, target, expected, rect",
+    [
+        ("E16 Auto on over hand-drawn", "auto", "hand-drawn", "armed", None),
+        ("E16 Auto off over auto", "none", "auto", "none", None),
+        ("E16 Auto unchanged keeps the crop", "armed", "auto", "auto", RECT),
+    ],
+)
+def test_E16_the_auto_crop_row_alone_switches_through_with_auto_crop(row, source, target, expected, rect):
+    from negpy.desktop.settings_catalog import apply_selected_fields
+
+    out = apply_selected_fields(_cfg(source), _cfg(target), _rows("geometry.crop_from_auto"))
+
+    assert _kind(out) == expected, row
+    assert out.geometry.crop_rect == rect, row

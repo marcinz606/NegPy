@@ -5160,7 +5160,7 @@ class AppController(QObject):
         "metadata_scanning": "Scanning",
         "metadata_exposure": "Exposure",
     }
-    # Crop pushes one half at a time (_push_cards_to_roll), so its status names the half.
+    # The Crop section's two cards push and reset separately, so the status names whichever went.
     _STATUS_LABELS = {**_ROLL_CARD_LABELS, "autocrop": "Crop shape", "auto_crop": "Auto Crop"}
     METADATA_CARDS = ("metadata_gear", "metadata_capture", "metadata_process", "metadata_scanning", "metadata_exposure")
     _FRAME_CARD_LABELS = {
