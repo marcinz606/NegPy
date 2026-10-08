@@ -36,6 +36,7 @@ from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.paper import PaperSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
+from negpy.desktop.view.confirm import confirm_roll_auto_crop
 from negpy.desktop.view.sidebar.autocrop import AutocropSidebar
 from negpy.desktop.view.sidebar.trichrome import TrichromeSidebar
 from negpy.desktop.view.sidebar.half_frame import HalfFrameSidebar
@@ -1077,6 +1078,12 @@ class ControlsPanel(QWidget):
         picker over that card's own settings. Frame on a Roll-tab card locks it here;
         a frame card is already there, so the pair's own click guard swallows it."""
         if key in dict(self._roll_sections()):
+            effect = None
+            if key == "autocrop" and scope == "roll" and not self.controller.crop_edits_blocked():
+                effect = self.controller.auto_crop_push_effect()
+            if effect is not None and not confirm_roll_auto_crop(self, *effect):
+                self._sync_scope_buttons()
+                return
             self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
             self._sync_scope_buttons()
             return

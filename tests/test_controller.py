@@ -1181,28 +1181,19 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(rolls.roll_defaults(self.controller.session.repo, roll_id)["crop_from_auto"])
         self.controller.request_batch_auto_crop.assert_not_called()
 
-    def test_with_both_crop_cards_locked_roll_pushes_the_one_edited_last(self):
+    def test_with_both_crop_cards_locked_roll_pushes_both(self):
         rolls, roll_id = self._roll_with_one_frame()
         repo = self.controller.session.repo
         rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="3:2")
         state = self.mock_session_manager.state
         state.config = replace(state.config, geometry=replace(state.config.geometry, crop_from_auto=False, autocrop_ratio="4:3"))
-
         self.controller.set_status = MagicMock()
+
         self.controller._push_cards_to_roll(["autocrop", "auto_crop"], sweep=False)
+
         defaults = rolls.roll_defaults(repo, roll_id)
-        self.assertEqual((defaults["autocrop_ratio"], defaults["crop_from_auto"]), ("4:3", True))
-        self.assertEqual(self.controller.set_status.call_args.args[0], "Applied to the roll: Crop shape")
-
-        self.controller._lock_roll_card("auto_crop")
-        self.controller._lock_roll_card("autocrop")
-        self.controller._push_cards_to_roll(["autocrop", "auto_crop"], sweep=False)
-        self.assertTrue(rolls.roll_defaults(repo, roll_id)["crop_from_auto"])
-
-        self.controller._lock_roll_card("auto_crop")
-        self.controller._push_cards_to_roll(["autocrop", "auto_crop"], sweep=False)
-        self.assertFalse(rolls.roll_defaults(repo, roll_id)["crop_from_auto"])
-        self.assertEqual(self.controller.set_status.call_args.args[0], "Applied to the roll: Auto Crop")
+        self.assertEqual((defaults["autocrop_ratio"], defaults["crop_from_auto"]), ("4:3", False))
+        self.assertEqual(self.controller.set_status.call_args.args[0], "Applied to the roll: Crop shape, Auto Crop")
 
     def test_reset_to_roll_auto_crop_arms_an_uncropped_frame_and_keeps_a_hand_drawn_one(self):
         state = self.mock_session_manager.state

@@ -621,8 +621,6 @@ class AppController(QObject):
         self._autocrop_roll_id: Optional[str] = None
         # Per frame hash: its resolved Auto Crop when the run started.
         self._autocrop_started_auto: Dict[str, bool] = {}
-        # Per unforked frame hash: the Crop card ("autocrop" or "auto_crop") edited last.
-        self._last_crop_card: Dict[str, str] = {}
         self._autocrop_cancel_requested = False
         # Background thumbnail refresh runs off the shared batch lane entirely — it must
         # never block Export or another user-triggered batch — so it tracks its own
@@ -5211,6 +5209,25 @@ class AppController(QObject):
         # A stored Auto Crop lock on a hand-drawn frame is stale (a copied crop, an old lock).
         return {k for k in cards if not rolls.holds_own_crop(k, self.state.config)}
 
+    def auto_crop_push_effect(self) -> Optional[Tuple[bool, int]]:
+        """What the Crop section's Roll would do to the roll's Auto Crop: (the new value, how
+        many other frames that follow the roll change), or None when it changes none. Those
+        frames gain or lose an auto crop, so the panel asks before the push."""
+        roll_id = self.state.active_roll_id
+        if roll_id is None or not self.roll_card_locked("auto_crop"):
+            return None
+        new = self.state.config.geometry.crop_from_auto
+        changed = 0
+        for asset in self.state.uploaded_files:
+            if asset["hash"] == self.state.current_file_hash:
+                continue
+            if "auto_crop" in rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(asset["hash"])):
+                continue
+            config = self.session.config_for_asset(asset)
+            if not rolls.holds_own_crop("auto_crop", config) and config.geometry.crop_from_auto != new:
+                changed += 1
+        return (new, changed) if changed else None
+
     def hand_drawn_crop_departs_from_roll(self) -> bool:
         """A hand-drawn crop on a frame of a roll with Auto Crop on. It differs from the roll
         without a lock (rolls.holds_own_crop), so no lock reports it."""
@@ -5239,8 +5256,6 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
             return
-        if card_key in _CROP_CARDS:
-            self._last_crop_card[rolls.unforked_hash(self.state.current_file_hash)] = card_key
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
         # A field the roll has never set at all cannot "match" -- there is nothing yet
         # to differ from, and treating that as a match would hide a card's first-ever
@@ -5312,10 +5327,6 @@ class AppController(QObject):
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
         pushed = [k for k in pushed if not rolls.holds_own_crop(k, self.state.config)]
-        if set(_CROP_CARDS) <= set(pushed):
-            # Both differ: push the one edited last, so sharing a Ratio never switches the roll's Auto Crop.
-            last = self._last_crop_card.get(rolls.unforked_hash(self.state.current_file_hash), "autocrop")
-            pushed = [k for k in pushed if k not in _CROP_CARDS or k == last]
         if not pushed:
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0

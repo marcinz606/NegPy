@@ -410,3 +410,38 @@ def test_A13_reset_to_roll_settings_during_the_run_resets_all_but_crop(ctl):
     assert ctl.state.config.geometry.autocrop_ratio == "3:2"
     assert _locks(ctl) == {"autocrop"}
     assert _status(ctl) == "Reset to the roll: Calibration; Crop waits for Auto-crop all frames"
+
+
+def test_H11_a_push_that_changes_other_frames_reports_its_effect(ctl):
+    ctl.state.config = _cfg("auto")
+    rolls.set_frame_override(ctl.repo, ctl.roll, "h1", "auto_crop", True)
+
+    assert ctl.controller.auto_crop_push_effect() == (True, 1)  # h2 resolves to Auto off
+
+
+@pytest.mark.parametrize("h2", ["locked", "hand-drawn", "already on"])
+def test_H12_a_push_that_changes_no_other_frame_asks_nothing(ctl, h2):
+    ctl.state.config = _cfg("auto")
+    rolls.set_frame_override(ctl.repo, ctl.roll, "h1", "auto_crop", True)
+    if h2 == "locked":
+        rolls.set_frame_override(ctl.repo, ctl.roll, "h2", "auto_crop", True)
+    else:
+        ctl.repo.save_file_settings("h2", _cfg("hand-drawn" if h2 == "hand-drawn" else "auto"), file_path="/r/h2.tif")
+
+    assert ctl.controller.auto_crop_push_effect() is None
+
+
+@pytest.mark.parametrize("answer", [True, False])
+def test_H11_the_crop_roll_button_asks_and_cancel_pushes_nothing(answer):
+    from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+
+    panel = MagicMock()
+    panel._roll_sections = lambda: (("autocrop", MagicMock()),)
+    panel.controller.crop_edits_blocked.return_value = False
+    panel.controller.auto_crop_push_effect.return_value = (False, 3)
+
+    with patch("negpy.desktop.view.sidebar.controls_panel.confirm_roll_auto_crop", return_value=answer) as ask:
+        ControlsPanel._on_scope_selected(panel, "autocrop", "roll")
+
+    ask.assert_called_once_with(panel, False, 3)
+    assert panel.controller.set_card_scope.called is answer
