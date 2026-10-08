@@ -1164,12 +1164,15 @@ class TestAppController(unittest.TestCase):
         self.controller.set_card_scope(("autocrop", "auto_crop"), "frame")
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"autocrop"})
 
+        rolls.set_frame_override(repo, roll_id, "h1", "autocrop", False)
         rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
         updated = MagicMock()
         self.controller.config_updated.connect(updated)
+        self.controller.set_status = MagicMock()
         self.controller.set_card_scope(("autocrop", "auto_crop"), "roll")
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
         updated.assert_called()
+        self.assertEqual(self.controller.set_status.call_args.args[0], "Auto Crop stays with this frame's hand-drawn crop")
 
     def test_a_crop_push_only_shares_values(self):
         rolls, roll_id = self._roll_with_one_frame()

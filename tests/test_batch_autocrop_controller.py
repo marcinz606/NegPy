@@ -130,11 +130,11 @@ class TestBatchAutoCropController:
         self.controller._autocrop_batch_token = token
         self.controller._autocrop_dispatched = 1
         self.controller._autocrop_preflight_skipped = 0
-        self.controller._autocrop_own_auto = {"b": started}
+        self.controller._autocrop_started_auto = {"b": started}
         fingerprint = _autocrop_fingerprint(latest, self.controller.state.workspace_color_space)
         self.controller._on_batch_autocrop_finished([BatchAutoCropResult(asset, fingerprint, (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False)])
 
-    def test_finish_skips_a_frame_whose_own_auto_crop_changed_mid_run(self) -> None:
+    def test_finish_skips_a_frame_whose_auto_crop_changed_mid_run(self) -> None:
         self._finish_one(WorkspaceConfig(), started=True, saved_now=WorkspaceConfig())
 
         self.session.repo.save_file_settings.assert_not_called()
@@ -152,6 +152,14 @@ class TestBatchAutoCropController:
         frozen = replace(armed, geometry=replace(armed.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8), crop_detect_key="k"))
 
         self._finish_one(armed, started=True, saved_now=frozen)
+
+        assert self.session.repo.save_file_settings.call_args.args[0] == "b"
+
+    def test_finish_keeps_a_frame_whose_saved_auto_crop_the_roll_overrides(self) -> None:
+        """Saved with Auto off before the roll's Auto went on: it resolves on, and nobody changed it."""
+        armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
+
+        self._finish_one(armed, started=True, saved_now=WorkspaceConfig())
 
         assert self.session.repo.save_file_settings.call_args.args[0] == "b"
 

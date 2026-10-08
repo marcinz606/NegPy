@@ -619,8 +619,8 @@ class AppController(QObject):
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
         self._autocrop_roll_id: Optional[str] = None
-        # Per frame hash: its Auto Crop when the run started, saved or else resolved.
-        self._autocrop_own_auto: Dict[str, bool] = {}
+        # Per frame hash: its resolved Auto Crop when the run started.
+        self._autocrop_started_auto: Dict[str, bool] = {}
         # Per unforked frame hash: the Crop card ("autocrop" or "auto_crop") edited last.
         self._last_crop_card: Dict[str, str] = {}
         self._autocrop_cancel_requested = False
@@ -3838,12 +3838,6 @@ class AppController(QObject):
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset), asset)
         return self.session.config_for_asset(asset)
 
-    def _own_auto_crop(self, asset: dict) -> Optional[bool]:
-        """The frame's own saved Auto Crop, None with no saved edit. Unlike the resolved value,
-        a change to the carried setting or the roll's does not move it; the wand saves at once."""
-        saved = self.session.repo.load_file_settings(asset["hash"])
-        return None if saved is None else bool(saved.geometry.crop_from_auto)
-
     def request_batch_auto_crop(self) -> None:
         """Analyze the Film Strip's frames together, filtered out or not, and persist the
         crops. In a roll, a frame locked with Auto Crop off keeps its own."""
@@ -3883,10 +3877,7 @@ class AppController(QObject):
             return
         self._autocrop_batch_token = token
         self._autocrop_roll_id = roll_id
-        self._autocrop_own_auto = {}
-        for frame in frames:
-            own = self._own_auto_crop(frame.file_info)
-            self._autocrop_own_auto[frame.file_info["hash"]] = frame.config.geometry.crop_from_auto if own is None else own
+        self._autocrop_started_auto = {frame.file_info["hash"]: frame.config.geometry.crop_from_auto for frame in frames}
         self._autocrop_dispatched = len(frames)
         self._autocrop_preflight_skipped = preflight_skipped
         self._autocrop_cancel_requested = False
@@ -3931,11 +3922,11 @@ class AppController(QObject):
                     if _autocrop_fingerprint(latest, self.state.workspace_color_space) != result.fingerprint:
                         conflicted += 1
                         continue
-                    # Auto Crop turned on or off on this frame mid-run. A frame still unsaved has no
-                    # value of its own: its resolved one follows the carried setting, not this frame.
-                    started = self._autocrop_own_auto.get(asset["hash"])
-                    now = self._own_auto_crop(asset)
-                    if started is not None and now is not None and now != started:
+                    # Auto Crop turned on or off for this frame mid-run. An unsaved frame resolves
+                    # through the carried setting, which another frame's wand moves, so it is skipped.
+                    started = self._autocrop_started_auto.get(asset["hash"])
+                    saved_now = self.session.repo.load_file_settings(asset["hash"]) is not None
+                    if started is not None and saved_now and latest.geometry.crop_from_auto != started:
                         conflicted += 1
                         continue
 
@@ -5301,6 +5292,9 @@ class AppController(QObject):
             last = self._last_crop_card.get(rolls.unforked_hash(self.state.current_file_hash), "autocrop")
             pushed = [k for k in pushed if k not in _CROP_CARDS or k == last]
         if not pushed:
+            if released:
+                self.set_status("Auto Crop stays with this frame's hand-drawn crop", 3000)
+                return len(released)
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
         repo = self.session.repo
