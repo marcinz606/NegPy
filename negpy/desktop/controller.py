@@ -5319,8 +5319,7 @@ class AppController(QObject):
 
     def apply_roll_card(self, card_key: str) -> int:
         """One card's Roll button: pushes just that card, leaving every other diverged
-        card marked. Force Settings is the Roll tab's own modifier over all of them, so
-        it does not widen a single-card push."""
+        card marked."""
         return self._push_cards_to_roll([card_key] if self.roll_card_locked(card_key) else [])
 
     def _push_cards_to_roll(self, pushed: List[str]) -> int:

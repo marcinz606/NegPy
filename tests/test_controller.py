@@ -1149,7 +1149,7 @@ class TestAppController(unittest.TestCase):
         geometry = replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False, autocrop_ratio="4:3")
         state.config = replace(state.config, geometry=geometry)
 
-        self.controller._push_cards_to_roll(["autocrop", "auto_crop"], sweep=False)
+        self.controller._push_cards_to_roll(["autocrop", "auto_crop"])
 
         defaults = rolls.roll_defaults(repo, roll_id)
         self.assertTrue(defaults["crop_from_auto"])
@@ -1176,7 +1176,7 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.config = replace(state.config, geometry=replace(state.config.geometry, crop_from_auto=True))
 
-        self.controller._push_cards_to_roll(["auto_crop"], sweep=False)
+        self.controller._push_cards_to_roll(["auto_crop"])
 
         self.assertTrue(rolls.roll_defaults(self.controller.session.repo, roll_id)["crop_from_auto"])
         self.controller.request_batch_auto_crop.assert_not_called()
@@ -1189,7 +1189,7 @@ class TestAppController(unittest.TestCase):
         state.config = replace(state.config, geometry=replace(state.config.geometry, crop_from_auto=False, autocrop_ratio="4:3"))
         self.controller.set_status = MagicMock()
 
-        self.controller._push_cards_to_roll(["autocrop", "auto_crop"], sweep=False)
+        self.controller._push_cards_to_roll(["autocrop", "auto_crop"])
 
         defaults = rolls.roll_defaults(repo, roll_id)
         self.assertEqual((defaults["autocrop_ratio"], defaults["crop_from_auto"]), ("4:3", False))
