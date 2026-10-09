@@ -92,6 +92,7 @@ def test_a_crop_offset_drag_drops_the_cached_bounds_on_release():
     cfg = WorkspaceConfig()
     ctrl.state.config = replace(cfg, process=replace(cfg.process, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
     ctrl._previewed_meter_cards = set()
+    ctrl.refuse_crop_edit.return_value = False
     ctrl._with_card_values = AppController._with_card_values
     ctrl.apply_config.side_effect = lambda c, **k: setattr(ctrl.state, "config", c)
 

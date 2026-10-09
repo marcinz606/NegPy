@@ -212,7 +212,7 @@ def test_E13_a_restore_never_locks_auto_crop_on_a_hand_drawn_frame(repo):
     state.current_file_hash = "h1"
     state.active_roll_id = roll
 
-    DesktopSessionManager._relock_diverged_cards(SimpleNamespace(state=state, repo=repo))
+    DesktopSessionManager._lock_diverged_cards(SimpleNamespace(state=state, repo=repo), state.uploaded_files[0], state.config)
 
     assert rolls.frame_override_cards(repo, roll, "h1") == {"autocrop"}
 
@@ -392,7 +392,7 @@ def test_E13_a_restore_removes_an_old_auto_crop_lock_from_a_hand_drawn_frame(rep
     state.current_file_hash = "h1"
     state.active_roll_id = roll
 
-    DesktopSessionManager._relock_diverged_cards(SimpleNamespace(state=state, repo=repo))
+    DesktopSessionManager._lock_diverged_cards(SimpleNamespace(state=state, repo=repo), state.uploaded_files[0], state.config)
 
     assert "auto_crop" not in rolls.frame_override_cards(repo, roll, "h1")
 
