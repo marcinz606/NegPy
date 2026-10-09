@@ -518,3 +518,53 @@ def test_E18_geometry_reset_to_roll_with_crop_fields_waits_for_the_run(ctl):
 
     assert _kind(ctl.state.config) == "hand-drawn"
     assert _status(ctl) == "Crop is locked while Auto-crop all frames runs"
+
+
+def _session_with_roll(repo, roll_auto):
+    """A real session over a real repo: one roll of two frames, h1 active, the roll's Auto Crop set."""
+    session = DesktopSessionManager(repo)
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/h1.tif", "/r/h2.tif"])
+    rolls.set_roll_defaults(repo, roll, crop_from_auto=roll_auto)
+    state = session.state
+    state.active_roll_id = roll
+    state.uploaded_files = [{"name": f"{h}.tif", "path": f"/r/{h}.tif", "hash": h} for h in ("h1", "h2")]
+    state.selected_file_idx = 0
+    state.selected_indices = [0, 1]
+    state.current_file_hash = "h1"
+    state.current_file_path = "/r/h1.tif"
+    session.asset_model = MagicMock()
+    session.asset_model.visible_actual_indices_ordered.return_value = [0, 1]
+    return session, roll
+
+
+def test_E19_a_copied_auto_crop_survives_a_roll_with_auto_crop_off(repo):
+    session, roll = _session_with_roll(repo, roll_auto=False)
+    session.state.config = _cfg("auto")
+
+    assert session.sync_selected_settings(_rows("geometry.crop_rect"), scope="selection") == 1
+
+    reopened = session.config_for_asset(session.state.uploaded_files[1])
+    assert _kind(reopened) == "auto" and reopened.geometry.crop_rect == RECT
+    assert "auto_crop" in rolls.frame_override_cards(repo, roll, "h2")
+
+
+def test_E19_a_preset_settles_the_active_frames_lock_too(repo):
+    session, roll = _session_with_roll(repo, roll_auto=False)
+    session.state.config = _cfg("none")
+
+    session.apply_preset_fields(_cfg("auto"), _rows("geometry.crop_rect"), scope="current")
+
+    assert "auto_crop" in rolls.frame_override_cards(repo, roll, "h1")
+
+
+def test_E19_with_no_roll_open_a_copy_settles_in_the_frames_own_roll(repo):
+    """Search results: no active roll, but each frame still resolves through its own."""
+    session, roll = _session_with_roll(repo, roll_auto=False)
+    session.state.active_roll_id = None
+    session.state.config = _cfg("auto")
+
+    session.sync_selected_settings(_rows("geometry.crop_rect"), scope="selection")
+
+    assert "auto_crop" in rolls.frame_override_cards(repo, roll, "h2")
+    reopened = session.config_for_asset(session.state.uploaded_files[1])
+    assert _kind(reopened) == "auto"
