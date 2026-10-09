@@ -611,3 +611,23 @@ def test_D35_with_no_roll_open_the_run_records_each_frames_own_roll(ctl):
     ctl.controller.request_batch_auto_crop()
 
     assert ctl.controller._autocrop_frame_rolls == {"h1": ctl.roll, "h2": ctl.roll}
+
+
+def test_E19_a_copy_into_a_roll_with_no_auto_crop_value_locks_nothing(repo):
+    """The restore rule: a roll with no Auto Crop value applies nothing, so a later Roll
+    push still reaches the copied frames."""
+    session = DesktopSessionManager(repo)
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/h1.tif", "/r/h2.tif"])
+    state = session.state
+    state.active_roll_id = roll
+    state.uploaded_files = [{"name": f"{h}.tif", "path": f"/r/{h}.tif", "hash": h} for h in ("h1", "h2")]
+    state.selected_file_idx = 0
+    state.selected_indices = [0, 1]
+    state.current_file_hash = "h1"
+    session.asset_model = MagicMock()
+    session.asset_model.visible_actual_indices_ordered.return_value = [0, 1]
+    state.config = _cfg("auto")
+
+    session.sync_selected_settings(_rows("geometry.crop_rect"), scope="selection")
+
+    assert "auto_crop" not in rolls.frame_override_cards(repo, roll, "h2")
