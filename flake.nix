@@ -97,11 +97,12 @@
         });
       };
 
-      # nixpkgs' pname is "wgpu-py" but upstream's pyproject.toml declares
+      # Older nixpkgs packages this as "wgpu-py" (newer renamed it to "wgpu"),
+      # while upstream's pyproject.toml declares
       # name = "wgpu", so pythonMetadataCheckPhase can't find dist-info under
       # "wgpu-py" and fails the build. Skip that check.
       wgpu = hacks.nixpkgsPrebuilt {
-        from = python3Packages.wgpu-py.overrideAttrs {dontCheckPythonMetadata = true;};
+        from = (python3Packages.wgpu-py or python3Packages.wgpu).overrideAttrs {dontCheckPythonMetadata = true;};
         prev = prev.wgpu;
       };
     };
