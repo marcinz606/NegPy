@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QDoubleSpinBox,
     QLayout,
+    QSizePolicy,
+    QSpacerItem,
     QVBoxLayout,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
@@ -829,6 +831,11 @@ def align_slider_columns(root: QWidget) -> None:
         field.setContentsMargins(0, 0, pad, 0)
         field.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         field.setFixedWidth(margins.left() + label_width - _group_indent(field) + pad)
-        row_margins = row.contentsMargins()
-        row_margins.setRight(slider_row.spacing() + value_width + margins.right())
-        row.setContentsMargins(row_margins)
+        # A spacer, not a margin: it gives way in a narrow panel, so the row compacts instead of clipping.
+        spacer = getattr(field, "value_spacer", None)
+        if spacer is None:
+            spacer = field.value_spacer = QSpacerItem(0, 0)
+            row.addSpacerItem(spacer)
+        reserve = slider_row.spacing() + value_width + margins.right()
+        spacer.changeSize(reserve, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        row.invalidate()

@@ -7,7 +7,7 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import ChoiceButton, ToggleMenuButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice, ToggleMenuButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.hdr.models import hdr_active
 from negpy.features.exposure.auto_sliders import NEUTRAL
@@ -21,11 +21,12 @@ _CH_LABEL = ("", " R", " G", " B")
 _CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
 
 
-def channel_selector(tooltip: str) -> ChoiceButton:
+def channel_selector(tooltip: str) -> SegmentedChoice:
     """[Global/R/G/B]: Global edits the shared curve, a channel its per-layer trims."""
-    return ChoiceButton(
+    return SegmentedChoice(
         (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
         tooltip,
+        icon_only=(1, 2, 3),
     )
 
 
@@ -63,6 +64,7 @@ class ToneSidebar(BaseSidebar):
             for ch in _CH_SUFFIX
         )
         self.auto_btn = ToggleMenuButton("fa5s.magic", "", "Auto: automatic print density and grade, and the targets they aim for")
+        self.auto_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.auto_density_action = self.auto_btn.add_toggle(
             "Auto Density",
             "Meter each frame's midtone and anchor the print exposure there, so dense and flat "

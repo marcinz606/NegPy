@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
     default_button_height,
@@ -278,7 +278,7 @@ class ExportSidebar(BaseSidebar):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(THEME.space_md)
 
-        self.intent_btn = ChoiceButton(
+        self.intent_btn = SegmentedChoice(
             (("fa5s.image", "Print"), ("mdi6.math-log", "Flat"), ("mdi6.filmstrip", "Linear")),
             "Print: export the print as you see it, with the full NegPy look applied.<br><br>"
             "Flat: export a flat, neutral, low-contrast master that keeps maximum tonal and color "

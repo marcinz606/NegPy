@@ -23,7 +23,7 @@ from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
@@ -362,7 +362,7 @@ class RightPanel(QWidget):
         repo = self.controller.session.repo
         scan, cam = self.scan_sidebar, self.scanlight_sidebar
 
-        self.scan_source_btn = ChoiceButton(
+        self.scan_source_btn = SegmentedChoice(
             (("fa5s.camera-retro", "Film Scanner"), ("fa5s.camera", "Camera")),
             "Scan with a film scanner or a camera on a copy stand",
             data=("film", "camera"),
