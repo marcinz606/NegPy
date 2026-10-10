@@ -92,6 +92,12 @@ that is most enlarging and macro glass.
 
 A thin border marks the edge of the captured frame.
 
+**Histogram** and **Zebras** on the toolbar read the preview frame. The histogram shows R, G
+and B under the image; the zebras hatch pixels at the top (red, 99% and above) and the bottom
+(blue, 1% and below) of the preview range. The preview is the body's JPEG, which clips before
+the RAW does, so a zebra marks a region close to the limit with some RAW headroom left. On a
+negative the clear base must stay under the top; on a slide the picture's highlights must.
+
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**
 beside the preset dropdown, place the small rectangle on the clear film base, name the
 preset and run it. The rebate strip between frames is an ideal target. Calibration meters
