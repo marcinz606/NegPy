@@ -289,6 +289,10 @@ class ExportWorker(QObject):
         self._cancel = threading.Event()
         self._written: set[str] = set()  # paths this batch wrote
 
+    def destroy_all(self) -> None:
+        """Releases the GPU engine's persistent resources. Call after the export thread has stopped."""
+        self._processor.destroy_all()
+
     @pyqtSlot()
     def cancel(self) -> None:
         """Requests the running batch stop after the current file (keeps partial output)."""

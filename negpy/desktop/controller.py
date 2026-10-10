@@ -8359,6 +8359,7 @@ class AppController(QObject):
         # Memo-owned textures outlive the pool, so they must die before the device.
         self._render_memo.clear()
         self.render_worker.destroy_all()
+        self.export_worker.destroy_all()
 
         # All GPU-touching threads are now joined; release the wgpu device.
         GPUDevice.destroy_singleton()

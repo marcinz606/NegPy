@@ -89,6 +89,16 @@ class TestAppController(unittest.TestCase):
         del self.controller
         gc.collect()
 
+    def test_cleanup_destroys_the_export_engine_before_the_device(self):
+        order = MagicMock()
+        self.controller.render_worker = order.render
+        self.controller.export_worker = order.export
+        with patch("negpy.desktop.controller.GPUDevice") as gpu_device:
+            order.attach_mock(gpu_device.destroy_singleton, "device")
+            self.controller.cleanup()
+        names = [call[0] for call in order.mock_calls]
+        self.assertLess(names.index("export.destroy_all"), names.index("device"))
+
     def test_half_frame_profile_round_trip(self):
         self.controller.session.repo.get_global_setting.return_value = None
         self.assertIsNone(self.controller.half_frame_profile())
