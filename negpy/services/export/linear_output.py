@@ -988,8 +988,6 @@ def _linear_description(
             parts.append(f"WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
         else:
             parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
-    else:
-        parts.append("no WB applied")
     sensor = f"sensor ({sensor_applied})" if isinstance(sensor_applied, str) else "sensor"
     applied = (("flatfield", flatfield_applied), ("lens", lens_applied), (sensor, sensor_applied), ("ICE", ice_applied))
     corrections = [s for s, on in applied if on]

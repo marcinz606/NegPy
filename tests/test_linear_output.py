@@ -188,7 +188,7 @@ class TestExportLinearOutput:
             desc = tf.pages[0].description
             assert "NegPy Linear Output" in desc
             assert "no color management" in desc
-            assert "no WB applied" in desc
+            assert "WB" not in desc
             assert "Pakon" in desc
             assert "F135" in desc
             assert "x4" in desc
