@@ -327,7 +327,7 @@ The amber wash (left) and blue wash (right) mark the toe and shoulder, where sep
 
 #### Step wedge
 
-A 21-step gray wedge printed through the current curve. Patches that merge into black or white are lost tones; the brackets mark the usable span.
+A 21-step wedge printed through the current curve, then the alternative process and toning, so it shows the print's own colors. Patches that merge into black or white are lost tones; the brackets mark the usable span, and a Sabattier wedge's span ends where its light tones fold back.
 
 #### Zone strip
 

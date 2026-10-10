@@ -877,7 +877,7 @@ class ZoneStripWidget(QWidget):
 class StepWedgeWidget(QWidget):
     """
     Stouffer T2115-style 21-step transmission wedge printed through the frame's current
-    print settings: the same curve the chart above plots, shown as tones instead of a line.
+    print settings: the curve the chart above plots, then the alternative process and toning.
     Steps run paper black (left) to paper white (right), matching the chart's x axis. The
     usable span is bracketed where neighbouring steps still separate, and labels are wedge
     density in this scan's own D units.
@@ -898,20 +898,25 @@ class StepWedgeWidget(QWidget):
         self._colors: list = []
 
     def update_data(self, enc: Any, step_density: float, color_space: str, monitor_icc_bytes: Any = None, proof: Any = None) -> None:
-        """`enc` is the 21 display-encoded patch values. The patches go through the same
-        display transform the canvas used — including the soft proof, which rides the
-        display LUT rather than being baked into the buffer — so wedge and frame can't
-        disagree.
+        """`enc` is the 21 display-encoded patches, gray (21,) or toned (21, 3). The patches go
+        through the same display transform the canvas used — including the soft proof, which
+        rides the display LUT rather than being baked into the buffer — so wedge and frame can't
+        disagree. The usable span and label contrast read the patches' luminance.
         """
         from negpy.desktop.converters import ImageConverter
+        from negpy.features.lab.logic import LUM_B, LUM_G, LUM_R
+        from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 
-        self._enc = None if enc is None else np.asarray(enc, dtype=np.float32)
         self._step_d = step_density
-        if self._enc is None:
+        if enc is None:
+            self._enc = None
             self._colors = []
         else:
-            buf = np.repeat(np.clip(self._enc, 0.0, 1.0).reshape(1, -1, 1), 3, axis=2)
-            img = ImageConverter.to_qimage(buf, color_space, monitor_icc_bytes, proof)
+            patches = np.clip(np.asarray(enc, dtype=np.float32), 0.0, 1.0)
+            rgb = patches if patches.ndim == 2 else np.repeat(patches[:, None], 3, axis=1)
+            luma = np.asarray(working_oetf_decode(rgb)) @ np.array([LUM_R, LUM_G, LUM_B], dtype=np.float32)
+            self._enc = np.asarray(working_oetf_encode(luma.astype(np.float32)))
+            img = ImageConverter.to_qimage(rgb.reshape(1, -1, 3), color_space, monitor_icc_bytes, proof)
             self._colors = [img.pixelColor(i, 0) for i in range(img.width())]
         self.update()
 
