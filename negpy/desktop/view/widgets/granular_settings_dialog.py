@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.settings_catalog import SettingRow, catalog_sections
-from negpy.desktop.view.styles.templates import pin_dialog_default, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
@@ -549,6 +549,154 @@ def open_apply_dialog(parent, session, rows=None, title: str = "") -> tuple[list
     applied = dlg.selected()
     session.sync_selected_settings(applied, dlg.bounds_flags(), dlg.scope())
     return applied, dlg.scope()
+
+
+class SequentialFrameDialog(QDialog):
+    """A running capture-frame number across the selection or the whole roll. The first
+    frame gets the start number and each later frame adds the step (subtracted when
+    descending). The active frame is always a target, so the scope row carries no
+    "Current frame" radio — it is never outside the run. Radio buttons stay a dialog
+    form, per the panel convention."""
+
+    def __init__(
+        self, parent, sel_count: int, roll_count: int, start: int, sel_rejected: int = 0, roll_rejected: int = 0, *, repo=None
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Sequential Frame Numbers")
+        self._sel_count = sel_count
+        self._roll_count = roll_count
+        self._sel_rejected = sel_rejected
+        self._roll_rejected = roll_rejected
+        self._default_start = start
+        self.apply_btn = QPushButton("Apply")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
+        root.setSpacing(THEME.space_xl)
+
+        row, self._scope_radios = build_scope_row(self, sel_count, roll_count, show_current=False)
+        root.addLayout(row)
+
+        fields = QHBoxLayout()
+        fields.setSpacing(THEME.space_xl)
+        start_col = QVBoxLayout()
+        start_col.setSpacing(THEME.space_md)
+        start_col.addWidget(field_label("Start"))
+        self.start_edit = QLineEdit(str(start))
+        self.start_edit.setToolTip(wrap_tooltip("The frame number the first frame of the run is set to."))
+        start_col.addWidget(self.start_edit)
+        fields.addLayout(start_col, 1)
+        step_col = QVBoxLayout()
+        step_col.setSpacing(THEME.space_md)
+        step_col.addWidget(field_label("Step"))
+        self.step_edit = QLineEdit("1")
+        self.step_edit.setToolTip(wrap_tooltip("The gap between successive frame numbers. 1 gives a plain 10, 11, 12 run."))
+        step_col.addWidget(self.step_edit)
+        fields.addLayout(step_col, 1)
+        root.addLayout(fields)
+
+        dir_row = QHBoxLayout()
+        dir_row.setSpacing(THEME.space_xl)
+        self.asc_radio = QRadioButton("Ascending")
+        self.asc_radio.setChecked(True)
+        self.desc_radio = QRadioButton("Descending")
+        dir_row.addWidget(self.asc_radio)
+        dir_row.addWidget(self.desc_radio)
+        dir_row.addStretch()
+        root.addLayout(dir_row)
+
+        self.skip_reject_box = QCheckBox("Skip Rejected Frames")
+        self.skip_reject_box.setToolTip(
+            wrap_tooltip("Leave frames in the rejected state out of the run; the numbers fill the frames that remain.")
+        )
+        self.skip_reject_box.toggled.connect(self._refresh_preview)
+        root.addWidget(self.skip_reject_box)
+
+        self.preview = hint_label()
+        self.preview.setWordWrap(True)
+        root.addWidget(self.preview)
+
+        footer = QHBoxLayout()
+        footer.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        self.apply_btn.clicked.connect(self.accept)
+        footer.addWidget(cancel_btn)
+        footer.addWidget(self.apply_btn)
+        pin_dialog_default(self.apply_btn, cancel_btn)
+        root.addLayout(footer)
+
+        for w in (self.start_edit, self.step_edit, self.asc_radio, self.desc_radio, self._scope_radios.sel, self._scope_radios.roll):
+            w.toggled.connect(self._refresh_preview) if hasattr(w, "toggled") else w.textChanged.connect(self._refresh_preview)
+        self._refresh_preview()
+        remember_dialog_geometry(self, repo, "sequential_frame")
+
+    def _count(self) -> int:
+        if self._scope_radios.value() == "roll":
+            base, rejected = self._roll_count, self._roll_rejected
+        else:
+            base, rejected = self._sel_count, self._sel_rejected
+        if self.skip_reject_box.isChecked():
+            return max(0, base - rejected)
+        return base
+
+    def _start(self) -> int:
+        try:
+            return int(self.start_edit.text().strip())
+        except ValueError:
+            return self._default_start
+
+    def _step(self) -> int:
+        try:
+            step = int(self.step_edit.text().strip())
+        except ValueError:
+            step = 1
+        return max(1, abs(step))
+
+    def _direction(self) -> str:
+        return "desc" if self.desc_radio.isChecked() else "asc"
+
+    def _refresh_preview(self, *_args) -> None:
+        n = self._count()
+        if n == 0:
+            self.preview.setText("")
+            return
+        start = self._start()
+        step = self._step()
+        values = [start - i * step if self._direction() == "desc" else start + i * step for i in range(n)]
+        shown = ", ".join(str(v) for v in values[:3])
+        tail = " …" if n > 3 else ""
+        self.preview.setText(f"{shown}{tail}   ({n} frame{'s' if n != 1 else ''})")
+
+    def result(self) -> tuple[int, int, str, str, bool]:
+        return (self._start(), self._step(), self._direction(), self._scope_radios.value(), self.skip_reject_box.isChecked())
+
+
+def open_sequential_frame_dialog(parent, session) -> tuple[int, int, str, str, bool] | None:
+    """Collect the start number, step and direction for a running capture-frame number,
+    and which frames it runs over (the selection, or the whole roll). Returns
+    (start, step, direction, scope, skip_rejected) or None if the user cancelled or there is no frame."""
+    state = session.state
+    if state.selected_file_idx == -1:
+        return None
+    start = state.config.metadata.capture_frame
+    if start is None:
+        start = 1
+    visible = session.asset_model.visible_actual_indices_ordered()
+    files = state.uploaded_files
+    sel = set(state.selected_indices)
+    sel.add(state.selected_file_idx)
+    sel_indices = [i for i in sel if 0 <= i < len(files)]
+    sel_count = len(sel_indices)
+    roll_count = len(visible)
+    sel_rejected = sum(1 for i in sel_indices if files[i].get("excluded"))
+    roll_rejected = sum(1 for i in visible if files[i].get("excluded"))
+    if not sel_count and not roll_count:
+        return None
+    dlg = SequentialFrameDialog(parent, sel_count, roll_count, start, sel_rejected, roll_rejected, repo=session.repo)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return dlg.result()
 
 
 def open_paste_dialog(parent, controller) -> None:
