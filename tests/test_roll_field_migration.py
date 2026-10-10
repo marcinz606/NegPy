@@ -129,3 +129,27 @@ def test_cast_removal_reads_a_legacy_slide_mode_as_a_slide(repo):
     migrate_cast_removal_roll_locks(repo)
 
     assert rolls.frame_override_cards(repo, roll, "a") == set()
+
+
+def test_a_tone_push_hands_its_paper_fields_to_the_paper_card(repo):
+    from negpy.services.assets.migrations.roll_fields import migrate_paper_card_split
+
+    mixed = rolls.create_virtual_roll(repo, "Mixed", ["/r/a.tif"])
+    paper_only = rolls.create_virtual_roll(repo, "Paper", ["/r/b.tif"])
+    rolls.set_section_push(repo, mixed, "tone", {"density": 1.2, "toe": 0.3, "dye_separation_trim_red": 0.1})
+    rolls.set_section_push(repo, paper_only, "tone", {"paper_profile": "ilford_mg"})
+
+    migrate_paper_card_split(repo)
+    migrate_paper_card_split(repo)
+
+    assert rolls.section_push(repo, mixed, "tone") == {"density": 1.2}
+    assert rolls.section_push(repo, mixed, "paper") == {"toe": 0.3, "dye_separation_trim_red": 0.1}
+    assert "tone" not in rolls.roll_for_id(repo, paper_only)["section_pushes"]
+    assert rolls.section_push(repo, paper_only, "paper") == {"paper_profile": "ilford_mg"}
+
+
+def test_the_paper_split_migration_lists_exactly_the_paper_card(repo):
+    from negpy.desktop.settings_catalog import PAPER_FIELDS
+    from negpy.services.assets.migrations.roll_fields import _PAPER_FIELDS
+
+    assert set(_PAPER_FIELDS) == set(PAPER_FIELDS)

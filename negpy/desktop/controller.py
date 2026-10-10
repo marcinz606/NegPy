@@ -5126,6 +5126,7 @@ class AppController(QObject):
         "geometry": "Geometry",
         "color": "Filtration",
         "tone": "Tone",
+        "paper": "Paper Response",
         "lab": "Lab",
         "altproc": "Alternative Processes",
         "toning": "Toning",

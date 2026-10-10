@@ -355,12 +355,12 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         ),
         step(
             PRINTING,
-            "One Dye Layer",
-            "Pick <b>R</b>, <b>G</b> or <b>B</b> and the curve controls trim one dye layer. Filtration "
-            "only shifts a layer; a trim changes its shape, for a cast that differs in shadows and "
-            "highlights. A dot marks a trimmed layer.",
+            "Preflash and Contrast Mask",
+            "<b>Preflash</b>, a short even exposure before the print, brings in thin highlight detail and "
+            "keeps shadows clean. <b>Contrast Mask</b>, the darkroom unsharp mask, lowers overall "
+            "contrast and keeps local detail. <b>Mask Spacer</b> sets its softness.",
             lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.ch_btn,
+            focus=lambda w: cp(w).tone_sidebar.preflash_slider,
             guide=("tone", "Tone"),
         ),
         step(
@@ -370,19 +370,19 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "<b>Shoulder</b> shape the curve's ends, <b>Snap</b> the midtones, <b>Dye Separation</b> the "
             "color strength. <b>Paper White</b> and <b>Paper Black</b> show the paper's base and deepest "
             "black.",
-            lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.paper_combo,
-            guide=("tone", "Tone"),
+            lambda w: cp(w).paper_section,
+            focus=lambda w: cp(w).paper_sidebar.paper_combo,
+            guide=("paper", "Paper Response"),
         ),
         step(
             PRINTING,
-            "Preflash and Contrast Mask",
-            "<b>Preflash</b>, a short even exposure before the print, brings in thin highlight detail and "
-            "keeps shadows clean. <b>Contrast Mask</b>, the darkroom unsharp mask, lowers overall "
-            "contrast and keeps local detail. <b>Mask Spacer</b> sets its softness.",
-            lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.preflash_slider,
-            guide=("tone", "Tone"),
+            "One Dye Layer",
+            "Pick <b>R</b>, <b>G</b> or <b>B</b> on Tone or Paper Response and that card's curve controls "
+            "trim one dye layer. Filtration only shifts a layer; a trim changes its shape, for a cast that "
+            "differs in shadows and highlights. A dot marks a trimmed layer.",
+            lambda w: cp(w).paper_section,
+            focus=lambda w: cp(w).paper_sidebar.ch_btn,
+            guide=("paper", "Paper Response"),
         ),
         step(
             PRINTING,

@@ -25,6 +25,7 @@ from negpy.services.assets.migrations.roll_fields import (
     migrate_baseline_card_split,
     migrate_cast_removal_roll_locks,
     migrate_new_roll_field_locks,
+    migrate_paper_card_split,
 )
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
@@ -298,6 +299,7 @@ def main() -> None:
         migrate_auto_meter_for_positive_frames(repo)
         migrate_legacy_slide_cast_removal(repo)
         migrate_baseline_card_split(repo)
+        migrate_paper_card_split(repo)
         migrate_new_roll_field_locks(repo)
         migrate_cast_removal_roll_locks(repo)
 

@@ -742,6 +742,7 @@ class RightPanel(QWidget):
                 process_mode=process_mode,
                 mask_centre=metrics.get("contrast_mask_centre"),
             )
+            self.controls_panel.paper_curve.set_curves(*self.curve_widget.curves())
             self._update_step_wedge(config, process_mode, slope, pivot, metrics)
 
         from negpy.features.exposure.stats import negative_statistics

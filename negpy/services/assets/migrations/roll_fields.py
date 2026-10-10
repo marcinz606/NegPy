@@ -21,6 +21,26 @@ logger = get_logger(__name__)
 _DONE_FLAG = "roll_field_locks_migrated_v1"
 _BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
 _CAST_REMOVAL_FLAG = "cast_removal_roll_card_v1"
+_PAPER_SPLIT_FLAG = "paper_card_split_v1"
+
+# The Paper Response card's fields, which left the Tone card (settings_catalog.PAPER_FIELDS).
+_PAPER_FIELDS = (
+    "paper_profile",
+    "paper_black",
+    "paper_dmin",
+    "midtone_gamma",
+    "toe",
+    "toe_width",
+    "shoulder",
+    "shoulder_width",
+    "dye_separation",
+    "separation_damping",
+    *(
+        f"{base}_trim_{ch}"
+        for base in ("midtone_gamma", "toe", "toe_width", "shoulder", "shoulder_width", "dye_separation")
+        for ch in ("red", "green", "blue")
+    ),
+)
 
 NEW_ROLL_FIELDS = {
     "process": (
@@ -119,3 +139,16 @@ def migrate_cast_removal_roll_locks(repo) -> None:
     except Exception:
         logger.exception("Cast Removal roll-card lock migration failed; continuing without it")
     repo.save_global_setting(_CAST_REMOVAL_FLAG, True)
+
+
+def migrate_paper_card_split(repo) -> None:
+    """The paper curve controls left the Tone card for their own ``paper`` card. A
+    whole-roll Tone apply recorded before the split moves its paper fields to ``paper``, so
+    each card reads Roll and resets to the roll against its own fields alone."""
+    if repo.get_global_setting(_PAPER_SPLIT_FLAG):
+        return
+    try:
+        rolls.move_section_push_fields(repo, "tone", "paper", _PAPER_FIELDS)
+    except Exception:
+        logger.exception("Paper Response card split migration failed; continuing without it")
+    repo.save_global_setting(_PAPER_SPLIT_FLAG, True)

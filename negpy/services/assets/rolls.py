@@ -19,7 +19,7 @@ import time
 import uuid
 from dataclasses import replace
 from fnmatch import fnmatchcase
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
 from negpy.features.process.models import neutral_axis_tuple, with_film_fields
@@ -714,6 +714,27 @@ def set_section_push(repo: Any, roll_id: str, section_key: str, values: Dict[str
     pushes = dict(entry.get("section_pushes", {}))
     pushes[section_key] = {**pushes.get(section_key, {}), **values}
     entry["section_pushes"] = pushes
+    _write(repo, store)
+
+
+def move_section_push_fields(repo: Any, section_key: str, to_key: str, fields: Collection[str]) -> None:
+    """Moves *fields* out of every roll's *section_key* push into its *to_key* push, for a
+    card that splits in two. A push left empty is dropped."""
+    store = _read(repo)
+    wanted = set(fields)
+    for entry in store.values():
+        pushes = dict(entry.get("section_pushes", {}))
+        source = pushes.get(section_key, {})
+        moved = {f: v for f, v in source.items() if f in wanted}
+        if not moved:
+            continue
+        kept = {f: v for f, v in source.items() if f not in wanted}
+        if kept:
+            pushes[section_key] = kept
+        else:
+            pushes.pop(section_key)
+        pushes[to_key] = {**pushes.get(to_key, {}), **moved}
+        entry["section_pushes"] = pushes
     _write(repo, store)
 
 

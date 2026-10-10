@@ -354,6 +354,10 @@ class PhotometricCurveWidget(QWidget):
 
         self.update()
 
+    def curves(self) -> tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]:
+        """The plotted base curve and the R, G, B traces (empty unless they diverge)."""
+        return self._curve_pts, [pts for _color, pts in self._channel_curves]
+
     # ── painting ─────────────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:
@@ -1099,3 +1103,44 @@ class MiniRGBHistogramWidget(QWidget):
             c.setAlpha(120)
             painter.setBrush(QBrush(c))
             painter.drawPath(path)
+
+
+class MiniCurveWidget(QWidget):
+    """The print curve as a faint stroke behind the Paper Response section header, in
+    PhotometricCurveWidget's plot domain, with R/G/B traces when the layers diverge."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._base: list[tuple[float, float]] = []
+        self._channels: list[list[tuple[float, float]]] = []
+
+    def set_curves(self, base: list[tuple[float, float]], channels: list[list[tuple[float, float]]]) -> None:
+        self._base = list(base)
+        self._channels = [list(pts) for pts in channels]
+        self.update()
+
+    def _path(self, pts: list[tuple[float, float]], w: int, h: int) -> QPainterPath:
+        x0, x1 = PhotometricCurveWidget._X_MIN, PhotometricCurveWidget._X_MAX
+        y0, y1 = PhotometricCurveWidget._Y_MIN, PhotometricCurveWidget._Y_MAX
+        path = QPainterPath()
+        for i, (x, y) in enumerate(pts):
+            px, py = (x - x0) / (x1 - x0) * w, h - (y - y0) / (y1 - y0) * h
+            if i:
+                path.lineTo(px, py)
+            else:
+                path.moveTo(px, py)
+        return path
+
+    def paintEvent(self, event) -> None:
+        if not self._base:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        w, h = self.width(), self.height()
+        for color, pts in zip((THEME.channel_red, THEME.channel_green, THEME.channel_blue), self._channels):
+            painter.setPen(QPen(_alpha(color, 140), 1.5))
+            painter.drawPath(self._path(pts, w, h))
+        painter.setPen(QPen(_alpha(THEME.text_muted, 160), 1.5))
+        painter.drawPath(self._path(self._base, w, h))

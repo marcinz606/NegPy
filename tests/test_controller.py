@@ -1434,10 +1434,10 @@ class TestAppController(unittest.TestCase):
         state.active_roll_id = roll_id
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
 
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
 
         self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-        self.assertEqual(self.controller.frame_section_scope("tone"), "roll")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "roll")
 
     def test_a_frame_section_drops_back_to_frame_once_edited_again(self):
         """Nothing clears the record: the frame simply stops matching it."""
@@ -1452,7 +1452,7 @@ class TestAppController(unittest.TestCase):
 
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.9))
 
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
 
     def test_frame_section_scopes_answers_every_card_off_one_roll_read(self):
         from negpy.services.assets import rolls
@@ -1466,9 +1466,9 @@ class TestAppController(unittest.TestCase):
         self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
         repo.get_global_setting.reset_mock()
 
-        scopes = self.controller.frame_section_scopes(("tone", "finish"))
+        scopes = self.controller.frame_section_scopes(("paper", "finish"))
 
-        self.assertEqual(scopes, {"tone": "roll", "finish": "frame"})
+        self.assertEqual(scopes, {"paper": "roll", "finish": "frame"})
         self.assertEqual(repo.get_global_setting.call_count, 1)
 
     def test_a_frame_section_reads_frame_with_no_roll_open(self):

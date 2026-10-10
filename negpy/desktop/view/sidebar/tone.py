@@ -1,15 +1,14 @@
 from dataclasses import replace
 
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
 
 from negpy.desktop.auto_sliders import shown_values, stored_value
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, header_row, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton, ToggleMenuButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
-from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.hdr.models import hdr_active
 from negpy.features.exposure.auto_sliders import NEUTRAL
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
@@ -22,11 +21,18 @@ _CH_LABEL = ("", " R", " G", " B")
 _CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
 
 
+def channel_selector(tooltip: str) -> ChoiceButton:
+    """[Global/R/G/B]: Global edits the shared curve, a channel its per-layer trims."""
+    return ChoiceButton(
+        (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
+        tooltip,
+    )
+
+
 class ToneSidebar(BaseSidebar):
-    """Print/zone density, Grade, Dye Separation, paper white, and a labeled
-    Paper Response group (paper profile + Snap/Toe/Shoulder) — with a
-    [Global/R/G/B] channel selector scoping Grade/Toe/Shoulder/Dye Separation
-    to per-layer trims (crossover correction)."""
+    """Print/zone density, Grade, split Grade, Preflash, Diffusion and Contrast Mask, with a
+    [Global/R/G/B] channel selector scoping Grade and split Grade to per-layer trims
+    (crossover correction)."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
@@ -43,10 +49,9 @@ class ToneSidebar(BaseSidebar):
         self.grade_trim_slider.setVisible(False)
 
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
-        self.ch_btn = ChoiceButton(
-            (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
-            "Global edits the shared H&D curve (all layers). Red, Green and Blue edit per-layer "
-            "Grade/Toe/Shoulder/Width/Snap trims for the cyan-, magenta- and yellow-dye emulsions",
+        self.ch_btn = channel_selector(
+            "Global edits the shared grade (all layers). Red, Green and Blue edit per-layer "
+            "Grade and split Grade trims for the cyan-, magenta- and yellow-dye emulsions"
         )
         # Each channel's trim fields, for the edited dot.
         self._channel_fields = tuple(
@@ -54,12 +59,6 @@ class ToneSidebar(BaseSidebar):
                 f"grade_trim_{ch}",
                 f"shadow_grade_trim_{ch}",
                 f"highlight_grade_trim_{ch}",
-                f"toe_trim_{ch}",
-                f"shoulder_trim_{ch}",
-                f"midtone_gamma_trim_{ch}",
-                f"toe_width_trim_{ch}",
-                f"shoulder_width_trim_{ch}",
-                f"dye_separation_trim_{ch}",
             )
             for ch in _CH_SUFFIX
         )
@@ -111,21 +110,6 @@ class ToneSidebar(BaseSidebar):
         self.layout.addWidget(self.auto_merged_hint)
         self.layout.addWidget(self.density_slider)
 
-        self.paper_black_btn = self._small_toggle(
-            "fa5s.circle",
-            "",
-            conf.paper_black,
-            "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
-            "compensating it to pure display black. Off (default) applies black point compensation, "
-            "like an ICC relative-colorimetric soft-proof, so the adapted eye reads paper black as "
-            "black; on preserves the paper's true maximum density.",
-        )
-        self.paper_dmin_btn = self._small_toggle(
-            "fa5s.file",
-            "",
-            conf.paper_dmin,
-            "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
-        )
         self.shadow_density_slider = CompactSlider("Shadows Density", -1.0, 1.0, conf.shadow_density)
         self.highlight_density_slider = CompactSlider("Highlights Density", -1.0, 1.0, conf.highlight_density)
         self.layout.addWidget(SliderGroup(self.shadow_density_slider, self.highlight_density_slider))
@@ -175,74 +159,6 @@ class ToneSidebar(BaseSidebar):
         self.mask_spacer_rail = SliderGroup(self.mask_spacer_slider)
         self.layout.addWidget(self.mask_spacer_rail)
 
-        # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
-        # crosstalk, rather than a post-hoc Lab-space a*/b*
-        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
-        self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
-        self.dye_separation_trim_slider.setToolTip(
-            "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
-            "channel's density separation independently. Neutrals stay flat at any trim value."
-        )
-        self.dye_separation_trim_slider.setVisible(False)
-        # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
-        # it is disabled there rather than reading as broken.
-        self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
-
-        paper_header = section_subheader("PAPER RESPONSE")
-        paper_header.setToolTip(
-            "The paper's characteristic (Hurter–Driffield) curve: how print density responds to "
-            "exposure. Snap bends the midtone gamma, Toe shapes the shadow roll-off into paper "
-            "black, Shoulder the highlight roll-off into paper white — each knee with its own "
-            "Width, per dye layer via the Global/R/G/B selector. Dye Separation sets how far its "
-            "dyes separate."
-        )
-
-        self.paper_combo = QComboBox()
-        self.paper_combo.setToolTip(
-            "Darkroom paper profile — re-shapes the H&D curve (and color, on RA4) to a classic "
-            "stock as a baseline; Grade / Density / toe / shoulder still trim on top."
-        )
-        self._populate_paper_combo(self.state.config.process.process_mode)
-        idx = self.paper_combo.findData(conf.paper_profile)
-        if idx >= 0:
-            self.paper_combo.setCurrentIndex(idx)
-        self.paper_black_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.layout.addLayout(header_row(paper_header, self.paper_black_btn, self.paper_dmin_btn))
-        self.layout.addWidget(self.paper_combo)
-        # The paper's dyes, not the exposure: the profile sets the crosstalk this pushes against.
-        self.layout.addWidget(self.dye_separation_slider)
-        self.layout.addWidget(self.dye_separation_trim_slider)
-        self.separation_damping_rail = SliderGroup(self.separation_damping_slider)
-        self.layout.addWidget(self.separation_damping_rail)
-
-        self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
-        snap_row = QHBoxLayout()
-        snap_row.addWidget(self.midtone_gamma_slider)
-        self.layout.addLayout(snap_row)
-
-        self.toe_w_slider = CompactSlider("Toe Width", 0.1, 5.0, conf.toe_width)
-        self.toe_w_trim_slider = CompactSlider("Toe Width", -2.0, 2.0, 0.0)
-        self.toe_w_trim_slider.setToolTip(
-            "This layer's toe width trim on top of the global Toe Width — per-layer roll-off extent "
-            "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
-        )
-        self.toe_w_trim_slider.setVisible(False)
-        self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
-        self.layout.addWidget(self.toe_slider)
-        self.layout.addWidget(SliderGroup(self.toe_w_slider, self.toe_w_trim_slider))
-
-        self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
-        self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
-        self.sh_w_trim_slider = CompactSlider("Shoulder Width", -2.0, 2.0, 0.0)
-        self.sh_w_trim_slider.setToolTip(
-            "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
-            "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
-        )
-        self.sh_w_trim_slider.setVisible(False)
-        self.layout.addWidget(self.sh_slider)
-        self.layout.addWidget(SliderGroup(self.sh_w_slider, self.sh_w_trim_slider))
-
         self.layout.addStretch()
 
         # Global-only controls, greyed while a channel page is active.
@@ -250,9 +166,6 @@ class ToneSidebar(BaseSidebar):
             self.density_slider,
             self.test_strip_btn,
             self.auto_btn,
-            self.paper_dmin_btn,
-            self.paper_black_btn,
-            self.paper_combo,
             self.shadow_density_slider,
             self.highlight_density_slider,
             # A pan masking film is neutral: the mask is one plane subtracted as equal
@@ -292,25 +205,6 @@ class ToneSidebar(BaseSidebar):
         idx = self._channel_index()
         return base if idx == 0 else f"{base}_trim_{_CH_SUFFIX[idx - 1]}"
 
-    def _populate_paper_combo(self, process_mode: str) -> None:
-        """Fill the paper dropdown with the papers valid for the current process
-        mode (neutral default + the mode's kind)."""
-        from negpy.features.exposure.papers import profiles_for_mode
-
-        entries = [(prof.label, key) for key, prof in profiles_for_mode(process_mode)]
-        current = [(self.paper_combo.itemText(i), self.paper_combo.itemData(i)) for i in range(self.paper_combo.count())]
-        if entries == current:
-            return
-        self.paper_combo.clear()
-        for label, key in entries:
-            self.paper_combo.addItem(label, key)
-
-    def _on_paper_changed(self, _idx: int) -> None:
-        key = self.paper_combo.currentData()
-        if key is None:  # separator row
-            return
-        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key)
-
     @staticmethod
     def _test_strip_tooltip(printing: bool = False) -> str:
         if printing:
@@ -334,7 +228,6 @@ class ToneSidebar(BaseSidebar):
         self.test_strip_btn.setToolTip(wrap_tooltip(self._test_strip_tooltip(printing=pending)))
 
     def _connect_signals(self) -> None:
-        self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
         # The strip is session state, not config, and any render drops it, so the button has to
         # follow the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
@@ -351,10 +244,6 @@ class ToneSidebar(BaseSidebar):
         self.controller.image_updated.connect(self._sync_driven)
 
         for slider, field in (
-            (self.toe_w_slider, "toe_width"),
-            (self.sh_w_slider, "shoulder_width"),
-            (self.dye_separation_slider, "dye_separation"),
-            (self.separation_damping_slider, "separation_damping"),
             (self.contrast_mask_slider, "contrast_mask"),
             (self.mask_spacer_slider, "mask_spacer"),
             (self.diffusion_slider, "diffusion"),
@@ -369,11 +258,8 @@ class ToneSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # Toe/shoulder/snap/split-grade retarget to the selected channel's trim field at emit time.
+        # Split grade retargets to the selected channel's trim field at emit time.
         for slider, base in (
-            (self.toe_slider, "toe"),
-            (self.sh_slider, "shoulder"),
-            (self.midtone_gamma_slider, "midtone_gamma"),
             (self.shadow_grade_slider, "shadow_grade"),
             (self.highlight_grade_slider, "highlight_grade"),
         ):
@@ -398,26 +284,7 @@ class ToneSidebar(BaseSidebar):
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{grade_trim_field(): v})
         )
 
-        # Width/dye-separation trims live on separate sliders (differing trim vs global domain).
-        for slider, base in (
-            (self.toe_w_trim_slider, "toe_width"),
-            (self.sh_w_trim_slider, "shoulder_width"),
-            (self.dye_separation_trim_slider, "dye_separation"),
-        ):
-            slider.valueChanged.connect(
-                lambda v, b=base: self.update_config_section(
-                    "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
-                )
-            )
-            slider.valueCommitted.connect(
-                lambda v, b=base: self.update_config_section(
-                    "exposure", render=True, persist=True, readback_metrics=True, **{self._curve_field(b): v}
-                )
-            )
-
         for btn, field in (
-            (self.paper_dmin_btn, "paper_dmin"),
-            (self.paper_black_btn, "paper_black"),
             (self.auto_density_action, "auto_exposure"),
             (self.auto_grade_action, "auto_normalize_contrast"),
         ):
@@ -472,10 +339,6 @@ class ToneSidebar(BaseSidebar):
             from negpy.features.process.models import ProcessMode
 
             mode = self.state.config.process.process_mode
-            self._populate_paper_combo(mode)
-            paper_idx = self.paper_combo.findData(conf.paper_profile)
-            self.paper_combo.setCurrentIndex(paper_idx if paper_idx >= 0 else 0)
-            self.paper_combo.setVisible(mode != ProcessMode.E6)
 
             # On the transfer path (an as-captured Slide, or any Positive frame) the render
             # starts from the capture, so the paper model has nothing to act on. Density,
@@ -489,9 +352,6 @@ class ToneSidebar(BaseSidebar):
             # open shadows without moving the whole scale. Split Grade does not, because it rotates
             # contrast about the same centres and the transfer curve has no per-zone slope to rotate.
             for w in (
-                self.paper_dmin_btn,
-                self.paper_black_btn,
-                self.midtone_gamma_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
                 self.split_grade_rail,
@@ -515,44 +375,17 @@ class ToneSidebar(BaseSidebar):
             suffix = _CH_LABEL[idx]
             self.grade_slider.setVisible(global_mode)
             self.grade_trim_slider.setVisible(not global_mode)
-            self.toe_w_slider.setVisible(global_mode)
-            self.toe_w_trim_slider.setVisible(not global_mode)
-            self.sh_w_slider.setVisible(global_mode)
-            self.sh_w_trim_slider.setVisible(not global_mode)
-            # Dye Separation swaps the same way on both paths: the global slider in the
-            # global view, the per-channel trim in a channel tab (see
-            # features/transparency/logic.py). Separation Damping has no per-channel
-            # trim of its own, so it stays global-view-only on both paths too.
-            self.dye_separation_slider.setVisible(global_mode and not is_bw)
-            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
-            self.separation_damping_slider.setVisible(global_mode and not is_bw)
-            self.separation_damping_rail.setVisible(global_mode and not is_bw)
-            self.toe_slider.label.setText("Toe" + suffix)
-            self.sh_slider.label.setText("Shoulder" + suffix)
-            self.midtone_gamma_slider.label.setText("Snap" + suffix)
             self.shadow_grade_slider.label.setText("Shadows Grade" + suffix)
             self.highlight_grade_slider.label.setText("Highlights Grade" + suffix)
             if global_mode:
-                self.toe_slider.setValue(conf.toe)
-                self.sh_slider.setValue(conf.shoulder)
-                self.midtone_gamma_slider.setValue(conf.midtone_gamma)
                 self.shadow_grade_slider.setValue(conf.shadow_grade)
                 self.highlight_grade_slider.setValue(conf.highlight_grade)
             else:
                 ch = _CH_SUFFIX[idx - 1]
                 self.grade_trim_slider.label.setText("Grade" + suffix)
                 self.grade_trim_slider.setValue(getattr(conf, f"grade_trim_{ch}"))
-                self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
-                self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
-                self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
                 self.shadow_grade_slider.setValue(getattr(conf, f"shadow_grade_trim_{ch}"))
                 self.highlight_grade_slider.setValue(getattr(conf, f"highlight_grade_trim_{ch}"))
-                self.toe_w_trim_slider.label.setText("Toe Width" + suffix)
-                self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
-                self.sh_w_trim_slider.label.setText("Shoulder Width" + suffix)
-                self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
-                self.dye_separation_trim_slider.label.setText("Dye Separation" + suffix)
-                self.dye_separation_trim_slider.setValue(getattr(conf, f"dye_separation_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)
             # WorkspaceConfig holds both off on a merge; greyed so the reason can show.
@@ -564,27 +397,12 @@ class ToneSidebar(BaseSidebar):
             for i, fields in enumerate(self._channel_fields, start=1):
                 self.ch_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
             self._sync_driven()
-            self.toe_w_slider.setValue(conf.toe_width)
-            self.sh_w_slider.setValue(conf.shoulder_width)
-            self.dye_separation_slider.setValue(conf.dye_separation)
-            self.separation_damping_slider.setValue(conf.separation_damping)
             self.contrast_mask_slider.setValue(conf.contrast_mask)
             self.mask_spacer_slider.setValue(conf.mask_spacer)
             self.diffusion_slider.setValue(conf.diffusion)
             self.preflash_slider.setValue(conf.preflash)
             # Out of _global_only: that tuple means enabled exactly when global.
             self.mask_spacer_slider.setEnabled(global_mode and conf.contrast_mask != 0.0)
-            # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
-            # separation on every channel it is dead — a per-channel trim also arms it,
-            # not just the global value. Say so instead of letting it be dragged for no result.
-            sep_k3 = per_channel_dye_separation(
-                conf.dye_separation,
-                (conf.dye_separation_trim_red, conf.dye_separation_trim_green, conf.dye_separation_trim_blue),
-            )
-            self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
-
-            self.paper_dmin_btn.setChecked(conf.paper_dmin)
-            self.paper_black_btn.setChecked(conf.paper_black)
             self.auto_density_action.setChecked(conf.auto_exposure)
             self.auto_grade_action.setChecked(conf.auto_normalize_contrast)
             self.auto_both_action.setChecked(conf.auto_exposure and conf.auto_normalize_contrast)
@@ -594,31 +412,18 @@ class ToneSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
-            self.paper_combo,
             self.ch_btn,
             self.density_slider,
             self.grade_slider,
             self.grade_trim_slider,
-            self.toe_slider,
-            self.toe_w_slider,
-            self.toe_w_trim_slider,
-            self.sh_slider,
-            self.sh_w_slider,
-            self.sh_w_trim_slider,
-            self.midtone_gamma_slider,
             self.shadow_density_slider,
             self.highlight_density_slider,
-            self.dye_separation_slider,
-            self.dye_separation_trim_slider,
-            self.separation_damping_slider,
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.contrast_mask_slider,
             self.mask_spacer_slider,
             self.diffusion_slider,
             self.preflash_slider,
-            self.paper_dmin_btn,
-            self.paper_black_btn,
             self.auto_density_action,
             self.auto_grade_action,
             self.auto_both_action,
