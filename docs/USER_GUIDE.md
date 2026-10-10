@@ -398,7 +398,7 @@ Scanning-lens distortion, chromatic aberration and flat field are in **Optics** 
 
 ## 5. Exposure tab
 
-Three panels set light, color and contrast in the print stage of the pipeline.
+Four panels set light, color and contrast in the print stage of the pipeline.
 
 <!-- panel:color -->
 ### 5.1 Filtration: white balance
@@ -413,9 +413,9 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 **Cast Removal** is on the Roll tab's Calibration card ([§10.3](#103-calibration-what-your-rig-does-to-the-colors)).
 
 <!-- panel:tone -->
-### 5.2 Tone: density, contrast and the print curve
+### 5.2 Tone: density and contrast
 
-**Global / R / G / B** applies most controls to the shared curve, or as per-dye-layer trims for **crossover correction** (casts that differ between shadows and highlights).
+**Global / R / G / B** applies Grade and Split Grade to the shared curve, or as per-dye-layer trims for **crossover correction** (casts that differ between shadows and highlights).
 
 **Automatic helpers**, in the **Auto** menu (magic-wand icon) beside the channel selector, on by default:
 
@@ -442,21 +442,24 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 *   **Contrast Mask** (±0.5, hidden in Transparency): a blurred mask sandwiched with the negative; the value is its signed gamma. Positive compresses the range by (1 − gamma) so a harder grade fits, keeping fine detail. Negative expands the range by (1 + gamma) for a negative too flat for Grade; past about −0.4, highlights clip. Past about ±0.2, strong edges get a halo.
 *   **Mask Spacer** (2 to 6%, default 4%): the gap between mask and negative, as percent of the frame. Thicker masks only broad masses; thinner reaches into detail and hazes shadows next to bright areas. Both mask controls gray out in R/G/B mode.
 
-**Paper Response**:
+<!-- panel:paper -->
+### 5.3 Paper Response: the print curve
 
-*   **Paper profile**: a bundled paper (RA4 in Color Negative, B&W papers in B&W Negative) that sets the curve; the other controls trim on top. *Neutral* gives the defaults. Each B&W paper has its own lith color (§6.2).
+The paper's characteristic curve, drawn faintly behind the card header. Its own **Global / R / G / B** selector applies the curve controls to all layers or as per-dye-layer trims.
+
+*   **Paper**: a bundled paper (RA4 in Color Negative, B&W papers in B&W Negative) that sets the curve; the other controls trim on top. *Neutral* gives the defaults. Each B&W paper has its own lith color (§6.2).
 *   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space, through the paper's dyes, so it eases off at toe and shoulder. 1.0 is off; below pulls toward neutral. **Chroma** (Look tab) scales color evenly instead.
     *   **Separation Damping** (0 to 1): higher keeps the push on muted color and eases it on saturated color; below 1.0 separation, pastels go gray first. Grayed out at Dye Separation 1.0.
-*   **Paper White** (page icon, on the PAPER RESPONSE header): simulate paper base density, so whites print at about 0.93.
-*   **Paper Black** (circle icon, on the PAPER RESPONSE header): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
+*   **Paper White** (page icon, right of the channel selector): simulate paper base density, so whites print at about 0.93.
+*   **Paper Black** (circle icon, right of the channel selector): show the paper's slightly milky Dmax. Off (default) applies black-point compensation.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.
 *   **Shoulder** (-1 to 1) + **Shoulder Width** (0.1 to 5): highlight roll-off. Positive compresses highlights; negative extends them and can clip.
 
-In R/G/B mode these become per-layer trims: **Grade** (±30 ISO-R), **Toe** / **Shoulder** (±1), **Toe Width** / **Shoulder Width** (±2), **Snap** (±0.5), **Dye Separation** (±0.4).
+In R/G/B mode these become per-layer trims: **Toe** / **Shoulder** (±1), **Toe Width** / **Shoulder Width** (±2), **Snap** (±0.5), **Dye Separation** (±0.4).
 
 <!-- panel:local -->
-### 5.3 Dodge & Burn: local exposure
+### 5.4 Dodge & Burn: local exposure
 
 Draw masks and lighten or darken only those areas. On a **Slide** the panel grays out, because the slide's transfer curve takes no masks; the frame keeps them. The **MASKS** header shows how many the frame has:
 

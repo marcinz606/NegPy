@@ -9,7 +9,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
-from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
+from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.lab.models import LabConfig
@@ -20,7 +20,7 @@ from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
-from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, TONE_FIELDS, frame_card_rows
+from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, PAPER_FIELDS, TONE_FIELDS, frame_card_rows
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -33,6 +33,7 @@ from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
+from negpy.desktop.view.sidebar.paper import PaperSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.autocrop import AutocropSidebar
 from negpy.desktop.view.sidebar.trichrome import TrichromeSidebar
@@ -299,6 +300,16 @@ class ControlsPanel(QWidget):
             background_widget=self.tone_histogram,
         )
 
+        self.paper_sidebar = PaperSidebar(self.controller)
+        self.paper_curve = MiniCurveWidget()
+        self.paper_section = self._make_section(
+            "Paper Response",
+            "paper",
+            self.paper_sidebar,
+            icon_name="fa5s.scroll",
+            background_widget=self.paper_curve,
+        )
+
         self.lab_sidebar = LabSidebar(self.controller)
         self.lab_section = self._make_section(
             "Lab",
@@ -361,10 +372,10 @@ class ControlsPanel(QWidget):
             ),
             (
                 "tone",
-                "Exposure — Filtration, Tone, Dodge & Burn",
+                "Exposure — Filtration, Tone, Paper Response, Dodge & Burn",
                 "Exposure",
-                [self.color_section, self.tone_section, self.local_section],
-                ["color_section", "tone_section", "local_section"],
+                [self.color_section, self.tone_section, self.paper_section, self.local_section],
+                ["color_section", "tone_section", "paper_section", "local_section"],
             ),
             (
                 "color",
@@ -463,6 +474,7 @@ class ControlsPanel(QWidget):
 
         self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(COLOR_FIELDS))
         self.tone_section.reset_requested.connect(self._reset_tone_fields)
+        self.paper_section.reset_requested.connect(lambda: self._reset_exposure_fields(PAPER_FIELDS))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
         self.altproc_section.reset_requested.connect(lambda: self.controller.session.reset_section("altproc"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
@@ -519,6 +531,7 @@ class ControlsPanel(QWidget):
         ):
             btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action_id)))
         exp = self.tone_sidebar
+        paper = self.paper_sidebar
         geo = self.geometry_sidebar
         crop = self.autocrop_sidebar
         lens = self.lens_sidebar
@@ -588,31 +601,31 @@ class ControlsPanel(QWidget):
                 ["grade_up", "grade_down"],
             )
         )
-        exp.toe_slider.setToolTip(
+        paper.toe_slider.setToolTip(
             tooltip_with_shortcut(
                 "Shadow toe: positive lifts shadows for a gentle film toe; negative deepens blacks",
                 ["toe_inc", "toe_dec"],
             )
         )
-        exp.toe_w_slider.setToolTip(
+        paper.toe_w_slider.setToolTip(
             tooltip_with_shortcut(
                 "How broadly the shadow toe transition spreads into the midtones",
                 ["toe_width_inc", "toe_width_dec"],
             )
         )
-        exp.sh_slider.setToolTip(
+        paper.sh_slider.setToolTip(
             tooltip_with_shortcut(
                 "Highlight shoulder: positive compresses highlights (film roll-off); negative extends them and risks clipping",
                 ["shoulder_inc", "shoulder_dec"],
             )
         )
-        exp.sh_w_slider.setToolTip(
+        paper.sh_w_slider.setToolTip(
             tooltip_with_shortcut(
                 "How broadly the highlight shoulder transition spreads into the midtones",
                 ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
-        exp.midtone_gamma_slider.setToolTip(
+        paper.midtone_gamma_slider.setToolTip(
             tooltip_with_shortcut(
                 "Snap — paper midtone gamma trim: steepens or flattens the S-curve around the reference "
                 "tone; paper white/black stay put. In R/G/B mode: this layer's Snap trim",
@@ -769,7 +782,7 @@ class ControlsPanel(QWidget):
             "untouched, and chroma is only ever pulled down. Independent of Chroma: it also reins in skin "
             "that arrived over-saturated from the print curve. 0 = off, 1.0 = matte"
         )
-        exp.dye_separation_slider.setToolTip(
+        paper.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
                 "Pushes density apart before decode. On a print, in the same matrix slot as the "
                 "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
@@ -779,7 +792,7 @@ class ControlsPanel(QWidget):
                 ["dye_separation_inc", "dye_separation_dec"],
             )
         )
-        exp.separation_damping_slider.setToolTip(
+        paper.separation_damping_slider.setToolTip(
             tooltip_with_shortcut(
                 "Decides where Dye Separation's push lands instead of adding one of its own — at 0 every "
                 "color gets the same push, at 1 muted color takes it all while color that is already "
@@ -955,6 +968,7 @@ class ControlsPanel(QWidget):
         self.roll_sidebar.sync_ui()
         self.color_sidebar.sync_ui()
         self.tone_sidebar.sync_ui()
+        self.paper_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()
         self.altproc_sidebar.sync_ui()
@@ -1146,6 +1160,7 @@ class ControlsPanel(QWidget):
         mode = cfg.process.process_mode
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in COLOR_FIELDS)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
+        paper_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in PAPER_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -1245,6 +1260,7 @@ class ControlsPanel(QWidget):
         self.film_section.set_modified(film_count)
         self.color_section.set_modified(color_count)
         self.tone_section.set_modified(tone_count)
+        self.paper_section.set_modified(paper_count)
         self.lab_section.set_modified(lab_count)
         self.altproc_section.set_modified(altproc_count)
         self.toning_section.set_modified(toning_count)

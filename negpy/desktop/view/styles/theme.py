@@ -130,6 +130,7 @@ class ThemeConfig:
             "process": True,
             "color": True,
             "tone": True,
+            "paper": True,
             "geometry": True,
             "autocrop": True,
             "optics": False,

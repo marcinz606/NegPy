@@ -28,6 +28,7 @@ GUIDED_KEYS = (
     "optics",
     "color",
     "tone",
+    "paper",
     "local",
     "lab",
     "altproc",
