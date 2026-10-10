@@ -202,6 +202,7 @@ def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
 _QUICK_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _DNG_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
+_TIFF_STREAM_BAND_BYTES = 8 * 1024 * 1024
 _DNG_LINEAR_RAW = 34892
 _DNG_CFA = 32803
 
@@ -469,13 +470,54 @@ def bounded_tiff_page_preview(
     itemsize = int(np.dtype(page.dtype).itemsize)
     segment_height = int(page.tilelength if page.is_tiled else page.rowsperstrip or height)
     segment_width = int(page.tilewidth if page.is_tiled else width)
-    if segment_height * segment_width * samples * itemsize > _TIFF_STREAM_PREVIEW_MAX_BYTES:
+    banded = segment_height * segment_width * samples * itemsize > _TIFF_STREAM_PREVIEW_MAX_BYTES
+    if banded and not page.is_final:
         return None
 
     scale = min(1.0, max(1, max_edge) / max(height, width))
     out_height = max(1, int(round(height * scale)))
     out_width = max(1, int(round(width * scale)))
     output = np.zeros((out_height, out_width, 3), dtype=np.uint8)
+
+    def place(source: np.ndarray, y: int, x: int) -> None:
+        if source.dtype == np.uint16:
+            source = linear_uint16_to_display_uint8(source)
+        if source.shape[2] == 1:
+            source = np.repeat(source, 3, axis=2)
+        elif source.shape[2] == 4:
+            source = source[:, :, :3]
+        left = int(round(x * out_width / width))
+        top = int(round(y * out_height / height))
+        right = int(round((x + source.shape[1]) * out_width / width))
+        bottom = int(round((y + source.shape[0]) * out_height / height))
+        if right <= left or bottom <= top:
+            return
+        small = Image.fromarray(np.ascontiguousarray(source)).resize((right - left, bottom - top), Image.Resampling.BOX)
+        output[top:bottom, left:right] = np.asarray(small)
+
+    if banded:
+        # An uncompressed page is one run of rows at its first offset, so it reads in
+        # bands of whole output rows whatever its strip layout.
+        dtype = np.dtype(page.dtype).newbyteorder(page.parent.byteorder)
+        row_bytes = width * samples * itemsize
+        rows_per_output = -(-height // out_height)
+        band_outputs = max(1, _TIFF_STREAM_BAND_BYTES // (row_bytes * rows_per_output))
+        handle = page.parent.filehandle
+        offset = int(page.dataoffsets[0])
+        for top in range(0, out_height, band_outputs):
+            if should_cancel is not None and should_cancel():
+                raise InterruptedError("preview cancelled")
+            bottom = min(out_height, top + band_outputs)
+            y = int(round(top * height / out_height))
+            rows = int(round(bottom * height / out_height)) - y
+            handle.seek(offset + y * row_bytes)
+            data = handle.read(rows * row_bytes)
+            if len(data) != rows * row_bytes:
+                return None
+            band = np.frombuffer(data, dtype=dtype).reshape(rows, width, samples).astype(page.dtype)
+            place(band, y, 0)
+        return Image.fromarray(output)
+
     for decoded, position, _shape in page.segments(maxworkers=1):
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview cancelled")
@@ -491,22 +533,7 @@ def bounded_tiff_page_preview(
         valid_width = min(tile.shape[1], width - x)
         if valid_height <= 0 or valid_width <= 0:
             continue
-        source = tile[:valid_height, :valid_width]
-        if source.dtype == np.uint16:
-            source = linear_uint16_to_display_uint8(source)
-        if source.shape[2] == 1:
-            source = np.repeat(source, 3, axis=2)
-        elif source.shape[2] == 4:
-            source = source[:, :, :3]
-
-        left = int(round(x * out_width / width))
-        top = int(round(y * out_height / height))
-        right = int(round((x + valid_width) * out_width / width))
-        bottom = int(round((y + valid_height) * out_height / height))
-        if right <= left or bottom <= top:
-            continue
-        small = Image.fromarray(source).resize((right - left, bottom - top), Image.Resampling.BOX)
-        output[top:bottom, left:right] = np.asarray(small)
+        place(tile[:valid_height, :valid_width], y, x)
 
     return Image.fromarray(output)
 
