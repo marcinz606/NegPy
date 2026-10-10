@@ -83,6 +83,7 @@ from negpy.desktop.workers.capture_worker import (
     SensorResponseRequest,
     CaptureRequest,
     CaptureWorker,
+    ExposureProbeRequest,
     LiveViewRequest,
 )
 from negpy.domain.models import (
@@ -563,6 +564,9 @@ class AppController(QObject):
     capture_calibration_progress = pyqtSignal(float, str)
     capture_calibration_finished = pyqtSignal(object)
     capture_calibration_exposure = pyqtSignal(str)  # "over"/"under": target unreachable, aborted, no preset
+    exposure_probe_requested = pyqtSignal(ExposureProbeRequest)
+    capture_exposure_probe_finished = pyqtSignal(object)  # MeterReading
+    capture_exposure_probe_failed = pyqtSignal(str)
     sensor_response_requested = pyqtSignal(SensorResponseRequest)
     capture_sensor_response_progress = pyqtSignal(float, str)
     capture_sensor_response_measured = pyqtSignal(object)  # 3x3 array: sensor channel rows, LED columns
@@ -1045,6 +1049,9 @@ class AppController(QObject):
         self.capture_worker.calibration_progress.connect(self.capture_calibration_progress.emit)
         self.capture_worker.calibration_finished.connect(self.capture_calibration_finished.emit)
         self.capture_worker.calibration_exposure.connect(self.capture_calibration_exposure.emit)
+        self.exposure_probe_requested.connect(self.capture_worker.run_exposure_probe)
+        self.capture_worker.exposure_probe_finished.connect(self.capture_exposure_probe_finished.emit)
+        self.capture_worker.exposure_probe_failed.connect(self.capture_exposure_probe_failed.emit)
         self.sensor_response_requested.connect(self.capture_worker.measure_sensor_response)
         self.capture_worker.sensor_response_progress.connect(self.capture_sensor_response_progress.emit)
         self.capture_worker.sensor_response_measured.connect(self.capture_sensor_response_measured.emit)
@@ -6210,6 +6217,10 @@ class AppController(QObject):
         self._ensure_capture_thread()
         self.capture_worker.arm()
         self.calibration_requested.emit(req)
+
+    def start_exposure_probe(self, req: ExposureProbeRequest) -> None:
+        self._ensure_capture_thread()
+        self.exposure_probe_requested.emit(req)
 
     def start_sensor_response(self, req: SensorResponseRequest) -> None:
         self._ensure_capture_thread()

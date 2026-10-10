@@ -98,6 +98,28 @@ and B under the image; the zebras hatch pixels at the top (red, 99% and above) a
 the RAW does, so a zebra marks a region close to the limit with some RAW headroom left. On a
 negative the clear base must stay under the top; on a slide the picture's highlights must.
 
+**Meter (white-light and camera-only scanning).** Press **Meter** to take one RAW probe at the
+current exposure. The preset's film type decides what must not clip. On **White Light, B&W
+Negative**, or a color negative on the AUTO preset, the clear base, read in the rebate around
+the picture, is placed at 90% of the RAW range in the brightest channel, the same target
+Calibrate uses. On **White Light, Slide** the picture's brightest highlights are. The AUTO
+preset classifies the probe the way an import does, so a slide it misreads is metered as a
+negative until you pick the Slide preset. A capture with no rebate, or a rebate no brighter
+than the picture, meters the picture's highlights either way.
+
+The shutter moves to the body's nearest step at or under that exposure, as a counted exposure
+write: Scan waits until the body confirms it. The status line reads, for example,
+`Meter: negative, base at 62% → 1/15 (+0.5 st)`, the stops being the move that step makes.
+A clipped base, or highlights clipped on more than 2% of the picture (Calibrate's budget for
+the decoded frame; a few specular points are under it), cannot be measured: the shutter steps
+down two stops and the line asks for another probe. A target past the body's fastest step is
+reported with the remedy, close the aperture or lower the ISO, and nothing is written. Meter
+needs the shutter on a step between 1/250 s and 2 s, the span Calibrate solves on, and waits
+while a scan, a calibration or another probe runs. A negative's base is the same across a
+roll, so one reading serves it; a slide's highlights differ on every frame, so meter each
+one. A calibrated RGB preset owns its exposure, and the button is hidden with the exposure
+steppers.
+
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**
 beside the preset dropdown, place the small rectangle on the clear film base, name the
 preset and run it. The rebate strip between frames is an ideal target. Calibration meters
@@ -130,7 +152,9 @@ cannot falsify the result. To build a preset by hand instead, pick **Create a ma
 preset…** from the dropdown. The sliders and the exposure steppers unlock. Dial them in,
 **Capture mode** marks the manual preset as a triplet or a single capture. Then press the
 save (floppy) button to name and store the preset. White is the white-light
-preset's channel only, because the Scanlight cannot light it together with RGB.
+presets' channel only, because the Scanlight cannot light it together with RGB. The three
+white-light presets differ in film type alone: AUTO classifies each capture, **B&W Negative**
+and **Slide** fix it, for the import and for Meter alike.
 
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files
 land in a per-roll subfolder, auto-numbered, and are imported and merged automatically, so

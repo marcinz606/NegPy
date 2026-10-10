@@ -281,6 +281,15 @@ def test_safe_value_refuses_to_read_a_choiceless_widget(fake):
     assert _safe_value(fake, fake.props["iso"]) == "100"
 
 
+def test_a_setting_write_republishes_the_settings_file(fake, tmp_path):
+    settings = tmp_path / "lv.json"
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(settings))
+    camera.open()
+    camera.set_shutter(2)  # "1/10"
+    assert json.loads(settings.read_text())["shutter"]["cur"] == 2  # the UI reads the body's state from here
+    camera.close()
+
+
 def test_read_settings_omits_a_property_with_no_choices(cam):
     settings = cam.read_settings()
     assert "aperture" not in settings  # the UI greys the stepper out on a missing key

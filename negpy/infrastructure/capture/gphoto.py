@@ -559,6 +559,7 @@ class GphotoCamera:
                 logger.warning("gphoto2: %s has no choice %d", name, index)
                 return
             self._set_verified(name, choices[index])
+            self._publish_settings()  # the UI reads the body's state from the file, not from its own write
 
     def set_iso(self, raw: int) -> None:
         self._set_choice("iso", int(raw))

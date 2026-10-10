@@ -502,6 +502,154 @@ def test_histogram_and_zebra_toggles_read_the_live_frame(tmp_path):
     w.controller.session.repo.save_global_setting.assert_any_call("live_view_zebra", False)
 
 
+def _shutter_json(cur: int = 0) -> str:
+    import json
+
+    return json.dumps({"shutter": {"cur": cur, "writable": True, "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}]}})
+
+
+def _metering_sidebar(tmp_path, monkeypatch, cur: int = 0):
+    """A sidebar streaming under the white-light preset with a two-rung shutter ladder."""
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(_shutter_json(cur))
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._camera_verified = True
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    w._settings = replace(w._settings, white_mode=True)  # white light: the shutter is free
+    w._refresh_camera_settings()
+    return w, p
+
+
+def _reading(**fields):
+    from negpy.services.capture.calibration import CLIP_CEILING
+    from negpy.services.capture.meter import MeterReading
+
+    base = dict(
+        medium="negative",
+        region="base",
+        measured=0.62 * CLIP_CEILING,
+        clipped=False,
+        clipped_fraction=0.0,
+        shutter="1/5",
+        recommended="1/60",
+        stops=0.54,
+    )
+    return MeterReading(**{**base, **fields})
+
+
+def test_meter_asks_the_worker_with_the_body_shutter_and_ladder_and_gates_scan(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.shutter == "1/60"
+    assert req.shutter_candidates == ("1/60", "1/5")
+    assert w._metering and not w.lv_window.meter_btn.isEnabled()
+    assert "wait for the meter" in w._missing_requirements()
+    w._on_meter()  # a second press while the probe runs
+    assert w.controller.start_exposure_probe.call_count == 1
+
+
+def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading())
+
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+    assert w._pending_exposure_writes == 1  # Scan waits for the body's confirmation
+    assert "wait for the preset exposure to reach the camera" in w._missing_requirements()
+    assert w.lv_window.shutter_stepper.currentText() == "1/60"
+    assert w.lv_window.status.text() == "Meter: negative, base at 62% → 1/60 (+0.5 st)"
+    w._on_camera_setting_applied("shutter")
+    assert w._pending_exposure_writes == 0 and not w._metering
+
+
+def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended="1/160"))
+
+    assert not w.controller.set_camera_setting.called
+    assert "1/160 is not a step this body offers" in w.lv_window.status.text()
+    assert not w._metering
+
+
+def test_meter_past_the_fastest_rung_asks_for_aperture_or_iso(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended=None, stops=0.3))
+
+    assert not w.controller.set_camera_setting.called
+    assert "close the aperture or lower the ISO" in w.lv_window.status.text()
+
+
+def test_meter_is_refused_while_busy_locked_unparseable_or_without_a_ladder(tmp_path, monkeypatch):
+    import json
+
+    w, p = _metering_sidebar(tmp_path, monkeypatch)
+    w._rgb_mode = True
+    w._settings = replace(w._settings, white_mode=False)  # a calibrated RGB preset owns its exposure
+    w._on_meter()
+    w._settings = replace(w._settings, white_mode=True)
+    w._scanning = True
+    w._on_meter()
+    w._scanning = False
+    p.write_text(
+        json.dumps(
+            {
+                "shutter": {
+                    "cur": 2,
+                    "writable": True,
+                    "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}, {"raw": 2, "label": "Bulb"}],
+                }
+            }
+        )
+    )
+    w._on_meter()
+    assert w.lv_window.status.text() == "Meter: set the shutter between 1/60 and 1/5 first"
+    p.write_text(json.dumps({"shutter": {"cur": 0, "writable": False, "options": [{"raw": 0, "label": "1/5"}]}}))
+    w._on_meter()
+
+    assert not w.controller.start_exposure_probe.called
+    assert w.lv_window.status.text() == "Meter: this body publishes no writable shutter"
+
+
+def test_a_failed_probe_keeps_the_stream_and_frees_the_meter(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_failed("could not convert string to float: 'Bulb'")
+
+    assert w.lv_btn.isChecked() and not w._metering
+    assert w.lv_window.meter_btn.isEnabled()
+    assert w.lv_window.status.text().startswith("Meter: could not convert")
+
+
+def test_the_white_light_presets_carry_the_film_type_to_the_probe(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    for name, medium in (
+        ("White Light, Slide", "positive"),
+        ("White Light, B&W Negative", "negative"),
+        ("White Light (B&W or Slide Film)", None),
+    ):
+        index = w.preset_combo.findData(name)
+        assert index >= 0, name
+        w.preset_combo.setCurrentIndex(index)
+        w._on_preset_selected(index)
+        w._metering = False
+        w._on_meter()
+        assert w.controller.start_exposure_probe.call_args.args[0].medium == medium, name
+
+
 def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     import json
 

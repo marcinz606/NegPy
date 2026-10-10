@@ -1,11 +1,11 @@
 """Large pop-out window for the Scanlight live view.
 
-Hosts a `RoiImageLabel` plus an inline toolbar (Scan, Retake and the histogram and zebra
-toggles), a capture progress bar and a status line, so a whole roll can be framed, focused
-and scanned without switching back to the side panel. The live image carries a magnifier
-cursor: a click aims the camera focus magnifier at that spot, a double-click returns to full
-frame. The buttons emit signals; `ScanlightSidebar` wires them and mirrors scanning state +
-status.
+Hosts a `RoiImageLabel` plus an inline toolbar (Scan, Retake, Meter and the histogram and
+zebra toggles), a capture progress bar and a status line, so a whole roll can be framed,
+focused, metered and scanned without switching back to the side panel. The live image
+carries a magnifier cursor: a click aims the camera focus magnifier at that spot, a
+double-click returns to full frame. The buttons emit signals; `ScanlightSidebar` wires them
+and mirrors scanning state + status.
 """
 
 import time
@@ -145,6 +145,7 @@ class LiveViewWindow(QDialog):
     closed = pyqtSignal()
     scanRequested = pyqtSignal()
     retakeRequested = pyqtSignal()
+    meterRequested = pyqtSignal()
 
     def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
@@ -161,6 +162,13 @@ class LiveViewWindow(QDialog):
         self.retake_btn = labeled_action("fa5s.redo", " Retake", "Re-capture the current frame without advancing the counter")
         bar.addWidget(self.scan_btn, 2)
         bar.addWidget(self.retake_btn, 1)
+        # One RAW probe sets the shutter for the light as lit. Hidden with the exposure steppers.
+        self.meter_btn = labeled_action(
+            "fa5s.tachometer-alt",
+            " Meter",
+            "Set the shutter from one RAW probe: a negative's base or a slide's highlights, just under clipping",
+        )
+        bar.addWidget(self.meter_btn, 1)
         # Exposure readouts of the preview frame.
         self.histogram_btn = tool_toggle("fa5s.chart-area", "", "Show the frame's R, G and B histogram under the image")
         self.zebra_btn = tool_toggle("fa5s.grip-lines", "", "Hatch clipped pixels: red at the top of the preview range, blue at the bottom")
@@ -252,6 +260,7 @@ class LiveViewWindow(QDialog):
 
         self.scan_btn.clicked.connect(lambda: self.scanRequested.emit())
         self.retake_btn.clicked.connect(lambda: self.retakeRequested.emit())
+        self.meter_btn.clicked.connect(lambda: self.meterRequested.emit())
 
         # Pin Scan as the dialog's permanent default button. Without this, Qt hands "default"
         # status to whichever autoDefault button was clicked most recently, so pressing Retake
@@ -262,6 +271,7 @@ class LiveViewWindow(QDialog):
         self._key_buttons = {
             "live_view_scan": self.scan_btn,
             "live_view_retake": self.retake_btn,
+            "live_view_meter": self.meter_btn,
             "live_view_histogram": self.histogram_btn,
             "live_view_zebra": self.zebra_btn,
         }

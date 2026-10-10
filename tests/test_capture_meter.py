@@ -1,0 +1,111 @@
+import numpy as np
+import pytest
+
+from negpy.services.capture.calibration import CLIP_CEILING, SHUTTER_CANDIDATES, true_seconds
+from negpy.services.capture.meter import CLIPPED_STEP_STOPS, meter_frame, shutter_at_most
+
+
+def _frame(border: float, picture: float, h: int = 600, w: int = 900, orange: bool = True) -> np.ndarray:
+    """A film strip across the canvas: `border` outside the picture, textured `picture` inside.
+    `orange` tints it like a C-41 base, so the classifier reads a negative."""
+    rng = np.random.default_rng(2)
+    img = np.full((h, w, 3), border, np.float32)
+    y1, y2, x1, x2 = int(0.15 * h), int(0.85 * h), int(0.2 * w), int(0.8 * w)
+    img[y1:y2, x1:x2] = picture * (0.5 + 0.5 * rng.random((y2 - y1, x2 - x1, 1)))
+    if orange:
+        img[:, :, 1] *= 0.7
+        img[:, :, 2] *= 0.5
+    return img * CLIP_CEILING
+
+
+def _is_ceiling(label: str, ideal: float) -> bool:
+    """`label` is the slowest rung at or under `ideal` seconds."""
+    i = SHUTTER_CANDIDATES.index(label)
+    slower = SHUTTER_CANDIDATES[i + 1] if i + 1 < len(SHUTTER_CANDIDATES) else None
+    return true_seconds(label) <= ideal and (slower is None or true_seconds(slower) > ideal)
+
+
+def test_a_negative_places_its_base_at_the_target():
+    reading = meter_frame(_frame(border=0.6, picture=0.25), "1/30", medium="negative")
+
+    assert (reading.medium, reading.region) == ("negative", "base")
+    assert reading.measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.02)
+    ideal = true_seconds("1/30") * 0.9 / 0.6
+    assert reading.recommended is not None and _is_ceiling(reading.recommended, ideal)
+    # The stops reported are the move the rung makes, not the ideal.
+    assert reading.stops == pytest.approx(np.log2(true_seconds(reading.recommended) / true_seconds("1/30")), abs=1e-6)
+
+
+def test_a_positive_places_its_highlights_at_the_target():
+    reading = meter_frame(_frame(border=0.02, picture=0.5, orange=False), "1/30", medium="positive")
+
+    assert (reading.medium, reading.region) == ("positive", "highlights")
+    assert reading.measured == pytest.approx(0.5 * CLIP_CEILING, rel=0.02)
+    assert reading.clipped_fraction == 0.0
+    assert reading.recommended is not None and _is_ceiling(reading.recommended, true_seconds("1/30") * 0.9 / 0.5)
+
+
+def test_without_a_medium_the_classifier_decides():
+    # An orange base reads as a color negative to the import's classifier.
+    reading = meter_frame(_frame(border=0.6, picture=0.25), "1/30")
+
+    assert (reading.medium, reading.region) == ("negative", "base")
+
+
+def test_a_negative_whose_rebate_is_not_brighter_than_its_picture_meters_the_picture():
+    # No visible base: the ring the refiner leaves is picture, which the base never is darker than.
+    reading = meter_frame(_frame(border=0.02, picture=0.25), "1/30", medium="negative")
+
+    assert reading.region == "highlights"
+    assert reading.measured == pytest.approx(0.25 * CLIP_CEILING, rel=0.02)
+
+
+def test_a_clipped_base_is_a_floor_and_steps_down():
+    reading = meter_frame(_frame(border=1.0, picture=0.25), "1/30", medium="negative")
+
+    assert reading.region == "base" and reading.clipped
+    assert reading.stops == pytest.approx(CLIPPED_STEP_STOPS, abs=0.2)
+    assert reading.recommended is not None and true_seconds(reading.recommended) <= true_seconds("1/30") / 4
+
+
+def test_clipped_highlights_beyond_the_budget_step_down_and_say_how_much():
+    reading = meter_frame(_frame(border=0.02, picture=1.5, orange=False), "1/30", medium="positive")
+
+    assert reading.clipped
+    assert reading.clipped_fraction > 0.02
+    assert reading.recommended is not None and true_seconds(reading.recommended) <= true_seconds("1/30") / 4
+
+
+def test_fine_clipped_highlights_count_at_the_probe_resolution():
+    # 2x2 glints on a quarter percent of the picture vanish at detection size; the probe's own pixels keep them.
+    img = _frame(border=0.02, picture=0.3, h=2400, w=3600, orange=False)
+    rng = np.random.default_rng(5)
+    ys, xs = rng.integers(400, 2000, 2200), rng.integers(760, 2860, 2200)
+    for y, x in zip(ys, xs):
+        img[y : y + 2, x : x + 2] = CLIP_CEILING
+
+    reading = meter_frame(img, "1/30", medium="positive")
+
+    assert reading.clipped_fraction == pytest.approx(8800 / (1680 * 2160), rel=0.1)
+    assert reading.measured == pytest.approx(CLIP_CEILING, rel=0.01)  # p99.9 sees the glints
+
+
+def test_a_target_past_the_fastest_rung_is_reported_not_overshot():
+    # Base over target at the fastest rung: no rung is fast enough, and none is written.
+    reading = meter_frame(_frame(border=0.97, picture=0.25), SHUTTER_CANDIDATES[0], medium="negative")
+
+    assert reading.recommended is None
+    assert reading.stops == pytest.approx(np.log2(0.9 / 0.97), abs=0.05)  # the move still needed
+
+
+def test_a_blank_probe_meters_the_whole_frame():
+    reading = meter_frame(np.zeros((120, 180, 3), np.float32), "1/30", medium="positive")
+
+    assert reading.region == "highlights"
+    assert reading.recommended == SHUTTER_CANDIDATES[-1]
+
+
+def test_shutter_at_most_never_overshoots():
+    assert true_seconds(shutter_at_most(0.05, SHUTTER_CANDIDATES)) <= 0.05
+    assert shutter_at_most(1e-6, SHUTTER_CANDIDATES) is None
+    assert shutter_at_most(1e6, SHUTTER_CANDIDATES) == SHUTTER_CANDIDATES[-1]
