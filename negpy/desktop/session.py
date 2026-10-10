@@ -3,7 +3,8 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple
+from contextlib import contextmanager
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
@@ -831,6 +832,8 @@ class DesktopSessionManager(QObject):
         self.settings_saved.connect(self._invalidate_search_facts)
         # is_dirty initialised to False via AppState default
 
+        # Set by carried_crop_kept: a save inside keeps the carried crop as it was.
+        self._keep_carried_crop = False
         migrate_legacy(self.repo)
         migrate_legacy_export_destination(self.repo)
         migrate_auto_crop_sticky_row(self.repo)
@@ -1200,6 +1203,16 @@ class DesktopSessionManager(QObject):
                 new_process = replace(new_process, **{attr: val})
         return replace(config, process=new_process)
 
+    @contextmanager
+    def carried_crop_kept(self) -> Iterator[None]:
+        """Saves inside leave the carried crop (Auto Crop, rect, key) as it was. A Geometry
+        reset clears one frame's placement, which is no choice about auto-crop for later scans."""
+        self._keep_carried_crop = True
+        try:
+            yield
+        finally:
+            self._keep_carried_crop = False
+
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
         """Snapshot the settings a fresh file can inherit, in a single transaction.
 
@@ -1219,8 +1232,8 @@ class DesktopSessionManager(QObject):
                     snapshot[key] = stored[key]
                 else:
                     snapshot.pop(key, None)
-        if has_manual_crop(config.geometry):
-            # A hand-drawn crop is one frame's placement: the carried crop stays as it was, whole.
+        if has_manual_crop(config.geometry) or self._keep_carried_crop:
+            # A hand-drawn crop, or a reset of one, is one frame's placement: the carried crop stays as it was, whole.
             stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
             stored = stored if isinstance(stored, dict) else {}
             for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):

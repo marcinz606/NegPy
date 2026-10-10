@@ -1167,7 +1167,8 @@ class ControlsPanel(QWidget):
         new_proc = cfg.process
         if new_geo.crop_rect != cfg.geometry.crop_rect:
             new_proc = replace(new_proc, **invalidate_local_bounds(new_proc))
-        self.controller.apply_config(replace(cfg, geometry=new_geo, process=new_proc), persist=True)
+        with self.controller.session.carried_crop_kept():
+            self.controller.apply_config(replace(cfg, geometry=new_geo, process=new_proc), persist=True)
         if new_geo.crop_rect != cfg.geometry.crop_rect:
             self.controller.sync_auto_crop_lock()
 

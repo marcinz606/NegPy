@@ -443,6 +443,7 @@ def test_the_geometry_reset_clears_a_hand_drawn_crop_and_keeps_auto_crop():
     geo = panel.controller.apply_config.call_args.args[0].geometry
     assert geo.rotation == 0 and not geo.crop_from_auto and geo.crop_rect is None
     panel.controller.sync_auto_crop_lock.assert_called_once_with()
+    panel.controller.session.carried_crop_kept.assert_called()
 
 
 def test_reset_film_fields_does_nothing_at_the_defaults():

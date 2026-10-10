@@ -1865,6 +1865,18 @@ class TestCarriedAutoCrop(unittest.TestCase):
         self.assertTrue(self.store["sticky_config"]["crop_from_auto"])
         self.assertIsNone(self.store["sticky_config"]["crop_rect"])
 
+    def test_a_save_inside_carried_crop_kept_leaves_the_carried_auto_crop(self):
+        """A Geometry reset clears a hand-drawn crop to Auto off with no rect; the next scan keeps auto-crop."""
+        self._set_auto_crop(True)
+        config = self.session.state.config
+        cleared = replace(config, geometry=replace(config.geometry, crop_rect=None, crop_from_auto=False))
+
+        with self.session.carried_crop_kept():
+            self.session.update_config(cleared, persist=True, render=False)
+
+        self.assertTrue(self.store["sticky_config"]["crop_from_auto"])
+        self.assertTrue(self._fresh().geometry.crop_from_auto)
+
     def test_with_the_crop_row_ticked_a_hand_drawn_crop_does_not_carry(self):
         """The carried rect and Auto flag stay a consistent pair: a fresh frame gets the last
         auto setup, not a hand-drawn rect marked auto."""
