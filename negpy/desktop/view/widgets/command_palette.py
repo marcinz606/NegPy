@@ -1,10 +1,12 @@
 """Find: one box that reaches every slider, card and action by name."""
 
 from dataclasses import dataclass
+import sys
 from typing import Callable
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from negpy.desktop.view.shortcut_editor_search import HIGHLIGHT_MS
@@ -214,6 +216,15 @@ class CommandPalette(QDialog):
         self.empty = hint_label("Type a slider, card or action, or another editor's word for it: contrast, white balance.")
         root.addWidget(self.empty)
 
+        control = "Meta" if sys.platform == "darwin" else "Ctrl"
+        root.addWidget(
+            hint_label(
+                f"{display_key('Up')}/{display_key('Down')} or "
+                f"{display_key(control + '+P')}/{display_key(control + '+N')} to select, "
+                f"{display_key('Return')} to open, {display_key('Esc')} to close."
+            )
+        )
+
         self.setFixedWidth(560)
         self._refresh("")
 
@@ -268,19 +279,55 @@ class CommandPalette(QDialog):
         return row, where
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self.query and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            count = self.results.count()
-            if key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and count:
-                step = 1 if key == Qt.Key.Key_Down else -1
-                self.results.setCurrentRow((self.results.currentRow() + step) % count)
+        if obj is self.query and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
+            command = self._query_command(event)
+            if command is None:
+                return super().eventFilter(obj, event)
+            if event.type() == QEvent.Type.ShortcutOverride:
+                event.accept()
                 return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            count = self.results.count()
+            if command == "close":
+                self.reject()
+            elif command == "open":
                 item = self.results.currentItem()
                 if item is not None:
                     self._activate(item)
-                return True
+            elif count:
+                row = self.results.currentRow()
+                if command in ("next", "previous"):
+                    row = (row + (1 if command == "next" else -1)) % count
+                elif command in ("page_next", "page_previous"):
+                    row = max(0, min(count - 1, row + (_VISIBLE_ROWS if command == "page_next" else -_VISIBLE_ROWS)))
+                else:
+                    row = 0 if command == "first" else count - 1
+                self.results.setCurrentRow(row)
+                self.results.scrollToItem(self.results.currentItem())
+            return True
         return super().eventFilter(obj, event)
+
+    @staticmethod
+    def _query_command(event: QKeyEvent) -> str | None:
+        key, modifiers = event.key(), event.modifiers()
+        control = Qt.KeyboardModifier.MetaModifier if sys.platform == "darwin" else Qt.KeyboardModifier.ControlModifier
+        if modifiers == control:
+            command = {Qt.Key.Key_N: "next", Qt.Key.Key_P: "previous", Qt.Key.Key_G: "close"}.get(key)
+            if command is not None:
+                return command
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            ends = (Qt.Key.Key_Up, Qt.Key.Key_Down) if sys.platform == "darwin" else (Qt.Key.Key_Home, Qt.Key.Key_End)
+            return {ends[0]: "first", ends[1]: "last"}.get(key)
+        if modifiers in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.KeypadModifier):
+            return {
+                Qt.Key.Key_Down: "next",
+                Qt.Key.Key_Up: "previous",
+                Qt.Key.Key_PageDown: "page_next",
+                Qt.Key.Key_PageUp: "page_previous",
+                Qt.Key.Key_Return: "open",
+                Qt.Key.Key_Enter: "open",
+                Qt.Key.Key_Escape: "close",
+            }.get(key)
+        return None
 
     def _activate(self, item: QListWidgetItem) -> None:
         entry = item.data(Qt.ItemDataRole.UserRole)
