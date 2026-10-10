@@ -122,10 +122,13 @@
           (old.postInstall or "")
           + ''
             site_packages="$out/${python.sitePackages}"
-            cp -r icc media crosstalk gear "$site_packages/"
-            cp -r negpy/features "$site_packages/negpy/"
-            cp -r negpy/desktop/view/styles "$site_packages/negpy/desktop/view/"
-            cp VERSION "$site_packages/"
+            # An editable install has no package tree here and reads these from the repo.
+            if [ -d "$site_packages/negpy" ]; then
+              cp -r icc media crosstalk gear "$site_packages/"
+              cp -r negpy/features "$site_packages/negpy/"
+              cp -r negpy/desktop/view/styles "$site_packages/negpy/desktop/view/"
+              cp VERSION "$site_packages/"
+            fi
           '';
       });
     };
@@ -265,6 +268,8 @@
               pkgs.vulkan-loader
               pkgs.libGL
             ];
+            # Replaces the host's path: plugins from a different Qt build abort QApplication.
+            QT_PLUGIN_PATH = "${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}";
           };
           shellHook = ''
             unset PYTHONPATH
