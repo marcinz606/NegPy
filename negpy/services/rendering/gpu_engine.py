@@ -55,6 +55,7 @@ from negpy.features.lab.models import SharpenMethod
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
+from negpy.features.sabattier.logic import SABATTIER_CONSTANTS, line_sigma_px
 from negpy.features.exposure.logic import diffusion_mix
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
@@ -89,7 +90,10 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 logger = get_logger(__name__)
 
 # Mirrors ToningUniforms.alt_mode in toning.wgsl.
-_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
+# Toning's view of the print: a Sabattier print is plain silver, so it reads as none.
+_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2, AltProcess.SABATTIER: 0}
+# One pass each, pointwise; Sabattier's three passes are dispatched on their own.
+_ALT_SHADER = {AltProcess.LITH: "lith", AltProcess.CYANOTYPE: "cyanotype"}
 
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
@@ -301,6 +305,9 @@ class GPUEngine:
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
             "lith": get_resource_path(os.path.join("negpy", "features", "lith", "shaders", "lith.wgsl")),
             "cyanotype": get_resource_path(os.path.join("negpy", "features", "cyanotype", "shaders", "cyanotype.wgsl")),
+            "sabattier_mask": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_mask.wgsl")),
+            "sabattier_h": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_h.wgsl")),
+            "sabattier_v": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_v.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -324,6 +331,7 @@ class GPUEngine:
             "lab",
             "lith",
             "cyanotype",
+            "sabattier",
             "toning",
             "finish",
             "layout",
@@ -340,6 +348,7 @@ class GPUEngine:
             "lab": 96,
             "lith": 64,
             "cyanotype": 64,
+            "sabattier": 32,
             "toning": 64,
             "finish": 60,
             "layout": 48,
@@ -365,6 +374,8 @@ class GPUEngine:
         self._last_full_frame: bool = False
         # (radius, scale_factor) of the sharpen taps currently in sharpen_k.
         self._sharpen_kernel_key: Optional[tuple] = None
+        # The sigma of the Mackie-line taps currently in sabattier_k.
+        self._sabattier_kernel_key: Optional[float] = None
         # (method, radius, dims) of the blur state in the sharpen textures; None once their input moved.
         self._sharpen_state_key: Optional[tuple] = None
 
@@ -541,6 +552,8 @@ class GPUEngine:
         )
         # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius <= 511.
         self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        # The Mackie-line blur taps, the same helper's, for the Sabattier passes.
+        self._buffers["sabattier_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # Filed-carrier jitter profiles are a fixed table, so upload once.
         self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
@@ -609,6 +622,7 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask_override: Optional[Tuple[np.ndarray, float, Tuple[int, int, int, int]]] = None,
+        sabattier_sigma_override: Optional[float] = None,
         diffusion_override: Optional[Tuple[np.ndarray, Tuple[int, int, int, int]]] = None,
         # Crop tool preview: toning and finish span the whole rotated frame, with no border or
         # carrier; the meter, contrast mask and active_roi stay on the crop, as in the CPU engine.
@@ -1034,6 +1048,10 @@ class GPUEngine:
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
             contrast_mask=mask_uniform,
+            # A tile is a slice of the export, so its lines take the whole frame's width.
+            sabattier_sigma=sabattier_sigma_override
+            if sabattier_sigma_override is not None
+            else line_sigma_px(settings.altproc.sabattier_agitation, (h_rot, w_rot)),
             plane_rect=plane_rect,
             diffusion_mix=diffusion_mix(settings.exposure.diffusion) if diff_plane is not None else 0.0,
         )
@@ -1325,30 +1343,49 @@ class GPUEngine:
 
         tex_pre_toning = tex_lab
 
-        # --- Alternative processes (lith / cyanotype) ---
-        # Mutually exclusive, and no pass at all when neither is picked. Toning then reads
+        # --- Alternative processes (lith / cyanotype / sabattier) ---
+        # Mutually exclusive, and no pass at all when none is picked. Toning then reads
         # tex_lab directly.
         alt = settings.altproc.alt_process
         if alt != AltProcess.NONE and settings.process.process_mode == ProcessMode.BW:
-            shader = "lith" if alt == AltProcess.LITH else "cyanotype"
-            tex_alt = self._get_intermediate_texture(
-                w_rot,
-                h_rot,
-                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
-                shader,
-            )
-            if start_stage <= 5:
-                self._dispatch_pass(
-                    enc,
-                    shader,
-                    [
-                        (0, tex_lab.view),
-                        (1, tex_alt.view),
-                        (2, self._get_uniform_binding(shader)),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
+            usage_alt = wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC
+            if alt == AltProcess.SABATTIER:
+                # The developed-silver mask, its blur in two separable passes (the Mackie line
+                # is the blur's reach), then the fold. Without lines only the fold runs.
+                tex_alt = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier")
+                if start_stage <= 5:
+                    sab_u = self._get_uniform_binding("sabattier")
+                    sab_k = self._buffers["sabattier_k"]
+                    tex_bromide = tex_lab
+                    if self._sabattier_kernel_key:
+                        tex_sab_mask = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier_mask")
+                        tex_bromide = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier_h")
+                        self._dispatch_pass(enc, "sabattier_mask", [(0, tex_lab.view), (1, tex_sab_mask.view), (2, sab_u)], w_rot, h_rot)
+                        self._dispatch_pass(
+                            enc, "sabattier_h", [(0, tex_sab_mask.view), (1, tex_bromide.view), (2, sab_u), (3, sab_k)], w_rot, h_rot
+                        )
+                    self._dispatch_pass(
+                        enc,
+                        "sabattier_v",
+                        [(0, tex_lab.view), (1, tex_bromide.view), (2, tex_alt.view), (3, sab_u), (4, sab_k)],
+                        w_rot,
+                        h_rot,
+                    )
+            else:
+                shader = _ALT_SHADER[alt]
+                tex_alt = self._get_intermediate_texture(w_rot, h_rot, usage_alt, shader)
+                if start_stage <= 5:
+                    self._dispatch_pass(
+                        enc,
+                        shader,
+                        [
+                            (0, tex_lab.view),
+                            (1, tex_alt.view),
+                            (2, self._get_uniform_binding(shader)),
+                        ],
+                        w_rot,
+                        h_rot,
+                    )
             tex_pre_toning = tex_alt
 
         if start_stage <= 6:
@@ -1587,6 +1624,7 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask: Optional[Tuple[float, float, float, float, float]] = None,
+        sabattier_sigma: float = 0.0,
         plane_rect: Optional[Tuple[float, float, float, float]] = None,
         diffusion_mix: float = 0.0,
     ) -> None:
@@ -2091,6 +2129,32 @@ class GPUEngine:
             + b"\x00" * 4
         )
 
+        # The Mackie-line taps are gaussian_kernel_1d's, as the CPU convolves with, uploaded
+        # to sabattier_k; the shaders take the half-width from the array itself. A zero
+        # sigma leaves the key None, which also skips the mask and blur passes.
+        sc = SABATTIER_CONSTANTS
+        sab_sigma = max(float(sabattier_sigma), 0.0)
+        sab_radius = 0
+        if altproc.alt_process == AltProcess.SABATTIER and sab_sigma > 0.0:
+            sab_kernel = gaussian_kernel_1d(sab_sigma)
+            sab_radius = len(sab_kernel) // 2
+            if self._sabattier_kernel_key != sab_sigma:
+                self._buffers["sabattier_k"].upload(sab_kernel)
+                self._sabattier_kernel_key = sab_sigma
+        else:
+            self._sabattier_kernel_key = None
+        sa_data = struct.pack(
+            "ffffffff",
+            float(altproc.sabattier_reexposure) * lith_dmax,
+            float(sc["fold_width"]),
+            float(sc["edge_width"]),
+            float(altproc.sabattier_strength),
+            float(sab_radius),
+            1.0 if sab_radius > 0 else 0.0,
+            lith_dmax,
+            0.0,
+        )
+
         t_data = (
             struct.pack(
                 "ffff",
@@ -2167,7 +2231,8 @@ class GPUEngine:
 
         full_buffer = bytearray()
         for name, d in zip(
-            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, t_data, f_data, y_data, dh_data]
+            self._uniform_names,
+            [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, sa_data, t_data, f_data, y_data, dh_data],
         ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
@@ -2722,6 +2787,13 @@ class GPUEngine:
         # Chroma Denoise taps reach 2 * chroma_denoise * scale_factor px (lab.wgsl).
         if settings.lab.chroma_denoise > 0.0:
             halo = max(halo, int(np.ceil(2.0 * settings.lab.chroma_denoise * scale_factor)) + 1)
+        # The Mackie-line blur reads its kernel's half-width each side, sigma from the whole
+        # frame's short side, so every tile draws the frame's line.
+        sabattier_sigma = None
+        if settings.altproc.alt_process == AltProcess.SABATTIER and settings.process.process_mode == ProcessMode.BW:
+            sabattier_sigma = line_sigma_px(settings.altproc.sabattier_agitation, (h_rot, w_rot))
+            if sabattier_sigma > 0.0:
+                halo = max(halo, len(gaussian_kernel_1d(sabattier_sigma)) // 2 + 1)
         halo = min(halo, 512)
 
         # Opt-in (AppConfig.low_vram_export_tiling, off by default): a smaller tile
@@ -2772,6 +2844,7 @@ class GPUEngine:
                     cam_xyz=cam_xyz,
                     camera_wb=camera_wb,
                     contrast_mask_override=global_mask,
+                    sabattier_sigma_override=sabattier_sigma,
                     diffusion_override=global_diffusion,
                 )
                 handle = self._submit_readback(tile_res, slot=0 if low_vram else tile_index % 2)

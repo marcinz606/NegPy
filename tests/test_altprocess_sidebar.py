@@ -61,6 +61,12 @@ def test_only_the_selected_process_shows_its_controls() -> None:
     lith = _sidebar(Sensitizer.CLASSIC, alt_process=AltProcess.LITH)
     lith.sync_ui()
     assert lith.lith_block.isVisibleTo(lith) and not lith.cyano_block.isVisibleTo(lith)
+    assert not lith.sabattier_block.isVisibleTo(lith)
+
+    sab = _sidebar(Sensitizer.CLASSIC, alt_process=AltProcess.SABATTIER)
+    sab.sync_ui()
+    assert sab.sabattier_block.isVisibleTo(sab)
+    assert not sab.lith_block.isVisibleTo(sab) and not sab.cyano_block.isVisibleTo(sab)
 
 
 def test_neither_block_shows_outside_bw() -> None:
@@ -70,6 +76,11 @@ def test_neither_block_shows_outside_bw() -> None:
     sidebar.sync_ui()
     assert not sidebar.cyano_block.isVisibleTo(sidebar)
     assert not sidebar.mode_btn.isEnabled()
+    for alt in (AltProcess.LITH, AltProcess.SABATTIER):
+        config = replace(base, altproc=replace(base.altproc, alt_process=alt))
+        sidebar = AltProcessSidebar(SimpleNamespace(state=SimpleNamespace(config=config)))
+        sidebar.sync_ui()
+        assert not sidebar.lith_block.isVisibleTo(sidebar) and not sidebar.sabattier_block.isVisibleTo(sidebar)
 
 
 def test_a_color_frame_grays_the_panel_and_says_why() -> None:

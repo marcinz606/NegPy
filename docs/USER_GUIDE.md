@@ -62,7 +62,7 @@ A peek shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** badge. `Esc` closes a
 |-----|--------|---------------|
 | **Geometry** | Geometry | Crop, straighten, easel movements |
 | **Exposure** | Filtration · Tone · Dodge & Burn | White balance, density, contrast, curve, local burns |
-| **Look** | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
+| **Look** | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, Sabattier, toning |
 | **Finish** | Retouch · Finishing | Dust, vignette, border, carrier |
 | **Favorites** | Your chosen sliders · Presets | Most-used controls, saved edits |
 | **History** | Work prints · Edit history | Named versions, undo trail |
@@ -514,7 +514,7 @@ What a lab scanner (Frontier or Noritsu) does automatically.
 <!-- panel:altproc -->
 ### 6.2 Alternative Processes
 
-Pick **None / Lith / Cyanotype**; only that process's controls show. B&W Negative only, off by default.
+Pick **None / Lith / Cyanotype / Sabattier**; only that process's controls show. B&W Negative only, off by default.
 
 #### Lith
 
@@ -533,6 +533,14 @@ UV contact print on iron-salt paper: Prussian blue instead of black, with green 
 *   **Exposure Scale** (0.8 to 2.8 log D, default 1.4): the printable density range, the contrast control; shorter is more contrasty. Traditional cyanotype is about 1.0 to 1.2, Ware's new about 2.4.
 *   **Bleach** (0.0 to 0.5, default 0): washing soda; removes blue, highlights first.
 *   **Tannin** (0.0 to 0.5, default 0): tea, coffee or tannic acid; turns bleached iron brown and a little deeper. Bleach first for full brown; Tannin alone for split blue-brown.
+
+#### Sabattier
+
+The print is flashed with white light part-way through development: the light tones reverse and fold back toward gray, the dense ones hold, and a light Mackie line runs along every edge between dark and light. The print stays neutral silver, so every toner works on it.
+
+*   **Strength** (0 to 2, default 1.3): the second exposure's length. Below 1 the light tones flatten toward the fold; above 1 they reverse, the lighter the darker.
+*   **Re-exposure** (0.1 to 0.9, default 0.45): where the fold sits, as a fraction of the paper's Dmax. Tones denser than it hold.
+*   **Agitation** (0 to 1, default 0.7): rocking the tray after the flash. In a still bath (0) the shadows' bromide creeps into the light tones and draws wide Mackie lines; constant agitation (1) washes it away and draws none.
 
 ---
 

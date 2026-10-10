@@ -785,6 +785,30 @@ class TestLithParity(_AltProcessParity):
         self._assert_did_something(s, self._settings(alt_process=AltProcess.LITH))
 
 
+class TestSabattierParity(_AltProcessParity):
+    """CPU vs GPU parity for the Sabattier passes: the fold, and the Mackie-line blur that
+    pass 1 and pass 2 split between them."""
+
+    def test_enabled(self):
+        s = self._settings(alt_process=AltProcess.SABATTIER)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings())
+
+    def test_no_lines_and_a_hard_fold(self):
+        self._run_and_compare(self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=1.0, sabattier_strength=1.4))
+
+    def test_wide_lines(self):
+        s = self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=0.0)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=1.0))
+
+    def test_sabattier_selenium(self):
+        """Plain silver: selenium tones it like an ordinary print."""
+        s = self._settings(ToningConfig(selenium_strength=0.8), alt_process=AltProcess.SABATTIER)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.SABATTIER))
+
+
 class TestCyanotypeParity(_AltProcessParity):
     """CPU vs GPU parity for the cyanotype shader."""
 

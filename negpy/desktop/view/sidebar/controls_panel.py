@@ -1171,6 +1171,9 @@ class ControlsPanel(QWidget):
                 alt.cyano_scale != _alt.cyano_scale,
                 alt.cyano_bleach != _alt.cyano_bleach,
                 alt.cyano_tannin != _alt.cyano_tannin,
+                alt.sabattier_strength != _alt.sabattier_strength,
+                alt.sabattier_reexposure != _alt.sabattier_reexposure,
+                alt.sabattier_agitation != _alt.sabattier_agitation,
             ]
         )
 

@@ -3129,8 +3129,8 @@ class AppController(QObject):
         self.printing_notes_changed.emit(self.state.printing_notes)
 
     def _set_alt_process(self, target: AltProcess, force: Optional[bool] = None) -> None:
-        """B&W only — the stage is a no-op in any other mode. The two processes are
-        mutually exclusive, so selecting one clears the other."""
+        """B&W only — the stage is a no-op in any other mode. The processes are
+        mutually exclusive, so selecting one clears the others."""
         cfg = self.state.config
         on = (cfg.altproc.alt_process != target) if force is None else bool(force)
         mode = target if on else AltProcess.NONE
@@ -3142,6 +3142,9 @@ class AppController(QObject):
 
     def toggle_cyanotype(self, force: Optional[bool] = None) -> None:
         self._set_alt_process(AltProcess.CYANOTYPE, force)
+
+    def toggle_sabattier(self, force: Optional[bool] = None) -> None:
+        self._set_alt_process(AltProcess.SABATTIER, force)
 
     def request_printing_notes_export(self) -> None:
         """Save the marked-up work print as its own file. The annotated pixels live in the

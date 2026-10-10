@@ -33,6 +33,7 @@ from negpy.features.transparency.processor import TransferProcessor, Transparenc
 from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.cyanotype.processor import CyanotypeProcessor
 from negpy.features.lith.processor import LithProcessor
+from negpy.features.sabattier.processor import SabattierProcessor
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
@@ -304,6 +305,7 @@ class DarkroomEngine:
             lith_paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
             current_img = LithProcessor(settings.altproc, lith_paper).process(current_img, context)
             current_img = CyanotypeProcessor(settings.altproc).process(current_img, context)
+            current_img = SabattierProcessor(settings.altproc, lith_paper).process(current_img, context)
 
             current_img = ToningProcessor(settings.toning, settings.altproc.alt_process).process(current_img, context)
 

@@ -373,6 +373,7 @@ class ShortcutManager:
             "toggle_grain_focuser": controller.toggle_grain_focuser,
             "toggle_lith": controller.toggle_lith,
             "toggle_cyanotype": controller.toggle_cyanotype,
+            "toggle_sabattier": controller.toggle_sabattier,
             "toggle_printing_notes": controller.toggle_printing_notes,
             "toggle_soft_proof": lambda: controller.set_soft_proof(not controller.state.soft_proof_enabled),
             "cancel_tool": lambda: _context_cancel(controller, self.window),

@@ -890,7 +890,8 @@ class ImageProcessor:
             or t.vanadium_strength != 0.0
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
-            or settings.altproc.alt_process != AltProcess.NONE
+            # A Sabattier print is plain silver; lith and cyanotype carry their own color.
+            or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
         )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 

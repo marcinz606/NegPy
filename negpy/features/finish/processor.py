@@ -39,7 +39,8 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
         or mode not in (ProcessMode.C41, ProcessMode.BW)
         or settings.process.positive_source
         or settings.exposure.render_intent == RenderIntent.FLAT
-        or settings.altproc.alt_process != AltProcess.NONE
+        # Lith and cyanotype color is not in the ramp; a Sabattier print is plain silver.
+        or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
     ):
         return linear_carrier_tone()
     floors = np.asarray(bounds.floors, dtype=np.float32)

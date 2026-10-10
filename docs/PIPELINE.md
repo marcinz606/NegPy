@@ -464,9 +464,9 @@ Mimics lab scanners such as Frontier or Noritsu. Steps, in order:
 ---
 
 ## 7. Alternative Processes
-**Code**: `negpy.features.lith`, `negpy.features.cyanotype`; config `negpy.features.altprocess`
+**Code**: `negpy.features.lith`, `negpy.features.cyanotype`, `negpy.features.sabattier`; config `negpy.features.altprocess`
 
-One optional non-enlarging process (B&W Negative mode only), between Lab and Toning so the toners act on it. Lith and cyanotype are mutually exclusive (one `alt_process` enum), default neither; then both engines skip the stage.
+One optional process (B&W Negative mode only), between Lab and Toning so the toners act on it. Lith, cyanotype and Sabattier are mutually exclusive (one `alt_process` enum), default none; then both engines skip the stage.
 
 ### 7.1 Lith
 
@@ -501,6 +501,19 @@ $$D = D_{max}\,(1 + T g)\,u$$
 *   No silver, so the six chemical toners are skipped. Split toning still applies.
 
 Not modelled: **solarisation** (the reversal dries back to blue, so the finished print does not show it), bronzing, paper texture.
+
+### 7.3 Sabattier
+
+A print re-exposed to white light part-way through development. Where silver has developed, the flash finds little fresh halide and exhausted developer, so the dense tones hold; where the print is still light the halide is fresh and develops after the flash, so the lighter the tone the more it reverses, and the scale folds at the re-exposure density. Bromide released by the developing dense areas diffuses into the adjoining light ones and restrains their re-development: the Mackie line, a light line along every edge between dark and light. On the print density $D$, with $R = \rho D_{max}$, strength $s$, fold width $w = 0.08$ and edge width $w_e = 0.10$ (`SABATTIER_CONSTANTS`):
+
+$$g = \sigma\!\left(\frac{D - R}{w_e}\right), \qquad D' = D + s\,\big(1 - \ell\,\text{blur}_{\sigma_m}(g)\big)\, w \ln\!\big(1 + e^{(R - D)/w}\big)$$
+
+*   **Strength** $s$ (0 to 2, default 1.3): the second exposure's length. Below 1 the light tones flatten toward the fold, at 1 they sit on it, above 1 they reverse, the lighter the darker; paper white comes back at $sR$, clamped to $D_{max}$.
+*   **Re-exposure** $\rho$ (0.1 to 0.9 of $D_{max}$, default 0.45): the density the fold sits at. Tones denser than it hold.
+*   **Agitation** $a$ (0 to 1, default 0.7): the tray's rocking after the flash, which sweeps the bromide off the edges. $\sigma_m = (1 - a)$ % of the frame's short side, the bromide's reach and so the Mackie lines' width; at 1 there are none ($\ell = 0$). The blur is the stage's one spatial term, a separable Gaussian in render pixels (`line_sigma_px`) whose taps come from `gaussian_kernel_1d` on both engines, so preview, export and the two engines draw the same line; a tiled export grows its halo by the kernel's half-width.
+*   The print is neutral silver, so the toners act on it as on a plain print.
+
+Not modelled: the warm second-development tone of chlorobromide papers, pseudo-solarization of the negative.
 
 ---
 
