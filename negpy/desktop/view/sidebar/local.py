@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
 import qtawesome as qta
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
@@ -129,7 +129,7 @@ class LocalSidebar(BaseSidebar):
         )
 
         self._tone_keys = (MaskKey.OFF, MaskKey.HIGHLIGHTS, MaskKey.SHADOWS)
-        self.tone_btn = ChoiceButton(
+        self.tone_btn = SegmentedChoice(
             (("fa5s.adjust", "All"), ("fa5s.sun", "Highlights"), ("fa5s.moon", "Shadows")),
             "Which tones inside the selected mask's shape it acts on",
         )
@@ -308,10 +308,10 @@ class LocalSidebar(BaseSidebar):
             limited = limited_indices(conf)
             full = has_selection and idx not in limited and len(limited) >= MAX_KEYED_MASKS
             self.tone_btn.setEnabled(editable)
-            for key, action in zip(self._tone_keys, self.tone_btn.choice_menu.actions()):
+            for i, key in enumerate(self._tone_keys):
                 blocked = full and key != MaskKey.OFF
-                action.setEnabled(not blocked)
-                action.setToolTip(_TONE_FULL_TIP if blocked else _TONE_TIPS[key])
+                self.tone_btn.set_choice_enabled(i, not blocked)
+                self.tone_btn.set_choice_tooltip(i, _TONE_FULL_TIP if blocked else _TONE_TIPS[key])
             keyed = editable and mask.key != MaskKey.OFF
             self.flash_slider.setEnabled(editable and not keyed)
             self.key_zone_slider.setEnabled(keyed)

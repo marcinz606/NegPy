@@ -226,3 +226,43 @@ class TestResetToRoll:
         section = CollapsibleSection("Tone")
         row = section._header_row
         assert row.indexOf(section.roll_revert_btn) == row.indexOf(section.reset_btn) + 1
+
+
+def test_a_long_combo_does_not_hold_the_card_wide() -> None:
+    from PyQt6.QtWidgets import QComboBox, QVBoxLayout
+
+    from negpy.desktop.view.styles.templates import FIELD_LABEL_WIDTH
+
+    body = QWidget()
+    combo = QComboBox()
+    combo.addItem("Kodak Ektar 100 (approx), a very long crosstalk matrix name")
+    QVBoxLayout(body).addWidget(combo)
+    section = CollapsibleSection("Calibration")
+
+    section.set_content(body)
+
+    assert combo.minimumWidth() == FIELD_LABEL_WIDTH
+    assert combo.sizeHint().width() > FIELD_LABEL_WIDTH
+
+
+def test_a_field_row_value_reserve_gives_way_in_a_narrow_card() -> None:
+    from PyQt6.QtWidgets import QComboBox, QVBoxLayout
+
+    from negpy.desktop.view.styles.templates import field_row
+    from negpy.desktop.view.widgets.sliders import CompactSlider, align_slider_columns
+
+    body = QWidget()
+    col = QVBoxLayout(body)
+    col.addWidget(CompactSlider("Strength", 0.0, 1.0, 0.5))
+    combo = QComboBox()
+    combo.addItem("Generic C41")
+    row = field_row("Matrix", combo)
+    col.addLayout(row)
+
+    align_slider_columns(body)
+    align_slider_columns(body)
+
+    spacers = [row.itemAt(i).spacerItem() for i in range(row.count()) if row.itemAt(i).spacerItem() is not None]
+    assert len(spacers) == 1
+    assert spacers[0].sizeHint().width() > 0
+    assert spacers[0].minimumSize().width() == 0

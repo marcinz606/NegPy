@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, icon_button, section_subheader, tool_toggle
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.domain.models import (
@@ -247,7 +247,7 @@ class ExportSettingsForm(QWidget):
 
         root.addWidget(section_subheader("SIZE"))
 
-        self.mode_btn = ChoiceButton(
+        self.mode_btn = SegmentedChoice(
             (("", "Original"), ("", "Print"), ("", "Pixels")),
             "Original exports at the source resolution. Print sizes the export for a print: paper "
             "size and DPI. Pixels sizes it to a pixel count on the long edge",

@@ -10,13 +10,13 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
+from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_selector
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, header_row, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.stats import CLIPPING_TOOLTIP
 from negpy.features.exposure.stats import clipping_row
 from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
@@ -39,9 +39,9 @@ _COLOR_CLIP_MAX = 5.0
 # Mode bar: one film icon per mode, with the color carrying which one. Orange mask,
 # silver grey, slide blue.
 _MODES = (
-    (ProcessMode.C41, " Color", THEME.mode_c41, "Color Negative (C-41) — orange-masked negative"),
-    (ProcessMode.BW, " B&&W", THEME.mode_bw, "B&W Negative — panchromatic silver negative"),
-    (ProcessMode.E6, " Slide", THEME.mode_e6, "Transparency — slide / reversal film"),
+    (ProcessMode.C41, "Color", THEME.mode_c41, "Color Negative (C-41) — orange-masked negative"),
+    (ProcessMode.BW, "B&W", THEME.mode_bw, "B&W Negative — panchromatic silver negative"),
+    (ProcessMode.E6, "Slide", THEME.mode_e6, "Transparency — slide / reversal film"),
 )
 
 
@@ -101,10 +101,9 @@ class ProcessSidebar(BaseSidebar):
 
         mode_row = QHBoxLayout()
         mode_col.addLayout(mode_row)
-        self.mode_btn = ChoiceButton(
-            tuple(("mdi6.film", label, color) for _mode, label, color, _tip in _MODES),
-            "<br>".join(tip for *_rest, tip in _MODES),
-        )
+        self.mode_btn = SegmentedChoice(tuple(("mdi6.film", label, color) for _mode, label, color, _tip in _MODES), "Film process")
+        for i, (*_rest, tip) in enumerate(_MODES):
+            self.mode_btn.set_choice_tooltip(i, tip)
         mode_row.addWidget(self.mode_btn, 1)
         mode_row.addWidget(self.autodetect_btn)
 
@@ -182,8 +181,7 @@ class ProcessSidebar(BaseSidebar):
         analysis_col.addWidget(self.luma_range_clip_slider)
         analysis_col.addWidget(self.color_range_clip_slider)
 
-        self.ch_btn = ChoiceButton(
-            (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
+        self.ch_btn = channel_selector(
             "Global sets the shared white/black point offsets (all layers). Red, Green and Blue "
             "trim the cyan-, magenta- and yellow-dye emulsions",
         )

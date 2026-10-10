@@ -46,7 +46,7 @@ def test_mode_buttons_track_config_and_switch_mode(qapp):
     assert sidebar.mode_btn.currentIndex() == 2
     controller.set_process_mode.assert_not_called()
 
-    sidebar.mode_btn.choice_menu.actions()[1].trigger()
+    sidebar.mode_btn.setCurrentIndex(1)
     controller.set_process_mode.assert_called_once_with(ProcessMode.BW)
 
 
@@ -242,7 +242,7 @@ def test_white_black_point_retarget_and_sync(qapp):
     assert abs(sidebar.white_point_slider.value() - 0.08) < 1e-9
     assert abs(sidebar.black_point_slider.value() - (-0.02)) < 1e-9
     assert sidebar.white_point_slider.label.text() == "White Point R"
-    assert sidebar.ch_btn.edited_dot.isVisibleTo(sidebar.ch_btn)
+    assert sidebar.ch_btn.is_edited(1)
 
     sidebar.ch_btn.setCurrentIndex(0)
     assert abs(sidebar.white_point_slider.value() - 0.1) < 1e-9

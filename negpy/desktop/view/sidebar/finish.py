@@ -1,9 +1,9 @@
 import qtawesome as qta
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QHBoxLayout
+from PyQt6.QtWidgets import QColorDialog
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_row, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 
@@ -53,7 +53,6 @@ class FinishSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.border_slider)
 
-        row3 = QHBoxLayout()
         self.border_color_btn = ChoiceButton(
             (("fa5s.file", "Paper White"), ("fa5s.palette", "Custom")),
             "Border color: Paper White tints the mat with the toned paper white; Custom uses the picked color",
@@ -61,9 +60,7 @@ class FinishSidebar(BaseSidebar):
         self.border_color_btn.setCurrentIndex(0 if conf.border_match_paper else 1)
         self.color_btn = self._icon_action("fa5s.square", "Pick the custom border color…")
         self._update_color_btn(conf.border_color)
-        row3.addWidget(self.border_color_btn, 1)
-        row3.addWidget(self.color_btn)
-        self.layout.addWidget(SliderGroup(self.bottom_weight_slider, row3))
+        self.layout.addWidget(SliderGroup(self.bottom_weight_slider, field_row("Color", self.border_color_btn, self.color_btn)))
 
         self.layout.addStretch()
 

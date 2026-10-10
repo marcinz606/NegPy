@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout, QWidget
 
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
@@ -57,9 +57,9 @@ class AltProcessSidebar(BaseSidebar):
                 "The print stays neutral silver, so every toner acts on it as on a plain print",
             ),
         )
-        self.mode_btn = ChoiceButton(tuple((icon, label) for _m, icon, label, _t in self._modes), "Alternative printing process")
-        for action, (*_rest, tip) in zip(self.mode_btn.choice_menu.actions(), self._modes):
-            action.setToolTip(tip)
+        self.mode_btn = SegmentedChoice(tuple((icon, label) for _m, icon, label, _t in self._modes), "Alternative printing process")
+        for i, (*_rest, tip) in enumerate(self._modes):
+            self.mode_btn.set_choice_tooltip(i, tip)
         self.layout.addWidget(self.mode_btn)
         self.color_hint = hint_label("Black and white film only")
         self.layout.addWidget(self.color_hint)

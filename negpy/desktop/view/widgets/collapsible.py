@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QCheckBox,
+    QComboBox,
     QMenu,
     QPushButton,
     QFrame,
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, pyqtSignal
-from negpy.desktop.view.styles.templates import HEADER_HEIGHT, header_button
+from negpy.desktop.view.styles.templates import FIELD_LABEL_WIDTH, HEADER_HEIGHT, header_button
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import align_slider_columns
 import qtawesome as qta
@@ -186,6 +187,9 @@ class CollapsibleSection(QWidget):
         widget.setObjectName("collapsible_content_body")
         self.content_layout.addWidget(widget)
         align_slider_columns(widget)
+        # A combo's own minimum is its longest item, which would hold the card wide; it elides instead.
+        for combo in widget.findChildren(QComboBox):
+            combo.setMinimumWidth(min(FIELD_LABEL_WIDTH, combo.minimumSizeHint().width()))
 
     def _update_chevron(self, expanded: bool) -> None:
         if self.chevron_label is None:

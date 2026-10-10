@@ -4,7 +4,19 @@ import html
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, QSize, Qt
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QDialogButtonBox, QHBoxLayout, QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
+from PyQt6.QtWidgets import (
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QStackedLayout,
+    QStyle,
+    QStyleOptionButton,
+    QStylePainter,
+    QWidget,
+)
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
@@ -97,11 +109,38 @@ def _button_icon(icon_name: str, checkable: bool, on_accent: bool = False):
     return qta.icon(icon_name, color=color, color_disabled=THEME.text_muted)
 
 
+class _LabeledButton(QPushButton):
+    """Icon + label button that shows only its icon while its row is too narrow for the label.
+    The text stays set, so the size hint keeps asking for the full label."""
+
+    def __init__(self, text: str):
+        super().__init__(text)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, self.sizePolicy().verticalPolicy())
+
+    def _compact(self) -> bool:
+        return bool(self.text()) and not self.icon().isNull() and self.width() < self.sizeHint().width()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        hint = super().minimumSizeHint()
+        if not self.text() or self.icon().isNull():
+            return hint
+        return QSize(ICON_BUTTON_WIDTH, hint.height())
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self._compact():
+            super().paintEvent(event)
+            return
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        opt.text = ""
+        QStylePainter(self).drawControl(QStyle.ControlElement.CE_PushButton, opt)
+
+
 def tool_toggle(icon_name: str, label: str, tooltip: str, align_left: bool = False) -> QPushButton:
     """Checkable tool button; empty label keeps it icon-only, empty icon_name keeps it text-only.
     align_left lines the label up with toggles stacked above or below it; centered by default.
     Carries an edited_dot like labeled_toggle, for a tool whose effect outlives its checked state."""
-    btn = QPushButton((" " + label) if (label and icon_name) else label)
+    btn = _LabeledButton((" " + label) if (label and icon_name) else label)
     btn.setCheckable(True)
     if icon_name:
         btn.setIcon(_button_icon(icon_name, checkable=True))
@@ -115,7 +154,7 @@ def tool_toggle(icon_name: str, label: str, tooltip: str, align_left: bool = Fal
 
 def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
     """Labeled checkable button (icon + text), the Pick WB / Linear RAW look."""
-    btn = QPushButton(label)
+    btn = _LabeledButton(label)
     btn.setCheckable(True)
     btn.setChecked(checked)
     if icon_name:
@@ -131,7 +170,7 @@ def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> Q
 def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = False) -> QPushButton:
     """One-shot action with an optional icon and a label; the non-checkable twin of labeled_toggle.
     primary=True gives it the one filled look (the panel's call to action)."""
-    btn = QPushButton(label)
+    btn = _LabeledButton(label)
     if icon_name:
         btn.setIcon(_button_icon(icon_name, checkable=False, on_accent=primary))
     if primary:
@@ -363,8 +402,9 @@ def header_row(header: QLabel, *buttons: QWidget) -> QHBoxLayout:
 
 
 def section_subheader(text: str) -> QLabel:
-    """Small all-caps label for section grouping in sidebars."""
+    """Small all-caps label for section grouping in sidebars; wraps in a panel too narrow for it."""
     lbl = QLabel(text.upper())
+    lbl.setWordWrap(True)
     lbl.setStyleSheet(
         f"font-size: {THEME.font_size_small}px; "
         f"color: {THEME.text_hint}; "

@@ -222,7 +222,7 @@ def test_choosing_highlights_limits_the_selected_mask(qapp):
     controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
     sidebar.sync_ui()
 
-    sidebar.tone_btn.choice_menu.actions()[1].trigger()
+    sidebar.tone_btn.setCurrentIndex(1)
 
     controller.update_selected_local_mask.assert_called_with(key=MaskKey.HIGHLIGHTS)
 
@@ -252,8 +252,8 @@ def test_a_fifth_mask_cannot_be_limited(qapp):
     _, sidebar = _sidebar(*limited, LocalMask(vertices=SQUARE, stops=1.0), selected=4)
     sidebar.sync_ui()
 
-    assert not sidebar.tone_btn.choice_menu.actions()[1].isEnabled()
-    assert not sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+    assert not sidebar.tone_btn.is_choice_enabled(1)
+    assert not sidebar.tone_btn.is_choice_enabled(2)
     assert sidebar.tone_btn.currentIndex() == 0
 
 
@@ -262,7 +262,7 @@ def test_a_limited_mask_among_four_stays_editable(qapp):
     _, sidebar = _sidebar(*limited, selected=2)
     sidebar.sync_ui()
 
-    assert sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+    assert sidebar.tone_btn.is_choice_enabled(2)
 
 
 def test_the_masks_header_counts_the_frames_masks(qapp):
