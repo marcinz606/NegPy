@@ -23,6 +23,7 @@ real hardware there. Override with `cpu_parallel = true/false` under
 
 import sys
 import threading
+import types
 from typing import Any, Callable, Optional
 
 from numba import njit
@@ -88,13 +89,9 @@ def parallel_njit(**jit_kwargs: Any) -> Callable:
     lazily on first use, so the unused one costs nothing. Parallel calls are
     serialized behind the module lock (see module docstring).
 
-    The serial variant is always compiled with cache=False: numba's disk cache
-    is keyed by the function's source location, so both variants of the same
-    function share one cache slot — whichever compiles first, the other loads
-    its binary (verified: a "serial" call can silently execute the cached
-    parallel object, defeating the failsafe). Only the parallel variant may
-    honour a caller-supplied cache=True; the serial path re-JITs once per
-    process on first use.
+    A caller-supplied cache=True holds for both variants, each in its own cache file
+    (_serial_copy). One shared file would let a "serial" call load the parallel binary
+    and defeat the failsafe.
     """
     jit_kwargs.pop("parallel", None)
 
@@ -108,7 +105,7 @@ class _DualDispatcher:
     """Callable pairing the serial and parallel compilations of one kernel."""
 
     def __init__(self, py_func: Callable, jit_kwargs: dict):
-        self.serial = njit(**{**jit_kwargs, "cache": False}, parallel=False)(py_func)
+        self.serial = njit(**jit_kwargs, parallel=False)(_serial_copy(py_func))
         self.parallel = njit(**jit_kwargs, parallel=True)(py_func)
         self.__wrapped__ = py_func
         self.__name__ = getattr(py_func, "__name__", "kernel")
@@ -118,6 +115,17 @@ class _DualDispatcher:
             with _invocation_gate:
                 return self.parallel(*args, **kwargs)
         return self.serial(*args, **kwargs)
+
+
+def _serial_copy(py_func: Callable) -> Callable:
+    """py_func under its own qualname: Numba's disk cache is keyed by qualname and source line,
+    so the serial variant gets a cache file apart from the parallel one."""
+    copy = types.FunctionType(
+        py_func.__code__, py_func.__globals__, py_func.__name__ + "__serial", py_func.__defaults__, py_func.__closure__
+    )
+    copy.__qualname__ = py_func.__qualname__ + "__serial"
+    copy.__module__ = py_func.__module__
+    return copy
 
 
 def _first_array_size(args: tuple) -> int:

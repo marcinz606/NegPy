@@ -8,7 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.caching.manager import PipelineCache
 from negpy.kernel.caching.logic import calculate_config_hash, CacheEntry
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.image.logic import working_oetf_encode
+from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 from negpy.kernel.system.logging import get_logger
 from negpy.features.geometry.processor import GeometryProcessor, CropProcessor
 from negpy.features.exposure import models as exposure_models
@@ -56,6 +56,31 @@ def exposure_processor(settings: WorkspaceConfig) -> Any:
     if settings.exposure.render_intent == RenderIntent.FLAT or render_path(settings.process) is RenderPath.PRINT:
         return PhotometricProcessor(settings.exposure, settings.local)
     return TransferProcessor(settings.exposure, settings.process.positive_source)
+
+
+def print_stages(settings: WorkspaceConfig, img: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+    """Alternative process, then toning, on the linear print. Each processor gates itself on
+    the film mode."""
+    paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
+    img = LithProcessor(settings.altproc, paper).process(img, context)
+    img = CyanotypeProcessor(settings.altproc).process(img, context)
+    img = SabattierProcessor(settings.altproc, paper).process(img, context)
+    return ToningProcessor(settings.toning, settings.altproc.alt_process).process(img, context)
+
+
+_WEDGE_PATCH_PX = 16
+
+
+def print_wedge(settings: WorkspaceConfig, enc: Any) -> np.ndarray:
+    """Display-encoded wedge patches through print_stages, as (steps, 3) RGB. Each patch is a
+    uniform block read at its center, so Sabattier's Mackie-line blur never mixes neighbors."""
+    lin = np.asarray(working_oetf_decode(np.asarray(enc, dtype=np.float32)))
+    strip = np.repeat(lin.reshape(1, -1, 1), _WEDGE_PATCH_PX, axis=1)
+    img = ensure_image(np.repeat(np.repeat(strip, _WEDGE_PATCH_PX, axis=0), 3, axis=2))
+    context = PipelineContext(original_size=(img.shape[0], img.shape[1]), scale_factor=1.0, process_mode=settings.process.process_mode)
+    out = np.asarray(working_oetf_encode(np.clip(print_stages(settings, img, context), 0.0, 1.0)))
+    half = _WEDGE_PATCH_PX // 2
+    return out[half, half::_WEDGE_PATCH_PX]
 
 
 class DarkroomEngine:
@@ -302,12 +327,7 @@ class DarkroomEngine:
 
             current_img, pipeline_changed = self._run_stage(current_img, settings.lab, "lab", run_lab, context, pipeline_changed)
 
-            lith_paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
-            current_img = LithProcessor(settings.altproc, lith_paper).process(current_img, context)
-            current_img = CyanotypeProcessor(settings.altproc).process(current_img, context)
-            current_img = SabattierProcessor(settings.altproc, lith_paper).process(current_img, context)
-
-            current_img = ToningProcessor(settings.toning, settings.altproc.alt_process).process(current_img, context)
+            current_img = print_stages(settings, current_img, context)
 
         if not context.crop_preview_full:
             current_img = CropProcessor(settings.geometry).process(current_img, context)

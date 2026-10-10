@@ -772,12 +772,14 @@ class RightPanel(QWidget):
         return gamut_fraction(metrics.get("histogram_color"), lut)
 
     def _update_step_wedge(self, config: Any, process_mode: Any, slope: float, pivot: float, metrics: Dict[str, Any]) -> None:
-        """21 known log exposures through the same curve the chart just plotted, so the wedge
-        and the chart can never describe different prints."""
+        """21 known log exposures through the same curve the chart just plotted, then the
+        render's own alternative process and toning, so the wedge is the print as made."""
         from negpy.features.exposure.analysis import wedge_step_density, wedge_vals
         from negpy.features.exposure.logic import print_curve, print_curve_output
+        from negpy.services.rendering.engine import print_wedge
 
-        enc = print_curve_output(print_curve(config, slope, pivot, process_mode), wedge_vals())
+        curve = print_curve_output(print_curve(config, slope, pivot, process_mode), wedge_vals())
+        enc = print_wedge(self.controller.session.state.config, curve)
         display_cs, monitor_bytes, proof = self.controller.display_transform_params()
         self.step_wedge.setVisible(True)
         self.step_wedge.update_data(enc, wedge_step_density(metrics.get("norm_density_range")), display_cs, monitor_bytes, proof)
