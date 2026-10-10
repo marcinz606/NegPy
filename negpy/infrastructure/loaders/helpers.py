@@ -11,6 +11,7 @@ from negpy.domain.models import ColorSpace
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb
+from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -174,17 +175,27 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
 
 
 def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
-    """Reduced-resolution preview page of a TIFF-based raw, or None.
+    """Reduced-resolution preview page of a TIFF-based raw or scan, or None.
 
     Page 0 holds the preview only when the full-res data sits in SubIFDs, which is how
     DNG writers lay it out. Scanner DNGs write that page 16-bit, so both depths count.
+    A later top-level page counts only when it is marked reduced or Nikon Scan wrote it.
     """
     try:
         import tifffile
 
         with tifffile.TiffFile(file_path) as tif:
             page = tif.pages[0]
-            if not page.pages or page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
+            if not page.pages:  # type: ignore[union-attr]
+                reduced = _reduced_top_level_page(tif)
+                if reduced is None:
+                    return None
+                arr = reduced.asarray()
+                if _is_nikon_scan(page) and page.dtype == np.uint16:  # type: ignore[union-attr]
+                    # Nikon Scan's reduced page holds the high byte of page 0's linear samples.
+                    arr = linear_uint16_to_display_uint8(arr.astype(np.uint16) << 8)
+                return Image.fromarray(arr)
+            if page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
                 return None
             decoded_bytes = int(np.prod(page.shape)) * int(np.dtype(page.dtype).itemsize)
             if decoded_bytes > _QUICK_PREVIEW_MAX_BYTES:
@@ -199,7 +210,38 @@ def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
     return Image.fromarray(ensure_rgb(arr))
 
 
+def _is_nikon_scan(page: Any) -> bool:
+    return str(page.software or "").startswith("Nikon Scan")
+
+
+def _reduced_top_level_page(tif: Any) -> Optional[Any]:
+    """8-bit RGB reduced copy of page 0 stored as a later top-level page, or None.
+
+    Nikon Scan writes one as IFD1 without the NewSubfileType reduced flag, so its
+    Software tag stands in for the flag. The aspect check rejects unrelated pages.
+    """
+    if len(tif.pages) < 2:
+        return None
+    main = tif.pages[0]
+    nikon_scan = _is_nikon_scan(main)
+    main_height, main_width = (int(v) for v in main.shape[:2])
+    for page in tif.pages[1:]:
+        subfile = page.tags.get("NewSubfileType")
+        if not nikon_scan and not (subfile is not None and int(subfile.value) & 1):
+            continue
+        shape = tuple(int(v) for v in page.shape)
+        if page.dtype != np.uint8 or len(shape) != 3 or shape[2] != 3 or int(page.photometric) != 2:
+            continue
+        if max(shape[:2]) < APP_CONFIG.thumbnail_size or int(np.prod(shape)) > _QUICK_PREVIEW_MAX_BYTES:
+            continue
+        if abs((shape[1] / shape[0]) / (main_width / main_height) - 1.0) > _REDUCED_PAGE_ASPECT_TOLERANCE:
+            continue
+        return page
+    return None
+
+
 _QUICK_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
+_REDUCED_PAGE_ASPECT_TOLERANCE = 0.02
 _DNG_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_BAND_BYTES = 8 * 1024 * 1024

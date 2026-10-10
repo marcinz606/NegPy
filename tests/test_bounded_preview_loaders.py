@@ -198,3 +198,52 @@ def test_compressed_or_planar_strip_over_the_cap_is_not_streamed(tmp_path):
     with patch("negpy.infrastructure.loaders.helpers._TIFF_STREAM_PREVIEW_MAX_BYTES", 1024):
         assert _streamed(compressed) is None
         assert _streamed(planar) is None
+
+
+def _two_page_tiff(path, reduced, software=None, subfiletype=0, orientation=1):
+    main = np.zeros((600, 400, 3), dtype=np.uint16)
+    extratags = [(274, "H", 1, orientation, True)]
+    tifffile.imwrite(path, main, photometric="rgb", software=software, extratags=extratags)
+    tifffile.imwrite(path, reduced, photometric="rgb", append=True, subfiletype=subfiletype)
+
+
+def _reduced_page(height=480, width=320):
+    reduced = np.zeros((height, width, 3), dtype=np.uint8)
+    reduced[..., 2] = 200
+    return reduced
+
+
+def _quick(path):
+    return TiffLoader().load_bounded_preview(path, 64, fast_only=True)
+
+
+def test_nikon_scan_reduced_page_is_the_quick_preview(tmp_path):
+    path = str(tmp_path / "nikon.tif")
+    _two_page_tiff(path, _reduced_page(), software="Nikon Scan 4.0.2 W", orientation=8)
+
+    result = _quick(path)
+
+    assert result is not None
+    assert result.size == (64, 43)
+    preview = np.asarray(result)
+    assert abs(preview[..., 2].mean() - int(linear_uint16_to_display_uint8(np.uint16(200 << 8)))) <= 1
+    assert preview[..., 0].max() == 0
+
+
+def test_flagged_reduced_page_is_the_quick_preview_for_any_writer(tmp_path):
+    path = str(tmp_path / "flagged.tif")
+    _two_page_tiff(path, _reduced_page(), subfiletype=1)
+
+    assert _quick(path) is not None
+
+
+def test_unrelated_second_page_is_not_a_quick_preview(tmp_path):
+    for name, reduced, software in (
+        ("plain.tif", _reduced_page(), None),
+        ("aspect.tif", _reduced_page(320, 320), "Nikon Scan 4.0.2 W"),
+        ("small.tif", _reduced_page(120, 80), "Nikon Scan 4.0.2 W"),
+    ):
+        path = str(tmp_path / name)
+        _two_page_tiff(path, reduced, software=software)
+
+        assert _quick(path) is None, name
