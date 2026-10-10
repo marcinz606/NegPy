@@ -3,6 +3,7 @@ import os
 import re
 import sys
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, Qt, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QProxyStyle, QStyle, QWidget
@@ -339,6 +340,11 @@ def main() -> None:
         exit_code = app.exec()
         controller.cleanup()
         repo.save_global_setting("clean_shutdown", True)
+        # PyQt's at-exit cleanup deletes each Python-owned top-level QObject while it walks
+        # sip's wrapper map, and Python code that a destructor runs (event filters, the
+        # proxy style) can reallocate the map under the walk. Widgets run that code.
+        for widget in [w for w in app.topLevelWidgets() if w.parent() is None and sip.ispyowned(w)]:
+            sip.delete(widget)
         sys.exit(exit_code)
     except Exception:
         logger.critical("NegPy stopped on an unhandled exception", exc_info=True)
