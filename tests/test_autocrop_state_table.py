@@ -631,3 +631,26 @@ def test_E19_a_copy_into_a_roll_with_no_auto_crop_value_locks_nothing(repo):
     session.sync_selected_settings(_rows("geometry.crop_rect"), scope="selection")
 
     assert "auto_crop" not in rolls.frame_override_cards(repo, roll, "h2")
+
+
+@pytest.mark.parametrize("crop, carried", [("hand-drawn", True), ("auto", False)])
+def test_E2_reset_crop_keeps_the_carried_auto_crop_only_for_a_hand_drawn_crop(repo, tmp_path, crop, carried):
+    """Clearing a hand-drawn crop is one frame's placement; clearing an auto crop turns auto-crop off."""
+    session = DesktopSessionManager(repo)
+    session.state.uploaded_files = [{"name": "a.tif", "path": str(tmp_path / "a.tif"), "hash": "ha"}]
+    session.select_file(0)
+    session.update_config(replace(session.state.config, geometry=replace(session.state.config.geometry, crop_from_auto=True)), persist=True)
+    session.update_config(replace(session.state.config, geometry=_cfg(crop).geometry), persist=True)
+    controller = AppController.__new__(AppController)
+    controller.session = session
+    controller.state = session.state
+    controller._active_batch = None
+    controller.request_render = MagicMock()
+    controller.loading_started = MagicMock()
+    controller.tool_sync_requested = MagicMock()
+    controller._peek_sections = None
+
+    AppController.reset_crop(controller)
+
+    assert _kind(session.state.config) == "none"
+    assert repo.get_global_setting("sticky_config")["crop_from_auto"] is carried

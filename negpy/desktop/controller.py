@@ -3823,7 +3823,12 @@ class AppController(QObject):
         if self.refuse_crop_edit():
             return
         self._crop_bounds_dirty = False
-        self._set_auto_crop(False)
+        if has_manual_crop(self.state.config.geometry):
+            # Clearing one frame's hand-drawn crop is no choice about auto-crop for later scans.
+            with self.session.carried_crop_kept():
+                self._set_auto_crop(False)
+        else:
+            self._set_auto_crop(False)
 
     def _render_crop_change(self) -> None:
         """Render a crop edit under the load spinner: the base stage and the bounds re-run.
