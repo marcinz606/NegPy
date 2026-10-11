@@ -36,8 +36,19 @@ from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
 # ControlsPanel sections built into the Roll tab (_build_roll_page), not a Frame sub-tab --
 # reveal_section routes these to the Roll group instead of Frame's inner tab switcher.
-# The Roll tab's cards that own settings, for its header's count, reset and apply.
-_ROLL_TAB_CARDS = ("film", "sensor", "cast_removal", "autocrop", "baseline", "process", "demosaic", "lens", "flatfield")
+# The Roll tab's cards that own settings, for its header's Apply picker.
+_ROLL_TAB_CARDS = (
+    "film",
+    "sensor",
+    "cast_removal",
+    "autocrop",
+    "auto_crop",
+    "baseline",
+    "process",
+    "demosaic",
+    "lens",
+    "flatfield",
+)
 
 _ROLL_SECTION_ATTRS = frozenset(
     {

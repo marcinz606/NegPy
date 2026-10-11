@@ -205,3 +205,21 @@ def test_update_analysis_tells_the_strip_whether_placement_is_available() -> Non
     RightPanel._update_analysis(panel)
 
     panel.zone_strip.set_placement_enabled.assert_called_once_with(False)
+
+
+def test_roll_tab_apply_offers_every_card_of_its_sections():
+    from negpy.desktop.view.sidebar.controls_panel import _SECTION_CARDS
+    from negpy.desktop.view.sidebar.right_panel import _ROLL_SECTION_ATTRS, _ROLL_TAB_CARDS
+
+    for section, cards in _SECTION_CARDS.items():
+        if f"{section}_section" in _ROLL_SECTION_ATTRS:
+            assert set(cards) <= set(_ROLL_TAB_CARDS), section
+
+
+def test_roll_tab_apply_offers_auto_crop():
+    from negpy.desktop.settings_catalog import rows_for_fields
+    from negpy.desktop.view.sidebar.right_panel import _ROLL_TAB_CARDS
+    from negpy.services.assets.rolls import card_fields
+
+    rows = rows_for_fields(f for card in _ROLL_TAB_CARDS for f in card_fields(card))
+    assert "Auto Crop" in {r.label for r in rows}
