@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from negpy.features.lab.logic import (
-    apply_output_sharpening,
+    apply_usm_sharpening,
     apply_saturation,
-    _output_sharpening_block,
+    _usm_sharpening_block,
     _saturation_block,
 )
 from negpy.kernel.system import parallel
@@ -14,8 +14,8 @@ from negpy.kernel.system import parallel
 def test_sharpen_blocks_match_full_frame(radius, mask):
     image = np.random.default_rng(3).uniform(0.01, 0.9, (1100, 1024, 3)).astype(np.float32)
     original = image.copy()
-    full = _output_sharpening_block(image, 0.25, radius, mask)
-    blocks = apply_output_sharpening(image, 0.25, radius, mask)
+    full = _usm_sharpening_block(image, 0.25, radius, mask)
+    blocks = apply_usm_sharpening(image, 0.25, radius, mask)
     np.testing.assert_array_equal(blocks, full)
     np.testing.assert_array_equal(image, original)
 

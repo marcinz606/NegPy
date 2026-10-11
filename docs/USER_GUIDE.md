@@ -505,7 +505,7 @@ What a lab scanner (Frontier or Noritsu) does automatically.
 
 *   **Sharpening** (0.0 to 1.0): amount, on the L (lightness) channel, so no color halos.
     *   **Method**: *Unsharp Mask* (edge contrast) or *Deconvolution* (Richardson-Lucy, reverses the scanner's blur; set Radius to the blur width).
-    *   **Radius** (0.5 to 3.0 px): blur width in output pixels; judge it at 100% zoom.
+    *   **Radius** (0.5 to 3.0 px): blur width in full-size pixels; judge it at 100% zoom. For a resized export, add the Export panel's **Sharpening**.
     *   **Masking** (0.0 to 1.0): limit sharpening to edges to protect sky, skin and grain.
 *   **CLAHE** (0.0 to 1.0): local contrast without blowing highlights or crushing shadows. Near 1.0 it can look cartoonish. Runs before dust removal.
 
@@ -991,6 +991,7 @@ A gear library for Metadata (§11), Roll Settings and every gear picker. **My Ge
 *   **Proof on Screen** is in **Soft Proof** below. A warning shows here when nothing is proofed or the proof targets a different profile than the export.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full resolution), *Print* (long-edge **Size** in cm plus **DPI**) or *Pixels* (**Long edge** in px). The DPI tag is your value (*Print*), the one the long edge implies (*Pixels*), or the source's, else the **DPI** field (*Original*).
+*   **Sharpening** (0.0 to 1.0, *Print* and *Pixels*): sharpens the export at its final size, after the resize, to restore the edge contrast that scaling down removes. It adds to the Lab **Sharpening** and does not show in the preview.
 *   **Destination**: **Filename Pattern** (a Jinja2 template with export and Metadata fields; see [TEMPLATING.md](TEMPLATING.md)), **Overwrite Existing Files**, and the location: subfolder of source (default, `export`), same as source, or an **Export Path**. A roll with no single source folder exports under its own folder in NegPy's data folder. With **Linear**, only Destination shows.
 
 ### Export button

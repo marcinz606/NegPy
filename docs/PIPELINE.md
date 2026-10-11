@@ -431,7 +431,7 @@ Mimics lab scanners such as Frontier or Noritsu. Steps, in order:
     $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius}$$
     $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(0.25, 0.33, |L_{diff}|) \cdot m \cdot g(L)$$
     $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
-    *   **Radius** (px): blur $\sigma$ in output pixels, so judge sharpening at 1:1, not fit-to-window.
+    *   **Radius** (px): blur $\sigma$ in pixels of the full-size render, so judge sharpening at 1:1, not fit-to-window. A resized export scales the radius down with the image.
     *   **Masking** ($m$): $\text{smoothstep}(0.5t, t, |\nabla L|)$ on the boxed gradient, $t = 10\cdot\text{masking}$. Protects flat areas; off at 0.
     *   **Shadow gain** ($g(L)$, fixed): $\tfrac{1}{3} + \tfrac{2}{3}\,\text{smoothstep}(0, 35, L)$, since the thinnest negative has the most grain (Gallagher & Gindele, US 7,228,004). Both methods apply it; Deconvolution reads $L^{\ast}$ of the observed $Y$.
     *   The noise gate over $[0.25, 0.33]$ is sized for $|L_{diff}|$ at a 1 px radius (tops out near 1.0). The clamp to the local $3\times3$ range is tighter above (+1) than below (−2), because $L^{\ast}$ USM exaggerates light halos.
@@ -561,6 +561,8 @@ Post-crop print finishing in scene-linear, before the output transform. Order: e
     **Flare** is the bevel's reflection: exposure added to $t$, peaking on each filed edge over $0.25 \cdot w$ and gated by the other three edges, so it stops at the aperture's corners. It reads through the same table, so it stains the paper in the toe color, neutral in B&W.
 
 *   **Layout extras** (`services/export/print.py` plus the `layout.wgsl` mirror): **bottom-weighted mat** (window-mat proportions) and **match paper white** (mat color from paper white run through the toning stack).
+
+*   **Export sharpening** (`apply_resize_sharpening`): a Print or Pixels export runs the Lab unsharp mask again on the scaled content, inside the mat, at a fixed $\sigma$ of `RESIZE_SHARPEN_RADIUS` exported pixels. It runs on the CPU after either engine's layout, so it needs no shader. An *Original* export and a flat master skip it.
 
 *   **Preview paper size**: an interactive render sizes the paper from the preview long edge (`preview_render_size`) instead of the export DPI, and resamples the content to fit, never above its own resolution, because the canvas quotes zoom against the pipeline's buffer and an upscale would make 1:1 read closer than one scan pixel per device pixel. The display shader magnifies instead.
 

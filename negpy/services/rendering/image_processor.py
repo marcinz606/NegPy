@@ -39,6 +39,7 @@ from negpy.features.process.sensor import apply_sensor_correction, effective_sen
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.features.lab.logic import apply_resize_sharpening
 from negpy.services.rendering.lens import lens_decode_token, metadata_lens_corrections, prepare_lens_source
 from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
 from negpy.features.retouch.logic import (
@@ -1421,6 +1422,7 @@ class ImageProcessor:
                 source_hash=export_hash,
                 analysis_source_hash=export_hash,
             )
+            content_rect = _gpu_metrics.get("content_rect")
         else:
             buffer, _ = self.run_pipeline(
                 f32_buffer,
@@ -1435,11 +1437,36 @@ class ImageProcessor:
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
             )
-            buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
+            buffer, content_rect = PrintService.apply_layout(
+                buffer,
+                params.export,
+                border_size=params.finish.border_size,
+                border_color=PrintService.effective_border_color(params.finish, params.toning),
+                finish=params.finish,
+            )
             # Release full-res arrays pinned in the CPU stage cache.
             self.engine_cpu.cache.clear()
 
-        return buffer, color_space
+        return self._sharpen_resized_content(buffer, content_rect, params), color_space
+
+    def _sharpen_resized_content(
+        self, buffer: np.ndarray, content_rect: Optional[Tuple[int, int, int, int]], params: WorkspaceConfig
+    ) -> np.ndarray:
+        """Export sharpening: runs once on the CPU for both engines, on the scaled content
+        inside the mat. An Original-size export and a flat master skip it."""
+        amount = float(params.export.output_sharpen)
+        if (
+            amount <= 0.0
+            or content_rect is None
+            or params.export.export_resolution_mode == ExportResolutionMode.ORIGINAL.value
+            or self._is_flat(params)
+        ):
+            return buffer
+        x, y, w, h = content_rect
+        if not buffer.flags.writeable:
+            buffer = buffer.copy()
+        buffer[y : y + h, x : x + w] = apply_resize_sharpening(buffer[y : y + h, x : x + w], amount)
+        return buffer
 
     def render_export(
         self,

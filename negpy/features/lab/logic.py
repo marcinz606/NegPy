@@ -10,6 +10,7 @@ from negpy.kernel.image.logic import (
     lab_to_rgb_working,
     rgb_to_lab_working,
     skin_chroma_rein,
+    working_oetf_decode,
     working_oetf_encode,
 )
 from negpy.kernel.image.validation import ensure_image
@@ -168,15 +169,38 @@ def _map_row_blocks(img: ImageBuffer, fn: Callable[[ImageBuffer], ImageBuffer], 
     return output
 
 
-def apply_output_sharpening(img: ImageBuffer, amount: float, radius: float = 1.0, masking: float = 0.0) -> ImageBuffer:
+def apply_usm_sharpening(img: ImageBuffer, amount: float, radius: float = 1.0, masking: float = 0.0) -> ImageBuffer:
     if amount <= 0:
         return img
     # Gaussian support, local range, and Sobel-plus-box support must cross block edges.
     halo = max(len(gaussian_kernel_1d(radius)) // 2, 2)
-    return _map_row_blocks(img, lambda block: _output_sharpening_block(block, amount, radius, masking), halo)
+    return _map_row_blocks(img, lambda block: _usm_sharpening_block(block, amount, radius, masking), halo)
 
 
-def _output_sharpening_block(
+# Blur sigma of the pass that follows an export resize, in exported pixels.
+RESIZE_SHARPEN_RADIUS = 0.7
+
+
+def apply_resize_sharpening(encoded: np.ndarray, amount: float) -> np.ndarray:
+    """
+    Unsharp mask on export content already scaled to its final size. Takes and
+    returns working-OETF code values; a channel after RGB passes through.
+    """
+    if amount <= 0:
+        return encoded
+
+    def block(rows: np.ndarray) -> np.ndarray:
+        linear = working_oetf_decode(rows[..., :3])
+        sharpened = working_oetf_encode(_usm_sharpening_block(linear, amount, RESIZE_SHARPEN_RADIUS))
+        if rows.shape[2] == 3:
+            return sharpened
+        return np.concatenate([sharpened, rows[..., 3:]], axis=2)
+
+    halo = max(len(gaussian_kernel_1d(RESIZE_SHARPEN_RADIUS)) // 2, 2)
+    return _map_row_blocks(encoded, block, halo)
+
+
+def _usm_sharpening_block(
     img: ImageBuffer,
     amount: float,
     radius: float = 1.0,
@@ -187,8 +211,8 @@ def _output_sharpening_block(
     block. Soft-gated USM with an overshoot clamp to the local 3x3 range (halo
     suppression) and an optional edge mask (boxed |∇L|) protecting flat areas.
 
-    Radius is in output pixels, so the 1600 px preview under-represents export
-    acutance; judge sharpening at 1:1.
+    Radius is in pixels of the buffer it runs on, ahead of any export resize, so
+    the preview under-represents full-size acutance; judge sharpening at 1:1.
     """
     if amount <= 0:
         return img
@@ -231,7 +255,7 @@ def apply_rl_sharpening(
     fixed by radius (rl_iterations); no per-pixel early stop or damping — the
     edge mask governs grain, matching RawTherapee's shipped configuration.
 
-    Radius is the PSF width in output pixels — see apply_output_sharpening.
+    Radius is the PSF width in output pixels — see apply_usm_sharpening.
     """
     if amount <= 0:
         return img
