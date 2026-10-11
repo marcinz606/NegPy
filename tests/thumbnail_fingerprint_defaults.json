@@ -98,6 +98,8 @@
    "autocrop_offset": "0",
    "autocrop_ratio": "\"Free\"",
    "autocrop_rebate_trim": "1.0",
+   "autocrop_square": "false",
+   "autocrop_squared": "false",
    "converge_h": "0.0",
    "converge_v": "0.0",
    "crop_detect_key": "\"\"",
@@ -203,5 +205,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 3
+ "render_version": 4
 }

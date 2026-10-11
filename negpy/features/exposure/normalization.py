@@ -919,8 +919,8 @@ def analyze_log_exposure_bounds(
         color deviation (white balance / orange-mask cast). A tighter (larger) clip
         gives a more robust channel balance; a gentler (smaller) clip samples nearer
         the extremes. Default neutral is base_color_clip.
-    The luminance centre+span comes from the luma sampling, the per-channel color
-    offsets from the color sampling, so the cast clip is tunable without compressing
+    The per-channel refs come from the color sampling, and the luma sampling sets how
+    far past them the window reaches, so the cast clip is tunable without compressing
     highlights. Identical channels (mono) give zero deviation at any clip.
     """
     img_log = to_log_density(image)
@@ -959,7 +959,7 @@ def analyze_log_exposure_bounds_from_log(
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, sorted_grid)
 
-    # Color pass: per-channel deviations recombined onto the luma mean centre and span. The
+    # Color pass: per-channel refs, widened to the luma window. The
     # ceils (thin end, base-anchored) come from per-channel percentiles at color_clip. The
     # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs and fall
     # back to the percentile pass when the band holds no trustworthy neutrals, and always for
@@ -969,10 +969,22 @@ def analyze_log_exposure_bounds_from_log(
         sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)
         if sp is not None:
             c_floors = [sp[0], sp[1], sp[2]]
-    mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
-    mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
-    floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
-    ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
+    spans = [c_floors[ch] - c_ceils[ch] for ch in range(3)]
+    if min(abs(s) for s in spans) > 1e-6:
+        # The luma window's reach past the color refs, in units of each channel's own span. A
+        # reach in log units would tint a film whose channels differ in density range.
+        reach_f = sum((floors[ch] - c_floors[ch]) / spans[ch] for ch in range(3)) / 3.0
+        reach_c = sum((ceils[ch] - c_ceils[ch]) / spans[ch] for ch in range(3)) / 3.0
+        # The window sits off the luma mean by the base's mean-minus-median channel offset, the
+        # placement the print constants are tuned to.
+        shift = (sum(c_ceils) / 3.0 - sorted(c_ceils)[1]) / (sum(spans) / 3.0)
+        floors = [c_floors[ch] + (reach_f + shift) * spans[ch] for ch in range(3)]
+        ceils = [c_ceils[ch] + (reach_c + shift) * spans[ch] for ch in range(3)]
+    else:
+        mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
+        mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
+        floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
+        ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
 
     return LogNegativeBounds(
         (floors[0], floors[1], floors[2]),
