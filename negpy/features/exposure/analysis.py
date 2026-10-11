@@ -37,6 +37,15 @@ def output_histogram(buffer: Any) -> Optional[np.ndarray]:
     step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _MAX_HIST_SAMPLES)))
     if step > 1:
         buffer = buffer[::step, ::step]
+    if buffer.dtype == np.uint8:
+        # An 8-bit frame (the camera live view) bins by value: the same bins as the float
+        # path's floor(v / 255 * 256), at a fraction of np.histogram's cost per frame.
+        rows = [np.bincount(buffer[..., c].ravel(), minlength=OUTPUT_HIST_BINS) for c in range(3)]
+        lum = get_luminance(np.ascontiguousarray(buffer.astype(np.float32) / 255.0))
+        rows.append(
+            np.bincount(np.minimum((lum * OUTPUT_HIST_BINS).astype(np.int64), OUTPUT_HIST_BINS - 1).ravel(), minlength=OUTPUT_HIST_BINS)
+        )
+        return np.stack(rows).astype(float)
     buffer = np.ascontiguousarray(buffer.astype(np.float32, copy=False))
     lum = get_luminance(buffer)
     rows = [np.histogram(buffer[..., c], bins=OUTPUT_HIST_BINS, range=(0, 1))[0] for c in range(3)]

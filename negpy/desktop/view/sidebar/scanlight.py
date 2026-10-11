@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.calibration_window import CAPTURE_MODE_TOOLTIP, CAPTURE_MODES, CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
+from negpy.desktop.view.sidebar.roi_image import zebra_image
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.templates import (
     field_row,
@@ -47,7 +48,9 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
+from negpy.features.exposure.analysis import output_histogram
 from negpy.services.capture.focus_meter import FocusMeter
+from negpy.services.capture.live_stats import clip_masks
 from negpy.services.capture.calibration import (
     REFERENCE_LEVELS,
     normalize_start_point,
@@ -99,6 +102,15 @@ def _gray_array(pixmap: QPixmap) -> np.ndarray:
     bits.setsize(image.sizeInBytes())
     rows = np.frombuffer(bits, dtype=np.uint8).reshape(image.height(), image.bytesPerLine())
     return rows[:, : image.width()].copy()
+
+
+def _rgb_array(pixmap: QPixmap) -> np.ndarray:
+    """HxWx3 uint8 RGB copy of a live frame."""
+    image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
+    bits = image.constBits()
+    bits.setsize(image.sizeInBytes())
+    rows = np.frombuffer(bits, dtype=np.uint8).reshape(image.height(), image.bytesPerLine())
+    return rows[:, : 3 * image.width()].reshape(image.height(), image.width(), 3).copy()
 
 
 class ScanlightSidebar(QWidget):
@@ -881,6 +893,7 @@ class ScanlightSidebar(QWidget):
         # goes straight to black and the buffering spinner instead of flashing the stale image.
         # `_on_live_view_started` re-blanks and pins the mtime.
         self._lv_target.clear_frame()
+        self.lv_window.set_histogram(None)  # the row follows the frame: empty until one lands
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
 
@@ -950,6 +963,7 @@ class ScanlightSidebar(QWidget):
         self._lv_target.set_frame(pixmap)  # scan pop-up or the calibration window
         if self._lv_target is self.lv_image:
             self.lv_window.set_focus(self._focus_meter.update(_gray_array(pixmap)))
+            self._update_exposure_readouts(pixmap)
         if self._lv_frames_seen % 12 == 0:
             # About once a second: keep the ISO/shutter/aperture dropdowns fresh in whichever
             # pop-up is streaming. Gated to the scan window, this left the calibration pop-up's
@@ -957,6 +971,18 @@ class ScanlightSidebar(QWidget):
             # non-writable for the first frames and nothing re-read the flag.
             # _refresh_camera_settings still skips the calib steppers while a run locks them.
             self._refresh_camera_settings()
+
+    def _update_exposure_readouts(self, pixmap: QPixmap) -> None:
+        """The histogram row and the zebras, from the frame on screen, only while either shows."""
+        want_histogram = self.lv_window.histogram_btn.isChecked()
+        want_zebra = self.lv_window.zebra_btn.isChecked()
+        if not (want_histogram or want_zebra):
+            return
+        rgb = _rgb_array(pixmap)
+        if want_histogram:
+            self.lv_window.set_histogram(output_histogram(rgb))
+        if want_zebra:
+            self.lv_image.set_zebra(zebra_image(*clip_masks(rgb)))
 
     def _after_capture_live_view(self) -> None:
         """Re-light the preview after a scan. An in-session capture leaves the Scanlight

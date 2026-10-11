@@ -477,6 +477,31 @@ def test_a_clicks_own_echo_does_not_restart_the_focus_peak(tmp_path, monkeypatch
     assert w.lv_window.focus_label.text() == "Focus meter: at peak"
 
 
+def test_histogram_and_zebra_toggles_read_the_live_frame(tmp_path):
+    from PyQt6.QtGui import QPixmap
+
+    w = _sidebar()
+    w.lv_window.histogram_btn.setChecked(True)
+    w.lv_window.zebra_btn.setChecked(True)
+    img = tmp_path / "frame.png"
+    pm = QPixmap(8, 8)
+    pm.fill()  # white: every pixel at the top of the range
+    assert pm.save(str(img), "PNG")
+    w._lv_jpeg_path = str(img)
+    w._lv_last_mtime = 0.0
+
+    w._refresh_live_view()
+
+    assert not w.lv_window.histogram.isHidden()
+    assert w.lv_window.histogram._channels["r"][255] == 1.0
+    assert w.lv_image._zebra is not None
+    w.lv_window.zebra_btn.setChecked(False)
+    assert w.lv_image._zebra is None
+    w.lv_window.histogram_btn.setChecked(False)
+    assert w.lv_window.histogram.isHidden()
+    w.controller.session.repo.save_global_setting.assert_any_call("live_view_zebra", False)
+
+
 def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     import json
 
