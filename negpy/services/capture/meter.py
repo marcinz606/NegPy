@@ -165,6 +165,9 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     probe_seconds = true_seconds(shutter, candidates)
     needed = CLIPPED_STEP_STOPS if clipped else float(np.log2(TARGET_FRACTION * CLIP_CEILING / max(measured, 1.0)))
     recommended = shutter_at_most(probe_seconds * 2.0**needed, candidates)
+    if recommended is None and clipped and true_seconds(candidates[0], candidates) < probe_seconds:
+        # The step down passes the fastest rung, which is still a step down: take it and meter again.
+        recommended = candidates[0]
     stops = float(np.log2(true_seconds(recommended, candidates) / probe_seconds)) if recommended else needed
     peaks = _peak_map(frame_brightest)
     thumb = ranked_thumb(np.mean(linear, axis=2))

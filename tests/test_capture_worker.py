@@ -596,5 +596,31 @@ def test_a_probe_that_cannot_be_decoded_keeps_the_session(tmp_path, monkeypatch)
 
     worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
 
-    assert failures == [(0, "unsupported file format")] and errors == []
+    assert failures == [(0, "unsupported file format", False)] and errors == []
     assert worker._camera is not None
+
+
+def test_a_probe_whose_capture_fails_reports_the_lost_camera_with_its_session(tmp_path, monkeypatch):
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def is_open(self):
+            return True
+
+        def close(self):
+            pass
+
+        def capture(self, path, shutter=None, **_kwargs):
+            raise RuntimeError("could not set shutter")
+
+    worker._camera = Camera()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: worker._camera)
+    failures, errors = [], []
+    worker.exposure_probe_failed.connect(failures.append)
+    worker.error.connect(errors.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", session=3))
+
+    assert failures == [(3, "could not set shutter", True)] and errors == []

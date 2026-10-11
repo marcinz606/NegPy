@@ -68,7 +68,7 @@ def test_a_clipped_base_is_a_floor_and_steps_down():
     assert reading.recommended is not None and true_seconds(reading.recommended) <= true_seconds("1/30") / 4
 
 
-def test_clipped_highlights_beyond_the_budget_step_down_and_say_how_much():
+def test_clipped_highlights_step_down_and_say_how_much():
     reading = meter_frame(_frame(border=0.02, picture=1.5, orange=False), "1/30", medium="positive")
 
     assert reading.clipped
@@ -197,3 +197,14 @@ def test_the_framing_check_refuses_another_aspect_and_another_picture():
     assert "preview is" in framing_mismatch(reading, preview[75:-75])  # a 16:9 crop of the 3:2 frame
     advanced = np.ascontiguousarray(np.roll(preview, 300, axis=1))  # the same size, another framing
     assert framing_mismatch(reading, advanced) == "the preview does not frame the RAW the same way"
+
+
+def test_a_clipped_probe_past_the_fastest_rung_still_steps_to_it():
+    """Two stops down passes the ladder's end, but the fastest rung is still a step down."""
+    img = _frame(border=0.02, picture=0.3, h=600, w=900, orange=False)
+    img[120:200, 200:700] = CLIP_CEILING
+    ladder = ("1/250", "1/125", "1/60")
+    reading = meter_frame(img, "1/125", ladder, medium="positive")
+    assert reading.clipped and reading.recommended == "1/250"
+    at_fastest = meter_frame(img, "1/250", ladder, medium="positive")
+    assert at_fastest.recommended is None  # nothing faster to step to

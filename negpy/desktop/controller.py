@@ -566,7 +566,7 @@ class AppController(QObject):
     capture_calibration_exposure = pyqtSignal(str)  # "over"/"under": target unreachable, aborted, no preset
     exposure_probe_requested = pyqtSignal(ExposureProbeRequest)
     capture_exposure_probe_finished = pyqtSignal(object)  # (session, MeterReading)
-    capture_exposure_probe_failed = pyqtSignal(object)  # (session, reason)
+    capture_exposure_probe_failed = pyqtSignal(object)  # (session, reason, camera_lost)
     sensor_response_requested = pyqtSignal(SensorResponseRequest)
     capture_sensor_response_progress = pyqtSignal(float, str)
     capture_sensor_response_measured = pyqtSignal(object)  # 3x3 array: sensor channel rows, LED columns

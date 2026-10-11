@@ -939,7 +939,6 @@ class ScanlightSidebar(QWidget):
         # `_on_live_view_started` re-blanks and pins the mtime.
         self._lv_target.clear_frame()
         self.lv_window.set_histogram(None)  # the row follows the frame: empty until one lands
-        self._lv_session += 1
         self._raw_clip = None  # a new session may hold a different exposure
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
@@ -1059,7 +1058,6 @@ class ScanlightSidebar(QWidget):
             ExposureProbeRequest(shutter=shutter, shutter_candidates=candidates, medium=medium, session=self._lv_session)
         )
 
-    @pyqtSlot(object)
     def _on_meter_finished(self, reading) -> None:
         """Write the metered shutter to the body as a counted exposure write, so Scan waits
         for the body's confirmation. A white-light or camera-only scan shoots at the body's
@@ -1071,9 +1069,8 @@ class ScanlightSidebar(QWidget):
         raw = self._meter_raw.get(label) if label else None
         if label is None:
             self._apply_gating()
-            self._set_status(
-                f"Meter: {where} at {level} needs a shutter faster than {self._meter_fastest}; close the aperture or lower the ISO"
-            )
+            limit = f"{self._meter_fastest}, the fastest the Scanlight meters cleanly" if self._rgb_mode else self._meter_fastest
+            self._set_status(f"Meter: {where} at {level} needs a shutter faster than {limit}; close the aperture or lower the ISO")
             return
         if raw is None:
             self._apply_gating()
@@ -1106,11 +1103,15 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(object)
     def _on_probe_failed(self, report) -> None:
-        session, reason = report
-        if session == self._lv_session:
+        session, reason, camera_lost = report
+        if session != self._lv_session:
+            return  # a stopped stream's probe: its failure stops nothing
+        if camera_lost:
+            self._metering = False
+            self._on_error(f"Meter: {reason}")  # the worker closed the camera; close the stream with it
+        else:
             self._on_meter_failed(reason)
 
-    @pyqtSlot(str)
     def _on_meter_failed(self, reason: str) -> None:
         """The probe could not be decoded or metered; the stream and the session stand."""
         self._metering = False

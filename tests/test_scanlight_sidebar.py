@@ -661,8 +661,8 @@ def test_a_reading_from_a_stopped_stream_writes_nothing(tmp_path, monkeypatch):
     w._on_probe_finished((first, _reading()))  # the stopped stream's probe reports first
     w.controller.set_camera_setting.assert_not_called()
     assert w._metering  # the second probe still owns the meter
-    w._on_probe_failed((first, "late"))
-    assert w._metering
+    w._on_probe_failed((first, "late", True))  # even a lost camera from the stopped stream stops nothing
+    assert w._metering and w.lv_btn.isChecked()
     w._on_probe_finished((second, _reading()))
     w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
 
