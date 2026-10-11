@@ -137,3 +137,13 @@ def test_the_raw_clip_mask_predicts_the_metered_shutter():
     assert one_up.sum() == 2 and one_up[0, 0] and one_up[1, 1]
     assert one_down.sum() == 1 and one_down[1, 1]
     assert raw_clip_mask(replace(reading, recommended=None)) is None
+
+
+def test_the_peak_map_keeps_the_edge_blocks():
+    from negpy.services.capture.meter import _peak_map
+
+    brightest = np.zeros((3001, 4003), np.float32)
+    brightest[-1, -1] = 1.0  # a clip in the last row and column, past a whole block
+    peaks = _peak_map(brightest)
+    assert float(peaks[-1, -1]) == 1.0
+    assert _peak_map(np.ones((2, 5000), np.float32)).shape[0] == 1  # a short edge under one block

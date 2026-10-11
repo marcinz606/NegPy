@@ -9,9 +9,9 @@ aligns + merges + inverts them.
 import json
 import os
 import re
-from typing import Optional
-from dataclasses import asdict, fields, replace
+from dataclasses import asdict, dataclass, fields, replace
 
+import cv2
 import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import QTimer, pyqtSignal, pyqtSlot
@@ -111,6 +111,25 @@ def _gray_array(pixmap: QPixmap) -> np.ndarray:
     return rows[:, : image.width()].copy()
 
 
+#: Normalized correlation of two previews' structure above which they are the same picture.
+_SAME_PICTURE = 0.9
+
+
+@dataclass
+class _RawClip:
+    mask: np.ndarray  # raw_clip_mask, on the probe's peak map
+    exposure: tuple  # _exposure_key at the metered shutter
+    reference: np.ndarray | None = None  # _structure of the first preview at that exposure
+
+
+def _structure(rgb: np.ndarray) -> np.ndarray:
+    """A preview's picture at 64 px, zero-mean and unit-variance, so exposure drops out of a
+    comparison and framing does not."""
+    gray = cv2.resize(rgb.mean(axis=2).astype(np.float32), (64, 43), interpolation=cv2.INTER_AREA)
+    gray = gray - gray.mean()
+    return gray / max(float(gray.std()), 1e-6)
+
+
 def _rgb_array(pixmap: QPixmap) -> np.ndarray:
     """HxWx3 uint8 RGB copy of a live frame."""
     image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
@@ -144,8 +163,9 @@ class ScanlightSidebar(QWidget):
         self._magnifier_seen = False  # the state the stream last published, or a click's own
         self._metering = False  # a Meter probe is on the worker; Scan, Retake and Meter wait for it
         self._meter_raw: dict[str, int] = {}  # the body's shutter labels → raw indexes, read once per probe
-        # The last probe's predicted RAW clipping as a zebra, and the shutter raw it holds for.
-        self._raw_zebra: Optional[tuple[QImage, int]] = None
+        # The last probe's predicted RAW clipping, the exposure it holds for, and the preview it
+        # was metered on (_current_raw_clip).
+        self._raw_clip: _RawClip | None = None
         self._magnifier_available = True
         self._focus_meter = FocusMeter()
         # Full and magnified views do not share a sharpness scale: reset the peak once the body has switched.
@@ -911,7 +931,7 @@ class ScanlightSidebar(QWidget):
         # `_on_live_view_started` re-blanks and pins the mtime.
         self._lv_target.clear_frame()
         self.lv_window.set_histogram(None)  # the row follows the frame: empty until one lands
-        self._raw_zebra = None  # a new session may hold a different exposure
+        self._raw_clip = None  # a new session may hold a different exposure
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
 
@@ -1014,7 +1034,7 @@ class ScanlightSidebar(QWidget):
         # The preset's medium, as the import reads it; AUTO leaves the probe to the classifier.
         medium = {WhiteCaptureMode.BW: "negative", WhiteCaptureMode.E6: "positive"}.get(WhiteCaptureMode(self._settings.white_process_mode))
         self._meter_raw = options
-        self._raw_zebra = None
+        self._raw_clip = None
         self._metering = True
         self._apply_gating()
         self._set_status("Metering…")
@@ -1042,7 +1062,7 @@ class ScanlightSidebar(QWidget):
         self._pending_exposure_writes += 1
         mask = raw_clip_mask(reading)
         if mask is not None:
-            self._raw_zebra = (zebra_image(mask, np.zeros_like(mask)), raw)
+            self._raw_clip = _RawClip(mask, self._exposure_key(shutter=raw))
         index = self.lv_window.shutter_stepper.findData(raw)
         if index >= 0:
             self.lv_window.shutter_stepper.setCurrentIndex(index)
@@ -1070,24 +1090,45 @@ class ScanlightSidebar(QWidget):
         want_zebra = self.lv_window.zebra_btn.isChecked()
         if not (want_histogram or want_zebra):
             return
-        raw_zebra = self._current_raw_zebra() if want_zebra else None
-        if want_zebra and raw_zebra is not None and not want_histogram:
-            self.lv_image.set_zebra(raw_zebra)
-            return
         rgb = _rgb_array(pixmap)
         if want_histogram:
             self.lv_window.set_histogram(output_histogram(rgb))
         if want_zebra:
-            self.lv_image.set_zebra(raw_zebra if raw_zebra is not None else zebra_image(*clip_masks(rgb)))
+            highlights, blacks = clip_masks(rgb)
+            raw = self._current_raw_clip(rgb)
+            if raw is not None:
+                h, w = highlights.shape
+                highlights = cv2.resize(raw.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+            self.lv_image.set_zebra(zebra_image(highlights, blacks))
 
-    def _current_raw_zebra(self) -> Optional[QImage]:
-        """The Meter probe's RAW clipping at the shutter it set. It holds only for that shutter
-        and the full frame: a moved shutter or the focus magnifier hands the zebras back to the
-        preview."""
-        if self._raw_zebra is None or self._magnifier_on:
+    def _exposure_key(self, shutter: object = None) -> tuple:
+        """What sets the RAW level apart from the film: the body's ISO, shutter and aperture and
+        the light. `shutter` stands in for the stepper's while a metered write is on its way."""
+        lv = self.lv_window
+        return (
+            lv.iso_stepper.currentData(),
+            lv.shutter_stepper.currentData() if shutter is None else shutter,
+            lv.aperture_stepper.currentData(),
+            self._settings,
+        )
+
+    def _current_raw_clip(self, rgb: np.ndarray) -> np.ndarray | None:
+        """The Meter probe's RAW clipping, while it still describes the frame on screen: the same
+        exposure and the same picture. The picture is the first preview at the metered exposure,
+        compared by normalized correlation, so a film advance, a reframe or the focus magnifier
+        hands the zebras back to the preview; a brighter preview of the same frame does not."""
+        clip = self._raw_clip
+        if clip is None:
             return None
-        image, raw = self._raw_zebra
-        return image if self.lv_window.shutter_stepper.currentData() == raw else None
+        if self._pending_exposure_writes:
+            return clip.mask  # the metered shutter is on its way; the stepper may still lag
+        if self._exposure_key() != clip.exposure:
+            return None
+        thumb = _structure(rgb)
+        if clip.reference is None:
+            clip.reference = thumb
+            return clip.mask
+        return clip.mask if float(np.mean(thumb * clip.reference)) >= _SAME_PICTURE else None
 
     def _after_capture_live_view(self) -> None:
         """Re-light the preview after a scan. An in-session capture leaves the Scanlight

@@ -57,10 +57,13 @@ class MeterReading:
 
 
 def _peak_map(brightest: np.ndarray) -> np.ndarray:
+    """Max-pool to a long edge of PEAK_MAP_EDGE. The frame is zero-padded to whole blocks, so
+    every pixel lands in a block and the edge blocks keep their own clips."""
     h, w = brightest.shape
     f = max(1, math.ceil(max(h, w) / PEAK_MAP_EDGE))
-    hh, ww = max(f, h // f * f), max(f, w // f * f)
-    return np.ascontiguousarray(brightest[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3)))
+    padded = np.pad(brightest, ((0, -h % f), (0, -w % f)))
+    hh, ww = padded.shape
+    return np.ascontiguousarray(padded.reshape(hh // f, f, ww // f, f).max(axis=(1, 3)))
 
 
 def raw_clip_mask(reading: MeterReading) -> np.ndarray | None:
@@ -102,7 +105,8 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     # is averaged away at detection size, and it still clips.
     ly1, ly2, lx1, lx2 = _scale_roi(gate, scale, linear.shape[0], linear.shape[1])
     picture = linear[ly1:ly2, lx1:lx2].reshape(-1, 3)
-    brightest = np.maximum(np.maximum(picture[:, 0], picture[:, 1]), picture[:, 2])
+    frame_brightest = np.max(linear, axis=2)
+    brightest = frame_brightest[ly1:ly2, lx1:lx2]
     clipped_fraction = float(np.mean(brightest >= _SATURATION))
 
     rebate = np.zeros((h, w), bool)
@@ -125,5 +129,5 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     needed = CLIPPED_STEP_STOPS if clipped else float(np.log2(TARGET_FRACTION * CLIP_CEILING / max(measured, 1.0)))
     recommended = shutter_at_most(probe_seconds * 2.0**needed, candidates)
     stops = float(np.log2(true_seconds(recommended, candidates) / probe_seconds)) if recommended else needed
-    peaks = _peak_map(np.max(linear, axis=2))
+    peaks = _peak_map(frame_brightest)
     return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops, peaks)

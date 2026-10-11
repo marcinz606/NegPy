@@ -571,10 +571,13 @@ def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, 
     assert w._pending_exposure_writes == 0 and not w._metering
 
 
-def test_the_zebras_show_the_probes_raw_clipping_while_its_shutter_holds(tmp_path, monkeypatch):
-    from PyQt6.QtGui import QPixmap
+def _zebra_hatched(image, xs, ys) -> bool:
+    return any(image.pixelColor(x, y).alpha() for x in xs for y in ys)
 
+
+def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_picture_hold(tmp_path, monkeypatch):
     import numpy as np
+    from PyQt6.QtGui import QPixmap
 
     w, _ = _metering_sidebar(tmp_path, monkeypatch)
     w.lv_window.zebra_btn.setChecked(True)
@@ -582,22 +585,41 @@ def test_the_zebras_show_the_probes_raw_clipping_while_its_shutter_holds(tmp_pat
     peaks[:10, :10] = 1.0  # a clipped corner
     w._on_meter()
     w._on_meter_finished(_reading(peaks=peaks))
+    w._on_camera_setting_applied("shutter")  # the body confirms the metered shutter
 
-    frame = QPixmap(60, 40)
-    frame.fill()  # a white preview would hatch everywhere from the JPEG
-    w._update_exposure_readouts(frame)
-    raw = w._raw_zebra[0]
-    assert w.lv_image._zebra is raw  # the probe's RAW clipping, not the preview's
-    assert any(raw.pixelColor(x, y).alpha() for x in range(10) for y in range(10))  # hatched
-    assert not any(raw.pixelColor(x, y).alpha() for x in range(20, 60) for y in range(20, 40))
+    rng = np.random.default_rng(0)
+    frame = QPixmap.fromImage(_qimage(rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)))
+    w._update_exposure_readouts(frame)  # the reference picture
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))  # the probe's RAW clipping
+    assert not _zebra_hatched(w.lv_image._zebra, range(20, 60), range(20, 40))
 
-    w._magnifier_on = True  # a zoomed preview is not the probe's frame
+    brighter = QPixmap.fromImage(_qimage(np.clip(_rgb(frame) * 1.3, 0, 254).astype(np.uint8)))
+    w._update_exposure_readouts(brighter)  # the same frame, a brighter preview
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+    advanced = QPixmap.fromImage(_qimage(rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)))
+    w._update_exposure_readouts(advanced)  # the next frame: a different picture
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
     w._update_exposure_readouts(frame)
-    assert w.lv_image._zebra is not raw
-    w._magnifier_on = False
-    w.lv_window.shutter_stepper.setCurrentIndex(w.lv_window.shutter_stepper.findData(0))  # the shutter moved
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+    w.lv_window.aperture_stepper.addItem("f/5.6", 99)
+    w.lv_window.aperture_stepper.setCurrentIndex(w.lv_window.aperture_stepper.findData(99))  # one stop more light
     w._update_exposure_readouts(frame)
-    assert w.lv_image._zebra is not raw
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+
+def _qimage(rgb):
+    from PyQt6.QtGui import QImage
+
+    h, w = rgb.shape[:2]
+    return QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+
+
+def _rgb(pixmap):
+    from negpy.desktop.view.sidebar.scanlight import _rgb_array
+
+    return _rgb_array(pixmap).astype(float)
 
 
 def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):
