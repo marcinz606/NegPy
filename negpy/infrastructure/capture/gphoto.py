@@ -559,6 +559,7 @@ class GphotoCamera:
                 logger.warning("gphoto2: %s has no choice %d", name, index)
                 return
             self._set_verified(name, choices[index])
+            self._publish_settings()  # the UI reads the body's state from the file, not from its own write
 
     def set_iso(self, raw: int) -> None:
         self._set_choice("iso", int(raw))
@@ -1004,12 +1005,15 @@ class GphotoCamera:
         os.replace(tmp, self._jpeg_path)  # atomic: the UI only ever sees a whole frame
 
     def _publish_settings(self) -> None:
-        try:
-            payload = self.read_settings()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("gphoto2 settings: %s", exc)
-            return
-        tmp = f"{self._settings_path}.part"
-        with open(tmp, "w") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, self._settings_path)
+        # The preview thread and the worker both publish. Read and write under the camera's lock,
+        # so the newest read is the last written and one writer owns the temp file.
+        with self._lock:
+            try:
+                payload = self.read_settings()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("gphoto2 settings: %s", exc)
+                return
+            tmp = f"{self._settings_path}.part"
+            with open(tmp, "w") as handle:
+                json.dump(payload, handle)
+            os.replace(tmp, self._settings_path)

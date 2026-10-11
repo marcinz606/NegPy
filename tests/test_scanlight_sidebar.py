@@ -477,6 +477,287 @@ def test_a_clicks_own_echo_does_not_restart_the_focus_peak(tmp_path, monkeypatch
     assert w.lv_window.focus_label.text() == "Focus meter: at peak"
 
 
+def test_histogram_and_zebra_toggles_read_the_live_frame(tmp_path):
+    from PyQt6.QtGui import QPixmap
+
+    w = _sidebar()
+    w.lv_window.histogram_btn.setChecked(True)
+    w.lv_window.zebra_btn.setChecked(True)
+    img = tmp_path / "frame.png"
+    pm = QPixmap(8, 8)
+    pm.fill()  # white: every pixel at the top of the range
+    assert pm.save(str(img), "PNG")
+    w._lv_jpeg_path = str(img)
+    w._lv_last_mtime = 0.0
+
+    w._refresh_live_view()
+
+    assert not w.lv_window.histogram.isHidden()
+    assert w.lv_window.histogram._channels["r"][255] == 1.0
+    assert w.lv_image._zebra is not None
+    w.lv_window.zebra_btn.setChecked(False)
+    assert w.lv_image._zebra is None
+    w.lv_window.histogram_btn.setChecked(False)
+    assert w.lv_window.histogram.isHidden()
+    w.controller.session.repo.save_global_setting.assert_any_call("live_view_zebra", False)
+
+
+def _shutter_json(cur: int = 0) -> str:
+    import json
+
+    return json.dumps({"shutter": {"cur": cur, "writable": True, "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}]}})
+
+
+def _metering_sidebar(tmp_path, monkeypatch, cur: int = 0):
+    """A sidebar streaming under the white-light preset with a two-rung shutter ladder."""
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(_shutter_json(cur))
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._camera_verified = True
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    w._settings = replace(w._settings, white_mode=True)  # white light: the shutter is free
+    w._refresh_camera_settings()
+    return w, p
+
+
+def _reading(**fields):
+    from negpy.services.capture.calibration import CLIP_CEILING
+    from negpy.services.capture.meter import MeterReading
+
+    base = dict(
+        medium="negative",
+        region="base",
+        measured=0.62 * CLIP_CEILING,
+        clipped=False,
+        clipped_fraction=0.0,
+        shutter="1/5",
+        recommended="1/60",
+        stops=0.54,
+    )
+    return MeterReading(**{**base, **fields})
+
+
+def test_meter_asks_the_worker_with_the_body_shutter_and_ladder_and_gates_scan(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.shutter == "1/60"
+    assert req.shutter_candidates == ("1/60", "1/5")
+    assert w._metering and not w.lv_window.meter_btn.isEnabled()
+    assert "wait for the meter" in w._missing_requirements()
+    w._on_meter()  # a second press while the probe runs
+    assert w.controller.start_exposure_probe.call_count == 1
+
+
+def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading())
+
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+    assert w._pending_exposure_writes == 1  # Scan waits for the body's confirmation
+    assert "wait for the exposure to reach the camera" in w._missing_requirements()
+    assert w.lv_window.shutter_stepper.currentText() == "1/60"
+    assert w.lv_window.status.text() == "Meter: negative, base at 62% → 1/60 (+0.5 st)"
+    w._on_camera_setting_applied("shutter")
+    assert w._pending_exposure_writes == 0 and not w._metering
+
+
+def _zebra_hatched(image, xs, ys) -> bool:
+    return any(image.pixelColor(x, y).alpha() for x in xs for y in ys)
+
+
+def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_picture_hold(tmp_path, monkeypatch):
+    import numpy as np
+    from PyQt6.QtGui import QPixmap
+
+    from negpy.services.capture.meter import ranked_thumb
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(0)
+    picture = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
+    peaks = np.zeros((40, 60), np.float32)
+    peaks[:10, :10] = 1.0  # a clipped corner
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=peaks, thumb=ranked_thumb(picture.mean(axis=2)), shape=(40, 60)))
+    w._on_camera_setting_applied("shutter")  # the body confirms the metered shutter
+
+    frame = QPixmap.fromImage(_qimage(picture))
+    w._update_exposure_readouts(frame)  # the reference picture
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))  # the probe's RAW clipping
+    assert not _zebra_hatched(w.lv_image._zebra, range(20, 60), range(20, 40))
+
+    brighter = QPixmap.fromImage(_qimage(np.clip(_rgb(frame) * 1.3, 0, 254).astype(np.uint8)))
+    w._update_exposure_readouts(brighter)  # the same frame, a brighter preview
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+    advanced = QPixmap.fromImage(_qimage(rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)))
+    w._update_exposure_readouts(advanced)  # the next frame: a different picture
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+    w._update_exposure_readouts(frame)
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+    w.lv_window.aperture_stepper.addItem("f/5.6", 99)
+    w.lv_window.aperture_stepper.setCurrentIndex(w.lv_window.aperture_stepper.findData(99))  # one stop more light
+    w._update_exposure_readouts(frame)
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+
+def test_raw_zebras_are_dropped_with_a_reason_when_the_preview_frames_another_picture(tmp_path, monkeypatch):
+    import numpy as np
+    from PyQt6.QtGui import QPixmap
+
+    from negpy.services.capture.meter import ranked_thumb
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(1)
+    probe = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=np.ones((40, 60), np.float32), thumb=ranked_thumb(probe.mean(axis=2)), shape=(40, 60)))
+    w._on_camera_setting_applied("shutter")
+
+    wide = QPixmap.fromImage(_qimage(rng.integers(40, 200, (34, 60, 3), dtype=np.uint8)))  # 16:9-ish
+    w._update_exposure_readouts(wide)
+    assert w._raw_clip is None
+    status = w.lv_window.status.text()
+    assert status.startswith("Meter: ")  # the reading stays on the line
+    assert status.endswith("RAW zebras off: the preview is 60:34 and the RAW 60:40")
+
+
+def _qimage(rgb):
+    from PyQt6.QtGui import QImage
+
+    h, w = rgb.shape[:2]
+    return QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+
+
+def _rgb(pixmap):
+    from negpy.desktop.view.sidebar.scanlight import _rgb_array
+
+    return _rgb_array(pixmap).astype(float)
+
+
+def test_a_reading_from_a_stopped_stream_writes_nothing(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+    w.lv_btn.setChecked(False)  # live view stopped with the probe on the worker
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)  # and started again, so a second probe can go
+    w.lv_btn.blockSignals(False)
+    w._on_meter()
+
+    first, second = (c.args[0].session for c in w.controller.start_exposure_probe.call_args_list)
+    assert first != second
+    w._on_probe_finished((first, _reading()))  # the stopped stream's probe reports first
+    w.controller.set_camera_setting.assert_not_called()
+    assert w._metering  # the second probe still owns the meter
+    w._on_probe_failed((first, "late", True))  # even a lost camera from the stopped stream stops nothing
+    assert w._metering and w.lv_btn.isChecked()
+    w._on_probe_finished((second, _reading()))
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+
+
+def test_camera_only_meters_on_the_bodys_whole_ladder_and_lets_the_probe_decide(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+    w._rgb_mode = False  # no Scanlight
+    w._settings = replace(w._settings, white_process_mode="E6")  # left over from a slide session
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.medium is None
+    assert req.shutter_candidates == w._available_shutters(w._settings_json()["shutter"], scanlight=False)
+
+
+def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended="1/160"))
+
+    assert not w.controller.set_camera_setting.called
+    assert "1/160 is not a step this body offers" in w.lv_window.status.text()
+    assert not w._metering
+
+
+def test_meter_past_the_fastest_rung_asks_for_aperture_or_iso(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended=None, stops=0.3))
+
+    assert not w.controller.set_camera_setting.called
+    assert "close the aperture or lower the ISO" in w.lv_window.status.text()
+
+
+def test_meter_is_refused_while_busy_locked_unparseable_or_without_a_ladder(tmp_path, monkeypatch):
+    import json
+
+    w, p = _metering_sidebar(tmp_path, monkeypatch)
+    w._rgb_mode = True
+    w._settings = replace(w._settings, white_mode=False)  # a calibrated RGB preset owns its exposure
+    w._on_meter()
+    w._settings = replace(w._settings, white_mode=True)
+    w._scanning = True
+    w._on_meter()
+    w._scanning = False
+    p.write_text(
+        json.dumps(
+            {
+                "shutter": {
+                    "cur": 2,
+                    "writable": True,
+                    "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}, {"raw": 2, "label": "Bulb"}],
+                }
+            }
+        )
+    )
+    w._on_meter()
+    assert w.lv_window.status.text() == "Meter: set the shutter between 1/60 and 1/5 first"
+    p.write_text(json.dumps({"shutter": {"cur": 0, "writable": False, "options": [{"raw": 0, "label": "1/5"}]}}))
+    w._on_meter()
+
+    assert not w.controller.start_exposure_probe.called
+    assert w.lv_window.status.text() == "Meter: this body publishes no writable shutter"
+
+
+def test_a_failed_probe_keeps_the_stream_and_frees_the_meter(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_failed("could not convert string to float: 'Bulb'")
+
+    assert w.lv_btn.isChecked() and not w._metering
+    assert w.lv_window.meter_btn.isEnabled()
+    assert w.lv_window.status.text().startswith("Meter: could not convert")
+
+
+def test_the_white_light_presets_carry_the_film_type_to_the_probe(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    for name, medium in (
+        ("White Light, Slide", "positive"),
+        ("White Light, B&W Negative", "negative"),
+        ("White Light (B&W or Slide Film)", None),
+    ):
+        index = w.preset_combo.findData(name)
+        assert index >= 0, name
+        w.preset_combo.setCurrentIndex(index)
+        w._on_preset_selected(index)
+        w._metering = False
+        w._on_meter()
+        assert w.controller.start_exposure_probe.call_args.args[0].medium == medium, name
+
+
 def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     import json
 
