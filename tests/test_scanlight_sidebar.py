@@ -579,16 +579,19 @@ def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_pict
     import numpy as np
     from PyQt6.QtGui import QPixmap
 
+    from negpy.services.capture.meter import _ranked_thumb
+
     w, _ = _metering_sidebar(tmp_path, monkeypatch)
     w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(0)
+    picture = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
     peaks = np.zeros((40, 60), np.float32)
     peaks[:10, :10] = 1.0  # a clipped corner
     w._on_meter()
-    w._on_meter_finished(_reading(peaks=peaks))
+    w._on_meter_finished(_reading(peaks=peaks, thumb=_ranked_thumb(picture.mean(axis=2)), shape=(40, 60)))
     w._on_camera_setting_applied("shutter")  # the body confirms the metered shutter
 
-    rng = np.random.default_rng(0)
-    frame = QPixmap.fromImage(_qimage(rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)))
+    frame = QPixmap.fromImage(_qimage(picture))
     w._update_exposure_readouts(frame)  # the reference picture
     assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))  # the probe's RAW clipping
     assert not _zebra_hatched(w.lv_image._zebra, range(20, 60), range(20, 40))
@@ -607,6 +610,28 @@ def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_pict
     w.lv_window.aperture_stepper.setCurrentIndex(w.lv_window.aperture_stepper.findData(99))  # one stop more light
     w._update_exposure_readouts(frame)
     assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+
+def test_raw_zebras_are_dropped_with_a_reason_when_the_preview_frames_another_picture(tmp_path, monkeypatch):
+    import numpy as np
+    from PyQt6.QtGui import QPixmap
+
+    from negpy.services.capture.meter import _ranked_thumb
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(1)
+    probe = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=np.ones((40, 60), np.float32), thumb=_ranked_thumb(probe.mean(axis=2)), shape=(40, 60)))
+    w._on_camera_setting_applied("shutter")
+
+    wide = QPixmap.fromImage(_qimage(rng.integers(40, 200, (34, 60, 3), dtype=np.uint8)))  # 16:9-ish
+    w._update_exposure_readouts(wide)
+    assert w._raw_clip is None
+    status = w.lv_window.status.text()
+    assert status.startswith("Meter: ")  # the reading stays on the line
+    assert status.endswith("RAW zebras off: the preview is 60:34 and the RAW 60:40")
 
 
 def _qimage(rgb):

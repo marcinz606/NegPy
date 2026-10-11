@@ -147,3 +147,35 @@ def test_the_peak_map_keeps_the_edge_blocks():
     peaks = _peak_map(brightest)
     assert float(peaks[-1, -1]) == 1.0
     assert _peak_map(np.ones((2, 5000), np.float32)).shape[0] == 1  # a short edge under one block
+
+
+def _scene() -> np.ndarray:
+    """An asymmetric picture: a diagonal light falloff and a bright block off center."""
+    h, w = 600, 900
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    lin = 0.1 + 0.5 * (xx / w) * (1 - 0.6 * yy / h)
+    lin[100:220, 600:760] = 0.9
+    return np.dstack([lin, lin * 0.9, lin * 0.8]) * CLIP_CEILING
+
+
+def _jpeg(img: np.ndarray) -> np.ndarray:
+    return (255 * np.clip(img / CLIP_CEILING, 0, 1) ** (1 / 2.2)).astype(np.uint8)
+
+
+def test_the_framing_check_passes_a_tone_curved_preview_of_the_same_picture():
+    from negpy.services.capture.meter import framing_mismatch
+
+    img = _scene()
+    reading = meter_frame(img, "1/30", medium="positive")
+    assert framing_mismatch(reading, _jpeg(img)[::6, ::6]) is None
+
+
+def test_the_framing_check_refuses_another_aspect_and_another_picture():
+    from negpy.services.capture.meter import framing_mismatch
+
+    img = _scene()
+    reading = meter_frame(img, "1/30", medium="positive")
+    preview = _jpeg(img)
+    assert "preview is" in framing_mismatch(reading, preview[75:-75])  # a 16:9 crop of the 3:2 frame
+    advanced = np.ascontiguousarray(np.roll(preview, 300, axis=1))  # the same size, another framing
+    assert framing_mismatch(reading, advanced) == "the preview does not frame the RAW the same way"

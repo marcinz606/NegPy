@@ -52,7 +52,7 @@ from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptur
 from negpy.features.exposure.analysis import output_histogram
 from negpy.services.capture.focus_meter import FocusMeter
 from negpy.services.capture.live_stats import clip_masks
-from negpy.services.capture.meter import raw_clip_mask
+from negpy.services.capture.meter import framing_mismatch, raw_clip_mask
 from negpy.services.capture.calibration import (
     CLIP_CEILING,
     REFERENCE_LEVELS,
@@ -119,6 +119,7 @@ _SAME_PICTURE = 0.9
 class _RawClip:
     mask: np.ndarray  # raw_clip_mask, on the probe's peak map
     exposure: tuple  # _exposure_key at the metered shutter
+    reading: object  # the MeterReading, for framing_mismatch
     reference: np.ndarray | None = None  # _structure of the first preview at that exposure
 
 
@@ -1062,7 +1063,7 @@ class ScanlightSidebar(QWidget):
         self._pending_exposure_writes += 1
         mask = raw_clip_mask(reading)
         if mask is not None:
-            self._raw_clip = _RawClip(mask, self._exposure_key(shutter=raw))
+            self._raw_clip = _RawClip(mask, self._exposure_key(shutter=raw), reading)
         index = self.lv_window.shutter_stepper.findData(raw)
         if index >= 0:
             self.lv_window.shutter_stepper.setCurrentIndex(index)
@@ -1118,7 +1119,7 @@ class ScanlightSidebar(QWidget):
         compared by normalized correlation, so a film advance, a reframe or the focus magnifier
         hands the zebras back to the preview; a brighter preview of the same frame does not."""
         clip = self._raw_clip
-        if clip is None:
+        if clip is None or self._magnifier_on:
             return None
         if self._pending_exposure_writes:
             return clip.mask  # the metered shutter is on its way; the stepper may still lag
@@ -1126,6 +1127,14 @@ class ScanlightSidebar(QWidget):
             return None
         thumb = _structure(rgb)
         if clip.reference is None:
+            # The first preview at the metered exposure must frame the RAW the probe read, or
+            # the map would land on the wrong pixels: drop it and say why.
+            reason = framing_mismatch(clip.reading, rgb)
+            if reason is not None:
+                self._raw_clip = None
+                # Appended, so the Meter's own reading stays on the line.
+                self._set_status(f"{self.lv_window.status.text()} · RAW zebras off: {reason}".lstrip(" ·"))
+                return None
             clip.reference = thumb
             return clip.mask
         return clip.mask if float(np.mean(thumb * clip.reference)) >= _SAME_PICTURE else None

@@ -122,7 +122,12 @@ shutter the Meter set, predicted from the probe (the RAW is linear, so a level s
 with the exposure; a pixel the probe itself clipped stays hatched until a probe reads it). They
 hold while the ISO, shutter, aperture and light are the metered ones and the preview is still
 the same picture; a film advance, a reframe or the focus magnifier hands them back to the
-preview's zebras. The blue shadow hatching stays the preview's. A calibrated RGB preset owns its exposure, and the button is hidden with the exposure
+preview's zebras. The blue shadow hatching stays the preview's. The map is used only when the
+first preview at the metered exposure frames the same picture as the probe: the same aspect, and
+the same picture by rank correlation of thumbnails, which the JPEG's tone curve cannot change.
+A body whose live view crops or reframes the RAW fails it, and the status line says
+`RAW zebras off:` with the reason. In-camera lens correction moves the preview's edges by less
+than one block of the map and is not checked. A calibrated RGB preset owns its exposure, and the button is hidden with the exposure
 steppers.
 
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**

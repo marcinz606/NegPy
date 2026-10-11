@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 from negpy.features.geometry.logic import (
@@ -36,6 +37,12 @@ from negpy.services.capture.calibration import (
 CLIPPED_STEP_STOPS = -2.0
 #: Long edge of the probe's peak map, the RAW zebras' resolution.
 PEAK_MAP_EDGE = 960
+#: The probe and the preview frame the same picture when their aspects agree this closely...
+ASPECT_TOLERANCE = 0.02
+#: ...and the rank correlation of their thumbnails reaches this. Ranks, because the preview
+#: is the body's tone-curved JPEG and the probe is linear: any monotonic curve keeps the order.
+SAME_FRAMING = 0.8
+_THUMB = (64, 43)
 _SATURATION = SATURATION_VALUE / CLIP_CEILING
 
 
@@ -54,6 +61,31 @@ class MeterReading:
     # The whole probe's brightest channel, max-pooled to PEAK_MAP_EDGE: a block holds its
     # brightest pixel, so a clip narrower than a block still shows.
     peaks: np.ndarray | None = field(default=None, compare=False, repr=False)
+    # The probe's picture at thumbnail size and its full shape, to check the preview frames it.
+    thumb: np.ndarray | None = field(default=None, compare=False, repr=False)
+    shape: tuple[int, int] | None = None
+
+
+def _ranked_thumb(gray: np.ndarray) -> np.ndarray:
+    small = cv2.resize(np.ascontiguousarray(gray, dtype=np.float32), _THUMB, interpolation=cv2.INTER_AREA).ravel()
+    ranks = np.argsort(np.argsort(small)).astype(np.float32)
+    ranks -= ranks.mean()
+    return ranks / max(float(ranks.std()), 1e-6)
+
+
+def framing_mismatch(reading: MeterReading, preview: np.ndarray) -> str | None:
+    """Why the probe's RAW map cannot be laid over `preview` (HxWx3), or None when it can: the
+    two must have the same aspect and show the same picture. An aspect setting the RAW ignores,
+    a crop, a zoomed view or a body that streams another framing all fail one or the other."""
+    if reading.thumb is None or reading.shape is None:
+        return "the probe kept no picture"
+    ph, pw = reading.shape
+    vh, vw = preview.shape[:2]
+    if abs((pw / ph) / (vw / vh) - 1.0) > ASPECT_TOLERANCE:
+        return f"the preview is {vw}:{vh} and the RAW {pw}:{ph}"
+    if float(np.mean(_ranked_thumb(preview.mean(axis=2)) * reading.thumb)) < SAME_FRAMING:
+        return "the preview does not frame the RAW the same way"
+    return None
 
 
 def _peak_map(brightest: np.ndarray) -> np.ndarray:
@@ -130,4 +162,6 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     recommended = shutter_at_most(probe_seconds * 2.0**needed, candidates)
     stops = float(np.log2(true_seconds(recommended, candidates) / probe_seconds)) if recommended else needed
     peaks = _peak_map(frame_brightest)
-    return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops, peaks)
+    thumb = _ranked_thumb(np.mean(linear, axis=2))
+    shape = (int(linear.shape[0]), int(linear.shape[1]))
+    return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops, peaks, thumb, shape)
