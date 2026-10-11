@@ -3,7 +3,8 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple
+from contextlib import contextmanager
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
@@ -20,13 +21,14 @@ from negpy.desktop.sticky import (
     load_sticky_config,
     load_sticky_rows,
     migrate_legacy,
+    migrate_auto_crop_sticky_row,
     migrate_legacy_export_destination,
     sticky_snapshot,
 )
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
-from negpy.features.geometry.logic import flip_geometry_and_analysis, rotate_geometry_and_analysis
+from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
 from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
@@ -830,8 +832,11 @@ class DesktopSessionManager(QObject):
         self.settings_saved.connect(self._invalidate_search_facts)
         # is_dirty initialised to False via AppState default
 
+        # Set by carried_crop_kept: a save inside keeps the carried crop as it was.
+        self._keep_carried_crop = False
         migrate_legacy(self.repo)
         migrate_legacy_export_destination(self.repo)
+        migrate_auto_crop_sticky_row(self.repo)
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -1198,6 +1203,16 @@ class DesktopSessionManager(QObject):
                 new_process = replace(new_process, **{attr: val})
         return replace(config, process=new_process)
 
+    @contextmanager
+    def carried_crop_kept(self) -> Iterator[None]:
+        """Saves inside leave the carried crop (Auto Crop, rect, key) as it was. A Geometry
+        reset clears one frame's placement, which is no choice about auto-crop for later scans."""
+        self._keep_carried_crop = True
+        try:
+            yield
+        finally:
+            self._keep_carried_crop = False
+
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
         """Snapshot the settings a fresh file can inherit, in a single transaction.
 
@@ -1213,6 +1228,15 @@ class DesktopSessionManager(QObject):
             stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
             stored = stored if isinstance(stored, dict) else {}
             for key in ("sensor_profile", "sensor_matrix"):
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
+        if has_manual_crop(config.geometry) or self._keep_carried_crop:
+            # A hand-drawn crop, or a reset of one, is one frame's placement: the carried crop stays as it was, whole.
+            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+            stored = stored if isinstance(stored, dict) else {}
+            for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):
                 if key in stored:
                     snapshot[key] = stored[key]
                 else:
@@ -1245,29 +1269,6 @@ class DesktopSessionManager(QObject):
         config = resolve_asset_hdr_seed(config, asset)
         return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
 
-    def _roll_id_for_orphan_asset(self, asset: dict) -> Optional[str]:
-        """The roll to read defaults from when nothing is active for the session -- a
-        library-wide search's mixed results, a restored session with no single shared
-        roll. Falls back to whichever real roll this one file's own path belongs to,
-        so it still gets its own roll's film process instead of the sticky settings'
-        "last used anywhere" guess, which has nothing to do with this specific frame.
-
-        A folder roll is the file's actual physical home and the most likely place its
-        capture facts were ever set; a virtual roll is a curated collection that may or
-        may not carry them, so a folder roll wins when a path is in both.
-        """
-        path = asset.get("path")
-        if not path:
-            return None
-        containing = rolls.rolls_containing_path(self.repo, path)
-        if not containing:
-            return None
-        for roll_id in containing:
-            entry = rolls.roll_for_id(self.repo, roll_id)
-            if entry and entry.get("kind") == "folder":
-                return roll_id
-        return containing[0]
-
     def _overlay_roll_defaults(self, config: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
         """Roll-wide film, rig and scanning facts win over this frame's own saved
         value, on every card it has not locked away from the roll within this
@@ -1278,7 +1279,7 @@ class DesktopSessionManager(QObject):
         Keyed on the unforked hash: a lock is about this physical frame's relationship
         to the roll, and must survive forking or unforking its edit identity.
         """
-        roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+        roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return config
         file_hash = unforked_hash(asset["hash"])
@@ -1747,9 +1748,9 @@ class DesktopSessionManager(QObject):
             self.state_changed.emit()
 
     def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
-        """Persist Auto Crop All before exposing it as active in-memory state.
+        """Persist Auto-crop all frames before exposing it as active in-memory state.
 
-        Non-active Auto Crop All results are written directly. This companion path
+        Non-active Auto-crop all frames results are written directly. This companion path
         preserves that behavior while ensuring a storage error cannot leave an
         unrendered crop live in memory.
         """
@@ -1785,14 +1786,15 @@ class DesktopSessionManager(QObject):
         """Lock each roll card on which the active frame's restored config differs from the
         roll's defaults. History, a work print and a paste restore a config but not its
         locks, and an unlocked card takes the roll's values on the next load. Never unlocks:
-        a card pinned at the roll's own value stays pinned."""
+        a card pinned at the roll's own value stays pinned. The one exception is Auto Crop on
+        a hand-drawn frame, which is never locked (rolls.holds_own_crop)."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
         self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config)
 
     def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig) -> None:
-        roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+        roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
         defaults = rolls.roll_defaults(self.repo, roll_id)
@@ -1800,6 +1802,10 @@ class DesktopSessionManager(QObject):
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             values = getattr(config, section)
+            if rolls.holds_own_crop(card_key, config):
+                if card_key in locked:
+                    rolls.set_frame_override(self.repo, roll_id, base, card_key, False)
+                continue
             if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 
@@ -1903,7 +1909,7 @@ class DesktopSessionManager(QObject):
         preferences, the roll's defaults, then what the asset itself is."""
         config = self._with_brush_size(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG))
         if asset.get("hash"):
-            roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+            roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
             if roll_id is not None:
                 rolls.clear_frame_overrides(self.repo, roll_id, unforked_hash(asset["hash"]))
             config = self._overlay_roll_defaults(config, asset)

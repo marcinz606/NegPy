@@ -22,6 +22,7 @@ def ctrl(tmp_path):
     c = AppController.__new__(AppController)
     c.session = session
     c.state = session.state
+    c._active_batch = None
     c.request_render = MagicMock()
     c.tool_sync_requested = MagicMock()
     c.loading_started = MagicMock()

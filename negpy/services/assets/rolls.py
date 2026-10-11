@@ -22,6 +22,7 @@ from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optional, Sequence
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
+from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.process.models import neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts
 
@@ -349,6 +350,23 @@ def unfork_edit(repo: Any, roll_id: str, from_hash: str) -> None:
     repo.delete_file_settings(roll_edit_hash(from_hash, roll_id))
 
 
+def home_roll(repo: Any, path: str) -> Optional[str]:
+    """The roll *path* belongs to when none is active: a folder roll wins over a virtual
+    one, being the file's physical home and the likeliest place its facts were set."""
+    containing = rolls_containing_path(repo, path) if path else []
+    for roll_id in containing:
+        entry = roll_for_id(repo, roll_id)
+        if entry and entry.get("kind") == "folder":
+            return roll_id
+    return containing[0] if containing else None
+
+
+def frame_roll(repo: Any, active_roll_id: Optional[str], asset: dict) -> Optional[str]:
+    """The roll a frame resolves through, and so the one its locks are written in: the
+    active roll, else the file's home roll (a library search's mixed results)."""
+    return active_roll_id or home_roll(repo, asset.get("path") or "")
+
+
 def rolls_containing_path(repo: Any, path: str) -> List[str]:
     """Every roll *path* belongs to: under a folder roll's own folder or in its
     extra_paths, or listed in a virtual roll's member_paths. A cheap path comparison
@@ -541,6 +559,9 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # own card, driven by the Calibration section alongside "sensor".
     "cast_removal": ("exposure", ("cast_removal_strength",)),
     "autocrop": ("geometry", ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio")),
+    # Auto Crop's on/off, driven by the Crop section alongside "autocrop". Its own card, so a
+    # frame with a hand-drawn crop still takes the roll's shape but not this (holds_own_crop).
+    "auto_crop": ("geometry", ("crop_from_auto",)),
     "lens": ("geometry", ("distortion_k1", "lens_distortion_from_metadata", "lens_ca_from_metadata")),
     # profile_id also has a rig-global fallback, applied upstream of roll defaults, so a
     # roll that names no profile of its own still gets the active one.
@@ -671,6 +692,14 @@ def set_frame_override(repo: Any, roll_id: str, file_hash: str, card_key: str, l
     _write(repo, store)
 
 
+def holds_own_crop(card_key: str, config: "WorkspaceConfig") -> bool:
+    """Whether *card_key* is Auto Crop on a frame with a hand-drawn crop. That frame's Auto
+    Crop off is its placement: the roll's value never reaches it, it never pushes to the
+    roll, and it never locks the card."""
+    geometry = config.geometry
+    return card_key == "auto_crop" and geometry.crop_rect is not None and not geometry.crop_from_auto
+
+
 def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":
     """Overlay this roll's defaults onto *config* for every card the frame has not
     locked to its own value. No roll, no defaults set yet, or every relevant card
@@ -683,12 +712,13 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     locked_cards = frame_override_cards(repo, roll_id, file_hash)
     by_section: Dict[str, Dict[str, Any]] = {}
     for card_key, (section, field_names) in ROLL_DEFAULT_FIELDS.items():
-        if card_key in locked_cards:
+        if card_key in locked_cards or holds_own_crop(card_key, config):
             continue
         for name in field_names:
             if name in defaults:
                 by_section.setdefault(section, {})[name] = defaults[name]
     config = with_film_fields(config, by_section.get("process", {}))
+    config = with_auto_crop_field(config, by_section.get("geometry", {}))
     for section, updates in by_section.items():
         config = replace(config, **{section: replace(getattr(config, section), **updates)})
     return config

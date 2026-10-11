@@ -1,6 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
+
+from negpy.features.process.models import invalidate_local_bounds
+
+if TYPE_CHECKING:
+    from negpy.domain.models import WorkspaceConfig
 
 
 # Valid fine_rotation span (degrees), shared by the sidebar slider and the crop
@@ -157,3 +162,20 @@ class GeometryConfig:
             object.__setattr__(self, "autocrop_ratio", AspectRatio(self.autocrop_ratio))
         except ValueError:
             object.__setattr__(self, "autocrop_ratio", AspectRatio.FREE)
+
+
+def with_auto_crop(config: "WorkspaceConfig", on: bool) -> "WorkspaceConfig":
+    """*config* with Auto Crop on (armed) or off (uncropped). Every path that turns it on or
+    off goes through here: a rect kept across the switch would read as the other kind."""
+    geometry = replace(config.geometry, crop_rect=None, crop_from_auto=on, crop_detect_key="")
+    return replace(config, geometry=geometry, process=replace(config.process, **invalidate_local_bounds(config.process)))
+
+
+def with_auto_crop_field(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
+    """*config* with a `crop_from_auto` in *fields* applied through with_auto_crop when it
+    changes, popping it so the caller overlays only the rest."""
+    if "crop_from_auto" in fields:
+        on = bool(fields.pop("crop_from_auto"))
+        if on != config.geometry.crop_from_auto:
+            config = with_auto_crop(config, on)
+    return config

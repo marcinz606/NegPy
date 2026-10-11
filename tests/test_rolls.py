@@ -484,6 +484,66 @@ class TestRollDefaults:
         assert resolved.exposure.cast_removal_strength == cast_removal_for_mode(ProcessMode.E6, frame.exposure.cast_removal_strength)
         assert resolved.exposure.auto_exposure is False
 
+    def test_a_roll_auto_crop_arms_an_uncropped_frame(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_defaults(repo, roll_id, crop_from_auto=True)
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig())
+
+        assert resolved.geometry.crop_from_auto is True
+        assert resolved.geometry.crop_rect is None
+
+    def test_a_roll_auto_crop_off_clears_a_frames_auto_rect(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_defaults(repo, roll_id, crop_from_auto=False)
+        base = WorkspaceConfig()
+        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, crop_detect_key="k"))
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
+
+        assert resolved.geometry.crop_from_auto is False
+        assert resolved.geometry.crop_rect is None
+
+    def test_a_roll_auto_crop_never_reaches_an_unlocked_hand_drawn_crop(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="4:3")
+        base = WorkspaceConfig()
+        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
+
+        assert resolved.geometry.crop_rect == (0.1, 0.1, 0.9, 0.9)
+        assert resolved.geometry.crop_from_auto is False
+        assert resolved.geometry.autocrop_ratio == "4:3"
+
+    def test_a_roll_auto_crop_keeps_a_frames_resolved_auto_rect(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_defaults(repo, roll_id, crop_from_auto=True)
+        base = WorkspaceConfig()
+        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, crop_detect_key="k"))
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
+
+        assert resolved.geometry == frame.geometry
+
+    def test_a_frame_locked_on_auto_crop_keeps_its_hand_drawn_crop(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="4:3")
+        set_frame_override(repo, roll_id, "h1", "auto_crop", locked=True)
+        base = WorkspaceConfig()
+        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
+
+        assert resolved.geometry.crop_rect == (0.1, 0.1, 0.9, 0.9)
+        assert resolved.geometry.crop_from_auto is False
+        assert resolved.geometry.autocrop_ratio == "4:3"
+
     def test_no_roll_id_leaves_the_frame_alone(self):
         repo = _repo()
         assert resolve_roll_config(repo, None, "h1", WorkspaceConfig()) == WorkspaceConfig()

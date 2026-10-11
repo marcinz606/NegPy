@@ -153,3 +153,23 @@ def test_the_paper_split_migration_lists_exactly_the_paper_card(repo):
     from negpy.services.assets.migrations.roll_fields import _PAPER_FIELDS
 
     assert set(_PAPER_FIELDS) == set(PAPER_FIELDS)
+
+
+def test_auto_crop_locks_only_a_frame_saved_with_it_on(repo):
+    from negpy.services.assets.migrations.roll_fields import migrate_auto_crop_roll_locks
+
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif", "/r/c.tif"])
+
+    def cfg(rect, auto):
+        base = WorkspaceConfig()
+        return replace(base, geometry=replace(base.geometry, crop_rect=rect, crop_from_auto=auto))
+
+    repo.save_file_settings("a", cfg((0.1, 0.1, 0.9, 0.9), True), file_path="/r/a.tif")
+    repo.save_file_settings("b", cfg((0.1, 0.1, 0.9, 0.9), False), file_path="/r/b.tif")
+    repo.save_file_settings("c", cfg(None, False), file_path="/r/c.tif")
+
+    migrate_auto_crop_roll_locks(repo)
+
+    assert rolls.frame_override_cards(repo, roll, "a") == {"auto_crop"}
+    assert rolls.frame_override_cards(repo, roll, "b") == set()
+    assert rolls.frame_override_cards(repo, roll, "c") == set()

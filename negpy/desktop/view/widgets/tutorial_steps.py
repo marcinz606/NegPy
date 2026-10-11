@@ -285,8 +285,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             FRAMING,
             "The Roll's Crop",
-            "Ratio, Mode (image or full film edge), Crop Offset and Rebate Trim belong to the roll. "
-            "<b>Auto-crop the roll</b> analyzes all frames together, so weak detections borrow from "
+            "Auto Crop, Ratio, Mode (image or full film edge), Crop Offset and Rebate Trim belong to the roll. "
+            "<b>Auto-crop all frames</b> crops them together, so weak detections borrow from "
             "strong ones. Crops you drew stay.",
             lambda w: cp(w).autocrop_section,
             guide=("autocrop", "Crop"),

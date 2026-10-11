@@ -156,3 +156,17 @@ def migrate_legacy_export_destination(repo: IRepository) -> None:
         return
     remaining = {k: v for k, v in sticky_export.items() if k not in ("output_mode", "export_path", "output_subfolder")}
     repo.save_global_setting("last_export_config", remaining)
+
+
+_AUTO_CROP_ROW_MIGRATED_KEY = "auto_crop_sticky_row_v1"
+
+
+def migrate_auto_crop_sticky_row(repo: IRepository) -> None:
+    """Add Auto Crop to a saved row choice, once. It became a default carried row; a user
+    who never chose rows gets it from DEFAULT_STICKY_IDS, and an untick after this stays."""
+    if repo.get_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY):
+        return
+    repo.save_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY, True)
+    stored = repo.get_global_setting(STICKY_ROWS_KEY)
+    if isinstance(stored, list):
+        save_sticky_rows(repo, sorted(set(stored) | {"geometry.crop_from_auto"}))

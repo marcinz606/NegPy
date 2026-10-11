@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.models import invalidate_local_bounds, with_film_fields
@@ -127,7 +128,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Cast Removal", "exposure", "cast_removal_strength", sticky=True),
     )),
     ("Crop", (
-        _row("Auto Crop", "geometry", "crop_from_auto"),
+        _row("Auto Crop", "geometry", "crop_from_auto", sticky=True),
         _row("Crop Offset", "geometry", "autocrop_offset", sticky=True),
         _row("Rebate Trim", "geometry", "autocrop_rebate_trim", sticky=True),
         _row("Crop Ratio", "geometry", "autocrop_ratio", sticky=True),
@@ -515,6 +516,12 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     out = target
     # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
     out = with_film_fields(out, by_section.get("process", {}))
+    # A crop rect arrives with its own Auto flag; Auto Crop alone switches through with_auto_crop.
+    geometry = by_section.get("geometry", {})
+    if "crop_rect" in geometry:
+        geometry["crop_from_auto"] = source.geometry.crop_from_auto
+    elif "crop_from_auto" in geometry:
+        out = with_auto_crop_field(out, geometry)
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
     if any(f in BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):
@@ -524,8 +531,11 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
 
 def selected_flat_dict(cfg: WorkspaceConfig, rows: Iterable[SettingRow]) -> dict[str, Any]:
     """Flat dict of the chosen rows' fields (flat keys are field names). A row's
-    fields travel as a unit, default-valued ones included."""
-    return {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    fields travel as a unit, default-valued ones included; a crop rect brings its Auto flag."""
+    flat = {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    if "crop_rect" in flat:
+        flat["crop_from_auto"] = cfg.geometry.crop_from_auto
+    return flat
 
 
 def preset_config(data: Mapping[str, Any]) -> WorkspaceConfig:

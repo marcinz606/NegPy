@@ -375,9 +375,9 @@ Rows that measure the scan, not your edit; hover for details. A row with nothing
 
 **Crop:**
 
-*   **Auto** (magic wand on the CROP header): detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.4](#104-crop)).
+*   **Auto** (magic wand on the CROP header): the same Auto Crop as the Crop card's wand ([§10.4](#104-crop)), for this frame.
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card; the crop tool snaps to it. **1:1.4142** is the ISO A paper shape (A4, A6).
-*   **Crop** tool (crop icon on the CROP header): draw a crop rectangle; with **Ratio** at **Free**, an edge midpoint resizes one axis. It opens on the current crop; a manual change stops auto-detection. Drag past the viewport edge to pan. **Reset** (undo icon on the CROP header) clears the crop and turns auto-crop off.
+*   **Crop** tool (crop icon on the CROP header): draw a crop rectangle; with **Ratio** at **Free**, an edge midpoint resizes one axis. It opens on the current crop; a manual change turns **Auto Crop** ([§10.4](#104-crop)) off for this frame. Drag past the viewport edge to pan. **Reset** (undo icon on the CROP header) clears the crop and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides with orientations (spiral 8, triangles 2).
 
 **Alignment:**
@@ -781,9 +781,9 @@ The shape every frame is cut to and what the frame detector looks for, roll-wide
 
 *   **Mode**: *Image only* (exposed area) or *Film edge* (full film, including rebate and sprockets).
 *   **Crop Offset** (-5 to 100 px): inset the detected edge; negative bleeds slightly outside.
-*   **Rebate Trim** (0 to 150%): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border. *Image only*; applies to **Frame** and **Roll**.
-*   **Auto-crop this frame** (magic wand on the AUTO CROP header): detect this frame's edge and crop to it, the same toggle as **Auto** in Geometry. Off clears the crop.
-*   **Auto-crop the roll** (layers icon on the AUTO CROP header, *Image only*): crops all visible landscape frames together, calibrating weak detections from confident ones, and straightens each as **Auto Skew** does. Portrait frames are cropped alone. Manual, Film-edge and ambiguous frames are left alone.
+*   **Rebate Trim** (0 to 150%): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border. *Image only*.
+*   **Auto Crop** (magic wand on the AUTO CROP header): detect the frame edge and crop to it; off clears the crop. New frames, such as the next scans, start with the last value set, also with an empty Film Strip. A hand-drawn crop turns it off for that frame alone, and never takes the roll's Auto Crop. **Roll** asks before it turns the roll's Auto Crop on or off for frames that follow the roll.
+*   **Auto-crop all frames** (layers icon on the AUTO CROP header, *Image only*): crops every frame in the Film Strip together, filtered out or not, calibrating weak detections from confident ones, and straightens each as **Auto Skew** does. Portrait frames are cropped alone. Hand-drawn, Film-edge and ambiguous frames, and frames that keep their own Auto Crop off, are left alone. The crop controls are locked until it finishes.
 *   **Mixing scans**: allowed. A frame that reads its own edge keeps its crop; a frame with no edge takes the roll's width and tilt. Frames from one camera, holder and format pool best.
 *   **When auto-crop leaves a frame alone**: the scanner bed must be the brightest thing in the scan. A slide with highlights as bright as the bed, sprocket-exposed film, or a neighbor frame filling more than a tenth of one side stays uncropped. Crop by hand, or use *Film edge* and trim in.
 
@@ -799,7 +799,7 @@ Meter the roll once and share the result, so frames of one film match. The **Use
 *   **Use average: Cast** (Color Negative only): take Cast Removal's gray balance from the roll or scene analysis, so frames under one light render alike. Analysis turns it on, except on frames far from the rest; grayed out until one has run.
 *   **Baseline** (line shown while either average is on): names the roll or scene analyzed, or the frame **Sync Bounds…** took it from, and warns when there is none.
 *   **Rolls** (picker): search every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. Picking one loads its baseline at once.
-*   **Reanalyze** (gauge, on the ROLLS header; also in the Library, [§2](#2-film-strip-left-panel)): averages density and color balance over the loaded roll, scene and locked frames excluded, and saves the roll's baseline. Frames far from the rest keep their own; the status message names them. Run **Auto-crop the roll** first for consistent crops.
+*   **Reanalyze** (gauge, on the ROLLS header; also in the Library, [§2](#2-film-strip-left-panel)): averages density and color balance over the loaded roll, scene and locked frames excluded, and saves the roll's baseline. Frames far from the rest keep their own; the status message names them. Run **Auto-crop all frames** ([§10.4](#104-crop)) first for consistent crops.
 *   **Use This Frame** (crosshairs, on the ROLLS header): saves this frame's bounds as the roll's baseline, for a reference frame.
 *   **Scenes**: the loaded roll's [scenes](#scenes), ticked once analyzed. **Analyze** runs Scene Analysis (Reanalyze over the scene only); **Select** selects its frames; **Delete** forgets it. Roll Analysis skips scene frames.
 

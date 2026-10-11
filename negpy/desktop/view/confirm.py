@@ -125,6 +125,20 @@ def confirm_delete_mask(parent) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_roll_auto_crop(parent, on: bool, count: int) -> bool:
+    """Ask before a Roll push changes the roll's Auto Crop: the frames that follow the
+    roll gain or lose an auto crop."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Auto Crop")
+    box.setText(f"Turn Auto Crop {'on' if on else 'off'} for this roll?")
+    change = "are auto-cropped" if on else "lose their auto crop"
+    box.setInformativeText(f"{count_of(count, 'frame')} that follow the roll {change}. A hand-drawn crop stays.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
     """Ask before resetting several frames to their defaults at once.
 
