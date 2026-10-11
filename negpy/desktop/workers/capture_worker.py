@@ -627,31 +627,31 @@ class CaptureWorker(QObject):
     def run_exposure_probe(self, req: ExposureProbeRequest) -> None:
         """One probe under the light as lit, at the body's current exposure, into a scratch
         directory the way calibration shoots; the reading says which shutter to set."""
-        try:
-            import tempfile
+        import tempfile
 
-            from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
-            from negpy.services.capture.meter import meter_frame
+        from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
+        from negpy.services.capture.meter import meter_frame
 
-            if not self._holds_camera():
-                self.status.emit("Connecting to camera…")
-            camera = self._acquire_camera()
-            with tempfile.TemporaryDirectory(prefix="negpy-meter-") as scratch_dir:
+        with tempfile.TemporaryDirectory(prefix="negpy-meter-") as scratch_dir:
+            try:
+                if not self._holds_camera():
+                    self.status.emit("Connecting to camera…")
+                camera = self._acquire_camera()
                 # Pinned to the label the reading is computed against, not whatever a queued
                 # stepper write leaves on the body.
                 written = camera.capture(os.path.join(scratch_dir, "probe.raw"), shutter=req.shutter)
+            except Exception as e:
+                self._close_camera()  # discard a possibly-broken held session
+                logger.exception("meter probe failed")
+                self.error.emit(f"Meter: {e}")
+                return
+            try:
                 img = linear_demosaic(written, half_size=True)
-        except Exception as e:
-            self._close_camera()  # discard a possibly-broken held session
-            logger.exception("meter probe failed")
-            self.error.emit(f"Meter: {e}")
-            return
-        try:
-            reading = meter_frame(img, req.shutter, req.shutter_candidates, medium=req.medium)
-        except Exception as e:  # the session is fine; only the maths failed
-            logger.exception("meter failed")
-            self.exposure_probe_failed.emit(str(e))
-            return
+                reading = meter_frame(img, req.shutter, req.shutter_candidates, medium=req.medium)
+            except Exception as e:  # the session is fine; only the decode or the maths failed
+                logger.exception("meter failed")
+                self.exposure_probe_failed.emit(str(e))
+                return
         self.exposure_probe_finished.emit(reading)
 
     @pyqtSlot(SensorResponseRequest)

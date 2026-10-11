@@ -564,7 +564,7 @@ def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, 
 
     w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
     assert w._pending_exposure_writes == 1  # Scan waits for the body's confirmation
-    assert "wait for the preset exposure to reach the camera" in w._missing_requirements()
+    assert "wait for the exposure to reach the camera" in w._missing_requirements()
     assert w.lv_window.shutter_stepper.currentText() == "1/60"
     assert w.lv_window.status.text() == "Meter: negative, base at 62% → 1/60 (+0.5 st)"
     w._on_camera_setting_applied("shutter")
@@ -579,7 +579,7 @@ def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_pict
     import numpy as np
     from PyQt6.QtGui import QPixmap
 
-    from negpy.services.capture.meter import _ranked_thumb
+    from negpy.services.capture.meter import ranked_thumb
 
     w, _ = _metering_sidebar(tmp_path, monkeypatch)
     w.lv_window.zebra_btn.setChecked(True)
@@ -588,7 +588,7 @@ def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_pict
     peaks = np.zeros((40, 60), np.float32)
     peaks[:10, :10] = 1.0  # a clipped corner
     w._on_meter()
-    w._on_meter_finished(_reading(peaks=peaks, thumb=_ranked_thumb(picture.mean(axis=2)), shape=(40, 60)))
+    w._on_meter_finished(_reading(peaks=peaks, thumb=ranked_thumb(picture.mean(axis=2)), shape=(40, 60)))
     w._on_camera_setting_applied("shutter")  # the body confirms the metered shutter
 
     frame = QPixmap.fromImage(_qimage(picture))
@@ -616,14 +616,14 @@ def test_raw_zebras_are_dropped_with_a_reason_when_the_preview_frames_another_pi
     import numpy as np
     from PyQt6.QtGui import QPixmap
 
-    from negpy.services.capture.meter import _ranked_thumb
+    from negpy.services.capture.meter import ranked_thumb
 
     w, _ = _metering_sidebar(tmp_path, monkeypatch)
     w.lv_window.zebra_btn.setChecked(True)
     rng = np.random.default_rng(1)
     probe = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
     w._on_meter()
-    w._on_meter_finished(_reading(peaks=np.ones((40, 60), np.float32), thumb=_ranked_thumb(probe.mean(axis=2)), shape=(40, 60)))
+    w._on_meter_finished(_reading(peaks=np.ones((40, 60), np.float32), thumb=ranked_thumb(probe.mean(axis=2)), shape=(40, 60)))
     w._on_camera_setting_applied("shutter")
 
     wide = QPixmap.fromImage(_qimage(rng.integers(40, 200, (34, 60, 3), dtype=np.uint8)))  # 16:9-ish
@@ -645,6 +645,34 @@ def _rgb(pixmap):
     from negpy.desktop.view.sidebar.scanlight import _rgb_array
 
     return _rgb_array(pixmap).astype(float)
+
+
+def test_a_reading_from_a_stopped_stream_writes_nothing(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+    w.lv_btn.setChecked(False)  # live view stopped with the probe on the worker
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)  # and started again, so a second probe can go
+    w.lv_btn.blockSignals(False)
+    w._on_meter()
+
+    w._on_meter_finished(_reading())  # the stopped stream's probe reports first
+    w.controller.set_camera_setting.assert_not_called()
+    assert w._metering  # the second probe still owns the meter
+    w._on_meter_finished(_reading())
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+
+
+def test_camera_only_meters_on_the_bodys_whole_ladder_and_lets_the_probe_decide(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+    w._rgb_mode = False  # no Scanlight
+    w._settings = replace(w._settings, white_process_mode="E6")  # left over from a slide session
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.medium is None
+    assert req.shutter_candidates == w._body_shutters(w._settings_json()["shutter"])
 
 
 def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):

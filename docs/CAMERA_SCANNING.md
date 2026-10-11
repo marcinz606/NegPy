@@ -111,10 +111,13 @@ The shutter moves to the body's nearest step at or under that exposure, as a cou
 write: Scan waits until the body confirms it. The status line reads, for example,
 `Meter: negative, base at 62% → 1/15 (+0.5 st)`, the stops being the move that step makes.
 A clipped base, or highlights clipped on more than 2% of the picture (Calibrate's budget for
-the decoded frame; a few specular points are under it), cannot be measured: the shutter steps
-down two stops and the line asks for another probe. A target past the body's fastest step is
-reported with the remedy, close the aperture or lower the ISO, and nothing is written. Meter
-needs the shutter on a step between 1/250 s and 2 s, the span Calibrate solves on, and waits
+the decoded frame), cannot be measured: the shutter steps down two stops and the line asks for
+another probe. Specular points under the budget are set aside: the picture is metered at the
+budget's edge, so a few glints neither clip the reading nor pin it to the ceiling. A target past the body's fastest step is
+reported with the remedy, close the aperture or lower the ISO, and nothing is written. Under the
+Scanlight, Meter needs the shutter on a step between 1/250 s and 2 s, the span Calibrate solves
+on (a shorter exposure integrates too few of the LED's PWM pulses); camera-only scanning meters
+on the body's whole ladder and lets the probe decide the film type, as its import does. It waits
 while a scan, a calibration or another probe runs. A negative's base is the same across a
 roll, so one reading serves it; a slide's highlights differ on every frame, so meter each
 one. After a probe the zebras switch to the RAW: they hatch where the RAW will clip at the

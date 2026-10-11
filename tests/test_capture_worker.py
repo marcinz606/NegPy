@@ -561,3 +561,38 @@ def test_presence_poll_reports_a_missing_scanlight(monkeypatch):
     monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("No serial ports found.")))
     worker.poll_presence("")
     assert seen == [(False, False)]
+
+
+def test_a_probe_that_cannot_be_decoded_keeps_the_session(tmp_path, monkeypatch):
+    """A RAW LibRaw rejects is the decoder's failure, not the camera's: the stream stays up."""
+    import negpy.infrastructure.capture.raw_demosaic as demosaic_module
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def is_open(self):
+            return True
+
+        def close(self):
+            raise AssertionError("the session must stay open")
+
+        def capture(self, path, shutter=None, **_kwargs):
+            written = Path(path).with_suffix(".ARW")
+            written.write_bytes(b"probe")
+            return str(written)
+
+    def reject(_path, half_size=False):
+        raise ValueError("unsupported file format")
+
+    worker._camera = Camera()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: worker._camera)
+    monkeypatch.setattr(demosaic_module, "linear_demosaic", reject)
+    failures, errors = [], []
+    worker.exposure_probe_failed.connect(failures.append)
+    worker.error.connect(errors.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
+
+    assert failures == ["unsupported file format"] and errors == []
+    assert worker._camera is not None

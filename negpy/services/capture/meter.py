@@ -66,7 +66,9 @@ class MeterReading:
     shape: tuple[int, int] | None = None
 
 
-def _ranked_thumb(gray: np.ndarray) -> np.ndarray:
+def ranked_thumb(gray: np.ndarray) -> np.ndarray:
+    """A picture at thumbnail size as zero-mean, unit-variance ranks: two thumbnails' mean product
+    is their rank correlation, which no monotonic tone curve and no exposure change can move."""
     small = cv2.resize(np.ascontiguousarray(gray, dtype=np.float32), _THUMB, interpolation=cv2.INTER_AREA).ravel()
     ranks = np.argsort(np.argsort(small)).astype(np.float32)
     ranks -= ranks.mean()
@@ -83,7 +85,7 @@ def framing_mismatch(reading: MeterReading, preview: np.ndarray) -> str | None:
     vh, vw = preview.shape[:2]
     if abs((pw / ph) / (vw / vh) - 1.0) > ASPECT_TOLERANCE:
         return f"the preview is {vw}:{vh} and the RAW {pw}:{ph}"
-    if float(np.mean(_ranked_thumb(preview.mean(axis=2)) * reading.thumb)) < SAME_FRAMING:
+    if float(np.mean(ranked_thumb(preview.mean(axis=2)) * reading.thumb)) < SAME_FRAMING:
         return "the preview does not frame the RAW the same way"
     return None
 
@@ -141,10 +143,12 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     brightest = frame_brightest[ly1:ly2, lx1:lx2]
     clipped_fraction = float(np.mean(brightest >= _SATURATION))
 
+    # No film box, no rebate: the ring would be whatever surrounds the picture, bare light included.
     rebate = np.zeros((h, w), bool)
-    fy1, fy2, fx1, fx2 = film_roi
-    rebate[fy1:fy2, fx1:fx2] = True
-    rebate[gy1:gy2, gx1:gx2] = False
+    if film.roi is not None:
+        fy1, fy2, fx1, fx2 = film_roi
+        rebate[fy1:fy2, fx1:fx2] = True
+        rebate[gy1:gy2, gx1:gx2] = False
     ring = det[rebate]
     # A negative's base is its thinnest film, so a ring darker than the picture is picture.
     if medium == "negative" and ring.size and np.median(ring.mean(axis=1)) > np.median(picture_det.mean(axis=1)):
@@ -154,7 +158,11 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     else:
         region = "highlights"
         levels = np.percentile(picture, 99.9, axis=0)
-        clipped = clipped_fraction > MAX_LINEARITY_FRACTION  # Calibrate's demosaiced budget
+        if float(levels.max()) >= _SATURATION and clipped_fraction <= MAX_LINEARITY_FRACTION:
+            # A saturated p99.9 is a floor, not a level. Within Calibrate's budget the clipped
+            # specular points are set aside and the picture is metered at the budget's edge.
+            levels = np.percentile(picture, 100.0 * (1.0 - MAX_LINEARITY_FRACTION), axis=0)
+        clipped = float(levels.max()) >= _SATURATION or clipped_fraction > MAX_LINEARITY_FRACTION
     measured = float(levels.max()) * CLIP_CEILING
 
     probe_seconds = true_seconds(shutter, candidates)
@@ -162,6 +170,6 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     recommended = shutter_at_most(probe_seconds * 2.0**needed, candidates)
     stops = float(np.log2(true_seconds(recommended, candidates) / probe_seconds)) if recommended else needed
     peaks = _peak_map(frame_brightest)
-    thumb = _ranked_thumb(np.mean(linear, axis=2))
+    thumb = ranked_thumb(np.mean(linear, axis=2))
     shape = (int(linear.shape[0]), int(linear.shape[1]))
     return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops, peaks, thumb, shape)

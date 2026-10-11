@@ -316,6 +316,8 @@ class GphotoCamera:
         # stale handle reports itself open forever.
         self._alive = False
         self._lock = threading.RLock()
+        # The preview thread and the worker both publish; one writer, one temp file, at a time.
+        self._publish_lock = threading.Lock()
         self._preview: Optional[threading.Thread] = None
         self._stop = threading.Event()
         # Raised while a still is in flight, so the preview thread does not queue another frame
@@ -1010,7 +1012,8 @@ class GphotoCamera:
         except Exception as exc:  # noqa: BLE001
             logger.warning("gphoto2 settings: %s", exc)
             return
-        tmp = f"{self._settings_path}.part"
-        with open(tmp, "w") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, self._settings_path)
+        with self._publish_lock:
+            tmp = f"{self._settings_path}.part"
+            with open(tmp, "w") as handle:
+                json.dump(payload, handle)
+            os.replace(tmp, self._settings_path)

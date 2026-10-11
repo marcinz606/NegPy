@@ -87,7 +87,26 @@ def test_fine_clipped_highlights_count_at_the_probe_resolution():
     reading = meter_frame(img, "1/30", medium="positive")
 
     assert reading.clipped_fraction == pytest.approx(8800 / (1680 * 2160), rel=0.1)
-    assert reading.measured == pytest.approx(CLIP_CEILING, rel=0.01)  # p99.9 sees the glints
+    # Within the 2% budget the glints are set aside: the picture is metered, not the ceiling.
+    assert not reading.clipped
+    assert reading.measured < 0.35 * CLIP_CEILING
+
+
+def test_a_saturated_p999_is_never_metered_as_a_level():
+    """Clipping past the budget, or a budget-edge level still at saturation, is a floor: the
+    probe steps down and asks again instead of nudging a third of a stop."""
+    img = _frame(border=0.02, picture=0.3, h=600, w=900, orange=False)
+    img[120:200, 200:700] = CLIP_CEILING  # about 9% of the picture blown
+    reading = meter_frame(img, "1/30", medium="positive")
+    assert reading.clipped and reading.stops == pytest.approx(CLIPPED_STEP_STOPS, abs=0.4)
+
+
+def test_a_probe_with_no_film_box_meters_the_picture_not_the_light_around_it():
+    """Without a film box there is no rebate: the bright surround is not taken for a base."""
+    rng = np.random.default_rng(3)
+    img = (0.2 + 0.1 * rng.random((600, 900, 3))).astype(np.float32) * CLIP_CEILING  # no edges at all
+    reading = meter_frame(img, "1/30", medium="negative")
+    assert reading.region == "highlights"
 
 
 def test_a_target_past_the_fastest_rung_is_reported_not_overshot():
