@@ -192,6 +192,8 @@ class ExportConfig:
     export_dpi: int = 300
     export_resolution_mode: ExportResolutionMode = ExportResolutionMode.ORIGINAL
     export_target_long_edge_px: int = 2000
+    # Unsharp mask amount on a resized export, applied at the exported size.
+    output_sharpen: float = 0.0
     filename_pattern: str = "{{ original_name }}"
     # When True, exports overwrite existing files silently. When False, the export prompts
     # (Overwrite / Rename / Cancel) before clobbering anything.
@@ -249,6 +251,7 @@ class ExportPreset:
     export_print_size: float = 30.0
     export_dpi: int = 300
     export_target_long_edge_px: int = 2000
+    output_sharpen: float = 0.0
 
     # Output destination
     output_mode: ExportPresetOutputMode = ExportPresetOutputMode.SAME_AS_SOURCE
@@ -291,6 +294,7 @@ class ExportPreset:
             "export_print_size": self.export_print_size,
             "export_dpi": self.export_dpi,
             "export_target_long_edge_px": self.export_target_long_edge_px,
+            "output_sharpen": self.output_sharpen,
             "output_mode": self.output_mode,
             "output_subfolder": self.output_subfolder,
             "output_path": self.output_path,
@@ -337,6 +341,7 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         export_print_size=conf.export_print_size,
         export_dpi=conf.export_dpi,
         export_target_long_edge_px=conf.export_target_long_edge_px,
+        output_sharpen=conf.output_sharpen,
         output_mode=conf.output_mode,
         output_subfolder=conf.output_subfolder,
         output_path=conf.export_path,

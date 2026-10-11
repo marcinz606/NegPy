@@ -114,3 +114,68 @@ def test_image_service_tiff_export_format() -> None:
     read_back = tifffile.imread(io.BytesIO(res))
     assert read_back.dtype == np.uint16
     assert read_back.shape == (10, 10, 3)
+
+
+def _edge_export(mode: str, amount: float, flat: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """A vertical edge on a mat, as an encoded export buffer, before and after the pass."""
+    from dataclasses import replace
+
+    from negpy.features.exposure.models import RenderIntent
+
+    buffer = np.full((60, 80, 3), 0.9, dtype=np.float32)
+    buffer[10:50, 10:40] = 0.3
+    buffer[10:50, 40:70] = 0.6
+    params = WorkspaceConfig(export=ExportConfig(export_resolution_mode=mode, output_sharpen=amount))
+    if flat:
+        params = replace(params, exposure=replace(params.exposure, render_intent=RenderIntent.FLAT))
+    out = ImageProcessor()._sharpen_resized_content(buffer.copy(), (10, 10, 60, 40), params)
+    return buffer, out
+
+
+def test_output_sharpening_raises_edge_contrast_and_leaves_the_mat() -> None:
+    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.5)
+
+    assert after[30, 39, 0] < before[30, 39, 0]
+    assert after[30, 40, 0] > before[30, 40, 0]
+    mat = np.ones(before.shape[:2], dtype=bool)
+    mat[10:50, 10:70] = False
+    assert np.array_equal(after[mat], before[mat])
+
+
+def test_output_sharpening_skips_an_original_size_export() -> None:
+    before, after = _edge_export(ExportResolutionMode.ORIGINAL.value, 0.5)
+
+    assert np.array_equal(after, before)
+
+
+def test_output_sharpening_is_off_by_default() -> None:
+    assert ExportConfig().output_sharpen == 0.0
+    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.0)
+    assert np.array_equal(after, before)
+
+
+def test_output_sharpening_skips_a_flat_master() -> None:
+    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.5, flat=True)
+
+    assert np.array_equal(after, before)
+
+
+def test_resize_sharpening_matches_across_row_blocks_and_keeps_alpha() -> None:
+    from negpy.features.lab import logic
+
+    rng = np.random.default_rng(3)
+    rgba = rng.random((64, 48, 4), dtype=np.float32)
+    whole = logic.apply_resize_sharpening(rgba, 0.5)
+
+    blocks = logic._map_row_blocks
+    try:
+        logic._map_row_blocks = lambda img, fn, halo=0: np.concatenate(
+            [fn(img[max(0, s - halo) : s + 16 + halo])[s - max(0, s - halo) :][:16] for s in range(0, img.shape[0], 16)]
+        )
+        tiled = logic.apply_resize_sharpening(rgba, 0.5)
+    finally:
+        logic._map_row_blocks = blocks
+
+    assert np.array_equal(whole[..., 3], rgba[..., 3])
+    assert not np.array_equal(whole[..., :3], rgba[..., :3])
+    np.testing.assert_allclose(tiled, whole, atol=1e-6)
