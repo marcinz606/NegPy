@@ -571,6 +571,35 @@ def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, 
     assert w._pending_exposure_writes == 0 and not w._metering
 
 
+def test_the_zebras_show_the_probes_raw_clipping_while_its_shutter_holds(tmp_path, monkeypatch):
+    from PyQt6.QtGui import QPixmap
+
+    import numpy as np
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    peaks = np.zeros((40, 60), np.float32)
+    peaks[:10, :10] = 1.0  # a clipped corner
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=peaks))
+
+    frame = QPixmap(60, 40)
+    frame.fill()  # a white preview would hatch everywhere from the JPEG
+    w._update_exposure_readouts(frame)
+    raw = w._raw_zebra[0]
+    assert w.lv_image._zebra is raw  # the probe's RAW clipping, not the preview's
+    assert any(raw.pixelColor(x, y).alpha() for x in range(10) for y in range(10))  # hatched
+    assert not any(raw.pixelColor(x, y).alpha() for x in range(20, 60) for y in range(20, 40))
+
+    w._magnifier_on = True  # a zoomed preview is not the probe's frame
+    w._update_exposure_readouts(frame)
+    assert w.lv_image._zebra is not raw
+    w._magnifier_on = False
+    w.lv_window.shutter_stepper.setCurrentIndex(w.lv_window.shutter_stepper.findData(0))  # the shutter moved
+    w._update_exposure_readouts(frame)
+    assert w.lv_image._zebra is not raw
+
+
 def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):
     w, _ = _metering_sidebar(tmp_path, monkeypatch)
     w._on_meter()

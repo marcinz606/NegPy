@@ -9,7 +9,8 @@ import's own classifier on the probe. Hardware-free: the caller shoots and decod
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -33,6 +34,8 @@ from negpy.services.capture.calibration import (
 
 #: A clipped region reads as a floor, so the probe steps down this far and meters again.
 CLIPPED_STEP_STOPS = -2.0
+#: Long edge of the probe's peak map, the RAW zebras' resolution.
+PEAK_MAP_EDGE = 960
 _SATURATION = SATURATION_VALUE / CLIP_CEILING
 
 
@@ -48,6 +51,25 @@ class MeterReading:
     shutter: str  # the probe's
     recommended: str | None  # the ladder rung for the target, never past it; None when no rung is fast enough
     stops: float  # the move `recommended` makes, or the move needed when there is no rung
+    # The whole probe's brightest channel, max-pooled to PEAK_MAP_EDGE: a block holds its
+    # brightest pixel, so a clip narrower than a block still shows.
+    peaks: np.ndarray | None = field(default=None, compare=False, repr=False)
+
+
+def _peak_map(brightest: np.ndarray) -> np.ndarray:
+    h, w = brightest.shape
+    f = max(1, math.ceil(max(h, w) / PEAK_MAP_EDGE))
+    hh, ww = max(f, h // f * f), max(f, w // f * f)
+    return np.ascontiguousarray(brightest[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3)))
+
+
+def raw_clip_mask(reading: MeterReading) -> np.ndarray | None:
+    """Where the RAW will clip at `reading.recommended`: the RAW is linear, so a pixel the probe
+    read unclipped scales by 2^stops exactly. A pixel the probe clipped has no known level, so it
+    stays marked until a probe reads it unclipped. None without a peak map or a recommendation."""
+    if reading.peaks is None or reading.recommended is None:
+        return None
+    return (reading.peaks * np.float32(2.0**reading.stops) >= _SATURATION) | (reading.peaks >= _SATURATION)
 
 
 def shutter_at_most(seconds: float, candidates: tuple[str, ...]) -> str | None:
@@ -103,4 +125,5 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     needed = CLIPPED_STEP_STOPS if clipped else float(np.log2(TARGET_FRACTION * CLIP_CEILING / max(measured, 1.0)))
     recommended = shutter_at_most(probe_seconds * 2.0**needed, candidates)
     stops = float(np.log2(true_seconds(recommended, candidates) / probe_seconds)) if recommended else needed
-    return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops)
+    peaks = _peak_map(np.max(linear, axis=2))
+    return MeterReading(medium, region, measured, clipped, clipped_fraction, shutter, recommended, stops, peaks)

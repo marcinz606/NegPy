@@ -117,7 +117,11 @@ reported with the remedy, close the aperture or lower the ISO, and nothing is wr
 needs the shutter on a step between 1/250 s and 2 s, the span Calibrate solves on, and waits
 while a scan, a calibration or another probe runs. A negative's base is the same across a
 roll, so one reading serves it; a slide's highlights differ on every frame, so meter each
-one. A calibrated RGB preset owns its exposure, and the button is hidden with the exposure
+one. After a probe the zebras switch to the RAW: they hatch where the RAW will clip at the
+shutter the Meter set, predicted from the probe (the RAW is linear, so a level scales exactly
+with the exposure; a pixel the probe itself clipped stays hatched until a probe reads it). They
+show only while that shutter holds and the focus magnifier is off; then the preview's zebras
+return. A calibrated RGB preset owns its exposure, and the button is hidden with the exposure
 steppers.
 
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**

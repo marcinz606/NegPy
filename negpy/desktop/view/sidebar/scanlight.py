@@ -9,6 +9,7 @@ aligns + merges + inverts them.
 import json
 import os
 import re
+from typing import Optional
 from dataclasses import asdict, fields, replace
 
 import numpy as np
@@ -51,6 +52,7 @@ from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptur
 from negpy.features.exposure.analysis import output_histogram
 from negpy.services.capture.focus_meter import FocusMeter
 from negpy.services.capture.live_stats import clip_masks
+from negpy.services.capture.meter import raw_clip_mask
 from negpy.services.capture.calibration import (
     CLIP_CEILING,
     REFERENCE_LEVELS,
@@ -142,6 +144,8 @@ class ScanlightSidebar(QWidget):
         self._magnifier_seen = False  # the state the stream last published, or a click's own
         self._metering = False  # a Meter probe is on the worker; Scan, Retake and Meter wait for it
         self._meter_raw: dict[str, int] = {}  # the body's shutter labels → raw indexes, read once per probe
+        # The last probe's predicted RAW clipping as a zebra, and the shutter raw it holds for.
+        self._raw_zebra: Optional[tuple[QImage, int]] = None
         self._magnifier_available = True
         self._focus_meter = FocusMeter()
         # Full and magnified views do not share a sharpness scale: reset the peak once the body has switched.
@@ -907,6 +911,7 @@ class ScanlightSidebar(QWidget):
         # `_on_live_view_started` re-blanks and pins the mtime.
         self._lv_target.clear_frame()
         self.lv_window.set_histogram(None)  # the row follows the frame: empty until one lands
+        self._raw_zebra = None  # a new session may hold a different exposure
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
 
@@ -1009,6 +1014,7 @@ class ScanlightSidebar(QWidget):
         # The preset's medium, as the import reads it; AUTO leaves the probe to the classifier.
         medium = {WhiteCaptureMode.BW: "negative", WhiteCaptureMode.E6: "positive"}.get(WhiteCaptureMode(self._settings.white_process_mode))
         self._meter_raw = options
+        self._raw_zebra = None
         self._metering = True
         self._apply_gating()
         self._set_status("Metering…")
@@ -1034,6 +1040,9 @@ class ScanlightSidebar(QWidget):
             return
         self.controller.set_camera_setting("shutter", raw)
         self._pending_exposure_writes += 1
+        mask = raw_clip_mask(reading)
+        if mask is not None:
+            self._raw_zebra = (zebra_image(mask, np.zeros_like(mask)), raw)
         index = self.lv_window.shutter_stepper.findData(raw)
         if index >= 0:
             self.lv_window.shutter_stepper.setCurrentIndex(index)
@@ -1061,11 +1070,24 @@ class ScanlightSidebar(QWidget):
         want_zebra = self.lv_window.zebra_btn.isChecked()
         if not (want_histogram or want_zebra):
             return
+        raw_zebra = self._current_raw_zebra() if want_zebra else None
+        if want_zebra and raw_zebra is not None and not want_histogram:
+            self.lv_image.set_zebra(raw_zebra)
+            return
         rgb = _rgb_array(pixmap)
         if want_histogram:
             self.lv_window.set_histogram(output_histogram(rgb))
         if want_zebra:
-            self.lv_image.set_zebra(zebra_image(*clip_masks(rgb)))
+            self.lv_image.set_zebra(raw_zebra if raw_zebra is not None else zebra_image(*clip_masks(rgb)))
+
+    def _current_raw_zebra(self) -> Optional[QImage]:
+        """The Meter probe's RAW clipping at the shutter it set. It holds only for that shutter
+        and the full frame: a moved shutter or the focus magnifier hands the zebras back to the
+        preview."""
+        if self._raw_zebra is None or self._magnifier_on:
+            return None
+        image, raw = self._raw_zebra
+        return image if self.lv_window.shutter_stepper.currentData() == raw else None
 
     def _after_capture_live_view(self) -> None:
         """Re-light the preview after a scan. An in-session capture leaves the Scanlight

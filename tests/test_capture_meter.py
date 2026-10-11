@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from negpy.services.capture.calibration import CLIP_CEILING, SHUTTER_CANDIDATES, true_seconds
-from negpy.services.capture.meter import CLIPPED_STEP_STOPS, meter_frame, shutter_at_most
+from negpy.services.capture.meter import CLIPPED_STEP_STOPS, PEAK_MAP_EDGE, meter_frame, shutter_at_most
 
 
 def _frame(border: float, picture: float, h: int = 600, w: int = 900, orange: bool = True) -> np.ndarray:
@@ -109,3 +109,31 @@ def test_shutter_at_most_never_overshoots():
     assert true_seconds(shutter_at_most(0.05, SHUTTER_CANDIDATES)) <= 0.05
     assert shutter_at_most(1e-6, SHUTTER_CANDIDATES) is None
     assert shutter_at_most(1e6, SHUTTER_CANDIDATES) == SHUTTER_CANDIDATES[-1]
+
+
+def test_the_peak_map_keeps_a_clip_narrower_than_a_block():
+    img = _frame(border=0.6, picture=0.25, h=2400, w=3600)
+    img[1200, 1800] = CLIP_CEILING  # one saturated pixel
+    reading = meter_frame(img, "1/30", medium="negative")
+    assert max(reading.peaks.shape) <= PEAK_MAP_EDGE
+    assert float(reading.peaks.max()) >= 1.0 - 1e-6
+
+
+def test_the_raw_clip_mask_predicts_the_metered_shutter():
+    """The RAW is linear: a probe pixel at half saturation clips one stop slower, not at the
+    probe's own shutter."""
+    from dataclasses import replace
+
+    from negpy.services.capture.meter import raw_clip_mask
+
+    reading = meter_frame(_frame(border=0.6, picture=0.25), "1/30", medium="negative")
+    peaks = np.full((4, 6), 0.3, np.float32)
+    peaks[0, 0] = 0.55  # clips one stop up
+    peaks[1, 1] = 1.0  # clipped at the probe: unknown, so it stays marked
+    at_probe = raw_clip_mask(replace(reading, peaks=peaks, stops=0.0))
+    one_up = raw_clip_mask(replace(reading, peaks=peaks, stops=1.0))
+    one_down = raw_clip_mask(replace(reading, peaks=peaks, stops=-1.0))
+    assert at_probe.sum() == 1 and at_probe[1, 1]
+    assert one_up.sum() == 2 and one_up[0, 0] and one_up[1, 1]
+    assert one_down.sum() == 1 and one_down[1, 1]
+    assert raw_clip_mask(replace(reading, recommended=None)) is None
