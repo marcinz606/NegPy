@@ -112,7 +112,7 @@ def _gray_array(pixmap: QPixmap) -> np.ndarray:
     return rows[:, : image.width()].copy()
 
 
-#: Normalized correlation of two previews' structure above which they are the same picture.
+#: Rank correlation of two previews' thumbnails (ranked_thumb) at which they are the same picture.
 _SAME_PICTURE = 0.9
 
 
@@ -164,11 +164,13 @@ class ScanlightSidebar(QWidget):
         self._magnifier_seen = False  # the state the stream last published, or a click's own
         self._metering = False  # a Meter probe is on the worker; Scan, Retake and Meter wait for it
         self._meter_raw: dict[str, int] = {}  # the body's shutter labels → raw indexes, read once per probe
+        self._meter_fastest = ""  # the probe's ladder's fastest label, for the too-bright report
         # The last probe's predicted RAW clipping, the exposure it holds for, and the preview it
         # was metered on (_current_raw_clip).
         self._raw_clip: _RawClip | None = None
-        self._probes_in_flight = 0  # Meter probes on the worker
-        self._stale_probes = 0  # of those, the ones a stopped stream still owes a report
+        # Counts live-view starts and stops; a probe carries the value it was asked under, so a
+        # report from a stopped stream is dropped.
+        self._lv_session = 0
         self._magnifier_available = True
         self._focus_meter = FocusMeter()
         # Full and magnified views do not share a sharpness scale: reset the peak once the body has switched.
@@ -449,8 +451,8 @@ class ScanlightSidebar(QWidget):
         self.lv_window.scanRequested.connect(self._on_scan)
         self.lv_window.retakeRequested.connect(self._on_retake)
         self.lv_window.meterRequested.connect(self._on_meter)
-        self.controller.capture_exposure_probe_finished.connect(self._on_meter_finished)
-        self.controller.capture_exposure_probe_failed.connect(self._on_meter_failed)
+        self.controller.capture_exposure_probe_finished.connect(self._on_probe_finished)
+        self.controller.capture_exposure_probe_failed.connect(self._on_probe_failed)
         self.lv_image.clicked.connect(self._on_magnifier_click)
         for which, stepper in (
             ("iso", self.lv_window.iso_stepper),
@@ -795,16 +797,11 @@ class ScanlightSidebar(QWidget):
         if self._pending_exposure_writes == 0:
             self._apply_gating()
 
-    def _body_shutters(self, info: dict) -> tuple[str, ...]:
-        """The body's whole writable ladder, fastest first, for a capture under a light of its own."""
-        if not info.get("writable", True):
-            return ()
-        return usable_ladder(tuple(str(o.get("label", "")).strip() for o in info.get("options", [])))
-
-    def _available_shutters(self, info: dict | None = None) -> tuple[str, ...]:
+    def _available_shutters(self, info: dict | None = None, scanlight: bool = True) -> tuple[str, ...]:
         """The camera's writable shutter labels (from the live-view settings JSON, or `info`,
         that JSON's shutter entry) as the ladder calibration solves on, so it solves on this
-        body's own speeds."""
+        body's own speeds. `scanlight` keeps it inside the span a PWM-lit capture meters on;
+        without the Scanlight it is the body's whole ladder."""
         if info is None:
             info = self._settings_json().get("shutter") or {}
         if not info.get("writable", True):  # absent = unknown, so only an explicit read-only blocks
@@ -812,7 +809,8 @@ class ScanlightSidebar(QWidget):
             # is a read-back that never settles (issue #768). Publishing no ladder makes the caller
             # refuse instead of solving against speeds it cannot set.
             return ()
-        return scan_ladder(o.get("label", "") for o in info.get("options", []))
+        labels = [str(o.get("label", "")).strip() for o in info.get("options", [])]
+        return scan_ladder(labels) if scanlight else usable_ladder(tuple(labels))
 
     def _on_calibrate_new_preset(self, name: str) -> None:
         if self._scanning:
@@ -929,8 +927,7 @@ class ScanlightSidebar(QWidget):
             self._lv_target.set_loading(False)  # drop the buffering spinner
             self._reset_magnifier()
             self._metering = False
-            # A probe still in flight reports to a stopped stream: its reading is dropped.
-            self._stale_probes = self._probes_in_flight
+            self._lv_session += 1  # a probe still in flight reports to a stopped stream: dropped
             self.lv_window.hide()
             self._push_light()  # back to the capture light (RGB unless white mode)
             self._set_status("")  # clear the "Live view running" line once the stream stops
@@ -942,6 +939,7 @@ class ScanlightSidebar(QWidget):
         # `_on_live_view_started` re-blanks and pins the mtime.
         self._lv_target.clear_frame()
         self.lv_window.set_histogram(None)  # the row follows the frame: empty until one lands
+        self._lv_session += 1
         self._raw_clip = None  # a new session may hold a different exposure
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
@@ -1031,9 +1029,9 @@ class ScanlightSidebar(QWidget):
         # One read of the stream's JSON: the ladder, the probe's shutter and the labels the
         # reading is written back through all come from the same publish.
         info = self._settings_json().get("shutter") or {}
-        # The 1/250 floor keeps the Scanlight's PWM out of a short exposure; camera-only
-        # scanning has no Scanlight, so it meters on the body's whole ladder.
-        candidates = self._available_shutters(info) if self._rgb_mode else self._body_shutters(info)
+        # Under the Scanlight, shutters faster than 1/250 s integrate too few PWM pulses and are
+        # excluded; camera-only scanning meters on the body's whole ladder.
+        candidates = self._available_shutters(info, scanlight=self._rgb_mode)
         options = {str(o.get("label", "")): int(o["raw"]) for o in info.get("options", []) if "raw" in o}
         shutter = next((label for label, raw in options.items() if raw == info.get("cur")), "")
         if not candidates:
@@ -1054,18 +1052,18 @@ class ScanlightSidebar(QWidget):
         self._meter_raw = options
         self._raw_clip = None
         self._metering = True
-        self._probes_in_flight += 1
         self._apply_gating()
         self._set_status("Metering…")
-        self.controller.start_exposure_probe(ExposureProbeRequest(shutter=shutter, shutter_candidates=candidates, medium=medium))
+        self._meter_fastest = candidates[0]
+        self.controller.start_exposure_probe(
+            ExposureProbeRequest(shutter=shutter, shutter_candidates=candidates, medium=medium, session=self._lv_session)
+        )
 
     @pyqtSlot(object)
     def _on_meter_finished(self, reading) -> None:
         """Write the metered shutter to the body as a counted exposure write, so Scan waits
         for the body's confirmation. A white-light or camera-only scan shoots at the body's
         shutter."""
-        if self._probe_done_is_stale():
-            return
         self._metering = False
         where = f"{reading.medium}, {reading.region}"
         level = f"{reading.measured / CLIP_CEILING:.0%}"
@@ -1073,8 +1071,9 @@ class ScanlightSidebar(QWidget):
         raw = self._meter_raw.get(label) if label else None
         if label is None:
             self._apply_gating()
-            fastest = "1/250, the fastest the Scanlight meters cleanly" if self._rgb_mode else "this body's fastest shutter"
-            self._set_status(f"Meter: {where} at {level} needs more than {fastest}; close the aperture or lower the ISO")
+            self._set_status(
+                f"Meter: {where} at {level} needs a shutter faster than {self._meter_fastest}; close the aperture or lower the ISO"
+            )
             return
         if raw is None:
             self._apply_gating()
@@ -1099,20 +1098,21 @@ class ScanlightSidebar(QWidget):
         else:
             self._set_status(f"Meter: {where} at {level} → {label} ({reading.stops:+.1f} st)")
 
-    def _probe_done_is_stale(self) -> bool:
-        """One probe has reported. The worker runs them in order, so the first reports after a
-        stop are the stopped stream's, and they write nothing."""
-        self._probes_in_flight = max(0, self._probes_in_flight - 1)
-        if self._stale_probes:
-            self._stale_probes -= 1
-            return True
-        return False
+    @pyqtSlot(object)
+    def _on_probe_finished(self, report) -> None:
+        session, reading = report
+        if session == self._lv_session:  # a stopped stream's probe writes nothing
+            self._on_meter_finished(reading)
+
+    @pyqtSlot(object)
+    def _on_probe_failed(self, report) -> None:
+        session, reason = report
+        if session == self._lv_session:
+            self._on_meter_failed(reason)
 
     @pyqtSlot(str)
     def _on_meter_failed(self, reason: str) -> None:
         """The probe could not be decoded or metered; the stream and the session stand."""
-        if self._probe_done_is_stale():
-            return
         self._metering = False
         self._apply_gating()
         self._set_status(f"Meter: {reason}")
@@ -1147,7 +1147,7 @@ class ScanlightSidebar(QWidget):
     def _current_raw_clip(self, rgb: np.ndarray) -> "_RawClip | None":
         """The Meter probe's RAW clipping, while it still describes the frame on screen: the same
         exposure and the same picture. The picture is the first preview at the metered exposure,
-        compared by normalized correlation, so a film advance, a reframe or the focus magnifier
+        compared by rank correlation, so a film advance, a reframe or the focus magnifier
         hands the zebras back to the preview; a brighter preview of the same frame does not."""
         clip = self._raw_clip
         if clip is None or self._magnifier_on:

@@ -211,12 +211,14 @@ def test_meter_probes_once_in_scratch_and_reports_the_reading(tmp_path, monkeypa
     readings = []
     worker.exposure_probe_finished.connect(readings.append)
 
-    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", session=7))
 
     assert len(probes) == 1 and not probes[0][0].exists()
     assert probes[0][1] == "1/30"  # shot at the label the reading is computed against
-    assert readings[0].shutter == "1/30"
-    assert readings[0].measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.01)
+    session, reading = readings[0]
+    assert session == 7  # echoed, so a stopped stream's report can be told apart
+    assert reading.shutter == "1/30"
+    assert reading.measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.01)
 
 
 def test_a_probe_that_cannot_be_metered_reports_without_dropping_the_session(tmp_path, monkeypatch):
@@ -594,5 +596,5 @@ def test_a_probe_that_cannot_be_decoded_keeps_the_session(tmp_path, monkeypatch)
 
     worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
 
-    assert failures == ["unsupported file format"] and errors == []
+    assert failures == [(0, "unsupported file format")] and errors == []
     assert worker._camera is not None

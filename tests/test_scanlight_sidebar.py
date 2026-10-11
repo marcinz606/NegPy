@@ -656,10 +656,14 @@ def test_a_reading_from_a_stopped_stream_writes_nothing(tmp_path, monkeypatch):
     w.lv_btn.blockSignals(False)
     w._on_meter()
 
-    w._on_meter_finished(_reading())  # the stopped stream's probe reports first
+    first, second = (c.args[0].session for c in w.controller.start_exposure_probe.call_args_list)
+    assert first != second
+    w._on_probe_finished((first, _reading()))  # the stopped stream's probe reports first
     w.controller.set_camera_setting.assert_not_called()
     assert w._metering  # the second probe still owns the meter
-    w._on_meter_finished(_reading())
+    w._on_probe_failed((first, "late"))
+    assert w._metering
+    w._on_probe_finished((second, _reading()))
     w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
 
 
@@ -672,7 +676,7 @@ def test_camera_only_meters_on_the_bodys_whole_ladder_and_lets_the_probe_decide(
 
     req = w.controller.start_exposure_probe.call_args.args[0]
     assert req.medium is None
-    assert req.shutter_candidates == w._body_shutters(w._settings_json()["shutter"])
+    assert req.shutter_candidates == w._available_shutters(w._settings_json()["shutter"], scanlight=False)
 
 
 def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):

@@ -87,14 +87,13 @@ def test_fine_clipped_highlights_count_at_the_probe_resolution():
     reading = meter_frame(img, "1/30", medium="positive")
 
     assert reading.clipped_fraction == pytest.approx(8800 / (1680 * 2160), rel=0.1)
-    # Within the 2% budget the glints are set aside: the picture is metered, not the ceiling.
-    assert not reading.clipped
-    assert reading.measured < 0.35 * CLIP_CEILING
+    # p99.9 sees the glints at saturation: a lower bound, so the probe steps down and asks again.
+    assert reading.clipped and reading.stops == pytest.approx(CLIPPED_STEP_STOPS, abs=0.4)
 
 
 def test_a_saturated_p999_is_never_metered_as_a_level():
-    """Clipping past the budget, or a budget-edge level still at saturation, is a floor: the
-    probe steps down and asks again instead of nudging a third of a stop."""
+    """A saturated p99.9 is a lower bound: the probe steps down and asks again instead of
+    nudging a third of a stop."""
     img = _frame(border=0.02, picture=0.3, h=600, w=900, orange=False)
     img[120:200, 200:700] = CLIP_CEILING  # about 9% of the picture blown
     reading = meter_frame(img, "1/30", medium="positive")

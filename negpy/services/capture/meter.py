@@ -26,7 +26,6 @@ from negpy.features.process.logic import detect_process_mode
 from negpy.features.process.models import ProcessMode
 from negpy.services.capture.calibration import (
     CLIP_CEILING,
-    MAX_LINEARITY_FRACTION,
     SATURATION_VALUE,
     SHUTTER_CANDIDATES,
     TARGET_FRACTION,
@@ -158,11 +157,9 @@ def meter_frame(img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (),
     else:
         region = "highlights"
         levels = np.percentile(picture, 99.9, axis=0)
-        if float(levels.max()) >= _SATURATION and clipped_fraction <= MAX_LINEARITY_FRACTION:
-            # A saturated p99.9 is a floor, not a level. Within Calibrate's budget the clipped
-            # specular points are set aside and the picture is metered at the budget's edge.
-            levels = np.percentile(picture, 100.0 * (1.0 - MAX_LINEARITY_FRACTION), axis=0)
-        clipped = float(levels.max()) >= _SATURATION or clipped_fraction > MAX_LINEARITY_FRACTION
+        # A saturated p99.9 is a lower bound, not a level: step down and meter again, so repeated
+        # probes converge on the same shutter whichever side of saturation a few pixels sit.
+        clipped = float(levels.max()) >= _SATURATION
     measured = float(levels.max()) * CLIP_CEILING
 
     probe_seconds = true_seconds(shutter, candidates)
