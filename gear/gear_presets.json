@@ -1,7 +1,7 @@
 [
   {
     "id": "preset-ae1p-fd50-portra400",
-    "displayName": "AE-1P / FD 50 f/1.4 / Portra 400",
+    "displayName": "AE-1P / FD 50 f/1.4 / Ektacolor Pro 400",
     "cameraId": "cam-canon-ae1p",
     "lensId": "lens-canon-fd-50-1.4",
     "filmStockId": "film-portra-400"

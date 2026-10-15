@@ -62,13 +62,18 @@ class ScannerService:
         """
         return self._get_backend().eject(device_id)
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+    def media_loaded(self, device_id: str) -> bool | None:
+        """Whether film is loaded. None where the transport cannot tell."""
+        loaded = getattr(self._get_backend(), "media_loaded", None)
+        return None if loaded is None else bool(loaded(device_id))
+
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
         """How many frames the loaded film carries, 0 where the transport cannot measure it.
 
         A feeder counts slots instead, and the caller has that from the device capabilities.
         """
         detect = getattr(self._get_backend(), "detect_frames", None)
-        return 0 if detect is None else int(detect(device_id, film_format=film_format))
+        return 0 if detect is None else int(detect(device_id, film_format=film_format, film_type=film_type))
 
     def open_roll(
         self,
@@ -147,6 +152,8 @@ class ScannerService:
         """
         from datetime import date as dt_date
 
+        from negpy.infrastructure.loaders.constants import SUPPORTED_TIFF_EXTENSIONS
+        from negpy.infrastructure.loaders.tiff_loader import _ir_suffixes
         from negpy.infrastructure.scanners.settings import MONO_TIFF
         from negpy.services.scanning.writer import write_tiff_16bit
 
@@ -154,15 +161,21 @@ class ScannerService:
 
         fmt = output_format.upper()
         date_str = dt_date.today().strftime("%Y%m%d")
-        ext = ".tif"
 
         require_sequence_varying_scan_filename(filename_pattern, date_str)
 
+        # The loader finds IR companions by name in any case, so a leftover one takes the name too.
+        taken_suffixes = tuple(sorted(SUPPORTED_TIFF_EXTENSIONS)) + _ir_suffixes("_ir") + _ir_suffixes("_ir_valid")
+        listings: dict[str, set[str]] = {}
         current = 1 if seq is None else seq
         while True:
             basename = render_scan_filename(filename_pattern, date_str, current)
             rgb_path = os.path.join(output_folder, basename)
-            if not os.path.exists(rgb_path + ext):
+            folder = os.path.dirname(rgb_path)
+            if folder not in listings:
+                listings[folder] = {n.lower() for n in os.listdir(folder)} if os.path.isdir(folder) else set()
+            stem = os.path.basename(rgb_path).lower()
+            if not any(stem + s in listings[folder] for s in taken_suffixes):
                 break
             current += 1
 

@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -1643,6 +1643,39 @@ def _trim_opaque_border(
     return ny1, ny2, nx1, nx2
 
 
+# OpenCV's warps assert on a side of SHRT_MAX px or more; a larger frame is warped in tiles.
+_CV_WARP_MAX = 32767
+_WARP_TILE = 8192
+
+
+def _remap_tiled(img: ImageBuffer, source_of: Callable[[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]) -> ImageBuffer:
+    """Same-size bilinear warp with replicated edges, one output tile at a time. ``source_of(xs, ys)`` maps output
+    to source coords; each tile reads only its source box, so every remap stays under OpenCV's size limit."""
+    h, w = img.shape[:2]
+    out = np.empty_like(img)
+    for y0 in range(0, h, _WARP_TILE):
+        for x0 in range(0, w, _WARP_TILE):
+            y1, x1 = min(h, y0 + _WARP_TILE), min(w, x0 + _WARP_TILE)
+            ys, xs = np.meshgrid(np.arange(y0, y1, dtype=np.float64), np.arange(x0, x1, dtype=np.float64), indexing="ij")
+            map_x, map_y = source_of(xs, ys)
+            sx0 = int(np.clip(np.floor(map_x.min()) - 1, 0, w - 1))
+            sx1 = int(np.clip(np.ceil(map_x.max()) + 2, sx0 + 1, w))
+            sy0 = int(np.clip(np.floor(map_y.min()) - 1, 0, h - 1))
+            sy1 = int(np.clip(np.ceil(map_y.max()) + 2, sy0 + 1, h))
+            out[y0:y1, x0:x1] = cv2.remap(
+                np.ascontiguousarray(img[sy0:sy1, sx0:sx1]),
+                (map_x - sx0).astype(np.float32),
+                (map_y - sy0).astype(np.float32),
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+    return out
+
+
+def _too_big_to_warp(img: ImageBuffer) -> bool:
+    return max(img.shape[:2]) >= _CV_WARP_MAX
+
+
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
     Sub-degree rotation (bilinear).
@@ -1653,6 +1686,11 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     h, w = img.shape[:2]
     center = (w / 2.0, h / 2.0)
     m_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+    if _too_big_to_warp(img):
+        inv = cv2.invertAffineTransform(m_mat)
+        return ensure_image(
+            _remap_tiled(img, lambda xs, ys: (inv[0, 0] * xs + inv[0, 1] * ys + inv[0, 2], inv[1, 0] * xs + inv[1, 1] * ys + inv[1, 2]))
+        )
 
     res = cv2.warpAffine(
         img,
@@ -1679,6 +1717,7 @@ def _radial_center(w: int, h: int) -> Tuple[float, float, float]:
     return (w - 1) * 0.5, (h - 1) * 0.5, 0.5 * math.hypot(w, h)
 
 
+@lru_cache(maxsize=32)
 def compute_distortion_scale(k1: float, w: int, h: int, _samples: int = 128) -> float:
     """Largest scale at which the output frame still maps fully inside the input — fills
     the frame without empty/replicated borders. Numeric, so it's sign-agnostic (the
@@ -1741,6 +1780,16 @@ def apply_radial_distortion(img: ImageBuffer, k1: float) -> ImageBuffer:
     if abs(k1) < _DISTORT_EPS:
         return img
     h, w = img.shape[:2]
+    if _too_big_to_warp(img):
+        cx, cy, halfdiag = _radial_center(w, h)
+        s = compute_distortion_scale(k1, w, h)
+
+        def source_of(xs: np.ndarray, ys: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+            px, py = (xs - cx) * s, (ys - cy) * s
+            f = 1.0 + k1 * (px * px + py * py) / (halfdiag * halfdiag)
+            return cx + px * f, cy + py * f
+
+        return ensure_image(_remap_tiled(img, source_of))
     map_x, map_y = _radial_maps(k1, w, h)
     res = cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     return ensure_image(res)
@@ -1813,6 +1862,14 @@ def apply_keystone(img: ImageBuffer, converge_v: float, converge_h: float) -> Im
     if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
         return img
     h, w = img.shape[:2]
+    if _too_big_to_warp(img):
+        hi = np.linalg.inv(keystone_matrix(converge_v, converge_h, w, h))
+
+        def source_of(xs: np.ndarray, ys: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+            d = hi[2, 0] * xs + hi[2, 1] * ys + hi[2, 2]
+            return (hi[0, 0] * xs + hi[0, 1] * ys + hi[0, 2]) / d, (hi[1, 0] * xs + hi[1, 1] * ys + hi[1, 2]) / d
+
+        return ensure_image(_remap_tiled(img, source_of))
     res = cv2.warpPerspective(
         img,
         keystone_matrix(converge_v, converge_h, w, h),
@@ -1921,6 +1978,8 @@ def apply_margin_to_roi(
     Expands/Contracts ROI.
     """
     y1, y2, x1, x2 = roi
+    # An inset larger than half the crop would turn the ROI inside out.
+    margin_px = min(margin_px, (y2 - y1 - 1) / 2, (x2 - x1 - 1) / 2)
     ny1, ny2, nx1, nx2 = y1 + margin_px, y2 - margin_px, x1 + margin_px, x2 - margin_px
     return int(max(0, ny1)), int(min(h, ny2)), int(max(0, nx1)), int(min(w, nx2))
 
@@ -2186,6 +2245,10 @@ def autocrop_detection_key(geometry: GeometryConfig) -> str:
             geometry.autocrop_ratio,
             geometry.autocrop_mode,
             round(geometry.autocrop_rebate_trim, 4),
+            # Only when set: a frozen rect with no distortion keeps its key.
+            *((round(geometry.distortion_k1, 4),) if geometry.distortion_k1 else ()),
+            # Only when on: turning Square Before Crop on re-detects, and squares, a cropped frame.
+            *(("square",) if geometry.autocrop_square else ()),
         )
     )
 
@@ -2195,17 +2258,9 @@ def resolve_autocrop_rect(
     geometry: GeometryConfig,
     preview_size: float,
 ) -> Optional[Tuple[float, float, float, float]]:
-    """Detect the auto crop and return a normalized rect in transformed-image space, as
-    GeometryConfig.crop_rect stores it and the canvas overlay draws it.
-
-    The only border detection a render reaches; the caller freezes the result, so every
-    later render of the edit crops identically at any resolution. Runs on a copy normalized
-    to AUTOCROP_DETECT_RES, replaying the GeometryProcessor transform order
-    (rot90 -> flips -> fine rotation).
-
-    The rect excludes Crop Offset, which get_manual_rect_coords adds back on every render;
-    only the 2 px baseline margin is baked in. None when the buffer is too small.
-    """
+    """The auto crop as a normalized rect in transformed-image space; the caller freezes it, so later renders crop
+    the same at any resolution. Runs at AUTOCROP_DETECT_RES in GeometryProcessor order (rot90 -> flips -> fine
+    rotation -> distortion -> keystone). Excludes Crop Offset, which get_manual_rect_coords adds per render; None when too small."""
     h, w = img.shape[:2]
     det_s = min(1.0, AUTOCROP_DETECT_RES / max(h, w))
     if det_s < 1.0:
@@ -2221,6 +2276,8 @@ def resolve_autocrop_rect(
     tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
     if geometry.fine_rotation != 0.0:
         tmp = apply_fine_rotation(tmp, geometry.fine_rotation)
+    if geometry.distortion_k1 != 0.0:
+        tmp = apply_radial_distortion(tmp, geometry.distortion_k1)
     # Detection must see the frame the render produces, or the rect is found on a
     # straight rebate and applied to a keystoned one.
     tmp = apply_keystone(tmp, geometry.converge_v, geometry.converge_h)
@@ -2313,10 +2370,9 @@ def map_coords_to_geometry(
         py -= y1
         h, w = y2 - y1, x2 - x1
 
-    nx_new = np.clip(px / max(w, 1), 0.0, 1.0)
-    ny_new = np.clip(py / max(h, 1), 0.0, 1.0)
-
-    return float(nx_new), float(ny_new)
+    # Not clamped: a vertex off the frame (a Card Edge drawn from outside, a large Oval)
+    # must keep its place, as the overlay draws it.
+    return float(px / max(w, 1)), float(py / max(h, 1))
 
 
 def solve_keystone_from_edges(

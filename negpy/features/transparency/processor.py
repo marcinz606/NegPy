@@ -99,7 +99,9 @@ class TransparencyBaseProcessor:
         # space than the GPU's. Pre-trim bounds, so a White/Black Point nudge cannot
         # perturb it.
         if self.cast_strength > 0.0:
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
+            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(
+                prefiltered, pre_trim_bounds, None, 0.0, exclude_foliage=False
+            )
 
         # Auto Density and Auto Grade meter against the same fixed pre-trim window.
         context.metrics["metered_anchor"] = measure_anchor_from_log(
@@ -138,7 +140,7 @@ class TransferProcessor:
         deliberate colour cast is the photograph.
         """
         exposure_offset, contrast, toe3, sh3 = transfer_curve_params(self.config)
-        exposure_offset, contrast, highlight_auto = transfer_auto_terms(
+        exposure_offset, contrast, highlight_auto, shadow_auto = transfer_auto_terms(
             self.config,
             exposure_offset,
             contrast,
@@ -184,7 +186,7 @@ class TransferProcessor:
             cmy_offsets,
             tw3,
             sw3,
-            shadow_density=self.config.shadow_density,
+            shadow_density=self.config.shadow_density + shadow_auto,
             highlight_density=self.config.highlight_density + highlight_auto,
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,

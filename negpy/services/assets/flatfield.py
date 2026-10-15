@@ -4,13 +4,16 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
 
-from negpy.features.flatfield.logic import compute_gain, gain_token
+from negpy.features.flatfield.logic import Evenness, GainEntry, check_copy, check_reference, compute_gain, gain_token, to_sensor_layout
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
 _EXT = ".npz"
+# Marks a profile whose gain and reference are in sensor layout; one without it is in its
+# reference's EXIF orientation (services/assets/migrations/flatfield_layout.py).
+SENSOR_LAYOUT = "sensor"
 
 
 class FlatFieldProfile(NamedTuple):
@@ -20,43 +23,63 @@ class FlatFieldProfile(NamedTuple):
     source: str  # provenance path of the reference the gain was baked from
 
 
+class StoredCheck(NamedTuple):
+    gain: np.ndarray
+    reference: Optional[np.ndarray]  # the reference's check copy; None on a profile baked before checks
+    check: Optional[Evenness]
+    sensor_layout: bool = True
+
+
+class Baked(NamedTuple):
+    gain: np.ndarray
+    check: Evenness
+    reference: np.ndarray  # check copy, stored so the profile can be checked without its source
+
+
 class FlatFieldProfiles:
-    """
-    npz I/O for flat-field reference profiles (illumination-falloff gain maps).
-
-    One file per profile in ``APP_CONFIG.flatfield_dir``, named ``<uuid>.npz`` and
-    holding the baked per-channel gain map plus rig metadata: the distortion ``k1``,
-    a display name and the provenance path. The reference image is decoded once, at
-    save time; nothing outside this directory is needed to apply the correction
-    afterward, so moving or deleting the original reference is harmless.
-
-    Keyed by an opaque id rather than the name — the per-image edit references a
-    profile by id, so a rename (or a name collision across machines) never breaks
-    the reference. Disk I/O happens on dropdown build, selection and save, never per
-    render (the render path resolves gains through the logic-layer provider cache).
-    """
+    """npz I/O for flat-field gain-map profiles: one ``<uuid>.npz`` per profile in ``APP_CONFIG.flatfield_dir``, with rig
+    metadata and a small reference copy with its self-check, so applying or checking never needs the source. Keyed by id, not
+    name, so a rename never breaks an edit's reference. Disk I/O never runs per render (the logic-layer provider caches gains)."""
 
     @staticmethod
     def _path_for_id(profile_id: str) -> str:
         return os.path.join(APP_CONFIG.flatfield_dir, f"{profile_id}{_EXT}")
 
     @staticmethod
-    def _bake_gain(reference_path: str) -> Optional[np.ndarray]:
-        """Decode a reference like a negative (no WB, linear) and compute its gain map."""
+    def _bake_gain(reference_path: str) -> Optional[Baked]:
+        """Decode a reference like a negative (no WB, linear); its gain map, self-check and check copy,
+        in sensor layout."""
         if not reference_path or not os.path.exists(reference_path):
             return None
         try:
             from negpy.services.rendering.preview_manager import PreviewManager
 
-            reference, _, _ = PreviewManager().load_linear_preview(reference_path, use_camera_wb=False, full_resolution=False)
-            return compute_gain(reference)
+            reference, _, meta = PreviewManager().load_linear_preview(reference_path, use_camera_wb=False, full_resolution=False)
+            reference = to_sensor_layout(reference, meta.get("orientation", 1))
+            gain = compute_gain(reference)
+            return Baked(gain, check_reference(reference, gain), check_copy(reference))
         except Exception:
             logger.exception("Flat-field: failed to decode reference %s", reference_path)
             return None
 
     @staticmethod
-    def _write(profile_id: str, gain: np.ndarray, *, name: str, k1: float, source: str) -> None:
+    def _write(
+        profile_id: str,
+        gain: np.ndarray,
+        *,
+        name: str,
+        k1: float,
+        source: str,
+        reference: Optional[np.ndarray] = None,
+        check: Optional[Evenness] = None,
+    ) -> None:
         os.makedirs(APP_CONFIG.flatfield_dir, exist_ok=True)
+        extra: Dict[str, np.ndarray] = {}
+        if reference is not None:
+            # float16 is plenty for an evenness view and keeps the profile small.
+            extra["reference"] = reference.astype(np.float16)
+        if check is not None:
+            extra["check"] = np.array([check.low, check.high, check.color, float(check.clipped)], dtype=np.float64)
         np.savez_compressed(
             FlatFieldProfiles._path_for_id(profile_id),
             gain=gain.astype(np.float32),
@@ -64,6 +87,8 @@ class FlatFieldProfiles:
             name=name,
             k1=float(k1),
             source=source,
+            layout=SENSOR_LAYOUT,
+            **extra,
         )
 
     @staticmethod
@@ -83,10 +108,20 @@ class FlatFieldProfiles:
     @staticmethod
     def create(name: str, reference_path: str, k1: float = 0.0) -> Optional[str]:
         """Bake a reference into a new profile; returns its id (None if the decode failed)."""
-        gain = FlatFieldProfiles._bake_gain(reference_path)
-        if gain is None:
+        baked = FlatFieldProfiles.create_checked(name, reference_path, k1)
+        return baked[0] if baked else None
+
+    @staticmethod
+    def create_checked(name: str, reference_path: str, k1: float = 0.0) -> Optional[Tuple[str, Evenness]]:
+        """`create`, plus how evenly the reference corrects itself and whether it clipped."""
+        baked = FlatFieldProfiles._bake_gain(reference_path)
+        if baked is None:
             return None
-        return FlatFieldProfiles.import_gain(gain, name=name, k1=k1, source=reference_path)
+        profile_id = uuid.uuid4().hex
+        FlatFieldProfiles._write(
+            profile_id, baked.gain, name=name, k1=k1, source=reference_path, reference=baked.reference, check=baked.check
+        )
+        return profile_id, baked.check
 
     @staticmethod
     def import_gain(gain: np.ndarray, *, name: str, k1: float = 0.0, source: str = "") -> str:
@@ -96,14 +131,27 @@ class FlatFieldProfiles:
         return profile_id
 
     @staticmethod
-    def load_gain(profile_id: str) -> Optional[Tuple[np.ndarray, str]]:
-        """(gain map, content token) for the render-path provider; None if missing/unreadable."""
-        data = FlatFieldProfiles._read(profile_id, ("gain", "token"))
+    def load_check(profile_id: str) -> Optional[StoredCheck]:
+        """The gain with the stored reference copy and self-check, for Check Flat Field."""
+        data = FlatFieldProfiles._read(profile_id, ("gain", "reference", "check", "layout"))
+        if data is None or "gain" not in data:
+            return None
+        reference = data["reference"].astype(np.float32) if "reference" in data else None
+        check = None
+        if "check" in data:
+            low, high, color, clipped = (float(v) for v in data["check"])
+            check = Evenness(low, high, color, bool(clipped))
+        return StoredCheck(np.ascontiguousarray(data["gain"], dtype=np.float32), reference, check, "layout" in data)
+
+    @staticmethod
+    def load_gain(profile_id: str) -> Optional[GainEntry]:
+        """The gain map, its content token and layout for the render-path provider; None if missing/unreadable."""
+        data = FlatFieldProfiles._read(profile_id, ("gain", "token", "layout"))
         if data is None or "gain" not in data:
             return None
         gain = np.ascontiguousarray(data["gain"], dtype=np.float32)
         token = str(data["token"]) if "token" in data else gain_token(gain)
-        return gain, token
+        return GainEntry(gain, token, "layout" in data)
 
     @staticmethod
     def get(profile_id: str) -> Optional[FlatFieldProfile]:

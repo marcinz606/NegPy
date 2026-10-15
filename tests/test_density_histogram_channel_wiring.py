@@ -40,3 +40,25 @@ def test_channel_density_off_for_a_normal_render() -> None:
     RightPanel._update_histograms(panel, metrics)
 
     panel.curve_widget.set_channel_density.assert_called_once_with(False)
+
+
+def test_the_metering_line_reads_the_analysis_clip_fractions() -> None:
+    panel = _panel_stub(negative_peek=False)
+    bins = np.zeros((4, 256))
+    bins[:3, 1:255] = 10.0
+    bins[0, 255] = 20.0  # 2% of red blown
+    metrics = {"histogram_density": np.zeros((4, DENSITY_HIST_BINS)), "histogram_raw": bins}
+
+    RightPanel._update_histograms(panel, metrics)
+
+    low, high = panel.controls_panel.process_sidebar.set_clipping.call_args.args
+    assert low == 0.0 and abs(high - 20 / (254 * 10 + 20)) < 1e-9
+
+
+def test_a_negative_peek_blanks_the_metering_line_too() -> None:
+    panel = _panel_stub(negative_peek=True)
+    metrics = {"histogram_density": np.zeros((4, DENSITY_HIST_BINS)), "histogram_raw": np.zeros((4, 256))}
+
+    RightPanel._update_histograms(panel, metrics)
+
+    panel.controls_panel.process_sidebar.set_clipping.assert_called_once_with(None, None)

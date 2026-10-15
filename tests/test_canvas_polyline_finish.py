@@ -257,6 +257,7 @@ def test_context_cancel_two_stage() -> None:
     controller.state.test_strip_pending = False
     controller.state.negative_peek = False
     controller.state.embedded_peek = False
+    controller.state.flatfield_peek = False
     controller.state.flat_peek = False
     controller.state.compare_mode = False
     controller.state.grain_focuser = False
@@ -281,6 +282,7 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
     controller.state.test_strip_pending = False
     controller.state.negative_peek = False
     controller.state.embedded_peek = False
+    controller.state.flatfield_peek = False
     controller.state.flat_peek = False
     controller.state.compare_mode = False
     controller.state.grain_focuser = False
@@ -312,6 +314,7 @@ def test_context_cancel_closes_the_grain_focuser_before_any_tool() -> None:
     controller.state.test_strip_pending = False
     controller.state.negative_peek = False
     controller.state.embedded_peek = False
+    controller.state.flatfield_peek = False
     controller.state.flat_peek = False
     controller.state.compare_mode = False
     controller.state.grain_focuser = True
@@ -386,6 +389,7 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
         controller.state.test_strip_pending = False
         controller.state.negative_peek = False
         controller.state.embedded_peek = False
+        controller.state.flatfield_peek = False
         controller.state.flat_peek = False
         controller.state.compare_mode = False
         controller.state.grain_focuser = False
@@ -401,6 +405,7 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
 
     controller, window = _fixture()
     controller.state.embedded_peek = True
+    controller.state.flatfield_peek = False
     _context_cancel(controller, window)
     controller.toggle_embedded_peek.assert_called_once_with(force=False)
     controller.cancel_active_tool.assert_not_called()

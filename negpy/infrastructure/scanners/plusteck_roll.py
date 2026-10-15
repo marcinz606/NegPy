@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -54,7 +54,9 @@ class PlusteckRollSession:
         # no cheaper "just this slot" path to offer.
         self.supports_single_slot_preview = False
 
-    def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:
+    def preview(
+        self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+    ) -> Iterator[RollPreview]:
         self._require_open()
         if cancel.is_set():
             return

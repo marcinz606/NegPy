@@ -54,6 +54,19 @@ class _CaffeinateProcess:
         return self.returncode
 
 
+class _Kernel32:
+    def __init__(self, *, result: int = 0x80000000, clear_fails: bool = False) -> None:
+        self.calls: list[int] = []
+        self.result = result
+        self.clear_fails = clear_fails
+
+    def SetThreadExecutionState(self, flags: int) -> int:  # noqa: N802
+        self.calls.append(flags)
+        if self.clear_fails and flags == 0x80000000:
+            raise OSError("clear failed")
+        return self.result
+
+
 def _foundation(process_info: _ProcessInfo) -> Any:
     return SimpleNamespace(
         NSActivityUserInitiated=0x01,
@@ -62,19 +75,66 @@ def _foundation(process_info: _ProcessInfo) -> Any:
     )
 
 
-def test_non_macos_assertion_is_an_idempotent_noop() -> None:
+def test_unsupported_platform_assertion_is_an_idempotent_noop() -> None:
     def fail_loader() -> Any:
-        raise AssertionError("non-macOS must not load Foundation")
+        raise AssertionError("an unsupported platform must not load a backend")
 
     assertion = acquire_unattended_power_assertion(
         "test scan",
         _platform="linux",
         _foundation_loader=fail_loader,
-        _process_factory=lambda *_args, **_kwargs: pytest.fail("non-macOS must not run caffeinate"),
+        _kernel32_loader=fail_loader,
+        _process_factory=lambda *_args, **_kwargs: pytest.fail("an unsupported platform must not run a helper"),
     )
 
     assertion.release()
     assertion.release()
+
+
+def test_windows_blocks_idle_system_sleep_and_clears_it_once() -> None:
+    kernel32 = _Kernel32()
+
+    assertion = acquire_unattended_power_assertion(
+        "NegPy scan batch",
+        _platform="win32",
+        _foundation_loader=lambda: pytest.fail("Windows must not load Foundation"),
+        _kernel32_loader=lambda: kernel32,
+        _process_factory=lambda *_args, **_kwargs: pytest.fail("Windows must not run caffeinate"),
+    )
+
+    assert kernel32.calls == [0x80000001]
+    assertion.release()
+    assertion.release()
+    assert kernel32.calls == [0x80000001, 0x80000000]
+
+
+def test_windows_refused_request_degrades_to_noop() -> None:
+    kernel32 = _Kernel32(result=0)
+
+    assertion = acquire_unattended_power_assertion("NegPy scan batch", _platform="win32", _kernel32_loader=lambda: kernel32)
+
+    assertion.release()
+    assert kernel32.calls == [0x80000001]
+
+
+def test_windows_backend_failures_degrade_to_noop() -> None:
+    assertion = acquire_unattended_power_assertion(
+        "NegPy scan batch",
+        _platform="win32",
+        _kernel32_loader=lambda: (_ for _ in ()).throw(OSError("no kernel32")),
+    )
+
+    assertion.release()
+
+
+def test_windows_release_failure_is_swallowed() -> None:
+    kernel32 = _Kernel32(clear_fails=True)
+    assertion = acquire_unattended_power_assertion("NegPy scan batch", _platform="win32", _kernel32_loader=lambda: kernel32)
+
+    assertion.release()
+    assertion.release()
+
+    assert kernel32.calls == [0x80000001, 0x80000000]
 
 
 def test_macos_prefers_nsprocessinfo_and_releases_once() -> None:

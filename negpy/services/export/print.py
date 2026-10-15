@@ -80,6 +80,14 @@ class PrintService:
         return (float(tinted[0, 0, 0]), float(tinted[0, 0, 1]), float(tinted[0, 0, 2]))
 
     @staticmethod
+    def fit_content(img_w: int, img_h: int, max_w: int, max_h: int) -> tuple[int, int]:
+        """The largest image size inside max_w x max_h; one formula for every engine's layout."""
+        aspect = img_w / img_h
+        if aspect > max_w / max_h:
+            return max_w, int(max_w / aspect)
+        return int(max_h * aspect), max_h
+
+    @staticmethod
     def effective_border_color(finish: FinishConfig, toning: ToningConfig) -> str:
         """Mat color: the picked hex, or the toned paper white when matching."""
         if not finish.border_match_paper:
@@ -240,12 +248,7 @@ class PrintService:
                 max_content_w = max(10, paper_w - 2 * border_px)
                 max_content_h = max(10, paper_h - border_y_px)
 
-                if img_aspect > (max_content_w / max_content_h):
-                    target_w = max_content_w
-                    target_h = int(target_w / img_aspect)
-                else:
-                    target_h = max_content_h
-                    target_w = int(target_h * img_aspect)
+                target_w, target_h = PrintService.fit_content(img_w, img_h, max_content_w, max_content_h)
 
             # OpenCV gives INTER_LANCZOS4 no prefilter on a shrink, so it degrades to bilinear and
             # aliases. INTER_AREA is the only area-correct downscale here.

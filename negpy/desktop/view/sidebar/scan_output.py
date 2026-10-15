@@ -9,11 +9,12 @@ from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLineEdit, QVBoxLayout, QW
 
 from negpy.desktop.view.styles.templates import field_row, icon_button, labeled_toggle, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
-from negpy.services.assets.rolls import roll_folder_name
+from negpy.services.assets.rolls import next_roll_name, roll_folder_name
 
 SETTINGS_KEY = "scan_output_settings"
 
 _AS_ROLL_TIP = "Open the folder the frames go to as a Library roll, so Half Frame, roll defaults and Roll Analysis apply as you scan."
+_NEW_ROLL_TIP = "Start the next roll: step the Roll name to the next one with no subfolder yet"
 _FOLDER_ROLL_TIP = "Scan into the output folder itself and name the roll after it. Off scans into a Roll subfolder."
 
 
@@ -69,12 +70,14 @@ class ScanOutputPanel(QWidget):
 
         self.roll_edit = QLineEdit(self._settings.roll_name)
         self.roll_edit.setToolTip(wrap_tooltip("Roll subfolder of the output folder; the name also starts each camera frame's file name"))
-        layout.addLayout(field_row("Roll", self.roll_edit))
+        self.new_roll_btn = icon_button("fa5s.plus", _NEW_ROLL_TIP)
+        layout.addLayout(field_row("Roll", self.roll_edit, self.new_roll_btn))
         self._sync_roll_edit()
 
         self.browse_btn.clicked.connect(self.browse)
         self.folder_edit.editingFinished.connect(self._save)
         self.roll_edit.editingFinished.connect(self._save)
+        self.new_roll_btn.clicked.connect(self.start_next_roll)
         self.as_roll_btn.toggled.connect(self._save)
         self.folder_roll_btn.toggled.connect(self._on_folder_roll_toggled)
 
@@ -106,6 +109,13 @@ class ScanOutputPanel(QWidget):
             self.roll_edit.setText(text)
             self._save()
 
+    def start_next_roll(self) -> None:
+        current = roll_folder_name(self.roll_edit.text())
+        if current is None:
+            return
+        folder = self.folder()
+        self.set_roll_text(next_roll_name(current, lambda name: os.path.exists(os.path.join(folder, name))))
+
     def browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.folder())
         if folder:
@@ -118,6 +128,7 @@ class ScanOutputPanel(QWidget):
 
     def _sync_roll_edit(self) -> None:
         self.roll_edit.setEnabled(not self.folder_is_roll())
+        self.new_roll_btn.setEnabled(not self.folder_is_roll())
 
     def _save(self) -> None:
         updated = replace(

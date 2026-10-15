@@ -196,6 +196,7 @@ def test_put_down_escapes_until_the_canvas_is_plain() -> None:
         test_strip_pending=False,
         negative_peek=False,
         embedded_peek=False,
+        flatfield_peek=False,
         flat_peek=False,
         compare_mode=True,
         grain_focuser=False,

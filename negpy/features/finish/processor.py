@@ -39,7 +39,8 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
         or mode not in (ProcessMode.C41, ProcessMode.BW)
         or settings.process.positive_source
         or settings.exposure.render_intent == RenderIntent.FLAT
-        or settings.altproc.alt_process != AltProcess.NONE
+        # Lith and cyanotype color is not in the ramp; a Sabattier print is plain silver.
+        or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
     ):
         return linear_carrier_tone()
     floors = np.asarray(bounds.floors, dtype=np.float32)
@@ -47,7 +48,7 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
     t = np.maximum(carrier_tone_exposures(), np.float32(1e-6))
     strip = 1.0 + (REBATE_BASE_MARGIN + np.log10(t)[:, None]) / np.maximum(ceils - floors, 1e-6)[None, :]
     ctx = PipelineContext(original_size=(1, len(t)), scale_factor=1.0, process_mode=mode, metrics=dict(metrics))
-    exposure = replace(settings.exposure, contrast_mask=0.0)
+    exposure = replace(settings.exposure, contrast_mask=0.0, diffusion=0.0)
     printed = PhotometricProcessor(exposure).process(strip[None].astype(np.float32), ctx)
     if settings.lab.saturation != 1.0 or settings.lab.skin_protection > 0:
         printed = apply_saturation(printed, settings.lab.saturation, settings.lab.skin_protection)

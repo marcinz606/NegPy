@@ -31,19 +31,17 @@ class TestAnalysisCacheKey(unittest.TestCase):
         ):
             self.assertEqual(k0, _analysis_cache_key(cfg, "src"))
 
-    def test_within_region_geometry_warps_keep_key(self):
-        """Fine rotation, keystone and distortion reshuffle pixels within the same
-        analyzed region (_build_analysis_source applies them to the meter's own
-        buffer) without changing what region it is, so dragging one of those
-        sliders must reuse the analysis like a creative slider does."""
+    def test_geometry_warps_change_key(self):
+        """Warps move which pixels land in the metered region, so a drag re-meters as the CPU engine does."""
         k0 = _analysis_cache_key(self.cfg, "src")
         for cfg in (
             replace(self.cfg, geometry=replace(self.cfg.geometry, fine_rotation=2.0)),
             replace(self.cfg, geometry=replace(self.cfg.geometry, converge_v=5.0)),
             replace(self.cfg, geometry=replace(self.cfg.geometry, converge_h=5.0)),
             replace(self.cfg, geometry=replace(self.cfg.geometry, distortion_k1=0.1)),
+            replace(self.cfg, geometry=replace(self.cfg.geometry, crop_to_valid=not self.cfg.geometry.crop_to_valid)),
         ):
-            self.assertEqual(k0, _analysis_cache_key(cfg, "src"))
+            self.assertNotEqual(k0, _analysis_cache_key(cfg, "src"))
 
     def test_downstream_process_fields_keep_key(self):
         """White/black point offsets, per-channel trims and hue trim are applied as

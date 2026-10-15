@@ -57,7 +57,7 @@ def _put_down(w: "MainWindow") -> None:
         busy = (
             st.active_tool != ToolMode.NONE,
             st.test_strip or st.test_strip_pending,
-            st.negative_peek or st.embedded_peek or st.flat_peek,
+            st.negative_peek or st.embedded_peek or st.flat_peek or st.flatfield_peek,
             st.compare_mode,
             st.grain_focuser,
             st.zone_arm_target is not None,
@@ -285,8 +285,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             FRAMING,
             "The Roll's Crop",
-            "Ratio, Mode (image or full film edge), Crop Offset and Rebate Trim belong to the roll. "
-            "<b>Auto-crop the roll</b> analyzes all frames together, so weak detections borrow from "
+            "Auto Crop, Ratio, Mode (image or full film edge), Crop Offset and Rebate Trim belong to the roll. "
+            "<b>Auto-crop all frames</b> crops them together, so weak detections borrow from "
             "strong ones. Crops you drew stay.",
             lambda w: cp(w).autocrop_section,
             guide=("autocrop", "Crop"),
@@ -355,12 +355,12 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         ),
         step(
             PRINTING,
-            "One Dye Layer",
-            "Pick <b>R</b>, <b>G</b> or <b>B</b> and the curve controls trim one dye layer. Filtration "
-            "only shifts a layer; a trim changes its shape, for a cast that differs in shadows and "
-            "highlights. A dot marks a trimmed layer.",
+            "Preflash and Contrast Mask",
+            "<b>Preflash</b>, a short even exposure before the print, brings in thin highlight detail and "
+            "keeps shadows clean. <b>Contrast Mask</b>, the darkroom unsharp mask, lowers overall "
+            "contrast and keeps local detail. <b>Mask Spacer</b> sets its softness.",
             lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.ch_btn,
+            focus=lambda w: cp(w).tone_sidebar.preflash_slider,
             guide=("tone", "Tone"),
         ),
         step(
@@ -370,19 +370,19 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             "<b>Shoulder</b> shape the curve's ends, <b>Snap</b> the midtones, <b>Dye Separation</b> the "
             "color strength. <b>Paper White</b> and <b>Paper Black</b> show the paper's base and deepest "
             "black.",
-            lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.paper_combo,
-            guide=("tone", "Tone"),
+            lambda w: cp(w).paper_section,
+            focus=lambda w: cp(w).paper_sidebar.paper_combo,
+            guide=("paper", "Paper Response"),
         ),
         step(
             PRINTING,
-            "Preflash and Contrast Mask",
-            "<b>Preflash</b>, a short even exposure before the print, brings in thin highlight detail and "
-            "keeps shadows clean. <b>Contrast Mask</b>, the darkroom unsharp mask, lowers overall "
-            "contrast and keeps local detail. <b>Mask Spacer</b> sets its softness.",
-            lambda w: cp(w).tone_section,
-            focus=lambda w: cp(w).tone_sidebar.preflash_slider,
-            guide=("tone", "Tone"),
+            "One Dye Layer",
+            "Pick <b>R</b>, <b>G</b> or <b>B</b> on Tone or Paper Response and that card's curve controls "
+            "trim one dye layer. Filtration only shifts a layer; a trim changes its shape, for a cast that "
+            "differs in shadows and highlights. A dot marks a trimmed layer.",
+            lambda w: cp(w).paper_section,
+            focus=lambda w: cp(w).paper_sidebar.ch_btn,
+            guide=("paper", "Paper Response"),
         ),
         step(
             PRINTING,
@@ -483,7 +483,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             SEEING,
             "The Analysis Readout",
             "The densitometer above the tabs: an <b>H&amp;D chart</b> with this frame on the paper curve, "
-            "histograms with clip marks, and a strip of Zones 0 to X. <b>Probe</b> reads the density "
+            "histograms with clip marks, and a strip of print zones. <b>Probe</b> reads the density "
             "under the cursor.",
             lambda w: rp(w).analysis_section,
             guide=("analysis", "Analysis"),
@@ -499,8 +499,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         step(
             SEEING,
             "Before and After",
-            "Split the canvas between this print and the default conversion. Drag the divider to move it.",
-            lambda w: w.toolbar.btn_compare,
+            "Split the canvas between this print and the default conversion. Drag the divider to move it. "
+            "The toolbar's <b>Print</b> menu holds it, with the peeks.",
+            lambda w: w.toolbar.source_choice,
             task=f"Press {_k('toggle_compare')} for the split. Press it again to close it.",
             watch=lambda w: w.state.compare_mode,
             offer=_DEMO,
@@ -511,8 +512,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             f"Hold {_k('toggle_negative_peek')} for the scan as captured, {_k('toggle_flat_peek')} for "
             f"the flat master, {_k('toggle_embedded_peek')} for the camera's preview. "
             f"{_k('toggle_reference')} pins a frame beside the canvas, to match a roll by eye. "
-            f"{_k('toggle_grain_focuser')} is a grain loupe; {_k('toggle_zones')} shows Adams zones.",
-            lambda w: w.toolbar.btn_negative_peek,
+            f"{_k('toggle_grain_focuser')} is a grain loupe and {_k('toggle_zones')} shows Adams zones, "
+            "both under <b>Overlays</b> on the toolbar.",
+            lambda w: w.toolbar.source_choice,
             task=f"Hold {_k('toggle_negative_peek')} to see the negative.",
             watch=lambda w: w.state.negative_peek,
             offer=_DEMO,

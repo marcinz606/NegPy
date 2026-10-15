@@ -1,7 +1,6 @@
-"""Batch export warns before rendering frames without a saved edit: their quick
-filmstrip thumbnails are a source-preview inversion, while the export renders the
-full pipeline with the live session settings, so the file can differ badly from
-what the strip shows. The open frame is exempt: its preview is the export."""
+"""Batch export warns before rendering frames without a saved edit: their strip thumbnail is
+a quick source-preview inversion, but the export runs the full pipeline with the live session
+settings. The open frame is exempt: its preview is the export."""
 
 from unittest.mock import MagicMock
 
@@ -11,7 +10,7 @@ from negpy.desktop.controller import AppController
 def _controller(saved_hashes: set, current: str = "") -> MagicMock:
     controller = MagicMock()
     controller.state.current_file_hash = current
-    controller.session.repo.load_file_settings_many.side_effect = lambda hashes: {h: object() for h in hashes if h in saved_hashes}
+    controller.session.repo.saved_hashes.side_effect = lambda hashes: {h for h in hashes if h in saved_hashes}
     return controller
 
 

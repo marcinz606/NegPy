@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QSplitter, QWidget
 
 from negpy.desktop.view.canvas.reference_pane import ReferencePane
 from negpy.desktop.view.main_window import MainWindow
+from negpy.desktop.session import AppState
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 
 
@@ -21,7 +22,7 @@ def _window(metrics, path="/roll/frame_07.tif"):
     win = SimpleNamespace(
         reference_pane=pane,
         central_splitter=splitter,
-        state=SimpleNamespace(current_file_path=path, last_metrics=metrics),
+        state=AppState(current_file_path=path, last_metrics=metrics),
         controller=MagicMock(),
         canvas=MagicMock(),
     )

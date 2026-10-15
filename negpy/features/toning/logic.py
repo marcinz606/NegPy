@@ -267,14 +267,17 @@ def apply_split_toning(
     lab = rgb_to_lab_working(img.astype(np.float32))
     L = lab[:, :, 0]  # 0–100 CIELAB (Adobe RGB working space)
 
+    # Smoothstep masks, as toning.wgsl.
     if shadow_strength > 0.0:
-        s_mask = np.clip(1.0 - L / 50.0, 0.0, 1.0)
+        t = np.clip(1.0 - L / 50.0, 0.0, 1.0)
+        s_mask = t * t * (3.0 - 2.0 * t)
         rad = np.radians(shadow_hue)
         lab[:, :, 1] += np.cos(rad) * 20.0 * shadow_strength * s_mask
         lab[:, :, 2] += np.sin(rad) * 20.0 * shadow_strength * s_mask
 
     if highlight_strength > 0.0:
-        h_mask = np.clip((L - 50.0) / 50.0, 0.0, 1.0)
+        t = np.clip((L - 50.0) / 50.0, 0.0, 1.0)
+        h_mask = t * t * (3.0 - 2.0 * t)
         rad = np.radians(highlight_hue)
         lab[:, :, 1] += np.cos(rad) * 20.0 * highlight_strength * h_mask
         lab[:, :, 2] += np.sin(rad) * 20.0 * highlight_strength * h_mask

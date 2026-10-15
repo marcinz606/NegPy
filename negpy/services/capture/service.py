@@ -61,13 +61,15 @@ def _capture_validated_single(
     min_raw_bytes: int,
     max_raw_bytes: int,
     cancel: Optional[threading.Event] = None,
+    iso: Optional[str] = None,
+    aperture: Optional[str] = None,
 ) -> str:
     """Capture beside the destination and replace it only after size validation."""
     output_folder = os.path.dirname(final_stem)
     staging_dir = tempfile.mkdtemp(prefix=f".{os.path.basename(final_stem)}-", suffix=".capture", dir=output_folder)
     try:
         staged_stem = os.path.join(staging_dir, os.path.basename(final_stem))
-        staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter)
+        staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter, iso=iso, aperture=aperture)
         verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
         final_path = os.path.join(output_folder, os.path.basename(staged_path))
         if cancel is not None and cancel.is_set():
@@ -238,6 +240,33 @@ class CaptureService:
             green_path=paths[Channel.GREEN],
             blue_path=paths[Channel.BLUE],
         )
+
+    def capture_rgb_single(self, settings: CaptureSettings, cancel: Optional[threading.Event] = None) -> str:
+        """One exposure with R, G and B lit together at the preset's levels (one file, no
+        R/G/B split). The shared shutter and the preset's ISO and aperture are forced, as for
+        a triplet."""
+        os.makedirs(settings.output_folder, exist_ok=True)
+        r, g, b = settings.levels
+        try:
+            self._light.set_color(r=r, g=g, b=b)
+            self._sleep(settings.settle_s)
+            stem = os.path.join(settings.output_folder, f"{settings.roll_name}_Frame{settings.frame_number:03d}")
+            logger.info("capturing single RGB frame → %s", stem)
+            return _capture_validated_single(
+                self._camera,
+                final_stem=stem,
+                shutter=settings.shutters[0] if settings.shutters is not None else None,
+                min_raw_bytes=settings.min_raw_bytes,
+                max_raw_bytes=settings.max_raw_bytes,
+                cancel=cancel,
+                iso=settings.iso,
+                aperture=settings.aperture,
+            )
+        finally:
+            try:
+                self._light.off()
+            except Exception:
+                logger.exception("failed to turn the Scanlight off after capture")
 
     def capture_white(
         self,

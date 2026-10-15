@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from negpy.desktop.workers.capture_worker import CalibrationRequest, CaptureRequest, CaptureWorker
+from negpy.desktop.workers.capture_worker import CalibrationRequest, CaptureRequest, CaptureWorker, SensorResponseRequest
 from negpy.services.capture.calibration import Roi
 
 
@@ -127,6 +127,29 @@ def test_scanlight_white_cancel_before_promotion_preserves_retake(tmp_path, monk
     assert finished == []
 
 
+def test_single_capture_emits_one_file_and_no_triplet(tmp_path, monkeypatch):
+    class Camera:
+        def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
+            path = os.path.splitext(out_path)[0] + ".ARW"
+            with open(path, "wb") as raw:
+                raw.truncate(8 * 1024 * 1024)
+            return path
+
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: Camera())
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    finished = []
+    worker.finished.connect(finished.append)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll01", frame_number=2, output_folder=str(tmp_path), levels=(200, 180, 255), settle_s=0, single_capture=True
+        )
+    )
+
+    assert finished == [[str(tmp_path / "Roll01_Frame002.ARW")]]
+
+
 @pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
 def test_calibration_uses_disposable_scratch_without_touching_roll(tmp_path, monkeypatch, outcome):
     import negpy.desktop.workers.capture_worker as capture_worker_module
@@ -162,6 +185,73 @@ def test_calibration_uses_disposable_scratch_without_touching_roll(tmp_path, mon
     assert FakeCalibrationService.written_path is not None
     assert not FakeCalibrationService.written_path.exists()
     assert not FakeCalibrationService.written_path.parent.exists()
+
+
+def test_meter_probes_once_in_scratch_and_reports_the_reading(tmp_path, monkeypatch):
+    import numpy as np
+
+    import negpy.infrastructure.capture.raw_demosaic as demosaic_module
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+    from negpy.services.capture.calibration import CLIP_CEILING
+
+    worker = CaptureWorker()
+    probes: list[tuple[Path, str | None]] = []
+
+    class Camera:
+        def capture(self, path, shutter=None, **_kwargs):
+            written = Path(path).with_suffix(".ARW")
+            written.write_bytes(b"probe")
+            probes.append((written, shutter))
+            return str(written)
+
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: Camera())
+    monkeypatch.setattr(
+        demosaic_module, "linear_demosaic", lambda _path, half_size=False: np.full((60, 90, 3), 0.6 * CLIP_CEILING, np.float32)
+    )
+    readings = []
+    worker.exposure_probe_finished.connect(readings.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", session=7))
+
+    assert len(probes) == 1 and not probes[0][0].exists()
+    assert probes[0][1] == "1/30"  # shot at the label the reading is computed against
+    session, reading = readings[0]
+    assert session == 7  # echoed, so a stopped stream's report can be told apart
+    assert reading.shutter == "1/30"
+    assert reading.measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.01)
+
+
+def test_a_probe_that_cannot_be_metered_reports_without_dropping_the_session(tmp_path, monkeypatch):
+    import numpy as np
+
+    import negpy.infrastructure.capture.raw_demosaic as demosaic_module
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def is_open(self):
+            return True
+
+        def close(self):
+            pass
+
+        def capture(self, path, shutter=None, **_kwargs):
+            written = Path(path).with_suffix(".ARW")
+            written.write_bytes(b"probe")
+            return str(written)
+
+    worker._camera = Camera()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: worker._camera)
+    monkeypatch.setattr(demosaic_module, "linear_demosaic", lambda _path, half_size=False: np.zeros((60, 90, 3), np.float32))
+    failures, errors = [], []
+    worker.exposure_probe_failed.connect(failures.append)
+    worker.error.connect(errors.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="Bulb"))
+
+    assert len(failures) == 1 and errors == []
+    assert worker._camera is not None  # the session stands; only the math failed
 
 
 class ClaimedCamera:
@@ -383,3 +473,153 @@ def test_successful_open_clears_the_claimed_state(monkeypatch):
     worker._camera = OpensFine()
     worker._acquire_camera()
     assert worker._claimed_elsewhere is False
+
+
+def _sensor_run(worker, req=None):
+    measured, failed = [], []
+    worker.sensor_response_measured.connect(measured.append)
+    worker.sensor_response_failed.connect(failed.append)
+    worker.measure_sensor_response(req or SensorResponseRequest(settle_s=0))
+    return measured, failed
+
+
+def test_sensor_response_measures_on_the_simulated_rig_and_releases_the_camera(monkeypatch):
+    monkeypatch.setenv("NEGPY_SIMULATE_HARDWARE", "1")
+    worker = CaptureWorker()
+    try:
+        measured, failed = _sensor_run(worker)
+        assert not failed and measured[0].shape == (3, 3)
+        assert all(measured[0][i, i] == measured[0][:, i].max() for i in range(3))
+        assert not worker._holds_camera()
+    finally:
+        worker.shutdown()
+
+
+def test_sensor_response_keeps_a_session_it_did_not_open_and_restores_the_light(monkeypatch):
+    monkeypatch.setenv("NEGPY_SIMULATE_HARDWARE", "1")
+    from negpy.infrastructure.simulated.scanlight import current_color
+
+    worker = CaptureWorker()
+    try:
+        worker._acquire_camera()
+        worker.set_light(10, 20, 30, 0, "")
+        measured, _failed = _sensor_run(worker)
+        assert measured and worker._holds_camera()
+        assert tuple(current_color()[:3]) == (10, 20, 30)
+    finally:
+        worker.shutdown()
+
+
+def test_an_abandoned_sensor_response_never_touches_the_hardware(monkeypatch):
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: pytest.fail("light used"))
+    req = SensorResponseRequest()
+    req.cancel.set()
+    assert _sensor_run(worker, req) == ([], [])
+
+
+@pytest.mark.parametrize("broken, drops", [("_ensure_light", False), ("read_settings", True)])
+def test_a_failed_sensor_response_drops_a_held_session_only_for_a_camera_fault(monkeypatch, broken, drops):
+    monkeypatch.setenv("NEGPY_SIMULATE_HARDWARE", "1")
+    worker = CaptureWorker()
+    dropped = []
+    worker.live_view_failed.connect(dropped.append)
+
+    def _fail(*_args):
+        raise RuntimeError("it broke")
+
+    try:
+        camera = worker._acquire_camera()
+        monkeypatch.setattr(camera if broken == "read_settings" else worker, broken, _fail)
+        measured, failed = _sensor_run(worker)
+        assert not measured and failed == ["it broke"]
+        assert bool(dropped) == drops and worker._holds_camera() != drops
+    finally:
+        worker.shutdown()
+
+
+def test_presence_poll_reports_the_simulated_rig_without_opening_the_camera(monkeypatch):
+    monkeypatch.setenv("NEGPY_SIMULATE_HARDWARE", "1")
+    worker = CaptureWorker()
+    seen = []
+    worker.presence_polled.connect(lambda camera, light: seen.append((camera, light)))
+    try:
+        worker.poll_presence("")
+        assert seen == [(True, True)] and not worker._holds_camera()
+        worker._claimed_elsewhere = True
+        worker.poll_presence("")
+        assert seen[-1] == (False, True)
+    finally:
+        worker.shutdown()
+
+
+def test_presence_poll_reports_a_missing_scanlight(monkeypatch):
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    worker = CaptureWorker()
+    seen = []
+    worker.presence_polled.connect(lambda camera, light: seen.append((camera, light)))
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("No serial ports found.")))
+    worker.poll_presence("")
+    assert seen == [(False, False)]
+
+
+def test_a_probe_that_cannot_be_decoded_keeps_the_session(tmp_path, monkeypatch):
+    import negpy.infrastructure.capture.raw_demosaic as demosaic_module
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def is_open(self):
+            return True
+
+        def close(self):
+            raise AssertionError("the session must stay open")
+
+        def capture(self, path, shutter=None, **_kwargs):
+            written = Path(path).with_suffix(".ARW")
+            written.write_bytes(b"probe")
+            return str(written)
+
+    def reject(_path, half_size=False):
+        raise ValueError("unsupported file format")
+
+    worker._camera = Camera()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: worker._camera)
+    monkeypatch.setattr(demosaic_module, "linear_demosaic", reject)
+    failures, errors = [], []
+    worker.exposure_probe_failed.connect(failures.append)
+    worker.error.connect(errors.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
+
+    assert failures == [(0, "unsupported file format", False)] and errors == []
+    assert worker._camera is not None
+
+
+def test_a_probe_whose_capture_fails_reports_the_lost_camera_with_its_session(tmp_path, monkeypatch):
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def is_open(self):
+            return True
+
+        def close(self):
+            pass
+
+        def capture(self, path, shutter=None, **_kwargs):
+            raise RuntimeError("could not set shutter")
+
+    worker._camera = Camera()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: worker._camera)
+    failures, errors = [], []
+    worker.exposure_probe_failed.connect(failures.append)
+    worker.error.connect(errors.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", session=3))
+
+    assert failures == [(3, "could not set shutter", True)] and errors == []

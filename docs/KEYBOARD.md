@@ -18,6 +18,8 @@ Actions with no default key are not listed; every one of them can still be bound
 |-----|--------|
 | `Left` | Previous file |
 | `Right` | Next file |
+| `Home` | First file |
+| `End` | Last file |
 | `Ctrl + L` | Open the library |
 | `Ctrl + K` | Find a control, card or action |
 | `Ctrl + F` | Focus the film strip search box |
@@ -32,7 +34,7 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Tools
 | Key | Action |
 |-----|--------|
-| `\` | Before/after split (auto baseline) |
+| `\` | Before/after split (auto baseline); hold for the whole frame as the baseline |
 | `Shift + W` | Toggle WB picker |
 | `Shift + C` | Toggle manual crop |
 | `Shift + D` | Toggle heal tool |
@@ -41,16 +43,17 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Shift + J` | Toggle clone tool |
 | `Shift + B` | Toggle dodge & burn mask draw |
 | `Ctrl + R` | Toggle analysis region draw |
-| `M` | Peek flat scan (digital intermediate) |
-| `N` | Peek negative (source as loaded) |
-| `P` | Peek the camera's embedded preview |
+| `M` | Peek flat scan (digital intermediate); hold to peek only while down |
+| `N` | Peek negative (source as loaded); hold to peek only while down |
+| `P` | Peek the camera's embedded preview; hold to peek only while down |
 | `Shift + Z` | Adams zone overlay |
 | `Shift + T` | Density × grade test strip |
 | `Shift + F` | Color ring-around (M/Y filtration) |
 | `Shift + L` | Grain focuser loupe |
 | `Shift + N` | Printing notes (dodge/burn map + print recipe) |
+| `Shift + I` | Probe at cursor (zone, print density and ΔD beside the pointer) |
 | `Shift + P` | Soft proof the print on screen |
-| `Esc` | Leave the current view (peek, split, strip) or cancel the active tool |
+| `Esc` | Leave the current view (peek, split, strip, zone overlay) or cancel the active tool |
 
 ## Geometry
 | Key | Action |
@@ -64,11 +67,12 @@ Actions with no default key are not listed; every one of them can still be bound
 | `L` | Toggle straighten line tool |
 | `O` | Next crop guide overlay |
 | `Shift + O` | Rotate crop guide orientation |
-| `Shift + A` | Toggle autocrop |
+| `Shift + A` | Toggle Auto Crop |
 
 ## View
 | Key | Action |
 |-----|--------|
+| `I` | Frame info on the canvas: off, basic or full |
 | `Ctrl + [` | Toggle session panel (re-docks when floating) |
 | `Ctrl + ]` | Toggle controls panel (re-docks when floating) |
 | `Ctrl + Shift + L` | Dock session and controls panels |
@@ -140,7 +144,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Alt + H` / `Alt + Shift + H` | Increase / decrease **Shadow hue** (default step 0.01) |
 | `Alt + G` / `Alt + Shift + G` | Increase / decrease **Shadow strength** (default step 0.01) |
 | `Alt + L` / `Alt + Shift + L` | Increase / decrease **Highlight hue** (default step 0.01) |
-| `Alt + Semicolon` / `Alt + Shift + Semicolon` | Increase / decrease **Highlight strength** (default step 0.01) |
+| `Alt + ;` / `Alt + Shift + ;` | Increase / decrease **Highlight strength** (default step 0.01) |
 
 ## Finishing
 | Key | Action |
@@ -168,6 +172,9 @@ Actions with no default key are not listed; every one of them can still be bound
 |-----|--------|
 | `S` | Scan, or stop the capture |
 | `R` | Retake the current frame |
+| `M` | Meter: set the shutter from one RAW probe |
+| `H` | Show the live histogram |
+| `Z` | Show clipping zebras |
 
 ## Help
 | Key | Action |

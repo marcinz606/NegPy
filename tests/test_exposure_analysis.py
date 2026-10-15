@@ -106,27 +106,27 @@ class TestZones(unittest.TestCase):
 
         bins = np.zeros(256)
         bins[0] = 1.0  # paper black → Zone 0
-        bins[255] = 3.0  # paper white → Zone IX cell
+        bins[255] = 3.0  # paper white → Zone X
         occ = zone_occupancy(bins)
-        self.assertEqual(occ.shape, (ZONE_COUNT,))
+        self.assertEqual(occ.shape, (ZONE_COUNT + 1,))
         self.assertAlmostEqual(float(occ[0]), 0.25)
-        self.assertAlmostEqual(float(occ[9]), 0.75)
+        self.assertAlmostEqual(float(occ[10]), 0.75)
         self.assertAlmostEqual(float(occ.sum()), 1.0)
 
     def test_zone_warnings_truth_table(self):
         from negpy.features.exposure.analysis import zone_warnings
 
-        blocked = np.zeros(10)
+        blocked = np.zeros(11)
         blocked[0] = 0.30  # extreme loaded, texture zones II+III empty
         self.assertEqual(zone_warnings(blocked), (True, False))
-        textured = np.zeros(10)
+        textured = np.zeros(11)
         textured[0] = 0.30
         textured[3] = 0.10  # texture present → no warning
         self.assertEqual(zone_warnings(textured), (False, False))
-        blown = np.zeros(10)
-        blown[9] = 0.10
+        blown = np.zeros(11)
+        blown[10] = 0.10
         self.assertEqual(zone_warnings(blown), (False, True))
-        self.assertEqual(zone_warnings(np.zeros(10)), (False, False))
+        self.assertEqual(zone_warnings(np.zeros(11)), (False, False))
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")

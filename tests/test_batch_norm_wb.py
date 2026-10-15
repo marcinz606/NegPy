@@ -315,3 +315,35 @@ def test_batch_analysis_decodes_a_triplet_as_a_composite(qapp):
 
     assert preview.merged == [("/r.dng", "/g.dng", "/b.dng")]
     assert preview.calls == {}  # never the lone red exposure
+
+
+def test_batch_analysis_meters_the_flat_fielded_frame(qapp, monkeypatch):
+    """The render flat-fields before it meters; Roll Analysis must measure the same pixels."""
+    import negpy.features.exposure.normalization as norm_mod
+    import negpy.features.flatfield.logic as ff
+    from negpy.features.flatfield.models import FlatFieldConfig
+
+    seen: list[np.ndarray] = []
+
+    class _Bounds:
+        floors = (0.0, 0.0, 0.0)
+        ceils = (1.0, 1.0, 1.0)
+
+    monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", lambda transformed, **kw: (seen.append(transformed), _Bounds())[1])
+    gain = np.full((8, 8, 3), 2.0, dtype=np.float32)
+    ff.set_gain_provider(lambda pid: (gain, "t"))
+    try:
+        base = WorkspaceConfig()
+        cfg = replace(base, flatfield=FlatFieldConfig(apply=True, profile_id="p"), geometry=replace(base.geometry, autocrop_offset=0))
+        task = NormalizationTask(
+            frames=_frames({"h1": cfg}),
+            workspace_color_space="sRGB",
+            override_analysis_buffer=0.0,
+            override_luma_range_clip=0.0,
+            override_color_range_clip=0.0,
+        )
+        NormalizationWorker(_FakePreviewService()).process(task)
+    finally:
+        ff.set_gain_provider(None)
+
+    assert seen and np.allclose(seen[0], 1.0)

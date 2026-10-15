@@ -482,3 +482,11 @@ def test_jxl_cross_space_is_16bit(proc):
     assert not_expanded, (
         "JXL 16-bit output contains only multiples of 257 — the 8-bit CMS path is being used instead of the 16-bit imagecodecs path"
     )
+
+
+def test_output_sharpening_survives_a_preset_round_trip_and_the_current_settings_preset():
+    from negpy.domain.models import ExportConfig, preset_from_export_config
+
+    preset = ExportPreset(output_sharpen=0.4)
+    assert ExportPreset.from_dict(preset.to_dict()).output_sharpen == 0.4
+    assert preset_from_export_config(ExportConfig(output_sharpen=0.3)).output_sharpen == 0.3

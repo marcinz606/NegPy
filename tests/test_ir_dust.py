@@ -554,6 +554,19 @@ def test_ir_noise_floor_neither_writes_nor_gains():
     assert float((gain > 1.05).mean()) < 0.01
 
 
+def test_ir_glare_band_leaves_clean_film_alone():
+    """Issue #1376. A Plustek lights a band at the frame edge far above clean film in IR.
+    The film beside it must not read as a defect strip."""
+    ir = _noisy_ir(0.02) - 0.19
+    ir[:, 280:286] = 1.0
+    ir[:, 290:] = 0.01
+    ratio, gain, _, _ = ir_ratio_and_gain(ir, _flat_visible())
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.05, True))
+    film = np.s_[:, :280]
+    assert float((score[film] < _IR_WRITE_HI).mean()) < 0.01
+    assert float((gain[film] > 1.05).mean()) < 0.01
+
+
 def test_ir_cap_support_survives_a_noisy_plane():
     """The root cause, asserted directly. _ir_clean_base weights by (ratio >= identity), so
     once noise pushes the clean fraction under _IR_CAP_MIN_SUPPORT the window falls back to

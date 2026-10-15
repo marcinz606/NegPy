@@ -1,3 +1,4 @@
+import hashlib
 import os
 import ctypes
 import threading
@@ -9,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as dc_replace
 from functools import lru_cache
 from PIL import Image, ImageCms
-from typing import Callable, Tuple, Optional, Any, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.domain.types import ImageBuffer
@@ -38,8 +39,11 @@ from negpy.features.process.sensor import apply_sensor_correction, effective_sen
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
-from negpy.services.rendering.lens import lens_decode_token, metadata_lens_corrections, prepare_lens_source
+from negpy.features.lab.logic import apply_resize_sharpening
+from negpy.services.rendering.lens import flatfield_source, lens_decode_token, metadata_lens_corrections, prepare_lens_source
 from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
+from negpy.features.geometry.models import squares_on_arm
+from negpy.features.geometry.skew import squared_geometry
 from negpy.features.retouch.logic import (
     apply_hair_inpaint,
     apply_ir_attenuation,
@@ -176,27 +180,49 @@ _JXL_COLOR = {
 _NEUTRAL_WB = (1.0, 1.0, 1.0, 1.0)
 
 
-def _resolve_armed_autocrop(
-    img: np.ndarray, settings: WorkspaceConfig
-) -> Tuple[WorkspaceConfig, Optional[Tuple[Tuple[float, float, float, float], str]]]:
-    """Turn an armed Auto Crop into a rect, once, before either engine runs.
+class ArmedCrop(NamedTuple):
+    """What an armed Auto Crop resolved, for the controller to freeze."""
 
-    Armed = crop_from_auto with no rect yet, or a rect under a stale key. Returns the
-    settings for this render plus the (rect, key) to freeze, or None if nothing resolved.
+    rect: Optional[Tuple[float, float, float, float]]  # None when no crop was found
+    key: str  # autocrop_detection_key of the geometry the rect was found on
+    skew: Optional[Tuple[float, float, float]]  # Fine Rotation, Tilt, Swing squared to; None if not measured
+    squared: bool  # Square Before Crop ran for this arm
 
-    Detection stays out of the engines: run per render, it reads whatever buffer that
-    render holds, and a preview and a full-res export can find different frame edges.
-    """
+
+def _resolve_armed_autocrop(img: np.ndarray, settings: WorkspaceConfig) -> Tuple[WorkspaceConfig, Optional[ArmedCrop]]:
+    """Turn an armed Auto Crop (no rect yet, or a stale key) into a rect, once, before either
+    engine runs: per render, a preview and a full-res export can find different edges. Returns
+    this render's settings (marked squared when Square Before Crop ran) and what to freeze, or None."""
     geom = settings.geometry
     if not geom.crop_from_auto:
         return settings, None
     key = autocrop_detection_key(geom)
     if geom.crop_rect is not None and geom.crop_detect_key == key:
         return settings, None
+    skew = None
+    tried = squares_on_arm(geom)
+    if tried:
+        fit = squared_geometry(img, geom, settings.process.process_mode)
+        if fit is not None:
+            geom = fit[0]
+            skew = (geom.fine_rotation, geom.converge_v, geom.converge_h)
+            key = autocrop_detection_key(geom)
+        # Marked here too, so a later resolver call on these settings (export, then its own
+        # pipeline) does not fit again.
+        geom = dc_replace(geom, autocrop_squared=True)
     rect = resolve_autocrop_rect(img, geom, APP_CONFIG.preview_render_size)
-    if rect is None:
+    if rect is None and not tried:
         return settings, None
-    return dc_replace(settings, geometry=dc_replace(geom, crop_rect=rect, crop_detect_key=key)), (rect, key)
+    if rect is not None:
+        geom = dc_replace(geom, crop_rect=rect, crop_detect_key=key)
+    return dc_replace(settings, geometry=geom), ArmedCrop(rect, key, skew, tried)
+
+
+def _camera_token(cam_xyz: Optional[list], camera_wb: Optional[list]) -> str:
+    """The camera matrix and as-shot WB a slide's transfer reads; an Input ICC swaps them."""
+    if cam_xyz is None and camera_wb is None:
+        return ""
+    return "|cam" + hashlib.md5(repr((np.asarray(cam_xyz).tolist() if cam_xyz is not None else None, camera_wb)).encode()).hexdigest()[:12]
 
 
 def _use_half_size_decode(raw: Any) -> bool:
@@ -254,6 +280,22 @@ def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
     if mask.shape[:2] == tuple(shape):
         return mask > 0
     return cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) > 0
+
+
+def preview_takes_unmix(params: WorkspaceConfig) -> bool:
+    """Whether a preview source gets the sensor unmix. Triplet composites take each channel
+    from its own single-band exposure, so unmixing them would inject crosstalk that was never
+    captured; that holds for a stitch with a triplet part too."""
+    return not is_rgb_triplet(params.rgbscan) and not stitch_has_triplets(params.stitch)
+
+
+def _unmix_source(f32_buffer: np.ndarray, params: WorkspaceConfig) -> np.ndarray:
+    """The unmix `_load_source_f32(unmix=False)` left out, on the whole source or on one half,
+    as the preview unmixes a half alone. Triplets are never unmixed; a stitch holding one
+    unmixes its other parts alone."""
+    if (is_rgb_triplet(params.rgbscan) and not hdr_active(params.hdr)) or stitch_has_triplets(params.stitch):
+        return f32_buffer
+    return apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
 
 
 def _part_params(params: WorkspaceConfig, index: int) -> WorkspaceConfig:
@@ -670,12 +712,12 @@ class ImageProcessor:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         cache_stages: bool = True,
+        gain_slices: tuple = (),
+        source_orientation: int = 1,
     ) -> Tuple[Any, Dict[str, Any]]:
-        """
-        Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
-
-        ``skip_flatfield``: the export CPU fallbacks pass an already-flat-fielded buffer.
-        """
+        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
+        fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
+        decoded frame. ``source_orientation``: the EXIF orientation baked into *img*. The flat-field gain takes both."""
         # Flat-field is a source pre-correction, before geometry and crop. Folding its token
         # into source_hash invalidates the engine cache when it changes. Stitch buffers arrive
         # per-part flat-fielded, because correcting the composite canvas as one frame would
@@ -685,6 +727,8 @@ class ImageProcessor:
             source_hash,
             img.shape,
             skip_flatfield,
+            gain_slices,
+            source_orientation,
             metadata_lens_corrections(settings),
             flatfield_token(settings.flatfield),
             sensor_token(settings.process),
@@ -696,14 +740,12 @@ class ImageProcessor:
             img = self._precorrect_value
         else:
             source = img
-            if not skip_flatfield and not settings.stitch.stitch_enabled and not metadata_lens_corrections(settings):
-                img = apply_flatfield(img, settings.flatfield)
+            if not skip_flatfield:
+                img = flatfield_source(img, settings, gain_slices, orientation=source_orientation)
             # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
-            # come from _load_source_f32, which already applied it. Triplet composites take
-            # each channel from its own single-band exposure, so unmixing them would inject
-            # crosstalk that was never captured.
-            if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
-                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
+            # come from _load_source_f32, which already applied it.
+            if not skip_flatfield and preview_takes_unmix(settings):
+                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process), settings.process.sensor_unmix)
             # Both no-op'd: caching would pin a second reference to the same buffer.
             if img is not source:
                 self._precorrect_key = precorrect_key
@@ -759,7 +801,7 @@ class ImageProcessor:
                 img = self._hair_inpaint(img, hair_masks, repair_hash + hair_token, dust_label)
             img = self._clone_bake(img, settings)
 
-        source_hash = base_hash + hair_token + f"|res{w_cols}x{h_orig}"
+        source_hash = base_hash + hair_token + f"|res{w_cols}x{h_orig}" + _camera_token(cam_xyz, camera_wb)
 
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
@@ -780,8 +822,7 @@ class ImageProcessor:
         # The crop this render detected, for the controller to freeze into the edit. The key
         # rides along so a freeze that lands after the user moved on is discarded.
         if resolved_crop is not None:
-            context.metrics["autocrop_resolved_rect"] = resolved_crop[0]
-            context.metrics["autocrop_resolved_key"] = resolved_crop[1]
+            context.metrics["autocrop_resolved"] = resolved_crop
         # Overlay data, written even when empty: the controller merges metrics into the last
         # frame's, so an absent key keeps the previous frame's marks.
         dust_mask = detected_dust < 1.0 if detected_dust is not None else None
@@ -802,7 +843,7 @@ class ImageProcessor:
         if self._is_flat(settings):
             prefer_gpu = False
 
-        needs_tiling = bool(prefer_gpu and self.engine_gpu and self.engine_gpu.requires_tiling(img, settings))
+        needs_tiling = bool(prefer_gpu and self.engine_gpu and self.engine_gpu.requires_tiling(img, settings, render_size_ref))
         if needs_tiling and crop_preview_full:
             prefer_gpu = False
 
@@ -822,6 +863,7 @@ class ImageProcessor:
                         render_size_ref=render_size_ref,
                     )
                 else:
+                    self.engine_gpu.evict_stale_textures(destroy=False)
                     processed, gpu_metrics = self.engine_gpu.process_to_texture(
                         img,
                         settings,
@@ -861,7 +903,8 @@ class ImageProcessor:
             or t.vanadium_strength != 0.0
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
-            or settings.altproc.alt_process != AltProcess.NONE
+            # A Sabattier print is plain silver; lith and cyanotype carry their own color.
+            or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
         )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 
@@ -962,16 +1005,11 @@ class ImageProcessor:
         return rgb, metadata
 
     def _load_source_f32(
-        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False
+        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False, unmix: bool = True
     ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
-        """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
-
-        A stitch composite decodes every part and assembles them by replaying the
-        registration stored in ``params.stitch``, each part against its own rgbscan
-        config rather than the primary's.
-
-        Returns (f32_buffer, ir_buffer, source_color_space).
-        """
+        """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer → (f32, ir, source color space). A
+        stitch replays the registration in ``params.stitch``, each part with its own rgbscan config. ``unmix=False`` leaves
+        out the sensor unmix that `_unmix_source` applies to the whole buffer."""
         is_triplet = is_rgb_triplet(params.rgbscan) or stitch_has_triplets(params.stitch)
         # Narrowband triplet channels don't survive half_size CFA binning.
         fast_decode = fast_decode and not is_triplet
@@ -994,6 +1032,7 @@ class ImageProcessor:
             sensor_token(params.process),
             demosaic_token(params.process.demosaic_export),
             fast_decode,
+            unmix,
         )
         if cache_key == self._source_cache_key and self._source_cache_value is not None:
             return self._source_cache_value
@@ -1001,24 +1040,37 @@ class ImageProcessor:
         if params.stitch.stitch_enabled and params.stitch.stitch_paths:
             # libraw/tifffile release the GIL, so the parts decode concurrently.
             all_paths = (file_path, *params.stitch.stitch_paths)
+            # The sensor unmix reads the film base from the frame, so a stitch is unmixed once,
+            # assembled, or each part would read its own base.
+            whole = not stitch_has_triplets(params.stitch)
             with ThreadPoolExecutor(max_workers=min(3, len(all_paths))) as pool:
                 decoded = list(
-                    pool.map(lambda ip: self._decode_oriented_f32(ip[1], _part_params(params, ip[0]), fast_decode), enumerate(all_paths))
+                    pool.map(
+                        lambda ip: self._decode_oriented_f32(ip[1], _part_params(params, ip[0]), fast_decode, unmix=not whole),
+                        enumerate(all_paths),
+                    )
                 )
             parts = [f32 for f32, _ir, _cs in decoded]
             irs = [ir for _f32, ir, _cs in decoded]
             source_cs = decoded[0][2]
             f32_buffer, ir_full = stitch_composite(parts, irs, params.stitch)
+            if whole and unmix:
+                f32_buffer = _unmix_source(f32_buffer, params)
             result = (f32_buffer, ir_full, source_cs)
         else:
-            result = self._decode_oriented_f32(file_path, params, fast_decode)
+            result = self._decode_oriented_f32(file_path, params, fast_decode, unmix=unmix)
 
         self._source_cache_key = cache_key
         self._source_cache_value = result
         return result
 
     def _decode_oriented_f32(
-        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False, wb_override: Optional[Sequence[float]] = None
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        fast_decode: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
+        unmix: bool = True,
     ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Single-file decode tail: sensor RGB -> float32 -> EXIF orientation -> flatfield.
 
@@ -1165,9 +1217,9 @@ class ImageProcessor:
         if metadata_lens_corrections(params):
             f32_buffer = prepare_lens_source(f32_buffer, metadata, params.flatfield, metadata_lens_corrections(params))
         else:
-            f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
-        if not is_triplet:
-            f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process))
+            f32_buffer = apply_flatfield(f32_buffer, params.flatfield, orientation=orientation)
+        if unmix and not is_triplet:
+            f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process), params.process.sensor_unmix)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
         return f32_buffer, ir_full, source_cs
@@ -1242,10 +1294,12 @@ class ImageProcessor:
         gutter_thickness: float,
         split_axis: str = "x",
     ) -> Tuple[np.ndarray, str, str]:
-        f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
+        f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params, unmix=not half)
         f32_buffer, ir_full = self._slice_half_source(
             f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness, split_axis=split_axis
         )
+        if half:
+            f32_buffer = _unmix_source(f32_buffer, params)
         # Same shape as run_pipeline's base_hash, so an export of a frame previewed at full
         # resolution with the same demosaic finds every bake already in the caches.
         detect_key = (
@@ -1374,6 +1428,7 @@ class ImageProcessor:
                 source_hash=export_hash,
                 analysis_source_hash=export_hash,
             )
+            content_rect = _gpu_metrics.get("content_rect")
         else:
             buffer, _ = self.run_pipeline(
                 f32_buffer,
@@ -1388,11 +1443,36 @@ class ImageProcessor:
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
             )
-            buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
+            buffer, content_rect = PrintService.apply_layout(
+                buffer,
+                params.export,
+                border_size=params.finish.border_size,
+                border_color=PrintService.effective_border_color(params.finish, params.toning),
+                finish=params.finish,
+            )
             # Release full-res arrays pinned in the CPU stage cache.
             self.engine_cpu.cache.clear()
 
-        return buffer, color_space
+        return self._sharpen_resized_content(buffer, content_rect, params), color_space
+
+    def _sharpen_resized_content(
+        self, buffer: np.ndarray, content_rect: Optional[Tuple[int, int, int, int]], params: WorkspaceConfig
+    ) -> np.ndarray:
+        """Export sharpening: runs once on the CPU for both engines, on the scaled content
+        inside the mat. An Original-size export and a flat master skip it."""
+        amount = float(params.export.output_sharpen)
+        if (
+            amount <= 0.0
+            or content_rect is None
+            or params.export.export_resolution_mode == ExportResolutionMode.ORIGINAL.value
+            or self._is_flat(params)
+        ):
+            return buffer
+        x, y, w, h = content_rect
+        if not buffer.flags.writeable:
+            buffer = buffer.copy()
+        buffer[y : y + h, x : x + w] = apply_resize_sharpening(buffer[y : y + h, x : x + w], amount)
+        return buffer
 
     def render_export(
         self,
@@ -1689,10 +1769,12 @@ class ImageProcessor:
         try:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
-            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params, fast_decode=fast_decode)
+            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params, fast_decode=fast_decode, unmix=not half)
             f32_buffer, ir_full = self._slice_half_source(
                 f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness, split_axis=split_axis
             )
+            if half:
+                f32_buffer = _unmix_source(f32_buffer, params)
 
             # Proof scale: everything downstream only needs target_long_px. The
             # cached source buffer is shared, so resize (never mutate) it.
@@ -2072,7 +2154,9 @@ class ImageProcessor:
             return pil_img, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
-            return pil_img, None
+            # The pixels never left the working space, so tag them with it (a CMYK or Gray
+            # profile cannot take RGB pixels). Untagged, the export reads as sRGB.
+            return pil_img, self._get_target_icc_bytes(working_color_space, input_icc_path)
 
     @staticmethod
     def soft_proof_preview(
@@ -2155,13 +2239,9 @@ class ImageProcessor:
             )
             if result is None:
                 return pil_img
-            result = result if result.mode == "RGB" else result.convert("RGB")
-            # Output-to-display transform, so the proof is shown in display space instead
-            # of being reinterpreted by the viewer. Always runs, not only when a monitor
-            # profile is known: without it the proof leaks output-space numbers to the
-            # screen and shifts per output space (issue #243). Skipped for GRAY outputs,
-            # whose `result` has left `p_dst`'s space after RGB-ising.
-            if out_mode == "RGB":
+            # Output-to-display transform, always, or the proof leaks output-space numbers to the screen. A GRAY result goes
+            # through it from "L" (its TRC fits only an sRGB-TRC display); a display profile lcms cannot target keeps the output-space result.
+            try:
                 proofed = ImageCms.profileToProfile(
                     result,
                     p_dst,
@@ -2170,9 +2250,12 @@ class ImageProcessor:
                     outputMode="RGB",
                     flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
                 )
-                if proofed is not None:
-                    result = proofed
-            return result
+            except Exception as e:
+                logger.warning(f"Soft-proof display transform failed, showing the output-space proof: {e}")
+                proofed = None
+            if proofed is not None:
+                result = proofed
+            return result if result.mode == "RGB" else result.convert("RGB")
         except Exception as e:
             logger.error(f"Soft-proof preview failed: {e}")
             return pil_img

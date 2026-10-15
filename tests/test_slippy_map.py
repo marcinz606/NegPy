@@ -24,9 +24,9 @@ if not QApplication.instance():
 @pytest.fixture
 def widget(monkeypatch) -> SlippyMapWidget:
     monkeypatch.setattr(slippy_map, "fetch_tile", lambda *a, **k: None)
+    monkeypatch.setattr(slippy_map, "_start_fetch", lambda signals, key: slippy_map._fetch_tile_job(signals, *key))
     map_widget = SlippyMapWidget()
     map_widget.resize(512, 384)
-    monkeypatch.setattr(map_widget._pool, "start", lambda job, *args: job.run())
     return map_widget
 
 
@@ -133,12 +133,12 @@ def test_zoom_clamps_to_the_supported_range(widget: SlippyMapWidget) -> None:
 
 
 def test_pending_tiles_are_capped(monkeypatch) -> None:
-    """The pool joins its queue on close, so the queue must stay small."""
+    """Panning requests tiles faster than they arrive, so stale requests must not pile up."""
     monkeypatch.setattr(slippy_map, "fetch_tile", lambda *a, **k: None)
+    started: list[tuple] = []
+    monkeypatch.setattr(slippy_map, "_start_fetch", lambda signals, key: started.append(key))
     map_widget = SlippyMapWidget()
     map_widget.resize(512, 384)
-    started: list[tuple] = []
-    monkeypatch.setattr(map_widget._pool, "start", lambda job, *args: started.append(job))
 
     for x in range(200):
         map_widget._request((4, x, 4))
@@ -149,28 +149,32 @@ def test_pending_tiles_are_capped(monkeypatch) -> None:
 def test_shutdown_stops_queued_fetches(monkeypatch) -> None:
     fetched: list[tuple] = []
     monkeypatch.setattr(slippy_map, "fetch_tile", lambda *a, **k: fetched.append(a))
-    map_widget = SlippyMapWidget()
     queued: list = []
-    monkeypatch.setattr(map_widget._pool, "start", lambda job, *args: queued.append(job))
+    monkeypatch.setattr(slippy_map, "_start_fetch", lambda signals, key: queued.append((signals, key)))
+    map_widget = SlippyMapWidget()
     map_widget._request((4, 1, 1))
 
     map_widget.shutdown()
-    for job in queued:
-        job.run()
+    for signals, key in queued:
+        slippy_map._fetch_tile_job(signals, *key)
 
     assert fetched == []
 
 
-def test_shutdown_joins_running_fetches_instead_of_the_destructor(monkeypatch) -> None:
-    """The pool's destructor waits with the GIL held, which would hang the GUI for good."""
-    waited: list[int] = []
-    monkeypatch.setattr(slippy_map, "fetch_tile", lambda *a, **k: None)
+def test_shutdown_never_waits_on_a_running_fetch(monkeypatch) -> None:
+    """A fetch stalled in DNS outlives the view; a join on it freezes the GUI with the GIL held."""
+    import threading
+    import time
+
+    release = threading.Event()
+    monkeypatch.setattr(slippy_map, "fetch_tile", lambda *a, **k: release.wait(10))
     map_widget = SlippyMapWidget()
-    monkeypatch.setattr(map_widget._pool, "waitForDone", lambda ms: waited.append(ms) or True)
+    map_widget._request((4, 1, 1))
 
+    t0 = time.monotonic()
     map_widget.shutdown()
-
-    assert waited == [slippy_map._SHUTDOWN_WAIT_MS]
+    assert time.monotonic() - t0 < 1.0
+    release.set()
 
 
 def _wheel(widget: SlippyMapWidget, delta: int, phase: Qt.ScrollPhase = Qt.ScrollPhase.NoScrollPhase) -> None:

@@ -10,11 +10,19 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import color_histogram, output_histogram, proof_grid, rotate_grid, strip_mosaic
-from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.exposure.analysis import (
+    color_histogram,
+    output_histogram,
+    proof_grid,
+    rotate_grid,
+    strip_mosaic,
+    vectorscope_histogram,
+    waveform,
+    waveform_color,
+)
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.lens.models import LensCorrections
-from negpy.services.rendering.lens import lens_decode_token, metadata_lens_corrections
+from negpy.services.rendering.lens import flatfield_source, lens_decode_token, metadata_lens_corrections
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.capture_color import wb_only_cam_xyz
@@ -24,12 +32,14 @@ from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
+from negpy.features.geometry.models import squares_on_arm
 from negpy.features.geometry.processor import GeometryProcessor
+from negpy.features.geometry.skew import squared_geometry
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
-from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.services.rendering.image_processor import ImageProcessor, preview_takes_unmix
 
 logger = get_logger(__name__)
 
@@ -113,6 +123,11 @@ class RenderTask:
     split_x: float = 0.5
     split_axis: str = "x"
     gutter_thickness: float = 0.0
+    # The slice_half cuts that took `buffer` out of the decoded frame (a half, or a
+    # diptych's crop), for the flat-field gain to take too.
+    gain_slices: tuple = ()
+    # EXIF orientation the decode baked into `buffer`, for the flat-field gain to take first.
+    source_orientation: int = 1
 
 
 @dataclass(frozen=True)
@@ -134,6 +149,7 @@ class TestStripTask:
     cam_xyz: Optional[list] = None
     # As-shot WB multipliers, needed only when the buffer was decoded without WB.
     camera_wb: Optional[list] = None
+    source_orientation: int = 1
 
 
 @dataclass(frozen=True)
@@ -201,6 +217,8 @@ class BatchAutoCropResult:
     correction_angle: float
     confidence: float
     calibrated: bool
+    # Tilt and Swing Square Before Crop set before detection; None leaves the frame's own.
+    keystone: Optional[tuple[float, float]] = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +256,7 @@ class AssetDiscoveryTask:
     restore_hdr: dict | None = None  # {reference_path: {paths, ratios, align, hash}} (session restore).
     half_frame_profile: dict | None = None  # {crop_rect, split_x, gutter_thickness, split_axis} override
     half_frame_overrides: dict | None = None  # {base_hash: {crop_rect, split_x, gutter_thickness, split_axis}} per-file overrides
+    skip_paths: frozenset = frozenset()  # Files a folder walk leaves out, normcased: those removed from the roll.
 
 
 @dataclass(frozen=True)
@@ -352,6 +371,8 @@ class RenderWorker(QObject):
                 crop_preview_full=task.crop_preview_full,
                 cam_xyz=task.cam_xyz,
                 camera_wb=task.camera_wb,
+                gain_slices=task.gain_slices + ((n, task.split_x, None, task.gutter_thickness, task.split_axis),),
+                source_orientation=task.source_orientation,
             )
             if isinstance(out, GPUTexture):
                 out = np.ascontiguousarray(out.readback()[:, :, :3])
@@ -361,6 +382,9 @@ class RenderWorker(QObject):
         metrics["diptych"] = True
         # Half 1's GPU histogram describes half 1; let `process` bin the joined image instead.
         metrics.pop("histogram_raw", None)
+        metrics.pop("waveform", None)
+        metrics.pop("waveform_color", None)
+        metrics.pop("vectorscope", None)
         along = 1 if task.split_axis == "x" else 0
         gap = gap_px(left.shape[along], right.shape[along], task.gutter_thickness)
         return join_halves(left, right, gap, axis=task.split_axis), metrics
@@ -387,12 +411,17 @@ class RenderWorker(QObject):
                     crop_preview_full=task.crop_preview_full,
                     cam_xyz=task.cam_xyz,
                     camera_wb=task.camera_wb,
+                    gain_slices=task.gain_slices,
+                    source_orientation=task.source_orientation,
                 )
 
             # CPU renders have no in-shader histogram; bin the float output here.
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
                 metrics["histogram_raw"] = output_histogram(result)
                 metrics["histogram_color"] = color_histogram(result)
+                metrics["waveform"] = waveform(result)
+                metrics["waveform_color"] = waveform_color(result)
+                metrics["vectorscope"] = vectorscope_histogram(result)
 
             # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
             # the canvas shader without a readback.
@@ -419,6 +448,7 @@ class RenderWorker(QObject):
             metrics["compare"] = task.compare
             metrics["interactive"] = task.interactive
             metrics["crop_preview_full"] = task.crop_preview_full
+            metrics["config_override"] = task.config_override
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)
@@ -454,6 +484,7 @@ class RenderWorker(QObject):
                     wants_uv_grid=False,
                     cam_xyz=task.cam_xyz,
                     camera_wb=task.camera_wb,
+                    source_orientation=task.source_orientation,
                 )
                 if isinstance(result, GPUTexture):
                     result = result.readback()
@@ -756,12 +787,18 @@ class AssetDiscoveryWorker(QObject):
 
     @pyqtSlot(AssetDiscoveryTask)
     def process(self, task: AssetDiscoveryTask) -> None:
-        """
-        Scans paths for supported images and calculates hashes.
-        """
+        """Scans paths for supported images and calculates hashes. Emits `finished` or
+        `error`: either one releases the import lane."""
+        try:
+            self._discover(task)
+        except Exception as e:
+            logger.exception("Asset discovery failed")
+            self.error.emit(str(e))
+
+    def _discover(self, task: AssetDiscoveryTask) -> None:
         import os
 
-        from negpy.infrastructure.loaders.constants import is_ir_sidecar_path
+        from negpy.infrastructure.loaders.constants import is_hidden_path, is_ir_sidecar_path
         from negpy.kernel.image.logic import file_hashes
         from negpy.services.assets.migrations.hash import blank_ambiguous_legacy_hashes
 
@@ -770,10 +807,16 @@ class AssetDiscoveryWorker(QObject):
             try:
                 if os.path.isdir(path):
                     for f in os.listdir(path):
-                        if f.lower().endswith(task.supported_extensions):
-                            discovered_paths.append(os.path.join(path, f))
+                        if is_hidden_path(f):
+                            continue
+                        found = os.path.join(path, f)
+                        if (
+                            f.lower().endswith(task.supported_extensions)
+                            and os.path.normcase(os.path.normpath(found)) not in task.skip_paths
+                        ):
+                            discovered_paths.append(found)
                 else:
-                    if path.lower().endswith(task.supported_extensions):
+                    if not is_hidden_path(path) and path.lower().endswith(task.supported_extensions):
                         discovered_paths.append(path)
             except Exception as e:
                 logger.error(f"Discovery error for {path}: {e}")
@@ -789,17 +832,14 @@ class AssetDiscoveryWorker(QObject):
             if digest is None:
                 continue
             f_hash, legacy = digest
-            if not f_hash.startswith("err_"):
-                # Stamped once here so sorting and date search never stat per row.
-                valid_assets.append(
-                    {
-                        "name": os.path.basename(path),
-                        "path": path,
-                        "hash": f_hash,
-                        "legacy_hash": legacy,
-                        "mtime": os.path.getmtime(path),
-                    }
-                )
+            if f_hash.startswith("err_"):
+                continue
+            # Stamped once here so sorting and date search never stat per row.
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue  # Removed or renamed since it was hashed.
+            valid_assets.append({"name": os.path.basename(path), "path": path, "hash": f_hash, "legacy_hash": legacy, "mtime": mtime})
 
         blank_ambiguous_legacy_hashes(valid_assets)
 
@@ -1123,9 +1163,9 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb), detect_preview)
-    finished = pyqtSignal(str, object, object, str, object, str, object, object)
-    splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb), detect_preview, generation)
+    finished = pyqtSignal(str, object, object, str, object, str, object, object, int)
+    splash = pyqtSignal(str, object, object, int)  # (file_path, buffer, dims, generation) — first paint
     error = pyqtSignal(str)
     # (file_path, applied long-edge cap px): an HQ load exceeded the GPU's VRAM budget
     # and was downsampled instead of crashing. Emitted alongside `finished`.
@@ -1236,8 +1276,10 @@ class PreviewLoadWorker(QObject):
                         metadata.get("camera_wb"),
                         metadata.get("lens_correction"),
                         lens_decode_token(task.lens_corrections, task.lens_flatfield),
+                        metadata.get("orientation", 1),
                     ),
                     metadata.get("detect_preview"),
+                    task.generation,
                 )
                 return
             if hdr_active(task.hdr):
@@ -1280,8 +1322,10 @@ class PreviewLoadWorker(QObject):
                         metadata.get("camera_wb"),
                         metadata.get("lens_correction"),
                         lens_decode_token(task.lens_corrections, task.lens_flatfield),
+                        metadata.get("orientation", 1),
                     ),
                     metadata.get("detect_preview"),
+                    task.generation,
                 )
                 return
             if is_rgb_triplet(task.rgbscan):
@@ -1322,8 +1366,10 @@ class PreviewLoadWorker(QObject):
                         metadata.get("camera_wb"),
                         metadata.get("lens_correction"),
                         lens_decode_token(task.lens_corrections, task.lens_flatfield),
+                        metadata.get("orientation", 1),
                     ),
                     metadata.get("detect_preview"),
+                    task.generation,
                 )
                 return
             if task.use_splash and not task.full_resolution:
@@ -1348,7 +1394,7 @@ class PreviewLoadWorker(QObject):
                     return
                 if sp is not None:
                     sbuf, sdims = sp
-                    self.splash.emit(task.file_path, sbuf, sdims)
+                    self.splash.emit(task.file_path, sbuf, sdims, task.generation)
             else:
                 raw, dims, metadata = self._preview_service.load_linear_preview(
                     task.file_path,
@@ -1391,8 +1437,10 @@ class PreviewLoadWorker(QObject):
                     metadata.get("camera_wb"),
                     metadata.get("lens_correction"),
                     lens_decode_token(task.lens_corrections, task.lens_flatfield),
+                    metadata.get("orientation", 1),
                 ),
                 metadata.get("detect_preview"),
+                task.generation,
             )
         except InterruptedError:
             return
@@ -1433,14 +1481,22 @@ class PreviewLoadWorker(QObject):
             return ""
 
 
-def decode_asset_preview(
-    preview_service,
-    file_info: dict,
-    config: WorkspaceConfig,
-    workspace_color_space: str,
-) -> np.ndarray:
-    """Decode one asset the way the render path does. See `_decode_asset_preview_with_meta`."""
-    return _decode_asset_preview_with_meta(preview_service, file_info, config, workspace_color_space)[0]
+def gain_slices_for_asset(file_info: dict) -> tuple:
+    """The slice_half cuts a thumbnail's buffer took, for run_pipeline's gain_slices."""
+    from negpy.services.assets.half_frame import asset_slice
+
+    args = asset_slice(file_info)
+    return () if args is None else (args,)
+
+
+def _slice_meta_planes(meta: dict, file_info: dict) -> dict:
+    """The IR and dust-detect planes cut like the buffer they ride with."""
+    from negpy.services.assets.half_frame import slice_for_asset
+
+    return {
+        k: np.ascontiguousarray(slice_for_asset(v, file_info)) if k in ("ir_preview", "detect_preview") and v is not None else v
+        for k, v in meta.items()
+    }
 
 
 def _decode_asset_preview_with_meta(
@@ -1500,7 +1556,7 @@ def _decode_asset_preview_with_meta(
             lens_flatfield=config.flatfield,
             **common,
         )
-    return slice_for_asset(raw, file_info), meta
+    return slice_for_asset(raw, file_info), _slice_meta_planes(meta, file_info)
 
 
 class BatchAutoCropWorker(QObject):
@@ -1556,23 +1612,35 @@ class BatchAutoCropWorker(QObject):
         if cancelled:
             self.cancelled.emit()
 
-    def _decode(self, frame: BatchAutoCropInput, workspace_color_space: str) -> np.ndarray:
-        return decode_asset_preview(self._preview_service, frame.file_info, frame.config, workspace_color_space)
+    def _decode(self, frame: BatchAutoCropInput, workspace_color_space: str) -> tuple[np.ndarray, dict]:
+        return _decode_asset_preview_with_meta(self._preview_service, frame.file_info, frame.config, workspace_color_space)
 
-    def _frame_evidence(self, index: int, frame: BatchAutoCropInput, task: BatchAutoCropTask, generation: int) -> Optional[CropEvidence]:
-        """Decode and detect one frame. None when it failed or the run was cancelled."""
+    def _frame_evidence(
+        self, index: int, frame: BatchAutoCropInput, task: BatchAutoCropTask, generation: int
+    ) -> tuple[Optional[CropEvidence], Optional[tuple[float, float]]]:
+        """Decode and detect one frame, with the Tilt and Swing of Square Before Crop applied
+        first. (None, None) when it failed or the run was cancelled.
+
+        Only the keystone: the roll pools rotations, and the run's own deskew sets them."""
         file_info = frame.file_info
         if self._cancel_requested(generation):
-            return None
+            return None, None
         try:
-            raw = self._decode(frame, task.workspace_color_space)
+            raw, meta = self._decode(frame, task.workspace_color_space)
             if self._cancel_requested(generation):
-                return None
+                return None, None
 
             config = frame.config
-            corrected = raw if metadata_lens_corrections(config) else apply_flatfield(raw, config.flatfield)
+            corrected = flatfield_source(raw, config, gain_slices_for_asset(file_info), orientation=meta.get("orientation", 1))
+            geometry = config.geometry
+            keystone = None
+            if squares_on_arm(geometry):
+                fit = squared_geometry(corrected, geometry, config.process.process_mode)
+                if fit is not None:
+                    keystone = (fit[0].converge_v, fit[0].converge_h)
+                    geometry = replace(geometry, converge_v=keystone[0], converge_h=keystone[1])
             detection_geometry = replace(
-                config.geometry,
+                geometry,
                 crop_rect=None,
                 crop_from_auto=False,
                 autocrop_offset=0,
@@ -1584,18 +1652,19 @@ class BatchAutoCropWorker(QObject):
             )
             transformed = GeometryProcessor(detection_geometry).process(corrected, context)
             if self._cancel_requested(generation):
-                return None
-            return detect_crop_candidate(
+                return None, None
+            evidence = detect_crop_candidate(
                 f"{index}:{file_info.get('hash', '')}",
                 transformed,
                 target_ratio=config.geometry.autocrop_ratio,
                 rebate_trim=config.geometry.autocrop_rebate_trim,
             )
+            return evidence, keystone
         except Exception:
             if self._cancel_requested(generation):
-                return None
-            logger.exception("Auto Crop All skipped failed frame %s", file_info.get("name") or file_info.get("path") or index)
-            return None
+                return None, None
+            logger.exception("Auto-crop all frames skipped failed frame %s", file_info.get("name") or file_info.get("path") or index)
+            return None, None
 
     @pyqtSlot(BatchAutoCropTask)
     def process(self, task: BatchAutoCropTask) -> None:
@@ -1621,11 +1690,15 @@ class BatchAutoCropWorker(QObject):
             # inside it is already multi-core.
             workers = max(1, min(APP_CONFIG.max_workers // 2, total))
             candidates: list[Optional[CropEvidence]] = [None] * total
+            keystone_by_key: dict[str, tuple[float, float]] = {}
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 futures = {ex.submit(self._frame_evidence, i, frame, task, generation): i for i, frame in enumerate(task.frames)}
                 for done, future in enumerate(as_completed(futures), 1):
                     index = futures[future]
-                    candidates[index] = future.result()
+                    evidence, keystone = future.result()
+                    candidates[index] = evidence
+                    if evidence is not None and keystone is not None:
+                        keystone_by_key[evidence.key] = keystone
                     self.progress.emit(done, total, _name(index))
 
             if self._emit_cancelled_if_requested(generation):
@@ -1640,7 +1713,7 @@ class BatchAutoCropWorker(QObject):
             for crop in resolved:
                 source = source_by_key.get(crop.key)
                 if source is None:
-                    logger.warning("Auto Crop All ignored result with unknown key %s", crop.key)
+                    logger.warning("Auto-crop all frames ignored result with unknown key %s", crop.key)
                     continue
                 results.append(
                     BatchAutoCropResult(
@@ -1650,6 +1723,7 @@ class BatchAutoCropWorker(QObject):
                         correction_angle=crop.correction_angle,
                         confidence=crop.confidence,
                         calibrated=crop.calibrated,
+                        keystone=keystone_by_key.get(crop.key),
                     )
                 )
             self._emit_finished_unless_cancelled(generation, results)
@@ -1659,7 +1733,7 @@ class BatchAutoCropWorker(QObject):
             with self._cancel_lock:
                 if self._active_generation == generation:
                     self._active_generation = None
-            logger.exception("Auto Crop All worker failure")
+            logger.exception("Auto-crop all frames worker failure")
             self.error.emit(str(exc))
 
 
@@ -1734,7 +1808,7 @@ class ThumbnailRenderWorker(QObject):
         raw, _dims, meta = hit
         # The navigation cache still serves these arrays, so the pipeline gets its own.
         meta = {k: np.copy(v) if isinstance(v, np.ndarray) else v for k, v in meta.items()}
-        return slice_for_asset(np.copy(raw), frame.file_info), meta
+        return slice_for_asset(np.copy(raw), frame.file_info), _slice_meta_planes(meta, frame.file_info)
 
     def _decode(self, frame: ThumbnailRenderInput, workspace_color_space: str) -> tuple[np.ndarray, dict]:
         hit = self._peek_live_preview(frame, workspace_color_space)
@@ -1801,6 +1875,8 @@ class ThumbnailRenderWorker(QObject):
                             detect_buffer=meta.get("detect_preview"),
                             cam_xyz=cam_xyz,
                             camera_wb=meta.get("camera_wb"),
+                            gain_slices=gain_slices_for_asset(frame.file_info),
+                            source_orientation=meta.get("orientation", 1),
                         )
                         render_s = time.perf_counter() - started
                         if isinstance(result, np.ndarray) and not self._cancel_requested(generation):
@@ -1851,6 +1927,11 @@ class NormalizationWorker(QObject):
         """Requests the running analysis stop; no baseline is applied."""
         self._cancel.set()
 
+    def arm(self) -> None:
+        """Clears a Stop left from an earlier run. Called on the GUI thread before dispatch,
+        so a Stop pressed before the queued run starts is kept."""
+        self._cancel.clear()
+
     @pyqtSlot(NormalizationTask)
     def process(self, task: NormalizationTask) -> None:
         """
@@ -1874,7 +1955,6 @@ class NormalizationWorker(QObject):
         from negpy.features.process.models import ProcessMode
         from negpy.features.geometry.processor import GeometryProcessor
 
-        self._cancel.clear()
         total = len(task.frames)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
@@ -1897,23 +1977,27 @@ class NormalizationWorker(QObject):
                     process_mode = params.process.process_mode
                     geometry = params.geometry
 
-                    # to_thread for the blocking load and analysis. decode_asset_preview picks
-                    # the same WB the render path uses (use_camera_wb = not effective linear
-                    # RAW): the roll-average bounds are applied to the render-decoded image, so
-                    # analyzing in a different WB space shifts the per-channel floors and ceils
-                    # and produces a color cast.
-                    raw = await asyncio.to_thread(
-                        decode_asset_preview,
+                    # Decode with the render path's WB (use_camera_wb = not effective linear RAW):
+                    # the roll bounds apply to the render-decoded image, and another WB casts it.
+                    raw, decode_meta = await asyncio.to_thread(
+                        _decode_asset_preview_with_meta,
                         self._preview_service,
                         f_info,
                         params,
                         task.workspace_color_space,
                     )
-                    # Bounds must be measured on the same channel mix the render path normalizes.
-                    # Triplet composites are never sensor-corrected there.
+                    # The flat field the render applies.
+                    raw = await asyncio.to_thread(
+                        flatfield_source,
+                        raw,
+                        params,
+                        gain_slices_for_asset(f_info),
+                        orientation=decode_meta.get("orientation", 1),
+                    )
+                    # Bounds must be measured on the same channel mix the preview normalizes.
                     sensor_matrix = effective_sensor_matrix(params.process)
-                    if sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
-                        raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix)
+                    if sensor_matrix is not None and preview_takes_unmix(params):
+                        raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix, params.process.sensor_unmix)
 
                     ctx = PipelineContext(
                         original_size=(raw.shape[1], raw.shape[0]),

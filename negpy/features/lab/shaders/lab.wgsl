@@ -369,7 +369,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // chroma/saturation stages never touch in L*/Y (they only rewrite
     // a*/b*), so the state matches what `color` would produce.
     if (params.sharpen > 0.0 && params.sharpen_method < 0.5) {
-        // Unsharp mask — mirrors apply_output_sharpening in logic.py.
+        // Unsharp mask — mirrors apply_usm_sharpening in logic.py.
         let blur_l = textureLoad(sharpen_tex, coords, 0).x;
         let current_lab = rgb_to_lab(color);
         let diff = current_lab.x - blur_l;

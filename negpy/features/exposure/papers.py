@@ -9,14 +9,11 @@ development (the B&W path collapses to luminance, so the RA4 color terms are
 inert — paper tone is a Toning job). The exception is Lith: `lith_path` is the paper's
 infectious-development color and the only color term a B&W profile acts on.
 
-Values were loosely mapped by Claude from published datasheets (Ilford, Kodak
-Endura, Foma, Fuji), not a precise calibration. Mainly d_max is grounded; the
-knee/midtone tweaks are light touches for character. Note these stack on the
-Grade slope, so over-soft knees read flat — keep them gentle.
-
-To replace a profile with a real calibration, digitize the datasheet's D-logH
-curve and run scripts/fit_paper_profile.py — it fits this exact parametric
-family and prints the PaperProfile kwargs (accept when RMS ≤ ~0.05 D).
+A profile whose comment names a datasheet is fitted to it with scripts/fit_paper_profile.py,
+which renders through print_curve at the slope the Grade gives the curve's ISO R (accept when
+RMS ≤ ~0.05 D). The others were loosely mapped from datasheets: mainly d_max is grounded, and
+their knee/midtone values are light touches for character. paper_midtone_gamma stays within
+±0.25, because Snap and its per-layer trims add to it below the kernel's |gamma| < 1 bound.
 """
 
 from dataclasses import dataclass
@@ -42,6 +39,16 @@ LithPath = Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], 
 # The default belongs to the *Neutral* profile, so it stays restrained: a hint of warmth,
 # not a look. Pick a warmtone paper to get the color.
 _DEFAULT_LITH_PATH: LithPath = ((4.0, 8.0), (2.0, 8.0), (-1.0, 4.0), (0.0, 0.0))
+
+# Kodak Endura dye coupling, estimated, not measured: cyan absorbs some green, magenta some blue.
+# Shared by every Kodak RA4 paper. A matrix integrated from a datasheet's dye-density curves
+# holds the unwanted absorptions but not the interimage effects that offset them, so it renders
+# duller than the print.
+_ENDURA_DYE: DyeMatrix = (
+    (0.95, 0.04, 0.01),
+    (0.08, 0.88, 0.04),
+    (0.04, 0.14, 0.82),
+)
 
 # Paper-character keys a profile overrides in the effective constants dict.
 _TONAL_KEYS = (
@@ -133,6 +140,28 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         # Yellowish highlights to greenish black, less colorful than Fomatone.
         lith_path=((6.0, 18.0), (2.0, 18.0), (-9.0, 10.0), (-2.0, 1.0)),
     ),
+    # Fitted to Kodak G-26 (seven filter grades, F surface, Dektol 1:2).
+    "kodak_polymax_ii": PaperProfile(
+        label="Kodak Polymax II RC",
+        kind="bw",
+        d_max=2.13,
+        d_min=0.062,
+        toe_sharpness_base=3.58,
+        shoulder_sharpness_base=3.07,
+        paper_midtone_gamma=-0.111,
+        paper_gamma_width=0.47,
+    ),
+    # Fitted to Kodak G-4037 (four filter grades, E surface, Dektol 1:2).
+    "kodak_polycontrast_iv": PaperProfile(
+        label="Kodak Polycontrast IV RC",
+        kind="bw",
+        d_max=2.15,
+        d_min=0.062,
+        toe_sharpness_base=5.99,
+        shoulder_sharpness_base=2.96,
+        paper_midtone_gamma=-0.148,
+        paper_gamma_width=0.85,
+    ),
     # ── RA4 color ───────────────────────────────────────────────────────────
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
@@ -145,12 +174,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.22,
         channel_gamma=(1.04, 1.0, 0.98),
-        # Estimated, not measured: cyan absorbs some green, magenta some blue.
-        dye_matrix=(
-            (0.95, 0.04, 0.01),
-            (0.08, 0.88, 0.04),
-            (0.04, 0.14, 0.82),
-        ),
+        dye_matrix=_ENDURA_DYE,
     ),
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
@@ -170,6 +194,47 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
             (0.06, 0.91, 0.03),
             (0.03, 0.11, 0.86),
         ),
+    ),
+    # Fitted to Kodak E-4021 (Status A R/G/B, shared with Supra Endura).
+    "kodak_portra_endura": PaperProfile(
+        label="Kodak Portra Endura",
+        kind="ra4",
+        d_max=2.65,
+        d_min=0.093,
+        toe_sharpness_base=1.78,
+        shoulder_sharpness_base=2.81,
+        paper_midtone_gamma=0.25,
+        paper_gamma_width=0.89,
+        channel_gamma=(0.968, 1.0, 1.013),
+        base_tint_cmy=(-0.002, 0.012, -0.009),
+        dye_matrix=_ENDURA_DYE,
+    ),
+    "kodak_supra_endura": PaperProfile(
+        label="Kodak Supra Endura",
+        kind="ra4",
+        d_max=2.60,
+        d_min=0.095,
+        toe_sharpness_base=7.99,
+        shoulder_sharpness_base=3.23,
+        paper_midtone_gamma=0.165,
+        paper_gamma_width=0.62,
+        channel_gamma=(1.008, 1.0, 1.0),
+        base_tint_cmy=(0.011, -0.009, -0.003),
+        dye_matrix=_ENDURA_DYE,
+    ),
+    # Fitted to Kodak E-4020 (Status A R/G/B).
+    "kodak_ultra_endura": PaperProfile(
+        label="Kodak Ultra Endura",
+        kind="ra4",
+        d_max=2.61,
+        d_min=0.096,
+        toe_sharpness_base=6.04,
+        shoulder_sharpness_base=5.74,
+        paper_midtone_gamma=0.197,
+        paper_gamma_width=0.60,
+        channel_gamma=(1.109, 1.0, 1.051),
+        base_tint_cmy=(-0.003, -0.003, 0.005),
+        dye_matrix=_ENDURA_DYE,
     ),
 }
 

@@ -149,3 +149,92 @@ def test_a_release_off_the_button_disarms_the_swallow(qapp, monkeypatch):
 
     btn.clicked.emit()
     assert opened == [True]
+
+
+def _segmented(width: int = 300):
+    from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+
+    seg = SegmentedChoice(_CHOICES, "tip", data=("g", "s", "h"))
+    seg.resize(width, seg.height())
+    return seg
+
+
+def _press(seg, index: int) -> None:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    QTest.mouseClick(seg, Qt.MouseButton.LeftButton, pos=seg._segments()[index].center().toPoint())
+
+
+def test_segmented_click_selects_and_emits_once(qapp):
+    seg = _segmented()
+    seen = []
+    seg.currentChanged.connect(seen.append)
+
+    _press(seg, 2)
+    _press(seg, 2)
+
+    assert seg.currentIndex() == 2
+    assert seg.currentData() == "h"
+    assert seg.findData("s") == 1
+    assert seen == [2]
+
+
+def test_segmented_click_skips_a_disabled_choice(qapp):
+    seg = _segmented()
+    seg.set_choice_enabled(1, False)
+
+    _press(seg, 1)
+
+    assert seg.currentIndex() == 0
+    assert not seg.is_choice_enabled(1)
+
+
+def test_segmented_arrow_keys_step_over_a_disabled_choice(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    seg = _segmented()
+    seg.set_choice_enabled(1, False)
+
+    QTest.keyClick(seg, Qt.Key.Key_Right)
+    assert seg.currentIndex() == 2
+    QTest.keyClick(seg, Qt.Key.Key_Right)
+    assert seg.currentIndex() == 2
+    QTest.keyClick(seg, Qt.Key.Key_Left)
+    assert seg.currentIndex() == 0
+
+
+def test_segmented_edited_marks_each_choice(qapp):
+    seg = _segmented()
+    seg.set_edited(2, True)
+    assert seg.is_edited(2) and not seg.is_edited(0)
+
+
+def test_segmented_ignores_the_wheel(qapp):
+    from PyQt6.QtCore import QPoint, QPointF, Qt
+    from PyQt6.QtGui import QWheelEvent
+
+    seg = _segmented()
+    event = QWheelEvent(
+        QPointF(5, 5),
+        QPointF(5, 5),
+        QPoint(0, 0),
+        QPoint(0, -120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    seg.wheelEvent(event)
+    assert seg.currentIndex() == 0
+    assert not event.isAccepted()
+
+
+def test_segmented_segments_tile_the_track_and_shrink_without_overlap(qapp):
+    seg = _segmented()
+    for width in (seg.sizeHint().width() + 40, seg.minimumSizeHint().width()):
+        seg.resize(width, seg.height())
+        rects = seg._segments()
+        assert all(a.right() <= b.left() + 1e-6 for a, b in zip(rects, rects[1:]))
+        assert rects[-1].right() <= width

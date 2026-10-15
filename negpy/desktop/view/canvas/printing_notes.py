@@ -15,17 +15,12 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF
-from negpy.desktop.view.styles.theme import THEME
 
 from negpy.features.local.logic import min_points, outline_points
 from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import MaskNote, mask_notes
 
-# The same amber and blue the Dodge & Burn outlines use, so a mask reads the same in the
-# notes as it does while editing.
-_DODGE = QColor(THEME.dodge)
-_BURN = QColor(THEME.burn)
 _INK = QColor(242, 242, 242)
 _CARD_BG = QColor(10, 10, 10, 195)
 _BAND_BG = QColor(16, 16, 16)
@@ -88,13 +83,15 @@ def _draw_badge(painter: QPainter, pos: QPointF, text: str, color: QColor, scale
     painter.restore()
 
 
-def paint_map(painter: QPainter, polys: Sequence[Poly], scale: float = 1.0) -> None:
-    """Outline every mask, hatch the burns, and badge each with its stop value."""
+def paint_map(painter: QPainter, polys: Sequence[Poly], dodge_burn: Tuple[str, str], scale: float = 1.0) -> None:
+    """Outline every mask, hatch the burns, and badge each with its stop value. dodge_burn is
+    the color-vision pair the Dodge & Burn outlines use, so a mask reads the same as while editing."""
+    dodge, burn = (QColor(c) for c in dodge_burn)
     for pts, note in polys:
         if len(pts) < 3:
             continue
         poly = QPolygonF(pts)
-        color = _BURN if note.is_burn else _DODGE
+        color = burn if note.is_burn else dodge
         if note.is_burn:
             _hatch(painter, poly, color, scale)
 
@@ -197,6 +194,7 @@ def notes_sheet(
     local: LocalAdjustmentsConfig,
     uv_grid: Optional[np.ndarray],
     lines: Sequence[str],
+    dodge_burn: Tuple[str, str],
     grade: float = 0.0,
 ) -> QImage:
     """The rendered frame with the map drawn on it and the recipe in a band below."""
@@ -215,7 +213,7 @@ def notes_sheet(
             content = QRectF(off_x, off_y, cw, ch)
         else:
             content = QRectF(0, 0, frame.width(), frame.height())
-        paint_map(painter, mapped_polys(local, uv_grid, content, grade), scale)
+        paint_map(painter, mapped_polys(local, uv_grid, content, grade), dodge_burn, scale)
         if lines:
             paint_card(painter, QPointF(_CARD_PAD_PX * scale, frame.height()), lines, scale, background=None)
     finally:

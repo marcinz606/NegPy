@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.models import invalidate_local_bounds, with_film_fields
@@ -121,17 +122,18 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength, profile and the baked matrix copy atomically: strength alone would leave the
         # target on a stale or None matrix.
         _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        _row("Single-Shot Narrowband Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
+        _row("Single-Shot Narrowband Calibration", "process", "sensor_profile", "sensor_matrix", "sensor_unmix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row("Hue Trim", "process", "hue_trim", sticky=True),
         _row("Cast Removal", "exposure", "cast_removal_strength", sticky=True),
     )),
     ("Crop", (
-        _row("Auto Crop", "geometry", "crop_from_auto"),
+        _row("Auto Crop", "geometry", "crop_from_auto", sticky=True),
         _row("Crop Offset", "geometry", "autocrop_offset", sticky=True),
         _row("Rebate Trim", "geometry", "autocrop_rebate_trim", sticky=True),
         _row("Crop Ratio", "geometry", "autocrop_ratio", sticky=True),
         _row("Crop Mode", "geometry", "autocrop_mode", sticky=True),
+        _row("Square Before Crop", "geometry", "autocrop_square", sticky=True),
         # Rect and key copy together: without the key a copied auto rect looks freshly
         # detected on the target.
         _row("Crop", "geometry", "crop_rect", "crop_detect_key", fmt=lambda v: _fmt_scalar(v[0])),
@@ -152,14 +154,23 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Print Density", "exposure", "density"),
         _row("ISO-R Grade", "exposure", "grade"),
         _row("Grade Trim", "exposure", "grade_trim_red", "grade_trim_green", "grade_trim_blue", channels="RGB"),
-        _row("Paper Black", "exposure", "paper_black", sticky=True),
-        _row("Paper White", "exposure", "paper_dmin", sticky=True),
         _row("Shadows Density", "exposure", "shadow_density"),
         _row("Highlights Density", "exposure", "highlight_density"),
         _row("Shadows Grade", "exposure", "shadow_grade"),
         _row("Highlights Grade", "exposure", "highlight_grade"),
         _row("Shadows Grade Trim", "exposure", "shadow_grade_trim_red", "shadow_grade_trim_green", "shadow_grade_trim_blue", channels="RGB"),
         _row("Highlights Grade Trim", "exposure", "highlight_grade_trim_red", "highlight_grade_trim_green", "highlight_grade_trim_blue", channels="RGB"),
+        _row("Contrast Mask", "exposure", "contrast_mask"),
+        _row("Mask Spacer", "exposure", "mask_spacer"),
+        _row("Diffusion", "exposure", "diffusion"),
+        _row("Preflash", "exposure", "preflash"),
+        _row("Auto Density", "exposure", "auto_exposure", sticky=True),
+        _row("Auto Grade", "exposure", "auto_normalize_contrast", sticky=True),
+    )),
+    ("Paper Response", (
+        _row("Paper Profile", "exposure", "paper_profile", sticky=True),
+        _row("Paper Black", "exposure", "paper_black", sticky=True),
+        _row("Paper White", "exposure", "paper_dmin", sticky=True),
         _row("Snap", "exposure", "midtone_gamma"),
         _row("Snap Trim", "exposure", "midtone_gamma_trim_red", "midtone_gamma_trim_green", "midtone_gamma_trim_blue", channels="RGB"),
         _row("Toe", "exposure", "toe"),
@@ -173,12 +184,6 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Dye Separation", "exposure", "dye_separation"),
         _row("Dye Separation Trim", "exposure", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue", channels="RGB"),
         _row("Separation Damping", "exposure", "separation_damping"),
-        _row("Contrast Mask", "exposure", "contrast_mask"),
-        _row("Mask Spacer", "exposure", "mask_spacer"),
-        _row("Preflash", "exposure", "preflash"),
-        _row("Auto Density", "exposure", "auto_exposure", sticky=True),
-        _row("Auto Grade", "exposure", "auto_normalize_contrast", sticky=True),
-        _row("Paper Profile", "exposure", "paper_profile", sticky=True),
     )),
     ("Filtration", (
         _row("Cyan", "exposure", "wb_cyan"),
@@ -209,6 +214,9 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Exposure Scale", "altproc", "cyano_scale"),
         _row("Bleach", "altproc", "cyano_bleach"),
         _row("Tannin", "altproc", "cyano_tannin"),
+        _row("Sabattier Strength", "altproc", "sabattier_strength"),
+        _row("Re-exposure", "altproc", "sabattier_reexposure"),
+        _row("Agitation", "altproc", "sabattier_agitation"),
     )),
     ("Toning", (
         _row("Selenium", "toning", "selenium_strength"),
@@ -290,6 +298,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Print Size", "export", "export_print_size", sticky=True),
         _row("DPI", "export", "export_dpi", sticky=True),
         _row("Long Edge", "export", "export_target_long_edge_px", sticky=True),
+        _row("Output Sharpening", "export", "output_sharpen", sticky=True),
         _row("Export Profile", "export", "export_color_space", sticky=True),
         _row("Filename Pattern", "export", "filename_pattern", sticky=True),
         _row("Overwrite Existing Files", "export", "overwrite", sticky=True),
@@ -319,6 +328,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "crosstalk_matrix",
         "sensor_profile",
         "sensor_matrix",
+        "sensor_unmix",
         "crop_from_auto",
         "autocrop_offset",
         "autocrop_rebate_trim",
@@ -355,9 +365,8 @@ def rows_for_section(section: str) -> list[SettingRow]:
     return [r for r in all_rows() if r.section == section]
 
 
-# Exposure field partitions: the Filtration and Tone sections split ExposureConfig, for
-# both per-section modified counts and scoped resets. render_intent is in neither, since
-# it is flat-master output, nor is cast_removal_strength, the Calibration card's.
+# Filtration, Tone and Paper Response split ExposureConfig for modified counts and scoped resets.
+# render_intent (flat-master output) and cast_removal_strength (the Calibration card's) are in none.
 COLOR_FIELDS = (
     "wb_cyan",
     "wb_magenta",
@@ -389,7 +398,6 @@ TONE_FIELDS = (
     "grade_trim_red",
     "grade_trim_green",
     "grade_trim_blue",
-    "paper_black",
     "shadow_density",
     "highlight_density",
     "shadow_grade",
@@ -400,10 +408,18 @@ TONE_FIELDS = (
     "highlight_grade_trim_red",
     "highlight_grade_trim_green",
     "highlight_grade_trim_blue",
-    "paper_dmin",
     "auto_exposure",
     "auto_normalize_contrast",
+    "contrast_mask",
+    "mask_spacer",
+    "diffusion",
+    "preflash",
+)
+
+PAPER_FIELDS = (
     "paper_profile",
+    "paper_black",
+    "paper_dmin",
     "midtone_gamma",
     "midtone_gamma_trim_red",
     "midtone_gamma_trim_green",
@@ -429,9 +445,6 @@ TONE_FIELDS = (
     "dye_separation_trim_green",
     "dye_separation_trim_blue",
     "separation_damping",
-    "contrast_mask",
-    "mask_spacer",
-    "preflash",
 )
 
 # Frame cards whose settings can be pushed to other frames, and the fields each owns. A
@@ -441,6 +454,7 @@ FRAME_CARD_FIELDS: dict[str, tuple | None] = {
     "geometry": GEOMETRY_FIELDS,
     "color": COLOR_FIELDS,
     "tone": TONE_FIELDS,
+    "paper": PAPER_FIELDS,
     "lab": None,
     "altproc": None,
     "toning": None,
@@ -503,6 +517,12 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     out = target
     # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
     out = with_film_fields(out, by_section.get("process", {}))
+    # A crop rect arrives with its own Auto flag; Auto Crop alone switches through with_auto_crop.
+    geometry = by_section.get("geometry", {})
+    if "crop_rect" in geometry:
+        geometry["crop_from_auto"] = source.geometry.crop_from_auto
+    elif "crop_from_auto" in geometry:
+        out = with_auto_crop_field(out, geometry)
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
     if any(f in BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):
@@ -512,8 +532,11 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
 
 def selected_flat_dict(cfg: WorkspaceConfig, rows: Iterable[SettingRow]) -> dict[str, Any]:
     """Flat dict of the chosen rows' fields (flat keys are field names). A row's
-    fields travel as a unit, default-valued ones included."""
-    return {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    fields travel as a unit, default-valued ones included; a crop rect brings its Auto flag."""
+    flat = {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+    if "crop_rect" in flat:
+        flat["crop_from_auto"] = cfg.geometry.crop_from_auto
+    return flat
 
 
 def preset_config(data: Mapping[str, Any]) -> WorkspaceConfig:

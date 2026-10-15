@@ -9,6 +9,8 @@ def render_scan_filename(pattern: str, date: str, seq: int) -> str:
         env = SandboxedEnvironment()
         template = env.from_string(pattern)
         rendered = template.render(date=date, seq=seq)
+        # The writer adds the extension, and the collision test checks the name it writes.
+        rendered = re.sub(r"\.tiff?$", "", rendered, flags=re.IGNORECASE)
         rendered = re.sub(r"[ _-]+", "_", rendered).strip("_")
         return rendered or f"{date}_{seq:03d}"
     except Exception:

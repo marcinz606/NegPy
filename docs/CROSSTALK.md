@@ -1,85 +1,66 @@
 # Custom Crosstalk Matrices
 
-The **Crosstalk** control in the Calibration sidebar runs a channel-unmix correction. NegPy
-ships one built-in matrix (**Generic C41**). You can drop in your own, calibrated for your
-film *and your scanning setup*, without touching any code.
-
----
+The **Crosstalk** control in the Calibration sidebar unmixes the color channels. NegPy ships
+one built-in matrix (**Generic C41**). You can add your own, calibrated for your film *and
+your scanning setup*, without code.
 
 ## Which film a matrix is for
 
-A matrix describes one dye set, and Color Negative and Transparency do not share one. Each
-profile therefore declares its film process:
+Color Negative and Transparency use different dyes, so each profile declares its film
+process:
 
 ```toml
 process = "Transparency"    # or "Color Negative" (the default when the key is absent)
 ```
 
-The dropdown offers only matrices for the film you are processing, and the render gates on
-the same value. A mismatched profile resolves to identity rather than mixing in the wrong
-correction. Every profile written before this key existed is a color negative stock, which
-is why the default is `Color Negative`. Files written before the modes were renamed (`C41`,
-`B&W`, `E-6`) still load.
+The dropdown offers only matrices for the current film, and the render gates on the same
+value: a mismatched profile resolves to identity. The old mode names (`C41`, `B&W`, `E-6`)
+still load.
 
-No Transparency matrix ships with NegPy today. On slides the Matrix dropdown starts empty,
-and it and the Strength slider are disabled. The editor button stays live: open it, press
-**+** for a new matrix, and it is created for the process you are working in. The editor's
-**Process** control sets that value on any profile you save, so you can then select a
-matrix you built for a slide rig. Crosstalk is hidden outright only in B&W Negative, which
-has one emulsion and so nothing to unmix.
+No Transparency matrix ships with NegPy. On slides the Matrix dropdown starts empty, and it
+and the Strength slider are disabled. The editor button stays live: **+** in the editor
+makes a matrix for the current process, and the editor's **Process** control sets the
+process on any profile you save. Crosstalk is hidden only in B&W Negative, which has one
+emulsion and nothing to unmix.
 
-> **Reversal film reads differently.** On a negative the dyes' unwanted absorptions are an
-> error to remove before inversion, so unmixing moves the render *toward* the scene. A
-> transparency **is** the finished image. What you see on a lightbox already includes those
-> absorptions, so unmixing moves it *away* from the slide's own appearance and toward the
-> dye-amount image behind it. In Transparency, treat Crosstalk as a color-separation
-> control, not a fidelity correction, and leave Strength at 0 when you want to match the
-> slide.
+> **Reversal film reads differently.** On a negative, unmixing moves the render *toward*
+> the scene. A transparency is the finished image, so unmixing moves the render *away* from
+> the slide. In Transparency, Crosstalk is a color-separation control, not a fidelity
+> correction. Leave Strength at 0 to match the slide.
 
 ## What it does
 
-A color negative's three dye layers are not spectrally pure. The cyan, magenta and yellow
-dyes each leak a little density into the channels they should not affect, which gives muddy,
-low-separation color. Crosstalk correction unmixes the channels: it multiplies the
-per-pixel **negative density** vector by a 3×3 matrix, *before* normalization and the print
-curve. That is the domain the matrices were derived in, because secondary dye absorptions
-are linear in negative dye density.
+The cyan, magenta and yellow dyes of a color negative each leak some density into the other
+channels, which makes color muddy and low in separation. Crosstalk correction multiplies
+the per-pixel **negative density** vector by a 3×3 matrix, *before* normalization and the
+print curve. Secondary dye absorptions are linear in negative dye density, so the matrices
+are derived in this domain.
 
-**The dyes are not the only cause.** Your light source's spectrum and your sensor's
-color-filter passbands mix the channels as well. A broad or oddly-shaped light samples each
-dye away from its peak and picks up its neighbours, and a camera's color filters overlap.
-In the density domain all three causes arrive as the same kind of error, a linear mix, which
-is why one 3×3 can absorb them together, and why the same film can need different matrices
-on different rigs.
+The light source and the camera's overlapping color filters add the same kind of linear
+mix, so one 3×3 corrects all three together. A matrix is a property of a **whole scanning
+setup**, not of a film stock, and the same film can need different matrices on different
+rigs.
 
-So think of a matrix as a property of a **whole scanning setup**, not of a film stock. A
-profile derived from a datasheet describes the dyes alone. The one that makes *your* scans
-sing is the one you tuned on your own light and camera.
-
-Two related controls sit in the same panel and are *not* substitutes. The **sensor** matrix
-corrects the camera in the linear capture. **Hue Trim** rotates hue for an odd light
-spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §10.3.
+Two related controls in the same panel do a different job. The **sensor** matrix corrects
+the camera in the linear capture. **Hue Trim** rotates hue for an odd light spectrum. See
+[USER_GUIDE.md](USER_GUIDE.md) §10.3.
 
 > ### What the bundled matrices actually are
 >
 > Every bundled profile is **read off a published spectral-dye-density spec sheet, not
-> measured on a scan**, hence the *(approx)* in each name. Two consequences are worth
-> knowing before you trust one:
+> measured on a scan**, hence the *(approx)* in each name.
 >
-> - They model the **dyes only**. That is the complete correction only when your capture
->   reads each dye band cleanly: a **Narrowband Scanner** (a Coolscan's mono sensor reads
->   one LED at a time, fully clean; a Pakon's trilinear array comes close, with slight
->   residual bleed), a **Trichrome** capture, or a Single-Shot Narrowband rig with
->   **Single-Shot Narrowband Calibration** applied. With a
->   broadband light and a Bayer sensor, your light and CFA add mixing the datasheet knows
->   nothing about, and a dyes-only matrix is the wrong shape for it.
-> - Consumer datasheets usually publish one *aggregate* midscale-neutral curve rather than
->   separated C/M/Y curves, so even the dye part is an estimate read off a plot by eye.
+> - They model the **dyes only**. That is the full correction only when the capture reads
+>   each dye band cleanly: a **Narrowband Scanner** (a Coolscan's mono sensor reads one LED
+>   at a time, fully clean; a Pakon's trilinear array comes close, with slight residual
+>   bleed), a **Trichrome** capture, or a Single-Shot Narrowband rig with
+>   **Single-Shot Narrowband Calibration** applied. A broadband light and a Bayer sensor
+>   add mixing that a dyes-only matrix cannot model.
+> - Consumer datasheets usually publish one *aggregate* midscale-neutral curve, not
+>   separate C/M/Y curves, so even the dye part is read off a plot by eye.
 >
-> They are still far better starting points than identity for a narrowband rig. Just do not
-> expect a bundled stock name to be "the" correction for your scanner. A matrix you tune
-> yourself is the more trustworthy object. Bundled matrices are read-only; use **Make
-> Editable Copy** to start from one.
+> On a narrowband rig they still beat identity, but a matrix you tune yourself is more
+> trustworthy. Bundled matrices are read-only. Use **Make Editable Copy** to start from one.
 
 The math, per pixel on the raw decoded negative:
 
@@ -96,10 +77,8 @@ M_applied = I · (1 - strength) + M · strength
 M_applied = M_applied / row_sums(M_applied)        # each row normalized to sum 1
 ```
 
-Because every row is renormalized to sum to 1, a uniform gray stays gray. The matrix only
-redistributes color *differences* between channels.
-
----
+Every row sums to 1, so a uniform gray stays gray. The matrix only redistributes color
+*differences* between channels.
 
 ## Reading the matrix
 
@@ -112,12 +91,10 @@ The matrix is row-major. **Rows are output channels**, **columns are input chann
 | **out B**  | -0.01  | -0.10  | 1.00   |
 
 - The **diagonal** stays near `1.0`, so each channel keeps its own density.
-- **Off-diagonal** terms are usually small and negative. They subtract the contamination one
-  layer leaks into another.
-- Keep the rows summing near `1.0`. Large deviations work, because rows are normalized, but
-  they make the effect harder to reason about.
-
----
+- **Off-diagonal** terms are usually small and negative. They subtract what one layer leaks
+  into another.
+- Keep the rows summing near `1.0`. Rows are normalized, so larger deviations work, but are
+  harder to reason about.
 
 ## File format (TOML)
 
@@ -127,9 +104,9 @@ Put `.toml` files in your user folder:
 <Documents>/NegPy/crosstalk/
 ```
 
-The bundled gallery (`crosstalk/` in the repo) is read straight from the app and not copied
-here, so those profiles stay in the dropdown beside yours and update with each release. A
-bundled name wins over a user file with the same name. Each file is one matrix:
+The app reads the bundled gallery (`crosstalk/` in the repo) in place, so those profiles
+show beside yours and update with each release. A bundled name wins over a user file with
+the same name. Each file is one matrix:
 
 ```toml
 # my_film.toml
@@ -144,81 +121,69 @@ matrix = [                         # 3x3, row-major (out R/G/B × in R/G/B)
 
 - `matrix` is **required**: exactly 3 rows of 3 numbers.
 - `name` is **optional**. Without it, the dropdown shows the filename (without `.toml`).
-- `type` is **optional**. It says *where the numbers came from*, which is what decides how
-  far to trust one. The dropdown groups profiles under a heading per type:
+- `type` is **optional**. It says *where the numbers came from*, and so how far to trust
+  them. The dropdown groups profiles by type:
 
   | `type` | Dropdown group | Meaning |
   | :--- | :--- | :--- |
   | `measured` | Measured | Fitted against real scans of a known reference. |
-  | `tuned` | Tuned on a rig | Dialled in by eye on real frames. What the editor saves. |
+  | `tuned` | Tuned on a rig | Dialed in by eye on real frames. The editor saves this type. |
   | `specsheet-based` | From spec sheets (approx) | Read off published dye-density curves. Every bundled profile. |
-  | anything else or absent | Other | Still loads and works. It just does not claim a provenance. |
+  | anything else or absent | Other | Loads and works, with no provenance. |
 
 - NegPy silently skips malformed files (wrong shape, non-numbers, bad TOML).
 - The name `Generic C41` is reserved for the built-in matrix and ignored if reused.
 
 NegPy **bakes the chosen matrix into the edit** when you select it, so saved edits and
-presets stay reproducible even if you later move or delete the file.
-
----
+presets stay reproducible if you later move or delete the file.
 
 ## Using it
 
-1. Drop your `.toml` into `<Documents>/NegPy/crosstalk/`.
+1. Put your `.toml` into `<Documents>/NegPy/crosstalk/`.
 2. Open the **Calibration** sidebar and find the **crosstalk dropdown** under CROSSTALK. New
-   files appear the next time the panel syncs, for example when you switch photos. Restart
-   if you do not see it.
-3. Pick your profile and raise **Strength** above 0 to apply it.
+   files show the next time the panel syncs, for example when you switch photos. If yours
+   does not show, restart.
+3. Pick your profile and raise **Strength** above 0.
 4. Pick **Generic C41** to go back to the built-in matrix.
+
+Crosstalk changes what the normalization meters read, so re-run **Roll Analysis** (and
+re-save locked bounds) after you change the profile or the strength.
 
 ### Rolling your own, the short version
 
-You do not need spectral data or a spectrophotometer to get a better matrix than *Generic
-C41*, and you are the only person who can measure your own rig. Recommended loop:
+You need no spectral data or spectrophotometer to beat *Generic C41*:
 
 1. Pick a frame whose real colors you know: foliage, sky, a gray card, skin.
-2. Start on **Generic C41** and raise **Strength** until the colors separate but before they
-   go garish. For many rigs this alone is the whole win.
+2. Start on **Generic C41** and raise **Strength** until the colors separate, before they
+   go garish. On many rigs this is enough.
 3. Still wrong in a specific way? Open the matrix editor, press **Make Editable Copy**, and
-   nudge the off-diagonal term for the pair that is off. A green leaking into red reads as
-   `out R / in G`. Work one term at a time, in small steps. `0.02` is visible.
-4. Save it named after the **combination**, for example `Gold 200 + Spectracolor`, not just
-   the film. Re-run **Roll Analysis**, then check it on a second frame before you trust it.
+   change the off-diagonal term for the pair that is off. Green leaking into red is
+   `out R / in G`. Change one term at a time, in small steps. `0.02` is visible.
+4. Name it after the **combination**, for example `Gold 200 + Spectracolor`. Re-run **Roll
+   Analysis** and check it on a second frame.
 
-If the hues are turned rather than muddied, with every color rotated the same way and
-neutrals fine, that is a light-spectrum problem. **Hue Trim** is the cheaper fix, and a
-matrix will fight it. Muddy, low-separation color is the crosstalk signature.
+If every hue turns the same way and neutrals are fine, the light spectrum is the problem.
+**Hue Trim** is the cheaper fix, and a matrix will fight it. Muddy, low-separation color is
+the crosstalk signature.
 
 ### Editing matrices in the app
 
-The **sliders icon** beside the dropdown opens the **matrix editor**, so you do not have to
-hand-edit TOML:
+The **sliders icon** beside the dropdown opens the **matrix editor**:
 
 - Browse every profile. Bundled matrices and **Generic C41** show a lock and are
   **read-only**. Your own profiles are editable.
 - Drag the off-diagonal grid sliders (`out R/G/B` × `in R/G/B`) and the preview updates live.
-  The diagonal is fixed, because the matrix is row-normalized on apply, which makes the
-  diagonal redundant. Only the six mixing terms are editable. The **Preview strength** slider
-  controls the preview here only. Use the sidebar **Strength** slider to apply the matrix.
+  Row normalization makes the diagonal redundant, so only the six mixing terms are
+  editable. The **Preview strength** slider controls only this preview. The sidebar
+  **Strength** slider applies the matrix.
 - **Make Editable Copy** clones the selected locked matrix into an editable profile.
-- **Save** writes the profile as a `.toml` into `<Documents>/NegPy/crosstalk/`, the same
-  folder profiles are read from, so it shows up in the dropdown.
+- **Save** writes the profile as a `.toml` into `<Documents>/NegPy/crosstalk/`, so it shows
+  in the dropdown.
 - **Apply & Close** keeps what you were previewing. **Cancel** reverts.
-
-> Crosstalk is a color operation and is hidden in B&W Negative mode. It changes what the
-> normalization meters read, so re-run **Roll Analysis** (and re-save locked bounds) after
-> you change the profile or the strength.
-
----
 
 ## Contributing a matrix
 
-Tuned one for your setup? Please send it. Add your `.toml` to the repo's
-[`crosstalk/`](../crosstalk/) folder and open a PR. Bundled matrices ship to all users on
-the next release. See [`crosstalk/README.md`](../crosstalk/README.md).
-
-Say what rig it came from, in the profile name and in the PR: the film stock, the light
-source and the camera or scanner. Nobody can derive your light and sensor from a datasheet,
-so a measured-in-anger profile for a common combination is more useful to other people than
-any amount of theory. Light panels also get discontinued, so profiles for the ones people
-own are worth keeping.
+Add your `.toml` to the repo's [`crosstalk/`](../crosstalk/) folder and open a PR.
+Bundled matrices ship to all users in the next release. See
+[`crosstalk/README.md`](../crosstalk/README.md). Name the rig in the profile name and in the
+PR: the film stock, the light source and the camera or scanner.

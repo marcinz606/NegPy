@@ -8,8 +8,11 @@ from negpy.features.exposure.logic import (
     compute_pivot,
     effective_grade_range,
     grade_to_slope,
+    _reference_linear_value,
     auto_highlight_from_metrics,
+    auto_shadow_from_metrics,
     highlight_hold_offset,
+    shadow_hold_offset,
     per_channel_curve_params,
     shadow_reach_slope,
 )
@@ -373,6 +376,60 @@ class TestHighlightHold(unittest.TestCase):
         self.assertGreater(on, 0.0)
         self.assertEqual(off, 0.0)
         self.assertEqual(auto_highlight_from_metrics(ExposureConfig(), ProcessMode.C41, {}), 0.0)
+
+
+class TestShadowHold(unittest.TestCase):
+    """Auto Grade's shadow lift: a partial shadow zone lift once the textured dark tail runs
+    far past Shadow Reach's line. One-sided; never darkens."""
+
+    ANCHOR = 0.46
+    SLOPE = 3.0
+
+    def _pivot(self):
+        return compute_pivot(self.SLOPE, 1.0, anchor=self.ANCHOR)
+
+    def _start(self):
+        c = EXPOSURE_CONSTANTS
+        return _reference_linear_value(target=c["shadow_reach_density"]) + c["shadow_hold_overshoot"]
+
+    def test_tail_short_of_the_start_is_untouched(self):
+        point = self._pivot() + (self._start() - 0.1) / self.SLOPE
+        self.assertEqual(shadow_hold_offset(self.SLOPE, self._pivot(), point), 0.0)
+
+    def test_lift_is_strength_times_the_overshoot(self):
+        over = 0.4
+        point = self._pivot() + (self._start() + over) / self.SLOPE
+        expected = -EXPOSURE_CONSTANTS["shadow_hold_strength"] * over
+        self.assertAlmostEqual(shadow_hold_offset(self.SLOPE, self._pivot(), point), expected, places=6)
+
+    def test_lift_is_capped_and_never_darkens(self):
+        lifts = [shadow_hold_offset(self.SLOPE, self._pivot(), p) for p in np.linspace(-1.0, 4.0, 60)]
+        self.assertTrue(all(-EXPOSURE_CONSTANTS["shadow_hold_max"] - 1e-12 <= x <= 0.0 for x in lifts))
+        self.assertEqual(min(lifts), -EXPOSURE_CONSTANTS["shadow_hold_max"])
+
+    def test_lift_opens_the_tail(self):
+        point = self._pivot() + (self._start() + 0.4) / self.SLOPE
+        lift = shadow_hold_offset(self.SLOPE, self._pivot(), point)
+        held = CharacteristicCurve(self.SLOPE, self._pivot(), midtone_gamma=0.0, shadow_density=lift)
+        plain = CharacteristicCurve(self.SLOPE, self._pivot(), midtone_gamma=0.0)
+        x = np.array([self.ANCHOR + 0.2])
+        self.assertLess(float(held(x)[0]), float(plain(x)[0]))
+
+    def test_zero_strength_disables(self):
+        saved = EXPOSURE_CONSTANTS["shadow_hold_strength"]
+        EXPOSURE_CONSTANTS["shadow_hold_strength"] = 0.0
+        try:
+            self.assertEqual(shadow_hold_offset(self.SLOPE, self._pivot(), 3.0), 0.0)
+        finally:
+            EXPOSURE_CONSTANTS["shadow_hold_strength"] = saved
+
+    def test_metrics_helper_follows_auto_grade_toggle(self):
+        metrics = {"norm_density_range": 1.2, "metered_anchor": self.ANCHOR, "shadow_point": 1.6}
+        on = auto_shadow_from_metrics(ExposureConfig(auto_normalize_contrast=True), ProcessMode.C41, metrics)
+        off = auto_shadow_from_metrics(ExposureConfig(auto_normalize_contrast=False), ProcessMode.C41, metrics)
+        self.assertLess(on, 0.0)
+        self.assertEqual(off, 0.0)
+        self.assertEqual(auto_shadow_from_metrics(ExposureConfig(), ProcessMode.C41, {}), 0.0)
 
 
 class TestMeasureHighlightPoint(unittest.TestCase):

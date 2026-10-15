@@ -1,8 +1,6 @@
 # Filename Templating
 
-NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan** sidebars.
-
----
+The **Export** and **Scan** sidebars name files with Jinja2 templates.
 
 ## Export Sidebar
 
@@ -10,39 +8,39 @@ NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan*
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `{{ original_name }}` | Base filename of the source file (without extension). | `DSC0123` |
-| `{{ colorspace }}` | Target export color space. | `sRGB`, `Adobe RGB` |
+| `{{ original_name }}` | Source filename without extension. | `DSC0123` |
+| `{{ colorspace }}` | Export color space. | `sRGB`, `Adobe RGB` |
 | `{{ format }}` | Export file format (JPEG, TIFF, …). | `JPEG`, `TIFF` |
 | `{{ paper_ratio }}` | Selected aspect ratio. | `3:2`, `Original` |
-| `{{ size }}` | Print size in cm (Empty if "Original Resolution" is used). | `30cm` |
-| `{{ dpi }}` | Export DPI (Empty if "Original Resolution" is used). | `300dpi` |
-| `{{ target_px }}` | Target long-edge size in pixels (Empty unless Pixels mode). | `2048px` |
-| `{{ border }}` | Inserts "border" if width > 0, else empty. | `border` |
-| `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
-| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. This is not the Roll Analysis card's roll name. | `Roll001` |
-| `{{ frame }}` | Capture frame number (integer), or parsed from the stem. Unset (`none`) if unknown. Use `{{ frame\|pad(3) }}` or `{{ frame_padded }}` to zero-pad. `"%03d" % frame` works only when frame is set; if it is not, the whole pattern falls back to `original_name`. | `12` |
+| `{{ size }}` | Print size in cm. Empty with "Original Resolution". | `30cm` |
+| `{{ dpi }}` | Export DPI. Empty with "Original Resolution". | `300dpi` |
+| `{{ target_px }}` | Long-edge size in pixels. Empty unless Pixels mode. | `2048px` |
+| `{{ border }}` | "border" if the width is > 0, else empty. | `border` |
+| `{{ date }}` | Current date, YYYYMMDD. | `20260125` |
+| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. Not the Roll Analysis card's roll name. | `Roll001` |
+| `{{ frame }}` | Capture frame number (integer), or parsed from the stem. Unset (`none`) if unknown. Zero-pad with `{{ frame\|pad(3) }}`. `"%03d" % frame` fails on an unset frame, and the whole pattern falls back to `original_name`. | `12` |
 | `{{ frame_padded }}` | Zero-padded frame (`012`), or empty if unknown. Same as `{{ frame\|pad(3) }}`. | `012` |
 | `{{ camera }}` | Camera make + model. | `Mamiya 7` |
-| `{{ camera_make }}` / `{{ camera_model }}` | Camera make / model separately. | `Mamiya`, `7` |
-| `{{ lens }}` | Lens model (or make if model is empty). | `80mm f/4` |
-| `{{ lens_make }}` / `{{ lens_model }}` | Lens make / model separately. | |
-| `{{ focal_length }}` | Lens focal length in mm. | `80` |
-| `{{ film }}` | Film stock name. | `Portra 400` |
+| `{{ camera_make }}` / `{{ camera_model }}` | Camera make / model. | `Mamiya`, `7` |
+| `{{ lens }}` | Lens model, or make if the model is empty. | `80mm f/4` |
+| `{{ lens_make }}` / `{{ lens_model }}` | Lens make / model. | |
+| `{{ focal_length }}` | Focal length in mm. | `80` |
+| `{{ film }}` | Film stock name. | `Ektacolor Pro 400` |
 | `{{ film_iso }}` | Film ISO. | `400` |
 | `{{ film_manufacturer }}` | Film manufacturer. | `Kodak` |
 | `{{ film_color_type }}` | Film color type. | `Color negative` |
-| `{{ film_format }}` | Film format (35mm, 120, …). Distinct from export `{{ format }}`. | `35mm` |
+| `{{ film_format }}` | Film format (35mm, 120, …). Not the export `{{ format }}`. | `35mm` |
 | `{{ developer }}` | Developer. | `D-76` |
 | `{{ dilution }}` | Developer dilution. | `1+1` |
 | `{{ push_pull }}` | Push/pull as an integer (−3…+3, 0 = Normal). | `1` |
-| `{{ development_time }}` | Development time, mm-ss (the colon is not filename-safe). | `9-30` |
+| `{{ development_time }}` | Development time, mm-ss. | `9-30` |
 | `{{ development_temperature }}` | Development temperature in °C. | `20` |
 | `{{ scanning }}` | Scanning method note. | `DSLR copy-stand` |
 | `{{ exposure }}` | Exposure override text from Metadata. | `1/125s f/2.8` |
-| `{{ capture_date }}` | Original capture date in YYYYMMDD. A partial date pads to the first day. Empty if unset. | `19980714` |
+| `{{ capture_date }}` | Original capture date, YYYYMMDD. A partial date pads to the first day. Empty if unset. | `19980714` |
 | `{{ capture_year }}` | Original capture year. Empty if unset. | `1998` |
 
-Gear and process values come from the **Metadata** panel, or from each file's saved metadata in a batch. An empty field renders as an empty string, so the separators around it collapse. NegPy strips path-unsafe characters from metadata values.
+Gear and process values come from the **Metadata** panel, or from each file's saved metadata in a batch. NegPy strips path-unsafe characters from them.
 
 ### Examples
 
@@ -55,18 +53,16 @@ Gear and process values come from the **Metadata** panel, or from each file's sa
 | `{{ roll }}_Frame{{ frame\|pad(3) }}_{{ film }}_{{ film_iso }}` | `Roll001_Frame012_Portra_400_400.jpg` |
 | `{{ film }}_{{ camera }}_{{ original_name }}` | `Portra_400_Mamiya_7_DSC0123.jpg` |
 
----
-
 ## Scan Sidebar
 
 ### Available Variables
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
-| `{{ seq }}` | Sequence number (integer, auto-incremented to avoid overwriting). | `1`, `2`, … |
+| `{{ date }}` | Current date, YYYYMMDD. | `20260125` |
+| `{{ seq }}` | Sequence number (integer). | `1`, `2`, … |
 
-To zero-pad the sequence number use Python's `%` format operator: `{{ "%03d" % seq }}`.
+Zero-pad it with Python's `%` operator: `{{ "%03d" % seq }}`.
 
 ### Examples
 
@@ -78,20 +74,18 @@ To zero-pad the sequence number use Python's `%` format operator: `{{ "%03d" % s
 
 ### Auto-increment
 
-The sequence starts at `1` for each scan session. It increments until the filename does not yet exist on disk. NegPy **never overwrites** an existing file.
-
----
+The sequence starts at `1` for each scan session and increments until the filename is free, so NegPy never overwrites a file.
 
 ## Filename cleanup
 
-Both sidebars apply the same separator cleanup to the rendered template:
+Both sidebars clean up separators:
 
-*   Spaces, dashes and underscores between variables collapse into a **single underscore** (`_`).
-*   Leading and trailing separators are removed.
-*   When a variable is empty (`{{ border }}` with no border set), the separators around it are cleaned up.
-*   `{{ original_name }}` (export only) is inserted verbatim. Dashes, spaces and underscores in the original filename are kept exactly.
+- Spaces, dashes and underscores between variables collapse into a **single underscore** (`_`).
+- Leading and trailing separators are removed.
+- The separators around an empty variable (`{{ border }}` with no border set) are removed.
+- `{{ original_name }}` (export only) goes in verbatim, separators included.
 
-**Example:**
-Pattern: `{{ original_name }} - {{ border }} - final`
-*   With border: `DSC0123_border_final.jpg`
-*   No border: `DSC0123_final.jpg`
+Example pattern: `{{ original_name }} - {{ border }} - final`
+
+- With border: `DSC0123_border_final.jpg`
+- No border: `DSC0123_final.jpg`

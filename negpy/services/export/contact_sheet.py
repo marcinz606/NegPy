@@ -1,7 +1,7 @@
 """Darkroom contact print, strips laid 1:1 on paper; draws the dialog preview (`draft`) and the export."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Optional, Sequence
 
@@ -38,6 +38,10 @@ EDGE_CAP_EM = 0.70
 # Aspect tolerance to fill the film window; a tile further off fits whole inside it.
 COVER_TOLERANCE = 0.03
 PERF_RIM = 0.08
+# On a paper film base the perforation ring and the strip outline are this wide; PERF_RIM would be sub-pixel.
+PERF_RING = 0.3
+# The ring's tone above the ink, so it marks the hole without the weight of the edge print.
+RING_ABOVE_INK = 110
 LABEL_CAP = 2.0
 LABEL_ABOVE_STRIP = 3.0
 # A DX clock track runs past the rebate, up between the holes.
@@ -51,14 +55,33 @@ class Palette:
     rim: Optional[RGB]
     ink: RGB
     label: RGB
+    paper: bool = False  # the film base printed as paper: the strip outlined, the perforation rim a ring
+
+
+def grey(level: int) -> RGB:
+    return (level, level, level)
+
+
+def paper_film(look: SheetLook) -> bool:
+    """White paper with the film base printed as paper: ink on the frames, the markings and the rings."""
+    return look.white_paper and not look.film_base
 
 
 def palette_for(look: SheetLook) -> Palette:
+    pal = _film_palette(look)
+    if paper_film(look):
+        white = (255, 255, 255)
+        ink = grey(look.black)
+        ring = grey(min(255, look.black + RING_ABOVE_INK))
+        return Palette(white, white, ring, ink, ink, paper=True)
+    if look.white_paper:
+        # Pure white, so a home printer lays no ink on the paper.
+        return replace(pal, no_film=(255, 255, 255), rim=None, label=grey(look.black))
+    return pal
+
+
+def _film_palette(look: SheetLook) -> Palette:
     b = look.black
-
-    def grey(level: int) -> RGB:
-        return (level, level, level)
-
     if look.palette == "slide":
         # Reversal paper: bare light prints white, the slide's D-max black.
         white = (241, 240, 236)
@@ -80,8 +103,8 @@ def _px(mm: float, s: float) -> int:
 
 
 @lru_cache(maxsize=8)
-def _perforation_sprites(s_key: int) -> tuple[np.ndarray, np.ndarray]:
-    """(hole, rim) coverage of one perforation."""
+def _perforation_sprites(s_key: int, rim_mm: float, min_px: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """(hole, rim) coverage of one perforation, the rim `rim_mm` wide, at least `min_px`, inside the hole's edge."""
     s = s_key / 100.0
     ss = 4
     w_px, h_px = PERF_ALONG * s, PERF_ACROSS * s
@@ -100,7 +123,7 @@ def _perforation_sprites(s_key: int) -> tuple[np.ndarray, np.ndarray]:
         return np.asarray(small, dtype=np.float32) / 255.0
 
     hole = rounded(0.0)
-    rim = np.clip(hole - rounded(PERF_RIM * s), 0.0, 1.0)
+    rim = np.clip(hole - rounded(max(rim_mm * s, min_px)), 0.0, 1.0)
     return hole, rim
 
 
@@ -113,6 +136,23 @@ def _blend(region: np.ndarray, alpha: np.ndarray, color: RGB) -> None:
 
 def _clip_box(x0: int, y0: int, x1: int, y1: int, width: int, height: int) -> tuple[int, int, int, int]:
     return max(0, x0), max(0, y0), min(width, x1), min(height, y1)
+
+
+def _outline(canvas: np.ndarray, box: tuple[int, int, int, int], line: int, color: RGB) -> None:
+    """Lines `line` px wide inside the edges of a box, on the edges that lie on the canvas."""
+    x0, y0, x1, y1 = box
+    height, width = canvas.shape[:2]
+    cx0, cy0, cx1, cy1 = _clip_box(x0, y0, x1, y1, width, height)
+    if cx1 <= cx0 or cy1 <= cy0:
+        return
+    if y0 >= 0:
+        canvas[cy0 : min(cy1, cy0 + line), cx0:cx1] = color
+    if y1 <= height:
+        canvas[max(cy0, cy1 - line) : cy1, cx0:cx1] = color
+    if x0 >= 0:
+        canvas[cy0:cy1, cx0 : min(cx1, cx0 + line)] = color
+    if x1 <= width:
+        canvas[cy0:cy1, max(cx0, cx1 - line) : cx1] = color
 
 
 def _place_tile(canvas: np.ndarray, tile: np.ndarray, box: tuple[int, int, int, int]) -> None:
@@ -261,6 +301,9 @@ def _draw_strip(
     if cx1 <= cx0 or cy1 <= cy0:
         return
     canvas[cy0:cy1, cx0:cx1] = pal.rebate
+    if pal.paper and pal.rim is not None:
+        # The strip's edge is a line, so an unperforated strip, a gap and an empty slot keep their outline.
+        _outline(canvas, (x0, y0, x1, y1), max(1, _px(PERF_RING, s)), pal.rim)
 
     def roll_to_px(roll_x: float) -> float:
         return (roll_x - strip.roll_start) * s
@@ -287,7 +330,9 @@ def _draw_strip(
             _blend(canvas[by0:by1, bx0:bx1], alpha, pal.ink)
 
     if geo.perforated:
-        hole, rim = _perforation_sprites(int(round(s * 100)))
+        s_key = int(round(s * 100))
+        # A paper ring is at least a pixel wide, so a draft preview shows it.
+        hole, rim = _perforation_sprites(s_key, PERF_RING, 1.0) if pal.paper else _perforation_sprites(s_key, PERF_RIM)
         sh, sw = hole.shape
         centers_y = (PERF_FROM_EDGE + PERF_ACROSS / 2, geo.width - PERF_FROM_EDGE - PERF_ACROSS / 2)
         for roll_x in perforation_centers(strip.roll_start, strip.roll_start + strip.length):

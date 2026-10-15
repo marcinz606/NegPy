@@ -8,7 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.caching.manager import PipelineCache
 from negpy.kernel.caching.logic import calculate_config_hash, CacheEntry
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.image.logic import working_oetf_encode
+from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 from negpy.kernel.system.logging import get_logger
 from negpy.features.geometry.processor import GeometryProcessor, CropProcessor
 from negpy.features.exposure import models as exposure_models
@@ -18,13 +18,22 @@ from negpy.features.exposure.processor import (
     PhotometricProcessor,
 )
 from negpy.features.exposure.logic import expand_mask_plane
-from negpy.features.exposure.normalization import contrast_mask_plane, effective_crosstalk_matrix, normalized_roi
+from negpy.features.exposure.normalization import (
+    contrast_mask_plane,
+    diffusion_grid,
+    diffusion_plane,
+    effective_crosstalk_matrix,
+    geometry_kwargs,
+    normalized_roi,
+)
 from negpy.features.process.hue import apply_hue_trim
+from negpy.features.process.models import ProcessMode
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
 from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.cyanotype.processor import CyanotypeProcessor
 from negpy.features.lith.processor import LithProcessor
+from negpy.features.sabattier.processor import SabattierProcessor
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
@@ -49,6 +58,31 @@ def exposure_processor(settings: WorkspaceConfig) -> Any:
     return TransferProcessor(settings.exposure, settings.process.positive_source)
 
 
+def print_stages(settings: WorkspaceConfig, img: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+    """Alternative process, then toning, on the linear print. Each processor gates itself on
+    the film mode."""
+    paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
+    img = LithProcessor(settings.altproc, paper).process(img, context)
+    img = CyanotypeProcessor(settings.altproc).process(img, context)
+    img = SabattierProcessor(settings.altproc, paper).process(img, context)
+    return ToningProcessor(settings.toning, settings.altproc.alt_process).process(img, context)
+
+
+_WEDGE_PATCH_PX = 16
+
+
+def print_wedge(settings: WorkspaceConfig, enc: Any) -> np.ndarray:
+    """Display-encoded wedge patches through print_stages, as (steps, 3) RGB. Each patch is a
+    uniform block read at its center, so Sabattier's Mackie-line blur never mixes neighbors."""
+    lin = np.asarray(working_oetf_decode(np.asarray(enc, dtype=np.float32)))
+    strip = np.repeat(lin.reshape(1, -1, 1), _WEDGE_PATCH_PX, axis=1)
+    img = ensure_image(np.repeat(np.repeat(strip, _WEDGE_PATCH_PX, axis=0), 3, axis=2))
+    context = PipelineContext(original_size=(img.shape[0], img.shape[1]), scale_factor=1.0, process_mode=settings.process.process_mode)
+    out = np.asarray(working_oetf_encode(np.clip(print_stages(settings, img, context), 0.0, 1.0)))
+    half = _WEDGE_PATCH_PX // 2
+    return out[half, half::_WEDGE_PATCH_PX]
+
+
 class DarkroomEngine:
     """
     Runs the pipeline. Handles stage caching.
@@ -58,6 +92,7 @@ class DarkroomEngine:
         self.config = APP_CONFIG
         self.cache = PipelineCache()
         self._mask_plane: Optional[Tuple[Any, np.ndarray, float]] = None
+        self._diffusion_plane: Optional[Tuple[Tuple, np.ndarray]] = None
 
     def _run_stage(
         self,
@@ -104,6 +139,7 @@ class DarkroomEngine:
         if not context.cache_stages:
             self.cache.clear()
             self._mask_plane = None
+            self._diffusion_plane = None
         pipeline_changed = False
         if self.cache.source_hash != source_hash:
             self.cache.clear()
@@ -140,6 +176,8 @@ class DarkroomEngine:
                 settings.geometry.fine_rotation,
                 settings.geometry.flip_horizontal,
                 settings.geometry.flip_vertical,
+                settings.geometry.converge_v,
+                settings.geometry.converge_h,
             )
             if context.crop_preview_full
             else settings.geometry
@@ -186,27 +224,20 @@ class DarkroomEngine:
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 
-        # Built from the source, not from the base output, so the GPU engine can call the
-        # same helper on the same array. Keyed on base, so the Contrast Mask slider re-runs
-        # only the exposure stage.
-        mask_bounds = context.metrics.get("final_bounds")
+        # Built from the source and keyed on base, so the GPU calls the same helper and the slider re-runs only exposure.
+        # Pre-trim bounds, as on the GPU: White/Black Point trims are a look, not the source.
+        mask_bounds = context.metrics.get("pre_trim_bounds", context.metrics.get("final_bounds"))
         if settings.exposure.contrast_mask != 0.0 and mask_bounds is not None:
             mask_roi = context.active_roi
-            mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2], settings.exposure.mask_spacer)
+            mask_key = (source_hash, calculate_config_hash(base_key), mask_roi, current_img.shape[:2], settings.exposure.mask_spacer)
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 plane, centre = contrast_mask_plane(
                     img,
                     mask_bounds,
                     effective_crosstalk_matrix(settings.process, settings.process.process_mode),
-                    rotation=settings.geometry.rotation,
-                    fine_rotation=settings.geometry.fine_rotation,
-                    flip_horizontal=settings.geometry.flip_horizontal,
-                    flip_vertical=settings.geometry.flip_vertical,
-                    converge_v=settings.geometry.converge_v,
-                    converge_h=settings.geometry.converge_h,
-                    distortion_k1=distortion_k1,
                     roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
                     spacer=settings.exposure.mask_spacer,
+                    **geometry_kwargs(settings.geometry, distortion_k1),
                 )
                 # Expanded here, not in the exposure stage: the slider re-runs that stage,
                 # and only the scalar moves with it.
@@ -216,6 +247,40 @@ class DarkroomEngine:
                 context.metrics["contrast_mask_plane"] = self._mask_plane[1]
                 context.metrics["contrast_mask_centre"] = self._mask_plane[2]
                 context.metrics["contrast_mask_roi"] = None
+
+        # Same recipe as the mask plane, in the print's own normalization, so the kernel mixes it with the pixel as light.
+        # Print curve only: the transfer curve and the Flat master take no plane.
+        diff_bounds = context.metrics.get("final_bounds")
+        if (
+            settings.exposure.diffusion > 0.0
+            and diff_bounds is not None
+            and render_path(settings.process) is RenderPath.PRINT
+            and settings.exposure.render_intent != RenderIntent.FLAT
+        ):
+            diff_roi = context.active_roi
+            panchromatic = settings.process.process_mode == ProcessMode.BW
+            diff_key = (
+                source_hash,
+                calculate_config_hash(base_key),
+                diff_roi,
+                current_img.shape[:2],
+                panchromatic,
+            )
+            # A None plane (an unmetered frame) is cached under its key like any other.
+            cached = self._diffusion_plane
+            if cached is None or cached[0] != diff_key:
+                grid = diffusion_grid(
+                    img,
+                    effective_crosstalk_matrix(settings.process, settings.process.process_mode),
+                    roi_norm=normalized_roi(diff_roi, current_img.shape[:2]),
+                    **geometry_kwargs(settings.geometry, distortion_k1),
+                )
+                plane = diffusion_plane(grid, diff_bounds, panchromatic)
+                cached = (diff_key, plane)
+                self._diffusion_plane = cached
+            if cached[1] is not None:
+                context.metrics["diffusion_plane"] = cached[1]
+                context.metrics["diffusion_roi"] = diff_roi
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = exposure_processor(settings).process(img_in, ctx)
@@ -259,11 +324,7 @@ class DarkroomEngine:
 
             current_img, pipeline_changed = self._run_stage(current_img, settings.lab, "lab", run_lab, context, pipeline_changed)
 
-            lith_paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
-            current_img = LithProcessor(settings.altproc, lith_paper).process(current_img, context)
-            current_img = CyanotypeProcessor(settings.altproc).process(current_img, context)
-
-            current_img = ToningProcessor(settings.toning, settings.altproc.alt_process).process(current_img, context)
+            current_img = print_stages(settings, current_img, context)
 
         if not context.crop_preview_full:
             current_img = CropProcessor(settings.geometry).process(current_img, context)

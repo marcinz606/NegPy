@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
@@ -23,8 +23,9 @@ class LibrarySearchTask:
 
     roots: list[str]
     query: str
-    configs_by_path: dict[str, Any] = field(default_factory=dict)
-    marks_by_path: dict[str, str] = field(default_factory=dict)
+    # Read on the worker thread: parsing every saved edit is slow on a large library.
+    load_configs: Callable[[], dict[str, Any]] = dict
+    load_marks: Callable[[], dict[str, str]] = dict
     rewalk: bool = False  # drop the cached traversal first (folders changed on disk)
 
 
@@ -58,7 +59,7 @@ class LibrarySearchWorker(QObject):
             if task.rewalk:
                 self._cache.invalidate()
             files = self._cache.files(list(task.roots), progress=self.progress.emit)
-            self.finished.emit(search_library(files, parse_query(task.query), task.configs_by_path, task.marks_by_path))
+            self.finished.emit(search_library(files, parse_query(task.query), task.load_configs(), task.load_marks()))
         except Exception as exc:
             logger.exception("Library search failed")
             self.error.emit(str(exc))

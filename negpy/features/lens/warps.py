@@ -87,6 +87,53 @@ class RectilinearWarp:
 
 
 @dataclass(frozen=True)
+class PanasonicWarp:
+    scale: float
+    a: float
+    b: float
+    c: float
+
+    @property
+    def has_distortion(self) -> bool:
+        return self.scale != 1.0 or self.a != 0.0 or self.b != 0.0 or self.c != 0.0
+
+    @property
+    def has_ca(self) -> bool:
+        return False
+
+    def remap(
+        self,
+        lens: LensMetadata,
+        shape: tuple[int, ...],
+        start: int,
+        stop: int,
+        channel: int,
+        corrections: LensCorrections = LensCorrections(True, True),
+    ) -> tuple[np.ndarray, np.ndarray]:
+        # Model from darktable's embedded-metadata reader (GPL-3.0+) and https://github.com/trou/panasonic-rw2:
+        # Ru = Rd + scale*(a*Rd^3 + b*Rd^5 + c*Rd^7), Rd (source) and Ru (corrected) normalized to the half-diagonal.
+        h, w = shape[:2]
+        x = (np.arange(w, dtype=np.float32)[None, :] - w * 0.5) * lens.fill_scale
+        y = (np.arange(start, stop, dtype=np.float32)[:, None] - h * 0.5) * lens.fill_scale
+        ru = np.hypot(x, y) / np.hypot(w * 0.5, h * 0.5)
+        if not corrections.distortion:
+            my, mx = np.mgrid[start:stop, : shape[1]].astype(np.float32)
+            return mx, my
+        # Invert Ru -> Rd by fixed-point iteration; dr = Rd/Ru is the source-sampling multiplier.
+        rd = ru
+        for _ in range(8):
+            r2 = rd * rd
+            f = 1.0 + self.scale * (self.a * r2 + self.b * r2 * r2 + self.c * r2 * r2 * r2)
+            f = np.where(f > 0.0, f, 1.0)
+            new = ru / f
+            if np.abs(new - rd).max() < 1e-7:
+                break
+            rd = new
+        dr = np.divide(rd, ru, out=np.ones_like(ru), where=ru > 0.0)
+        return (x * dr + w * 0.5).astype(np.float32), (y * dr + h * 0.5).astype(np.float32)
+
+
+@dataclass(frozen=True)
 class SonyWarp:
     distortion: tuple[float, ...] = ()
     ca_red: tuple[float, ...] = ()

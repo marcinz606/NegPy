@@ -25,3 +25,11 @@ def test_soft_proof_settings_follow_the_master_toggle():
     sidebar._sync_proof_controls()
     assert not sidebar.proof_gamut_btn.isEnabled()
     assert not sidebar.proof_profile_combo.isEnabled()
+
+
+def test_sync_keeps_a_pending_form_edit():
+    sidebar = _sidebar()
+    sidebar.form.mode_btn.setCurrentIndex(2)
+    assert sidebar.update_timer.isActive()
+    sidebar.sync_ui()
+    assert sidebar.form.mode_btn.currentIndex() == 2

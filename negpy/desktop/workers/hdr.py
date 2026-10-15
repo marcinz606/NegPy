@@ -48,9 +48,13 @@ class HdrWorker(QObject):
     def cancel(self) -> None:
         self._cancel.set()
 
+    def arm(self) -> None:
+        """Clears a Stop left from an earlier run. Called on the GUI thread before dispatch,
+        so a Stop pressed before the queued run starts is kept."""
+        self._cancel.clear()
+
     @pyqtSlot(object)
     def run(self, task: HdrTask) -> None:
-        self._cancel.clear()
         frames = []
         total = len(task.files) + 1
         try:

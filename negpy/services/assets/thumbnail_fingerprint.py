@@ -12,7 +12,7 @@ from typing import Any, Optional
 from negpy.domain.models import WorkspaceConfig
 
 # Bump in any change that alters rendered pixels for unchanged settings, a changed default included.
-THUMBNAIL_RENDER_VERSION = 1
+THUMBNAIL_RENDER_VERSION = 6
 
 # Marks a thumbnail made from the source preview, which runs none of the frame's settings.
 QUICK = "quick"
@@ -20,11 +20,11 @@ QUICK = "quick"
 _COMMENT_PREFIX = "negpy-thumb:"
 
 # Sections that never reach the pixels; every other section counts as shaping the thumbnail.
-_NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
+NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
 
 # Fields left out of a hashed section: export-only, labels, and detail too fine for a thumbnail.
 _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
-    "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview"}),
+    "process": frozenset({"demosaic_export", "roll_name", "baseline_source", "demosaic_preview", "crosstalk_profile"}),
     "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "chroma_denoise"}),
 }
 
@@ -77,7 +77,7 @@ def thumbnail_fingerprint(
     """
     sections = {}
     for f in fields(config):
-        if f.name in _NON_PIXEL_SECTIONS or f.name in _BELOW_THUMBNAIL_SECTIONS:
+        if f.name in NON_PIXEL_SECTIONS or f.name in _BELOW_THUMBNAIL_SECTIONS:
             continue
         sections[f.name] = _changed_fields(getattr(config, f.name), _UNHASHED_FIELDS.get(f.name, frozenset()))
     payload = {
@@ -87,6 +87,9 @@ def thumbnail_fingerprint(
         "input_icc": _file_identity(input_icc_path),
         "companions": [_file_identity(p) for p in _companion_paths(config)],
     }
+    if config.finish.carrier_width > 0.0:
+        # The carrier's width is in print units, so the export print size reaches its pixels.
+        payload["carrier_print_size"] = config.export.export_print_size
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
 

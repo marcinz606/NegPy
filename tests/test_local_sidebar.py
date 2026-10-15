@@ -4,10 +4,14 @@ labelled once it carries a grade as well as (or instead of) print exposure."""
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+from PyQt6.QtWidgets import QPushButton
+
 from negpy.desktop.session import AppState, ToolMode
+from negpy.desktop.view.keyboard_shortcuts import _toggle_tool_button
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
+from negpy.features.process.models import ProcessMode
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
 
@@ -54,6 +58,37 @@ def test_moving_the_grade_slider_edits_only_that_mask(qapp):
     sidebar.grade_slider.adjust_by(-25.0)
 
     controller.update_selected_local_mask.assert_called_with(grade=-25.0)
+
+
+def test_moving_the_flash_slider_edits_only_that_mask(qapp):
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0), selected=0)
+    sidebar.sync_ui()
+
+    sidebar.flash_slider.adjust_by(0.3)
+
+    controller.update_selected_local_mask.assert_called_with(flash=0.3)
+
+
+def test_flash_slider_is_off_on_a_tone_limited_mask(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, flash=0.4, key=MaskKey.HIGHLIGHTS), selected=0)
+    sidebar.sync_ui()
+
+    assert not sidebar.flash_slider.isEnabled()
+    assert sidebar.flash_slider.value() == 0.4  # the value is kept for when the limit comes off
+
+
+def test_a_tone_limited_masks_flash_is_not_listed(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, flash=0.4, key=MaskKey.HIGHLIGHTS))
+    sidebar.sync_ui()
+
+    assert "flash" not in _row_text(sidebar)
+
+
+def test_a_flash_only_mask_is_labelled_flash(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=0.0, flash=0.25))
+    sidebar.sync_ui()
+
+    assert "Flash" in _row_text(sidebar) and "flash 0.25" in _row_text(sidebar)
 
 
 def test_a_grade_only_mask_is_labelled_grade(qapp):
@@ -187,7 +222,7 @@ def test_choosing_highlights_limits_the_selected_mask(qapp):
     controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
     sidebar.sync_ui()
 
-    sidebar.tone_btn.choice_menu.actions()[1].trigger()
+    sidebar.tone_btn.setCurrentIndex(1)
 
     controller.update_selected_local_mask.assert_called_with(key=MaskKey.HIGHLIGHTS)
 
@@ -217,8 +252,8 @@ def test_a_fifth_mask_cannot_be_limited(qapp):
     _, sidebar = _sidebar(*limited, LocalMask(vertices=SQUARE, stops=1.0), selected=4)
     sidebar.sync_ui()
 
-    assert not sidebar.tone_btn.choice_menu.actions()[1].isEnabled()
-    assert not sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+    assert not sidebar.tone_btn.is_choice_enabled(1)
+    assert not sidebar.tone_btn.is_choice_enabled(2)
     assert sidebar.tone_btn.currentIndex() == 0
 
 
@@ -227,10 +262,107 @@ def test_a_limited_mask_among_four_stays_editable(qapp):
     _, sidebar = _sidebar(*limited, selected=2)
     sidebar.sync_ui()
 
-    assert sidebar.tone_btn.choice_menu.actions()[2].isEnabled()
+    assert sidebar.tone_btn.is_choice_enabled(2)
 
 
 def test_the_masks_header_counts_the_frames_masks(qapp):
     _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0), LocalMask(vertices=SQUARE, stops=-0.5))
     sidebar.sync_ui()
     assert sidebar.masks_header.text() == "MASKS · 2"
+
+
+def _set_mode(controller, mode: ProcessMode) -> None:
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
+
+
+def test_a_slide_grays_the_panel_and_says_why(qapp):
+    """The slide's transfer curve takes no dodge/burn map, so a mask drawn there would do nothing."""
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS))
+    _set_mode(controller, ProcessMode.E6)
+    sidebar.sync_ui()
+
+    controls = (
+        sidebar.draw_btn,
+        sidebar.oval_btn,
+        sidebar.gradient_btn,
+        sidebar.mask_list,
+        sidebar.burn_slider,
+        sidebar.grade_slider,
+        sidebar.feather_slider,
+        sidebar.tone_btn,
+        sidebar.key_zone_slider,
+        sidebar.key_softness_slider,
+    )
+    assert not any(w.isEnabled() for w in controls)
+    assert not sidebar.slide_hint.isHidden()
+    assert sidebar.burn_slider.value() == 1.0
+
+    _set_mode(controller, ProcessMode.C41)
+    sidebar.sync_ui()
+
+    assert all(w.isEnabled() for w in controls)
+    assert sidebar.slide_hint.isHidden()
+
+
+def test_a_slide_puts_an_armed_mask_tool_down(qapp):
+    controller, sidebar = _sidebar()
+    controller.state.active_tool = ToolMode.LOCAL_OVAL
+    sidebar.sync_ui()
+    controller.cancel_active_tool.assert_not_called()
+
+    _set_mode(controller, ProcessMode.E6)
+    sidebar.sync_ui()
+
+    controller.cancel_active_tool.assert_called_once()
+
+
+def test_a_grayed_tool_shortcut_shows_its_tab_without_arming(qapp):
+    window = MagicMock()
+    button = QPushButton("Draw")
+    button.setCheckable(True)
+    button.setEnabled(False)
+
+    _toggle_tool_button(window, "tone", button)
+
+    window.right_panel.show_tab_by_key.assert_called_once_with("tone")
+    assert not button.isChecked()
+    window.controller.set_status.assert_called_once_with("Draw not available", 1500, kind="warning")
+
+    button.setEnabled(True)
+    _toggle_tool_button(window, "tone", button)
+    assert button.isChecked()
+
+
+def test_a_shortcut_puts_down_an_armed_tool_on_a_grayed_page(qapp):
+    window = MagicMock()
+    button = QPushButton("Heal")
+    button.setCheckable(True)
+    button.setChecked(True)
+    button.setEnabled(False)
+
+    _toggle_tool_button(window, "finish", button)
+
+    assert not button.isChecked()
+    window.controller.set_status.assert_not_called()
+
+
+def _row_color(sidebar: LocalSidebar, index: int = 0) -> str:
+    row = sidebar.mask_list.itemWidget(sidebar.mask_list.item(index))
+    return row.layout().itemAt(1).widget().styleSheet()
+
+
+def test_mask_rows_take_the_color_vision_dodge_and_burn_colors(qapp):
+    from negpy.desktop.view.styles.color_vision import palette_for
+
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=-0.5), LocalMask(vertices=SQUARE, stops=1.0))
+    controller.state.color_vision = "tritan"
+    sidebar.sync_ui()
+
+    dodge, burn = palette_for("tritan").dodge_burn
+    assert dodge in _row_color(sidebar, 0) and burn in _row_color(sidebar, 1)
+
+
+def test_a_color_vision_change_rebuilds_the_rows(qapp):
+    controller, _sidebar_ = _sidebar()
+    controller.session.color_vision_changed.connect.assert_called_with(_sidebar_.sync_ui)

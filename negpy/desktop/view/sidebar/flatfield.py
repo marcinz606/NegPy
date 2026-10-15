@@ -13,9 +13,10 @@ from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
+from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
 _NONE_LABEL = "— None —"
-_FILE_FILTER = "Reference images (*.dng *.tif *.tiff *.cr2 *.cr3 *.nef *.arw *.raf *.rw2 *.jpg *.jpeg *.png);;All files (*)"
+_FILE_FILTER = f"Reference images ({get_supported_raw_wildcards()});;All files (*)"
 
 
 class FlatFieldSidebar(BaseSidebar):
@@ -41,6 +42,16 @@ class FlatFieldSidebar(BaseSidebar):
         self.enable_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         row.addWidget(self.enable_btn)
 
+        self.check_btn = self._small_toggle(
+            "fa5s.eye",
+            "",
+            False,
+            "Check Flat Field: show how well the selected profile corrects its own reference, "
+            "from any frame. A good profile shows an even gray; a band or patch shows where it is off.",
+        )
+        self.check_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        row.addWidget(self.check_btn)
+
         self.add_btn = self._icon_action("fa5s.plus", "Pick a reference image and save it as a named profile")
         self.delete_btn = self._icon_action("fa5s.trash", "Remove the selected profile")
         # add_btn and delete_btn go on the card's FLAT FIELD CORRECTION header (ControlsPanel).
@@ -52,6 +63,8 @@ class FlatFieldSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.enable_btn.toggled.connect(self.controller.set_flatfield_enabled)
+        self.check_btn.toggled.connect(lambda checked: self.controller.toggle_flatfield_peek(force=checked))
+        self.controller.flatfield_peek_changed.connect(self._on_peek_changed)
         self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self.add_btn.clicked.connect(self._on_add)
         self.delete_btn.clicked.connect(self._on_delete)
@@ -79,7 +92,7 @@ class FlatFieldSidebar(BaseSidebar):
 
     def _on_add(self) -> None:
         start = pick_start_dir(last_open_folder(self.controller.session.repo))
-        path, _ = QFileDialog.getOpenFileName(self, "Select flat-field reference", start, _FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Select Flat Field Reference", start, _FILE_FILTER)
         if not path:
             return
         default_name = os.path.splitext(os.path.basename(path))[0]
@@ -122,6 +135,11 @@ class FlatFieldSidebar(BaseSidebar):
         finally:
             self.block_signals(False)
 
+    def _on_peek_changed(self, active: bool) -> None:
+        self.check_btn.blockSignals(True)
+        self.check_btn.setChecked(active)
+        self.check_btn.blockSignals(False)
+
     def block_signals(self, blocked: bool) -> None:
-        for w in (self.enable_btn, self.profile_combo, self.add_btn, self.delete_btn):
+        for w in (self.enable_btn, self.check_btn, self.profile_combo, self.add_btn, self.delete_btn):
             w.blockSignals(blocked)

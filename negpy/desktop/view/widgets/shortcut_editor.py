@@ -389,7 +389,7 @@ class ShortcutEditorDialog(QDialog):
 
         for group_id, spin in self._step_edits.items():
             if spin.value() <= 0:
-                QMessageBox.warning(self, "Invalid Step", f"Step size for {group_id} must be greater than zero.")
+                QMessageBox.warning(self, "Customize Shortcuts", f"Step size for {group_id} must be greater than zero.")
                 return
 
         self.accept()

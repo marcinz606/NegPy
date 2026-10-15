@@ -87,6 +87,21 @@ def separation_damping_gain_np(k: float, damping: float, chroma: Any, ref_spread
 
 
 @njit(inline="always")
+def plane_taps(gh: int, gw: int, x: int, y: int, rect_x: float, rect_y: float, rect_w: float, rect_h: float):
+    """Taps and weights of render pixel (x, y) on a gh×gw analysis-grid plane covering `rect`: OpenCV's half-pixel
+    bilinear, taps clamped (edge replication outside the frame). exposure.wgsl mirrors this."""
+    px = (x + 0.5 - rect_x) * gw / rect_w - 0.5
+    py = (y + 0.5 - rect_y) * gh / rect_h - 0.5
+    lx = min(max(np.floor(px), 0.0), gw - 1.0)
+    ly = min(max(np.floor(py), 0.0), gh - 1.0)
+    hx = min(lx + 1.0, gw - 1.0)
+    hy = min(ly + 1.0, gh - 1.0)
+    fx = min(max(px - lx, 0.0), 1.0)
+    fy = min(max(py - ly, 0.0), 1.0)
+    return int(lx), int(hx), int(ly), int(hy), fx, fy
+
+
+@njit(inline="always")
 def tone_key_weight(lum: float, e0: float, e1: float) -> float:
     """A tone-limited mask's weight at luma `lum`: a smoothstep from 0 at e0 to 1 at e1
     (see placement.key_edges). Either edge order works. exposure.wgsl mirrors it."""
@@ -167,6 +182,13 @@ def _apply_print_curve_kernel(
     flash: float,
     flash_v: float,
     flash_gamma: float,
+    flash_map: np.ndarray,
+    use_flash: bool,
+    diff_plane: np.ndarray,
+    diff_rect: np.ndarray,
+    diff_mix: float,
+    diff_range: np.ndarray,
+    use_diff: bool,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -271,8 +293,27 @@ def _apply_print_curve_kernel(
                 gfac = r0 / r1
             elif use_grade:
                 gfac = grade_map[y, x]
+            # The frame's preflash plus the masks' own, pre-summed like the stops.
+            fl = flash
+            if use_flash:
+                fl = fl + flash_map[y, x]
+            i0x = i1x = i0y = i1y = 0
+            fx = fy = 0.0
+            if use_diff:
+                i0x, i1x, i0y, i1y, fx, fy = plane_taps(
+                    diff_plane.shape[0], diff_plane.shape[1], x, y, diff_rect[0], diff_rect[1], diff_rect[2], diff_rect[3]
+                )
             for ch in range(3):
-                val = img[y, x, ch] + cmy_offsets[ch]
+                base = img[y, x, ch]
+                if use_diff:
+                    # Diffusion mixes light, not density: the paper sees (1-d)·I + d·blur(I),
+                    # with I = 10^(val·r), r the channel's log range (diffusion_plane).
+                    r = diff_range[ch]
+                    top = diff_plane[i0y, i0x, ch] * (1.0 - fx) + diff_plane[i0y, i1x, ch] * fx
+                    bot = diff_plane[i1y, i0x, ch] * (1.0 - fx) + diff_plane[i1y, i1x, ch] * fx
+                    p = top * (1.0 - fy) + bot * fy
+                    base = np.log10((1.0 - diff_mix) * 10.0 ** (base * r) + diff_mix * 10.0 ** (p * r)) / r
+                val = base + cmy_offsets[ch]
                 if use_key:
                     val = val + np.float32(ev_px * ev_scale[ch])
                 elif use_ev:
@@ -281,8 +322,8 @@ def _apply_print_curve_kernel(
                 # gfac is the local grade, a slope rotation about this channel's pivot, so the
                 # region's own midtone holds. The cast-removal curvature stays global.
                 v = quadratic_core(slopes[ch] * gfac, pivots[ch], curvatures[ch], val)
-                if flash > 0.0:
-                    v = flash_v + flash_gamma * np.log10(10.0 ** ((v - flash_v) / flash_gamma) + flash)
+                if fl > 0.0:
+                    v = flash_v + flash_gamma * np.log10(10.0 ** ((v - flash_v) / flash_gamma) + fl)
 
                 # Variable-gamma paper S-curve: extra local gamma at the midtone centre
                 # (v_star), easing to zero toward the toe and shoulder. Centred on v_star, so
@@ -469,6 +510,7 @@ def print_curve(
     highlight_grade_delta: Optional[float] = None,
     curvature: float = 0.0,
     highlight_density: Optional[float] = None,
+    shadow_density: Optional[float] = None,
 ) -> CharacteristicCurve:
     """The achromatic print curve for `exposure` at `slope`/`pivot`. Each None argument takes
     the grade-coupled, trim-free value; a per-layer trace passes its own. Single source of
@@ -492,9 +534,9 @@ def print_curve(
         shoulder=shoulder_eff if shoulder is None else shoulder,
         shoulder_width=exposure.shoulder_width if shoulder_width is None else shoulder_width,
         paper=profile,
-        midtone_gamma=effective_midtone_gamma(None, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
+        midtone_gamma=effective_midtone_gamma(profile, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
         bpc=not exposure.paper_black,
-        shadow_density=exposure.shadow_density,
+        shadow_density=exposure.shadow_density if shadow_density is None else shadow_density,
         highlight_density=exposure.highlight_density if highlight_density is None else highlight_density,
         shadow_grade_delta=sg[0] if shadow_grade_delta is None else shadow_grade_delta,
         highlight_grade_delta=hg[0] if highlight_grade_delta is None else highlight_grade_delta,
@@ -650,6 +692,11 @@ def apply_characteristic_curve(
     grade_deltas: Optional[np.ndarray] = None,
     frame_grade: float = 115.0,
     preflash: float = 0.0,
+    flash_map: Optional[np.ndarray] = None,
+    diffusion: float = 0.0,
+    diffusion_plane: Optional[np.ndarray] = None,
+    diffusion_rect: Optional[Tuple[float, float, float, float]] = None,
+    diffusion_range: Tuple[float, float, float] = (1.0, 1.0, 1.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -691,6 +738,12 @@ def apply_characteristic_curve(
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
     use_grade = grade_map is not None
     grade_arr = np.ascontiguousarray(grade_map.astype(np.float32)) if grade_map is not None else np.ones((1, 1), dtype=np.float32)
+    use_flash = flash_map is not None
+    flash_arr = np.ascontiguousarray(flash_map.astype(np.float32)) if flash_map is not None else np.zeros((1, 1), dtype=np.float32)
+    use_diff = diffusion > 0.0 and diffusion_plane is not None
+    diff_arr = np.ascontiguousarray(diffusion_plane.astype(np.float32)) if use_diff else np.zeros((1, 1, 3), dtype=np.float32)
+    h_img, w_img = img.shape[:2]
+    rect = diffusion_rect if diffusion_rect is not None else (0.0, 0.0, float(w_img), float(h_img))
     use_key = key_alpha is not None
     r_min, r_max = float(c["iso_r_min"]), float(c["iso_r_max"])
     if use_key:
@@ -756,6 +809,13 @@ def apply_characteristic_curve(
         flash=max(float(preflash), 0.0),
         flash_v=flash_v,
         flash_gamma=flash_gamma,
+        flash_map=flash_arr,
+        use_flash=use_flash,
+        diff_plane=diff_arr,
+        diff_rect=np.array(rect, dtype=np.float64),
+        diff_mix=diffusion_mix(diffusion),
+        diff_range=np.array(diffusion_range, dtype=np.float64),
+        use_diff=use_diff,
         bpc=bool(bpc),
     )
     return ensure_image(res)
@@ -886,13 +946,9 @@ def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:
 
 
 def local_grade_factor_map(grade_deltas: np.ndarray, grade: float) -> np.ndarray:
-    """
-    Per-pixel slope multiplier for the local-grade map: the same R/(R+ΔR) ratio
-    _grade_trim_mult gives a per-layer trim, so a masked region prints at its own
-    grade on the same ladder. Rotation happens about the channel pivot in the
-    kernel, which is what keeps a grade-only mask from shifting its own midtone.
-    Single source for the CPU kernel and the GPU's uploaded map.
-    """
+    """Per-pixel slope multiplier for the local-grade map, the ratio _grade_trim_mult gives
+    a per-layer trim. The kernel rotates about the channel pivot, so a grade-only mask keeps
+    its midtone. exposure.wgsl mirrors this."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
@@ -1066,6 +1122,40 @@ def highlight_hold_offset(
     return float(min((v_hold - v) / max(w, 1e-6), float(c["highlight_hold_max"])))
 
 
+def shadow_hold_offset(
+    slope: float,
+    pivot: float,
+    shadow_point: float,
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+) -> float:
+    """Auto Grade's shadow lift (a negative shadow_density), the partner of
+    highlight_hold_offset, on the textured dark tail past Shadow Reach's line. A partial
+    correction: the tail still prints past paper black. Never burns."""
+    c = effective_constants(paper)
+    strength = float(c["shadow_hold_strength"])
+    if strength <= 0.0:
+        return 0.0
+    v = float(slope) * (float(shadow_point) - float(pivot))
+    v_start = _reference_linear_value(d_min, paper, target=float(c["shadow_reach_density"])) + float(c["shadow_hold_overshoot"])
+    if v <= v_start:
+        return 0.0
+    return -float(min(strength * (v - v_start), float(c["shadow_hold_max"])))
+
+
+def auto_shadow_from_metrics(exposure: Any, process_mode: Optional[str], metrics: Any) -> float:
+    """The shadow hold lift the render applied, re-derived from the published metrics."""
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    point = metrics.get("shadow_point")
+    if not exposure.auto_normalize_contrast or point is None:
+        return 0.0
+    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    d_min = profile.d_min if exposure.paper_dmin else 0.0
+    slopes, pivots, _ = curve_params_from_metrics(exposure, process_mode, metrics)
+    return shadow_hold_offset(slopes[1], pivots[1], float(point), d_min=d_min, paper=profile)
+
+
 def auto_highlight_from_metrics(exposure: Any, process_mode: Optional[str], metrics: Any) -> float:
     """The highlight hold burn the render applied, re-derived from the published metrics
     (companion of curve_params_from_metrics for the chart, wedge and zone placement)."""
@@ -1159,6 +1249,26 @@ def cast_solve_inputs(
     return effective_cast_strength(slider_strength, confidence), shadow_refs_norm, neutral_axis_norm
 
 
+def auto_base_slope(
+    grade: float,
+    auto_normalize_contrast: bool,
+    lum_range: Optional[float],
+    textural_range: Optional[float],
+    shadow_point: Optional[float],
+    anchor: Optional[float],
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+) -> float:
+    """Shared straight-line slope before the per-layer gammas: Grade on the effective range,
+    raised to Auto Grade's Shadow Reach floor."""
+    slope = grade_to_slope(grade, effective_grade_range(auto_normalize_contrast, lum_range, textural_range))
+    if auto_normalize_contrast and shadow_point is not None:
+        c = effective_constants(paper)
+        ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
+        slope = shadow_reach_slope(slope, ref, shadow_point, d_min=d_min, paper=paper)
+    return slope
+
+
 def per_channel_curve_params(
     grade: float,
     density: float,
@@ -1198,11 +1308,7 @@ def per_channel_curve_params(
         )
     slope_min = float(c["slope_min"])
     slope_max = float(c["slope_max"])
-    r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
-    base_slope = grade_to_slope(grade, r_eff)
-    if auto_normalize_contrast and shadow_point is not None:
-        ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
-        base_slope = shadow_reach_slope(base_slope, ref, shadow_point, d_min=d_min, paper=paper)
+    base_slope = auto_base_slope(grade, auto_normalize_contrast, lum_range, textural_range, shadow_point, anchor, d_min, paper)
 
     epsilon = 1e-6
 
@@ -1352,6 +1458,24 @@ def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple
             d = d / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6)
         out.append(d)
     return (out[0], out[1], out[2])
+
+
+def channel_density_ranges(bounds: Any) -> Tuple[float, float, float]:
+    """Each channel's stretch range in log10 units: one normalized unit of val is this much
+    density. Range 1 when bounds are None."""
+    if bounds is None:
+        return (1.0, 1.0, 1.0)
+    out = [max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6) for ch in range(3)]
+    return (out[0], out[1], out[2])
+
+
+# A real diffuser passes much of the light unscattered, so the slider's top is half the light.
+DIFFUSION_MIX_MAX = 0.5
+
+
+def diffusion_mix(diffusion: float) -> float:
+    """The fraction of blurred light the paper sees at a Diffusion slider value."""
+    return DIFFUSION_MIX_MAX * min(max(float(diffusion), 0.0), 1.0)
 
 
 def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:

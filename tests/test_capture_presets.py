@@ -64,3 +64,24 @@ def test_framing_levels_dim_three_stops():
 
 def test_framing_levels_keep_lit_channels_lit_and_dark_channels_dark():
     assert framing_levels(255, 4, 0) == (31, 1, 0)  # a lit channel never dims to 0; off stays off
+
+
+def test_single_capture_round_trips_and_defaults_to_triplet():
+    repo = FakeRepo()
+    repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200, "shutter_r": "1/5"}})
+    store = PresetStore(repo)
+    assert not store.get("Old").single_capture  # a preset saved before the mode existed is a triplet
+    store.save("Single", ScanlightPreset(r_level=120, shutter_r="1/5", single_capture=True))
+    assert store.get("Single").single_capture
+    assert store.get("Single").sensor_profile == ""
+    store.save("Profiled", ScanlightPreset(r_level=120, shutter_r="1/5", single_capture=True, sensor_profile="Profiled"))
+    assert store.get("Profiled").sensor_profile == "Profiled"
+
+
+def test_store_knows_which_sensor_profiles_its_presets_own():
+    store = PresetStore(FakeRepo())
+    store.save("Portra", ScanlightPreset(single_capture=True, sensor_profile="Portra"))
+    store.save("Triplet", ScanlightPreset())
+    assert store.owns_sensor_profile("Portra")
+    assert not store.owns_sensor_profile("Hand Made")
+    assert not store.owns_sensor_profile("")

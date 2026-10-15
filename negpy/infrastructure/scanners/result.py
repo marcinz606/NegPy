@@ -12,3 +12,5 @@ class ScanResult:
     ir_valid_mask: np.ndarray | None = None
     # Per-channel exposures the scan ran at, where the transport reports them.
     exposures: dict[str, int] | None = None
+    # The ICC profile of the scanner data, where the transport gives one. The writer embeds it.
+    icc_profile: bytes | None = None

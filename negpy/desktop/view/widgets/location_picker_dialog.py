@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QModelIndex, QObject, QStringListModel, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCompleter,
     QDialog,
@@ -24,7 +25,8 @@ from negpy.services.maps import place_fields, result_coords, reverse_place, sear
 
 _OFFLINE_HINT = "Map unavailable — enter coordinates manually."
 _NO_MATCH_HINT = "No place matched, or the lookup is unreachable."
-_SHUTDOWN_WAIT_MS = 6000
+# Lookups run on daemon threads that nothing joins: one stalled in DNS can outlive the dialog.
+_LOOKUP_SLOTS = threading.Semaphore(2)
 # Nominatim asks for at most one request a second, so a keystroke must not be a request.
 _SEARCH_DEBOUNCE_MS = 500
 _MIN_QUERY_CHARS = 3
@@ -39,29 +41,16 @@ class _LookupSignals(QObject):
         self.stopped = False
 
 
-class _SearchJob(QRunnable):
-    def __init__(self, signals: _LookupSignals, query: str):
-        super().__init__()
-        self._signals = signals
-        self._query = query
+def _run_lookup(signals: _LookupSignals, lookup, done) -> None:
+    def _job() -> None:
+        with _LOOKUP_SLOTS:
+            if signals.stopped:
+                return
+            result = lookup()
+        if not signals.stopped:
+            done(result)
 
-    def run(self) -> None:
-        if self._signals.stopped:
-            return
-        self._signals.search_done.emit(search_places(self._query))
-
-
-class _ReverseJob(QRunnable):
-    def __init__(self, signals: _LookupSignals, token: int, lat: float, lon: float):
-        super().__init__()
-        self._signals = signals
-        self._token = token
-        self._lat, self._lon = lat, lon
-
-    def run(self) -> None:
-        if self._signals.stopped:
-            return
-        self._signals.reverse_done.emit(self._token, reverse_place(self._lat, self._lon))
+    threading.Thread(target=_job, daemon=True).start()
 
 
 class LocationPickerDialog(QDialog):
@@ -83,10 +72,6 @@ class LocationPickerDialog(QDialog):
         self.setWindowTitle("Capture Location")
         self.setMinimumSize(560, 560)
 
-        # The pool is owned by the dialog, so closing it joins any running lookup before the
-        # signal object goes away. done() drops the queue first to keep that join short.
-        self._pool = QThreadPool(self)
-        self._pool.setMaxThreadCount(2)
         self._signals = _LookupSignals()
         self._signals.search_done.connect(self._on_search_done)
         self._signals.reverse_done.connect(self._on_reverse_done)
@@ -186,11 +171,7 @@ class LocationPickerDialog(QDialog):
         return super().eventFilter(obj, event)
 
     def done(self, result: int) -> None:
-        # Join the lookup threads here: the pool's destructor would wait with the GIL held,
-        # which a worker needs to finish, and the app would hang instead of closing.
         self._signals.stopped = True
-        self._pool.clear()
-        self._pool.waitForDone(_SHUTDOWN_WAIT_MS)
         self.map_view.shutdown()
         super().done(result)
 
@@ -219,7 +200,7 @@ class LocationPickerDialog(QDialog):
         if len(query) < _MIN_QUERY_CHARS:
             return
         self.status_label.setText("Searching…")
-        self._pool.start(_SearchJob(self._signals, query))
+        _run_lookup(self._signals, lambda: search_places(query), self._signals.search_done.emit)
 
     def _on_search_done(self, results: object) -> None:
         self._results = {}
@@ -260,7 +241,7 @@ class LocationPickerDialog(QDialog):
     def _on_coords_edited(self) -> None:
         coords = parse_coords(self.coords_edit.text())
         if coords is None:
-            self.status_label.setText("Coordinates not recognised.")
+            self.status_label.setText("Coordinates not recognized")
             return
         self.coords_edit.setText(format_coords(*coords))
         self.map_view.set_pin(*coords)
@@ -269,7 +250,8 @@ class LocationPickerDialog(QDialog):
     def _start_reverse(self, lat: float, lon: float) -> None:
         self._reverse_token += 1
         self.status_label.setText("Looking up place…")
-        self._pool.start(_ReverseJob(self._signals, self._reverse_token, lat, lon))
+        token, signals = self._reverse_token, self._signals
+        _run_lookup(signals, lambda: reverse_place(lat, lon), lambda r: signals.reverse_done.emit(token, r))
 
     def _on_reverse_done(self, token: int, result: object) -> None:
         if token != self._reverse_token:

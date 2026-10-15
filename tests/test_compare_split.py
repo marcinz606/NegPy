@@ -275,6 +275,7 @@ class TestPeekBadge(unittest.TestCase):
         self.assertGreater(self._badge_pixels(self._painted(negative_peek=True)), 100)
         self.assertGreater(self._badge_pixels(self._painted(embedded_peek=True)), 100)
         self.assertGreater(self._badge_pixels(self._painted(flat_peek=True)), 100)
+        self.assertGreater(self._badge_pixels(self._painted(flatfield_peek=True)), 100)
 
     def test_the_plain_edit_paints_none(self):
         self.assertEqual(self._badge_pixels(self._painted()), 0)

@@ -26,7 +26,6 @@ def _controller(roll_entries: dict):
     ctrl.session.repo.get_global_setting.side_effect = lambda key, default=None: settings_store.get(key, default)
     ctrl.session.repo.save_global_setting.side_effect = lambda key, value: settings_store.__setitem__(key, value)
     ctrl.set_status = MagicMock()
-    ctrl.load_file = MagicMock()
     return ctrl
 
 
@@ -93,7 +92,8 @@ class TestRequestForkEditForRoll:
         assert asset["hash"] == "ha#roll:r1"
         assert rolls.is_forked(ctrl.session.repo, "r1", "ha")
         ctrl.session.repo.save_file_settings.assert_called_once_with("ha#roll:r1", ctrl.state.config, file_path="/p/a.tif")
-        ctrl.load_file.assert_called_once_with("/p/a.tif")
+        assert ctrl.state.is_dirty is False  # the unsaved change went to the fork, not the shared edit
+        ctrl.session.select_file.assert_called_once_with(0, selection_override=list(ctrl.state.selected_indices))
         ctrl.set_status.assert_called_once()
 
     def test_forking_a_non_active_frame_seeds_from_its_own_stored_config(self):
@@ -114,7 +114,24 @@ class TestRequestForkEditForRoll:
 
         ctrl.session.config_for_asset.assert_called_once_with(asset)
         ctrl.session.repo.save_file_settings.assert_called_once_with("hb#roll:r1", stored, file_path="/p/b.tif")
-        ctrl.load_file.assert_not_called()  # a frame that is not on screen does not reload
+        ctrl.session.select_file.assert_not_called()  # a frame that is not on screen does not reload
+
+    def test_an_already_forked_frame_is_not_forked_again(self):
+        from negpy.desktop.controller import AppController
+
+        rolls_store = {"r1": {"kind": "virtual", "name": "A", "member_paths": ["/p/a.tif"], "forked_hashes": ["ha"]}}
+        ctrl = _controller(rolls_store)
+        asset = {"path": "/p/a.tif", "hash": "ha#roll:r1"}
+        ctrl.state = MagicMock()
+        ctrl.state.selected_file_idx = 0
+        ctrl.state.uploaded_files = [asset]
+        ctrl.state.active_roll_id = "r1"
+        ctrl.state.current_file_hash = "ha#roll:r1"
+
+        AppController.request_fork_edit_for_roll(ctrl)
+
+        assert asset["hash"] == "ha#roll:r1"
+        ctrl.session.repo.save_file_settings.assert_not_called()
 
     def test_no_active_roll_does_nothing(self):
         from negpy.desktop.controller import AppController
@@ -150,7 +167,7 @@ class TestRequestUnforkEditForRoll:
         assert asset["hash"] == "ha"
         assert not rolls.is_forked(ctrl.session.repo, "r1", "ha")
         ctrl.session.repo.delete_file_settings.assert_called_once_with("ha#roll:r1")
-        ctrl.load_file.assert_called_once_with("/p/a.tif")
+        ctrl.session.select_file.assert_called_once_with(0, selection_override=list(ctrl.state.selected_indices))
         ctrl.set_status.assert_called_once()
 
     def test_a_frame_with_no_fork_is_a_noop(self):

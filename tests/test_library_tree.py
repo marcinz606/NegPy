@@ -73,6 +73,56 @@ def test_a_folder_roll_shows_a_folder_icon_and_its_live_count(widget, tree_dirs,
     assert widget.tree.topLevelItem(0).text(1) == "2 photos"
 
 
+def _triplet_roll(widget, tree_dirs) -> str:
+    """roll_c holds two captured triplets; the first is remembered as assembled."""
+    folder = tree_dirs / "roll_c"
+    folder.mkdir()
+    for frame in ("f1", "f2"):
+        for channel in "RGB":
+            (folder / f"{frame}_{channel}.NEF").write_bytes(b"x")
+    red, green, blue = (str(folder / f"f1_{c}.NEF") for c in "RGB")
+    widget.repo.save_global_setting("triplets_by_path", {red: [green, blue, True, ["", "", ""]]})
+    return recognize_folder(widget.repo, str(folder), name="roll_c")
+
+
+def test_an_assembled_triplet_counts_as_one_photo(widget, tree_dirs):
+    _triplet_roll(widget, tree_dirs)
+    widget.controller.rgb_scan_mode_for_roll.return_value = True
+    widget.reload()
+
+    assert widget.tree.topLevelItem(0).text(1) == "4 photos"
+
+
+def test_a_roll_out_of_trichrome_mode_counts_every_file(widget, tree_dirs):
+    _triplet_roll(widget, tree_dirs)
+    widget.controller.rgb_scan_mode_for_roll.return_value = False
+    widget.reload()
+
+    assert widget.tree.topLevelItem(0).text(1) == "6 photos"
+
+
+def test_a_stitch_counts_as_one_photo(widget, tree_dirs):
+    folder = tree_dirs / "roll_a"
+    widget.repo.save_global_setting("composites_by_path", {str(folder / "a1.NEF"): {"kind": "stitch", "paths": [str(folder / "a2.NEF")]}})
+    widget.controller.rgb_scan_mode_for_roll.return_value = False
+    recognize_folder(widget.repo, str(folder), name="roll_a")
+    widget.reload()
+
+    assert widget.tree.topLevelItem(0).text(1) == "1 photo"
+
+
+def test_the_open_roll_recounts_when_its_files_change(widget, tree_dirs):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="roll_a")
+    widget.controller.rgb_scan_mode_for_roll.return_value = False
+    widget.controller.state.active_roll_id = roll_id
+    widget.reload()
+    (tree_dirs / "roll_a" / "a3.NEF").write_bytes(b"3")
+
+    widget.refresh_active_count()
+
+    assert widget.tree.topLevelItem(0).text(1) == "3 photos"
+
+
 def test_a_virtual_roll_shows_a_search_icon_and_its_member_count(widget, monkeypatch):
     """Roll kind reads off the icon's shape: colour carries other meanings already."""
     create_virtual_roll(widget.repo, "Portra", ["/a.nef", "/b.nef"])

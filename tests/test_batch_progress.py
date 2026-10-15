@@ -135,3 +135,56 @@ def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
 
     assert cancelled == [True]
     assert finished == []
+
+
+def test_a_stop_before_the_queued_run_starts_is_kept() -> None:
+    worker = ExportWorker()
+    worker._processor = MagicMock()
+    cancelled: list[bool] = []
+    worker.cancelled.connect(lambda: cancelled.append(True))
+
+    worker.arm()
+    worker.cancel()
+    worker.run_batch([_export_task("a.cr2")])
+
+    assert cancelled == [True]
+    worker._processor.render_export.assert_not_called()
+
+    worker.arm()
+    worker.run_batch([_export_task("b.cr2")])
+    worker._processor.render_export.assert_called_once()
+
+
+def test_normalization_stop_before_the_run_writes_no_baseline() -> None:
+    preview = MagicMock()
+    worker = NormalizationWorker(preview)
+    finished: list[tuple] = []
+    worker.finished.connect(lambda *a: finished.append(a))
+
+    worker.arm()
+    worker.cancel()
+    worker.process(
+        NormalizationTask(
+            frames=[NormalizationInput(file_info={"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "a"}, config=WorkspaceConfig())],
+            workspace_color_space="sRGB",
+            override_analysis_buffer=0.0,
+            override_luma_range_clip=0.0,
+            override_color_range_clip=0.0,
+        )
+    )
+
+    assert finished == []
+    preview.load_linear_preview.assert_not_called()
+
+
+def test_begin_batch_arms_the_lane_worker() -> None:
+    from negpy.desktop.controller import AppController
+
+    controller = MagicMock()
+    controller._active_batch = None
+    controller._batch_serial = 0
+    controller._batch_worker = lambda owner: AppController._batch_worker(controller, owner)
+
+    AppController._begin_batch(controller, "stitch", "Stitching", abortable=True)
+
+    controller.stitch_worker.arm.assert_called_once()

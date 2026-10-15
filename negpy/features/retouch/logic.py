@@ -152,6 +152,10 @@ _IR_PIVOT_LO = 0.60
 # below. Stretch-only, so σ >= _IR_REF_SIGMA is an exact no-op.
 _IR_REF_SIGMA = 0.02
 _IR_SCALE_MAX = 6.0  # bounds a degenerate/quantized plane measuring σ ~0
+# IR glare, in clean-film σ over the median. Dust only dims IR, so a brighter pixel is
+# scanner glare, such as a lit frame edge; in normalize_ir's local max it would carry a base
+# window into clean film and score that film as a defect strip.
+_IR_GLARE_SIGMA = 4.0
 # Crosstalk unmixing: dye and silver absorb some IR, so the IR plane carries a ghost of the
 # image that normalize_ir's spatial high-pass cannot see. A sharp edge survives it.
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
@@ -617,12 +621,12 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     # ridge are needed, and the frame is a full-resolution buffer on hover.
     reach = max_half + int(math.ceil(_SCRATCH_SLOPE_MAX * w)) + 2
     z, z0 = _scratch_ridge_rows(img, y0 - reach, y1 + reach)
-    band = np.ascontiguousarray(z[y0 - z0 : y1 - z0])
     pull = np.exp(-0.5 * ((np.arange(y0, y1) - cy) / _SCRATCH_CLICK_PULL) ** 2)
 
     best: Optional[Tuple[float, float, int, np.ndarray]] = None
     for slope in np.arange(-_SCRATCH_SLOPE_MAX, _SCRATCH_SLOPE_MAX + 1e-9, _SCRATCH_SLOPE_STEP):
-        sheared = _shear_rows(band, float(slope), cx, w)
+        # Sheared with its reach, then cut: a line leaves the search rows across a wide frame.
+        sheared = _shear_rows(z, float(slope), cx, w)[y0 - z0 : y1 - z0]
         strength = np.abs(sheared.mean(axis=1)) * pull
         k = int(np.argmax(strength))
         if best is None or strength[k] > best[0]:
@@ -745,6 +749,17 @@ def _ir_live(plane: np.ndarray) -> np.ndarray:
     return ~holder[labels]
 
 
+def _ir_glare(plane: np.ndarray, live: np.ndarray) -> Optional[np.ndarray]:
+    """Pixels more than ``_IR_GLARE_SIGMA`` over the median of the live film, or None."""
+    sample = plane.ravel()[_fit_sample(live)]
+    if sample.size < 500:
+        return None
+    med = float(np.median(sample))
+    sigma = 1.4826 * float(np.median(np.abs(sample - med)))
+    glare = plane > med + _IR_GLARE_SIGMA * sigma
+    return glare if glare.any() else None
+
+
 def _ir_detect_scale(plane: np.ndarray) -> float:
     """Detection-plane resolution over ``_IR_DETECT_REF``, floored at 1."""
     return max(1.0, max(plane.shape[:2]) / _IR_DETECT_REF)
@@ -823,7 +838,7 @@ def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple
     if dims == (w, h):
         return np.ascontiguousarray(plane)
     # Erode by the resample footprint: a 1.25x downsample must not fatten by a 4.5x kernel.
-    k = max(1, int(round(long_edge / target_long_edge)) | 1)
+    k = max(1, int(round(long_edge / max(dims))) | 1)
     if k > 1:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         if plane.nbytes > _IR_DOWNSAMPLE_WORK_BYTES:
@@ -832,13 +847,15 @@ def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple
     return cv2.resize(plane, dims, interpolation=cv2.INTER_AREA).astype(np.float32)
 
 
-def normalize_ir(plane: np.ndarray) -> np.ndarray:
+def normalize_ir(plane: np.ndarray, glare: Optional[np.ndarray] = None) -> np.ndarray:
     """Locally-normalized IR: ``ir / blur(dilate(ir))`` — ~1.0 on clean film, dips on
     defects, illumination-independent. Separates dust from content that raw-IR
-    thresholding conflated (dilate→max estimates the clean base, blur smooths it)."""
+    thresholding conflated (dilate→max estimates the clean base, blur smooths it).
+    ``glare`` pixels stay out of the base."""
     plane = np.ascontiguousarray(plane, dtype=np.float32)
     win = _ir_win(_IR_BASE_WIN, _ir_detect_scale(plane))
-    base = cv2.blur(cv2.dilate(plane, cv2.getStructuringElement(cv2.MORPH_RECT, (win, win))), (win, win))
+    src = plane if glare is None else np.where(glare, np.float32(0.0), plane)
+    base = cv2.blur(cv2.dilate(src, cv2.getStructuringElement(cv2.MORPH_RECT, (win, win))), (win, win))
     return plane / np.maximum(base, 1e-4)
 
 
@@ -1241,10 +1258,10 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
     (B&W/Kodachrome) → caller skips the whole IR bake."""
     plane = ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det
-    ratio = normalize_ir(plane)
     # No film under the head is not a defect. Left as a dip, the holder margin scores as one
     # giant routed component and swamps the routing budget.
     live = _ir_live(plane)
+    ratio = normalize_ir(plane, _ir_glare(plane, live))
     ratio[~live] = 1.0
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:

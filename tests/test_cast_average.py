@@ -112,6 +112,8 @@ class _Repo:
     def get_global_setting(self, key, default=None):
         return self.settings.get(key, default)
 
+    read_global_setting = get_global_setting
+
     def save_global_setting(self, key, value):
         self.settings[key] = value
 

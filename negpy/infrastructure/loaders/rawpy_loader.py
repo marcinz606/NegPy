@@ -34,12 +34,15 @@ _CONVERTED_SEGMENT_WORKING_MULTIPLIER = 6
 
 
 def _find_linearraw_page(tif: "tifffile.TiffFile", samples: int) -> Optional[Any]:
-    """Return the page carrying `samples`-sample LinearRaw data: page 0 itself (NegPy's own
-    single-IFD DNGs) or one of its SubIFDs (VueScan/SilverFast-style thumbnail + SubIFD DNGs)."""
+    """Return the main-image page carrying `samples`-sample LinearRaw data: page 0 itself
+    (single-IFD DNGs) or one of its SubIFDs (VueScan/SilverFast-style thumbnail + SubIFD DNGs).
+
+    Only NewSubfileType 0 qualifies. Adobe DNG Converter stores reduced LinearRaw previews
+    beside a CFA main image; they are tone-mapped, not sensor-linear."""
     page0 = tif.pages[0]
     for page in (page0, *(page0.pages or [])):
         tags = getattr(page, "tags", None)
-        if tags is None:
+        if tags is None or int(getattr(page, "subfiletype", 0)) != 0:
             continue
         spp_tag = tags.get("SamplesPerPixel")
         photo_tag = tags.get("PhotometricInterpretation")

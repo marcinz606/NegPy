@@ -7,7 +7,7 @@ from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_clahe,
     apply_glow_and_halation,
-    apply_output_sharpening,
+    apply_usm_sharpening,
     apply_rl_sharpening,
     sharpen_shadow_gain,
     apply_saturation,
@@ -73,7 +73,7 @@ class TestLabLogic(unittest.TestCase):
         img = np.zeros((100, 100, 3), dtype=np.float32)
         img[25:75, 25:75, :] = 0.5
 
-        res = apply_output_sharpening(img, amount=1.0)
+        res = apply_usm_sharpening(img, amount=1.0)
 
         # Sharpening should increase variance on edges
         self.assertGreater(np.var(res), np.var(img))
@@ -96,7 +96,7 @@ class TestLabLogic(unittest.TestCase):
         img = np.zeros((40, 40, 3), dtype=np.float32)
         img[:, 20:] = 0.8
 
-        res = apply_output_sharpening(img, amount=1.0)
+        res = apply_usm_sharpening(img, amount=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
@@ -108,7 +108,7 @@ class TestLabLogic(unittest.TestCase):
         rng = np.random.default_rng(3)
         img = np.clip(0.5 + rng.normal(0, 0.001, (64, 64, 3)), 0.0, 1.0).astype(np.float32)
 
-        res = apply_output_sharpening(img, amount=1.0)
+        res = apply_usm_sharpening(img, amount=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
@@ -123,8 +123,8 @@ class TestLabLogic(unittest.TestCase):
         img[:, 32:] = 0.8
         img = np.clip(img + rng.normal(0, 0.02, img.shape), 0.0, 1.0).astype(np.float32)
 
-        res_open = apply_output_sharpening(img, amount=1.0, masking=0.0)
-        res_masked = apply_output_sharpening(img, amount=1.0, masking=1.0)
+        res_open = apply_usm_sharpening(img, amount=1.0, masking=0.0)
+        res_masked = apply_usm_sharpening(img, amount=1.0, masking=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_open = rgb_to_lab_working(res_open.astype(np.float32))[..., 0]
@@ -610,7 +610,7 @@ class SharpenScaleTests(unittest.TestCase):
         img = np.repeat((0.5 + fine + coarse)[None, :], 64, axis=0)
         img = np.repeat(img[..., None], 3, axis=2).astype(np.float32)
 
-        res = np.asarray(apply_output_sharpening(img, amount=1.0, radius=1.0), dtype=np.float32)
+        res = np.asarray(apply_usm_sharpening(img, amount=1.0, radius=1.0), dtype=np.float32)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_out = rgb_to_lab_working(res)[..., 0]
@@ -652,8 +652,8 @@ class TestSharpenShadowGain(unittest.TestCase):
         self.assertAlmostEqual(float(g[3]), 1.0, places=5)
 
     def test_usm_sharpens_deep_shadow_texture_less(self):
-        dark = _l_contrast_gain(apply_output_sharpening, _textured_patch(6.0))
-        light = _l_contrast_gain(apply_output_sharpening, _textured_patch(60.0))
+        dark = _l_contrast_gain(apply_usm_sharpening, _textured_patch(6.0))
+        light = _l_contrast_gain(apply_usm_sharpening, _textured_patch(60.0))
         self.assertGreater(light, 1.3)
         self.assertLess((dark - 1.0) / (light - 1.0), 0.6)
 

@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QDoubleSpinBox,
     QLayout,
+    QSizePolicy,
+    QSpacerItem,
     QVBoxLayout,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
@@ -263,6 +265,26 @@ class BaseSlider(QWidget):
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
 
+    def default_value(self) -> float:
+        return self._default
+
+    def set_default(self, value: float) -> None:
+        """Move the reset value and its tick. Snapped to the displayed decimals, so a value
+        shown at the default reads as unedited."""
+        lo, hi = sorted((self._to_int(self._min), self._to_int(self._max)))
+        tick = min(max(self._to_int(round(float(value), self.spin.decimals())), lo), hi)
+        self._default = self._from_int(tick)
+        pos = (tick - lo) / (hi - lo) if hi > lo else None
+        if pos is not None and self.slider.invertedAppearance():
+            pos = 1.0 - pos
+        self.slider._default_pos = pos
+        self.slider._default_slider_value = tick
+        self.slider.update()
+
+    def is_default(self, value: float) -> bool:
+        decimals = self.spin.decimals()
+        return round(float(value), decimals) == round(self._default, decimals)
+
     def adjust_by(self, delta: float) -> None:
         new_value = max(self._min, min(self._max, self.value() + delta))
         self.setValue(new_value, _rebase_commit=False)
@@ -425,6 +447,10 @@ class CompactSlider(BaseSlider):
 
     def setValue(self, value: float, _rebase_commit: bool = True) -> None:
         super().setValue(value, _rebase_commit=_rebase_commit)
+        self._update_edited_state()
+
+    def set_default(self, value: float) -> None:
+        super().set_default(value)
         self._update_edited_state()
 
     def setEnabled(self, enabled: bool) -> None:
@@ -805,6 +831,11 @@ def align_slider_columns(root: QWidget) -> None:
         field.setContentsMargins(0, 0, pad, 0)
         field.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         field.setFixedWidth(margins.left() + label_width - _group_indent(field) + pad)
-        row_margins = row.contentsMargins()
-        row_margins.setRight(slider_row.spacing() + value_width + margins.right())
-        row.setContentsMargins(row_margins)
+        # A spacer, not a margin: it gives way in a narrow panel, so the row compacts instead of clipping.
+        spacer = getattr(field, "value_spacer", None)
+        if spacer is None:
+            spacer = field.value_spacer = QSpacerItem(0, 0)
+            row.addSpacerItem(spacer)
+        reserve = slider_row.spacing() + value_width + margins.right()
+        spacer.changeSize(reserve, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        row.invalidate()

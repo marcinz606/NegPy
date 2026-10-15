@@ -1,31 +1,30 @@
 """Fit NegPy paper-profile constants to digitized datasheet characteristic curves.
 
-Dev tool, not shipped. Turns published D-logH curves (Ilford MG, Kodak Endura,
-Fuji Crystal Archive, ...) into `PaperProfile` constants for
-negpy/features/exposure/papers.py, replacing hand-tuned values with a fit.
+Dev tool, not shipped. Turns published D-logH curves into `PaperProfile` constants for
+negpy/features/exposure/papers.py.
 
 Workflow
 --------
-1. Open the paper datasheet PDF, screenshot the characteristic curve.
-2. Digitize it with WebPlotDigitizer (https://automeris.io/) — axes:
-   x = relative log exposure, y = density. Export CSV (two columns: log_e,density).
-3. Fit one curve:
-       uv run --with scipy python scripts/fit_paper_profile.py mgrc_grade2.csv
-   or a VC grade family (shared paper shape, per-curve slope/pivot):
-       uv run --with scipy python scripts/fit_paper_profile.py --family g00.csv g0.csv ... g5.csv
-4. Copy the printed PaperProfile kwargs into PAPER_PROFILES. Reject the fit if
-   RMS residual exceeds ~0.05 D (the parametric family can't represent that
-   paper; see docs/PIPELINE.md before reaching for a LUT).
+1. Digitize the datasheet's characteristic curves to CSV (two columns: log_e,density).
+   Kodak and Ilford PDFs draw them as vector paths, which PyMuPDF's page.get_drawings()
+   reads exactly; for a raster plot use WebPlotDigitizer (https://automeris.io/).
+2. Fit:
+       # B&W: a grade family, one shared paper shape
+       uv run --with scipy python scripts/fit_paper_profile.py bw g0.csv g1.csv ... g5.csv
+       # RA4: one paper's Status A R, G, B curves
+       uv run --with scipy python scripts/fit_paper_profile.py ra4 r.csv g.csv b.csv
+3. Copy the printed PaperProfile kwargs into PAPER_PROFILES. Reject the fit if the RMS
+   residual exceeds ~0.05 D: the parametric family cannot represent that paper.
 
-Model: the engine's print-curve stage-2 ("paper") family — straight line
-slope·(x−pivot), tanh midtone gamma, double softplus toe/shoulder bounds —
-identical math to CharacteristicCurve/logic._apply_print_curve_kernel with the
-shape constants freed:  k, x0 per curve (nuisance: datasheet x-axis is
-arbitrary-origin logE);  d_min, d_max, a_hl, a_sh, midtone_gamma, gamma_width
-per paper.
+The fit renders through the app's own print_curve (default sliders, paper white on, no
+black point compensation), so it fits exactly what the engine draws. The slope is not
+free: the engine sets k = grade_contrast_scale / (R/100) density per log E, so each curve's
+slope comes from its measured ISO R. A free slope trades against the knee sharpness and
+converges on soft knees under a steep line, which renders flat at the user's grade.
 """
 
 import argparse
+import dataclasses
 import sys
 
 import numpy as np
@@ -35,85 +34,107 @@ try:
 except ImportError:
     sys.exit("scipy required: run via `uv run --with scipy python scripts/fit_paper_profile.py ...`")
 
-# Shape parameter vector per paper: (d_min, d_max, a_hl, a_sh, midtone_gamma, gamma_width)
-_SHAPE_GUESS = np.array([0.06, 2.3, 3.0, 4.0, 0.15, 0.6])
-_SHAPE_LO = np.array([0.0, 1.5, 0.5, 0.5, 0.0, 0.2])
-_SHAPE_HI = np.array([0.3, 3.0, 20.0, 20.0, 0.8, 2.0])
-# Per-curve nuisance: (k, x0)
-_CURVE_GUESS = np.array([5.0, 0.5])
-_CURVE_LO = np.array([0.5, -5.0])
-_CURVE_HI = np.array([30.0, 5.0])
+from negpy.features.exposure import papers
+from negpy.features.exposure.logic import default_grade_range, grade_coupled_shape, grade_to_slope, print_curve
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.process.models import ProcessMode
+
+RNG = default_grade_range()
+# |profile + Snap + Snap trim| must stay below 1, the kernel's monotonicity bound.
+MIDTONE_GAMMA_LIMIT = 0.25
 
 
-_ANCHOR_TARGET_DENSITY = 0.74  # EXPOSURE_CONSTANTS["anchor_target_density"]
+def iso_r(x, d, d_max=None):
+    """ISO 6846 range. d_max is the paper's: a soft grade may not reach it on the plot."""
+    hi = 0.9 * (d.max() if d_max is None else d_max)
+    return 100.0 * (np.interp(hi, d, x) - np.interp(d.min() + 0.04, d, x))
 
 
-def _inv_softplus(y):
-    # inverse of log(1+e^x), stable for large y
-    return y + np.log(-np.expm1(-y))
+def render(shape, d_min, kind, grade, x, x0, gain=1.0):
+    d_max, toe, shoulder, mg, gw = shape
+    papers.PAPER_PROFILES["_fit"] = papers.PaperProfile(
+        label="fit",
+        kind=kind,
+        d_min=d_min,
+        d_max=d_max,
+        toe_sharpness_base=toe,
+        shoulder_sharpness_base=shoulder,
+        paper_midtone_gamma=mg,
+        paper_gamma_width=gw,
+    )
+    mode = ProcessMode.BW if kind == "bw" else ProcessMode.C41
+    exp = dataclasses.replace(ExposureConfig(), paper_profile="_fit", paper_dmin=True, paper_black=True, grade=grade)
+    k = grade_to_slope(grade, RNG)
+    toe_eff, shoulder_eff = grade_coupled_shape(k, exp.toe, exp.shoulder)
+    curve = print_curve(exp, k * gain, 0.0, mode, toe=toe_eff, shoulder=shoulder_eff)
+    xn = ((x - x0) / RNG).astype(np.float32)
+    return np.asarray(curve(xn.reshape(1, -1, 1).repeat(3, 2)), dtype=np.float64)[0, :, 0]
 
 
-def _v_star(d_min, d_max, a_hl, a_sh):
-    """Mirror of logic._reference_linear_value with the shape params freed."""
-    t = _ANCHOR_TARGET_DENSITY
-    v1 = d_max - _inv_softplus(a_sh * (d_max - t)) / a_sh
-    return d_min + _inv_softplus(a_hl * (v1 - d_min)) / a_hl
+def fit(kind, curves):
+    """One paper shape shared by every curve; d_min is the measured base, x0 is per curve."""
+    d_min = float(np.mean([d.min() for _, d in curves]))
+    top = max(d.max() for _, d in curves)
+    grades = [iso_r(x, d, top) for x, d in curves]
+    lo_r, hi_r = EXPOSURE_CONSTANTS["iso_r_min"], EXPOSURE_CONSTANTS["iso_r_max"]
+    if any(not lo_r < g < hi_r for g in grades):
+        sys.exit(f"ISO R {[round(g) for g in grades]} outside the Grade range {lo_r:.0f}-{hi_r:.0f}: drop those curves")
+    x0s = [float(np.interp(0.7, d, x)) for x, d in curves]
+    lo = [1.5, 0.5, 0.5, -MIDTONE_GAMMA_LIMIT, 0.2] + [-10.0] * len(curves)
+    hi = [3.0, 20.0, 20.0, MIDTONE_GAMMA_LIMIT, 2.0] + [10.0] * len(curves)
+
+    def residuals(p):
+        return np.concatenate([render(p[:5], d_min, kind, g, x, p[5 + i]) - d for i, ((x, d), g) in enumerate(zip(curves, grades))])
+
+    # The knee sharpness has local minima; restart from a small grid.
+    starts = [[top, a, a, mg, 0.6] + x0s for mg in (-0.15, 0.0, 0.2) for a in (2.0, 6.0, 12.0)]
+    best = min((least_squares(residuals, s, bounds=(lo, hi)) for s in starts), key=lambda r: r.cost)
+    parts = np.split(best.fun, np.cumsum([len(x) for x, _ in curves])[:-1])
+    return best.x[:5], d_min, grades, [float(np.sqrt(np.mean(r**2))) for r in parts]
 
 
-def paper_density(x, k, x0, d_min, d_max, a_hl, a_sh, midtone_gamma, gamma_width):
-    """CharacteristicCurve with toe/shoulder sliders at 0 and free shape params."""
-    v = k * (x - x0)
-    v = v + midtone_gamma * gamma_width * np.tanh((v - _v_star(d_min, d_max, a_hl, a_sh)) / gamma_width)
-    v1 = d_min + np.logaddexp(0.0, a_hl * (v - d_min)) / a_hl
-    return d_max - np.logaddexp(0.0, a_sh * (d_max - v1)) / a_sh
+def channel_gain(shape, d_min, grade, x, d):
+    """One channel's slope multiplier (PaperProfile.channel_gamma) under the shared shape."""
+    r = least_squares(
+        lambda p: render(shape, d_min, "ra4", grade, x, p[1], p[0]) - d,
+        [1.0, float(np.interp(0.7, d, x))],
+        bounds=([0.5, -10.0], [2.0, 10.0]),
+    )
+    return float(r.x[0])
 
 
-def _residuals(theta, curves):
-    d_min, d_max, a_hl, a_sh, mg, gw = theta[:6]
-    res = []
-    for i, (x, d) in enumerate(curves):
-        k, x0 = theta[6 + 2 * i : 8 + 2 * i]
-        res.append(paper_density(x, k, x0, d_min, d_max, a_hl, a_sh, mg, gw) - d)
-    return np.concatenate(res)
-
-
-def fit(curves):
-    theta0 = np.concatenate([_SHAPE_GUESS] + [_CURVE_GUESS] * len(curves))
-    lo = np.concatenate([_SHAPE_LO] + [_CURVE_LO] * len(curves))
-    hi = np.concatenate([_SHAPE_HI] + [_CURVE_HI] * len(curves))
-    return least_squares(_residuals, theta0, bounds=(lo, hi), args=(curves,))
+def load(path):
+    a = np.loadtxt(path, delimiter=",")
+    a = a[np.argsort(a[:, 0])]
+    return a[:, 0], a[:, 1]
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("csvs", nargs="+", help="CSV file(s): two columns, log_e,density")
-    ap.add_argument("--family", action="store_true", help="fit all CSVs with one shared paper shape (VC grade family)")
+    ap = argparse.ArgumentParser(description="Fit NegPy paper-profile constants to digitized datasheet curves.")
+    ap.add_argument("kind", choices=("bw", "ra4"))
+    ap.add_argument("csvs", nargs="+", help="bw: one CSV per grade; ra4: R, G, B")
     args = ap.parse_args()
 
-    datasets = []
-    for path in args.csvs:
-        arr = np.loadtxt(path, delimiter=",")
-        datasets.append((path, arr[:, 0].astype(float), arr[:, 1].astype(float)))
+    curves = [load(p) for p in args.csvs]
+    if args.kind == "ra4" and len(curves) != 3:
+        sys.exit("ra4 takes exactly three curves: R, G, B")
+    xs = np.linspace(max(x.min() for x, _ in curves), min(x.max() for x, _ in curves), 150)
+    chans = [np.interp(xs, x, d) for x, d in curves]
+    shape, d_min, grades, rms = fit(args.kind, [(xs, np.mean(chans, axis=0))] if args.kind == "ra4" else curves)
 
-    groups = [datasets] if args.family else [[d] for d in datasets]
-    for group in groups:
-        curves = [(x, d) for _, x, d in group]
-        r = fit(curves)
-        d_min, d_max, a_hl, a_sh, mg, gw = r.x[:6]
-        rms = float(np.sqrt(np.mean(r.fun**2)))
-        names = ", ".join(name for name, _, _ in group)
-        print(f"\n== {names}")
-        print(f"RMS residual: {rms:.4f} D  ({'OK' if rms <= 0.05 else 'POOR FIT — parametric family may not represent this paper'})")
-        print("PaperProfile kwargs:")
-        print(f"    d_min={d_min:.3f}, d_max={d_max:.3f},")
-        print(f"    shoulder_sharpness_base={a_hl:.2f}, toe_sharpness_base={a_sh:.2f},")
-        print(f"    paper_midtone_gamma={mg:.3f}, paper_gamma_width={gw:.3f},")
-        for i, (name, x, d) in enumerate(group):
-            k, x0 = r.x[6 + 2 * i : 8 + 2 * i]
-            print(f"    # {name}: slope k={k:.2f} pivot={x0:.3f} (nuisance; grade/pivot come from the engine)")
-        if args.family and len(group) > 1:
-            print("    # Grade-family trend: regress the per-curve k values against any per-grade")
-            print("    # shape refit to calibrate grade_coupled_shape (toe/shoulder/midtone-gamma vs slope).")
+    d_max, toe, shoulder, mg, gw = shape
+    total = float(np.sqrt(np.mean(np.square(rms))))
+    print(f"RMS residual: {total:.4f} D  ({'OK' if total <= 0.05 else 'POOR FIT'})  per curve {[round(r, 3) for r in rms]}")
+    print(f"ISO R per curve: {[round(g) for g in grades]}")
+    print("PaperProfile kwargs:")
+    print(f"    d_max={d_max:.2f},\n    d_min={d_min:.3f},")
+    print(f"    toe_sharpness_base={toe:.2f},\n    shoulder_sharpness_base={shoulder:.2f},")
+    print(f"    paper_midtone_gamma={mg:.3f},\n    paper_gamma_width={gw:.2f},")
+    if args.kind == "ra4":
+        g = [channel_gain(shape, d_min, grades[0], xs, d) for d in chans]
+        print(f"    channel_gamma=({g[0] / g[1]:.3f}, 1.0, {g[2] / g[1]:.3f}),")
+        tint = [float(d.min()) - d_min for d in chans]
+        print(f"    base_tint_cmy=({tint[0]:.3f}, {tint[1]:.3f}, {tint[2]:.3f}),")
 
 
 if __name__ == "__main__":

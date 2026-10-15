@@ -138,3 +138,27 @@ class TestWorkPrintController(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWorkPrintRenameCollision(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = StorageRepository(f"{self._tmp.name}/edits.db", f"{self._tmp.name}/settings.db")
+        self.repo.initialize()
+        self.session = DesktopSessionManager(self.repo)
+        self.session.state.current_file_hash = "h"
+        self.repo.save_work_print("h", "a", _variant(1.0))
+        self.repo.save_work_print("h", "b", _variant(1.5))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_rename_onto_an_existing_name_keeps_both_unless_replace_is_confirmed(self):
+        self.session.rename_work_print("a", "b")
+        self.assertEqual(sorted(self.repo.list_work_prints("h")), ["a", "b"])
+        self.assertEqual(self.repo.load_work_print("h", "b").exposure.density, 1.5)
+
+    def test_confirmed_replace_takes_the_renamed_settings(self):
+        self.session.rename_work_print("a", "b", replace_existing=True)
+        self.assertEqual(self.repo.list_work_prints("h"), ["b"])
+        self.assertEqual(self.repo.load_work_print("h", "b").exposure.density, 1.0)

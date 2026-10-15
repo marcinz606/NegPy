@@ -128,7 +128,7 @@ class SimulatedBackend:
     def eject(self, device_id: str) -> bool:
         return _BY_ID[device_id].capabilities.can_eject
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
         return _ROLL_FRAMES
 
     def meter(
@@ -183,7 +183,9 @@ class _Roll:
         self._offsets: dict[int, float] = {}
         self._approved: set[int] = set()
 
-    def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:
+    def preview(
+        self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+    ) -> Iterator[RollPreview]:
         for slot in slots:
             if cancel.wait(_STEP_S):
                 return

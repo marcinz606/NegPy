@@ -53,16 +53,23 @@ def logluv32_to_xyz(packed: np.ndarray) -> np.ndarray:
     return out
 
 
-def decode_strip_logluv32(compressed: bytes, npixels: int) -> np.ndarray:
-    """Decode a LogLuv32 RLE strip → npixels uint32 values.
-
-    Four byte-planes (shifts 24,16,8,0) are run-length coded into one
-    stream; runs ≥128 are count+value, else literals.
-    """
+def decode_strip_logluv32(compressed: bytes, npixels: int, width: int | None = None) -> np.ndarray:
+    """Decode a LogLuv32 RLE strip → npixels uint32 values. libtiff codes each scanline on its own: four byte-planes
+    (shifts 24,16,8,0), each run-length coded (runs ≥128 count+value, else literals). *width* is the scanline length;
+    None reads the strip as one scanline."""
     buf = np.frombuffer(compressed, dtype=np.uint8)
-    n = buf.shape[0]
+    width = npixels if not width else width
     pixels = np.zeros(npixels, dtype=np.uint32)
     pos = 0
+    for start in range(0, npixels, width):
+        pos = _decode_scanline(buf, pos, pixels[start : start + width])
+    return pixels
+
+
+def _decode_scanline(buf: np.ndarray, pos: int, pixels: np.ndarray) -> int:
+    """Fill *pixels* from the scanline at *pos*; returns where the next one starts."""
+    n = buf.shape[0]
+    npixels = pixels.shape[0]
     for shft in (24, 16, 8, 0):
         i = 0
         while i < npixels and pos < n:
@@ -82,7 +89,7 @@ def decode_strip_logluv32(compressed: bytes, npixels: int) -> np.ndarray:
                 pixels[i : i + seg] |= buf[pos : pos + seg].astype(np.uint32) << shft
                 pos += seg
                 i += seg
-    return pixels
+    return pos
 
 
 # LogLuv24: 10-bit log luminance + 14-bit uv index (libtiff uvcode.h table)
@@ -388,7 +395,7 @@ def decode_logluv_strips(
             raise ValueError(f"Strip {si} underrun (need {cnt}, got {len(chunk)})")
 
         if use_rle:
-            packed[filled : filled + npix] = decode_strip_logluv32(chunk, npix)
+            packed[filled : filled + npix] = decode_strip_logluv32(chunk, npix, width)
         else:
             b = np.frombuffer(chunk, dtype=np.uint8, count=npix * bpp)
             p = b.reshape(npix, 3).astype(np.uint32)

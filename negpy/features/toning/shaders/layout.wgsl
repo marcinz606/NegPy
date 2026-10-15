@@ -26,29 +26,39 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (local_x >= 0.0 && local_x < f32(params.content_dims.x) &&
         local_y >= 0.0 && local_y < f32(params.content_dims.y)) {
 
-        // Map output pixel to source coordinates
-        // Using bilinear interpolation
-        let src_x = local_x / params.scale;
-        let src_y = local_y / params.scale;
-
-        let x1 = i32(floor(src_x));
-        let y1 = i32(floor(src_y));
-        let x2 = min(x1 + 1, params.source_dims.x - 1);
-        let y2 = min(y1 + 1, params.source_dims.y - 1);
-
-        let fx = src_x - f32(x1);
-        let fy = src_y - f32(y1);
-
-        let c11 = textureLoad(input_tex, vec2<i32>(x1, y1), 0);
-        let c21 = textureLoad(input_tex, vec2<i32>(x2, y1), 0);
-        let c12 = textureLoad(input_tex, vec2<i32>(x1, y2), 0);
-        let c22 = textureLoad(input_tex, vec2<i32>(x2, y2), 0);
-
-        let color = mix(
-            mix(c11, c21, fx),
-            mix(c12, c22, fx),
-            fy
+        // Shrinking averages each output pixel's source footprint, as INTER_AREA does on
+        // the CPU; enlarging interpolates between pixel centres.
+        let inv = vec2<f32>(
+            f32(params.source_dims.x) / f32(params.content_dims.x),
+            f32(params.source_dims.y) / f32(params.content_dims.y),
         );
+        let last = params.source_dims - vec2<i32>(1, 1);
+        var color = vec4<f32>(0.0);
+        if (inv.x > 1.0 || inv.y > 1.0) {
+            let lo = vec2<f32>(local_x, local_y) * inv;
+            let hi = lo + inv;
+            var total = 0.0;
+            for (var iy = i32(floor(lo.y)); f32(iy) < hi.y; iy++) {
+                let wy = min(f32(iy + 1), hi.y) - max(f32(iy), lo.y);
+                for (var ix = i32(floor(lo.x)); f32(ix) < hi.x; ix++) {
+                    let wx = min(f32(ix + 1), hi.x) - max(f32(ix), lo.x);
+                    let p = clamp(vec2<i32>(ix, iy), vec2<i32>(0, 0), last);
+                    color += textureLoad(input_tex, p, 0) * (wx * wy);
+                    total += wx * wy;
+                }
+            }
+            color /= max(total, 1e-8);
+        } else {
+            let src = max((vec2<f32>(local_x, local_y) + 0.5) * inv - 0.5, vec2<f32>(0.0));
+            let p1 = min(vec2<i32>(floor(src)), last);
+            let p2 = min(p1 + vec2<i32>(1, 1), last);
+            let f = src - vec2<f32>(p1);
+            color = mix(
+                mix(textureLoad(input_tex, p1, 0), textureLoad(input_tex, vec2<i32>(p2.x, p1.y), 0), f.x),
+                mix(textureLoad(input_tex, vec2<i32>(p1.x, p2.y), 0), textureLoad(input_tex, p2, 0), f.x),
+                f.y,
+            );
+        }
 
         textureStore(output_tex, coords, color);
     } else {

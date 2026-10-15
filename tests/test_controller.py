@@ -18,6 +18,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
+from negpy.services.rendering.image_processor import ArmedCrop
 from negpy.features.geometry.logic import autocrop_detection_key
 from negpy.domain.models import (
     ColorSpace,
@@ -140,7 +141,7 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
         measured = FrameSkew(fine_rotation=-1.25, converge_v=0.8, converge_h=None, confidence=0.9, lines=(), residual=0.0)
 
-        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured) as fit:
+        with patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=measured) as fit:
             self.controller.auto_skew_frame()
 
         fitted_on = fit.call_args.args[0]
@@ -163,7 +164,7 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
         measured = FrameSkew(fine_rotation=-1.25, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
 
-        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured):
+        with patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=measured):
             self.controller.auto_skew_frame()
 
         message = self.controller.set_status.call_args.args[0]
@@ -176,7 +177,7 @@ class TestAppController(unittest.TestCase):
         self.controller.request_render = MagicMock()
         self.controller.set_status = MagicMock()
 
-        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=None):
+        with patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=None):
             self.controller.auto_skew_frame()
 
         self.mock_session_manager.update_config.assert_not_called()
@@ -193,7 +194,7 @@ class TestAppController(unittest.TestCase):
         self.controller.set_status = MagicMock()
         measured = FrameSkew(fine_rotation=1.01, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
 
-        with patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured):
+        with patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=measured):
             self.controller.auto_skew_frame()
 
         self.mock_session_manager.update_config.assert_not_called()
@@ -209,20 +210,68 @@ class TestAppController(unittest.TestCase):
         measured = FrameSkew(fine_rotation=-1.0, converge_v=None, converge_h=None, confidence=0.9, lines=(), residual=0.0)
 
         with (
-            patch("negpy.desktop.controller.apply_flatfield", return_value=flattened) as bake,
-            patch("negpy.desktop.controller.trusted_frame_skew", return_value=measured) as fit,
+            patch("negpy.services.rendering.lens.apply_flatfield", return_value=flattened) as bake,
+            patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=measured) as fit,
         ):
             self.controller.auto_skew_frame()
 
         bake.assert_called_once()
         self.assertEqual(float(fit.call_args.args[0].mean()), 0.5)
 
+    def test_auto_skew_cuts_the_flatfield_gain_to_the_active_half(self):
+        self.controller.state.preview_raw = np.zeros((100, 60, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        half = (2, 0.5, None, 0.0, "x")
+
+        with (
+            patch.object(self.controller, "active_diptych", return_value=None),
+            patch.object(self.controller, "_active_half", return_value=half),
+            patch("negpy.services.rendering.lens.apply_flatfield", side_effect=lambda image, *_, **__: image) as bake,
+            patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=None),
+        ):
+            self.controller.auto_skew_frame()
+
+        gain_crop = bake.call_args.args[2]
+        self.assertEqual(gain_crop(np.zeros((100, 120, 3), dtype=np.float32)).shape, (100, 60, 3))
+
+    def test_auto_skew_cuts_the_flatfield_gain_to_the_diptych_crop(self):
+        self.controller.state.preview_raw = np.zeros((100, 60, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        dip = ({"split_x": 0.5, "crop_rect": (0.0, 0.0, 0.5, 1.0), "gutter_thickness": 0.0, "split_axis": "x"}, None)
+
+        with (
+            patch.object(self.controller, "active_diptych", return_value=dip),
+            patch("negpy.services.rendering.lens.apply_flatfield", side_effect=lambda image, *_, **__: image) as bake,
+            patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=None),
+        ):
+            self.controller.auto_skew_frame()
+
+        gain_crop = bake.call_args.args[2]
+        self.assertEqual(gain_crop(np.zeros((100, 120, 3), dtype=np.float32)).shape, (100, 60, 3))
+
+    def test_auto_skew_skips_the_flatfield_on_a_stitch(self):
+        config = self.controller.state.config
+        self.controller.state.config = replace(config, stitch=replace(config.stitch, stitch_enabled=True))
+        self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+
+        with (
+            patch("negpy.services.rendering.lens.apply_flatfield") as bake,
+            patch("negpy.features.geometry.skew.trusted_frame_skew", return_value=None),
+        ):
+            self.controller.auto_skew_frame()
+
+        bake.assert_not_called()
+
     def test_auto_skew_failure_reports_and_changes_nothing(self):
         self.controller.state.preview_raw = np.zeros((100, 120, 3), dtype=np.float32)
         self.controller.request_render = MagicMock()
         self.controller.set_status = MagicMock()
 
-        with patch("negpy.desktop.controller.trusted_frame_skew", side_effect=RuntimeError("no LSD")):
+        with patch("negpy.features.geometry.skew.trusted_frame_skew", side_effect=RuntimeError("no LSD")):
             self.controller.auto_skew_frame()
 
         self.mock_session_manager.update_config.assert_not_called()
@@ -897,6 +946,24 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(self.controller._is_rendering)
         self.assertIsNone(self.controller._pending_render_task)
 
+    def test_a_drag_reads_metrics_back_but_an_override_does_not(self):
+        import numpy as np
+
+        from negpy.domain.models import WorkspaceConfig
+
+        emitted = []
+        self.controller.render_requested.connect(emitted.append)
+        self.controller.state.preview_raw = np.zeros((4, 4, 3), dtype=np.float32)
+
+        self.controller.request_render(readback_metrics=False)
+        self.controller._is_rendering = False
+        self.controller.request_render(readback_metrics=False, config_override=WorkspaceConfig())
+
+        drag, override = emitted
+        self.assertTrue(drag.interactive)
+        self.assertTrue(drag.readback_metrics)
+        self.assertFalse(override.readback_metrics)
+
     def test_stale_prefetch_finish_starts_the_next_queued_prefetch(self):
         from negpy.desktop.workers.render import PreviewLoadTask
 
@@ -981,23 +1048,30 @@ class TestAppController(unittest.TestCase):
             patch("negpy.desktop.controller.load_or_promote", return_value=None),
             patch("negpy.desktop.controller.write_sidecar") as mock_write,
         ):
-            written, failed = self.controller._write_edit_sidecars([frame])
+            written, failed, skipped = self.controller._write_edit_sidecars([frame])
 
-        self.assertEqual((written, failed), (1, 0))
+        self.assertEqual((written, failed, skipped), (1, 0, 0))
         self.mock_session_manager.config_for_asset.assert_called_once_with(frame)
         params = mock_write.call_args.args[1]
         self.assertIs(params, hydrated)
         self.assertIsNone(params.geometry.crop_rect)
 
-    def test_write_edit_sidecars_never_rehomes_a_forked_frame(self):
-        frame = {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2#roll:r1"}
+    def test_write_edit_sidecars_skips_forks_and_composites(self):
+        """Their path is the shared frame's, so a sidecar there would replace that frame's edit."""
+        frames = [
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2#roll:r1"},
+            {"name": "a.tif", "path": "/tmp/a.tif", "hash": "h#stitch", "stitch_paths": ["/tmp/a.tif", "/tmp/c.tif"]},
+            {"name": "a.tif", "path": "/tmp/a.tif", "hash": "h#hdr", "hdr_paths": ["/tmp/a.tif", "/tmp/d.tif"]},
+        ]
         with (
             patch("negpy.desktop.controller.load_or_promote", return_value=None) as mock_load,
-            patch("negpy.desktop.controller.write_sidecar"),
+            patch("negpy.desktop.controller.write_sidecar") as mock_write,
         ):
-            self.controller._write_edit_sidecars([frame])
+            result = self.controller._write_edit_sidecars(frames)
 
-        self.assertTrue(mock_load.call_args.kwargs["forked"])
+        self.assertEqual(result, (0, 0, 3))
+        mock_load.assert_not_called()
+        mock_write.assert_not_called()
 
     def test_discovery_promotes_sidecars_before_adding_files(self):
         state = self.mock_session_manager.state
@@ -1094,6 +1168,122 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(self.mock_session_manager.update_config.call_args[0][0].geometry.autocrop_ratio, "5:4")
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), {"autocrop"})
+
+    def _roll_with_one_frame(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        self.controller.request_render = MagicMock()
+        return rolls, roll_id
+
+    def test_auto_crop_on_or_off_persists_and_locks_the_auto_crop_card(self):
+        rolls, roll_id = self._roll_with_one_frame()
+
+        self.controller.apply_auto_crop()
+
+        args, kwargs = self.mock_session_manager.update_config.call_args
+        self.assertTrue(kwargs["persist"])
+        self.assertTrue(args[0].geometry.crop_from_auto)
+        self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), {"auto_crop"})
+
+    def test_a_committed_hand_drawn_crop_releases_an_auto_crop_lock(self):
+        """The roll's Auto Crop never reaches a hand-drawn crop, so there is nothing to lock."""
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True)
+        rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
+        state = self.mock_session_manager.state
+        state.active_tool = ToolMode.CROP_MANUAL
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        self.controller.handle_crop_rect_changed(0.1, 0.1, 0.9, 0.9, persist=False)
+        self.assertIn("auto_crop", rolls.frame_override_cards(repo, roll_id, "h1"))
+
+        self.controller.handle_crop_rect_changed(0.1, 0.1, 0.9, 0.9, persist=True)
+        self.assertNotIn("auto_crop", rolls.frame_override_cards(repo, roll_id, "h1"))
+
+    def test_a_crop_push_from_a_hand_drawn_frame_keeps_the_rolls_auto_crop(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True)
+        self.controller.request_batch_auto_crop = MagicMock()
+        state = self.mock_session_manager.state
+        geometry = replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False, autocrop_ratio="4:3")
+        state.config = replace(state.config, geometry=geometry)
+
+        self.controller._push_cards_to_roll(["autocrop", "auto_crop"])
+
+        defaults = rolls.roll_defaults(repo, roll_id)
+        self.assertTrue(defaults["crop_from_auto"])
+        self.assertEqual(defaults["autocrop_ratio"], "4:3")
+
+    def test_a_hand_drawn_crop_never_locks_auto_crop_and_an_old_lock_reads_unlocked(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        self.controller.set_card_scope(("autocrop", "auto_crop"), "frame")
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"autocrop"})
+
+        rolls.set_frame_override(repo, roll_id, "h1", "autocrop", False)
+        rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
+        self.assertEqual(self.controller.locked_roll_cards(), set())
+        self.controller.set_card_scope(("autocrop", "auto_crop"), "roll")
+        self.assertNotIn("crop_from_auto", rolls.roll_defaults(repo, roll_id))
+
+    def test_a_crop_push_only_shares_values(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        self.controller.request_batch_auto_crop = MagicMock()
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_from_auto=True))
+
+        self.controller._push_cards_to_roll(["auto_crop"])
+
+        self.assertTrue(rolls.roll_defaults(self.controller.session.repo, roll_id)["crop_from_auto"])
+        self.controller.request_batch_auto_crop.assert_not_called()
+
+    def test_with_both_crop_cards_locked_roll_pushes_both(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="3:2")
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_from_auto=False, autocrop_ratio="4:3"))
+        self.controller.set_status = MagicMock()
+
+        self.controller._push_cards_to_roll(["autocrop", "auto_crop"])
+
+        defaults = rolls.roll_defaults(repo, roll_id)
+        self.assertEqual((defaults["autocrop_ratio"], defaults["crop_from_auto"]), ("4:3", False))
+        self.assertEqual(self.controller.set_status.call_args.args[0], "Applied to the roll: Crop shape, Auto Crop")
+
+    def test_reset_to_roll_auto_crop_arms_an_uncropped_frame_and_keeps_a_hand_drawn_one(self):
+        state = self.mock_session_manager.state
+        drawn = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        armed = self.controller._with_roll_card(state.config, "auto_crop", {"crop_from_auto": True})
+        kept = self.controller._with_roll_card(drawn, "auto_crop", {"crop_from_auto": True})
+
+        self.assertTrue(armed.geometry.crop_from_auto)
+        self.assertIsNone(armed.geometry.crop_rect)
+        self.assertEqual(kept.geometry, drawn.geometry)
+
+    def test_an_old_auto_crop_lock_offers_no_reset_to_roll_on_a_hand_drawn_frame(self):
+        rolls, roll_id = self._roll_with_one_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, crop_from_auto=True)
+        rolls.set_frame_override(repo, roll_id, "h1", "auto_crop", True)
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
+
+        self.assertEqual(self.controller.roll_revert_cards(["auto_crop"]), set())
+        self.assertEqual(self.controller.revert_frame_to_roll(), 0)
+        self.assertEqual(state.config.geometry.crop_rect, (0.1, 0.1, 0.9, 0.9))
 
     def test_a_settled_auto_crop_edit_drops_the_frames_cached_bounds(self):
         """The crop feeds the meter, so a settled change to what auto crop looks for
@@ -1260,6 +1450,72 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(rolls.roll_defaults(self.controller.session.repo, roll_id)["hue_trim"], 2.5)
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), {"autocrop"})
 
+    def test_undo_apply_to_roll_restores_the_roll_and_the_lock(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_roll_defaults(repo, roll_id, hue_trim=1.0)
+        rolls.set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": f"{h}.dng", "path": f"/{h}.dng", "hash": h} for h in ("h1", "h2")]
+        state.current_file_hash = "h1"
+        state.stale_thumbnails = set()
+        state.config = replace(state.config, process=replace(state.config.process, hue_trim=2.5))
+        before = rolls.roll_defaults(repo, roll_id)
+
+        self.controller.apply_roll_card("sensor")
+        self.assertTrue(self.controller.can_undo_roll_push())
+        state.stale_thumbnails.clear()
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)  # another card, written after the push
+        self.controller.undo_roll_push()
+
+        self.assertEqual(rolls.roll_defaults(repo, roll_id), {**before, "analysis_buffer": 0.2})
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"sensor"})
+        self.assertEqual(state.stale_thumbnails, {asset_thumbnail_key(state.uploaded_files[1])})
+        self.assertFalse(self.controller.can_undo_roll_push(), "one step only")
+
+    def test_undo_apply_to_roll_drops_a_field_the_roll_never_had(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_frame_override(repo, roll_id, "h1", "autocrop", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+
+        self.controller.apply_roll_card("autocrop")
+        self.assertTrue(self.controller.can_undo_roll_push(("autocrop",)))
+        self.assertFalse(self.controller.can_undo_roll_push(("sensor",)), "another card's push is not this card's undo")
+        self.controller.undo_roll_push()
+
+        self.assertEqual(rolls.roll_defaults(repo, roll_id), {})
+
+    def test_undo_apply_to_roll_is_offered_only_on_the_pushing_frame(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+
+        self.controller.apply_roll_card("sensor")
+        state.current_file_hash = "h2"
+
+        self.assertFalse(self.controller.can_undo_roll_push())
+        pushed = rolls.roll_defaults(repo, roll_id)
+        self.controller.undo_roll_push()
+        self.assertEqual(rolls.roll_defaults(repo, roll_id), pushed)
+
     def test_cast_removal_is_its_own_roll_card(self):
         from negpy.services.assets import rolls
 
@@ -1361,10 +1617,10 @@ class TestAppController(unittest.TestCase):
         state.active_roll_id = roll_id
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
 
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
 
         self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-        self.assertEqual(self.controller.frame_section_scope("tone"), "roll")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "roll")
 
     def test_a_frame_section_drops_back_to_frame_once_edited_again(self):
         """Nothing clears the record: the frame simply stops matching it."""
@@ -1379,7 +1635,7 @@ class TestAppController(unittest.TestCase):
 
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.9))
 
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
+        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
 
     def test_frame_section_scopes_answers_every_card_off_one_roll_read(self):
         from negpy.services.assets import rolls
@@ -1393,9 +1649,9 @@ class TestAppController(unittest.TestCase):
         self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
         repo.get_global_setting.reset_mock()
 
-        scopes = self.controller.frame_section_scopes(("tone", "finish"))
+        scopes = self.controller.frame_section_scopes(("paper", "finish"))
 
-        self.assertEqual(scopes, {"tone": "roll", "finish": "frame"})
+        self.assertEqual(scopes, {"paper": "roll", "finish": "frame"})
         self.assertEqual(repo.get_global_setting.call_count, 1)
 
     def test_a_frame_section_reads_frame_with_no_roll_open(self):
@@ -2126,6 +2382,19 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with()
         self.controller.request_render.assert_called_once_with()
 
+    def test_the_decode_orientation_reaches_the_render_for_the_flat_field(self):
+        import numpy as np
+
+        emitted = []
+        self.controller.render_requested.connect(emitted.append)
+        self.controller._requested_file_path = "turned.arw"
+        raw = np.zeros((4, 6, 3), dtype=np.float32)
+
+        self.controller._on_preview_loaded("turned.arw", raw, (4, 6), "", None, "", (None, None, None, "", 6))
+
+        self.assertEqual(self.controller.state.preview_orientation, 6)
+        self.assertEqual(emitted[-1].source_orientation, 6)
+
     def test_stale_preview_decode_is_dropped(self):
         """A decode that lands after the user switched files must not be applied —
         accepting it pairs the old buffer with the new file's hash and poisons the
@@ -2195,6 +2464,30 @@ class TestAppController(unittest.TestCase):
 
         self.mock_session_manager.update_config.assert_not_called()
         self.controller.request_render.assert_not_called()
+
+    def test_crop_edits_show_no_spinner_with_no_frame_loaded(self):
+        self.controller.request_render = MagicMock()
+        loading = MagicMock()
+        self.controller.loading_started.connect(loading)
+
+        self.controller.set_crop_ratio("4:3")
+        self.controller.apply_auto_crop()
+        self.controller.reset_crop()
+
+        loading.assert_not_called()
+        self.assertEqual(self.controller.request_render.call_count, 3)
+
+    def test_crop_edits_show_the_spinner_on_a_loaded_frame(self):
+        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+        loading = MagicMock()
+        self.controller.loading_started.connect(loading)
+
+        self.controller.set_crop_ratio("4:3")
+        self.controller.apply_auto_crop()
+        self.controller.reset_crop()
+
+        self.assertEqual(loading.call_count, 3)
 
     def test_set_crop_ratio_preserves_metering_bounds(self):
         """A ratio change is a pure reframe and must not re-meter. Clearing the
@@ -2368,14 +2661,14 @@ class TestAppController(unittest.TestCase):
             self.assertEqual(out, [task])
             self.controller._prompt_overwrite_conflicts.assert_not_called()
 
-    def _armed_auto_crop(self):
-        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True, crop_rect=None)
+    def _armed_auto_crop(self, square: bool = True):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True, crop_rect=None, autocrop_square=square)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         return autocrop_detection_key(geometry)
 
     def test_freeze_stores_the_crop_the_render_detected(self):
         key = self._armed_auto_crop()
-        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": key}
+        metrics = {"autocrop_resolved": ArmedCrop((0.05, 0.04, 0.99, 0.98), key, None, False)}
 
         self.controller._freeze_resolved_auto_crop(metrics)
 
@@ -2387,17 +2680,83 @@ class TestAppController(unittest.TestCase):
     def test_freeze_requests_no_render(self):
         """The rect is what was just painted, so re-rendering it would only cost a frame."""
         key = self._armed_auto_crop()
-        self.controller._freeze_resolved_auto_crop({"autocrop_resolved_rect": (0.1, 0.1, 0.9, 0.9), "autocrop_resolved_key": key})
+        self.controller._freeze_resolved_auto_crop({"autocrop_resolved": ArmedCrop((0.1, 0.1, 0.9, 0.9), key, None, False)})
         self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
 
     def test_freeze_drops_a_result_the_user_has_moved_past(self):
         """Ratio changed while the render was in flight: a render under the new one is
         already queued, and storing this rect would file it under the wrong detection."""
         self._armed_auto_crop()
-        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": "stale-key"}
+        metrics = {"autocrop_resolved": ArmedCrop((0.05, 0.04, 0.99, 0.98), "stale-key", None, False)}
 
         self.controller._freeze_resolved_auto_crop(metrics)
 
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_freeze_stores_the_squared_angle_with_the_crop(self):
+        """The crop was found on the squared frame: both save together, with no undo step of their own."""
+        self._armed_auto_crop()
+        squared = replace(self.controller.state.config.geometry, fine_rotation=1.2, converge_v=0.8, converge_h=0.0)
+        key = autocrop_detection_key(squared)
+
+        self.controller._freeze_resolved_auto_crop({"autocrop_resolved": ArmedCrop((0.05, 0.04, 0.99, 0.98), key, (1.2, 0.8, 0.0), True)})
+
+        call = self.mock_session_manager.update_config.call_args
+        geometry = call.args[0].geometry
+        self.assertEqual((geometry.fine_rotation, geometry.converge_v, geometry.converge_h), (1.2, 0.8, 0.0))
+        self.assertEqual((geometry.crop_rect, geometry.crop_detect_key), ((0.05, 0.04, 0.99, 0.98), key))
+        self.assertTrue(geometry.autocrop_squared)
+        self.assertFalse(call.kwargs["record_history"])
+
+    def test_freeze_stores_the_squared_angle_when_no_crop_was_found(self):
+        """Saved anyway, so the next render does not pay for the fit again."""
+        self._armed_auto_crop()
+        squared = replace(self.controller.state.config.geometry, fine_rotation=-0.6)
+
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved": ArmedCrop(None, autocrop_detection_key(squared), (-0.6, 0.0, 0.0), True)}
+        )
+
+        geometry = self.mock_session_manager.update_config.call_args.args[0].geometry
+        self.assertEqual(geometry.fine_rotation, -0.6)
+        self.assertIsNone(geometry.crop_rect)
+        self.assertTrue(geometry.crop_from_auto)  # still armed for the crop
+
+    def test_freeze_drops_a_squaring_when_the_frame_got_its_own_angle_meanwhile(self):
+        self._armed_auto_crop()
+        hand = replace(self.controller.state.config.geometry, fine_rotation=0.4)
+        self.controller.state.config = replace(self.controller.state.config, geometry=hand)
+        squared = replace(hand, fine_rotation=1.2)
+
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved": ArmedCrop((0.1, 0.1, 0.9, 0.9), autocrop_detection_key(squared), (1.2, 0.0, 0.0), False)}
+        )
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_freeze_marks_a_failed_squaring_so_it_runs_once(self):
+        key = self._armed_auto_crop()
+        self.controller._freeze_resolved_auto_crop({"autocrop_resolved": ArmedCrop(None, key, None, True)})
+        geometry = self.mock_session_manager.update_config.call_args.args[0].geometry
+        self.assertEqual((geometry.crop_rect, geometry.fine_rotation), (None, 0.0))
+        self.assertTrue(geometry.autocrop_squared)
+
+    def test_freeze_drops_a_squaring_once_square_was_turned_off(self):
+        self._armed_auto_crop(square=False)
+        squared = replace(self.controller.state.config.geometry, fine_rotation=1.2)
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved": ArmedCrop((0.1, 0.1, 0.9, 0.9), autocrop_detection_key(squared), (1.2, 0.0, 0.0), True)}
+        )
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_freeze_drops_a_squaring_once_another_render_squared_the_arm(self):
+        self._armed_auto_crop()
+        done = replace(self.controller.state.config.geometry, autocrop_squared=True)
+        self.controller.state.config = replace(self.controller.state.config, geometry=done)
+        squared = replace(done, fine_rotation=1.2)
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved": ArmedCrop((0.1, 0.1, 0.9, 0.9), autocrop_detection_key(squared), (1.2, 0.0, 0.0), True)}
+        )
         self.mock_session_manager.update_config.assert_not_called()
 
     def test_freeze_ignores_a_render_of_a_manual_crop(self):
@@ -2405,7 +2764,7 @@ class TestAppController(unittest.TestCase):
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
 
         self.controller._freeze_resolved_auto_crop(
-            {"autocrop_resolved_rect": (0.0, 0.0, 1.0, 1.0), "autocrop_resolved_key": autocrop_detection_key(geometry)}
+            {"autocrop_resolved": ArmedCrop((0.0, 0.0, 1.0, 1.0), autocrop_detection_key(geometry), None, False)}
         )
 
         self.mock_session_manager.update_config.assert_not_called()
@@ -2691,6 +3050,7 @@ class TestBatchExportFiltering(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: self.mock_session_manager.repo.load_file_settings(f["hash"])
 
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
@@ -2851,6 +3211,7 @@ class TestLinearOutputExportCurrentFile(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: self.mock_session_manager.repo.load_file_settings(f["hash"])
 
         self.mock_session_manager.state.uploaded_files = [
             {
@@ -3026,6 +3387,7 @@ class TestPresetExportCurrentFileTriplet(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: self.mock_session_manager.repo.load_file_settings(f["hash"])
 
         self.mock_session_manager.state.uploaded_files = [
             {
@@ -3093,6 +3455,7 @@ class TestPresetBatchExport(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: self.mock_session_manager.repo.load_file_settings(f["hash"])
 
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
@@ -4293,6 +4656,7 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: self.mock_session_manager.repo.load_file_settings(f["hash"])
 
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
@@ -4807,7 +5171,7 @@ class TestNegativePeekColor(unittest.TestCase):
         state.preview_cam_xyz = cam_xyz
         state.preview_camera_wb = camera_wb
         self.controller._paint_negative_peek()
-        return state.last_metrics
+        return state.peek_frame
 
     def test_the_peek_applies_the_camera_matrix(self):
         import numpy as np
@@ -4858,7 +5222,7 @@ class TestNegativePeekColor(unittest.TestCase):
         state.preview_cam_xyz = self.D3300
         state.preview_camera_wb = wb
         self.controller._paint_negative_peek()
-        without_wb = np.array(state.last_metrics["base_positive"])
+        without_wb = np.array(state.peek_frame["base_positive"])
 
         np.testing.assert_allclose(with_wb, without_wb, atol=1e-5)
 
@@ -4886,8 +5250,9 @@ class TestNegativePeekColor(unittest.TestCase):
         or right_panel's analysis-chart refresh mistakes the settled peek frame for a
         mid-gesture one and never re-syncs the histogram."""
         self.controller.state.last_metrics["interactive"] = True
-        metrics = self._paint(self.D3300)
-        self.assertFalse(metrics["interactive"])
+        self.controller.state.negative_peek = True
+        self._paint(self.D3300)
+        self.assertFalse(self.controller.state.canvas_value("interactive"))
 
 
 class TestEmbeddedPeek(unittest.TestCase):
@@ -4945,7 +5310,7 @@ class TestEmbeddedPeek(unittest.TestCase):
             self.controller.toggle_embedded_peek(force=True)
 
         self.assertTrue(self.controller.state.embedded_peek)
-        metrics = self.controller.state.last_metrics
+        metrics = self.controller.state.peek_frame
         np.testing.assert_allclose(metrics["base_positive"], preview)
         self.assertTrue(metrics["splash"])
         self.assertFalse(metrics["proof"])
@@ -4956,6 +5321,17 @@ class TestEmbeddedPeek(unittest.TestCase):
             self.controller.toggle_embedded_peek(force=False)
             self.controller.toggle_embedded_peek(force=True)
         read.assert_called_once()
+
+    def test_an_edit_ends_the_embedded_peek(self):
+        from dataclasses import replace
+
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))):
+            self.controller.toggle_embedded_peek(force=True)
+        exposure = replace(self.controller.state.config.exposure, density=self.controller.state.config.exposure.density + 0.1)
+        self.controller.state.config = replace(self.controller.state.config, exposure=exposure)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertFalse(self.controller.state.embedded_peek)
 
     def test_a_source_with_no_preview_says_so_and_stays_off(self):
         seen: list = []
@@ -4985,6 +5361,254 @@ class TestEmbeddedPeek(unittest.TestCase):
         self.controller.state.preview_raw = None
         self.controller.toggle_embedded_peek(force=True)
         self.assertFalse(self.controller.state.embedded_peek)
+
+    def _peek_then_edit(self):
+        """Embedded peek on, then an edit whose print lands while the peek holds the canvas."""
+        import numpy as np
+
+        self.controller.state.current_file_hash = "h1"
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))):
+            self.controller.toggle_embedded_peek(force=True)
+        self.controller._thumb_config = self.controller.state.config
+        self.controller.state.config = replace(self.controller.state.config)
+        self.print_buffer = np.full((6, 8, 3), 0.25, dtype=np.float32)
+        return {"base_positive": self.print_buffer, "content_rect": (0, 0, 8, 6), "source_hash": "h1"}
+
+    def test_a_render_under_a_peek_refreshes_the_thumbnail_from_the_print(self):
+        metrics = self._peek_then_edit()
+        tasks: list = []
+        self.controller.thumbnail_update_requested.connect(tasks.append)
+        with patch.object(self.controller, "_asset_for_render", return_value={"hash": "h1"}):
+            self.controller._on_render_finished(None, metrics)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertIs(tasks[0].buffer, self.print_buffer)
+
+    def test_late_metrics_leave_the_peek_on_the_canvas(self):
+        """Reference View and the canvas size read the canvas value; under a peek it is the peek."""
+        import numpy as np
+
+        metrics = self._peek_then_edit()
+        with patch.object(self.controller, "_update_thumbnail_from_state"):
+            self.controller._on_render_finished(None, metrics)
+        self.controller._on_metrics_updated(metrics)
+
+        state = self.controller.state
+        self.assertIs(state.last_metrics["base_positive"], self.print_buffer)
+        np.testing.assert_allclose(state.canvas_value("base_positive"), self._preview())
+        self.assertIsNone(state.canvas_value("content_rect"))
+        self.assertTrue(state.canvas_value("splash"))
+
+    def test_closing_the_peek_keeps_its_frame_until_the_print_lands(self):
+        """The canvas shows the peek until the next render repaints it; size and zoom must agree."""
+        import numpy as np
+
+        metrics = self._peek_then_edit()
+        self.controller.state.last_metrics["base_positive"] = self.print_buffer
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_embedded_peek(force=False)
+        np.testing.assert_allclose(self.controller.state.canvas_value("base_positive"), self._preview())
+
+        with patch.object(self.controller, "_update_thumbnail_from_state"):
+            self.controller._on_render_finished(None, metrics)
+        self.assertIs(self.controller.state.canvas_value("base_positive"), self.print_buffer)
+
+    def test_the_render_after_the_peek_drops_its_frame(self):
+        metrics = self._peek_then_edit()
+        self.controller.state.embedded_peek = False
+        with patch.object(self.controller, "_update_thumbnail_from_state"):
+            self.controller._on_render_finished(None, metrics)
+        self.assertIsNone(self.controller.state.peek_frame)
+        self.assertIs(self.controller.state.canvas_value("base_positive"), self.print_buffer)
+
+    def test_the_flat_peek_render_leaves_the_thumbnail_alone(self):
+        """Its pixels are the flat master; a plain render under the lit toggle is the print."""
+        metrics = self._peek_then_edit()
+        self.controller.state.embedded_peek = False
+        self.controller.state.flat_peek = True
+        with patch.object(self.controller, "_update_thumbnail_from_state") as refresh:
+            self.controller._on_render_finished(None, {**metrics, "config_override": True})
+            refresh.assert_not_called()
+            self.controller._on_render_finished(None, metrics)
+            refresh.assert_called_once_with(persist=False)
+
+
+class TestFlatFieldPeek(unittest.TestCase):
+    """Check Flat Field: the selected profile's own reference, self-corrected, as an evenness map."""
+
+    setUp = TestEmbeddedPeek.setUp
+    tearDown = TestEmbeddedPeek.tearDown
+
+    @staticmethod
+    def _falloff():
+        import numpy as np
+
+        yy, xx = np.mgrid[0:32, 0:48].astype(np.float32)
+        r2 = (((yy - 15.5) / 15.5) ** 2 + ((xx - 23.5) / 23.5) ** 2) / 2
+        return np.repeat((0.5 * (1.0 - 0.3 * r2))[..., None], 3, axis=2).astype(np.float32)
+
+    def _select(self, stored):
+        from dataclasses import replace
+
+        from negpy.features.flatfield.models import FlatFieldConfig
+        from negpy.services.assets.flatfield import FlatFieldProfile, FlatFieldProfiles
+
+        state = self.controller.state
+        state.config = replace(state.config, flatfield=FlatFieldConfig(apply=False, profile_id="rig"))
+        for name, value in (("load_check", stored), ("get", FlatFieldProfile("rig", "Rig", 0.0, ""))):
+            patcher = patch.object(FlatFieldProfiles, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _stored(self, with_reference=True):
+        from negpy.features.flatfield import logic as ff
+        from negpy.services.assets.flatfield import StoredCheck
+
+        reference = self._falloff()
+        gain = ff.compute_gain(reference)
+        if not with_reference:
+            return StoredCheck(gain, None, None)
+        return StoredCheck(gain, reference, ff.check_reference(reference, gain))
+
+    def _status(self):
+        seen: list = []
+        self.controller.status_message_requested.connect(lambda msg, _t, _k: seen.append(msg))
+        return seen
+
+    def test_a_profile_paints_its_reference_even_gray_on_any_frame(self):
+        import numpy as np
+
+        self._select(self._stored())
+        seen = self._status()
+        print_buffer = object()
+        self.controller.state.last_metrics["base_positive"] = print_buffer
+        self.controller.toggle_flatfield_peek(force=True)
+
+        self.assertTrue(self.controller.state.flatfield_peek)
+        self.assertIs(self.controller.state.last_metrics["base_positive"], print_buffer, "the print stays in last_metrics")
+        view = self.controller.state.peek_frame["base_positive"]
+        h, w = view.shape[:2]
+        # 0.2 of the view is 4% of the source: the gain is too smooth to follow the outer pixels.
+        self.assertLess(np.abs(view[h // 5 : -h // 5, w // 5 : -w // 5] - 0.5).max(), 0.2)
+        self.assertFalse(self.controller.state.peek_frame["proof"])
+        self.assertIn("Check Flat Field 'Rig'", seen[-1])
+
+    def test_an_old_profile_shows_the_light_it_corrects(self):
+        self._select(self._stored(with_reference=False))
+        seen = self._status()
+        self.controller.toggle_flatfield_peek(force=True)
+
+        self.assertTrue(self.controller.state.flatfield_peek)
+        view = self.controller.state.peek_frame["base_positive"]
+        h, w = view.shape[:2]
+        self.assertGreater(view[h // 2, w // 2].mean(), view[1, 1].mean())
+        self.assertIn("saved before the check", seen[-1])
+
+    def test_it_turns_with_the_frame_orientation_unless_the_profile_is_still_as_baked(self):
+        for sensor_layout, portrait in ((True, True), (False, False)):
+            with self.subTest(sensor_layout=sensor_layout):
+                self.controller.state.flatfield_peek = False
+                self._select(self._stored()._replace(sensor_layout=sensor_layout))
+                self.controller.state.preview_orientation = 6
+                self.controller.toggle_flatfield_peek(force=True)
+
+                h, w = self.controller.state.peek_frame["base_positive"].shape[:2]
+                self.assertEqual(h > w, portrait)
+
+    def test_it_takes_the_frame_quarter_turns_and_flips(self):
+        import numpy as np
+        from dataclasses import replace
+
+        from negpy.services.assets.flatfield import StoredCheck
+
+        yy, xx = np.mgrid[0:32, 0:48].astype(np.float32)
+        lopsided = np.repeat((1.0 + 0.3 * xx / 48 + 0.1 * yy / 32)[..., None], 3, axis=2).astype(np.float32)
+        self._select(StoredCheck(lopsided, None, None))
+        state = self.controller.state
+
+        def view(**geometry):
+            state.flatfield_peek = False
+            settings = {"rotation": 0, "flip_horizontal": False, "flip_vertical": False, **geometry}
+            state.config = replace(state.config, geometry=replace(state.config.geometry, **settings))
+            self.controller.toggle_flatfield_peek(force=True)
+            return state.peek_frame["base_positive"]
+
+        upright = view()
+        h, w = view(rotation=1).shape[:2]
+        self.assertGreater(h, w)
+        np.testing.assert_allclose(view(flip_horizontal=True), np.fliplr(upright), atol=1e-4)
+        np.testing.assert_allclose(view(flip_vertical=True), np.flipud(upright), atol=1e-4)
+
+    def test_with_no_profile_it_says_so_and_stays_off(self):
+        seen: list = []
+        self.controller.flatfield_peek_changed.connect(seen.append)
+        self.controller.toggle_flatfield_peek(force=True)
+        self.assertFalse(self.controller.state.flatfield_peek)
+        self.assertEqual(seen, [False], "the eye must not stay checked with no profile")
+
+    def test_a_profile_that_is_gone_closes_it(self):
+        self._select(None)
+        self.controller.toggle_flatfield_peek(force=True)
+        self.assertFalse(self.controller.state.flatfield_peek)
+
+    def test_the_peeks_are_mutually_exclusive(self):
+        self._select(self._stored())
+        self.controller.state.negative_peek = True
+        self.controller.toggle_flatfield_peek(force=True)
+        self.assertFalse(self.controller.state.negative_peek)
+
+        self.controller.toggle_negative_peek(force=True)
+        self.assertFalse(self.controller.state.flatfield_peek)
+
+    def test_leaving_it_re_renders_the_edit(self):
+        self.controller.state.flatfield_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.toggle_flatfield_peek(force=False)
+        self.assertFalse(self.controller.state.flatfield_peek)
+        rr.assert_called_once()
+
+    def test_it_needs_a_loaded_frame(self):
+        self.controller.state.preview_raw = None
+        self.controller.toggle_flatfield_peek(force=True)
+        self.assertFalse(self.controller.state.flatfield_peek)
+
+
+class TestFlatFieldBakeCheck(unittest.TestCase):
+    """Saving a profile reports how evenly its reference corrects itself."""
+
+    setUp = TestEmbeddedPeek.setUp
+    tearDown = TestEmbeddedPeek.tearDown
+
+    def _save(self, check):
+        seen: list = []
+        self.controller.status_message_requested.connect(lambda msg, _t, kind: seen.append((msg, kind)))
+        with (
+            patch("negpy.services.assets.flatfield.FlatFieldProfiles.create_checked", return_value=("pid", check)),
+            patch.object(self.controller, "set_active_flatfield_profile"),
+        ):
+            self.controller.save_flatfield_profile("rig", "/flats/ref.arw")
+        return seen[-1]
+
+    def test_an_even_reference_saves_quietly(self):
+        from negpy.features.flatfield.logic import Evenness
+
+        msg, kind = self._save(Evenness(-0.01, 0.01, 0.005, False))
+        self.assertEqual(kind, "info")
+        self.assertIn("even to", msg)
+
+    def test_a_clipped_reference_warns(self):
+        from negpy.features.flatfield.logic import Evenness
+
+        msg, kind = self._save(Evenness(-0.01, 0.01, 0.005, True))
+        self.assertEqual(kind, "warning")
+        self.assertIn("clipped", msg)
+
+    def test_an_uneven_reference_warns(self):
+        from negpy.features.flatfield.logic import Evenness
+
+        msg, kind = self._save(Evenness(-0.02, 0.12, 0.005, False))
+        self.assertEqual(kind, "warning")
+        self.assertIn("12%", msg)
 
 
 class TestCompareFlatPeekInteraction(unittest.TestCase):
@@ -5058,6 +5682,40 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         _, kwargs = rr.call_args
         self.assertEqual(kwargs.get("config_override"), flat_master_config(self.controller.state.config))
 
+    def test_an_edit_ends_flat_peek(self):
+        """The render after an edit paints the print, so the badge and the toolbar button go off with it."""
+        from negpy.features.exposure.models import RenderIntent
+
+        self.controller.state.flat_peek = True
+        seen: list = []
+        self.controller.flat_peek_changed.connect(seen.append)
+        dispatched: list = []
+        self.controller.render_requested.connect(dispatched.append)
+        self.controller.request_render()
+        self.assertFalse(self.controller.state.flat_peek)
+        self.assertEqual(seen, [False])
+        self.assertFalse(dispatched[-1].config_override)
+
+        self.controller._is_rendering = False
+        self.controller.toggle_flat_peek()
+        self.assertTrue(self.controller.state.flat_peek)
+        self.assertEqual(dispatched[-1].config.exposure.render_intent, RenderIntent.FLAT)
+
+    def test_a_frame_switch_ends_flat_peek(self):
+        import numpy as np
+
+        self.controller.preview_load_requested.disconnect(self.controller.preview_load_worker.process)
+        self.controller.state.flat_peek = True
+        seen: list = []
+        self.controller.flat_peek_changed.connect(seen.append)
+        self.controller.load_file("next.arw")
+        self.assertFalse(self.controller.state.flat_peek)
+        self.assertEqual(seen, [False])
+        # Once the new frame's decode lands, one press turns it back on.
+        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+        self.controller.toggle_flat_peek()
+        self.assertTrue(self.controller.state.flat_peek)
+
     def test_rerender_active_view_is_a_plain_render_when_no_overlay(self):
         with patch.object(self.controller, "request_render") as rr:
             self.controller.rerender_active_view()
@@ -5079,10 +5737,9 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
 
         self.assertTrue(self.controller.state.negative_peek)
         self.assertTrue(painted)
-        metrics = self.controller.state.last_metrics
-        # No camera matrix on this source, so the display level and the encode are
-        # all that separate it from the buffer the loader read. See TestNegativePeekColor
-        # for the camera-native path.
+        metrics = self.controller.state.peek_frame
+        # No camera matrix on this source, so only the display level and the encode separate it from
+        # the loader's buffer. TestNegativePeekColor covers the camera-native path.
         np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source * lightbox_level(source, None)))
         # Working space, so the display conversion runs; the proof does not.
         self.assertFalse(metrics["splash"])
@@ -5136,11 +5793,11 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
 
         self.controller.toggle_negative_peek(force=True)
 
-        painted = self.controller.state.last_metrics["base_positive"]
+        painted = self.controller.state.peek_frame["base_positive"]
         # Quarter turn swaps the axes, then the crop keeps the left half of the width.
         self.assertEqual(painted.shape, (10, 3, 3))
         # No border stage ran, so nothing may claim the frame is inset.
-        self.assertIsNone(self.controller.state.last_metrics["content_rect"])
+        self.assertIsNone(self.controller.state.peek_frame["content_rect"])
 
     def test_the_crop_tool_peeks_the_uncropped_frame(self):
         import numpy as np
@@ -5157,28 +5814,142 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.controller.toggle_negative_peek(force=True)
 
         # Framing a crop against a pre-cropped frame would be impossible.
-        self.assertEqual(self.controller.state.last_metrics["base_positive"].shape, (6, 10, 3))
+        self.assertEqual(self.controller.state.peek_frame["base_positive"].shape, (6, 10, 3))
 
-    def test_any_plain_render_leaves_the_negative_peek(self):
-        self.controller.state.negative_peek = True
+    def _track_config(self):
+        self.mock_session_manager.update_config.side_effect = lambda config, **_kwargs: setattr(self.controller.state, "config", config)
+
+    def test_a_view_only_render_keeps_the_negative_peek(self):
+        self.controller.toggle_negative_peek(force=True)
         seen: list = []
         self.controller.negative_peek_changed.connect(seen.append)
         with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.set_soft_proof(not self.controller.state.soft_proof_enabled)
             self.controller.request_render()
         self.assertTrue(self.controller.state.negative_peek)
         self.assertEqual(seen, [])
 
-    def test_rerender_active_view_keeps_the_negative_peek(self):
+    def test_an_edit_ends_the_negative_peek(self):
+        from dataclasses import replace
+
+        self.controller.toggle_negative_peek(force=True)
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        exposure = replace(self.controller.state.config.exposure, density=self.controller.state.config.exposure.density + 0.1)
+        self.controller.state.config = replace(self.controller.state.config, exposure=exposure)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertEqual(seen, [False])
+
+    def test_the_crop_tool_keeps_the_negative_peek_until_a_drag_is_released(self):
+        from negpy.desktop.session import ToolMode
+
+        self._track_config()
+        self.controller.toggle_negative_peek(force=True)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.set_active_tool(ToolMode.CROP_MANUAL)
+            self.assertTrue(self.controller.state.negative_peek)
+            self.controller.handle_crop_rect_changed(0.2, 0.2, 0.8, 0.8, False)
+            self.controller.request_render()
+            self.assertTrue(self.controller.state.negative_peek)
+            self.controller.handle_crop_rect_changed(0.2, 0.2, 0.8, 0.8, True)
+            self.assertFalse(self.controller.state.negative_peek)
+
+            # Peeked again after the drag: closing the tool resets the bounds the crop changed.
+            self.controller.toggle_negative_peek(force=True)
+            self.controller.set_active_tool(ToolMode.NONE)
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_a_rotation_drag_keeps_the_negative_peek_until_release(self):
+        from negpy.desktop.session import ToolMode
+
+        self._track_config()
+        self.controller.state.active_tool = ToolMode.CROP_MANUAL
+        self.controller.toggle_negative_peek(force=True)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.handle_crop_rotation_changed(1.5, False)
+            self.controller.request_render()
+            self.assertTrue(self.controller.state.negative_peek)
+            self.controller.handle_crop_rotation_changed(1.5, True)
+        self.assertFalse(self.controller.state.negative_peek)
+
+    def test_a_geometry_edit_keeps_the_negative_peek(self):
+        from dataclasses import replace
+
+        self.controller.toggle_negative_peek(force=True)
+        geometry = replace(self.controller.state.config.geometry, fine_rotation=2.0, flip_horizontal=True)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_reset_crop_keeps_the_negative_peek(self):
+        from dataclasses import replace
+
+        self._track_config()
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9))
+        process = replace(self.controller.state.config.process, local_floors=(0.1, 0.2, 0.3), lock_bounds=False)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry, process=process)
+        self.controller.toggle_negative_peek(force=True)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.reset_crop()
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_a_frozen_auto_crop_keeps_the_negative_peek(self):
+        from dataclasses import replace
+
+        from negpy.features.geometry.logic import autocrop_detection_key
+
+        self._track_config()
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True, crop_rect=None)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.toggle_negative_peek(force=True)
+        metrics = {"autocrop_resolved": ArmedCrop((0.05, 0.04, 0.99, 0.98), autocrop_detection_key(geometry), None, False)}
+        self.controller._freeze_resolved_auto_crop(metrics)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_an_export_or_metadata_edit_keeps_the_negative_peek(self):
+        from dataclasses import replace
+
+        self.controller.toggle_negative_peek(force=True)
+        config = self.controller.state.config
+        config = replace(config, export=replace(config.export, overwrite=not config.export.overwrite))
+        self.controller.state.config = replace(config, metadata=replace(config.metadata))
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_an_edit_leaves_the_flat_field_check_up(self):
+        from dataclasses import replace
+
+        self.controller.state.flatfield_peek = True
+        exposure = replace(self.controller.state.config.exposure, density=self.controller.state.config.exposure.density + 0.1)
+        self.controller.state.config = replace(self.controller.state.config, exposure=exposure)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertTrue(self.controller.state.flatfield_peek)
+
+    def test_rewriting_a_section_with_equal_values_keeps_the_negative_peek(self):
+        from dataclasses import replace
+
+        self.controller.toggle_negative_peek(force=True)
+        self.controller.state.config = replace(self.controller.state.config, exposure=replace(self.controller.state.config.exposure))
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertTrue(self.controller.state.negative_peek)
+
+    def test_rerender_active_view_ends_the_negative_peek(self):
         import numpy as np
 
         self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
-        self.controller.state.negative_peek = True
+        self.controller.toggle_negative_peek(force=True)
         with patch.object(self.controller, "request_render") as rr:
             self.controller.rerender_active_view()
-        # A geometry op must not drop the peek, and the peek is not a render.
-        rr.assert_not_called()
-        self.assertTrue(self.controller.state.negative_peek)
-        self.assertIn("base_positive", self.controller.state.last_metrics)
+        rr.assert_called_once_with()
+        self.assertFalse(self.controller.state.negative_peek)
 
 
 class TestClearThumbnailCache(unittest.TestCase):
@@ -5984,8 +6755,9 @@ class TestLibrarySearch(unittest.TestCase):
         task = self.tasks[0]
         self.assertEqual(task.roots, ["/photos"])
         self.assertEqual(task.query, "film:portra")
-        self.assertEqual(set(task.configs_by_path), {"/photos/a.nef"})
-        self.assertEqual(task.marks_by_path, {"/photos/a.nef": "keeper"})
+        self.mock_session_manager.repo.load_settings_by_path.assert_not_called()
+        self.assertEqual(set(task.load_configs()), {"/photos/a.nef"})
+        self.assertEqual(task.load_marks(), {"/photos/a.nef": "keeper"})
 
     def test_results_replace_the_session(self):
         with patch.object(self.controller, "request_asset_discovery") as discovery:
@@ -6260,10 +7032,12 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_rediscover_rolls_walks_every_import_source_again(self):
         self._dict_repo()
-        found = {"/scans": ["/scans/roll_a"]}
+        # Both the import and the rewalk walk the source in its normalized spelling.
+        source = os.path.normpath("/scans")
+        found = {source: ["/scans/roll_a"]}
         with patch("negpy.services.assets.rolls.discover_roll_folders", side_effect=lambda p, _filters: found[p]):
             self.controller.import_subfolders_as_rolls("/scans")
-            found["/scans"] = ["/scans/roll_a", "/scans/roll_b"]
+            found[source] = ["/scans/roll_a", "/scans/roll_b"]
             new, dropped = self.controller.rediscover_rolls()
 
         self.assertEqual((new, dropped), (1, 0))
@@ -6282,8 +7056,22 @@ class TestSplashPreviewRaceGuard(unittest.TestCase):
         panel._requested_file_path = requested_path
         panel._file_hash_for_path.return_value = hash_for_path
         panel._split_active_half.return_value = ("RAW", (100, 100))
+        panel._is_stale_preview.return_value = False
         panel.state = AppState()
         return panel
+
+    def test_a_decode_from_an_earlier_load_is_dropped(self):
+        """Both halves of a scan share a path; only the generation tells their decodes apart."""
+        panel = self._panel()
+        panel._prefetch_gen = 5
+        panel._is_stale_preview = lambda g: AppController._is_stale_preview(panel, g)
+
+        AppController._on_splash_preview(panel, "a.dng", "RAW", (100, 100), 4)
+        AppController._on_preview_loaded(panel, "a.dng", "RAW", (100, 100), "sRGB", None, "", None, None, 4)
+
+        self.assertNotIn("base_positive", panel.state.last_metrics)
+        self.assertIsNone(panel.state.preview_raw)
+        panel.request_render.assert_not_called()
 
     def test_splash_skipped_once_the_real_render_for_this_file_already_landed(self):
         panel = self._panel(hash_for_path="h1")

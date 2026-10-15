@@ -85,7 +85,7 @@ def test_every_item_dispatches_through_the_shortcut_manager(bar, window):
     # registry ids), so reaching here at all proves every id exists.
     assert {action_id for _, action_id in bar._keyed} <= set(REGISTRY)
 
-    _by_text(bar, "Keyboard Shortcuts").trigger()
+    _by_text(bar, "Keyboard Shortcuts…").trigger()
     assert window.shortcut_manager.ran == ["show_shortcuts"]
 
 
@@ -100,8 +100,8 @@ def test_non_registry_items_run_their_own_slot(bar, window):
 def test_only_command_combinations_become_key_equivalents(bar):
     # AppKit fires a menu key equivalent before Qt sees the event, so a bare "?" would trip
     # while typing into the search box and an Option combination would eat its character.
-    assert _by_text(bar, "Keyboard Shortcuts").shortcut().isEmpty()  # bound to "?"
-    assert _by_text(bar, "Analysis Panel Guide").shortcut().isEmpty()  # unbound
+    assert _by_text(bar, "Keyboard Shortcuts…").shortcut().isEmpty()  # bound to "?"
+    assert _by_text(bar, "Analysis Panel Guide…").shortcut().isEmpty()  # unbound
     assert bar.window_menu.act_minimize.shortcut() == QKeySequence(MENU_KEYS["minimize"])
 
 
@@ -120,9 +120,9 @@ def test_a_rebind_reaches_the_menu(bar):
     set_current_bindings({**default_bindings(), "show_shortcuts": "Ctrl+Shift+K", "show_analysis_help": "F8"})
     bar.sync_shortcuts()
 
-    assert _by_text(bar, "Keyboard Shortcuts").shortcut() == QKeySequence("Ctrl+Shift+K")
+    assert _by_text(bar, "Keyboard Shortcuts…").shortcut() == QKeySequence("Ctrl+Shift+K")
     # Rebound to a key the menu must not claim, so the item gives its key equivalent up.
-    assert _by_text(bar, "Analysis Panel Guide").shortcut().isEmpty()
+    assert _by_text(bar, "Analysis Panel Guide…").shortcut().isEmpty()
 
 
 def test_no_view_menu_of_our_own(bar):

@@ -12,75 +12,72 @@
   [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/JySNzUWgwy)
 </div>
 
-NegPy turns scans of film negatives and slides into finished pictures. I wrote it because I wanted a tool made for film scans that does more than invert them. It models film and photographic paper, and adds the conveniences of a lab scanner on top.
+NegPy turns scans of film negatives and slides into finished pictures. I wrote it because I wanted a tool made for film scans that does more than invert them. It models film and photographic paper, and adds the conveniences of a lab scanner. It is written in Python and runs on Linux, macOS and Windows.
 
-It is written in Python and runs on Linux, macOS and Windows.
+![NegPy main window](docs/media/0640.png)
 
-![NegPy main window](docs/media/0620.png)
-
-The [User Guide](docs/USER_GUIDE.md) covers every panel and control. The same text opens inside the app from the ⓘ on each panel. [PIPELINE.md](docs/PIPELINE.md) explains the math.
+The [User Guide](docs/USER_GUIDE.md) covers every panel and control (the ⓘ on each panel opens it in the app). [PIPELINE.md](docs/PIPELINE.md) explains the math.
 
 ## Features
 
 ### Conversion
 
-* No camera profiles and no border color picking. The orange mask is removed from each channel's own sensitometry.
-* The print is built in density space on an H&D curve with a toe, a straight section and a shoulder, and graded in ISO-R points like darkroom paper.
-* Auto Density and Auto Grade meter each frame, so a conversion is usable before you touch a slider. You can set your own targets.
-* Paper profiles taken from Ilford, Kodak, Foma and Fuji datasheets.
+* The orange mask is removed from each channel's own sensitometry: no camera profiles, no border color picking.
+* The print is built in density space on an H&D curve (toe, straight section, shoulder) and graded in ISO-R points like darkroom paper.
+* Auto Density and Auto Grade meter each frame to adjustable targets.
+* Paper profiles from Ilford, Kodak, Foma and Fuji datasheets.
 * Color negative, B&W and slide modes. Slides open as captured, with optional normalization for faded film and HDR merging of bracketed exposures.
 
 ### Rolls
 
-* The library is a list of rolls. A roll is a folder you import, or a virtual roll you build from any frames.
-* Roll-wide defaults for film mode, crop, calibration, metering, raw decode, lens and metadata. A frame you change stays yours until you push the roll setting back to it.
-* Roll Analysis measures the whole roll and gives every frame the same baseline. Scenes split a roll into groups that each get their own.
-* Keep/reject triage, half-frame splitting, stitching of multi-shot scans, and search by metadata or (opt-in) by what is in the picture.
+* The library is a list of rolls: imported folders, or virtual rolls built from any frames.
+* Roll-wide defaults for film mode, crop, calibration, metering, raw decode, lens and metadata, with per-frame overrides.
+* Roll Analysis gives every frame of a roll, or of a scene within it, the same baseline.
+* Keep/reject triage, half-frame splitting, stitching, and search by metadata or (opt-in) content.
 
 ### Capture
 
-* Film scanners: Plustek OpticFilm 8200i SE and 8100 V2 over USB, Nikon Coolscan through its own driver, Reflecta and Pacific Image, and anything SANE supports.
-* Tethered camera scanning, including red/green/blue narrowband captures with an RGB [Scanlight](https://github.com/jackw01/scanlight). macOS and Linux only. See the [Camera Scanning guide](docs/CAMERA_SCANNING.md).
-* Trichrome merge of three narrowband exposures, with sub-pixel alignment.
+* Film scanners: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE and 7600i v1 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
+* Tethered camera scanning (macOS and Linux), including narrowband RGB captures with a [Scanlight](https://github.com/jackw01/scanlight) and a sub-pixel Trichrome merge ([guide](docs/CAMERA_SCANNING.md)).
 * Flat-field correction, sensor calibration for narrowband light, and lens correction read from the file.
 * Camera RAWs, TIFF, DNG, JPEG XL and scanner formats such as Pakon, Coolscan NEF, Flextight FFF and Noritsu.
 
 ### Editing
 
-* Dodge and burn with polygon, oval and card-edge masks. Each mask has its own strength, feather, contrast grade and tone limit.
-* Dust, hair and scratch removal: automatic, from the scanner's IR channel (NegPy or OpenICE method), or painted by hand. Heals keep the film grain.
-* Darkroom tools: test strips, a color ring-around, a step wedge, a zone overlay, a spot densitometer and zone placement.
+* Dodge and burn with polygon, oval and card-edge masks, each with its own strength, feather, contrast grade and tone limit.
+* Dust, hair and scratch removal: automatic, from the IR channel (NegPy or OpenICE method), or painted, keeping the film grain.
+* Darkroom tools: test strips, ring-around, step wedge, zone overlay, spot densitometer and zone placement.
 * Contrast mask, tilt and swing, edge burn, filed carrier and print mats.
-* Lith and cyanotype processes and a set of toners for B&W.
-* GPU rendering through Vulkan, Metal or DX12, with a CPU fallback that gives the same result.
+* Lith, cyanotype and toners for B&W.
+* GPU rendering (Vulkan, Metal or DX12) with a CPU fallback that gives the same result.
 
 ### Output
 
-* ICC color management with monitor profile detection and soft proofing for paper and printer profiles.
+* ICC color management, monitor profile detection and soft proofing.
 * Export to JPEG, TIFF, PNG, WebP and JPEG XL, with borders, presets, contact sheets and [filename templates](docs/TEMPLATING.md).
-* A flat 16-bit TIFF master for Lightroom, Darktable or Photoshop, or a linear export that skips the pipeline.
-* Gear and capture metadata (camera, lens, film, development, date and place) written to EXIF and XMP.
+* A flat 16-bit TIFF master for other editors, or a linear export that skips the pipeline.
+* Gear and capture metadata written to EXIF and XMP.
 
 ### Your data
 
-* Non-destructive. Source files are never modified.
-* Edits live in a local SQLite database keyed by file content, so you can move and rename files. Optional `.negpy` sidecars sit next to the scans.
+* Non-destructive: source files are never modified.
+* Edits live in a local SQLite database keyed by file content, so files can move. Optional `.negpy` sidecars sit next to the scans.
 * Undo history and named work prints survive a restart.
 * [Keyboard shortcuts](docs/KEYBOARD.md) can be remapped.
 
 ## Getting started
 
-Download the build for your OS from the [Releases page](https://github.com/marcinz606/NegPy/releases). After that, NegPy updates itself: when a new release is out it shows an Update Available notice, and one click downloads and installs it.
+Download the build for your OS from the [Releases page](https://github.com/marcinz606/NegPy/releases). NegPy then updates itself from an Update Available notice.
 
 To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The builds are not signed. It is a free hobby project and I don't pay Apple or Microsoft for developer certificates, so expect a warning the first time you run it.
+The builds are not signed, so expect a warning on first run.
 
 ### Linux
 
 Make the `.AppImage` executable with `chmod +x` and run it.
 
-Scanning through SANE needs SANE installed. Tethered camera scanning may need `libgphoto2`. The app runs without either.
+Optional, for SANE and camera scanning:
 ```
 sudo apt install libsane        # Debian/Ubuntu
 sudo pacman -S sane libgphoto2  # Arch
@@ -104,36 +101,36 @@ Or add it as a flake input:
 ### macOS
 
 1. Open the `.dmg` and drag NegPy to `/Applications`.
-2. Run `xattr -cr /Applications/NegPy.app` in Terminal to clear the warning.
+2. Run `xattr -cr /Applications/NegPy.app` in Terminal.
 3. Launch it.
 
-SANE scanning and camera scanning use [Homebrew](https://brew.sh/) packages. The app runs without them.
+Optional, for SANE and camera scanning ([Homebrew](https://brew.sh/)):
 ```
 brew install sane-backends libgphoto2
 ```
 
-To build the DMG yourself, set `NEGPY_MACOS_ARCH=x86_64` for Intel or `NEGPY_MACOS_ARCH=arm64` for Apple Silicon.
+To build the DMG, set `NEGPY_MACOS_ARCH=x86_64` (Intel) or `NEGPY_MACOS_ARCH=arm64` (Apple Silicon).
 
 ### Windows
 
-Run the installer and click through the warnings.
+Run the installer past the warnings.
 
-Plustek OpticFilm 8200i SE and 8100 V2 scanners need the WinUSB driver. Install it with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver (`07b3:1825` for the 8200i SE, `07b3:1824` for the 8100 V2). The release build includes everything else. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is not available on Windows, because libgphoto2 has no Windows build.
+Plustek OpticFilm scanners need the WinUSB driver, installed with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is not available on Windows.
 
 ## Data location
 
-Everything is in `Documents/NegPy`. On Windows, if that folder is blocked, NegPy asks for another one and suggests Local AppData. The `NEGPY_USER_DIR` environment variable overrides both.
+Everything is in `Documents/NegPy`. On Windows, if that folder is blocked, NegPy asks for another and suggests Local AppData. `NEGPY_USER_DIR` overrides both.
 
 * `edits.db`: your edits.
-* `settings.db`: app settings such as the last export settings.
+* `settings.db`: app settings.
 * `cache/`: thumbnails. Safe to delete.
 * `export/`: default export folder.
 * `icc/`: paper and printer profiles.
-* `override.toml`: startup overrides, see below.
+* `override.toml`: startup overrides (below).
 
 ## Troubleshooting
 
-If NegPy crashes on startup or renders wrong, edit `override.toml`. NegPy writes it on first run with defaults for your OS. Most `[performance]` values are also in Preferences (`Ctrl + ,`), but the file wins, so you can fix things when the app will not start.
+If NegPy crashes on startup or renders wrong, edit `override.toml` (written on first run). Most `[performance]` values are also in Preferences (`Ctrl + ,`), but the file wins.
 
 ```toml
 [rendering]
@@ -168,7 +165,7 @@ max_texture_size = "auto"
 level = "info"
 ```
 
-`backend = "cpu"` turns GPU rendering off, for when the GPU backend crashes on your hardware.
+`backend = "cpu"` turns GPU rendering off if the GPU backend crashes.
 
 ## More
 

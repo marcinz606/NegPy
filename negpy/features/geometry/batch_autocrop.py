@@ -473,14 +473,9 @@ def _roll_border(evidence: Sequence[CropEvidence]) -> tuple[tuple[float, ...], i
 
 
 def _threshold_fallback_frames(evidence: Sequence[CropEvidence]) -> list[CropEvidence]:
-    """Frames carrying a threshold box, presented as detections.
-
-    Only for a roll where the film detector found no box on any frame. Film that overfills
-    the sensor leaves no bed to read a box against, so every frame abstains, the roll gets no
-    template, and Auto Crop All returns nothing at all while single-frame Auto Crop — which
-    falls back to this same box — crops each of them. The box is near enough the whole frame
-    to be no crop by itself; the border walk that has already run is what trims it.
-    """
+    """Frames carrying a threshold box, presented as detections, for a roll where the film detector found no box
+    (film that overfills the sensor leaves no bed). Single-frame Auto Crop falls back to the same box; the border
+    walk that already ran trims it."""
     boxes = [item for item in evidence if item.roi is None and item.fallback_roi is not None]
     if not boxes:
         return []

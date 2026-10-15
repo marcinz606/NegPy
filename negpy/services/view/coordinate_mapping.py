@@ -46,9 +46,17 @@ class CoordinateMapping:
         uv_grid = np.ascontiguousarray(uv_grid)
 
         if fine_rot != 0.0:
+            # The grid is affine in pixel position, so the rotated grid is solved exactly. A
+            # warpAffine fills the corner wedges with 0, which sends a click there to (0, 0).
             h_r, w_r = uv_grid.shape[:2]
-            m_mat = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0)
-            uv_grid = cv2.warpAffine(uv_grid, m_mat, (w_r, h_r), flags=cv2.INTER_LINEAR)
+            m_inv = cv2.invertAffineTransform(cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0))
+            o = uv_grid[0, 0].astype(np.float64)
+            du = (uv_grid[0, -1] - o) / max(w_r - 1, 1)
+            dv = (uv_grid[-1, 0] - o) / max(h_r - 1, 1)
+            ys, xs = np.mgrid[0:h_r, 0:w_r].astype(np.float64)
+            sx = m_inv[0, 0] * xs + m_inv[0, 1] * ys + m_inv[0, 2]
+            sy = m_inv[1, 0] * xs + m_inv[1, 1] * ys + m_inv[1, 2]
+            uv_grid = (o + sx[..., None] * du + sy[..., None] * dv).astype(np.float32)
 
         if distortion_k1 != 0.0:
             from negpy.features.geometry.logic import apply_radial_distortion

@@ -18,8 +18,9 @@ review, not an automatic edit.
 
 1. **Get the target version** from the request (e.g. `0.42.0`) and find the range:
    ```bash
-   git tag --sort=-v:refname        # newest tag first
+   git tag --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -3
    ```
+   Release tags are bare (`0.63.0`, no `v`); old `v0.0.x-alpha` tags sort first without the filter.
    - Target is **not yet a tag** (drafting an unreleased version, the usual case) → range is `<newest-tag>..HEAD`.
    - Target **is** an existing tag → range is `<tag-immediately-before-it>..<target-tag>`.
 
@@ -34,9 +35,10 @@ review, not an automatic edit.
 
 3. **Derive contributor handles** from the author email:
    - `NNN+handle@users.noreply.github.com` → `@handle` (e.g. `175231748+linkmodo@...` → `@linkmodo`).
-   - Other emails: reuse the handle that person already got in earlier `docs/CHANGELOG.md` entries (`git log`/grep the file); ask the user if unknown.
-   - Known map: Paul Glover=@paulglover, jboneng=@jboneng, Robin/light-sntchr=@light-sntchr, Henning Ullrich=@hullrich.
-   - **`marcinz606` is the owner — never credit them.**
+   - Other emails: reuse the handle that person already got in earlier `docs/CHANGELOG.md` entries (`git log`/grep the file).
+   - Still unknown: the PR author is the handle — `git log --merges --ancestry-path <hash>..HEAD --format=%s | grep 'pull request' | tail -1` names `from <handle>/<branch>`, or `gh pr list --state merged --search "<words>" --json number,author`. The commit name can differ from the PR author (Kiran Shila → @activexray). Ask the user only if both fail.
+   - Known map: Paul Glover=@paulglover, jboneng=@jboneng, Robin/light-sntchr=@light-sntchr, Henning Ullrich=@hullrich, Jon Destoppeleire=@jondestoppeleire, Kurt Windisch=@kurtwindisch, Sean Harding=@seanharding, red_prs=@red-prs, Kiran Shila=@activexray.
+   - **`marcinz606` / Marcin Zawalski is the owner — never credit them.** A bullet that is mostly the owner's work gets **no tag**, even when a contributor added a small part of it. When a theme mixes a contributor's substantial work with the owner's, split it so the contributor's part keeps its tag (Sabattier @jondestoppeleire apart from the owner's Shadow Hold).
 
 4. **Drop housekeeping commits** — no changelog line for: README/badge edits, changelog typo fixes, merge/revert/"rogue file" cleanups, pure internal log-noise fixes, version bumps.
 
@@ -51,9 +53,15 @@ review, not an automatic edit.
    The same holds for a fix to an existing panel or control touched more than
    once in the range: one bullet naming the end state, not a line per commit.
 
+   Then **group by theme**: related features share one bullet (Analysis,
+   Camera scanning, Export, Workflow, Catalogs), and fixes group by area
+   (Scanning, File loading, GPU and CPU match). A bullet may carry several
+   contributor handles. Put the release's headline feature first. A large
+   release lands near 15–20 bullets, not one per feature.
+
 6. **Check what's already documented** — the top `##` section may already hold a few entries. Merge into it; don't duplicate.
 
-7. **Write one bullet per feature** in the house style (below), grouped New → Change → Fix.
+7. **Write one bullet per theme** in the house style (below), grouped New → Change → Fix.
 
 8. **Show the draft in the reply.** On approval, insert into `docs/CHANGELOG.md` under the target `## X.X.X` heading (create it if absent), merged with any entries already there.
 
@@ -61,24 +69,33 @@ review, not an automatic edit.
    the bare number (`0.56.0`, no `v`, trailing newline). Write it in the same
    change as the accepted changelog entry.
 
+10. **Release screenshot** — if the user prepped a new `docs/media/NNNN.png`
+    (`git status` shows it untracked, the old one deleted), point `README.md`'s
+    main-window image at it and commit both in the same change.
+
+11. **Commit and PR** — on a `release/X.Y.Z` branch, commit
+    `chore(release): X.Y.Z changelog, version and screenshot` (stage files by
+    name), push, and open the PR only when the user asks.
+
 ## House style
 
 (Established preference — see the user's changelog-style memory.)
 
-- **One entry per feature**, not per commit — the shipped state, with its in-cycle fixes folded in.
+- **One entry per theme**, not per commit or per feature — the shipped state, with its in-cycle fixes folded in.
 - **One line per entry**, no explanatory paragraphs: `Prefix: **bold lead** — terse clause naming what was done.` Skip the failure-mode/root-cause narrative even on fixes. The long multi-sentence bullets in old sections are **not** the target.
 - Prefix each with `New:` / `Change:` / `Fix:` (use `Change/Fix:` if genuinely both). Group in that order.
 - **No PR/issue numbers** (`(#604)`) — user-facing notes, not a dev index.
 - US **"color"** in prose, matching the UI labels (Color Negative, colour spellings were swept out in 0.50.0).
 - Plain, factual, non-salesy — it's an open-source project. No marketing framing, no dunking on other tools.
-- Credit code/idea contributors with a trailing `@handle`; **never** credit whoever merely requested or reported it.
+- Credit code/idea contributors with trailing `@handle`s; **never** credit whoever merely requested or reported it, and never tag a bullet that is mostly the owner's work.
 
-## Example (0.41.0, accepted)
+## Example (0.64.0, accepted)
 
 ```markdown
-- New: **Manage Database…** — dialog to inspect and clear stored data; Clear Saved Edits or Reset Everything, both guarded. @linkmodo
-- Change: **Bottom toolbar streamlined** — zoom slider removed, GPU/CPU toggle moved to the overflow menu, tooltips on every item; Before/After and Peak Flat are now mutually exclusive and survive rotate/flip. @linkmodo
-- Fix: **Saved export destination restored on reopen** — the Folder mode no longer resets to "Subfolder of source". @paulglover
+- New: **Expanded Analysis** — Waveform and Vectorscope views beside the Curve chart, a Clipping Overlay, zone strip hover that highlights the zone's pixels, a double-click on the zone strip toggles the Zone Overlay, and the step wedge prints through alt process and toning.
+- New: **Camera scanning** — live view histogram and clipping zebras, Meter sets the shutter from one RAW probe, single-capture narrowband scanning that saves a sensor profile, a Method choice for the sensor calibration against blown blues, and a New Roll button. @jondestoppeleire @seanharding @thetalkingdrum
+- Change: **Auto Crop** — a roll setting on the Crop card with Frame/Roll scope, mirrored on Geometry; Roll asks before a push changes it for other frames, and Square Before Crop runs the Auto Skew fit first. @kurtwindisch @jondestoppeleire
+- Fix: **File loading** — palette, MinIsWhite, CMYK, planar and two-sample gray TIFFs, LogLuv, CR3/RAF orientation, and NegPy's own ICC profiles on reload.
 ```
 
 ## Gotcha

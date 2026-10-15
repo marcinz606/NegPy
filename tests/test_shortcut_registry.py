@@ -185,3 +185,17 @@ def test_a_command_chord_clashes_across_windows():
     assert clash_scope("live_view_scan", "Ctrl+E") == "main"
     assert clash_scope("live_view_scan", "Meta+E") == "main"
     assert clash_scope("export", "Ctrl+E") == "main"
+
+
+def test_every_default_key_parses(qapp):
+    """A key string Qt cannot parse binds nothing, and the tooltip shows the raw text."""
+    from PyQt6.QtGui import QKeySequence
+
+    from negpy.desktop.view.shortcut_registry import REGISTRY
+
+    bad = [
+        (action, entry.default_key)
+        for action, entry in REGISTRY.items()
+        if entry.default_key and not QKeySequence(entry.default_key).toString(QKeySequence.SequenceFormat.PortableText)
+    ]
+    assert bad == []

@@ -11,9 +11,11 @@ from PyQt6.QtGui import QImage, QPainter, QPixmap
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.canvas.printing_notes import card_size, notes_sheet
+from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 
 W = H = 200
+COLORS = palette_for("standard").dodge_burn
 BURN = LocalMask(vertices=((0.05, 0.05), (0.45, 0.05), (0.45, 0.45), (0.05, 0.45)), stops=1.0)
 DODGE = LocalMask(vertices=((0.55, 0.55), (0.95, 0.55), (0.95, 0.95), (0.55, 0.95)), stops=-0.5)
 
@@ -99,7 +101,7 @@ def test_the_sheet_hatches_the_burn_and_leaves_the_dodge_open() -> None:
     frame.fill(0x00808080)
     local = LocalAdjustmentsConfig(masks=(BURN, DODGE))
 
-    sheet = notes_sheet(frame, None, local, _uv_grid(), [])
+    sheet = notes_sheet(frame, None, local, _uv_grid(), [], COLORS)
     arr = _to_array(sheet)
 
     # Sampled off-centre in both masks so the stop badge is not what is being measured.
@@ -117,7 +119,7 @@ def test_the_sheet_hatches_a_card_edges_full_exposure_side() -> None:
     frame.fill(0x00808080)
     edge = LocalMask(vertices=((0.4, 0.5), (0.8, 0.5)), stops=1.0, shape=MaskShape.GRADIENT)
 
-    arr = _to_array(notes_sheet(frame, None, LocalAdjustmentsConfig(masks=(edge,)), _uv_grid(), []))
+    arr = _to_array(notes_sheet(frame, None, LocalAdjustmentsConfig(masks=(edge,)), _uv_grid(), [], COLORS))
 
     grey = np.array([128, 128, 128, 255], dtype=np.uint8)
     assert (arr[20:60, 5:45] != grey).any(axis=-1).mean() > 0.05  # Hatched, behind the edge.
@@ -129,7 +131,7 @@ def test_the_sheet_carries_the_recipe_in_a_band_below_the_frame() -> None:
     frame.fill(0x00808080)
     lines = ["roll1_04.tif", "Print Density 1.00"]
 
-    sheet = notes_sheet(frame, None, LocalAdjustmentsConfig(), _uv_grid(), lines)
+    sheet = notes_sheet(frame, None, LocalAdjustmentsConfig(), _uv_grid(), lines, COLORS)
 
     assert sheet.width() == W
     assert sheet.height() == H + round(card_size(lines)[1])
@@ -162,3 +164,17 @@ def test_the_card_sits_inside_the_picture() -> None:
         painter.end()
     anchor: QPointF = spy.call_args[0][1]
     assert overlay._content_view_rect().contains(anchor)
+
+
+def test_the_sheet_draws_the_burn_in_the_color_vision_burn_color() -> None:
+    """Tritanopia's burn is bluish green and Standard's is blue, so the hatch leans green only under the first."""
+    frame = QImage(W, H, QImage.Format.Format_RGB32)
+    frame.fill(0x00808080)
+
+    def green_lean(key: str) -> float:
+        arr = _to_array(notes_sheet(frame, None, LocalAdjustmentsConfig(masks=(BURN,)), _uv_grid(), [], palette_for(key).dodge_burn))
+        hatch = arr[20:45, 20:45].reshape(-1, 4).astype(int)  # RGB32 is BGRA in memory
+        return float((hatch[:, 1] - hatch[:, 2] > 40).mean())
+
+    assert green_lean("tritan") > 0.05
+    assert green_lean("standard") < 0.01

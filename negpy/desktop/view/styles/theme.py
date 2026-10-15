@@ -109,6 +109,9 @@ class ThemeConfig:
     burn: str = "#4A8FE8"
     # Clipping and paper-limit warnings drawn on charts and the zone overlay.
     clip_warning: str = "#DC5050"
+    clip_shadow: str = "#508CDC"
+    # Contrast Mask band on the Analysis chart.
+    chart_mask: str = "#AF8CFF"
     # Film-mode chips: orange mask, silver grey, slide blue.
     mode_c41: str = "#E08A3C"
     mode_bw: str = "#8C8C8C"
@@ -130,6 +133,7 @@ class ThemeConfig:
             "process": True,
             "color": True,
             "tone": True,
+            "paper": True,
             "geometry": True,
             "autocrop": True,
             "optics": False,

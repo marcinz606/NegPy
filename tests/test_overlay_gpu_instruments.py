@@ -1,6 +1,6 @@
 """Canvas instruments that measure pixels, on the GPU display path.
 
-The GPU path hands the canvas a texture instead of host pixels, so the zone grid, the
+The GPU path hands the canvas a texture instead of host pixels, so the zone map, the
 grain loupe and the notes sheet lost their input. They read the texture back themselves,
 once, and only when one of them is actually on.
 """
@@ -53,16 +53,16 @@ def test_a_new_frame_invalidates_the_host_copy():
     assert float(overlay._host_buffer().mean()) != float(first.mean())
 
 
-def test_the_zone_grid_builds_from_the_texture():
+def test_the_zone_map_builds_from_the_texture():
     """Regression: the zone map went blank on the GPU path — _display_buffer was None."""
     overlay = _overlay(_FakeTexture())
     overlay.state.zones_overlay = True
     pixmap = QPixmap(W, H)
     painter = QPainter(pixmap)
-    overlay._draw_zone_grid(painter)
+    overlay._draw_zone_map(painter)
     painter.end()
 
-    assert overlay._zone_cells is not None
+    assert overlay._zone_field is not None
 
 
 def test_the_loupe_gets_an_image_and_caches_it():

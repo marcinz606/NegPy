@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
     default_button_height,
@@ -191,7 +191,7 @@ class ExportSidebar(BaseSidebar):
             "fa5s.eye",
             "Preview",
             "Show the marked-up work print over the frame: burns hatched, dodges open, each mask "
-            "labelled with its value in stops, plus a card with the print recipe. Display only.",
+            "labeled with its value in stops, plus a card with the print recipe. Display only.",
         )
         self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
         self.printing_notes_preview_btn.setFixedHeight(default_button_height())
@@ -278,7 +278,7 @@ class ExportSidebar(BaseSidebar):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(THEME.space_md)
 
-        self.intent_btn = ChoiceButton(
+        self.intent_btn = SegmentedChoice(
             (("fa5s.image", "Print"), ("mdi6.math-log", "Flat"), ("mdi6.filmstrip", "Linear")),
             "Print: export the print as you see it, with the full NegPy look applied.<br><br>"
             "Flat: export a flat, neutral, low-contrast master that keeps maximum tonal and color "
@@ -905,7 +905,7 @@ class ExportSidebar(BaseSidebar):
         self._refresh_proof_mismatch_warning()
 
     def _on_save_proof_condition(self) -> None:
-        name, ok = QInputDialog.getText(self, "Save proof preset", "Name (printer and paper):")
+        name, ok = QInputDialog.getText(self, "Save Proof Preset", "Name (printer and paper):")
         name = name.strip()
         if not (ok and name):
             return
@@ -1157,6 +1157,7 @@ class ExportSidebar(BaseSidebar):
             "export_print_size": conf.export_print_size,
             "export_dpi": conf.export_dpi,
             "export_target_long_edge_px": conf.export_target_long_edge_px,
+            "output_sharpen": conf.output_sharpen,
             "output_mode": conf.output_mode,
             "output_subfolder": conf.output_subfolder,
             "output_path": conf.export_path,
@@ -1198,6 +1199,7 @@ class ExportSidebar(BaseSidebar):
             export_print_size=vals["export_print_size"],
             export_dpi=vals["export_dpi"],
             export_target_long_edge_px=vals["export_target_long_edge_px"],
+            output_sharpen=vals["output_sharpen"],
             output_mode=vals["output_mode"],
             output_subfolder=vals["output_subfolder"],
             export_path=vals["output_path"],
@@ -1266,7 +1268,9 @@ class ExportSidebar(BaseSidebar):
         conf = self.state.config.export
         self.block_signals(True)
         try:
-            self.form.load(self._config_to_form_values())
+            # A pending debounce means the form is newer than the config; the persist re-syncs.
+            if not self.update_timer.isActive():
+                self.form.load(self._config_to_form_values())
             self.form.set_source_space(self.state.source_cs)
             self._sync_proof_controls()
             override = self.state.monitor_profile_override

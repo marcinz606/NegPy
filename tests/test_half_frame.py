@@ -1,6 +1,7 @@
 """Half-frame mode: split detection, slicing, identities, and per-half plumbing."""
 
 import os
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -526,6 +527,24 @@ class TestRemapWorkspaceConfig:
         assert (points[0][0] + dx, points[0][1] + dy) == pytest.approx(new_src_expected)
         assert points[0] == pytest.approx(list(new_dest))
 
+    def test_remaps_clone_and_exclusion_strokes_and_clears_the_analysis_rect(self):
+        old, new = HalfGeometry(split_x=0.5), HalfGeometry(split_x=0.6)
+        config = WorkspaceConfig(
+            retouch=RetouchConfig(
+                clone_strokes=[([[0.4, 0.4]], 10.0, -0.02, 0.0, 0.8, 0.5, True)],
+                dust_exclusion_strokes=[([[0.3, 0.3], [0.32, 0.3]], 12.0)],
+            )
+        )
+        config = replace(config, process=replace(config.process, analysis_rect=(0.1, 0.1, 0.9, 0.9)))
+        updated = remap_workspace_config(config, 1, old, new)
+        points, size, dx, dy, strength, feather, match = updated.retouch.clone_strokes[0]
+        assert points[0] == pytest.approx(list(remap_point(0.4, 0.4, 1, old, new)))
+        assert (size, strength, feather, match) == (10.0, 0.8, 0.5, True)
+        ex_points, ex_size = updated.retouch.dust_exclusion_strokes[0]
+        assert ex_points[0] == pytest.approx(list(remap_point(0.3, 0.3, 1, old, new)))
+        assert ex_size == 12.0
+        assert updated.process.analysis_rect is None
+
     def test_remaps_dust_spots_and_scratch_lines(self):
         old, new = HalfGeometry(split_x=0.5), HalfGeometry(split_x=0.6)
         config = WorkspaceConfig(retouch=RetouchConfig(manual_dust_spots=[(0.3, 0.3, 6)], scratch_lines=[(0.1, 0.1, 0.2, 0.2, 2.0)]))
@@ -967,3 +986,38 @@ def test_diptych_half_slice_is_the_five_tuple_the_loader_unpacks():
     assert AppController._half_slice_for_diptych(info) == (0, 0.4, (0.1, 0.1, 0.9, 0.9), 0.02, "y")
     info.pop("split_axis")
     assert AppController._half_slice_for_diptych(info)[4] == "x"
+
+
+def test_a_resplit_remaps_a_roll_forked_half_too(tmp_path):
+    from negpy.desktop.controller import AppController
+    from negpy.infrastructure.storage.repository import StorageRepository
+    from negpy.services.assets import rolls
+
+    repo = StorageRepository(str(tmp_path / "e.db"), str(tmp_path / "s.db"))
+    repo.initialize()
+    roll_id = rolls.create_virtual_roll(repo, "R", ["/p/a.tif"])
+    edited = WorkspaceConfig(retouch=RetouchConfig(manual_dust_spots=[(0.4, 0.4, 6)]))
+    forked = rolls.fork_edit(repo, roll_id, "H#1", "/p/a.tif", edited)
+    ctrl = MagicMock()
+    ctrl.session.repo = repo
+    ctrl._path_for_base_hash.return_value = "/p/a.tif"
+    old, new = HalfGeometry(split_x=0.5), HalfGeometry(split_x=0.6)
+
+    AppController._remap_half_frame_edits(ctrl, "H", new, old)
+
+    x, y, _ = repo.load_file_settings(forked).retouch.manual_dust_spots[0]
+    assert (x, y) == pytest.approx(remap_point(0.4, 0.4, 1, old, new))
+
+
+def test_a_resplit_decodes_no_scan_without_saved_half_edits(tmp_path):
+    from negpy.desktop.controller import AppController
+    from negpy.infrastructure.storage.repository import StorageRepository
+
+    repo = StorageRepository(str(tmp_path / "e.db"), str(tmp_path / "s.db"))
+    repo.initialize()
+    ctrl = MagicMock()
+    ctrl.session.repo = repo
+
+    AppController._remap_half_frame_edits(ctrl, "H", HalfGeometry(split_x=0.6))
+
+    ctrl._half_frame_geometry_for.assert_not_called()

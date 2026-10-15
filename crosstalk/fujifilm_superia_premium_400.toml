@@ -1,0 +1,7 @@
+name = "Fujicolor Superia Premium 400 (approx)"
+type = "specsheet-based"
+matrix = [
+  [1.0000,  -0.0474,  -0.0172],
+  [-0.0485,   1.0000,  -0.0590],
+  [-0.0175,  -0.1491,   1.0000],
+]

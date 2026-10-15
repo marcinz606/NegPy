@@ -1,5 +1,4 @@
-# portra_400.toml
-name = "Kodak Portra 400 (approx)"
+name = "Kodak Ektacolor Pro 400 / Portra 400 (approx)"
 type = "specsheet-based"
 
 # 3x3 row-major density unmixing matrix (out R/G/B × in R/G/B)

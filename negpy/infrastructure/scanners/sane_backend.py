@@ -596,17 +596,20 @@ def _detect_eject(opt) -> bool:
 
 
 def _detect_adapter_frame_capacity(opt) -> int | None:
-    """Return the adapter's advertised transport bound, not an exposure count."""
+    """Return the adapter's advertised transport bound, not an exposure count.
+
+    None for one frame: coolscan3 reports 1..1 for a mount adapter, which holds no strip.
+    """
     if "frame" not in opt:
         return None
     constraint = opt["frame"].constraint
     if isinstance(constraint, tuple) and len(constraint) >= 2:
         capacity = int(constraint[1])
-        return capacity if capacity > 0 else None
-    if isinstance(constraint, list) and constraint:
+    elif isinstance(constraint, list) and constraint:
         capacity = max(int(value) for value in constraint)
-        return capacity if capacity > 0 else None
-    return None
+    else:
+        return None
+    return capacity if capacity > 1 else None
 
 
 def _detect_adapter_frame_control(opt) -> bool:
@@ -678,24 +681,9 @@ _IR_ALIGN_MAX_SHIFT_FRAC = 0.02
 
 
 def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
-    """Register a separately-scanned IR plane onto the RGB frame by a whole-pixel shift.
-
-    Only the 'source' IR strategy (a second full mechanical pass — e.g. Plustek, or
-    genesys's "Transparency Adapter Infrared") needs this: the carriage re-homes
-    between the two scans and is not perfectly repeatable, so IR can land a few
-    pixels off the visible frame. Inline RGBI/coolscan3 IR shares one photosite
-    read per line with RGB and is always aligned already.
-
-    Whole pixels only, no sub-pixel interpolation: a dust defect is a *minimum* in
-    the IR ratio, and resampling softens that dip — downsample_ir documents the same
-    failure mode for INTER_AREA (a thin hair's dip shallowed 0.22 -> 0.31 and
-    shattered). This runs on raw sensor counts, upstream of every noise-calibrated
-    landmark in ir_ratio_and_gain (_ir_normalize_ratio's per-frame MAD sigma), so
-    blurring it here would bias those measurements on exactly the low-native-sigma
-    hardware (Plustek/SilverFast, σ ~0.005 per #715) this strategy exists for. A
-    carriage-repeatability offset is whole pixels anyway — nothing is lost by not
-    going sub-pixel.
-    """
+    """Register a separately scanned IR plane onto the RGB frame by a whole-pixel shift. Only the 'source' IR strategy needs
+    it: its second mechanical pass re-homes the carriage, which is not repeatable. Never sub-pixel: resampling softens a dust
+    defect's dip in the IR ratio and biases the noise-calibrated stats in ir_ratio_and_gain."""
     if ir.size == 0 or rgb.shape[:2] != ir.shape[:2]:
         return ir
     ref = rgb.astype(np.float32)
@@ -1222,6 +1210,11 @@ class SaneBackend:
                     dev.frame = params.frame
                 except Exception as e:
                     raise RuntimeError(f"Could not set frame={params.frame}: {e}") from e
+                # coolscan3 clamps a frame past the loaded strip to its last one and reports only
+                # an inexact set, so read it back rather than rescan that frame under this number.
+                actual = getattr(dev, "frame", params.frame)
+                if int(actual) != int(params.frame):
+                    raise RuntimeError(f"Frame {params.frame} is past the end of the loaded film (the scanner stopped at frame {actual})")
 
             _apply_frame_offset(dev, offset_mm)
 

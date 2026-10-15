@@ -112,10 +112,10 @@ def test_ir_layer_none_without_ir_or_uv():
 
 
 def test_repaired_masks_wash_in_their_source_color():
-    """Every defect source arrives as a mask now, so color is what tells them apart:
-    green for optically detected specks, magenta for IR and inpainted defects."""
-    from negpy.desktop.view.canvas.overlay import _DUST_MARK_IR, _DUST_MARK_LUMA
+    """Every defect source arrives as a mask, so color tells them apart."""
+    from negpy.desktop.view.styles.color_vision import palette_for
 
+    luma_color, ir_color = (QColor(c) for c in palette_for("standard").pair)
     overlay = CanvasOverlay(AppState())
     h, w = 12, 16
     luma = np.zeros((h, w), np.uint8)
@@ -128,7 +128,7 @@ def test_repaired_masks_wash_in_their_source_color():
         overlay.state.last_metrics["ir_corrected_mask"] = ir.astype(bool)
 
     masks = overlay._corrected_masks()
-    assert [c.rgb() for _m, c in masks] == [_DUST_MARK_LUMA.rgb(), _DUST_MARK_IR.rgb()]
+    assert [c.rgb() for _m, c in masks] == [luma_color.rgb(), ir_color.rgb()]
 
     img = overlay._mask_wash_qimage(*masks[0])
     assert img is not None
@@ -169,3 +169,23 @@ def test_line_tool_hover_traces_a_guide():
     overlay._map_to_image_coords = lambda _pos: (0.5, 0.1)
     overlay._trace_line_hover()
     assert overlay._line_hover is None
+
+
+def test_the_color_vision_choice_washes_the_marks():
+    from negpy.desktop.view.styles.color_vision import palette_for
+
+    overlay = CanvasOverlay(AppState())
+    overlay.state.color_vision = "tritan"
+    mask = np.ones((4, 4), bool)
+    with overlay.state.metrics_lock:
+        overlay.state.last_metrics["detected_dust_mask"] = mask
+        overlay.state.last_metrics["ir_corrected_mask"] = mask
+
+    expected = [QColor(c).rgb() for c in palette_for("tritan").pair]
+    assert [c.rgb() for _m, c in overlay._corrected_masks()] == expected
+
+
+def test_an_unknown_color_vision_key_reads_as_standard():
+    from negpy.desktop.view.styles.color_vision import PALETTES, palette_for
+
+    assert palette_for("retired") is PALETTES[0]

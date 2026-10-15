@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import threading
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any
 
 import pytest
 
@@ -80,7 +82,7 @@ class _BatchService:
         self.eject_calls.append(device_id)
         return True
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
         self.detect_calls.append(film_format)
         return self.detected
 
@@ -240,6 +242,39 @@ def test_scan_worker_reports_eject_failure() -> None:
     assert errors == ["transport refused"]
 
 
+class _PollService:
+    def __init__(self, loaded: bool | None = True, error: Exception | None = None) -> None:
+        self.loaded = loaded
+        self.error = error
+
+    def media_loaded(self, device_id: str) -> bool | None:
+        if self.error is not None:
+            raise self.error
+        return self.loaded
+
+
+def test_the_film_poll_reports_the_state() -> None:
+    worker = ScanWorker()
+    worker._service = _PollService(loaded=False)  # type: ignore[assignment]
+    polled: list[tuple[str, bool | None]] = []
+    worker.media_polled.connect(lambda device_id, loaded: polled.append((device_id, loaded)))
+
+    worker.poll_media("nkscan:test")
+
+    assert polled == [("nkscan:test", False)]
+
+
+def test_a_failed_film_poll_reports_no_state() -> None:
+    worker = ScanWorker()
+    worker._service = _PollService(error=RuntimeError("transport refused"))  # type: ignore[assignment]
+    polled: list[tuple[str, bool | None]] = []
+    worker.media_polled.connect(lambda device_id, loaded: polled.append((device_id, loaded)))
+
+    worker.poll_media("nkscan:test")
+
+    assert polled == [("nkscan:test", None)]
+
+
 def test_progress_without_a_phase_is_reported_as_scanning() -> None:
     """A backend with one phase calls progress(fraction); the signal needs both.
 
@@ -339,6 +374,66 @@ def test_cancel_during_write_does_not_hide_write_failure() -> None:
     assert cancelled == []
     assert errors == ["scratch disk full"]
     assert worker._scanning is False
+
+
+class _PowerAssertion:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def release(self) -> None:
+        self._events.append("release")
+
+
+def _record_power_assertions(monkeypatch: pytest.MonkeyPatch, service: Any) -> list[str]:
+    """Events in order: each acquire, each scan the service runs, each release."""
+    events: list[str] = []
+
+    def acquire(reason: str) -> _PowerAssertion:
+        events.append(f"acquire:{reason}")
+        return _PowerAssertion(events)
+
+    monkeypatch.setattr("negpy.desktop.workers.scan_worker.acquire_unattended_power_assertion", acquire)
+    run_scan = service.run_scan
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        events.append("scan")
+        return run_scan(*args, **kwargs)
+
+    service.run_scan = spy
+    return events
+
+
+def test_run_scan_holds_a_power_assertion_for_the_whole_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = ScanWorker()
+    service = _ScanService()
+    worker._service = service  # type: ignore[assignment]
+    events = _record_power_assertions(monkeypatch, service)
+
+    worker.run_scan(_scan_request())
+
+    assert events == ["acquire:NegPy film scan", "scan", "release"]
+
+
+def test_run_scan_releases_the_power_assertion_after_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = ScanWorker()
+    service = _ScanService(write_error=OSError("scratch disk full"))
+    worker._service = service  # type: ignore[assignment]
+    events = _record_power_assertions(monkeypatch, service)
+
+    worker.run_scan(_scan_request())
+
+    assert events == ["acquire:NegPy film scan", "scan", "release"]
+
+
+def test_run_batch_holds_a_power_assertion_for_the_whole_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    events = _record_power_assertions(monkeypatch, service)
+
+    worker.run_batch(_batch_request((2, 3)))
+
+    assert events == ["acquire:NegPy film scan batch", "scan", "scan", "release"]
 
 
 def test_run_batch_scans_each_frame_and_reports_paths() -> None:
@@ -504,7 +599,9 @@ class _FakeRollSession:
     def set_offset(self, slot: int, offset: float) -> None:
         self.offsets[slot] = offset
 
-    def preview(self, slots, *, cancel):
+    def preview(
+        self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+    ) -> Iterator[RollPreview]:
         for slot in slots:
             if self._cancel_at == slot:
                 cancel.set()
@@ -602,7 +699,9 @@ def test_run_roll_preview_reports_a_failure_to_open_the_strip() -> None:
 
 def test_run_roll_preview_closes_the_session_when_a_slot_raises() -> None:
     class _Exploding(_FakeRollSession):
-        def preview(self, slots, *, cancel):
+        def preview(
+            self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+        ) -> Iterator[RollPreview]:
             yield RollPreview(slot=1, rgb=object())
             raise RuntimeError("transport died")
 
@@ -754,3 +853,12 @@ def test_run_meter_cancelled_mid_run_keeps_nothing() -> None:
     worker.run_meter(MeterRequest(device_id="nk:1", params=ScanParams(dpi=4000, depth=16, capture_ir=False, frame=2)))
 
     assert (metered, errors, cancelled) == ([], [], [None])
+
+
+def test_a_refused_prescan_does_not_leave_a_request_prepared() -> None:
+    from negpy.desktop.workers.scan_worker import PrescanRequest
+
+    worker = ScanWorker()
+    worker.prepare_scan()
+    worker.run_prescan(PrescanRequest(device_id="dev", prescan_dpi=0))
+    worker.prepare_scan()  # raises while a stale request is still prepared

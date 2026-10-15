@@ -198,7 +198,7 @@ class PrescanCropDialog(QDialog):
         self._busy = False
         self._strip.stop_progress()
         self._retry_btn.setEnabled(True)
-        self._strip.set_message("Prescan cancelled")
+        self._strip.set_message("Prescan canceled")
 
     def _on_window_changed(self, rect: object) -> None:
         if rect is None:

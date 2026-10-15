@@ -71,18 +71,18 @@ def test_no_strip_up_means_no_pick() -> None:
     assert picked == []
 
 
-def test_the_strip_paints_and_supersedes_the_zone_grid() -> None:
+def test_the_strip_paints_and_supersedes_the_zone_map() -> None:
     overlay = _strip_overlay()
     overlay.state.zones_overlay = True
     assert _paint(overlay, "_draw_test_strip").called
     # Both would claim the content rect; the strip wins while it is up.
-    assert not _paint(overlay, "_draw_zone_grid").called
+    assert not _paint(overlay, "_draw_zone_map").called
 
 
-def test_the_zone_grid_comes_back_once_the_strip_is_gone() -> None:
+def test_the_zone_map_comes_back_once_the_strip_is_gone() -> None:
     overlay = _strip_overlay(up=False)
     overlay.state.zones_overlay = True
-    assert _paint(overlay, "_draw_zone_grid").called
+    assert _paint(overlay, "_draw_zone_map").called
 
 
 def test_a_flat_peek_hides_the_strip_rather_than_covering_the_peek() -> None:

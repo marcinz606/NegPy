@@ -59,6 +59,11 @@ class TestPaperProfiles(unittest.TestCase):
         kinds = {p.kind for p in PAPER_PROFILES.values()}
         self.assertTrue({"bw", "ra4"} <= kinds)
 
+    def test_midtone_gamma_leaves_snap_headroom(self):
+        # Snap and its per-layer trims add to the profile's gamma below the kernel's |gamma| < 1.
+        for key, p in PAPER_PROFILES.items():
+            self.assertLessEqual(abs(p.paper_midtone_gamma), 0.25, key)
+
     def test_default_matches_constants(self):
         # The neutral default must leave every tonal key untouched.
         c = effective_constants(resolve_paper(DEFAULT_PROFILE_KEY))

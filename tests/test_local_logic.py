@@ -208,36 +208,44 @@ class TestSmoothPolyline(unittest.TestCase):
 
 class TestLimitedPlanes(unittest.TestCase):
     """A tone-limited mask cannot be pre-summed: its weight depends on each pixel's tone,
-    so it carries its own shape plane after the two shared ones."""
+    so it carries its own shape plane after the three shared ones."""
 
     def _square(self, x0: float, stops: float = 1.0, key: MaskKey = MaskKey.HIGHLIGHTS, **kw) -> LocalMask:
         return LocalMask(vertices=((x0, 0.2), (x0 + 0.1, 0.2), (x0 + 0.1, 0.8), (x0, 0.8)), stops=stops, feather=0.0, key=key, **kw)
 
-    def test_no_limited_mask_keeps_the_two_shared_planes(self) -> None:
+    def test_no_limited_mask_keeps_the_three_shared_planes(self) -> None:
         cfg = LocalAdjustmentsConfig(masks=(_center_square_mask(1.0),))
-        self.assertEqual(compute_local_maps(cfg, 100, 100, (100, 100)).shape, (100, 100, 2))
+        self.assertEqual(compute_local_maps(cfg, 100, 100, (100, 100)).shape, (100, 100, 3))
 
     def test_a_limited_mask_writes_its_shape_to_its_own_plane_only(self) -> None:
         cfg = LocalAdjustmentsConfig(masks=(self._square(0.1, stops=1.5, grade=-10.0), self._square(0.6, key=MaskKey.OFF)))
         maps = compute_local_maps(cfg, 100, 100, (100, 100))
-        self.assertEqual(maps.shape, (100, 100, 3))
-        self.assertAlmostEqual(float(maps[50, 15, 2]), 1.0, places=5)
+        self.assertEqual(maps.shape, (100, 100, 4))
+        self.assertAlmostEqual(float(maps[50, 15, 3]), 1.0, places=5)
         self.assertEqual(float(maps[50, 15, 0]), 0.0)
         self.assertEqual(float(maps[50, 15, 1]), 0.0)
         self.assertAlmostEqual(float(maps[50, 65, 0]), 1.0, places=5)
-        self.assertEqual(float(maps[50, 65, 2]), 0.0)
+        self.assertEqual(float(maps[50, 65, 3]), 0.0)
 
     def test_a_fifth_limited_mask_prints_unlimited(self) -> None:
         cfg = LocalAdjustmentsConfig(masks=tuple(self._square(0.05 + 0.18 * i, stops=0.5) for i in range(5)))
         maps = compute_local_maps(cfg, 100, 100, (100, 100))
-        self.assertEqual(maps.shape, (100, 100, 6))
+        self.assertEqual(maps.shape, (100, 100, 7))
         self.assertAlmostEqual(float(maps[50, 81, 0]), 0.5, places=5)
 
     def test_a_disabled_limited_mask_takes_no_plane(self) -> None:
         cfg = LocalAdjustmentsConfig(masks=(self._square(0.1, enabled=False), self._square(0.6)))
         maps = compute_local_maps(cfg, 100, 100, (100, 100))
-        self.assertEqual(maps.shape, (100, 100, 3))
-        self.assertAlmostEqual(float(maps[50, 65, 2]), 1.0, places=5)
+        self.assertEqual(maps.shape, (100, 100, 4))
+        self.assertAlmostEqual(float(maps[50, 65, 3]), 1.0, places=5)
+
+    def test_a_flash_sums_into_the_third_plane_unless_the_mask_is_limited(self) -> None:
+        cfg = LocalAdjustmentsConfig(
+            masks=(self._square(0.1, stops=0.0, flash=0.6), self._square(0.6, stops=0.0, key=MaskKey.OFF, flash=0.3))
+        )
+        maps = compute_local_maps(cfg, 100, 100, (100, 100))
+        self.assertAlmostEqual(float(maps[50, 65, 2]), 0.3, places=5)
+        self.assertEqual(float(maps[50, 15, 2]), 0.0)  # a tone-limited mask carries no flash
 
 
 class TestLocalSerialization(unittest.TestCase):

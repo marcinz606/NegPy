@@ -10,6 +10,7 @@ from dataclasses import replace
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.infrastructure.gpu.device import GPUDevice
 
 
@@ -133,6 +134,34 @@ class TestGpuCurveParity(unittest.TestCase):
         unflashed = self._render(processor, base, img, prefer_gpu=False)
 
         self.assertGreater(float(np.max(np.abs(cpu - unflashed))), 0.02, "preflash must move the render")
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
+    def test_cpu_gpu_match_local_flash(self):
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.ascontiguousarray(np.stack([img, img * 0.95, img * 0.9], axis=-1))
+
+        base = WorkspaceConfig()
+        # The flash covers the left half; the right half prints as the unflashed frame.
+        mask = LocalMask(vertices=((0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (0.0, 1.0)), flash=0.8, feather=0.0)
+        settings = replace(base, local=LocalAdjustmentsConfig(masks=(mask,)))
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+        unflashed = self._render(processor, base, img, prefer_gpu=False)
+
+        self.assertGreater(float(np.max(np.abs(cpu[:, :28] - unflashed[:, :28]))), 0.02, "the flash must move the masked half")
+        # The smoothed polygon bows past x = 0.5 between its corners, so the probe starts at 0.7.
+        self.assertLess(float(np.max(np.abs(cpu[:, 45:] - unflashed[:, 45:]))), 1e-4, "the unmasked side prints unflashed")
         mad = float(np.mean(np.abs(cpu - gpu)))
         mx = float(np.max(np.abs(cpu - gpu)))
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")

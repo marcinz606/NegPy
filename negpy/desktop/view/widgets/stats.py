@@ -1,10 +1,14 @@
 from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+import qtawesome as qta
+from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from negpy.desktop.view.styles.templates import header_button, labeled_action
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
+
+CLIPPING_TOOLTIP = "Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns amber above 1%."
 
 _TOOLTIPS = {
     "Negative": (
@@ -16,23 +20,23 @@ _TOOLTIPS = {
         "Where the frame's midtone sits, in stops from neutral: positive = brighter (high-key), "
         "negative = darker (low-key). Approximate — read off the metered midtone, not a precise meter."
     ),
-    "Clipping": ("Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns red above 1%."),
+    "Clipping": CLIPPING_TOOLTIP,
     "Scan clip": (
         "Share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and "
         "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
-        "expose the scan lower. Turns red above 1%."
+        "expose the scan lower. Turns amber above 1%."
     ),
     "Gamut": (
         "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
         "tone ran off the end of the paper; this says a color is outside what the profile can make, "
         "so it will be pulled to the nearest one it can. Blank unless soft proofing to an "
         "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
-        "which pixel. Turns red above 2%."
+        "which pixel. Turns amber above 2%."
     ),
     "Repair": (
         "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
         "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
-        "Reads none until a route fires; turns red above 5%, where a route is repairing the "
+        "Reads none until a route fires; turns amber above 5%, where a route is repairing the "
         "picture rather than the dust on it."
     ),
 }
@@ -69,8 +73,8 @@ class DensitometerRow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         grid = QGridLayout(self)
-        grid.setContentsMargins(4, 0, 4, 0)
-        grid.setHorizontalSpacing(8)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(THEME.space_lg)
         grid.setColumnStretch(1, 1)
         name = QLabel("Probe")
         name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
@@ -110,8 +114,8 @@ class ZonePlacementRows(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         col = QVBoxLayout(self)
-        col.setContentsMargins(4, 0, 4, 0)
-        col.setSpacing(2)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(THEME.space_xs)
         name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
         value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
         warn_css = f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;"
@@ -121,32 +125,28 @@ class ZonePlacementRows(QWidget):
         self._names: List[QLabel] = []
         self._target_labels: List[QLabel] = []
         self._lands: List[QLabel] = []
-        self._steppers: List[Tuple[QToolButton, QToolButton]] = []
-        self._removes: List[QToolButton] = []
+        self._steppers: List[Tuple[QPushButton, QPushButton]] = []
+        self._removes: List[QPushButton] = []
         for i, color in enumerate(PIN_COLORS):
             row = QWidget()
             grid = QGridLayout(row)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(6)
+            grid.setHorizontalSpacing(THEME.space_md)
             grid.setColumnStretch(1, 1)
             swatch = QLabel()
-            swatch.setFixedSize(8, 8)
-            swatch.setStyleSheet(f"background: {color}; border-radius: 4px;")
+            swatch.setFixedSize(2 * THEME.radius_md, 2 * THEME.radius_md)
+            swatch.setStyleSheet(f"background: {color}; border-radius: {THEME.radius_md}px;")
             name = QLabel("")
             name.setStyleSheet(name_css)
-            minus = QToolButton()
-            minus.setText("−")
-            plus = QToolButton()
-            plus.setText("+")
+            minus = header_button(qta.icon("fa5s.minus", color=THEME.text_secondary), "One third of a zone darker")
+            plus = header_button(qta.icon("fa5s.plus", color=THEME.text_secondary), "One third of a zone lighter")
             target = QLabel("")
             target.setStyleSheet(value_css)
             target.setAlignment(Qt.AlignmentFlag.AlignCenter)
             target.setMinimumWidth(34)
             lands = QLabel("")
             lands.setStyleSheet(warn_css)
-            remove = QToolButton()
-            remove.setText("✕")
-            remove.setToolTip("Remove this pin")
+            remove = header_button(qta.icon("fa5s.times", color=THEME.text_secondary), "Remove this pin")
             minus.clicked.connect(lambda _=False, idx=i: self._step(idx, -1.0 / 3.0))
             plus.clicked.connect(lambda _=False, idx=i: self._step(idx, 1.0 / 3.0))
             remove.clicked.connect(lambda _=False, idx=i: self.remove_clicked.emit(idx))
@@ -169,10 +169,8 @@ class ZonePlacementRows(QWidget):
             self._removes.append(remove)
 
         buttons = QHBoxLayout()
-        buttons.setContentsMargins(0, 2, 0, 2)
-        self.apply_btn = QPushButton("Place Zones")
-        self.apply_btn.setProperty("primary", True)
-        self.apply_btn.setToolTip("Commit the solved print (Enter)")
+        buttons.setContentsMargins(0, THEME.space_xs, 0, THEME.space_xs)
+        self.apply_btn = labeled_action("", "Place Zones", "Commit the solved print (Enter)", primary=True)
         self.apply_btn.clicked.connect(self.apply_clicked.emit)
         buttons.addWidget(self.apply_btn)
         col.addLayout(buttons)
@@ -235,9 +233,9 @@ class NegativeStatsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         grid = QGridLayout(self)
-        grid.setContentsMargins(4, 4, 4, 2)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(2)
+        grid.setContentsMargins(0, THEME.space_sm, 0, THEME.space_xs)
+        grid.setHorizontalSpacing(THEME.space_lg)
+        grid.setVerticalSpacing(THEME.space_xs)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(4, 1)
 

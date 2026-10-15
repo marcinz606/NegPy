@@ -31,9 +31,11 @@ def _dialog(monkeypatch, **kwargs) -> LocationPickerDialog:
         "negpy.desktop.view.widgets.location_picker_dialog.reverse_place",
         lambda *a, **k: None,
     )
-    dialog = LocationPickerDialog(**kwargs)
-    monkeypatch.setattr(dialog._pool, "start", lambda job, *args: job.run())
-    return dialog
+    monkeypatch.setattr(
+        "negpy.desktop.view.widgets.location_picker_dialog._run_lookup",
+        lambda signals, lookup, done: None if signals.stopped else done(lookup()),
+    )
+    return LocationPickerDialog(**kwargs)
 
 
 def test_opens_with_the_existing_location(monkeypatch) -> None:
@@ -129,7 +131,7 @@ def test_unparsable_coordinates_are_reported_and_not_applied(monkeypatch) -> Non
     dlg.coords_edit.setText("somewhere nice")
     dlg._on_coords_edited()
     assert dlg.location()[:2] == (None, None)
-    assert "not recognised" in dlg.status_label.text()
+    assert "not recognized" in dlg.status_label.text()
 
 
 def test_clicking_the_map_fills_place_from_reverse_lookup(monkeypatch) -> None:
@@ -197,3 +199,41 @@ def test_the_top_hit_is_highlighted_for_the_next_return(monkeypatch) -> None:
 
     assert dlg._completer.popup().currentIndex().row() == 0
     dlg.close()
+
+
+def test_closing_never_waits_on_a_stalled_lookup(monkeypatch) -> None:
+    import threading
+    import time
+
+    release = threading.Event()
+    monkeypatch.setattr(
+        "negpy.desktop.view.widgets.location_picker_dialog.search_places",
+        lambda q: release.wait(10) and [],
+    )
+    monkeypatch.setattr("negpy.desktop.view.widgets.slippy_map.fetch_tile", lambda *a, **k: None)
+    dlg = LocationPickerDialog()
+    dlg.search_edit.setText("Tokyo")
+    dlg._on_search()
+
+    t0 = time.monotonic()
+    dlg.reject()
+    assert time.monotonic() - t0 < 1.0
+    release.set()
+
+
+def test_the_map_requests_tiles_again_after_hide_and_show(monkeypatch) -> None:
+    import time
+
+    from negpy.desktop.view.widgets import slippy_map
+
+    started: list = []
+    monkeypatch.setattr(slippy_map, "_fetch_tile_job", lambda signals, *key: started.append(key))
+    view = slippy_map.SlippyMapWidget()
+    view._request((3, 1, 1))
+    view.shutdown()  # The fetch lands while hidden and is dropped.
+    view._signals.stopped = False
+    view._request((3, 1, 1))
+    deadline = time.monotonic() + 2.0
+    while len(started) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert started == [(3, 1, 1), (3, 1, 1)]

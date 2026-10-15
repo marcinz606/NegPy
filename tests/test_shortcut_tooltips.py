@@ -24,6 +24,6 @@ def test_apply_shortcut_tooltips_reaches_every_widget_it_names(controls):
 
 
 def test_every_sidebar_widget_the_view_layer_names_exists(controls):
-    named = {pair for path in _VIEW.rglob("*.py") for pair in _ATTR_CHAIN.findall(path.read_text())}
+    named = {pair for path in _VIEW.rglob("*.py") for pair in _ATTR_CHAIN.findall(path.read_text(encoding="utf-8"))}
     missing = [f"{sidebar}.{widget}" for sidebar, widget in named if not hasattr(getattr(controls, sidebar, None), widget)]
     assert missing == []

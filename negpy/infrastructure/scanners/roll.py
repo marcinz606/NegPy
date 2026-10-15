@@ -10,8 +10,10 @@ windows have no counterpart on a whole-roll transport, so the scan half of this
 seam can't be settled until a native implementation exists to settle it against.
 """
 
+from __future__ import annotations
+
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -46,6 +48,9 @@ class RollPreview:
     # confirm before it can be scanned. Always False on a per-frame transport.
     needs_approval: bool = False
     warnings: tuple[str, ...] = ()
+    # Cuts this slot again at another offset, a fraction of one frame pitch, from the pass
+    # already read. None where the transport must scan for a new offset, or the cut leaves that pass.
+    cut: Callable[[float], RollPreview | None] | None = None
 
 
 class RollSession(Protocol):
@@ -63,8 +68,13 @@ class RollSession(Protocol):
     # pointless and the UI offers Preview all only.
     supports_single_slot_preview: bool
 
-    def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:
-        """Yield one RollPreview per slot, as each becomes available."""
+    def preview(
+        self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+    ) -> Iterator[RollPreview]:
+        """Yield one RollPreview per slot, as each becomes available.
+
+        `progress` gets (fraction, phase) while a pass runs. A transport that has no pass to report can ignore it.
+        """
         ...
 
     def set_offset(self, slot: int, offset: float) -> None:

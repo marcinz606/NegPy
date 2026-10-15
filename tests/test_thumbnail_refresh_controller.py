@@ -136,7 +136,7 @@ class TestThumbnailRefreshController:
     def test_dispatch_is_not_blocked_by_another_batch_owning_the_lane(self) -> None:
         """The whole point of running off the shared lane: Apply Settings must not be
         refused just because Export, Auto Crop All or anything else is in progress."""
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         assert token is not None
 
         self.controller.refresh_thumbnails_for(["other"])
@@ -172,7 +172,7 @@ class TestThumbnailRefreshController:
         generation = self.controller._thumbnail_render_generation
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
 
         self.controller.thumbnail_render_worker.cancel.assert_called_once_with(generation)
         self.controller._end_batch("autocrop", token)
@@ -181,14 +181,14 @@ class TestThumbnailRefreshController:
     def test_begin_batch_does_not_preempt_when_no_refresh_is_running(self) -> None:
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
-        token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
 
         self.controller.thumbnail_render_worker.cancel.assert_not_called()
         self.controller._end_batch("autocrop", token)
 
     def test_begin_batch_refused_while_another_batch_runs_does_not_preempt(self) -> None:
         self.controller.refresh_thumbnails_for(["other"])
-        first = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
+        first = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
         self.controller.thumbnail_render_worker.cancel = MagicMock()
 
         second = self.controller._begin_batch("normalization", "Analyzing roll", True)
@@ -471,7 +471,7 @@ class TestThumbnailRefreshController:
         self.controller.cancel_thumbnail_refresh()
         self.controller._on_thumbnail_render_cancelled()
 
-        assert statuses == ["Thumbnail update cancelled"]
+        assert statuses == ["Thumbnail update canceled"]
 
     def test_cancel_thumbnail_refresh_also_discards_an_already_folded_backlog(self) -> None:
         """A bulk write folded into the resume backlog while a manual refresh was
@@ -760,15 +760,17 @@ class TestThumbnailRefreshController:
 
         assert asset_thumbnail_key(self.files[0]) in self.controller.state.stale_thumbnails
 
-    def test_negative_peek_drops_the_render_identity(self) -> None:
+    def test_a_negative_peek_leaves_the_print_to_the_thumbnail(self) -> None:
         self._live_render(("active", self.controller.state.config))
+        print_buffer = self.controller.state.last_metrics["base_positive"]
         self.controller.state.preview_raw = np.full((4, 4, 3), 0.5, dtype=np.float32)
 
+        self.controller.state.negative_peek = True
         self.controller._paint_negative_peek()
         self.controller._update_thumbnail_from_state(persist=True)
 
-        assert "render_identity" not in self.controller.state.last_metrics
-        assert self.thumbnail_updates == []
+        assert self.thumbnail_updates[-1].buffer is print_buffer
+        assert self.thumbnail_updates[-1].fingerprint == self._current("active")
 
     def _file_it_here(self) -> None:
         # The test writes the JPEG itself; the worker writing the same file would race it.

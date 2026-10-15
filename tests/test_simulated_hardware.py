@@ -123,6 +123,23 @@ def test_calibration_reaches_target_on_the_simulated_rig(camera, tmp_path, sim_e
     assert {c.channel for c in result.channels.values()} == {"R", "G", "B"}
 
 
+def test_single_capture_calibration_reaches_target_on_the_simulated_rig(camera, tmp_path, sim_env):
+    light = Scanlight()
+    try:
+        service = CalibrationService(light, camera, lambda p: linear_demosaic(p, half_size=True), settle_s=0.0)
+        result = service.calibrate(_REBATE, str(tmp_path / "cal"), single_capture=True)
+        light.set_color(*result.levels)
+        frame = camera.capture(str(tmp_path / "frame.raw"), shutter=result.shutters[0])
+    finally:
+        light.close()
+    assert result.single_capture
+    target = result.channels["R"].target
+    assert _base_signal(frame) == pytest.approx([target] * 3, rel=0.1)
+    mixing = np.linalg.inv(np.array(result.sensor_matrix).reshape(3, 3))
+    leaks = mixing[~np.eye(3, dtype=bool)]
+    assert np.diag(mixing) == pytest.approx([1.0] * 3) and np.all((leaks > 0) & (leaks < 0.2))
+
+
 def test_flag_selects_the_simulated_gphoto_module(sim_env):
     assert isinstance(gphoto._gp(), SimGphoto)
     assert gphoto.list_cameras() == [{"model": MODEL, "port": "usb:sim"}]

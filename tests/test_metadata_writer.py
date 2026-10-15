@@ -16,8 +16,9 @@ from PIL import Image
 import imagecodecs
 import numpy as np
 
+from negpy.features.metadata.exif_read import source_xmp_rating
 from negpy.features.metadata.models import MetadataConfig
-from negpy.features.metadata.writer import embed_metadata, preserve_source_metadata
+from negpy.features.metadata.writer import _extract_jpeg_xmp, embed_metadata, export_embed_plan, preserve_source_metadata
 from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif
 
 _RAW_PREVIEW_0TH_TAGS = (330, 273, 279, 256, 257, 513, 514)
@@ -284,6 +285,104 @@ def test_embed_keeps_real_gps_coordinates() -> None:
     assert tiff is not None
     loaded = piexif.load(tiff)
     assert loaded["GPS"][piexif.GPSIFD.GPSLatitude] == ((59, 1), (54, 1), (0, 1))
+
+
+def _camera_xmp(rating: str = "3") -> bytes:
+    return (
+        b'<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+        b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        b'<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="' + rating.encode() + b'"/>'
+        b'</rdf:RDF></x:xmpmeta><?xpacket end="w"?>'
+    )
+
+
+def _with_camera_xmp(packet: bytes | None = None) -> dict:
+    """Source EXIF as piexif.load() returns it: tag 700 is a tuple of byte values."""
+    source_exif = _raw_like_source_exif()
+    source_exif["0th"][700] = tuple(packet or _camera_xmp())
+    return source_exif
+
+
+def _png() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), (128, 0, 0)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _webp() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), (128, 0, 0)).save(buf, "WEBP")
+    return buf.getvalue()
+
+
+def _exported_zeroth(out: bytes) -> dict:
+    if out[:2] == b"\xff\xd8":
+        tiff = out
+    elif out[:4] == b"RIFF" or out[:8] == b"\x89PNG\r\n\x1a\n":
+        tiff = Image.open(io.BytesIO(out)).info.get("exif")
+    else:
+        tiff = read_jxl_exif(out)
+    assert tiff
+    return piexif.load(tiff)["0th"]
+
+
+@pytest.mark.parametrize("encode", [_jpeg, _jxl, _png, _webp])
+def test_embed_drops_source_xmp_packet_from_exif(encode) -> None:
+    """A TIFF-based RAW (Panasonic RW2) keeps its XMP in IFD0 tag 700; the export
+    carries NegPy's XMP only, not a second packet inside EXIF (#1367)."""
+    zeroth = _exported_zeroth(embed_metadata(encode(), MetadataConfig(), _with_camera_xmp()))
+    assert 700 not in zeroth
+    assert zeroth[piexif.ImageIFD.Make] == b"NIKON CORPORATION"
+
+
+def test_embed_carries_source_rating_into_negpy_xmp() -> None:
+    out = embed_metadata(_jpeg(), MetadataConfig(), _with_camera_xmp(_camera_xmp("3")))
+    xmp = _extract_jpeg_xmp(out)
+    assert xmp is not None
+    assert b"<xmp:Rating>3</xmp:Rating>" in xmp
+
+
+def test_embed_plan_carries_source_rating() -> None:
+    plan = export_embed_plan(MetadataConfig(), _with_camera_xmp(_camera_xmp("-1")), "unused.rw2")
+    assert plan is not None
+    _, xmp_bytes, _ = plan
+    assert xmp_bytes is not None and b"<xmp:Rating>-1</xmp:Rating>" in xmp_bytes
+
+
+@pytest.mark.parametrize(
+    "packet, expected",
+    [
+        (_camera_xmp("4"), "4"),
+        (_camera_xmp("0"), ""),
+        (_camera_xmp("7"), ""),
+        (_camera_xmp("high"), ""),
+        (
+            b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+            b'<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/"><xmp:Rating>2</xmp:Rating></rdf:Description>'
+            b"</rdf:RDF></x:xmpmeta>\x00\x00",
+            "2",
+        ),
+        (b"<x:xmpmeta", ""),
+    ],
+)
+def test_source_xmp_rating(packet: bytes, expected: str) -> None:
+    assert source_xmp_rating(_with_camera_xmp(packet)) == expected
+
+
+def test_preserve_moves_source_xmp_packet_out_of_exif() -> None:
+    """tifffile cannot open an RW2, so Protect original metadata reads its XMP from
+    the EXIF and writes it to the export's own XMP slot."""
+    out = preserve_source_metadata(_jpeg(), source_path="unused.rw2", source_exif=_with_camera_xmp())
+    assert 700 not in _exported_zeroth(out)
+    assert _extract_jpeg_xmp(out) == _camera_xmp()
+
+
+def test_preserve_embed_plan_keeps_source_xmp_packet() -> None:
+    plan = export_embed_plan(MetadataConfig(protect_original_metadata=True), _with_camera_xmp(), "unused.rw2")
+    assert plan is not None
+    exif_bytes, xmp_bytes, _ = plan
+    assert 700 not in piexif.load(exif_bytes)["0th"]
+    assert xmp_bytes == _camera_xmp()
 
 
 if __name__ == "__main__":

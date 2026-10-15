@@ -59,11 +59,12 @@ class MaskNote:
     stops: str  # stops_label's "0" when the mask changes nothing but grade
     local_r: str = ""
     key: str = ""
+    flash: str = ""
 
     @property
     def kind(self) -> str:
         if self.stops == "0":
-            return "Grade"
+            return "Flash" if self.flash and not self.local_r else "Grade"
         return "Burn" if self.is_burn else "Dodge"
 
     @property
@@ -74,6 +75,8 @@ class MaskNote:
             parts.append(self.stops)
         if self.local_r:
             parts.append(self.local_r)
+        if self.flash:
+            parts.append(self.flash)
         if self.key:
             parts.append(self.key)
         return " ".join(parts)
@@ -86,6 +89,8 @@ class MaskNote:
             text += f" {self.stops}"
         if self.local_r:
             text += f" @ {self.local_r}"
+        if self.flash:
+            text += f" {self.flash}"
         if self.key:
             text += f" on {self.key}"
         return text
@@ -103,6 +108,7 @@ def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNo
             is_burn=m.stops > 0,
             stops=stops_label(m.stops),
             local_r=local_grade_label(grade, m.grade),
+            flash=f"flash {m.flash:.2f}" if m.flash and i not in limited else "",
             key=tone_limit_label(m) if i in limited else "",
         )
         for i, m in enumerate(local.masks)

@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional
+import xml.etree.ElementTree as ET
 
 import piexif
+
+XMP_PACKET_TAG = 700
+_XMP_NS = "http://ns.adobe.com/xap/1.0/"
+_RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 
 def safe_str(value: Any) -> str:
@@ -149,6 +154,49 @@ def strip_scan_exif_for_capture(exif_dict: dict) -> None:
         exif.pop(tag, None)
     for tag in _SCAN_EXPOSURE_EXIF_TAGS:
         exif.pop(tag, None)
+
+
+def xmp_packet_from_exif(exif_dict: dict | None) -> Optional[bytes]:
+    """The XMP packet a TIFF-based RAW keeps in IFD0 tag 700. piexif loads it as a
+    tuple of byte values."""
+    value = ((exif_dict or {}).get("0th") or {}).get(XMP_PACKET_TAG)
+    if isinstance(value, str):
+        value = value.encode("utf-8")
+    elif isinstance(value, (tuple, list)):
+        try:
+            value = bytes(value)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, (bytes, bytearray)):
+        return None
+    packet = bytes(value).rstrip(b"\x00 \t\r\n")
+    return packet or None
+
+
+def source_xmp_rating(source_exif: dict | None) -> str:
+    """xmp:Rating from the source's EXIF XMP packet, as written. Empty when absent,
+    malformed or 0 (unrated)."""
+    packet = xmp_packet_from_exif(source_exif)
+    if packet is None:
+        return ""
+    try:
+        root = ET.fromstring(packet)
+    except ET.ParseError:
+        return ""
+    for desc in root.iter(f"{{{_RDF_NS}}}Description"):
+        value = desc.get(f"{{{_XMP_NS}}}Rating")
+        if value is None:
+            element = desc.find(f"{{{_XMP_NS}}}Rating")
+            value = element.text if element is not None else None
+        if value is None:
+            continue
+        value = value.strip()
+        try:
+            rating = float(value)
+        except ValueError:
+            return ""
+        return value if rating != 0 and -1 <= rating <= 5 else ""
+    return ""
 
 
 def extract_scan_from_exif(source_exif: dict | None) -> ScanExif:

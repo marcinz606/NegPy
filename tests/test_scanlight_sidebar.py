@@ -205,7 +205,7 @@ def test_cancelled_scan_returns_sidebar_to_a_terminal_idle_state():
 
     assert not w._scanning
     assert w.status_strip.showing() != "progress"
-    assert "cancelled" in w.status_strip.message().lower()
+    assert "canceled" in w.status_strip.message().lower()
     assert w.lv_btn.isChecked()  # capture cancellation preserves the live-view session
     assert w.controller.set_scanlight_color.called  # restore the framing light
 
@@ -226,7 +226,7 @@ def test_cancelled_calibration_restores_scan_target_and_gates():
     assert w._calibrating_preset == ""
     assert w._lv_target is w.lv_image
     assert w.calib_window.progress.isHidden()
-    assert "cancelled" in w.calib_window.status.text().lower()
+    assert "canceled" in w.calib_window.status.text().lower()
     assert not w._lv_timer.isActive()
     w.controller.stop_live_view.assert_called_once_with()
     assert w.preset_new_btn.isEnabled()
@@ -421,6 +421,342 @@ def test_reset_magnifier_clears_state():
     assert not w._magnifier_on
 
 
+def test_the_body_changing_its_magnifier_restarts_the_focus_peak(tmp_path, monkeypatch):
+    # The body zooms in on a ring turn and out on its timeout, with no click here. Each switch
+    # changes the sharpness scale, so the peak restarts and the click toggle follows the body.
+    import json
+
+    import numpy as np
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    frame = np.random.default_rng(1).integers(0, 255, (48, 64)).astype(np.uint8)
+
+    def publish(on: bool) -> None:
+        p.write_text(json.dumps({"magnifier": {"on": on}}))
+        w._refresh_camera_settings()
+
+    publish(False)  # the stream's first publish is no change
+    assert w._focus_meter.update(frame) is not None
+    w.lv_window.set_focus(w._focus_meter.update(frame))
+    publish(False)  # unchanged: the peak stands
+    assert w.lv_window.focus_label.text() == "Focus meter: at peak"
+    publish(True)  # the body zoomed in by itself
+    assert w._magnifier_on
+    assert w.lv_window.focus_label.text() == "Focus meter: no reading"
+    assert w._focus_meter.update(frame) is not None
+    publish(False)  # and timed out
+    assert not w._magnifier_on
+    assert w.lv_window.focus_label.text() == "Focus meter: no reading"
+
+
+def test_a_clicks_own_echo_does_not_restart_the_focus_peak(tmp_path, monkeypatch):
+    import json
+
+    import numpy as np
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    frame = np.random.default_rng(1).integers(0, 255, (48, 64)).astype(np.uint8)
+
+    w._on_magnifier_click(0.5, 0.5)
+    w.lv_window.set_focus(w._focus_meter.update(frame))
+    p.write_text(json.dumps({"magnifier": {"on": True}}))  # the body echoes the click
+    w._refresh_camera_settings()
+
+    assert w.lv_window.focus_label.text() == "Focus meter: at peak"
+
+
+def test_histogram_and_zebra_toggles_read_the_live_frame(tmp_path):
+    from PyQt6.QtGui import QPixmap
+
+    w = _sidebar()
+    w.lv_window.histogram_btn.setChecked(True)
+    w.lv_window.zebra_btn.setChecked(True)
+    img = tmp_path / "frame.png"
+    pm = QPixmap(8, 8)
+    pm.fill()  # white: every pixel at the top of the range
+    assert pm.save(str(img), "PNG")
+    w._lv_jpeg_path = str(img)
+    w._lv_last_mtime = 0.0
+
+    w._refresh_live_view()
+
+    assert not w.lv_window.histogram.isHidden()
+    assert w.lv_window.histogram._channels["r"][255] == 1.0
+    assert w.lv_image._zebra is not None
+    w.lv_window.zebra_btn.setChecked(False)
+    assert w.lv_image._zebra is None
+    w.lv_window.histogram_btn.setChecked(False)
+    assert w.lv_window.histogram.isHidden()
+    w.controller.session.repo.save_global_setting.assert_any_call("live_view_zebra", False)
+
+
+def _shutter_json(cur: int = 0) -> str:
+    import json
+
+    return json.dumps({"shutter": {"cur": cur, "writable": True, "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}]}})
+
+
+def _metering_sidebar(tmp_path, monkeypatch, cur: int = 0):
+    """A sidebar streaming under the white-light preset with a two-rung shutter ladder."""
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(_shutter_json(cur))
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._camera_verified = True
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    w._settings = replace(w._settings, white_mode=True)  # white light: the shutter is free
+    w._refresh_camera_settings()
+    return w, p
+
+
+def _reading(**fields):
+    from negpy.services.capture.calibration import CLIP_CEILING
+    from negpy.services.capture.meter import MeterReading
+
+    base = dict(
+        medium="negative",
+        region="base",
+        measured=0.62 * CLIP_CEILING,
+        clipped=False,
+        clipped_fraction=0.0,
+        shutter="1/5",
+        recommended="1/60",
+        stops=0.54,
+    )
+    return MeterReading(**{**base, **fields})
+
+
+def test_meter_asks_the_worker_with_the_body_shutter_and_ladder_and_gates_scan(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.shutter == "1/60"
+    assert req.shutter_candidates == ("1/60", "1/5")
+    assert w._metering and not w.lv_window.meter_btn.isEnabled()
+    assert "wait for the meter" in w._missing_requirements()
+    w._on_meter()  # a second press while the probe runs
+    assert w.controller.start_exposure_probe.call_count == 1
+
+
+def test_meter_reading_writes_the_shutter_as_a_counted_exposure_write(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading())
+
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+    assert w._pending_exposure_writes == 1  # Scan waits for the body's confirmation
+    assert "wait for the exposure to reach the camera" in w._missing_requirements()
+    assert w.lv_window.shutter_stepper.currentText() == "1/60"
+    assert w.lv_window.status.text() == "Meter: negative, base at 62% → 1/60 (+0.5 st)"
+    w._on_camera_setting_applied("shutter")
+    assert w._pending_exposure_writes == 0 and not w._metering
+
+
+def _zebra_hatched(image, xs, ys) -> bool:
+    return any(image.pixelColor(x, y).alpha() for x in xs for y in ys)
+
+
+def test_the_zebras_show_the_probes_raw_clipping_while_the_exposure_and_the_picture_hold(tmp_path, monkeypatch):
+    import numpy as np
+    from PyQt6.QtGui import QPixmap
+
+    from negpy.services.capture.meter import ranked_thumb
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(0)
+    picture = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
+    peaks = np.zeros((40, 60), np.float32)
+    peaks[:10, :10] = 1.0  # a clipped corner
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=peaks, thumb=ranked_thumb(picture.mean(axis=2)), shape=(40, 60)))
+    w._on_camera_setting_applied("shutter")  # the body confirms the metered shutter
+
+    frame = QPixmap.fromImage(_qimage(picture))
+    w._update_exposure_readouts(frame)  # the reference picture
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))  # the probe's RAW clipping
+    assert not _zebra_hatched(w.lv_image._zebra, range(20, 60), range(20, 40))
+
+    brighter = QPixmap.fromImage(_qimage(np.clip(_rgb(frame) * 1.3, 0, 254).astype(np.uint8)))
+    w._update_exposure_readouts(brighter)  # the same frame, a brighter preview
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+    advanced = QPixmap.fromImage(_qimage(rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)))
+    w._update_exposure_readouts(advanced)  # the next frame: a different picture
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+    w._update_exposure_readouts(frame)
+    assert _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+    w.lv_window.aperture_stepper.addItem("f/5.6", 99)
+    w.lv_window.aperture_stepper.setCurrentIndex(w.lv_window.aperture_stepper.findData(99))  # one stop more light
+    w._update_exposure_readouts(frame)
+    assert not _zebra_hatched(w.lv_image._zebra, range(10), range(10))
+
+
+def test_raw_zebras_are_dropped_with_a_reason_when_the_preview_frames_another_picture(tmp_path, monkeypatch):
+    import numpy as np
+    from PyQt6.QtGui import QPixmap
+
+    from negpy.services.capture.meter import ranked_thumb
+
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w.lv_window.zebra_btn.setChecked(True)
+    rng = np.random.default_rng(1)
+    probe = rng.integers(40, 200, (40, 60, 3), dtype=np.uint8)
+    w._on_meter()
+    w._on_meter_finished(_reading(peaks=np.ones((40, 60), np.float32), thumb=ranked_thumb(probe.mean(axis=2)), shape=(40, 60)))
+    w._on_camera_setting_applied("shutter")
+
+    wide = QPixmap.fromImage(_qimage(rng.integers(40, 200, (34, 60, 3), dtype=np.uint8)))  # 16:9-ish
+    w._update_exposure_readouts(wide)
+    assert w._raw_clip is None
+    status = w.lv_window.status.text()
+    assert status.startswith("Meter: ")  # the reading stays on the line
+    assert status.endswith("RAW zebras off: the preview is 60:34 and the RAW 60:40")
+
+
+def _qimage(rgb):
+    from PyQt6.QtGui import QImage
+
+    h, w = rgb.shape[:2]
+    return QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+
+
+def _rgb(pixmap):
+    from negpy.desktop.view.sidebar.scanlight import _rgb_array
+
+    return _rgb_array(pixmap).astype(float)
+
+
+def test_a_reading_from_a_stopped_stream_writes_nothing(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+    w.lv_btn.setChecked(False)  # live view stopped with the probe on the worker
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)  # and started again, so a second probe can go
+    w.lv_btn.blockSignals(False)
+    w._on_meter()
+
+    first, second = (c.args[0].session for c in w.controller.start_exposure_probe.call_args_list)
+    assert first != second
+    w._on_probe_finished((first, _reading()))  # the stopped stream's probe reports first
+    w.controller.set_camera_setting.assert_not_called()
+    assert w._metering  # the second probe still owns the meter
+    w._on_probe_failed((first, "late", True))  # even a lost camera from the stopped stream stops nothing
+    assert w._metering and w.lv_btn.isChecked()
+    w._on_probe_finished((second, _reading()))
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 1)
+
+
+def test_camera_only_meters_on_the_bodys_whole_ladder_and_lets_the_probe_decide(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch, cur=1)
+    w._rgb_mode = False  # no Scanlight
+    w._settings = replace(w._settings, white_process_mode="E6")  # left over from a slide session
+
+    w._on_meter()
+
+    req = w.controller.start_exposure_probe.call_args.args[0]
+    assert req.medium is None
+    assert req.shutter_candidates == w._available_shutters(w._settings_json()["shutter"], scanlight=False)
+
+
+def test_meter_reading_the_body_cannot_take_is_reported_not_claimed(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended="1/160"))
+
+    assert not w.controller.set_camera_setting.called
+    assert "1/160 is not a step this body offers" in w.lv_window.status.text()
+    assert not w._metering
+
+
+def test_meter_past_the_fastest_rung_asks_for_aperture_or_iso(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_finished(_reading(recommended=None, stops=0.3))
+
+    assert not w.controller.set_camera_setting.called
+    assert "close the aperture or lower the ISO" in w.lv_window.status.text()
+
+
+def test_meter_is_refused_while_busy_locked_unparseable_or_without_a_ladder(tmp_path, monkeypatch):
+    import json
+
+    w, p = _metering_sidebar(tmp_path, monkeypatch)
+    w._rgb_mode = True
+    w._settings = replace(w._settings, white_mode=False)  # a calibrated RGB preset owns its exposure
+    w._on_meter()
+    w._settings = replace(w._settings, white_mode=True)
+    w._scanning = True
+    w._on_meter()
+    w._scanning = False
+    p.write_text(
+        json.dumps(
+            {
+                "shutter": {
+                    "cur": 2,
+                    "writable": True,
+                    "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}, {"raw": 2, "label": "Bulb"}],
+                }
+            }
+        )
+    )
+    w._on_meter()
+    assert w.lv_window.status.text() == "Meter: set the shutter between 1/60 and 1/5 first"
+    p.write_text(json.dumps({"shutter": {"cur": 0, "writable": False, "options": [{"raw": 0, "label": "1/5"}]}}))
+    w._on_meter()
+
+    assert not w.controller.start_exposure_probe.called
+    assert w.lv_window.status.text() == "Meter: this body publishes no writable shutter"
+
+
+def test_a_failed_probe_keeps_the_stream_and_frees_the_meter(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    w._on_meter()
+
+    w._on_meter_failed("could not convert string to float: 'Bulb'")
+
+    assert w.lv_btn.isChecked() and not w._metering
+    assert w.lv_window.meter_btn.isEnabled()
+    assert w.lv_window.status.text().startswith("Meter: could not convert")
+
+
+def test_the_white_light_presets_carry_the_film_type_to_the_probe(tmp_path, monkeypatch):
+    w, _ = _metering_sidebar(tmp_path, monkeypatch)
+    for name, medium in (
+        ("White Light, Slide", "positive"),
+        ("White Light, B&W Negative", "negative"),
+        ("White Light (B&W or Slide Film)", None),
+    ):
+        index = w.preset_combo.findData(name)
+        assert index >= 0, name
+        w.preset_combo.setCurrentIndex(index)
+        w._on_preset_selected(index)
+        w._metering = False
+        w._on_meter()
+        assert w.controller.start_exposure_probe.call_args.args[0].medium == medium, name
+
+
 def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     import json
 
@@ -512,7 +848,7 @@ def test_scan_button_reads_scan_then_stop():
 def test_poll_clears_stale_searching_status_on_connect():
     w = _sidebar()  # USB mode
     w._camera_verified = False
-    w._set_status("Camera disconnected.")
+    w._set_status("Camera disconnected")
     w._on_poll_status(_poll(usb_ok=True, usb_model="ZV-E1"))  # USB body appears → connected
     assert w._camera_verified
     assert w.status_strip.message() == ""  # the stale failure line is dropped on connect
@@ -841,7 +1177,7 @@ def test_normal_mode_keeps_the_scan_live_view_steppers():
     assert not w.lv_window.settings_widget.isHidden()
 
 
-def _calibrate(w, monkeypatch, name="Portra 400"):
+def _calibrate(w, monkeypatch, name="Portra 400", single_capture=False, sensor_matrix=None):
     """Drive _on_calibration_finished as the worker would (a result exists only when every channel
     hit target — anything else arrives via _on_calibration_exposure). Returns the baked preset."""
     import types
@@ -851,7 +1187,11 @@ def _calibrate(w, monkeypatch, name="Portra 400"):
     monkeypatch.setattr(w._presets, "get", lambda _n: None)
     monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
     w._calibrating_preset = name
-    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5")))
+    w._on_calibration_finished(
+        types.SimpleNamespace(
+            levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), single_capture=single_capture, sensor_matrix=sensor_matrix
+        )
+    )
     return saved["preset"]
 
 
@@ -910,7 +1250,7 @@ def test_calibration_outcome_survives_the_light_echo(monkeypatch):
     assert "Saved preset" in w.status_strip.message(), "the light echo must not clobber the calibration outcome"
     # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
     # light echo works again afterwards.
-    w._set_status("Calibrating a new preset — see the pop-up.")
+    w._set_status("Calibrating a new preset — see the pop-up")
     w._on_light_set(10, 20, 30, 0)
     assert w.status_strip.message() == "Light: R10 G20 B30"
 
@@ -1562,3 +1902,274 @@ def test_live_view_window_shows_the_focus_reading():
     assert w.lv_window.focus_label.text() == "Focus meter: at peak"
     w.lv_window.set_focus(None)
     assert w.lv_window.focus_label.text() == "Focus meter: no reading"
+
+
+def _select_stored(w, monkeypatch, preset):
+    monkeypatch.setattr(w._presets, "get", lambda _n: preset)
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+
+
+def test_single_capture_preset_is_shown_read_only_and_scans_one_exposure(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(iso="100", aperture="f/8", single_capture=True))
+    assert w.capture_btn.currentIndex() == 1 and not w.capture_btn.isEnabled()
+    assert "lit together" in w.preset_hint.text()
+    assert not w.inter_exposure_delay_slider.isEnabled()  # one exposure has no channel gap
+
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    req = w.controller.start_capture.call_args[0][0]
+    assert req.single_capture and req.rgb_mode and not req.white_mode
+    assert (req.levels, req.shutters[0], req.iso, req.aperture) == ((200, 100, 90), "1/5", "100", "f/8")
+
+
+def test_triplet_preset_scan_request_is_not_single_capture(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=True))
+    _select_stored(w, monkeypatch, _rgb_preset())  # a triplet preset after a single-capture one
+    assert w.capture_btn.currentIndex() == 0 and w.preset_hint.text() == ""
+    assert w.inter_exposure_delay_slider.isEnabled()
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert not w.controller.start_capture.call_args[0][0].single_capture
+
+
+@pytest.mark.parametrize(("single", "expected"), [(True, (200, 100, 90, 0)), (False, (25, 12, 11, 0))])
+def test_single_capture_preset_frames_under_its_own_scan_light(monkeypatch, single, expected):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=single))
+    assert w.controller.set_scanlight_color.call_args[0][:4] == expected  # a triplet preset frames dimmed
+
+
+def test_calibration_request_carries_the_window_capture_mode(monkeypatch):
+    w = _sidebar()
+    w._camera_verified = True
+    w._light_verified = True
+    w.calib_window.image._set_crosshair(0.5, 0.5)
+    monkeypatch.setattr(w, "_settings_json", lambda: {"shutter": {"options": [{"label": "1/250"}, {"label": "1/60"}]}})
+    w.calib_window.capture_btn.setCurrentIndex(1)
+
+    w._on_calibrate_new_preset("Portra 400")
+
+    assert w.controller.start_calibration.call_args[0][0].single_capture
+    assert not w.calib_window.capture_btn.isEnabled()  # locked with the other inputs while it meters
+
+
+def test_single_capture_calibration_bakes_the_mode_into_the_preset(monkeypatch):
+    w = _sidebar()
+    assert _calibrate(w, monkeypatch, single_capture=True).single_capture
+    assert w.capture_btn.currentIndex() == 1
+    assert not _calibrate(w, monkeypatch).single_capture
+
+
+def test_manual_preset_can_be_marked_single_capture(tmp_path, monkeypatch):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()
+    w._camera_verified = True
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    monkeypatch.setattr(w._presets, "get", lambda _n: None)
+    monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
+    monkeypatch.setattr(sl.QInputDialog, "getText", lambda *a, **k: ("Homebrew", True))
+    midx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(midx)
+    w._on_preset_selected(midx)
+    assert w.capture_btn.isEnabled()
+    w.capture_btn.setCurrentIndex(1)
+    assert w._settings.single_capture
+    w._on_preset_save()
+    assert saved["preset"].single_capture
+
+
+_UNMIX = (1.0, -0.1, 0.0, -0.1, 1.0, -0.3, 0.0, -0.3, 1.0)
+
+
+def _profile_saves(monkeypatch):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    saves: list = []
+    monkeypatch.setattr(sl.SensorProfiles, "save", staticmethod(lambda name, matrix: saves.append((name, tuple(matrix)))))
+    return saves
+
+
+def test_sensor_profile_toggle_follows_the_capture_mode():
+    w = _sidebar()
+    btn = w.calib_window.sensor_profile_btn
+    assert not btn.isChecked() and not btn.isEnabled() and not w.calib_window.wants_sensor_profile()  # Triplet
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    assert btn.isChecked() and btn.isEnabled() and w.calib_window.wants_sensor_profile()
+    w.calib_window.set_inputs_locked(True)
+    assert not btn.isEnabled() and btn.isChecked()
+
+
+def test_sensor_profile_toggle_keeps_the_operators_pick_across_triplet():
+    w = _sidebar()
+    btn = w.calib_window.sensor_profile_btn
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    btn.click()  # off
+    w.calib_window.capture_btn.setCurrentIndex(0)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    assert not btn.isChecked() and not w.calib_window.wants_sensor_profile()
+
+
+def test_single_capture_calibration_saves_a_sensor_profile_with_the_preset(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=_UNMIX)
+
+    assert saves == [("Portra 400", _UNMIX)]
+    assert preset.sensor_profile == "Portra 400"
+    assert "sensor profile" in w.status_strip.message()
+
+
+def test_sensor_profile_toggle_off_saves_the_preset_alone(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+    w.calib_window.sensor_profile_btn.click()
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=_UNMIX)
+
+    assert saves == [] and preset.sensor_profile == ""
+
+
+def test_a_run_that_measured_no_unmix_saves_the_preset_and_says_so(monkeypatch):
+    w = _sidebar()
+    saves = _profile_saves(monkeypatch)
+    w.calib_window.capture_btn.setCurrentIndex(1)
+
+    preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=None)
+
+    assert saves == [] and preset.sensor_profile == ""
+    assert "no sensor profile" in w.status_strip.message()
+
+
+def test_scan_request_carries_the_single_capture_presets_sensor_profile(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=True, sensor_profile="TestStock"))
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == "TestStock"
+
+
+def test_a_preset_stored_in_an_earlier_session_still_carries_its_sensor_profile(tmp_path):
+    from dataclasses import asdict
+
+    stored = {"Portra 400": asdict(_rgb_preset(single_capture=True, sensor_profile="Portra 400"))}
+    ctrl = MagicMock()
+    ctrl.session.repo.get_global_setting.side_effect = lambda key, default=None: stored if key == "scanlight_presets" else {}
+    w = ScanlightSidebar(ctrl)
+    idx = w.preset_combo.findData("Portra 400")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == "Portra 400"
+
+
+def test_triplet_scan_request_carries_no_sensor_profile(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(sensor_profile="TestStock"))
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == ""
+
+
+def _finish_scan(w):
+    w.set_scanning(True)
+    w.controller.set_scanlight_color.reset_mock()
+    w._on_finished(["/roll/Roll_Frame004_R.cr3"])
+
+
+def test_scan_without_live_view_leaves_the_light_off_by_default():
+    w = _sidebar()
+    assert not w.keep_light_btn.isChecked()
+    _finish_scan(w)
+    w.controller.set_scanlight_color.assert_not_called()
+
+
+def test_keep_light_on_relights_after_a_scan_without_live_view():
+    w = _sidebar()
+    w.keep_light_btn.setChecked(True)
+    _finish_scan(w)
+    assert w.controller.set_scanlight_color.called
+
+
+def test_keep_light_on_relights_after_a_canceled_scan():
+    w = _sidebar()
+    w.keep_light_btn.setChecked(True)
+    w.set_scanning(True)
+    w.controller.set_scanlight_color.reset_mock()
+    w._on_cancelled()
+    assert w.controller.set_scanlight_color.called
+
+
+def test_keep_light_on_relights_after_a_failed_scan():
+    w = _sidebar()
+    w.keep_light_btn.setChecked(True)
+    w.set_scanning(True)
+    w.controller.set_scanlight_color.reset_mock()
+    w._on_error("camera disconnected")
+    assert w.controller.set_scanlight_color.called
+
+
+def test_a_failed_light_write_does_not_relight():
+    w = _sidebar()
+    w.keep_light_btn.setChecked(True)
+    w.controller.set_scanlight_color.reset_mock()
+    w._on_error("Scanlight: write failed")  # no scan running: the light itself failed
+    w.controller.set_scanlight_color.assert_not_called()
+
+
+def test_keep_light_on_is_saved_and_restored():
+    w = _sidebar()
+    w.keep_light_btn.setChecked(True)
+    key, saved = w.controller.session.repo.save_global_setting.call_args[0]
+    assert key == "scanlight_settings" and saved["keep_light_on"] is True
+
+    ctrl = MagicMock()
+    ctrl.session.repo.get_global_setting.return_value = saved
+    assert ScanlightSidebar(ctrl).keep_light_btn.isChecked()
+
+
+def test_keep_light_on_shows_only_with_a_scanlight():
+    w = _sidebar()
+    assert not w.keep_light_btn.isHidden()
+    w._set_rgb_mode(False)
+    assert w.keep_light_btn.isHidden()
+    w._set_rgb_mode(True)
+    assert not w.keep_light_btn.isHidden()
+
+
+@pytest.mark.parametrize(("single", "expected"), [(True, (200, 100, 90, 0)), (False, (25, 12, 11, 0))])
+def test_keep_light_on_relights_each_preset_at_its_framing_light(monkeypatch, single, expected):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=single))
+    w.keep_light_btn.setChecked(True)
+    _finish_scan(w)
+    assert w.controller.set_scanlight_color.call_args[0][:4] == expected
+
+
+@pytest.mark.parametrize("hidden", [False, True])
+def test_keep_light_on_shortcut_acts_only_while_the_toggle_shows(hidden):
+    from negpy.desktop.view.keyboard_shortcuts import ShortcutManager
+
+    manager = ShortcutManager.__new__(ShortcutManager)
+    manager.window = MagicMock()
+    btn = manager.window.right_panel.scanlight_sidebar.keep_light_btn
+    btn.isHidden.return_value = hidden
+
+    manager._build_actions()["scanlight_keep_light_on"]()
+
+    assert btn.toggle.called is not hidden

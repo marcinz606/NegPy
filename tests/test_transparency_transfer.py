@@ -32,6 +32,7 @@ from negpy.features.transparency.logic import (
     transfer_bounds,
     transfer_curve_params,
     transfer_highlight_hold_density,
+    transfer_shadow_hold_start,
     transfer_shadow_reach_density,
     transfer_widths,
 )
@@ -785,14 +786,14 @@ class TestTransferAutoTerms(unittest.TestCase):
     def test_none_inputs_leave_everything_manual(self):
         """A None meter must win over the toggles being on."""
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
-        offset, contrast, hl_auto = transfer_auto_terms(exp, 0.3, 1.4, None, None, None, None)
+        offset, contrast, hl_auto, _ = transfer_auto_terms(exp, 0.3, 1.4, None, None, None, None)
         self.assertAlmostEqual(offset, 0.3)
         self.assertAlmostEqual(contrast, 1.4)
         self.assertEqual(hl_auto, 0.0)
 
     def test_toggles_off_leave_everything_manual_even_with_real_metrics(self):
         exp = self._exp(auto_exposure=False, auto_normalize_contrast=False)
-        offset, contrast, hl_auto = transfer_auto_terms(exp, 0.3, 1.4, 0.6, 0.5, 0.7, 0.1)
+        offset, contrast, hl_auto, _ = transfer_auto_terms(exp, 0.3, 1.4, 0.6, 0.5, 0.7, 0.1)
         self.assertAlmostEqual(offset, 0.3)
         self.assertAlmostEqual(contrast, 1.4)
         self.assertEqual(hl_auto, 0.0)
@@ -800,7 +801,7 @@ class TestTransferAutoTerms(unittest.TestCase):
     def test_auto_density_places_the_metered_anchor_at_the_contrast_pivot(self):
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=False)
         anchor = 0.5
-        offset, contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, None, anchor, None, None)
+        offset, contrast, _, _ = transfer_auto_terms(exp, 0.0, 1.0, None, anchor, None, None)
         pivot = float(TRANSFER_CONSTANTS["transfer_contrast_pivot"])
         d_anchor_final = anchor * TRANSFER_DENSITY_RANGE - offset
         self.assertAlmostEqual(d_anchor_final, pivot, places=6)
@@ -810,21 +811,21 @@ class TestTransferAutoTerms(unittest.TestCase):
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
         # A flat, low-textural-range frame so Auto Grade alone barely moves contrast,
         # with a shadow point far below the anchor so reaching the target needs a push.
-        offset, contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
+        offset, contrast, _, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
         pivot = float(TRANSFER_CONSTANTS["transfer_contrast_pivot"])
         d_shadow_final = pivot + (0.9 * TRANSFER_DENSITY_RANGE - offset - pivot) * contrast
         self.assertGreaterEqual(d_shadow_final, transfer_shadow_reach_density() - 1e-6)
 
     def test_shadow_reach_never_lowers_the_contrast_auto_grade_already_picked(self):
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
-        _, base_contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
-        _, with_reach, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
+        _, base_contrast, _, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
+        _, with_reach, _, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
         self.assertGreaterEqual(with_reach, base_contrast - 1e-9)
 
     def test_shadow_reach_is_a_noop_without_span_between_anchor_and_shadow_point(self):
         exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
-        _, base_contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
-        _, degenerate, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.25, 0.1)
+        _, base_contrast, _, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
+        _, degenerate, _, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.25, 0.1)
         self.assertAlmostEqual(degenerate, base_contrast)
 
     def test_highlight_hold_burns_only_when_the_highlight_is_too_bright(self):
@@ -832,17 +833,34 @@ class TestTransferAutoTerms(unittest.TestCase):
         target = transfer_highlight_hold_density()
         too_bright = target / TRANSFER_DENSITY_RANGE * 0.3  # well under target
         already_holds = min(1.0, (target * 3.0) / TRANSFER_DENSITY_RANGE)  # comfortably over target
-        _, _, hl_bright = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, too_bright)
-        _, _, hl_holds = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, already_holds)
+        _, _, hl_bright, _ = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, too_bright)
+        _, _, hl_holds, _ = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, already_holds)
         self.assertGreater(hl_bright, 0.0)
         self.assertEqual(hl_holds, 0.0)
 
     def test_highlight_hold_is_capped(self):
         exp = self._exp(auto_exposure=False, auto_normalize_contrast=True)
-        _, _, hl_auto = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, 1e-6)
+        _, _, hl_auto, _ = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, 1e-6)
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         self.assertLessEqual(hl_auto, float(EXPOSURE_CONSTANTS["highlight_hold_max"]) + 1e-9)
+
+    def test_shadow_hold_lifts_only_a_tail_past_its_start(self):
+        exp = self._exp(auto_exposure=False, auto_normalize_contrast=True)
+        start = transfer_shadow_hold_start()
+        _, _, _, sh_far = transfer_auto_terms(exp, 0.0, 1.0, None, None, (start + 0.3) / TRANSFER_DENSITY_RANGE, None)
+        _, _, _, sh_near = transfer_auto_terms(exp, 0.0, 1.0, None, None, (start - 0.1) / TRANSFER_DENSITY_RANGE, None)
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        self.assertAlmostEqual(sh_far, -float(EXPOSURE_CONSTANTS["shadow_hold_strength"]) * 0.3, places=6)
+        self.assertEqual(sh_near, 0.0)
+
+    def test_shadow_hold_is_capped(self):
+        exp = self._exp(auto_exposure=False, auto_normalize_contrast=True)
+        _, _, _, sh_auto = transfer_auto_terms(exp, 0.0, 1.0, None, None, 5.0, None)
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        self.assertEqual(sh_auto, -float(EXPOSURE_CONSTANTS["shadow_hold_max"]))
 
     def test_derived_constants_sit_inside_the_fixed_window(self):
         for value in (transfer_shadow_reach_density(), transfer_highlight_hold_density()):
@@ -952,6 +970,19 @@ class TestGpuTransferParity(unittest.TestCase):
         # for the wrong reason.
         off_cpu, _ = self._both(settings)
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01)
+
+    def test_hue_trim_matches(self):
+        """Hue Trim rotates a slide on both engines, a captured positive included."""
+        rng = np.random.default_rng(4)
+        img = np.ascontiguousarray(rng.uniform(0.05, 0.5, (48, 48, 3)).astype(np.float32))
+        for positive in (False, True):
+            settings = _e6_config()
+            settings = replace(settings, process=replace(settings.process, positive_source=positive))
+            trimmed = replace(settings, process=replace(settings.process, hue_trim=20.0))
+            cpu, gpu = self._both(trimmed, img=img)
+            self._assert_parity(cpu, gpu)
+            plain_cpu, _ = self._both(settings, img=img)
+            self.assertGreater(float(np.abs(cpu - plain_cpu).max()), 0.01)
 
     def test_moved_controls_match(self):
         """Every live control at once, including the per-channel trims that the CPU
@@ -1231,7 +1262,40 @@ def test_normalization_shader_reads_the_transfer_decision_it_is_given():
 
     import negpy
 
-    src = (Path(negpy.__file__).parent / "features/exposure/shaders/normalization.wgsl").read_text()
+    src = (Path(negpy.__file__).parent / "features/exposure/shaders/normalization.wgsl").read_text(encoding="utf-8")
 
     assert "transfer_flag" in src
     assert "params.mode == 2u" not in src
+
+
+def test_a_new_camera_matrix_re_renders_a_slide():
+    """An Input ICC swaps the camera matrix under an unchanged source hash and config."""
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    rng = np.random.default_rng(8)
+    img = np.ascontiguousarray(rng.uniform(0.05, 0.5, (32, 32, 3)).astype(np.float32))
+    cfg = _e6_config()
+    m = np.asarray(CAM_XYZ, dtype=np.float64).reshape(-1, 3).copy()
+    m[0, 1] += 0.3 * m[0, 0]
+    other = m.tolist()
+    for gpu in (False, True):
+        proc = ImageProcessor()
+        if gpu and proc.engine_gpu is None:
+            continue
+
+        def render(cam):
+            res, _ = proc.run_pipeline(img, cfg, "slide", render_size_ref=32.0, prefer_gpu=gpu, readback_metrics=False, cam_xyz=cam)
+            return np.asarray(res.readback() if hasattr(res, "readback") else res)[:, :, :3].copy()
+
+        render(CAM_XYZ)
+        swapped = render(other)
+        fresh_first, _ = ImageProcessor().run_pipeline(
+            img, cfg, "slide", render_size_ref=32.0, prefer_gpu=gpu, readback_metrics=False, cam_xyz=CAM_XYZ
+        )
+        fresh_first = np.asarray(fresh_first.readback() if hasattr(fresh_first, "readback") else fresh_first)[:, :, :3]
+        fresh, _ = ImageProcessor().run_pipeline(
+            img, cfg, "slide", render_size_ref=32.0, prefer_gpu=gpu, readback_metrics=False, cam_xyz=other
+        )
+        fresh = np.asarray(fresh.readback() if hasattr(fresh, "readback") else fresh)[:, :, :3]
+        assert float(np.abs(fresh - fresh_first).max()) > 0.01  # the matrix moves the render
+        np.testing.assert_allclose(swapped, fresh, atol=1e-4)

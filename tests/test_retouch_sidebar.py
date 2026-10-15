@@ -146,3 +146,30 @@ def test_removal_toggles_share_a_left_aligned_label_column(qapp):
     _, sb = _sidebar()
     for btn in (sb.auto_dust_btn, sb.ir_dust_btn):
         assert "text-align: left" in btn.styleSheet()
+
+
+def test_detection_sliders_persist_on_commit(qapp):
+    controller, sb = _sidebar()
+    for slider, field in (
+        (sb.threshold_slider, "dust_threshold"),
+        (sb.hair_threshold_slider, "dust_hair_threshold"),
+        (sb.auto_size_slider, "dust_size"),
+        (sb.line_threshold_slider, "scratch_threshold"),
+        (sb.ir_threshold_slider, "ir_threshold"),
+    ):
+        controller.apply_config.reset_mock()
+        slider.valueCommitted.emit(3.0)
+        config = controller.apply_config.call_args.args[0]
+        assert getattr(config.retouch, field) == 3
+        assert controller.apply_config.call_args.kwargs["persist"] is True, field
+
+
+def test_brush_and_clone_sliders_persist_once_per_drag(qapp):
+    controller, sb = _sidebar()
+    update = controller.session.update_config
+    for slider in (sb.manual_size_slider, sb.clone_strength_slider, sb.clone_feather_slider):
+        update.reset_mock()
+        slider.valueChanged.emit(30.0)
+        assert update.call_args.kwargs["persist"] is False
+        slider.valueCommitted.emit(30.0)
+        assert update.call_args.kwargs["persist"] is True

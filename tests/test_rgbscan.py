@@ -794,6 +794,9 @@ def test_thumbnail_worker_namespaces_triplet_cache(monkeypatch):
         def save_thumbnail(self, key, img, fingerprint=None):
             saved[key] = img
 
+        def get_thumbnail_fingerprint(self, key):
+            return None
+
     img = Image.new("RGB", (4, 4))
     monkeypatch.setattr(thumbnails, "decode_bounded_source_preview", lambda *a, **k: img)
     monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)
@@ -823,6 +826,9 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
 
         def save_thumbnail(self, key, img, fingerprint=None):
             saved[key] = img
+
+        def get_thumbnail_fingerprint(self, key):
+            return None
 
     monkeypatch.setattr(thumbnails, "decode_bounded_source_preview", lambda *a, **k: merged)
     monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)

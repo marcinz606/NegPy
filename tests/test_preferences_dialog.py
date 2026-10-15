@@ -48,6 +48,14 @@ class TestPreferencesDialog(unittest.TestCase):
         self.assertTrue(dlg.canvas_pills[2].isChecked())
         self.assertFalse(dlg.canvas_pills[0].isChecked())
 
+    def test_color_vision_offers_every_palette_and_sets_it(self):
+        from negpy.desktop.view.styles.color_vision import PALETTES
+
+        dlg = _dlg()
+        self.assertEqual([dlg.vision_combo.itemData(i) for i in range(dlg.vision_combo.count())], [p.key for p in PALETTES])
+        dlg.vision_combo.setCurrentIndex(2)
+        dlg.session.set_color_vision.assert_called_once_with(PALETTES[2].key)
+
     def test_view_toggles_go_through_the_session(self):
         dlg = _dlg()
         dlg.immersive_box.setChecked(not dlg.immersive_box.isChecked())

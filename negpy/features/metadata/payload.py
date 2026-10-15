@@ -14,7 +14,7 @@ from negpy.features.metadata.capture import (
     parse_capture_date,
     place_summary,
 )
-from negpy.features.metadata.exif_read import ScanExif, extract_scan_from_exif
+from negpy.features.metadata.exif_read import ScanExif, extract_scan_from_exif, source_xmp_rating
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import (
     MetadataConfig,
@@ -123,6 +123,7 @@ class MetadataPayload:
     development_time: str = ""
     development_temperature: str = ""
     notes: str = ""
+    rating: str = ""
     exif_flags: ExifWriteFlags = ExifWriteFlags()
 
     def developer_display(self) -> str:
@@ -257,7 +258,7 @@ class MetadataPayload:
         return pairs
 
     def has_any_data(self) -> bool:
-        return bool(self.to_preview_pairs())
+        return bool(self.rating or self.to_preview_pairs())
 
 
 def _apex_from_f_number(f_number: float) -> float:
@@ -391,6 +392,7 @@ def build_metadata_payload(
         development_temperature=(
             f"{format_temperature(config.process_temperature_c)} °C" if config.process_temperature_c is not None else ""
         ),
+        rating=source_xmp_rating(source_exif),
     )
 
     desc_fields = resolve_description_fields(config.description_fields)
@@ -439,5 +441,6 @@ def build_metadata_payload(
         push_pull=draft.push_pull,
         development_time=draft.development_time,
         development_temperature=draft.development_temperature,
+        rating=draft.rating,
         exif_flags=exif_flags,
     )

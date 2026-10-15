@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, icon_button, section_subheader, tool_toggle
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.domain.models import (
@@ -247,7 +247,7 @@ class ExportSettingsForm(QWidget):
 
         root.addWidget(section_subheader("SIZE"))
 
-        self.mode_btn = ChoiceButton(
+        self.mode_btn = SegmentedChoice(
             (("", "Original"), ("", "Print"), ("", "Pixels")),
             "Original exports at the source resolution. Print sizes the export for a print: paper "
             "size and DPI. Pixels sizes it to a pixel count on the long edge",
@@ -287,7 +287,15 @@ class ExportSettingsForm(QWidget):
         self.target_px_input.setToolTip("Long edge of the exported image")
         self.target_px_input.valueChanged.connect(self._on_changed)
         target_px_inner.addLayout(self._field_row("Long edge", self.target_px_input))
-        self._size_rail = SliderGroup(self._print_container, self._target_px_container)
+        self.output_sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, 0.0)
+        self.output_sharpen_slider.setToolTip("Sharpens the export at its final size, after the resize. It adds to the Lab Sharpening")
+        self.output_sharpen_slider.valueChanged.connect(self._on_changed)
+        options = QWidget()
+        options_box = QVBoxLayout(options)
+        options_box.setContentsMargins(0, 0, 0, 0)
+        for row in (self._print_container, self._target_px_container, self.output_sharpen_slider):
+            options_box.addWidget(row)
+        self._size_rail = SliderGroup(options)
         root.addWidget(self._size_rail)
 
         self._ratio_row_widget = QWidget()
@@ -406,7 +414,7 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _import_icc(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import ICC profile", "", "ICC profiles (*.icc *.icm)")
+        path, _ = QFileDialog.getOpenFileName(self, "Import ICC Profile", "", "ICC profiles (*.icc *.icm)")
         if not path:
             return
         # ColorSpaceRegistry prefers a user file named after a space, so such an import
@@ -424,7 +432,7 @@ class ExportSettingsForm(QWidget):
         try:
             stored = import_icc_profile(path, APP_CONFIG.user_icc_dir)
         except (ValueError, OSError) as e:
-            QMessageBox.warning(self, "Import Failed", str(e))
+            QMessageBox.warning(self, "Import ICC Profile", str(e))
             return
         self._reload_icc_profiles(select=stored)
         self._on_export_profile_changed()
@@ -635,6 +643,7 @@ class ExportSettingsForm(QWidget):
         self.fmt_combo.blockSignals(False)
         self._on_fmt_changed()
         self._update_ratio_visibility()
+        self.output_sharpen_slider.setVisible(not enabled)
 
     def flat_mode(self) -> bool:
         return self._flat_mode
@@ -713,6 +722,7 @@ class ExportSettingsForm(QWidget):
             self.size_input.setValue(v["export_print_size"])
             self.dpi_input.setValue(v["export_dpi"])
             self.target_px_input.setValue(v["export_target_long_edge_px"])
+            self.output_sharpen_slider.setValue(v.get("output_sharpen", 0.0))
             self.ratio_combo.setCurrentText(v["paper_aspect_ratio"])
 
             self._export_space = v["export_color_space"]
@@ -759,6 +769,7 @@ class ExportSettingsForm(QWidget):
             "export_print_size": self.size_input.value(),
             "export_dpi": self.dpi_input.value(),
             "export_target_long_edge_px": self.target_px_input.value(),
+            "output_sharpen": self.output_sharpen_slider.value(),
             "output_mode": self.output_mode_combo.currentData() or ExportPresetOutputMode.ABSOLUTE,
             "output_subfolder": self.subfolder_edit.text(),
             "output_path": self.abspath_edit.text(),

@@ -52,3 +52,16 @@ def test_edits_persist(qapp):
     panel.as_roll_btn.setChecked(False)
     assert repo.store[SETTINGS_KEY]["scan_as_roll"] is False
     assert ScanOutputPanel(repo).as_roll() is False
+
+
+def test_new_roll_steps_to_the_next_name_with_no_subfolder(qapp, tmp_path):
+    (tmp_path / "Roll002").mkdir()
+    repo = _Repo()
+    panel = ScanOutputPanel(repo)
+    panel.folder_edit.setText(str(tmp_path))
+    assert not panel.new_roll_btn.isEnabled()
+    panel.folder_roll_btn.setChecked(False)
+    panel.new_roll_btn.click()
+    assert panel.roll_edit.text() == "Roll003"
+    assert repo.store[SETTINGS_KEY]["roll_name"] == "Roll003"
+    assert panel.target_folder() == os.path.join(str(tmp_path), "Roll003")

@@ -28,6 +28,7 @@ GUIDED_KEYS = (
     "optics",
     "color",
     "tone",
+    "paper",
     "local",
     "lab",
     "altproc",
@@ -94,7 +95,7 @@ def test_the_analysis_guide_still_covers_every_read_out() -> None:
     part of the panel unexplained with nothing else in the UI to explain it."""
     text = guide_markdown("analysis")
 
-    for topic in ("Photometric curve", "histograms", "LIN / LOG", "Clipping", "Step wedge", "Zone strip", "Probe", "Negative stats"):
+    for topic in ("Photometric curve", "histograms", "Lin / Log", "Clipping", "Step wedge", "Zone strip", "Probe", "Negative stats"):
         assert topic in text, f"the guide never mentions {topic!r}"
 
 

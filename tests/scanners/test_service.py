@@ -258,6 +258,30 @@ class TestRenderScanFilename:
             with pytest.raises(ValueError, match="different basename"):
                 service.write_result(result, tmpdir, "fixed_name", "TIFF")
 
+    def test_a_pattern_ending_in_tif_never_overwrites_an_earlier_scan(self, tmp_path) -> None:
+        result = ScanResult(rgb=np.zeros((4, 4, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+        service = ScannerService()
+        service._backend = FakeBackend()
+        pattern = '{{ date }}_{{ "%03d" % seq }}.tif'
+
+        first = service.write_result(result, str(tmp_path), pattern, "TIFF")
+        second = service.write_result(result, str(tmp_path), pattern, "TIFF")
+
+        assert first != second
+        assert not first.endswith(".tif.tif")
+        assert len(list(tmp_path.glob("*.tif"))) == 2
+
+    def test_a_leftover_ir_companion_takes_the_name(self, tmp_path) -> None:
+        result = ScanResult(rgb=np.zeros((4, 4, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+        service = ScannerService()
+        service._backend = FakeBackend()
+        (tmp_path / "scan_001_ir.TIF").write_bytes(b"")
+        (tmp_path / "scan_002_IR_VALID.tif").write_bytes(b"")
+
+        path = service.write_result(result, str(tmp_path), 'scan_{{ "%03d" % seq }}', "TIFF")
+
+        assert os.path.basename(path) == "scan_003.tif"
+
 
 class _NativeRollBackend(FakeBackend):
     """A backend that reaches a whole strip itself, so the service must not wrap it."""
@@ -292,7 +316,7 @@ def test_open_roll_wraps_a_backend_that_scans_one_frame_at_a_time(fake_device: S
 
 
 class _MeasuringBackend(FakeBackend):
-    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
         self.detect_args = (device_id, film_format)
         return 4
 
@@ -304,6 +328,25 @@ def test_detect_frames_asks_the_backend_that_can_measure(fake_device: ScannerDev
 
     assert service.detect_frames("fake:001", film_format="135") == 4
     assert backend.detect_args == ("fake:001", "135")
+
+
+def test_the_film_poll_asks_the_backend_that_can_tell(fake_device: ScannerDevice) -> None:
+    class _Polling(FakeBackend):
+        def media_loaded(self, device_id: str) -> bool:
+            return device_id == "fake:001"
+
+    service = ScannerService()
+    service._backend = _Polling(devices=[fake_device])
+
+    assert service.media_loaded("fake:001") is True
+    assert service.media_loaded("fake:002") is False
+
+
+def test_the_film_poll_is_none_where_the_backend_cannot_tell(fake_device: ScannerDevice) -> None:
+    service = ScannerService()
+    service._backend = FakeBackend(devices=[fake_device])
+
+    assert service.media_loaded("fake:001") is None
 
 
 def test_a_backend_that_counts_slots_measures_nothing(fake_device: ScannerDevice) -> None:

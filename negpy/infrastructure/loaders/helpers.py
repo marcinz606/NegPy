@@ -11,6 +11,7 @@ from negpy.domain.models import ColorSpace
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb
+from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -41,11 +42,15 @@ def read_exif_from_file(file_path: str) -> Optional[dict]:
 
 
 def _read_exif_uncached(file_path: str) -> Optional[dict]:
+    import mmap
+
     import piexif
 
-    # Try piexif first (works for JPEG, TIFF)
+    # Try piexif first (works for JPEG, TIFF). Given a path it reads a whole TIFF into
+    # memory; a map pages in only the IFDs it walks.
     try:
-        return piexif.load(file_path)
+        with open(file_path, "rb") as fh, mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+            return piexif.load(mapped)
     except Exception:
         pass
 
@@ -96,15 +101,38 @@ def read_orientation(file_path: str) -> int:
         return 1
 
     exif = read_exif_from_file(file_path)
-    if not exif:
-        return 1
     try:
-        val = exif.get("0th", {}).get(piexif.ImageIFD.Orientation)
+        val = (exif or {}).get("0th", {}).get(piexif.ImageIFD.Orientation)
     except Exception:
-        return 1
+        val = None
     if isinstance(val, int) and 1 <= val <= 8:
         return val
-    return 1
+    return _libraw_orientation(file_path)
+
+
+# LibRaw's flip codes as EXIF orientations: 3 is 180 degrees, 5 is 90 CCW, 6 is 90 CW.
+_LIBRAW_FLIP_TO_EXIF = {0: 1, 3: 3, 5: 8, 6: 6}
+
+
+def _libraw_orientation(file_path: str) -> int:
+    """The orientation LibRaw reads from a camera RAW piexif cannot parse (CR3, RAF). 1 otherwise."""
+    from negpy.infrastructure.loaders.constants import (
+        SUPPORTED_JPEG_EXTENSIONS,
+        SUPPORTED_JXL_EXTENSIONS,
+        SUPPORTED_RAW_EXTENSIONS,
+        SUPPORTED_TIFF_EXTENSIONS,
+    )
+
+    camera_raw = SUPPORTED_RAW_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_JXL_EXTENSIONS
+    if os.path.splitext(file_path)[1].lower() not in camera_raw:
+        return 1
+    try:
+        import rawpy
+
+        with rawpy.imread(file_path) as raw:
+            return _LIBRAW_FLIP_TO_EXIF.get(int(raw.sizes.flip), 1)
+    except Exception:
+        return 1
 
 
 def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
@@ -121,6 +149,15 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
         logger.warning(f"Could not parse embedded ICC profile: {e}")
         return None
 
+    # The bundled v4 profiles (icc/) carry only these short tags as their description.
+    short = {
+        "a98c": ColorSpace.ADOBE_RGB.value,
+        "romm": ColorSpace.PROPHOTO.value,
+        "2020": ColorSpace.REC2020.value,
+        "sp3": ColorSpace.P3_D65.value,
+    }
+    if desc.strip() in short:
+        return short[desc.strip()]
     # Order matters: more specific matches first.
     if "prophoto" in desc:
         return ColorSpace.PROPHOTO.value
@@ -138,17 +175,24 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
 
 
 def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
-    """Reduced-resolution preview page of a TIFF-based raw, or None.
-
-    Page 0 holds the preview only when the full-res data sits in SubIFDs, which is how
-    DNG writers lay it out. Scanner DNGs write that page 16-bit, so both depths count.
+    """Reduced-resolution preview page of a TIFF-based raw or scan, or None. Page 0 (8- or 16-bit) counts only when the
+    full-res data sits in SubIFDs, as DNG lays it out; a later top-level page only when it is marked reduced or Nikon Scan wrote it.
     """
     try:
         import tifffile
 
         with tifffile.TiffFile(file_path) as tif:
             page = tif.pages[0]
-            if not page.pages or page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
+            if not page.pages:  # type: ignore[union-attr]
+                reduced = _reduced_top_level_page(tif)
+                if reduced is None:
+                    return None
+                arr = reduced.asarray()
+                if _is_nikon_scan(page) and page.dtype == np.uint16:  # type: ignore[union-attr]
+                    # Nikon Scan's reduced page holds the high byte of page 0's linear samples.
+                    arr = linear_uint16_to_display_uint8(arr.astype(np.uint16) << 8)
+                return Image.fromarray(arr)
+            if page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
                 return None
             decoded_bytes = int(np.prod(page.shape)) * int(np.dtype(page.dtype).itemsize)
             if decoded_bytes > _QUICK_PREVIEW_MAX_BYTES:
@@ -163,9 +207,38 @@ def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
     return Image.fromarray(ensure_rgb(arr))
 
 
+def _is_nikon_scan(page: Any) -> bool:
+    return str(page.software or "").startswith("Nikon Scan")
+
+
+def _reduced_top_level_page(tif: Any) -> Optional[Any]:
+    """8-bit RGB reduced copy of page 0 stored as a later top-level page, or None. Nikon Scan writes one as IFD1
+    without the NewSubfileType reduced flag, so its Software tag stands in for the flag."""
+    if len(tif.pages) < 2:
+        return None
+    main = tif.pages[0]
+    nikon_scan = _is_nikon_scan(main)
+    main_height, main_width = (int(v) for v in main.shape[:2])
+    for page in tif.pages[1:]:
+        subfile = page.tags.get("NewSubfileType")
+        if not nikon_scan and not (subfile is not None and int(subfile.value) & 1):
+            continue
+        shape = tuple(int(v) for v in page.shape)
+        if page.dtype != np.uint8 or len(shape) != 3 or shape[2] != 3 or int(page.photometric) != 2:
+            continue
+        if max(shape[:2]) < APP_CONFIG.thumbnail_size or int(np.prod(shape)) > _QUICK_PREVIEW_MAX_BYTES:
+            continue
+        if abs((shape[1] / shape[0]) / (main_width / main_height) - 1.0) > _REDUCED_PAGE_ASPECT_TOLERANCE:
+            continue
+        return page
+    return None
+
+
 _QUICK_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
+_REDUCED_PAGE_ASPECT_TOLERANCE = 0.02
 _DNG_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
+_TIFF_STREAM_BAND_BYTES = 8 * 1024 * 1024
 _DNG_LINEAR_RAW = 34892
 _DNG_CFA = 32803
 
@@ -293,7 +366,7 @@ def dng_bounded_preview(
 ) -> tuple[bool, Optional[Image.Image]]:
     """Stream a LinearRaw DNG into a small preview with bounded segment memory.
 
-    The boolean is true when the DNG is LinearRaw and must not fall through to a
+    The boolean is true when the DNG's main image is LinearRaw and must not fall through to a
     full-array loader, including when its layout prevents a bounded preview.
     """
     if os.path.splitext(file_path)[1].lower() != ".dng":
@@ -310,7 +383,8 @@ def dng_bounded_preview(
                 shape = tuple(int(v) for v in page.shape)
                 photo_tag = page.tags.get("PhotometricInterpretation")
                 photo = int(photo_tag.value) if photo_tag is not None else 0
-                if len(shape) == 3 and shape[2] in (3, 4) and photo == _DNG_LINEAR_RAW:
+                main_image = int(getattr(page, "subfiletype", 0)) == 0
+                if main_image and len(shape) == 3 and shape[2] in (3, 4) and photo == _DNG_LINEAR_RAW:
                     candidates.append(page)
             if not candidates:
                 return False, None
@@ -424,19 +498,63 @@ def bounded_tiff_page_preview(
         return None
     if page.dtype not in (np.uint8, np.uint16) or int(getattr(page, "planarconfig", 1)) != 1:
         return None
+    # Palette, MinIsWhite and CMYK samples are not intensities; the full decode handles them.
+    if int(getattr(page, "photometric", 2)) not in (1, 2):
+        return None
 
     height, width = shape[:2]
     samples = shape[2] if len(shape) == 3 else 1
     itemsize = int(np.dtype(page.dtype).itemsize)
     segment_height = int(page.tilelength if page.is_tiled else page.rowsperstrip or height)
     segment_width = int(page.tilewidth if page.is_tiled else width)
-    if segment_height * segment_width * samples * itemsize > _TIFF_STREAM_PREVIEW_MAX_BYTES:
+    banded = segment_height * segment_width * samples * itemsize > _TIFF_STREAM_PREVIEW_MAX_BYTES
+    if banded and not page.is_final:
         return None
 
     scale = min(1.0, max(1, max_edge) / max(height, width))
     out_height = max(1, int(round(height * scale)))
     out_width = max(1, int(round(width * scale)))
     output = np.zeros((out_height, out_width, 3), dtype=np.uint8)
+
+    def place(source: np.ndarray, y: int, x: int) -> None:
+        if source.dtype == np.uint16:
+            source = linear_uint16_to_display_uint8(source)
+        if source.shape[2] == 1:
+            source = np.repeat(source, 3, axis=2)
+        elif source.shape[2] == 4:
+            source = source[:, :, :3]
+        left = int(round(x * out_width / width))
+        top = int(round(y * out_height / height))
+        right = int(round((x + source.shape[1]) * out_width / width))
+        bottom = int(round((y + source.shape[0]) * out_height / height))
+        if right <= left or bottom <= top:
+            return
+        small = Image.fromarray(np.ascontiguousarray(source)).resize((right - left, bottom - top), Image.Resampling.BOX)
+        output[top:bottom, left:right] = np.asarray(small)
+
+    if banded:
+        # An uncompressed page is one run of rows at its first offset, so it reads in
+        # bands of whole output rows whatever its strip layout.
+        dtype = np.dtype(page.dtype).newbyteorder(page.parent.byteorder)
+        row_bytes = width * samples * itemsize
+        rows_per_output = -(-height // out_height)
+        band_outputs = max(1, _TIFF_STREAM_BAND_BYTES // (row_bytes * rows_per_output))
+        handle = page.parent.filehandle
+        offset = int(page.dataoffsets[0])
+        for top in range(0, out_height, band_outputs):
+            if should_cancel is not None and should_cancel():
+                raise InterruptedError("preview cancelled")
+            bottom = min(out_height, top + band_outputs)
+            y = int(round(top * height / out_height))
+            rows = int(round(bottom * height / out_height)) - y
+            handle.seek(offset + y * row_bytes)
+            data = handle.read(rows * row_bytes)
+            if len(data) != rows * row_bytes:
+                return None
+            band = np.frombuffer(data, dtype=dtype).reshape(rows, width, samples).astype(page.dtype)
+            place(band, y, 0)
+        return Image.fromarray(output)
+
     for decoded, position, _shape in page.segments(maxworkers=1):
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview cancelled")
@@ -452,22 +570,7 @@ def bounded_tiff_page_preview(
         valid_width = min(tile.shape[1], width - x)
         if valid_height <= 0 or valid_width <= 0:
             continue
-        source = tile[:valid_height, :valid_width]
-        if source.dtype == np.uint16:
-            source = linear_uint16_to_display_uint8(source)
-        if source.shape[2] == 1:
-            source = np.repeat(source, 3, axis=2)
-        elif source.shape[2] == 4:
-            source = source[:, :, :3]
-
-        left = int(round(x * out_width / width))
-        top = int(round(y * out_height / height))
-        right = int(round((x + valid_width) * out_width / width))
-        bottom = int(round((y + valid_height) * out_height / height))
-        if right <= left or bottom <= top:
-            continue
-        small = Image.fromarray(source).resize((right - left, bottom - top), Image.Resampling.BOX)
-        output[top:bottom, left:right] = np.asarray(small)
+        place(tile[:valid_height, :valid_width], y, x)
 
     return Image.fromarray(output)
 

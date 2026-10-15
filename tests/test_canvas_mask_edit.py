@@ -1,3 +1,4 @@
+import pytest
 from dataclasses import replace
 
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
@@ -6,6 +7,7 @@ from PyQt6.QtGui import QMouseEvent
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
+from negpy.features.process.models import ProcessMode
 
 _TRIANGLE = [QPointF(20, 20), QPointF(80, 20), QPointF(50, 80)]
 
@@ -51,6 +53,24 @@ def test_selected_mask_editable_without_draw_tool() -> None:
     overlay.mousePressEvent(ev)
     assert overlay._local_drag_vertex == 0
     assert ev.isAccepted()
+
+
+def test_a_slide_mask_cannot_be_edited_on_the_canvas() -> None:
+    """A slide prints no masks and grays the panel, so the canvas must not edit them either."""
+    overlay = _overlay_with_mask(ToolMode.NONE)
+    cfg = overlay.state.config
+    overlay.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    ev = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(20, 20),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    overlay.mousePressEvent(ev)
+
+    assert overlay._local_drag_vertex is None
+    assert overlay.try_delete_local_vertex(QPointF(80, 20)) is False
 
 
 def test_press_grabs_mask_vertex() -> None:
@@ -161,3 +181,45 @@ def test_a_shape_click_without_travel_draws_nothing() -> None:
 
     assert emitted == []
     assert overlay._shape_draw_p1 is None
+
+
+def test_hidden_masks_leave_no_handle_to_grab(qapp) -> None:
+    """Off the Dodge & Burn tab the masks are not drawn, so a press there pans, never edits."""
+    overlay = _overlay_with_mask(ToolMode.NONE)
+    overlay.state.local_masks_shown = False
+    from PyQt6.QtGui import QImage, QPainter
+
+    image = QImage(100, 100, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    overlay._draw_ui(painter)  # A paint drops the handles of masks it does not draw.
+    painter.end()
+
+    ev = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(20, 20),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    overlay.mousePressEvent(ev)
+
+    assert overlay._local_drag_vertex is None
+    assert overlay.try_delete_local_vertex(QPointF(80, 20)) is False
+
+
+def _uv(u0: float, u1: float, v0: float, v1: float, h: int = 50, w: int = 100):
+    import numpy as np
+
+    u, v = np.meshgrid(np.linspace(u0, u1, w, dtype=np.float32), np.linspace(v0, v1, h, dtype=np.float32))
+    return np.stack([u, v], axis=-1)
+
+
+def test_the_brush_ring_scales_with_the_whole_frame_not_the_crop(qapp) -> None:
+    """A heal's size is a fraction of the source frame, so a 50% crop shows it twice as big."""
+    overlay = _overlay_with_mask(ToolMode.NONE)
+    overlay.state.original_res = (200, 400)
+    overlay.state.last_metrics["uv_grid"] = _uv(0.0, 1.0, 0.0, 1.0)
+    whole = overlay._brush_screen_radius(10.0)
+    overlay.state.last_metrics["uv_grid"] = _uv(0.25, 0.75, 0.25, 0.75)
+    cropped = overlay._brush_screen_radius(10.0)
+    assert cropped == pytest.approx(2.0 * whole, rel=0.03)

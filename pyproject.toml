@@ -43,8 +43,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-nkscan = ["nkscan>=0.12"]
-plustek = ["pyopticfilm>=1.3.4"]
+nkscan = ["nkscan>=0.14"]
+plustek = ["pyopticfilm>=1.3.6"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
 
@@ -60,7 +60,7 @@ sane = [
     "python-sane>=2.9",
 ]
 plustek = [
-    "pyopticfilm>=1.3.4",
+    "pyopticfilm>=1.3.6",
 ]
 camera = [
     # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the
@@ -72,7 +72,7 @@ pieusb = [
 ]
 nkscan = [
     # Nikon Coolscan over SCSI/USB. A Rust extension, shipped as wheels.
-    "nkscan>=0.12",
+    "nkscan>=0.14",
 ]
 
 [project.urls]

@@ -660,7 +660,7 @@ def test_a_measured_strip_slides_the_frame_instead_of_losing_its_tail() -> None:
     assert end - start == pytest.approx(1.0), "a slid frame is still a whole frame"
 
 
-def test_a_measured_strip_draws_the_boundary_it_slid_to() -> None:
+def test_a_measured_strip_draws_no_line_when_it_moves() -> None:
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
@@ -668,8 +668,7 @@ def test_a_measured_strip_draws_the_boundary_it_slid_to() -> None:
     assert dialog._tiles[1].label._offset_indicators == []
 
     dialog.offset_slider.setValue(25)
-    assert [edge for _frac, edge in dialog._tiles[1].label._offset_indicators] == ["right"]
-    # Nothing is cut off, so neither blackout warning applies.
+    assert dialog._tiles[1].label._offset_indicators == []
     assert not dialog.status_strip.message().startswith(("Offset held", "Offset cuts"))
 
 
@@ -896,14 +895,13 @@ def test_a_feeder_still_counts_the_frames_it_previews() -> None:
     assert dialog.status_strip.message() == "Previewing 3 frames…"
 
 
-def test_the_offset_is_a_boundary_correction_not_a_way_to_the_next_frame() -> None:
-    # 10 mm reaches a badly placed boundary and still stops far short of the ~36 mm pitch.
+def test_the_offset_on_a_measured_strip_goes_one_frame_pitch_in_each_direction() -> None:
+    # Nikon Scan moves a frame by one frame or less. The transport holds it on the strip.
     measured = StripPreviewDialog(_FakeController(), _discovery_device())
-    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-100, 100)
+    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-360, 360)
 
     measured.offset_slider.setValue(4000)
-    assert measured.frame_offset() == 10.0
-    assert measured.frame_offset() < measured._frame_pitch()
+    assert measured.frame_offset() == measured._frame_pitch()
 
 
 def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
@@ -1204,7 +1202,7 @@ def test_the_offset_sliders_reach_a_boundary_several_millimetres_out() -> None:
     ctl = _FakeController()
     grown = StripPreviewDialog(ctl, _device(3))
 
-    assert dialog.offset_slider.minimum() == -100 and dialog.offset_slider.maximum() == 100
+    assert dialog.offset_slider.minimum() == -360 and dialog.offset_slider.maximum() == 360  # one 36 mm pitch
     # A feeder cannot back up, and its forward reach is unchanged.
     assert grown.offset_slider.minimum() == 0 and grown.offset_slider.maximum() == 100
     tile = grown._tiles[1].offset_slider
@@ -1261,6 +1259,26 @@ def test_an_offset_the_tiles_were_already_cut_at_re_cuts_nothing() -> None:
     _dispose(dialog)
 
     assert controller.preview_reqs == []
+
+
+def test_a_tile_with_a_cut_follows_the_slider_without_the_worker() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+    cuts: list[float] = []
+
+    def cut(offset: float) -> RollPreview:
+        cuts.append(offset)
+        return RollPreview(slot=2, rgb=_rgb(), offset=offset, cut=cut)
+
+    dialog._tiles[2].cut = cut
+    dialog._tiles[2].offset_slider.setValue(15)
+    armed = dialog._recut.isActive()
+    shown = dialog._tiles[2].previewed_offset
+    _dispose(dialog)
+
+    assert cuts == [pytest.approx(1.5 / 36.0, abs=1e-4)]
+    assert shown == pytest.approx(cuts[0])
+    assert not armed and controller.preview_reqs == []
 
 
 def test_moving_an_offset_arms_the_re_cut() -> None:
@@ -1435,3 +1453,10 @@ def test_a_returned_strip_not_back_in_waits_for_detect_frames() -> None:
     controller.deliver_all((1, 2, 3, 4, 5))
 
     assert dialog.selected_frames() == (1, 2, 3, 4, 5)
+
+
+def test_a_measured_strip_is_asked_for_a_half_frame_rolls_worth() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    assert set(range(1, 81)) <= set(controller.preview_reqs[0].slots)

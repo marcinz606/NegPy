@@ -67,3 +67,17 @@ def test_options_without_activity_methods_are_trusted() -> None:
         pass
 
     assert _has_usable_option({"ae": _Bare()}, "ae") is True
+
+
+class _FrameOption:
+    def __init__(self, constraint) -> None:
+        self.constraint = constraint
+
+
+def test_a_single_frame_adapter_is_not_a_strip() -> None:
+    """coolscan3 reports frame 1..1 for a mount adapter."""
+    from negpy.infrastructure.scanners.sane_backend import _detect_adapter_frame_capacity
+
+    assert _detect_adapter_frame_capacity({"frame": _FrameOption((1, 1, 1))}) is None
+    assert _detect_adapter_frame_capacity({"frame": _FrameOption([1])}) is None
+    assert _detect_adapter_frame_capacity({"frame": _FrameOption((1, 6, 1))}) == 6

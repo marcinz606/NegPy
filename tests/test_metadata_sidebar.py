@@ -433,23 +433,13 @@ def _card_titled(sidebar: MetadataSidebar, title: str) -> CollapsibleSection:
     raise AssertionError(f"no card titled {title!r}")
 
 
-class TestFlatCards:
-    """Metadata Preview and Metadata Presets are always expanded, with no collapse chevron;
-    every other card on the tab keeps its chevron and default expanded state."""
-
-    def test_preview_and_presets_have_no_chevron_and_stay_expanded(self, sidebar: MetadataSidebar) -> None:
-        for title in ("Metadata Preview", "Metadata Presets"):
-            section = _card_titled(sidebar, title)
-            assert section.collapsible is False
-            assert section.chevron_label is None
-            assert section.content_area.isHidden() is False
-
-    def test_preview_header_click_does_not_collapse_it(self, sidebar: MetadataSidebar) -> None:
-        sidebar.preview_section.toggle_button.click()
-        assert sidebar.preview_section.content_area.isHidden() is False
-
-    def test_other_cards_stay_collapsible(self, sidebar: MetadataSidebar) -> None:
-        for title in ("Analog Gear", "Capture", "Process", "Scanning", "Exposure"):
+class TestCollapsibleCards:
+    def test_every_card_collapses(self, sidebar: MetadataSidebar) -> None:
+        for title in ("Metadata Preview", "Metadata Presets", "Analog Gear", "Capture", "Process", "Scanning", "Exposure"):
             section = _card_titled(sidebar, title)
             assert section.collapsible is True
             assert section.chevron_label is not None
+
+    def test_preview_header_click_collapses_it(self, sidebar: MetadataSidebar) -> None:
+        sidebar.preview_section.toggle_button.click()
+        assert sidebar.preview_section.content_area.isHidden() is True

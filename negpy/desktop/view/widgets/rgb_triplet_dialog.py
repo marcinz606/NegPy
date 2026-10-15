@@ -52,7 +52,7 @@ class RgbTripletDialog(QDialog):
         # are shot in one go and live together.
         siblings = [self._edits[label].text() for label in ("Red", "Green", "Blue")]
         start = pick_start_dir(edit.text(), *siblings, self._start_dir)
-        path, _ = QFileDialog.getOpenFileName(self, "Select exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
+        path, _ = QFileDialog.getOpenFileName(self, "Select Exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
         if path:
             edit.setText(path)
 

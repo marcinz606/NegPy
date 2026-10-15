@@ -26,7 +26,7 @@ struct TransferUniforms {
     // Shadows/Highlights WB: xyz = highlight CMY density offset, w = split sharpness.
     highlight_cmy: vec4<f32>,
     // x = width of the black taper, in density. y = positive_source (nonzero skips
-    // display_rendering below). zw unused.
+    // display_rendering below). z = Hue Trim in radians. w unused.
     zone_taper: vec4<f32>,
     // Cast Removal affine on density: per-channel gain and offset (w lane unused).
     cast_gain: vec4<f32>,
@@ -63,6 +63,48 @@ fn display_rendering(v: f32) -> f32 {
 fn oetf_encode(t: f32) -> f32 {
     let x = max(t, 0.0);
     return pow(x, 0.45470693);
+}
+
+// Copy of lab.wgsl's rgb_to_lab/lab_to_rgb (Adobe RGB 1998, D65, scene-linear); WGSL has no includes,
+// so a primaries or white-point change updates lab.wgsl, exposure.wgsl and transfer.wgsl.
+fn hue_rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
+    let r = max(rgb.r, 0.0);
+    let g = max(rgb.g, 0.0);
+    let b = max(rgb.b, 0.0);
+
+    var x = r * 0.5767309 + g * 0.1855540 + b * 0.1881852;
+    var y = r * 0.2973769 + g * 0.6273491 + b * 0.0752741;
+    var z = r * 0.0270343 + g * 0.0706872 + b * 0.9911085;
+
+    x = x / 0.95047;
+    y = y / 1.00000;
+    z = z / 1.08883;
+
+    if (x > 0.008856) { x = pow(x, 1.0/3.0); } else { x = (7.787 * x) + (16.0 / 116.0); }
+    if (y > 0.008856) { y = pow(y, 1.0/3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
+    if (z > 0.008856) { z = pow(z, 1.0/3.0); } else { z = (7.787 * z) + (16.0 / 116.0); }
+
+    return vec3<f32>((116.0 * y) - 16.0, 500.0 * (x - y), 200.0 * (y - z));
+}
+
+fn hue_lab_to_rgb(lab: vec3<f32>) -> vec3<f32> {
+    var y = (lab.x + 16.0) / 116.0;
+    var x = lab.y / 500.0 + y;
+    var z = y - lab.z / 200.0;
+
+    if (pow(x, 3.0) > 0.008856) { x = pow(x, 3.0); } else { x = (x - 16.0 / 116.0) / 7.787; }
+    if (pow(y, 3.0) > 0.008856) { y = pow(y, 3.0); } else { y = (y - 16.0 / 116.0) / 7.787; }
+    if (pow(z, 3.0) > 0.008856) { z = pow(z, 3.0); } else { z = (z - 16.0 / 116.0) / 7.787; }
+
+    x = x * 0.95047;
+    y = y * 1.00000;
+    z = z * 1.08883;
+
+    let r = x * 2.0413690 + y * -0.5649464 + z * -0.3446944;
+    let g = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
+    let b = x * 0.0134474 + y * -0.1183897 + z * 1.0154096;
+
+    return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
 // One pixel's effective dye-separation k; mirrors separation_damping_gain in
@@ -170,16 +212,30 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
+    var lin: vec3<f32>;
     for (var ch = 0; ch < 3; ch++) {
         // Baseline + display rendering last: the controls above shape the scene. A
         // positive source skips both (baseline_gain arrives as 1.0), matching
         // logic.py::apply_transfer_curve.
         let scene = pow(10.0, -dens[ch]) * params.baseline_gain;
         if (params.zone_taper.y != 0.0) {
-            res[ch] = oetf_encode(clamp(scene, 0.0, 1.0));
+            lin[ch] = clamp(scene, 0.0, 1.0);
         } else {
-            res[ch] = oetf_encode(display_rendering(scene));
+            lin[ch] = display_rendering(scene);
         }
+    }
+
+    // Hue Trim before the encode, as the CPU rotates this buffer (features/process/hue.py).
+    if (params.zone_taper.z != 0.0) {
+        let lab = hue_rgb_to_lab(lin);
+        let c = cos(params.zone_taper.z);
+        let s = sin(params.zone_taper.z);
+        let rotated = vec3<f32>(lab.x, lab.y * c - lab.z * s, lab.y * s + lab.z * c);
+        lin = clamp(hue_lab_to_rgb(rotated), vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+
+    for (var ch = 0; ch < 3; ch++) {
+        res[ch] = oetf_encode(lin[ch]);
     }
 
     textureStore(output_tex, coords, vec4<f32>(res, 1.0));

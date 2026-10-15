@@ -16,6 +16,7 @@ _NS = {
     "dc": "http://purl.org/dc/elements/1.1/",
     "photoshop": "http://ns.adobe.com/photoshop/1.0/",
     "exif": "http://ns.adobe.com/exif/1.0/",
+    "xmp": "http://ns.adobe.com/xap/1.0/",
     "negpy": "https://negpy.app/ns/1.0/",
 }
 
@@ -39,7 +40,7 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
     desc = ET.SubElement(rdf, f"{{{_NS['rdf']}}}Description")
     desc.set(f"{{{_NS['rdf']}}}about", "")
 
-    for prefix in ("dc", "photoshop", "exif", "negpy"):
+    for prefix in ("dc", "photoshop", "exif", "xmp", "negpy"):
         desc.set(f"xmlns:{prefix}", _NS[prefix])
 
     # negpy namespace: the original film capture. A structured mirror, with standard EXIF
@@ -122,6 +123,9 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
         _sub(desc, "negpy", "ScanISO", str(payload.scan_iso))
     if payload.scan_datetime:
         _sub(desc, "negpy", "ScanDateTime", payload.scan_datetime)
+
+    if payload.rating:
+        _sub(desc, "xmp", "Rating", payload.rating)
 
     keywords: list[str] = []
     for val in (payload.film_stock, payload.film_manufacturer, payload.film_format, payload.film_color_type):

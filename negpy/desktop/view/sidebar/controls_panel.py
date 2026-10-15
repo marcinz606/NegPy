@@ -1,25 +1,27 @@
 from PyQt6.QtWidgets import (
+    QMenu,
     QWidget,
     QVBoxLayout,
 )
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
-from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
+from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
-from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.geometry.logic import has_manual_crop
+from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode, invalidate_local_bounds
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
-from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, TONE_FIELDS, frame_card_rows
+from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, PAPER_FIELDS, TONE_FIELDS, frame_card_rows
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -32,7 +34,9 @@ from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
+from negpy.desktop.view.sidebar.paper import PaperSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
+from negpy.desktop.view.confirm import confirm_roll_auto_crop
 from negpy.desktop.view.sidebar.autocrop import AutocropSidebar
 from negpy.desktop.view.sidebar.trichrome import TrichromeSidebar
 from negpy.desktop.view.sidebar.half_frame import HalfFrameSidebar
@@ -53,6 +57,7 @@ _AUTOCROP_FIELDS = (
     "autocrop_offset",
     "autocrop_rebate_trim",
     "autocrop_ratio",
+    "autocrop_square",
 )
 _LENS_FIELDS = (
     "distortion_k1",
@@ -61,8 +66,12 @@ _LENS_FIELDS = (
 )
 _SENSOR_FIELDS = (
     "sensor_profile",
+    "sensor_matrix",
+    "sensor_unmix",
     "crosstalk_profile",
     "crosstalk_strength",
+    "crosstalk_matrix",
+    "crosstalk_process",
     "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
@@ -111,7 +120,11 @@ _DEFAULT_CONFIG = DEFAULT_WORKSPACE_CONFIG
 _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 
 # Roll-tab sections that drive more than one roll card, keyed by section key.
-_SECTION_CARDS: dict[str, tuple[str, ...]] = {"optics": ("lens", "flatfield"), "sensor": ("sensor", "cast_removal")}
+_SECTION_CARDS: dict[str, tuple[str, ...]] = {
+    "optics": ("lens", "flatfield"),
+    "sensor": ("sensor", "cast_removal"),
+    "autocrop": ("autocrop", "auto_crop"),
+}
 
 
 def _default_exposure_field(field: str, process_mode: str):
@@ -239,11 +252,13 @@ class ControlsPanel(QWidget):
         metering_layout.setSpacing(4)
         metering_layout.addWidget(self.process_sidebar)
         metering_layout.addWidget(self.process_sidebar.analysis_bar)
+        self.metering_histogram = MiniHistogramWidget(clip_strips=False)  # the Clipping line below is the card's one clip readout
         self.process_section = self._make_section(
             "Metering",
             "process",
             metering_body,
             icon_name="fa5s.tachometer-alt",
+            background_widget=self.metering_histogram,
         )
 
         self.sensor_sidebar = SensorSidebar(self.controller)
@@ -290,6 +305,16 @@ class ControlsPanel(QWidget):
             self.tone_sidebar,
             icon_name="fa5s.sun",
             background_widget=self.tone_histogram,
+        )
+
+        self.paper_sidebar = PaperSidebar(self.controller)
+        self.paper_curve = MiniCurveWidget()
+        self.paper_section = self._make_section(
+            "Paper Response",
+            "paper",
+            self.paper_sidebar,
+            icon_name="fa5s.scroll",
+            background_widget=self.paper_curve,
         )
 
         self.lab_sidebar = LabSidebar(self.controller)
@@ -354,10 +379,10 @@ class ControlsPanel(QWidget):
             ),
             (
                 "tone",
-                "Exposure — Filtration, Tone, Dodge & Burn",
+                "Exposure — Filtration, Tone, Paper Response, Dodge & Burn",
                 "Exposure",
-                [self.color_section, self.tone_section, self.local_section],
-                ["color_section", "tone_section", "local_section"],
+                [self.color_section, self.tone_section, self.paper_section, self.local_section],
+                ["color_section", "tone_section", "paper_section", "local_section"],
             ),
             (
                 "color",
@@ -456,11 +481,12 @@ class ControlsPanel(QWidget):
 
         self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(COLOR_FIELDS))
         self.tone_section.reset_requested.connect(self._reset_tone_fields)
+        self.paper_section.reset_requested.connect(lambda: self._reset_exposure_fields(PAPER_FIELDS))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
         self.altproc_section.reset_requested.connect(lambda: self.controller.session.reset_section("altproc"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(self._reset_geometry_fields)
-        self.autocrop_section.reset_requested.connect(lambda: self._reset_card_fields("autocrop"))
+        self.autocrop_section.reset_requested.connect(self._reset_crop_card)
         self.optics_section.reset_requested.connect(self._reset_optics)
         self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS))
         self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS))
@@ -471,9 +497,29 @@ class ControlsPanel(QWidget):
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
 
+        self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
+        self.controller.batch_finished.connect(self._sync_crop_block)
+
         for key, section in self._roll_sections() + self._frame_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll(_SECTION_CARDS.get(k, (k,))))
+        for key, section in self._roll_sections() + self._frame_sections():
+            section.toggle_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            section.toggle_button.customContextMenuRequested.connect(lambda pos, k=key, s=section: self._show_card_menu(k, s, pos))
+
+    def _show_card_menu(self, key: str, section: CollapsibleSection, pos) -> None:
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        if key in dict(self._roll_sections()):
+            undo = menu.addAction(label_with_shortcut("Undo Apply to Roll", "undo_roll_push"))
+            undo.setToolTip("Give the roll back the values it had before the last Roll push from this frame")
+            undo.setEnabled(self.controller.can_undo_roll_push(_SECTION_CARDS.get(key, (key,))))
+            undo.triggered.connect(self.controller.undo_roll_push)
+        else:
+            copy = menu.addAction("Copy Card Settings")
+            copy.setToolTip("Copy this card alone; Paste then offers only its settings")
+            copy.triggered.connect(lambda: self.controller.session.copy_card_settings(frame_card_rows(key)))
+        menu.exec(section.toggle_button.mapToGlobal(pos))
 
     def apply_shortcut_tooltips(self) -> None:
         """Single source for every shortcut-bearing widget tooltip — re-run on each
@@ -485,14 +531,20 @@ class ControlsPanel(QWidget):
             (self.retouch_sidebar.right_click_btn, "toggle_right_click_excludes"),
             (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
+            (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
+            (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),
+            (self.autocrop_sidebar.square_btn, "auto_crop_square"),
+            (self.geometry_sidebar.auto_crop_btn, "auto_crop"),
             (self.autocrop_sidebar.auto_crop_all_btn, "batch_autocrop"),
             (self.tone_sidebar.auto_density_action, "toggle_auto_density"),
             (self.tone_sidebar.auto_grade_action, "toggle_auto_grade"),
+            (self.tone_sidebar.auto_both_action, "toggle_auto_both"),
             (self.presets_sidebar.apply_btn, "preset_apply"),
             (self.presets_sidebar.save_btn, "preset_save"),
         ):
             btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action_id)))
         exp = self.tone_sidebar
+        paper = self.paper_sidebar
         geo = self.geometry_sidebar
         crop = self.autocrop_sidebar
         lens = self.lens_sidebar
@@ -549,42 +601,44 @@ class ControlsPanel(QWidget):
         )
         exp.density_slider.setToolTip(
             tooltip_with_shortcut(
-                "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker",
+                "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker. "
+                "With Auto Density on, it shows the metered density; moving it trims the meter",
                 ["density_up", "density_down"],
             )
         )
         exp.grade_slider.setToolTip(
             tooltip_with_shortcut(
                 f"Paper contrast (ISO R): R{EXPOSURE_CONSTANTS['iso_r_max']:.0f} is very soft, "
-                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} very hard, R110 ≈ grade 2",
+                f"R{EXPOSURE_CONSTANTS['iso_r_min']:.0f} very hard, R110 ≈ grade 2. "
+                "With Auto Grade on, it shows the grade the frame prints at; moving it trims the auto",
                 ["grade_up", "grade_down"],
             )
         )
-        exp.toe_slider.setToolTip(
+        paper.toe_slider.setToolTip(
             tooltip_with_shortcut(
                 "Shadow toe: positive lifts shadows for a gentle film toe; negative deepens blacks",
                 ["toe_inc", "toe_dec"],
             )
         )
-        exp.toe_w_slider.setToolTip(
+        paper.toe_w_slider.setToolTip(
             tooltip_with_shortcut(
                 "How broadly the shadow toe transition spreads into the midtones",
                 ["toe_width_inc", "toe_width_dec"],
             )
         )
-        exp.sh_slider.setToolTip(
+        paper.sh_slider.setToolTip(
             tooltip_with_shortcut(
                 "Highlight shoulder: positive compresses highlights (film roll-off); negative extends them and risks clipping",
                 ["shoulder_inc", "shoulder_dec"],
             )
         )
-        exp.sh_w_slider.setToolTip(
+        paper.sh_w_slider.setToolTip(
             tooltip_with_shortcut(
                 "How broadly the highlight shoulder transition spreads into the midtones",
                 ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
-        exp.midtone_gamma_slider.setToolTip(
+        paper.midtone_gamma_slider.setToolTip(
             tooltip_with_shortcut(
                 "Snap — paper midtone gamma trim: steepens or flattens the S-curve around the reference "
                 "tone; paper white/black stay put. In R/G/B mode: this layer's Snap trim",
@@ -594,14 +648,16 @@ class ControlsPanel(QWidget):
         exp.shadow_density_slider.setToolTip(
             tooltip_with_shortcut(
                 "Shadow zone density (ΔD): weighted to the deep shadows, bounded by paper black. "
-                "Positive darkens shadows; negative lifts them",
+                "Positive darkens shadows; negative lifts them. With Auto Grade on, it includes "
+                "the automatic shadow lift",
                 ["shadow_density_inc", "shadow_density_dec"],
             )
         )
         exp.highlight_density_slider.setToolTip(
             tooltip_with_shortcut(
                 "Highlight zone density (ΔD): weighted to the highlights, bounded by paper white. "
-                "Positive burns highlights in; negative bleaches them",
+                "Positive burns highlights in; negative bleaches them. With Auto Grade on, it includes "
+                "the automatic highlight burn",
                 ["highlight_density_inc", "highlight_density_dec"],
             )
         )
@@ -739,7 +795,7 @@ class ControlsPanel(QWidget):
             "untouched, and chroma is only ever pulled down. Independent of Chroma: it also reins in skin "
             "that arrived over-saturated from the print curve. 0 = off, 1.0 = matte"
         )
-        exp.dye_separation_slider.setToolTip(
+        paper.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
                 "Pushes density apart before decode. On a print, in the same matrix slot as the "
                 "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
@@ -749,7 +805,7 @@ class ControlsPanel(QWidget):
                 ["dye_separation_inc", "dye_separation_dec"],
             )
         )
-        exp.separation_damping_slider.setToolTip(
+        paper.separation_damping_slider.setToolTip(
             tooltip_with_shortcut(
                 "Decides where Dye Separation's push lands instead of adding one of its own — at 0 every "
                 "color gets the same push, at 1 muted color takes it all while color that is already "
@@ -847,8 +903,8 @@ class ControlsPanel(QWidget):
         )
         ton.sepia_slider.setToolTip(
             tooltip_with_shortcut(
-                "Simulates sepia bleach-redevelop toning — warms the highlights first while shadows hold; "
-                "partial strength gives the classic split-sepia look. B&W Negative mode only",
+                "Simulates sepia bleach-redevelop toning — warms the highlights first; more strength reaches "
+                "further into the mids, and the deepest shadows stay black at any strength. B&W Negative mode only",
                 ["sepia_inc", "sepia_dec"],
             )
         )
@@ -925,6 +981,7 @@ class ControlsPanel(QWidget):
         self.roll_sidebar.sync_ui()
         self.color_sidebar.sync_ui()
         self.tone_sidebar.sync_ui()
+        self.paper_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()
         self.altproc_sidebar.sync_ui()
@@ -989,6 +1046,10 @@ class ControlsPanel(QWidget):
             if locked:
                 overridden.append(label)
 
+        crop_label = self._ROLL_CARD_LABELS["auto_crop"]
+        if crop_label not in overridden and self.controller.hand_drawn_crop_departs_from_roll():
+            overridden.append(f"{crop_label} (hand-drawn)")
+
         scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
         for key, section in frame_sections:
             section.set_scope_buttons(
@@ -1020,6 +1081,12 @@ class ControlsPanel(QWidget):
         picker over that card's own settings. Frame on a Roll-tab card locks it here;
         a frame card is already there, so the pair's own click guard swallows it."""
         if key in dict(self._roll_sections()):
+            effect = None
+            if key == "autocrop" and scope == "roll" and not self.controller.crop_edits_blocked():
+                effect = self.controller.auto_crop_push_effect()
+            if effect is not None and not confirm_roll_auto_crop(self, *effect):
+                self._sync_scope_buttons()
+                return
             self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
             self._sync_scope_buttons()
             return
@@ -1035,6 +1102,7 @@ class ControlsPanel(QWidget):
         self._last_histogram_buf = buf
         self.tone_histogram.update_data(buf)
         self.color_histogram.update_data(buf)
+        self.metering_histogram.update_data(buf)
 
     def _reset_sensor_fields(self) -> None:
         self._reset_process_fields(_SENSOR_FIELDS)
@@ -1069,14 +1137,51 @@ class ControlsPanel(QWidget):
         self._reset_card_fields("lens")
         self._reset_card_fields("flatfield")
 
+    def _sync_crop_block(self) -> None:
+        """Crop controls are disabled while Auto-crop all frames runs (controller.crop_edits_blocked)."""
+        enabled = not self.controller.crop_edits_blocked()
+        geo = self.geometry_sidebar
+        for widget in (
+            self.autocrop_sidebar,
+            self.autocrop_section.reset_btn,
+            self.autocrop_section.roll_revert_btn,
+            self.geometry_section.reset_btn,
+            geo.manual_crop_btn,
+            geo.auto_crop_btn,
+            geo.clear_crop_btn,
+            geo.ratio_combo,
+        ):
+            widget.setEnabled(enabled)
+
     def _reset_geometry_fields(self) -> None:
         """Geometry's own fields alone: a plain session.reset_section("geometry") would
         take Crop and Lens Correction with it."""
         from dataclasses import replace
 
+        if self.controller.refuse_crop_edit():
+            return
+
         cfg = self.controller.state.config
-        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in GEOMETRY_FIELDS})
-        self.controller.apply_config(replace(cfg, geometry=new_geo), persist=True)
+        # Auto Crop and its rect belong to the Crop card; only a hand-drawn rect resets here.
+        own = ("crop_rect", "crop_detect_key") if cfg.geometry.crop_from_auto else ()
+        fields = [f for f in GEOMETRY_FIELDS if f != "crop_from_auto" and f not in own]
+        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in fields})
+        new_proc = cfg.process
+        if new_geo.crop_rect != cfg.geometry.crop_rect:
+            new_proc = replace(new_proc, **invalidate_local_bounds(new_proc))
+        with self.controller.session.carried_crop_kept():
+            self.controller.apply_config(replace(cfg, geometry=new_geo, process=new_proc), persist=True)
+        if new_geo.crop_rect != cfg.geometry.crop_rect:
+            self.controller.sync_auto_crop_lock()
+
+    def _reset_crop_card(self) -> None:
+        """The Crop card's two roll cards. Auto Crop turns off through reset_crop, which
+        clears the auto rect; a hand-drawn crop belongs to Geometry and stays."""
+        if self.controller.refuse_crop_edit():
+            return
+        self._reset_card_fields("autocrop")
+        if self.controller.state.config.geometry.crop_from_auto:
+            self.controller.reset_crop()
 
     def _reset_card_fields(self, card_key: str) -> None:
         """Reset one roll card through set_roll_default, so the reset follows the roll
@@ -1115,6 +1220,7 @@ class ControlsPanel(QWidget):
         mode = cfg.process.process_mode
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in COLOR_FIELDS)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
+        paper_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in PAPER_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -1140,6 +1246,9 @@ class ControlsPanel(QWidget):
                 alt.cyano_scale != _alt.cyano_scale,
                 alt.cyano_bleach != _alt.cyano_bleach,
                 alt.cyano_tannin != _alt.cyano_tannin,
+                alt.sabattier_strength != _alt.sabattier_strength,
+                alt.sabattier_reexposure != _alt.sabattier_reexposure,
+                alt.sabattier_agitation != _alt.sabattier_agitation,
             ]
         )
 
@@ -1160,11 +1269,11 @@ class ControlsPanel(QWidget):
         )
 
         geo = cfg.geometry
-        # crop_rect counts as set rather than as different: its default is None, and a
-        # resolved auto rect is not an edit the way a hand-drawn one is.
-        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in GEOMETRY_FIELDS if f != "crop_rect")
-        geometry_count += geo.crop_rect is not None
-        autocrop_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _AUTOCROP_FIELDS)
+        # Geometry counts a hand-drawn crop; an auto crop and its rect are the Crop card's.
+        crop_fields = ("crop_rect", "crop_from_auto", "crop_detect_key")
+        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in GEOMETRY_FIELDS if f not in crop_fields)
+        geometry_count += has_manual_crop(geo)
+        autocrop_count = sum(getattr(geo, f) != getattr(_geo, f) for f in (*_AUTOCROP_FIELDS, "crop_from_auto"))
         lens_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _LENS_FIELDS)
 
         proc = cfg.process
@@ -1211,6 +1320,7 @@ class ControlsPanel(QWidget):
         self.film_section.set_modified(film_count)
         self.color_section.set_modified(color_count)
         self.tone_section.set_modified(tone_count)
+        self.paper_section.set_modified(paper_count)
         self.lab_section.set_modified(lab_count)
         self.altproc_section.set_modified(altproc_count)
         self.toning_section.set_modified(toning_count)

@@ -15,7 +15,9 @@ from negpy.services.assets.migrations.flatfield import migrate_legacy_flatfield_
 def legacy_repo(tmp_path, monkeypatch):
     """A repo carrying a legacy flatfield_profiles table + a per-image edit pointing at one."""
     monkeypatch.setattr(ffstore.APP_CONFIG, "flatfield_dir", str(tmp_path / "flatfield"), raising=False)
-    monkeypatch.setattr(FlatFieldProfiles, "_bake_gain", staticmethod(lambda path: np.ones((8, 8, 3), dtype=np.float32)))
+    monkeypatch.setattr(
+        FlatFieldProfiles, "_bake_gain", staticmethod(lambda path: ffstore.Baked(np.ones((8, 8, 3), dtype=np.float32), None, None))
+    )
 
     repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
     repo.initialize()

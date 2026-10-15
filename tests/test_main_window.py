@@ -38,6 +38,7 @@ class TestCanvasBufferRouting(unittest.TestCase):
             gpu_widget=MagicMock(),
             overlay=MagicMock(),
             _raise_floating_widgets=MagicMock(),
+            _sync_navigator=MagicMock(),
             zoom_changed=MagicMock(),
             zoom_level=1.0,
             _last_buffer=None,

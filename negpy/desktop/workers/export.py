@@ -1,5 +1,5 @@
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional, Any, Union
 import gc
 import math
@@ -23,6 +23,7 @@ from negpy.features.metadata.resolution import Resolution
 from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
 from negpy.features.metadata.fsdate import sync_export_filesystem_dates
 from negpy.features.metadata.models import MetadataConfig
+from negpy.infrastructure.loaders.helpers import read_exif_from_file
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.features.hdr.models import hdr_frame_paths
@@ -170,10 +171,8 @@ def resolve_export_dir(task: ExportTask) -> str:
 
 
 def _looks_border_crushed(buffer, task: "ExportTask") -> bool:
-    """An uncropped scan whose bright holder border drove normalization renders as a
-    near-black print inside a black frame edge. Judged on the rendered positive:
-    no crop set, black border ring, and an inner region far darker than any
-    plausible print."""
+    """An uncropped scan whose bright holder border drove normalization: on the rendered
+    positive, a black border ring around an inner region far darker than any plausible print."""
     if task.params.geometry.crop_rect is not None:
         return False
     arr = buffer[:: max(1, buffer.shape[0] // 512), :: max(1, buffer.shape[1] // 512)]
@@ -286,26 +285,34 @@ class ExportWorker(QObject):
         super().__init__()
         self._processor = ImageProcessor()
         self._cancel = threading.Event()
+        self._written: set[str] = set()  # paths this batch wrote
 
     @pyqtSlot()
     def cancel(self) -> None:
         """Requests the running batch stop after the current file (keeps partial output)."""
         self._cancel.set()
 
+    def arm(self) -> None:
+        """Clears a Stop left from an earlier run. Called on the GUI thread before dispatch,
+        so a Stop pressed before the queued run starts is kept."""
+        self._cancel.clear()
+
     @pyqtSlot(list)
     def run_batch(self, tasks: List[ExportTask]) -> None:
-        """Processes an ordered list of export tasks, pipelined: the prefetcher
-        prepares the next source and the finisher encodes+writes the previous
-        render while the current one renders. One finish in flight, so at most
-        two full-res buffers are held."""
-        self._cancel.clear()
+        """Export the tasks pipelined: the next source prepares and the previous render encodes
+        while the current one renders, so at most two full-res buffers are held. A failed file
+        never stops the batch, and every exit emits `finished` or `cancelled` to free the lane."""
+        self._written = set()
         total = len(tasks)
         finisher = ThreadPoolExecutor(max_workers=1)
         prefetcher = ThreadPoolExecutor(max_workers=1)
         pending: Optional[Future] = None
 
         def _drain(fut: Future) -> None:
-            err = fut.result()
+            try:
+                err = fut.result()
+            except Exception as e:
+                err = str(e)
             if err:
                 self.error.emit(err)
 
@@ -317,62 +324,68 @@ class ExportWorker(QObject):
                 full_name = task.file_info["name"]
                 name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
+                try:
+                    # The session caches EXIF only for frames opened this session.
+                    if task.source_exif is None and task.metadata_config is not None:
+                        task = replace(task, source_exif=read_exif_from_file(task.file_info["path"]))
 
-                nxt = tasks[i + 1] if i + 1 < len(tasks) else None
-                prefetch_next = nxt is not None and nxt.diptych is None
-                # Not on the first task: its own prepare would queue behind this on the gate.
-                if prefetch_next and i > 0:
-                    self._submit_prefetch(prefetcher, nxt)
+                    nxt = tasks[i + 1] if i + 1 < len(tasks) else None
+                    prefetch_next = nxt is not None and nxt.diptych is None
+                    # Not on the first task: its own prepare would queue behind this on the gate.
+                    if prefetch_next and i > 0:
+                        self._submit_prefetch(prefetcher, nxt)
 
-                # TIFF/PNG take the metadata at the first encode; the post-hoc
-                # rewrite re-compresses the full-res file.
-                embed_plan = None
-                if task.metadata_config is not None and task.export_settings.export_fmt in (ExportFormat.TIFF, ExportFormat.PNG):
-                    embed_plan = export_embed_plan(
-                        task.metadata_config,
-                        task.source_exif,
-                        task.file_info["path"],
-                        resolution=_export_resolution(task),
-                    )
-
-                if task.export_settings.overwrite:
-                    out_dir0, filename0, ext0 = resolve_export_naming(task)
-                    if _export_target_is_a_source(os.path.join(out_dir0, f"{filename0}.{ext0}"), task):
-                        self.error.emit(
-                            f"Export skipped for {task.file_info['name']}: it would overwrite the source file. "
-                            "Change the filename pattern or destination."
+                    # TIFF/PNG take the metadata at the first encode; the post-hoc
+                    # rewrite re-compresses the full-res file.
+                    embed_plan = None
+                    if task.metadata_config is not None and task.export_settings.export_fmt in (ExportFormat.TIFF, ExportFormat.PNG):
+                        embed_plan = export_embed_plan(
+                            task.metadata_config,
+                            task.source_exif,
+                            task.file_info["path"],
+                            resolution=_export_resolution(task),
                         )
+
+                    if task.export_settings.overwrite:
+                        out_dir0, filename0, ext0 = resolve_export_naming(task)
+                        if _export_target_is_a_source(os.path.join(out_dir0, f"{filename0}.{ext0}"), task):
+                            self.error.emit(
+                                f"Export skipped for {task.file_info['name']}: it would overwrite the source file. "
+                                "Change the filename pattern or destination."
+                            )
+                            continue
+
+                    buffer, status = self._processor.render_export(
+                        task.file_info["path"],
+                        task.params,
+                        task.export_settings,
+                        task.file_info["hash"],
+                        prefer_gpu=task.gpu_enabled,
+                        bounds_override=task.bounds_override,
+                        half=int(task.file_info.get("half") or 0),
+                        split_x=float(task.file_info.get("split_x") or 0.5),
+                        crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
+                        gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
+                        split_axis=str(task.file_info.get("split_axis") or "x"),
+                        diptych=task.diptych,
+                    )
+                    if prefetch_next and i == 0:
+                        self._submit_prefetch(prefetcher, nxt)
+
+                    if buffer is not None and _looks_border_crushed(buffer, task):
+                        border_crushed += 1
+
+                    if buffer is None:
+                        # render_export returns (None, error) on failure. Surface it rather
+                        # than skipping the file silently.
+                        self.error.emit(status)
                         continue
 
-                buffer, status = self._processor.render_export(
-                    task.file_info["path"],
-                    task.params,
-                    task.export_settings,
-                    task.file_info["hash"],
-                    prefer_gpu=task.gpu_enabled,
-                    bounds_override=task.bounds_override,
-                    half=int(task.file_info.get("half") or 0),
-                    split_x=float(task.file_info.get("split_x") or 0.5),
-                    crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
-                    gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
-                    split_axis=str(task.file_info.get("split_axis") or "x"),
-                    diptych=task.diptych,
-                )
-                if prefetch_next and i == 0:
-                    self._submit_prefetch(prefetcher, nxt)
-
-                if buffer is not None and _looks_border_crushed(buffer, task):
-                    border_crushed += 1
-
-                if buffer is None:
-                    # render_export returns (None, error) on failure. Surface it rather
-                    # than skipping the file silently.
-                    self.error.emit(status)
-                    continue
-
-                if pending is not None:
-                    _drain(pending)
-                pending = finisher.submit(self._finish_task, task, buffer, status, embed_plan)
+                    if pending is not None:
+                        _drain(pending)
+                    pending = finisher.submit(self._finish_task, task, buffer, status, embed_plan)
+                except Exception as e:
+                    self.error.emit(f"Export failed for {full_name}: {e}")
 
             if pending is not None:
                 _drain(pending)
@@ -388,6 +401,7 @@ class ExportWorker(QObject):
                 self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
+            self.finished.emit()
         finally:
             prefetcher.shutdown(wait=True)
             finisher.shutdown(wait=True)
@@ -437,11 +451,12 @@ class ExportWorker(QObject):
         os.makedirs(out_dir, exist_ok=True)
         path = os.path.join(out_dir, f"{filename}.{ext}")
 
-        if not task.export_settings.overwrite:
-            counter = 2
-            while os.path.exists(path):
-                path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
-                counter += 1
+        # Overwrite replaces files from before the batch, never another frame of it.
+        counter = 2
+        while path in self._written or (not task.export_settings.overwrite and os.path.exists(path)):
+            path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
+            counter += 1
+        self._written.add(path)
 
         if _export_target_is_a_source(path, task):
             return f"Export skipped for {task.file_info['name']}: it would overwrite the source file. Change the filename pattern or destination."
@@ -467,7 +482,6 @@ class ExportWorker(QObject):
         run_batch: linear output bypasses the render pipeline and the export settings."""
         from negpy.services.export.linear_output import export_linear_output
 
-        self._cancel.clear()
         total = len(tasks)
         try:
             for i, task in enumerate(tasks):
@@ -484,6 +498,7 @@ class ExportWorker(QObject):
             self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
+            self.finished.emit()
         finally:
             gc.collect()
 
@@ -493,7 +508,6 @@ class ExportWorker(QObject):
 
         Every exit emits `finished` or `cancelled`: that releases the batch lane.
         """
-        self._cancel.clear()
         parts: list[str] = []
         try:
             geometry = film_geometry(job.format, job.frame_size)

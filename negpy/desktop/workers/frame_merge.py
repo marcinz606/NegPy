@@ -47,9 +47,13 @@ class FrameMergeWorker(QObject):
     def cancel(self) -> None:
         self._cancel.set()
 
+    def arm(self) -> None:
+        """Clears a Stop left from an earlier run. Called on the GUI thread before dispatch,
+        so a Stop pressed before the queued run starts is kept."""
+        self._cancel.clear()
+
     @pyqtSlot(list)
     def run(self, tasks: List[FrameMergeTask]) -> None:
-        self._cancel.clear()
         results: List[FrameMergeResult] = []
         aborted = False
         try:

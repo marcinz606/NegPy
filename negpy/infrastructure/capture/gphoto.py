@@ -341,6 +341,7 @@ class GphotoCamera:
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
+        self._magnifier_unmagnified: tuple[str, ...] = ()  # choices that show the full frame
         self._magnifier_probed = False
         self._magnifier_engaged = False
         self._magnifier_stalls = False
@@ -558,6 +559,7 @@ class GphotoCamera:
                 logger.warning("gphoto2: %s has no choice %d", name, index)
                 return
             self._set_verified(name, choices[index])
+            self._publish_settings()  # the UI reads the body's state from the file, not from its own write
 
     def set_iso(self, raw: int) -> None:
         self._set_choice("iso", int(raw))
@@ -612,6 +614,16 @@ class GphotoCamera:
                     "writable": not widget.get_readonly(),
                     "options": options,
                 }
+            # The body's own magnifier state, whoever engaged or released it. Sony packs "ratio,x,y".
+            spec = self._probe_magnifier()
+            if spec is not None:
+                try:
+                    current = _safe_value(self._gp, camera.get_single_config(spec.ratio))
+                except self._gp.GPhoto2Error as exc:
+                    logger.debug("gphoto2: magnifier state unreadable: %s", exc)
+                    current = None
+                if current is not None:
+                    out["magnifier"] = {"on": current.split(",")[0] not in self._magnifier_unmagnified}
             return out
 
     # ----- focus magnifier -------------------------------------------------------
@@ -644,6 +656,7 @@ class GphotoCamera:
                 steps = steps[1:]  # Sony's first step repositions without magnifying
             self._magnifier = spec
             self._magnifier_off = choices[0]
+            self._magnifier_unmagnified = tuple(choices[: len(choices) - len(steps)])
             self._magnifier_ratios = (steps[0], steps[-1])
             logger.info("gphoto2: focus magnifier via %r, steps %s", spec.ratio, self._magnifier_ratios)
             return spec
@@ -992,12 +1005,15 @@ class GphotoCamera:
         os.replace(tmp, self._jpeg_path)  # atomic: the UI only ever sees a whole frame
 
     def _publish_settings(self) -> None:
-        try:
-            payload = self.read_settings()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("gphoto2 settings: %s", exc)
-            return
-        tmp = f"{self._settings_path}.part"
-        with open(tmp, "w") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, self._settings_path)
+        # The preview thread and the worker both publish. Read and write under the camera's lock,
+        # so the newest read is the last written and one writer owns the temp file.
+        with self._lock:
+            try:
+                payload = self.read_settings()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("gphoto2 settings: %s", exc)
+                return
+            tmp = f"{self._settings_path}.part"
+            with open(tmp, "w") as handle:
+                json.dump(payload, handle)
+            os.replace(tmp, self._settings_path)

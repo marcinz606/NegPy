@@ -9,7 +9,7 @@ from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN, IR_METHO
 _IR_REMOVAL_TIP = (
     "Use the scanner's infrared channel to remove dust and scratches (invisible to the color dyes): faint "
     "semi-transparent specks are divided back out to recover the image underneath, opaque cores and hairs are "
-    "rebuilt from clean neighbouring film, and only defects too wide to see across are inpainted."
+    "rebuilt from clean neighboring film, and only defects too wide to see across are inpainted."
 )
 _IR_THRESH_TIP = "Lower catches more dust, higher is conservative. Smooth response, no cliff."
 # Order matches _IR_METHOD_KEYS.
@@ -175,23 +175,23 @@ class RetouchSidebar(BaseSidebar):
             lambda c: self.update_config_section("retouch", persist=True, render=True, dust_remove=c, dust_exclusion_strokes=[])
         )
         self.right_click_btn.toggled.connect(self.controller.session.set_right_click_excludes)
-        self.threshold_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
-        )
-        self.hair_threshold_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_hair_threshold=v)
-        )
-        self.auto_size_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_size=int(v))  # TODO: precision loss from int cast
-        )
+        for slider, field, cast in (
+            (self.threshold_slider, "dust_threshold", float),
+            (self.hair_threshold_slider, "dust_hair_threshold", float),
+            (self.auto_size_slider, "dust_size", int),
+            (self.line_threshold_slider, "scratch_threshold", float),
+            (self.ir_threshold_slider, "ir_threshold", float),
+        ):
+            slider.valueChanged.connect(
+                lambda v, f=field, c=cast: self.update_config_section("retouch", readback_metrics=False, **{f: c(v)})
+            )
+            slider.valueCommitted.connect(lambda v, f=field, c=cast: self.update_config_section("retouch", persist=True, **{f: c(v)}))
         self.pick_dust_btn.toggled.connect(self._on_pick_toggled)
         self.pick_scratch_btn.toggled.connect(self._on_scratch_toggled)
         self.pick_line_btn.toggled.connect(self._on_line_toggled)
-        self.manual_size_slider.valueChanged.connect(
+        self.manual_size_slider.valueChanged.connect(lambda v: self.update_config_section("retouch", render=False, manual_dust_size=int(v)))
+        self.manual_size_slider.valueCommitted.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, manual_dust_size=int(v))
-        )
-        self.line_threshold_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, scratch_threshold=float(v))
         )
         self.clone_btn.toggled.connect(self._on_clone_toggled)
         self.clone_source_btn.toggled.connect(self.controller.arm_clone_source)
@@ -199,9 +199,15 @@ class RetouchSidebar(BaseSidebar):
             lambda c: self.update_config_section("retouch", render=False, persist=True, clone_match_tone=c)
         )
         self.clone_strength_slider.valueChanged.connect(
+            lambda v: self.update_config_section("retouch", render=False, clone_strength=float(v) / 100.0)
+        )
+        self.clone_strength_slider.valueCommitted.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, clone_strength=float(v) / 100.0)
         )
         self.clone_feather_slider.valueChanged.connect(
+            lambda v: self.update_config_section("retouch", render=False, clone_feather=float(v) / 100.0)
+        )
+        self.clone_feather_slider.valueCommitted.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, clone_feather=float(v) / 100.0)
         )
         self.clone_undo_btn.clicked.connect(self.controller.undo_last_clone)
@@ -212,9 +218,6 @@ class RetouchSidebar(BaseSidebar):
 
         self.ir_dust_btn.toggled.connect(
             lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c, ir_attenuation=c)
-        )
-        self.ir_threshold_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, ir_threshold=float(v))
         )
         self.ir_method_btn.currentChanged.connect(
             lambda i: self.update_config_section("retouch", persist=True, render=True, ir_method=_IR_METHOD_KEYS[i])

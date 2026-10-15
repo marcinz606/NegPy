@@ -17,6 +17,12 @@ from tests.scanners.fake_nkscan import DEVICE_ID, FRAMES, FakeCapabilities, make
 _PARAMS = ScanParams(dpi=1000, depth=16, capture_ir=False)
 
 
+def _column_top(backend, address: int) -> int:
+    """The column address nearest `address`: a nudge moves a frame by full thumbnail columns."""
+    columns = backend.column_addresses(DEVICE_ID)
+    return int(columns[np.argmin(np.abs(columns - address))])
+
+
 def _scan(backend, params=_PARAMS, progress=None):
     return backend.scan(DEVICE_ID, params, progress or (lambda *_: None), threading.Event())
 
@@ -60,25 +66,42 @@ def test_devices_are_named_from_the_unit() -> None:
     assert (device.vendor, device.model) == ("Nikon", "LS-50")
 
 
-def test_list_devices_caches_and_refresh_re_probes() -> None:
+def test_list_devices_caches_and_refresh_probes_the_open_unit() -> None:
     backend, module = make_backend()
     backend.list_devices()
-    probes = len(module.opened)
     backend.list_devices()
-    assert len(module.opened) == probes
+    assert len(module.opened) == 1
 
-    backend.refresh_devices()
-    assert len(module.opened) > probes
+    module.caps = FakeCapabilities(model="LS-5000")
+    assert backend.refresh_devices()[0].model == "LS-5000"
+    assert len(module.opened) == 1  # the same session reads the capabilities again
 
 
-def test_a_held_device_is_not_re_probed() -> None:
-    """Probing opens the unit, and nkscan reserves it: a held one would refuse."""
+def test_a_unit_that_is_gone_is_closed() -> None:
+    backend, module = make_backend()
+    backend.list_devices()
+    module.locations = ()
+
+    assert backend.refresh_devices() == []
+    assert module.opened[-1].closed
+
+
+def test_close_closes_every_unit() -> None:
+    backend, module = make_backend()
+    backend.list_devices()
+
+    backend.close()
+
+    assert module.opened[-1].closed
+
+
+def test_a_held_device_is_probed_on_its_open_session() -> None:
+    """nkscan reserves an open unit, thus a second open would be refused."""
     backend, module = make_backend()
     backend.list_devices()
     with backend.open_session(DEVICE_ID):
-        probes = len(module.opened)
         assert [d.id for d in backend.refresh_devices()] == [DEVICE_ID]
-        assert len(module.opened) == probes + 1  # the session itself, not a probe
+    assert len(module.opened) == 1
 
 
 # ── frames ────────────────────────────────────────────────────────────────
@@ -130,6 +153,15 @@ def test_the_film_format_reaches_discovery() -> None:
     assert module.opened[-1].discoveries == ["66"]
 
 
+def test_a_film_format_change_measures_the_film_again() -> None:
+    backend, module = make_backend()
+    _scan(backend, ScanParams(dpi=1000, depth=16, capture_ir=False, film_format="135"))
+    _scan(backend, ScanParams(dpi=1000, depth=16, capture_ir=False, film_format="66"))
+    assert [d for s in module.opened for d in s.discoveries] == ["135", "66"]
+    assert backend.detect_frames(DEVICE_ID, film_format="66") == len(FRAMES)
+    assert [d for s in module.opened for d in s.discoveries] == ["135", "66"]
+
+
 def test_an_unknown_film_format_is_refused_before_the_unit_moves() -> None:
     backend, module = make_backend()
     with pytest.raises(RuntimeError, match="Unknown film format"):
@@ -166,10 +198,10 @@ def test_the_offset_and_the_window_both_reach_the_scan() -> None:
     backend, module = make_backend()
     _scan(
         backend,
-        ScanParams(dpi=1000, depth=16, capture_ir=False, frame=1, frame_offset_mm=25.4, window=(0.0, 0.0, 1.0, 0.5)),
+        ScanParams(dpi=1000, depth=16, capture_ir=False, frame=1, frame_offset_mm=5.08, window=(0.0, 0.0, 1.0, 0.5)),
     )
     top, _left, bottom, _right = module.opened[-1].scans[0]["frame"]
-    assert top == FRAMES[0][0] + 4000
+    assert top == _column_top(backend, FRAMES[0][0] + 800)
     assert bottom - top == (FRAMES[0][2] - FRAMES[0][0]) // 2
 
 
@@ -208,9 +240,9 @@ def test_a_scan_with_no_planes_at_all_is_an_error() -> None:
 
 def test_ice_samples_and_superfine_reach_the_scan() -> None:
     backend, module = make_backend()
-    _scan(backend, ScanParams(dpi=2400, depth=16, capture_ir=True, clean=True, samples=4, superfine=True))
+    _scan(backend, ScanParams(dpi=2400, depth=16, capture_ir=False, clean=True, samples=4, superfine=True))
     asked = module.opened[-1].scans[0]
-    assert asked["clean"] and asked["infrared"] and asked["superfine"]
+    assert asked["clean"] and not asked["infrared"] and asked["superfine"]
     assert (asked["samples"], asked["dpi"]) == (4, 2400)
 
 
@@ -237,15 +269,30 @@ def test_the_default_autofocus_request_is_honoured_silently() -> None:
 # ── lifetime and errors ───────────────────────────────────────────────────
 
 
-def test_a_scan_stages_the_unit_and_closes_it_again() -> None:
+def test_scans_stage_the_one_open_unit() -> None:
     backend, module = make_backend()
     _scan(backend)
+    _scan(backend)
+    assert len(module.opened) == 1
     session = module.opened[-1]
-    assert session.staged == 1 and session.closed
+    assert session.staged == 2 and not session.closed
+
+
+def test_a_failed_operation_closes_the_unit_and_the_next_opens_it_again() -> None:
+    backend, module = make_backend()
+    module.scan_error = module.ScannerError("the unit stopped answering")
+    with pytest.raises(RuntimeError):
+        _scan(backend)
+    assert module.opened[-1].closed
+
+    module.scan_error = None
+    _scan(backend)
+
+    assert len(module.opened) == 2 and not module.opened[-1].closed
 
 
 def test_film_is_loaded_when_the_holder_is_empty() -> None:
-    backend, module = make_backend(media_loaded_at_open=False)
+    backend, module = make_backend(film_loaded=False)
     _scan(backend)
     assert module.opened[-1].loads == 1
 
@@ -253,49 +300,52 @@ def test_film_is_loaded_when_the_holder_is_empty() -> None:
 def test_film_the_unit_returned_is_loaded_again_and_the_scan_stops() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
+
+    staged = module.opened[-1].staged
 
     with pytest.raises(StripReturned) as raised:
         _scan(backend)
 
     assert raised.value.loaded
     assert module.opened[-1].loads == 1
-    assert module.opened[-1].staged == 0
-    assert module.opened[-1].closed
+    assert module.opened[-1].staged == staged
+    assert not module.opened[-1].closed  # a return is no fault of the unit
     assert backend.frames(DEVICE_ID) == []
 
 
 def test_a_returned_strip_the_unit_cannot_take_back_asks_for_it_again() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
     module.film_waiting = False
+    staged = module.opened[-1].staged
 
     with pytest.raises(StripReturned, match="Insert it again") as raised:
         _scan(backend)
 
     assert not raised.value.loaded
-    assert module.opened[-1].staged == 0
+    assert module.opened[-1].staged == staged
 
 
 def test_film_reloaded_after_the_unit_returned_it_is_measured_again() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
     with pytest.raises(StripReturned):
         _scan(backend)
-    module.media_loaded_at_open = True
+    module.film_loaded = True
 
     _scan(backend)
 
-    assert module.opened[-1].discoveries == [None]
+    assert module.opened[-1].discoveries == [None, None]
 
 
 def test_film_ejected_by_negpy_loads_again_without_a_word() -> None:
     backend, module = make_backend(with_eject=True)
     _scan(backend)
     backend.eject(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
 
     _scan(backend)
 
@@ -305,7 +355,7 @@ def test_film_ejected_by_negpy_loads_again_without_a_word() -> None:
 def test_ejecting_a_strip_the_unit_returned_is_not_refused() -> None:
     backend, module = make_backend(with_eject=True)
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
 
     assert backend.eject(DEVICE_ID) is True
 
@@ -329,7 +379,7 @@ def test_a_session_scan_reuses_the_one_hold() -> None:
     with backend.open_session(DEVICE_ID) as session:
         session.scan(_PARAMS, lambda *_: None, threading.Event())
         session.scan(_PARAMS, lambda *_: None, threading.Event())
-    assert len(module.opened) == 2  # one probe, one session
+    assert len(module.opened) == 1  # the probe opened the unit, and the hold uses it
     assert len(module.opened[-1].scans) == 2
 
 
@@ -489,36 +539,45 @@ def test_a_unit_that_cannot_give_the_film_back_offers_no_eject() -> None:
     assert backend.list_devices()[0].capabilities.can_eject is False
 
 
-def test_only_a_transport_that_measures_the_film_is_told_the_frame_length() -> None:
-    """A holder with its own frame table fixes the format, so there is nothing to choose."""
-    measured, _ = make_backend(caps=FakeCapabilities(framing="perforation"))
-    assert "135" in measured.list_devices()[0].capabilities.film_formats
+def test_the_format_is_offered_only_where_the_holder_does_not_fix_it() -> None:
+    open_choice, _ = make_backend(caps=FakeCapabilities(framing="thumbnail", film_formats=("66", "67", "69")))
+    assert open_choice.list_devices()[0].capabilities.film_formats == ("66", "67", "69")
 
-    published, _ = make_backend(caps=FakeCapabilities(framing="published"))
-    assert published.list_devices()[0].capabilities.film_formats == ()
+    fixed, _ = make_backend(caps=FakeCapabilities(framing="perforation", film_format="135", film_formats=()))
+    assert fixed.list_devices()[0].capabilities.film_formats == ()
 
 
-def test_only_the_framings_that_take_a_thumbnail_pass_cut_previews_from_a_strip_pass() -> None:
-    for framing, strip_pass in (("thumbnail", True), ("perforation", True), ("published", False), ("address", False)):
-        backend, _ = make_backend(caps=FakeCapabilities(framing=framing))
-        assert backend.list_devices()[0].capabilities.strip_pass is strip_pass, framing
+def test_only_a_unit_that_takes_a_thumbnail_pass_cuts_previews_from_a_strip_pass() -> None:
+    for thumbnail in (True, False):
+        backend, _ = make_backend(caps=FakeCapabilities(framing="published", thumbnail=thumbnail))
+        assert backend.list_devices()[0].capabilities.strip_pass is thumbnail
 
 
 # ── metering ──────────────────────────────────────────────────────────────
 
 
-def test_a_colour_negative_is_metered_per_channel() -> None:
-    """Held together, the orange mask is quantised through and the blue record loses range."""
-    backend, module = make_backend()
-    _scan(backend, dataclasses.replace(_PARAMS, film_type="negative"))
-    assert module.opened[-1].scans[-1]["lock_white_balance"] is False
-
-
-def test_every_other_film_keeps_its_factory_balance() -> None:
-    for film in ("positive", "kodachrome", "mono"):
+def test_the_scan_is_metered_for_the_film_its_format_and_the_measured_base() -> None:
+    """nkscan picks the white balance lock for the film, so the backend does not pass one."""
+    for film in ("negative", "positive", "kodachrome", "mono"):
         backend, module = make_backend()
         _scan(backend, dataclasses.replace(_PARAMS, film_type=film, capture_ir=False))
-        assert module.opened[-1].scans[-1]["lock_white_balance"] is True, film
+        scan = module.opened[-1].scans[-1]
+        assert (scan["film"], scan["format"]) == (film, _PARAMS.film_format), film
+        assert scan["base_density"] == module.base_density
+        assert scan["lock_white_balance"] is None
+
+
+def test_the_strip_is_measured_for_the_film() -> None:
+    backend, module = make_backend()
+    _scan(backend, dataclasses.replace(_PARAMS, film_type="positive", capture_ir=False))
+    assert module.opened[-1].films == ["positive"]
+
+
+def test_a_strip_measured_for_another_film_is_measured_again() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID, film_format=_PARAMS.film_format, film_type="negative")
+    _scan(backend, dataclasses.replace(_PARAMS, film_type="positive", capture_ir=False))
+    assert module.opened[-1].films == ["negative", "positive"]
 
 
 # ── what is on the film ───────────────────────────────────────────────────
@@ -565,20 +624,20 @@ def test_the_fake_capabilities_carry_what_the_extension_does() -> None:
 
 def test_the_films_the_backend_names_are_films_the_extension_knows() -> None:
     nkscan = pytest.importorskip("nkscan")
-    backend, _ = make_backend()
     for film in FILM_TYPES:
-        assert backend.locks_white_balance(film) == nkscan.Capabilities.locks_white_balance(film)
+        nkscan.Capabilities.locks_white_balance(film)  # raises for a film it does not know
 
 
 def test_a_per_frame_offset_slides_only_the_feed_axis_of_the_frame_asked_for() -> None:
     """The rect moves by the dialled distance on the feed axis only."""
     shift = round(0.7 * 4000 / 25.4)  # 0.7 mm at the fake's optical dpi
-    for frame, offset_mm, expected in ((3, 0.0, 0), (3, 0.7, shift), (3, -0.7, -shift), (1, 0.7, shift)):
-        backend, module = make_backend()
+    for frame, offset_mm in ((3, 0.0), (3, 0.7), (3, -0.7), (1, 0.7)):
+        backend, module = make_backend(strip_slack=20)  # room on the strip pass for the nudge
         _scan(backend, dataclasses.replace(_PARAMS, frame=frame, frame_offset_mm=offset_mm))
 
         rect = module.opened[-1].scans[-1]["frame"]
         detected = FRAMES[frame - 1]
+        expected = _column_top(backend, detected[0] + round(offset_mm / 0.7 * shift)) - detected[0] if offset_mm else 0
         assert rect[0] - detected[0] == expected
         assert rect[2] - detected[2] == expected
         assert (rect[1], rect[3]) == (detected[1], detected[3])  # across-film edges untouched
@@ -628,10 +687,19 @@ def test_metering_reads_the_whole_detected_frame_with_its_offset_but_not_the_win
     exposures = _meter(backend, params)
 
     session = module.opened[-1]
-    assert session.meters == [{"frame": _shift_frame(FRAMES[1], _offset_units(1.0, 4000)), "infrared": True, "lock_white_balance": False}]
+    assert session.meters == [
+        {
+            "frame": _shift_frame(FRAMES[1], _column_top(backend, FRAMES[1][0] + _offset_units(1.0, 4000)) - FRAMES[1][0]),
+            "infrared": True,
+            "film": _PARAMS.film_type,
+            "format": _PARAMS.film_format,
+            "base_density": module.base_density,
+            "lock_white_balance": None,
+        }
+    ]
     assert session.scans == []
     assert exposures == {"red": 11, "green": 22, "blue": 33, "infrared": 44}
-    assert session.closed
+    assert not session.closed
 
 
 def test_a_short_pass_is_a_transient_error_so_the_scan_is_retried() -> None:
@@ -659,7 +727,7 @@ def test_a_held_device_refuses_a_stateless_meter() -> None:
 def test_a_load_that_fails_still_leaves_the_return_to_report() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
     module.load_error = fake_nkscan.TransientError("usb glitch")
 
     with pytest.raises(TransientScanError):
@@ -673,20 +741,20 @@ def test_a_load_that_fails_still_leaves_the_return_to_report() -> None:
 def test_ejecting_a_strip_the_unit_already_returned_counts_as_ejected() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
     module.film_waiting = False
 
     assert backend.eject(DEVICE_ID) is True
     assert module.opened[-1].ejects == 0
 
-    module.media_loaded_at_open = True
+    module.film_loaded = True
     _scan(backend)  # settled by the eject: nothing left to report
 
 
 def test_an_eject_that_does_nothing_leaves_the_return_to_report() -> None:
     backend, module = make_backend(with_eject=False)
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False  # the strip waits in the adapter
+    module.film_loaded = False  # the strip waits in the adapter
 
     assert backend.eject(DEVICE_ID) is False
 
@@ -717,14 +785,15 @@ def test_a_long_idle_counts_as_a_return_though_the_strip_reads_as_loaded(clock) 
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)
     clock.now += _IDLE_RETURN_S
+    staged = module.opened[-1].staged
 
     with pytest.raises(StripReturned) as raised:
         _scan(backend)
 
     assert raised.value.loaded
-    assert module.opened[-1].staged == 0
+    assert module.opened[-1].staged == staged
     _scan(backend)
-    assert module.opened[-1].discoveries == [None]  # measured again
+    assert module.opened[-1].discoveries == [None, None]  # measured again
 
 
 def test_a_short_idle_keeps_the_measured_strip(clock) -> None:
@@ -736,7 +805,7 @@ def test_a_short_idle_keeps_the_measured_strip(clock) -> None:
 
     _scan(backend)
 
-    assert module.opened[-1].discoveries == []
+    assert module.opened[-1].discoveries == [None]
 
 
 def test_each_contact_starts_the_idle_clock_again(clock) -> None:
@@ -750,7 +819,7 @@ def test_each_contact_starts_the_idle_clock_again(clock) -> None:
 
     _scan(backend)
 
-    assert module.opened[-1].discoveries == []
+    assert module.opened[-1].discoveries == [None]
 
 
 def test_a_long_idle_with_nothing_measured_is_not_a_return(clock) -> None:
@@ -765,12 +834,13 @@ def test_a_long_idle_with_nothing_measured_is_not_a_return(clock) -> None:
 def test_a_holder_with_its_own_frame_table_keeps_the_plain_reload() -> None:
     backend, module = make_backend(caps=FakeCapabilities(framing="published"))
     backend.detect_frames(DEVICE_ID)
-    module.media_loaded_at_open = False
+    module.film_loaded = False
+    staged = module.opened[-1].staged
 
     _scan(backend)
 
     assert module.opened[-1].loads == 1
-    assert module.opened[-1].staged == 1
+    assert module.opened[-1].staged == staged + 1
 
 
 def test_a_long_idle_is_no_return_on_a_holder_with_its_own_frame_table(clock) -> None:
@@ -782,4 +852,50 @@ def test_a_long_idle_is_no_return_on_a_holder_with_its_own_frame_table(clock) ->
 
     _scan(backend)
 
-    assert module.opened[-1].discoveries == []
+    assert module.opened[-1].discoveries == [None]
+
+
+def test_a_nudge_is_held_on_the_strip_pass() -> None:
+    """The scan lands where the preview showed: both clamp a nudge to the strip pass."""
+    backend, module = make_backend(strip_slack=0)  # the last frame ends where the pass ends
+    _scan(backend, dataclasses.replace(_PARAMS, frame=3, frame_offset_mm=5.0))
+    assert module.opened[-1].scans[-1]["frame"] == FRAMES[2]
+
+
+def test_ice_without_ir_keeps_no_infrared_plane() -> None:
+    """ICE reads the infrared plane to clean the frame, but the scan asked for no IR file."""
+    backend, module = make_backend()
+    result = _scan(backend, dataclasses.replace(_PARAMS, capture_ir=False, clean=True))
+    assert module.opened[-1].scans[-1]["clean"] is True
+    assert result.ir is None and result.ir_valid_mask is None
+
+
+def test_ir_and_ice_together_are_refused_before_the_unit_moves() -> None:
+    backend, module = make_backend()
+    with pytest.raises(RuntimeError, match="IR and ICE cannot be used together"):
+        _scan(backend, dataclasses.replace(_PARAMS, capture_ir=True, clean=True))
+    assert module.opened == []
+
+
+# ── film poll ─────────────────────────────────────────────────────────────
+
+
+def test_the_film_poll_asks_the_open_unit() -> None:
+    backend, module = make_backend()
+    backend.list_devices()
+
+    assert backend.media_loaded(DEVICE_ID) is True
+    module.film_loaded = False
+    assert backend.media_loaded(DEVICE_ID) is False
+    assert len(module.opened) == 1
+
+
+def test_film_that_went_out_drops_its_frames() -> None:
+    backend, module = make_backend()
+    backend.detect_frames(DEVICE_ID)
+    module.film_loaded = False
+
+    backend.media_loaded(DEVICE_ID)
+
+    assert backend.frames(DEVICE_ID) == []
+    assert backend.strip_pass(DEVICE_ID) is None

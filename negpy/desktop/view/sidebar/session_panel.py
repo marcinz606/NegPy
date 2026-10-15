@@ -88,7 +88,7 @@ class SessionPanel(QWidget):
         self.update_info = info
         self.update_found.emit(info.version)
         self.update_label.setText(
-            f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">⬇ Update Available: v{info.version}</a>'
+            f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">Update Available: v{info.version}</a>'
         )
         self.update_label.setToolTip(
             "Install this update — NegPy downloads it, closes, and reopens on the new version"
@@ -116,7 +116,7 @@ class SessionPanel(QWidget):
     def _on_manual_check(self, info: Optional[UpdateInfo]) -> None:
         self._checking = False
         if info is None:
-            QMessageBox.information(self, "NegPy", f"NegPy {get_app_version()} is up to date.")
+            QMessageBox.information(self, "Check for Updates", f"NegPy {get_app_version()} is up to date.")
             return
         self._on_update_checked(info)
         self.show_update_dialog()

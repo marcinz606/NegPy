@@ -200,3 +200,26 @@ def test_the_brush_circle_shows_only_where_a_right_click_would_paint(qapp):
     _state, healing = _canvas(qapp, tool=ToolMode.DUST_PICK, dust_remove=True, right_click_excludes=True)
     healing.overlay.set_tool_mode(ToolMode.DUST_PICK)
     assert healing.overlay._draws_exclusion_brush() is False, "the heal tool draws its own"
+
+
+def test_a_touch_pinch_anchors_on_its_screen_centre_mapped_into_the_canvas(qapp):
+    from unittest.mock import patch
+
+    from PyQt6.QtCore import QPoint, QPointF
+    from PyQt6.QtWidgets import QGestureEvent, QPinchGesture
+
+    _state, canvas = _canvas(qapp)
+    canvas.move(300, 200)
+    canvas.show()
+    gesture = QPinchGesture()
+    centre = canvas.mapToGlobal(QPoint(40, 30))
+    gesture.setCenterPoint(QPointF(centre))
+    gesture.setLastScaleFactor(1.5)
+    event = QGestureEvent([gesture])
+    with (
+        patch.object(QPinchGesture, "state", return_value=Qt.GestureState.GestureUpdated),
+        patch.object(canvas, "_apply_scale_at", return_value=True) as apply,
+    ):
+        canvas._try_pinch_gesture(event)
+    anchor = apply.call_args.args[1]
+    assert (round(anchor.x()), round(anchor.y())) == (40, 30)

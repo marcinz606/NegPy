@@ -15,9 +15,12 @@ import pytest
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
     MAX_LINEARITY_FRACTION,
+    MIN_PROFILE_SIGNAL,
+    scan_ladder,
     PWM_MAX,
     PWM_MAX_SAFE,
     PWM_MIN,
+    PWM_MIN_SINGLE,
     REFERENCE_LEVELS,
     REFERENCE_SHUTTER,
     SHUTTER_CANDIDATES,
@@ -26,6 +29,8 @@ from negpy.services.capture.calibration import (
     Roi,
     _channel_status,
     _solve_shared,
+    _sensor_matrix,
+    _solve_single,
     _spread_stops,
     aperture_fnumber,
     clip_fraction,
@@ -260,20 +265,20 @@ class FakeCamera:
         pass
 
 
-def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0):
-    """Linear fake sensor (128×128 so a sub-0.1 % clip sliver fits below the p99.9 cut). No bias.
-    `k_scale` scales all channels uniformly (like aperture); `level_cap` saturates the LED above a
-    level (a channel solved to max LED lands under target → under-exposed); `sliver` over-bright
-    pixels clip at the solve but the LED-down clip guard resolves them."""
+def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0, crosstalk=0.0, concave=1.0):
+    """Linear fake sensor, no bias, 128x128 so a clip sliver under 0.1% fits below the p99.9 cut.
+    `k_scale` scales all channels; `level_cap` saturates the LED above a level; `sliver` pixels clip until the LED-down guard
+    dims them; `crosstalk` is the share of each neighbor LED a channel reads; `concave` below 1 brightens low LED levels."""
 
     def demosaic(_path):
-        # A body exposes the ladder's TRUE time, not the label's fraction ("1/3" is 0.315 s). The
-        # fake sensor must do the same, or it silently absorbs the rounding the solver has to
-        # handle — and the rig failure it caused would be untestable here.
+        # A body exposes the ladder's true time, not the label's fraction ("1/3" is 0.315 s), and the
+        # fake sensor must too, or it absorbs the rounding the solver has to handle.
         sec = true_seconds(camera.last_shutter, SHUTTER_CANDIDATES)
         img = np.zeros((128, 128, 3))
-        for i, level in enumerate(light.last):
-            eff = min(level, level_cap) if level_cap is not None else level
+        lit = [min(level, level_cap) if level_cap is not None else level for level in light.last]
+        lit = [255.0 * (level / 255.0) ** concave for level in lit]
+        for i, own in enumerate(lit):
+            eff = own + crosstalk * (sum(lit) - own)
             val = K["RGB"[i]] * k_scale * eff * sec
             img[..., i] = val
             if sliver:
@@ -535,3 +540,133 @@ def test_a_nikon_ladder_survives_and_keeps_its_own_labels():
     # exactly the bug: accepted by libgphoto2, ignored by the camera, "did not settle".
     _, shutter = normalize_start_point("100", "f/8", candidates=_D600)
     assert shutter in ladder and shutter.endswith("s")
+
+
+# ---- single capture: R, G and B lit together ------------------------------
+
+
+def _mixing_matrix(crosstalk):
+    return np.array([[K[c] * (1.0 if c == j else crosstalk) for j in "RGB"] for c in "RGB"])
+
+
+def test_solve_single_accounts_for_the_neighboring_leds():
+    T = target_signal()
+    m = _mixing_matrix(0.15)
+    shutter, levels = _solve_single(m, T, SHUTTER_CANDIDATES)
+    signals = m @ np.array(levels) * true_seconds(shutter, SHUTTER_CANDIDATES)
+    assert signals == pytest.approx([T, T, T], rel=0.02)
+    assert max(levels) <= PWM_MAX_SAFE
+    # The independent solve at the same shutter overshoots once the three LEDs burn together.
+    _shared_shutter, shared = _solve_shared(K, T, (shutter,))
+    assert np.all(m @ np.array([shared[c] for c in "RGB"]) * true_seconds(shutter, SHUTTER_CANDIDATES) > 1.05 * T)
+
+
+@pytest.mark.parametrize("crosstalk", [0.3, 0.5])  # a level under the LED floor, then a negative one
+def test_solve_single_refuses_channels_that_no_level_in_range_balances(crosstalk):
+    with pytest.raises(RuntimeError, match="overlap too much"):
+        _solve_single(_mixing_matrix(crosstalk), target_signal(), SHUTTER_CANDIDATES)
+
+
+def test_single_capture_calibration_puts_every_channel_on_target_in_one_exposure():
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    T = target_signal()
+    assert result.single_capture
+    assert len(set(result.shutters)) == 1
+    for ch in result.channels.values():
+        assert ch.signal == pytest.approx(T, rel=0.06)
+    assert light.history[-1] == result.levels  # verified with all three LEDs lit at the saved levels
+    assert all(PWM_MIN_SINGLE <= level <= PWM_MAX for level in result.levels)
+
+
+def test_triplet_calibration_is_not_marked_single_capture():
+    light, cam = FakeLight(), FakeCamera()
+    assert not _calibrate(_service(light, cam)).single_capture
+
+
+def test_single_capture_calibration_aborts_as_under_when_the_target_is_unreachable():
+    light, cam = FakeLight(), FakeCamera()
+    with pytest.raises(CalibrationExposureError) as e:
+        _service(light, cam, k_scale=0.02, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    assert e.value.status == "under"
+
+
+def test_single_capture_calibration_aborts_as_over_when_minimum_exposure_clips():
+    light, cam = FakeLight(), FakeCamera()
+    with pytest.raises(CalibrationExposureError) as e:
+        _service(light, cam, k_scale=3000.0, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    assert e.value.status == "over"
+
+
+def test_single_capture_clip_guard_dims_the_three_leds_together():
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, crosstalk=0.15, sliver=60).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    assert all(ch.clip_fraction <= MAX_CLIP_FRACTION and ch.linearity_fraction <= MAX_LINEARITY_FRACTION for ch in result.channels.values())
+
+
+def test_single_capture_trim_recovers_the_channel_the_clip_guard_left_under():
+    # Low LED levels read brighter than the linear solve expects, so two channels clip and
+    # the guard dims all three.
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, k_scale=4.0, crosstalk=0.15, concave=0.8).calibrate(
+        Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True
+    )
+    T = target_signal()
+    for ch in result.channels.values():
+        assert ch.signal == pytest.approx(T, rel=0.08)
+        assert ch.linearity_fraction <= MAX_LINEARITY_FRACTION
+
+
+def test_single_capture_calibration_measures_the_sensor_unmix():
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", single_capture=True)
+    levels = np.array([120.0, 60.0, 30.0])
+    k = np.array([K[c] for c in "RGB"])
+    mixed = k * (levels + 0.15 * (levels.sum() - levels))  # all three LEDs lit, as the fake sensor reads them
+    unmixed = np.array(result.sensor_matrix).reshape(3, 3) @ mixed
+    assert unmixed == pytest.approx(k * levels, rel=1e-6)
+
+
+def test_triplet_calibration_measures_no_sensor_unmix():
+    light, cam = FakeLight(), FakeCamera()
+    assert _calibrate(_service(light, cam)).sensor_matrix is None
+
+
+def test_a_dim_probe_gives_no_sensor_unmix():
+    response = np.array([[1.0, 0.1, 0.04], [0.13, 1.0, 0.31], [0.04, 0.27, 1.0]])
+    assert _sensor_matrix(response * MIN_PROFILE_SIGNAL * 2) is not None
+    assert _sensor_matrix(response * MIN_PROFILE_SIGNAL * 0.5) is None
+
+
+def test_sensor_response_measures_each_led_alone():
+    light, cam = FakeLight(), FakeCamera()
+    response = _service(light, cam, crosstalk=0.15).measure_sensor_response(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw")
+    mixing = response / np.diag(response)
+    k = np.array([K[c] for c in "RGB"])
+    assert mixing == pytest.approx(np.where(np.eye(3, dtype=bool), 1.0, 0.15 * k[:, None] / k[None, :]), rel=1e-6)
+    assert all(sum(1 for level in color if level) == 1 for color in light.history)
+    assert light.last == (0, 0, 0)
+
+
+def test_sensor_response_raises_a_dim_probe_toward_the_target():
+    # The start point reads far under target, so each probe is shot again brighter.
+    light, cam = FakeLight(), FakeCamera()
+    response = _service(light, cam, k_scale=0.3).measure_sensor_response(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw")
+    T = target_signal()
+    assert np.all(np.diag(response) > 0.4 * T) and np.all(np.diag(response) < T)
+
+
+def test_sensor_response_survives_a_start_point_that_clips():
+    light, cam = FakeLight(), FakeCamera()
+    response = _service(light, cam, k_scale=40.0).measure_sensor_response(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw")
+    assert np.all(np.diag(response) > MIN_PROFILE_SIGNAL) and response.max() < 65535
+
+
+def test_sensor_response_refuses_a_light_too_dim_to_measure():
+    light, cam = FakeLight(), FakeCamera()
+    with pytest.raises(RuntimeError, match="too dim"):
+        _service(light, cam, k_scale=0.0005).measure_sensor_response(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw")
+
+
+def test_scan_ladder_keeps_a_body_inside_the_built_in_span():
+    assert scan_ladder(["1/8000", "Bulb", " 1/60 ", "1/250", "30", "2", "1/0"]) == ("1/250", "1/60", "2")

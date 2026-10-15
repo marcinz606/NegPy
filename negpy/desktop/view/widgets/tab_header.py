@@ -8,7 +8,7 @@ import qtawesome as qta
 from PyQt6.QtCore import pyqtSignal
 
 from negpy.desktop.view.confirm import confirm_reset_tab
-from negpy.desktop.view.styles.templates import wrap_tooltip
+from negpy.desktop.view.styles.templates import header_button, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.kernel.system.text import count_of
@@ -29,11 +29,11 @@ class TabHeader(CollapsibleSection):
         self.title_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary}; background: transparent;")
         self._sections: tuple = ()
 
-        self.apply_btn = self._header_button(
+        self.apply_btn = header_button(
             qta.icon("fa5s.film", color=THEME.text_muted), f"Apply every {title} setting to the selected frames or the whole roll…"
         )
         self.apply_btn.clicked.connect(self.apply_requested)
-        self.cards_btn = self._header_button(qta.icon("fa5s.angle-double-up", color=THEME.text_muted), "")
+        self.cards_btn = header_button(qta.icon("fa5s.angle-double-up", color=THEME.text_muted), "")
         self.cards_btn.clicked.connect(self._toggle_cards)
         index = self._header_row.indexOf(self.roll_revert_btn) + 1
         for widget in (self.apply_btn, self.cards_btn):

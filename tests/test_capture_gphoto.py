@@ -281,10 +281,46 @@ def test_safe_value_refuses_to_read_a_choiceless_widget(fake):
     assert _safe_value(fake, fake.props["iso"]) == "100"
 
 
+def test_a_setting_write_republishes_the_settings_file(fake, tmp_path):
+    settings = tmp_path / "lv.json"
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(settings))
+    camera.open()
+    camera.set_shutter(2)  # "1/10"
+    assert json.loads(settings.read_text())["shutter"]["cur"] == 2  # the UI reads the body's state from here
+    camera.close()
+
+
 def test_read_settings_omits_a_property_with_no_choices(cam):
     settings = cam.read_settings()
     assert "aperture" not in settings  # the UI greys the stepper out on a missing key
+    assert set(settings) == {"iso", "shutter", "magnifier"}
+
+
+def test_read_settings_reports_the_body_magnifier_state(cam):
+    assert cam.read_settings()["magnifier"] == {"on": False}
+    cam.set_focus_magnifier_at(320, 240)
+    assert cam.read_settings()["magnifier"] == {"on": True}  # read off the body's echo, "6.9,589,438"
+    cam.set_focus_magnifier(False)
+    assert cam.read_settings()["magnifier"] == {"on": False}
+
+
+def test_sonys_reposition_only_step_reads_as_off(fake, cam):
+    fake.props["focusmagnifier"].value = "1,320,240"  # the body's own button, first press
+    assert cam.read_settings()["magnifier"] == {"on": False}
+
+
+def test_an_unreadable_magnifier_omits_the_entry_and_keeps_the_rest(fake, cam):
+    fake.props["focusmagnifier"].value = None
+    settings = cam.read_settings()
+    assert "magnifier" not in settings
     assert set(settings) == {"iso", "shutter"}
+
+
+def test_read_settings_has_no_magnifier_entry_for_a_body_without_one():
+    camera = GphotoCamera(gp_module=FakeGP(magnifier=None))
+    camera.open()
+    assert "magnifier" not in camera.read_settings()
+    camera.close()
 
 
 def test_read_settings_shape_matches_the_ui_contract(cam):
@@ -682,7 +718,7 @@ def test_live_view_publishes_frames_and_settings(fake, tmp_path):
     finally:
         camera.close()
     assert jpeg.read_bytes().startswith(b"\xff\xd8")
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier"}
     assert not camera.is_running()
 
 
@@ -824,7 +860,7 @@ def test_refusing_live_view_still_publishes_the_camera_settings(tmp_path):
     with pytest.raises(LiveViewUnsupported):
         camera.start()
 
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier"}
     camera.close()
 
 

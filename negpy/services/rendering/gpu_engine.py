@@ -10,7 +10,14 @@ import numpy as np
 import wgpu  # type: ignore
 
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
-from negpy.features.exposure.analysis import COLOR_HIST_BINS, DENSITY_HIST_BINS
+from negpy.features.exposure.analysis import (
+    COLOR_HIST_BINS,
+    DENSITY_HIST_BINS,
+    SCOPE_CHROMA_BINS,
+    SCOPE_HUE_BINS,
+    WAVEFORM_BINS,
+    WAVEFORM_COLS,
+)
 from negpy.features.finish.logic import carrier_profiles, linear_carrier_tone
 from negpy.features.finish.processor import carrier_width_px, rebate_tone
 from negpy.features.exposure import models as exposure_models
@@ -19,6 +26,9 @@ from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds_from_log,
     blend_neutral_axis,
     contrast_mask_plane,
+    diffusion_grid,
+    diffusion_plane,
+    geometry_kwargs,
     luma_source_bounds,
     normalized_roi,
     luminance_density_range,
@@ -52,6 +62,8 @@ from negpy.features.lab.models import SharpenMethod
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
+from negpy.features.sabattier.logic import SABATTIER_CONSTANTS, line_sigma_px
+from negpy.features.exposure.logic import diffusion_mix
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
@@ -75,7 +87,7 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
-from negpy.kernel.image.logic import rgba_to_rgb_into
+from negpy.kernel.image.logic import rgba_to_rgb_into, working_oetf_decode
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
@@ -85,7 +97,10 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 logger = get_logger(__name__)
 
 # Mirrors ToningUniforms.alt_mode in toning.wgsl.
-_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
+# Toning's view of the print: a Sabattier print is plain silver, so it reads as none.
+_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2, AltProcess.SABATTIER: 0}
+# One pass each, pointwise; Sabattier's three passes are dispatched on their own.
+_ALT_SHADER = {AltProcess.LITH: "lith", AltProcess.CYANOTYPE: "cyanotype"}
 
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
@@ -104,15 +119,20 @@ TILE_HALO = 32
 # Above this pixel count, tiling bounds the complete working set.
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
-# Metrics buffer layout in u32 words: RGBL output histogram (metrics.wgsl), the RGBL
-# density histogram (density_hist.wgsl), then the joint RGB histogram (color_hist.wgsl).
-# 256 B-aligned offsets, mirrored as WGSL array lengths. Append-only.
+# Metrics buffer in u32 words: RGBL output and density histograms, joint RGB histogram, luma waveform, a*b* vectorscope,
+# waveform RGB sums. 256 B-aligned offsets, mirrored as WGSL array lengths. Append-only.
 _METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
 _METRICS_DENSITY_BASE = 1024
 _METRICS_DENSITY_WORDS = DENSITY_HIST_BINS * 4  # R, G, B, Luma
 _METRICS_COLOR_BASE = 1536  # first 256 B-aligned word past the density slice
 _METRICS_COLOR_WORDS = COLOR_HIST_BINS**3
-METRICS_BUFFER_SIZE = (_METRICS_COLOR_BASE + _METRICS_COLOR_WORDS) * 4
+_METRICS_WAVE_BASE = _METRICS_COLOR_BASE + _METRICS_COLOR_WORDS
+_METRICS_WAVE_WORDS = WAVEFORM_BINS * WAVEFORM_COLS
+_METRICS_SCOPE_BASE = _METRICS_WAVE_BASE + _METRICS_WAVE_WORDS
+_METRICS_SCOPE_WORDS = SCOPE_HUE_BINS * SCOPE_CHROMA_BINS
+_METRICS_WAVE_RGB_BASE = _METRICS_SCOPE_BASE + _METRICS_SCOPE_WORDS
+_METRICS_WAVE_RGB_WORDS = 3 * WAVEFORM_BINS * WAVEFORM_COLS
+METRICS_BUFFER_SIZE = (_METRICS_WAVE_RGB_BASE + _METRICS_WAVE_RGB_WORDS) * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -135,14 +155,9 @@ def _build_analysis_source(
     tiling_mode: bool,
     max_size: int,
 ) -> Tuple[np.ndarray, float]:
-    """The shared meter grid's own buffer: sliced, oriented and downsampled once for
-    every meter reading it.
-
-    Downsampled before fine rotation and keystone, not after: both are full-frame
-    resamples whose cost scales with pixel count, and only a meter reads the result,
-    so warping the full-res crop just to shrink it away spends the expensive part on
-    pixels the analysis never sees.
-    """
+    """The shared meter grid's own buffer: oriented, downsampled (only a meter reads it), warped and sliced once for every
+    meter reading it. The whole frame is warped before the ROI is cut, as on the CPU and in the print stage: a crop rotated
+    about its own center is a different region."""
     analysis_source = img
     if geometry.rotation != 0:
         analysis_source = np.rot90(analysis_source, k=geometry.rotation)
@@ -150,22 +165,26 @@ def _build_analysis_source(
         analysis_source = np.fliplr(analysis_source)
     if geometry.flip_vertical:
         analysis_source = np.flipud(analysis_source)
+    full_h, full_w = analysis_source.shape[:2]
+    analysis_source = _downsample_for_analysis(np.ascontiguousarray(analysis_source), max_size)
+    if geometry.fine_rotation != 0.0:
+        analysis_source = apply_fine_rotation(analysis_source, geometry.fine_rotation)
+    if geometry.distortion_k1 != 0.0:
+        analysis_source = apply_radial_distortion(analysis_source, geometry.distortion_k1)
+    analysis_source = apply_keystone(analysis_source, geometry.converge_v, geometry.converge_h)
     # A freehand analysis_rect overrides the crop ROI and centered buffer, like the
     # CPU path. Tiled export uses explicit overrides, so it stays on the ROI.
-    base_roi = roi if not tiling_mode else None
+    base_roi = None
+    if roi is not None and not tiling_mode:
+        sy, sx = analysis_source.shape[0] / full_h, analysis_source.shape[1] / full_w
+        y1, y2, x1, x2 = roi
+        base_roi = (round(y1 * sy), round(y2 * sy), round(x1 * sx), round(x2 * sx))
     analysis_roi, an_buffer = resolve_analysis_region(
         analysis_source.shape, base_roi, analysis_buffer, analysis_rect if not tiling_mode else None
     )
     if analysis_roi is not None:
         ay1, ay2, ax1, ax2 = analysis_roi
         analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
-    analysis_source = _downsample_for_analysis(analysis_source, max_size)
-    if geometry.fine_rotation != 0.0:
-        analysis_source = apply_fine_rotation(analysis_source, geometry.fine_rotation)
-    # The meters must read the frame the print stage gets. The CPU engine normalizes
-    # the keystoned buffer, so this replay has to carry it too or the two engines
-    # measure different bounds.
-    analysis_source = apply_keystone(analysis_source, geometry.converge_v, geometry.converge_h)
     return analysis_source, an_buffer
 
 
@@ -187,17 +206,9 @@ def _keystone_inverse_bytes(converge_v: float, converge_h: float) -> bytes:
 
 
 def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) -> tuple:
-    """Identity of the auto-exposure analysis: only the fields the meter reads.
-    White/black point offsets and trims apply downstream as uniforms and must
-    not invalidate it.
-
-    Of geometry, only what selects the analyzed region: rotation and flips change
-    the buffer's own shape, crop_rect/autocrop_offset the ROI within it. Fine
-    rotation, keystone and distortion reshuffle pixels within that same region
-    (_build_analysis_source applies them to the meter's own buffer) without
-    changing what region it is, so dragging one of those sliders must not blow
-    this cache the way a creative slider does not.
-    """
+    """Identity of the auto-exposure analysis: only the fields the meter reads, including every geometry field that moves
+    which pixels land in the metered region. White/black point offsets and trims apply downstream as uniforms and must not
+    invalidate it."""
     e = settings.exposure
     p = settings.process
     g = settings.geometry
@@ -224,6 +235,12 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         g.flip_vertical,
         g.crop_rect,
         g.autocrop_offset,
+        g.fine_rotation,
+        g.converge_v,
+        g.converge_h,
+        g.distortion_k1,
+        g.crop_to_valid,
+        g.crop_from_auto,
         e.cast_removal_strength > 0.0,
         e.auto_exposure,
         e.auto_normalize_contrast,
@@ -292,11 +309,16 @@ class GPUEngine:
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
             "lith": get_resource_path(os.path.join("negpy", "features", "lith", "shaders", "lith.wgsl")),
             "cyanotype": get_resource_path(os.path.join("negpy", "features", "cyanotype", "shaders", "cyanotype.wgsl")),
+            "sabattier_mask": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_mask.wgsl")),
+            "sabattier_h": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_h.wgsl")),
+            "sabattier_v": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_v.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
             "density_hist": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "density_hist.wgsl")),
             "color_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "color_hist.wgsl")),
+            "waveform": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "waveform.wgsl")),
+            "vectorscope": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "vectorscope.wgsl")),
             "layout": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "layout.wgsl")),
         }
         self._pipelines: Dict[str, Any] = {}
@@ -315,6 +337,7 @@ class GPUEngine:
             "lab",
             "lith",
             "cyanotype",
+            "sabattier",
             "toning",
             "finish",
             "layout",
@@ -325,12 +348,13 @@ class GPUEngine:
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 416,
+            "exposure": 432,
             "transfer": 224,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
             "cyanotype": 64,
+            "sabattier": 32,
             "toning": 64,
             "finish": 60,
             "layout": 48,
@@ -356,6 +380,10 @@ class GPUEngine:
         self._last_full_frame: bool = False
         # (radius, scale_factor) of the sharpen taps currently in sharpen_k.
         self._sharpen_kernel_key: Optional[tuple] = None
+        # The sigma of the Mackie-line taps currently in sabattier_k.
+        self._sabattier_kernel_key: Optional[float] = None
+        # (method, radius, dims) of the blur state in the sharpen textures; None once their input moved.
+        self._sharpen_state_key: Optional[tuple] = None
 
         # Bind groups reference resources, not contents, so they survive across frames.
         # Cache and reuse them (cleared in cleanup()): about 28 fewer wgpu calls per frame.
@@ -374,6 +402,8 @@ class GPUEngine:
         # (key, maps): mask raster, keyed without grade; grade only rescales plane 1 at upload.
         self._local_maps_cache: Optional[Tuple[Tuple, Optional[np.ndarray]]] = None
         self._mask_plane: Optional[Tuple[Tuple, np.ndarray, float]] = None
+        self._diffusion_grid: Optional[Tuple[Tuple, np.ndarray]] = None
+        self._diffusion_plane: Optional[Tuple[Tuple, Optional[np.ndarray]]] = None
         # Identity of the plane currently sitting in the contrast_mask texture.
         self._mask_tex_key: Optional[Tuple] = None
 
@@ -449,10 +479,10 @@ class GPUEngine:
         self._tex_gen[key] = self._render_gen
         return self._tex_cache[key]
 
-    def evict_stale_textures(self) -> None:
-        """Drop pool textures untouched by the previous render. Bounds batch-export
-        VRAM: a same-dimensions roll keeps its chain, a dimension change frees the
-        old one a render later."""
+    def evict_stale_textures(self, destroy: bool = True) -> None:
+        """Drop pool textures untouched by the previous render. Bounds VRAM: a same-dimensions roll keeps its chain, a
+        dimension change frees the old one a render later. A preview passes destroy=False, since the canvas may still
+        sample an evicted texture; it is freed with its last reference."""
         self._render_gen += 1
         stale = [k for k, gen in self._tex_gen.items() if gen < self._render_gen - 1]
         if not stale:
@@ -460,20 +490,36 @@ class GPUEngine:
         for key in stale:
             tex = self._tex_cache.pop(key, None)
             self._tex_gen.pop(key, None)
-            if tex is not None:
+            if tex is not None and destroy:
                 tex.destroy()
+        # A new texture under the same key starts empty, so its upload must not be skipped.
+        labels = {key[3] for key in stale}
+        if labels & {"local_ev", "local_key"}:
+            self._local_ev_key = None
+        if labels & {"rl_a", "rl_b", "sharpen_h", "sharpen_v"}:
+            self._sharpen_state_key = None
+        if "contrast_mask" in labels:
+            self._mask_tex_key = None
         # Bind groups keyed by id() never match a destroyed view again; drop, don't leak.
         self._bind_group_cache.clear()
 
-    def requires_tiling(self, img: np.ndarray, settings: WorkspaceConfig) -> bool:
-        """True when a direct texture chain exceeds a device or working-set limit."""
+    def requires_tiling(self, img: np.ndarray, settings: WorkspaceConfig, render_size_ref: Optional[float] = None) -> bool:
+        """True when a direct texture chain exceeds a device or working-set limit.
+
+        An export paper larger than the texture limit tiles too: the tiled path assembles
+        it in host memory, so the export keeps the size the user asked for."""
         h, w = img.shape[:2]
         max_tex = self.gpu.limits.get("max_texture_dimension_2d", 8192)
         if APP_CONFIG.max_texture_size is not None:
             max_tex = min(max_tex, APP_CONFIG.max_texture_size)
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-        return w_rot > max_tex or h_rot > max_tex or w * h > TILING_THRESHOLD_PX
+        if w_rot > max_tex or h_rot > max_tex or w * h > TILING_THRESHOLD_PX:
+            return True
+        if render_size_ref:
+            return False
+        paper_w, paper_h, *_ = self._calculate_layout_dims(settings, w_rot, h_rot, None)
+        return max(paper_w, paper_h) > max_tex
 
     def _release_texture_pool(self, retain: Optional[GPUTexture] = None) -> None:
         """Destroy pooled textures after their submitted work is complete."""
@@ -487,6 +533,7 @@ class GPUEngine:
         self._last_settings = None
         self._local_ev_key = None
         self._mask_tex_key = None
+        self._sharpen_state_key = None
 
     def _init_resources(self) -> None:
         """Initializes hardware pipelines and persistent buffers."""
@@ -518,6 +565,8 @@ class GPUEngine:
         )
         # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius <= 511.
         self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        # The Mackie-line blur taps, the same helper's, for the Sabattier passes.
+        self._buffers["sabattier_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # Filed-carrier jitter profiles are a fixed table, so upload once.
         self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
@@ -586,6 +635,8 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask_override: Optional[Tuple[np.ndarray, float, Tuple[int, int, int, int]]] = None,
+        sabattier_sigma_override: Optional[float] = None,
+        diffusion_override: Optional[Tuple[np.ndarray, Tuple[int, int, int, int]]] = None,
         # Crop tool preview: toning and finish span the whole rotated frame, with no border or
         # carrier; the meter, contrast mask and active_roi stay on the crop, as in the CPU engine.
         full_frame: bool = False,
@@ -703,10 +754,10 @@ class GPUEngine:
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
         transfer = render_path(settings.process) is not RenderPath.PRINT
-        # Measure the anchor for the render when Auto Density is on, and for the
-        # Analysis-panel stats on every preview whatever the toggle says. The render only
-        # *uses* it when auto_exposure is on (see uniforms).
-        needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
+        # Auto Density reads the anchor, and so does Auto Grade's Shadow Reach on the transfer
+        # path whatever Auto Density says. Previews also measure it for the Analysis-panel stats.
+        anchor_used = settings.exposure.auto_exposure or (transfer and settings.exposure.auto_normalize_contrast)
+        needs_anchor = metered_anchor_override is None and not tiling_mode and (anchor_used or readback_metrics)
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
         needs_shadow = shadow_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
         needs_highlight = highlight_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
@@ -727,12 +778,14 @@ class GPUEngine:
             prefilter_key = (
                 (
                     analysis_source_hash,
-                    # roi already reflects rotation/crop_rect/autocrop_offset; flips are the
-                    # one region-selecting field it doesn't carry. Fine rotation, keystone and
-                    # distortion reshuffle pixels within the region without changing it, so
-                    # they must not blow this cache the way a creative slider does not.
+                    # roi already reflects rotation/crop_rect/autocrop_offset; flips and the
+                    # warps move pixels without changing it.
                     settings.geometry.flip_horizontal,
                     settings.geometry.flip_vertical,
+                    settings.geometry.fine_rotation,
+                    settings.geometry.converge_v,
+                    settings.geometry.converge_h,
+                    settings.geometry.distortion_k1,
                     roi,
                     p.analysis_buffer,
                     p.analysis_rect,
@@ -819,7 +872,7 @@ class GPUEngine:
         axis_grid = cam_prefiltered if transfer else prefiltered
         if needs_axis and axis_grid is not None:
             axis_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
-            neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0)
+            neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0, exclude_foliage=not transfer)
             pooled_axis = pooled_neutral_axis(settings.process)
             if pooled_axis is not None:
                 neutral_axis_refs = blend_neutral_axis(neutral_axis_refs, pooled_axis)
@@ -865,8 +918,12 @@ class GPUEngine:
         mask_plane = None
         mask_centre = 0.5
         mask_key = None
-        # The printed frame in rotated pixels; the shader maps the plane onto it and
-        # clamps outside, which is expand_mask_plane's edge padding.
+        # The printed frame in rotated pixels; the shader maps a plane onto it and clamps
+        # outside, which is expand_mask_plane's edge padding.
+        y1_f, y2_f, x1_f, x2_f = roi if roi is not None else (0, h_rot, 0, w_rot)
+        y1_f, x1_f = max(0, y1_f), max(0, x1_f)
+        y2_f, x2_f = min(h_rot, y2_f), min(w_rot, x2_f)
+        frame_rect = (x1_f, y1_f, x2_f - x1_f, y2_f - y1_f)
         mask_rect = None
         if settings.exposure.contrast_mask != 0.0:
             if tiling_mode:
@@ -877,7 +934,15 @@ class GPUEngine:
                     mask_key = ("tiled",)
                     mask_rect = (frame[0] - global_offset[0], frame[1] - global_offset[1], frame[2], frame[3])
             else:
-                mask_key = (analysis_key, bounds, roi, (h_rot, w_rot), settings.exposure.mask_spacer)
+                geo = settings.geometry
+                mask_key = (
+                    analysis_key,
+                    bounds,
+                    roi,
+                    (h_rot, w_rot),
+                    settings.exposure.mask_spacer,
+                    (geo.rotation, geo.fine_rotation, geo.flip_horizontal, geo.flip_vertical, geo.converge_v, geo.converge_h, k1_eff),
+                )
                 if self._mask_plane is None or self._mask_plane[0] != mask_key:
                     self._mask_plane = (
                         mask_key,
@@ -885,23 +950,14 @@ class GPUEngine:
                             img,
                             bounds,
                             unmix_m,
-                            rotation=settings.geometry.rotation,
-                            fine_rotation=settings.geometry.fine_rotation,
-                            flip_horizontal=settings.geometry.flip_horizontal,
-                            flip_vertical=settings.geometry.flip_vertical,
-                            converge_v=settings.geometry.converge_v,
-                            converge_h=settings.geometry.converge_h,
-                            distortion_k1=k1_eff,
                             roi_norm=normalized_roi(roi, (h_rot, w_rot)),
                             spacer=settings.exposure.mask_spacer,
+                            **geometry_kwargs(settings.geometry, k1_eff),
                         ),
                     )
                 mask_plane = self._mask_plane[1]
                 mask_centre = self._mask_plane[2]
-                y1_m, y2_m, x1_m, x2_m = roi if roi is not None else (0, h_rot, 0, w_rot)
-                y1_m, x1_m = max(0, y1_m), max(0, x1_m)
-                y2_m, x2_m = min(h_rot, y2_m), min(w_rot, x2_m)
-                mask_rect = (x1_m, y1_m, x2_m - x1_m, y2_m - y1_m)
+                mask_rect = frame_rect
 
         mask_uniform = None
         if mask_plane is not None and mask_rect is not None:
@@ -917,6 +973,54 @@ class GPUEngine:
                     float(mask_rect[2]),
                     float(mask_rect[3]),
                 )
+
+        # The Diffusion plane shares the mask texture (gba) and rect. It is built in the print's own
+        # normalization, trims included, so the shader mixes it as light. Print path only.
+        diff_plane = None
+        diff_key = None
+        diff_rect = None
+        if settings.exposure.diffusion > 0.0 and render_path(settings.process) is RenderPath.PRINT:
+            if tiling_mode:
+                if diffusion_override is not None:
+                    diff_plane, frame = diffusion_override
+                    diff_key = ("tiled",)
+                    diff_rect = (frame[0] - global_offset[0], frame[1] - global_offset[1], frame[2], frame[3])
+            else:
+                geo = settings.geometry
+                wp3, bp3 = per_channel_point_offsets(settings.process)
+                diff_bounds = LogNegativeBounds(
+                    tuple(bounds.floors[ch] + wp3[ch] for ch in range(3)), tuple(bounds.ceils[ch] + bp3[ch] for ch in range(3))
+                )
+                panchromatic = settings.process.process_mode == ProcessMode.BW
+                grid_key = (
+                    analysis_key,
+                    roi,
+                    (h_rot, w_rot),
+                    (geo.rotation, geo.fine_rotation, geo.flip_horizontal, geo.flip_vertical, geo.converge_v, geo.converge_h, k1_eff),
+                )
+                # The blur is keyed without bounds, so a trim drag only re-normalizes the grid.
+                if self._diffusion_grid is None or self._diffusion_grid[0] != grid_key:
+                    self._diffusion_grid = (
+                        grid_key,
+                        diffusion_grid(
+                            img,
+                            unmix_m,
+                            roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                            **geometry_kwargs(geo, k1_eff),
+                        ),
+                    )
+                diff_key = (grid_key, tuple(diff_bounds.floors), tuple(diff_bounds.ceils), panchromatic)
+                # A None plane (an unmetered frame) is cached under its key like any other.
+                cached = self._diffusion_plane
+                if cached is None or cached[0] != diff_key:
+                    cached = (diff_key, diffusion_plane(self._diffusion_grid[1], diff_bounds, panchromatic))
+                    self._diffusion_plane = cached
+                diff_plane = cached[1]
+                diff_rect = frame_rect
+            if diff_rect is not None and (diff_rect[2] < 1 or diff_rect[3] < 1):
+                diff_plane = None
+        plane_rect = mask_rect if mask_plane is not None else diff_rect
+        plane_tex_key = (mask_key if mask_plane is not None else None, diff_key if diff_plane is not None else None)
 
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
         if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
@@ -955,6 +1059,12 @@ class GPUEngine:
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
             contrast_mask=mask_uniform,
+            # A tile is a slice of the export, so its lines take the whole frame's width.
+            sabattier_sigma=sabattier_sigma_override
+            if sabattier_sigma_override is not None
+            else line_sigma_px(settings.altproc.sabattier_agitation, (h_rot, w_rot)),
+            plane_rect=plane_rect,
+            diffusion_mix=diffusion_mix(settings.exposure.diffusion) if diff_plane is not None else 0.0,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -993,16 +1103,21 @@ class GPUEngine:
         # The Contrast Mask plane rides its own analysis-grid texture, uploaded only when the
         # plane itself moves. A 1x1 dummy keeps the bind group valid when it is off (mask.x
         # gates it).
-        if mask_plane is not None:
+        if mask_plane is not None or diff_plane is not None:
+            grid = mask_plane if mask_plane is not None else diff_plane
             tex_mask = self._get_intermediate_texture(
-                mask_plane.shape[1],
-                mask_plane.shape[0],
+                grid.shape[1],
+                grid.shape[0],
                 wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
                 "contrast_mask",
             )
-            if self._mask_tex_key != mask_key:
-                tex_mask.upload(np.dstack([mask_plane] * 3))
-                self._mask_tex_key = mask_key
+            if self._mask_tex_key != plane_tex_key:
+                # r = the Contrast Mask plane, gba = the Diffusion plane's channels; both come
+                # off the same analysis grid, so they share one texture and one rect.
+                r_plane = mask_plane if mask_plane is not None else np.zeros(grid.shape[:2], dtype=np.float32)
+                gba = diff_plane if diff_plane is not None else np.zeros((*grid.shape[:2], 3), dtype=np.float32)
+                tex_mask.upload(np.dstack([r_plane, gba]))
+                self._mask_tex_key = plane_tex_key
         else:
             tex_mask = self._get_intermediate_texture(
                 1,
@@ -1071,7 +1186,7 @@ class GPUEngine:
             )
             if wants_ev_map:
                 # This stage re-runs for any exposure change, but the map only moves
-                # with the masks, the geometry and the grade.
+                # with the masks and the geometry; the shader applies the grade.
                 tiled_maps = local_maps is not None
                 raster_key = (
                     settings.local,
@@ -1086,8 +1201,7 @@ class GPUEngine:
                     w_rot,
                     h_rot,
                 )
-                ev_key = (raster_key, settings.exposure.grade)
-                if tiled_maps or self._local_ev_key != ev_key:
+                if tiled_maps or self._local_ev_key != raster_key:
                     if local_maps is None:
                         if self._local_maps_cache is not None and self._local_maps_cache[0] == raster_key:
                             local_maps = self._local_maps_cache[1]
@@ -1106,29 +1220,18 @@ class GPUEngine:
                                 converge_h=settings.geometry.converge_h,
                             )
                             self._local_maps_cache = (raster_key, local_maps)
-                    from negpy.features.exposure.logic import local_grade_factor_map
-
                     if local_maps is None:
-                        local_maps = np.zeros((h_rot, w_rot, 2), dtype=np.float32)
+                        local_maps = np.zeros((h_rot, w_rot, 3), dtype=np.float32)
                     ev_plane = local_maps[:, :, 0]
-                    # r = dodge/burn EV, g = local grade slope factor, b = its ISO-R deltas,
-                    # which tone-limited masks add their grade to. One texture, so the
-                    # local-grade map costs no bind slot.
-                    tex_local_ev.upload(
-                        np.dstack(
-                            [
-                                ev_plane,
-                                local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
-                                local_maps[:, :, 1],
-                            ]
-                        )
-                    )
-                    if local_maps.shape[2] > 2:
+                    # r = dodge/burn EV, g = the masks' flash, b = local grade ISO-R deltas (tone-limited
+                    # masks add their grade here). One texture, so neither map costs a bind slot.
+                    tex_local_ev.upload(np.dstack([ev_plane, local_maps[:, :, 2], local_maps[:, :, 1]]))
+                    if local_maps.shape[2] > 3:
                         planes = np.zeros((*ev_plane.shape, MAX_KEYED_MASKS), dtype=np.float32)
-                        planes[:, :, : local_maps.shape[2] - 2] = local_maps[:, :, 2:]
+                        planes[:, :, : local_maps.shape[2] - 3] = local_maps[:, :, 3:]
                         tex_local_key.upload(planes)
                     # A tiled export passes a per-tile slice, which is not reusable.
-                    self._local_ev_key = None if tiled_maps else ev_key
+                    self._local_ev_key = None if tiled_maps else raster_key
             if render_path(settings.process) is not RenderPath.PRINT:
                 # The transfer curve takes no dodge/burn map: local EV is a print-exposure
                 # input, and this path replaces the print.
@@ -1196,19 +1299,26 @@ class GPUEngine:
         else:
             prev_tex = tex_expo
 
+        if start_stage <= 2:
+            self._sharpen_state_key = None
         if start_stage <= 4:
-            # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass. A 1x1 dummy
-            # keeps binding 3 valid when sharpening is off.
+            # Sharpen state (USM blur or RL deconvolution) feeds the lab pass; a 1x1 dummy keeps binding 3 valid when it is
+            # off. The blur reads only its input, radius and kernel, so a lab-only change reuses the last one.
             usage = wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING
             lab_u = self._get_uniform_binding("lab")
+            sharpen_key = (settings.lab.sharpen_method, float(settings.lab.sharpen_radius), w_rot, h_rot)
+            blur_current = sharpen_key == self._sharpen_state_key
+            if settings.lab.sharpen > 0:
+                self._sharpen_state_key = sharpen_key
             if settings.lab.sharpen > 0 and settings.lab.sharpen_method == SharpenMethod.RL:
                 # Iterative RL: ping-pong two textures through init + N x (blur_h, div_v,
                 # blur_h, mult_v). The final estimate lands back in rl_a.
                 tex_rl_a = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_a")
                 tex_rl_b = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_b")
-                self._dispatch_pass(enc, "rl_init", [(0, prev_tex.view), (1, tex_rl_a.view)], w_rot, h_rot)
+                if not blur_current:
+                    self._dispatch_pass(enc, "rl_init", [(0, prev_tex.view), (1, tex_rl_a.view)], w_rot, h_rot)
                 sk = self._buffers["sharpen_k"]
-                for _ in range(rl_iterations(settings.lab.sharpen_radius)):
+                for _ in range(0 if blur_current else rl_iterations(settings.lab.sharpen_radius)):
                     self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
                     self._dispatch_pass(enc, "rl_div_v", [(0, tex_rl_b.view), (1, tex_rl_a.view), (2, lab_u), (3, sk)], w_rot, h_rot)
                     self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
@@ -1217,30 +1327,14 @@ class GPUEngine:
             elif settings.lab.sharpen > 0:
                 tex_sharpen_h = self._get_intermediate_texture(w_rot, h_rot, usage, "sharpen_h")
                 tex_sharpen_v = self._get_intermediate_texture(w_rot, h_rot, usage, "sharpen_v")
-                self._dispatch_pass(
-                    enc,
-                    "lab_sharpen_h",
-                    [
-                        (0, prev_tex.view),
-                        (1, tex_sharpen_h.view),
-                        (2, lab_u),
-                        (3, self._buffers["sharpen_k"]),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
-                self._dispatch_pass(
-                    enc,
-                    "lab_sharpen_v",
-                    [
-                        (0, tex_sharpen_h.view),
-                        (1, tex_sharpen_v.view),
-                        (2, lab_u),
-                        (3, self._buffers["sharpen_k"]),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
+                if not blur_current:
+                    sk = self._buffers["sharpen_k"]
+                    self._dispatch_pass(
+                        enc, "lab_sharpen_h", [(0, prev_tex.view), (1, tex_sharpen_h.view), (2, lab_u), (3, sk)], w_rot, h_rot
+                    )
+                    self._dispatch_pass(
+                        enc, "lab_sharpen_v", [(0, tex_sharpen_h.view), (1, tex_sharpen_v.view), (2, lab_u), (3, sk)], w_rot, h_rot
+                    )
             else:
                 tex_sharpen_v = self._get_intermediate_texture(1, 1, usage, "sharpen_v")
             self._dispatch_pass(
@@ -1258,30 +1352,47 @@ class GPUEngine:
 
         tex_pre_toning = tex_lab
 
-        # --- Alternative processes (lith / cyanotype) ---
-        # Mutually exclusive, and no pass at all when neither is picked. Toning then reads
-        # tex_lab directly.
+        # Alternative processes are mutually exclusive, with no pass when none is picked: toning then reads tex_lab.
         alt = settings.altproc.alt_process
         if alt != AltProcess.NONE and settings.process.process_mode == ProcessMode.BW:
-            shader = "lith" if alt == AltProcess.LITH else "cyanotype"
-            tex_alt = self._get_intermediate_texture(
-                w_rot,
-                h_rot,
-                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
-                shader,
-            )
-            if start_stage <= 5:
-                self._dispatch_pass(
-                    enc,
-                    shader,
-                    [
-                        (0, tex_lab.view),
-                        (1, tex_alt.view),
-                        (2, self._get_uniform_binding(shader)),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
+            usage_alt = wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC
+            if alt == AltProcess.SABATTIER:
+                # The developed-silver mask, its blur in two separable passes (the Mackie line
+                # is the blur's reach), then the fold. Without lines only the fold runs.
+                tex_alt = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier")
+                if start_stage <= 5:
+                    sab_u = self._get_uniform_binding("sabattier")
+                    sab_k = self._buffers["sabattier_k"]
+                    tex_bromide = tex_lab
+                    if self._sabattier_kernel_key:
+                        tex_sab_mask = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier_mask")
+                        tex_bromide = self._get_intermediate_texture(w_rot, h_rot, usage_alt, "sabattier_h")
+                        self._dispatch_pass(enc, "sabattier_mask", [(0, tex_lab.view), (1, tex_sab_mask.view), (2, sab_u)], w_rot, h_rot)
+                        self._dispatch_pass(
+                            enc, "sabattier_h", [(0, tex_sab_mask.view), (1, tex_bromide.view), (2, sab_u), (3, sab_k)], w_rot, h_rot
+                        )
+                    self._dispatch_pass(
+                        enc,
+                        "sabattier_v",
+                        [(0, tex_lab.view), (1, tex_bromide.view), (2, tex_alt.view), (3, sab_u), (4, sab_k)],
+                        w_rot,
+                        h_rot,
+                    )
+            else:
+                shader = _ALT_SHADER[alt]
+                tex_alt = self._get_intermediate_texture(w_rot, h_rot, usage_alt, shader)
+                if start_stage <= 5:
+                    self._dispatch_pass(
+                        enc,
+                        shader,
+                        [
+                            (0, tex_lab.view),
+                            (1, tex_alt.view),
+                            (2, self._get_uniform_binding(shader)),
+                        ],
+                        w_rot,
+                        h_rot,
+                    )
             tex_pre_toning = tex_alt
 
         if start_stage <= 6:
@@ -1396,6 +1507,48 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
+            self._dispatch_pass(
+                enc,
+                "waveform",
+                [
+                    (0, tex_toning.view),
+                    (
+                        1,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_WAVE_BASE * 4,
+                            "size": _METRICS_WAVE_WORDS * 4,
+                        },
+                    ),
+                    (
+                        2,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_WAVE_RGB_BASE * 4,
+                            "size": _METRICS_WAVE_RGB_WORDS * 4,
+                        },
+                    ),
+                ],
+                crop_w,
+                crop_h,
+            )
+            self._dispatch_pass(
+                enc,
+                "vectorscope",
+                [
+                    (0, tex_toning.view),
+                    (
+                        1,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_SCOPE_BASE * 4,
+                            "size": _METRICS_SCOPE_WORDS * 4,
+                        },
+                    ),
+                ],
+                crop_w,
+                crop_h,
+            )
 
         # Output transform: scene-linear to display-encoded, so every consumer reads
         # encoded data.
@@ -1448,6 +1601,21 @@ class GPUEngine:
             metrics["histogram_color"] = (
                 raw_metrics[_METRICS_COLOR_BASE : _METRICS_COLOR_BASE + _METRICS_COLOR_WORDS]
                 .reshape((COLOR_HIST_BINS,) * 3)
+                .astype(np.float64)
+            )
+            metrics["waveform"] = (
+                raw_metrics[_METRICS_WAVE_BASE : _METRICS_WAVE_BASE + _METRICS_WAVE_WORDS]
+                .reshape((WAVEFORM_BINS, WAVEFORM_COLS))
+                .astype(np.float64)
+            )
+            metrics["waveform_color"] = (
+                raw_metrics[_METRICS_WAVE_RGB_BASE : _METRICS_WAVE_RGB_BASE + _METRICS_WAVE_RGB_WORDS]
+                .reshape((3, WAVEFORM_BINS, WAVEFORM_COLS))
+                .astype(np.float64)
+            )
+            metrics["vectorscope"] = (
+                raw_metrics[_METRICS_SCOPE_BASE : _METRICS_SCOPE_BASE + _METRICS_SCOPE_WORDS]
+                .reshape((SCOPE_HUE_BINS, SCOPE_CHROMA_BINS))
                 .astype(np.float64)
             )
             try:
@@ -1520,6 +1688,9 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask: Optional[Tuple[float, float, float, float, float]] = None,
+        sabattier_sigma: float = 0.0,
+        plane_rect: Optional[Tuple[float, float, float, float]] = None,
+        diffusion_mix: float = 0.0,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
@@ -1601,9 +1772,11 @@ class GPUEngine:
             per_channel_dye_separation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
+            channel_density_ranges,
             local_ev_scale,
             paper_dmin_rgb,
             highlight_hold_offset,
+            shadow_hold_offset,
             per_channel_curve_params,
             per_channel_midtone_gamma,
             per_channel_widths,
@@ -1617,7 +1790,7 @@ class GPUEngine:
         tc = TRANSFER_CONSTANTS
         t_exp0, t_contrast0, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
         # Auto Density/Auto Grade, restated on this curve; each follows its toggle.
-        t_exp, t_contrast, t_hl_auto = transfer_auto_terms(
+        t_exp, t_contrast, t_hl_auto, t_sh_auto = transfer_auto_terms(
             settings.exposure, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
         t_tw3, t_sw3 = transfer_widths(settings.exposure)
@@ -1673,7 +1846,7 @@ class GPUEngine:
             + struct.pack("ffff", t_cmy[0], t_cmy[1], t_cmy[2], 0.0)
             + struct.pack(
                 "ffff",
-                float(settings.exposure.shadow_density),
+                float(settings.exposure.shadow_density + t_sh_auto),
                 float(settings.exposure.highlight_density + t_hl_auto),
                 float(t_sh_c),
                 float(t_hi_c),
@@ -1692,7 +1865,13 @@ class GPUEngine:
                 settings.exposure.highlight_yellow * t_cmy_m,
                 float(t_wb_k),
             )
-            + struct.pack("ffff", float(ZONE_BLACK_TAPER), 1.0 if t_positive_source else 0.0, 0.0, 0.0)
+            + struct.pack(
+                "ffff",
+                float(ZONE_BLACK_TAPER),
+                1.0 if t_positive_source else 0.0,
+                math.radians(float(settings.process.hue_trim)),
+                0.0,
+            )
             + struct.pack("ffff", t_cast_gain[0], t_cast_gain[1], t_cast_gain[2], 0.0)
             + struct.pack(
                 "ffff",
@@ -1745,6 +1924,11 @@ class GPUEngine:
         hl_auto = (
             highlight_hold_offset(slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper, preflash=exp.preflash, grade=exp.grade)
             if exp.auto_normalize_contrast and highlight_point is not None
+            else 0.0
+        )
+        sh_auto = (
+            shadow_hold_offset(slopes[1], pivots[1], shadow_point, d_min=d_min, paper=paper)
+            if exp.auto_normalize_contrast and shadow_point is not None
             else 0.0
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
@@ -1819,6 +2003,12 @@ class GPUEngine:
         key_rows = np.zeros((MAX_KEYED_MASKS, 4), dtype=np.float32)
         if key_params is not None:
             key_rows[: len(key_params)] = key_params
+        contrast_mask_scale_v = float(contrast_mask[0]) if contrast_mask else 0.0
+        plane_rect_v = (
+            tuple(float(v) for v in contrast_mask[1:])
+            if contrast_mask
+            else (tuple(float(v) for v in plane_rect) if plane_rect is not None else (0.0, 0.0, 1.0, 1.0))
+        )
         r_min, r_max = float(EXPOSURE_CONSTANTS["iso_r_min"]), float(EXPOSURE_CONSTANTS["iso_r_max"])
         key_meta = struct.pack(
             "ffff", 0.0 if key_params is None else float(len(key_params)), min(max(float(exp.grade), r_min), r_max), r_min, r_max
@@ -1856,7 +2046,7 @@ class GPUEngine:
                 _sw3[0],
                 # Zone Density ΔD shadow offset in the ex-d_min slot; the highlight offset
                 # rides d_min_rgb.w.
-                exp.shadow_density,
+                exp.shadow_density + sh_auto,
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
@@ -1902,12 +2092,14 @@ class GPUEngine:
                 max(exp.preflash, 0.0),
                 *preflash_params(exp.grade, d_min, paper),
             )
-            # Contrast Mask: stops per unit of plane (0 = off), then the printed frame's
-            # origin and span in rotated pixels. The shader does the upscale.
-            + struct.pack("ffff", *(contrast_mask[:3] if contrast_mask else (0.0, 0.0, 0.0)), 0.0)
-            + struct.pack("ffff", *(contrast_mask[3:] if contrast_mask else (1.0, 1.0)), 0.0, 0.0)
+            # Contrast Mask: stops per plane unit (0 = off), then the printed frame's origin and span in rotated pixels, shared
+            # with the Diffusion plane; w = the diffusion mix (0 = off). The shader does the upscale.
+            + struct.pack("ffff", contrast_mask_scale_v, plane_rect_v[0], plane_rect_v[1], diffusion_mix)
+            + struct.pack("ffff", plane_rect_v[2], plane_rect_v[3], 0.0, 0.0)
             + key_rows.tobytes()
             + key_meta
+            # Diffusion: each channel's log range, one normalized unit of val in density.
+            + struct.pack("ffff", *channel_density_ranges(LogNegativeBounds(adj_floors, adj_ceils)), 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -2000,6 +2192,31 @@ class GPUEngine:
             + b"\x00" * 4
         )
 
+        # Mackie-line taps from gaussian_kernel_1d, as on the CPU; the shaders read the half-width
+        # from the array. A zero sigma leaves the key None and skips the mask and blur passes.
+        sc = SABATTIER_CONSTANTS
+        sab_sigma = max(float(sabattier_sigma), 0.0)
+        sab_radius = 0
+        if altproc.alt_process == AltProcess.SABATTIER and sab_sigma > 0.0:
+            sab_kernel = gaussian_kernel_1d(sab_sigma)
+            sab_radius = len(sab_kernel) // 2
+            if self._sabattier_kernel_key != sab_sigma:
+                self._buffers["sabattier_k"].upload(sab_kernel)
+                self._sabattier_kernel_key = sab_sigma
+        else:
+            self._sabattier_kernel_key = None
+        sa_data = struct.pack(
+            "ffffffff",
+            float(altproc.sabattier_reexposure) * lith_dmax,
+            float(sc["fold_width"]),
+            float(sc["edge_width"]),
+            float(altproc.sabattier_strength),
+            float(sab_radius),
+            1.0 if sab_radius > 0 else 0.0,
+            lith_dmax,
+            0.0,
+        )
+
         t_data = (
             struct.pack(
                 "ffff",
@@ -2064,7 +2281,8 @@ class GPUEngine:
 
         pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         color_hex = PrintService.effective_border_color(settings.finish, settings.toning).lstrip("#")
-        bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+        # The layout pass writes scene-linear values that output_encode encodes after it.
+        bg = tuple(float(v) for v in working_oetf_decode(np.array([int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4)], np.float32)))
         scale = float(cw) / max(1.0, float(crop_w))
         y_data = (
             struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy) + struct.pack("iiii", cw, ch, crop_w, crop_h) + struct.pack("f", scale)
@@ -2075,7 +2293,8 @@ class GPUEngine:
 
         full_buffer = bytearray()
         for name, d in zip(
-            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, t_data, f_data, y_data, dh_data]
+            self._uniform_names,
+            [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, sa_data, t_data, f_data, y_data, dh_data],
         ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
@@ -2087,7 +2306,10 @@ class GPUEngine:
         self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
     ) -> Tuple[int, int, int, int, int, int, int]:
         """Calculates final paper and image dimensions based on print settings.
-        Returns (paper_w, paper_h, content_w, content_h, off_x, off_y, dpi)."""
+        Returns (paper_w, paper_h, content_w, content_h, off_x, off_y, dpi).
+
+        Only a preview paper is capped to max_texture_size; an export paper over the cap
+        tiles instead (``requires_tiling``)."""
         mode = settings.export.export_resolution_mode
 
         # Preview path: size_ref is the desired paper long edge. Derive virtual DPI from it
@@ -2134,12 +2356,13 @@ class GPUEngine:
             off_y = PrintService.weighted_offset_y(paper_h, content_h, border_px, border_bottom_px)
         else:
             if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
+                # Same formulas as PrintService.apply_layout, or the mat gains a 1 px line.
                 if cw >= ch:
-                    content_w = max(1, paper_long_px - 2 * border_px)
-                    content_h = max(1, int(ch * (content_w / cw)))
+                    content_w = max(10, paper_long_px - 2 * border_px)
+                    content_h = max(1, int(content_w / (cw / ch)))
                 else:
-                    content_h = max(1, paper_long_px - border_y_px)
-                    content_w = max(1, int(cw * (content_h / ch)))
+                    content_h = max(10, paper_long_px - border_y_px)
+                    content_w = max(1, int(content_h * (cw / ch)))
                 paper_w, paper_h = content_w + 2 * border_px, content_h + border_y_px
                 off_x, off_y = border_px, border_px
             else:
@@ -2149,9 +2372,8 @@ class GPUEngine:
                     cw,
                     ch,
                 )
-                inner_w, inner_h = paper_w - 2 * border_px, paper_h - border_y_px
-                scale = min(inner_w / cw, inner_h / ch)
-                content_w, content_h = int(cw * scale), int(ch * scale)
+                inner_w, inner_h = max(10, paper_w - 2 * border_px), max(10, paper_h - border_y_px)
+                content_w, content_h = PrintService.fit_content(cw, ch, inner_w, inner_h)
 
                 off_x = (paper_w - content_w) // 2
                 off_y = PrintService.weighted_offset_y(paper_h, content_h, border_px, border_bottom_px)
@@ -2165,7 +2387,7 @@ class GPUEngine:
             fit = min(cw / content_w, ch / content_h)
             return self._calculate_layout_dims(settings, cw, ch, size_ref * fit)
 
-        max_tex = APP_CONFIG.max_texture_size
+        max_tex = APP_CONFIG.max_texture_size if size_ref else None
         if max_tex is not None:
             long_edge = max(paper_w, paper_h)
             if long_edge > max_tex:
@@ -2285,7 +2507,11 @@ class GPUEngine:
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
 
-        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist", "density_hist", "color_hist"] else (8, 8)
+        wg_x, wg_y = (
+            (16, 16)
+            if pipeline_name in ["autocrop", "metrics", "clahe_hist", "density_hist", "color_hist", "waveform", "vectorscope"]
+            else (8, 8)
+        )
 
         cache_key = (pipeline_name, tuple(_binding_identity(idx, res) for idx, res in bindings))
         bind_group = self._bind_group_cache.get(cache_key)
@@ -2355,7 +2581,7 @@ class GPUEngine:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
         self.evict_stale_textures()
-        if self.requires_tiling(img, settings):
+        if self.requires_tiling(img, settings, render_size_ref):
             return self._process_tiled(
                 img,
                 settings,
@@ -2447,7 +2673,13 @@ class GPUEngine:
         # is the one they share. Taken from here rather than from the last preview, which
         # may belong to another image or to settings the export has since moved past.
         _, metrics_ref = self.process_to_texture(
-            img_small, settings, scale_factor=scale_factor, cam_xyz=cam_xyz, camera_wb=camera_wb, readback_metrics=readback_metrics
+            img_small,
+            settings,
+            scale_factor=scale_factor,
+            cam_xyz=cam_xyz,
+            camera_wb=camera_wb,
+            readback_metrics=readback_metrics,
+            apply_layout=False,
         )
 
         global_cdfs = self._readback_clahe_cdf()
@@ -2557,13 +2789,13 @@ class GPUEngine:
             if settings.process.process_mode == ProcessMode.C41:
                 global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
             axis_bounds = meter_bounds if transfer else global_bounds
-            global_neutral_axis = measure_neutral_axis_from_log(_meter_grid(), axis_bounds, None, 0.0)
+            global_neutral_axis = measure_neutral_axis_from_log(_meter_grid(), axis_bounds, None, 0.0, exclude_foliage=not transfer)
             pooled_axis = pooled_neutral_axis(settings.process)
             if pooled_axis is not None:
                 global_neutral_axis = blend_neutral_axis(global_neutral_axis, pooled_axis)
 
         global_metered_anchor = None
-        if settings.exposure.auto_exposure:
+        if settings.exposure.auto_exposure or (transfer and settings.exposure.auto_normalize_contrast):
             global_metered_anchor = measure_anchor_from_log(
                 _meter_grid(), meter_bounds, None, 0.0, assumed=transfer_assumed_anchor() if transfer else None
             )
@@ -2583,19 +2815,28 @@ class GPUEngine:
                     img,
                     global_bounds,
                     unmix_m,
-                    rotation=settings.geometry.rotation,
-                    fine_rotation=settings.geometry.fine_rotation,
-                    flip_horizontal=settings.geometry.flip_horizontal,
-                    flip_vertical=settings.geometry.flip_vertical,
-                    converge_v=settings.geometry.converge_v,
-                    converge_h=settings.geometry.converge_h,
-                    distortion_k1=k1_eff,
                     roi_norm=normalized_roi(roi, (h_rot, w_rot)),
                     spacer=settings.exposure.mask_spacer,
+                    **geometry_kwargs(settings.geometry, k1_eff),
                 ),
                 (x1, y1, crop_w, crop_h),
             )
             # One plane serves every tile; the first upload wins.
+            self._mask_tex_key = None
+        global_diffusion = None
+        if settings.exposure.diffusion > 0.0 and render_path(settings.process) is RenderPath.PRINT:
+            wp3, bp3 = per_channel_point_offsets(settings.process)
+            trimmed = LogNegativeBounds(
+                tuple(global_bounds.floors[ch] + wp3[ch] for ch in range(3)), tuple(global_bounds.ceils[ch] + bp3[ch] for ch in range(3))
+            )
+            grid = diffusion_grid(
+                img,
+                unmix_m,
+                roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                **geometry_kwargs(settings.geometry, k1_eff),
+            )
+            plane = diffusion_plane(grid, trimmed, settings.process.process_mode == ProcessMode.BW)
+            global_diffusion = None if plane is None else (plane, (x1, y1, crop_w, crop_h))
             self._mask_tex_key = None
 
         paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -2618,6 +2859,16 @@ class GPUEngine:
             halo = max(halo, int(np.ceil(max(3.0, 15.0 * scale_factor))))
         if settings.lab.halation_strength > 0.0:
             halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
+        # Chroma Denoise taps reach 2 * chroma_denoise * scale_factor px (lab.wgsl).
+        if settings.lab.chroma_denoise > 0.0:
+            halo = max(halo, int(np.ceil(2.0 * settings.lab.chroma_denoise * scale_factor)) + 1)
+        # The Mackie-line blur reads its kernel's half-width each side, sigma from the whole
+        # frame's short side, so every tile draws the frame's line.
+        sabattier_sigma = None
+        if settings.altproc.alt_process == AltProcess.SABATTIER and settings.process.process_mode == ProcessMode.BW:
+            sabattier_sigma = line_sigma_px(settings.altproc.sabattier_agitation, (h_rot, w_rot))
+            if sabattier_sigma > 0.0:
+                halo = max(halo, len(gaussian_kernel_1d(sabattier_sigma)) // 2 + 1)
         halo = min(halo, 512)
 
         # Opt-in (AppConfig.low_vram_export_tiling, off by default): a smaller tile
@@ -2633,6 +2884,7 @@ class GPUEngine:
         # deferring the map_sync by one tile is safe and overlaps the wait.
         pending: Optional[tuple] = None
         tile_index = 0
+        pooled_shape: Optional[tuple] = None  # low VRAM: the one tile input shape the pool holds
         for ty in range(0, crop_h, tile_size):
             for tx in range(0, crop_w, tile_size):
                 tw, th = min(tile_size, crop_w - tx), min(tile_size, crop_h - ty)
@@ -2643,6 +2895,9 @@ class GPUEngine:
                 )
                 maps_tile = np.ascontiguousarray(local_maps_rot[iy1:iy2, ix1:ix2]) if local_maps_rot is not None else None
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
+                if low_vram and pooled_shape not in (None, (iy2 - iy1, ix2 - ix1)):
+                    self._release_texture_pool()
+                pooled_shape = (iy2 - iy1, ix2 - ix1)
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
                     settings,
@@ -2664,11 +2919,12 @@ class GPUEngine:
                     cam_xyz=cam_xyz,
                     camera_wb=camera_wb,
                     contrast_mask_override=global_mask,
+                    sabattier_sigma_override=sabattier_sigma,
+                    diffusion_override=global_diffusion,
                 )
                 handle = self._submit_readback(tile_res, slot=0 if low_vram else tile_index % 2)
                 if low_vram:
                     self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
-                    self._release_texture_pool()
                 else:
                     if pending is not None:
                         p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
@@ -2678,6 +2934,8 @@ class GPUEngine:
         if pending is not None:
             p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
             self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
+        if low_vram:
+            self._release_texture_pool()
 
         # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
         shrinking = content_w < crop_w or content_h < crop_h
@@ -2696,7 +2954,7 @@ class GPUEngine:
             result = scaled_content
         else:
             result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
-            color_hex = settings.finish.border_color.lstrip("#")
+            color_hex = PrintService.effective_border_color(settings.finish, settings.toning).lstrip("#")
             result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
             result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
         metrics_ref["base_positive"] = result

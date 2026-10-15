@@ -104,3 +104,72 @@ def test_cast_removal_locks_only_a_strength_off_its_modes_default(repo):
     assert rolls.frame_override_cards(repo, roll, "a") == {"cast_removal"}
     assert rolls.frame_override_cards(repo, roll, "b") == set(), "runs once"
     assert rolls.frame_override_cards(repo, roll, "c") == set()
+
+
+def test_cast_removal_reads_a_legacy_slide_mode_as_a_slide(repo):
+    import json
+    import sqlite3
+    from contextlib import closing
+
+    from negpy.features.process.models import ProcessMode
+    from negpy.services.assets.migrations.roll_fields import migrate_cast_removal_roll_locks
+
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif"])
+    base = WorkspaceConfig()
+    slide = replace(
+        base, process=replace(base.process, process_mode=ProcessMode.E6), exposure=replace(base.exposure, cast_removal_strength=0.0)
+    )
+    repo.save_file_settings("a", slide, file_path="/r/a.tif")
+    with closing(sqlite3.connect(repo.edits_db_path)) as conn, conn:
+        (raw,) = conn.execute("SELECT settings_json FROM file_settings WHERE file_hash = 'a'").fetchone()
+        conn.execute(
+            "UPDATE file_settings SET settings_json = ? WHERE file_hash = 'a'", (json.dumps({**json.loads(raw), "process_mode": "E-6"}),)
+        )
+
+    migrate_cast_removal_roll_locks(repo)
+
+    assert rolls.frame_override_cards(repo, roll, "a") == set()
+
+
+def test_a_tone_push_hands_its_paper_fields_to_the_paper_card(repo):
+    from negpy.services.assets.migrations.roll_fields import migrate_paper_card_split
+
+    mixed = rolls.create_virtual_roll(repo, "Mixed", ["/r/a.tif"])
+    paper_only = rolls.create_virtual_roll(repo, "Paper", ["/r/b.tif"])
+    rolls.set_section_push(repo, mixed, "tone", {"density": 1.2, "toe": 0.3, "dye_separation_trim_red": 0.1})
+    rolls.set_section_push(repo, paper_only, "tone", {"paper_profile": "ilford_mg"})
+
+    migrate_paper_card_split(repo)
+    migrate_paper_card_split(repo)
+
+    assert rolls.section_push(repo, mixed, "tone") == {"density": 1.2}
+    assert rolls.section_push(repo, mixed, "paper") == {"toe": 0.3, "dye_separation_trim_red": 0.1}
+    assert "tone" not in rolls.roll_for_id(repo, paper_only)["section_pushes"]
+    assert rolls.section_push(repo, paper_only, "paper") == {"paper_profile": "ilford_mg"}
+
+
+def test_the_paper_split_migration_lists_exactly_the_paper_card(repo):
+    from negpy.desktop.settings_catalog import PAPER_FIELDS
+    from negpy.services.assets.migrations.roll_fields import _PAPER_FIELDS
+
+    assert set(_PAPER_FIELDS) == set(PAPER_FIELDS)
+
+
+def test_auto_crop_locks_only_a_frame_saved_with_it_on(repo):
+    from negpy.services.assets.migrations.roll_fields import migrate_auto_crop_roll_locks
+
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif", "/r/c.tif"])
+
+    def cfg(rect, auto):
+        base = WorkspaceConfig()
+        return replace(base, geometry=replace(base.geometry, crop_rect=rect, crop_from_auto=auto))
+
+    repo.save_file_settings("a", cfg((0.1, 0.1, 0.9, 0.9), True), file_path="/r/a.tif")
+    repo.save_file_settings("b", cfg((0.1, 0.1, 0.9, 0.9), False), file_path="/r/b.tif")
+    repo.save_file_settings("c", cfg(None, False), file_path="/r/c.tif")
+
+    migrate_auto_crop_roll_locks(repo)
+
+    assert rolls.frame_override_cards(repo, roll, "a") == {"auto_crop"}
+    assert rolls.frame_override_cards(repo, roll, "b") == set()
+    assert rolls.frame_override_cards(repo, roll, "c") == set()

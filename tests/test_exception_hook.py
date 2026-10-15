@@ -36,3 +36,32 @@ def test_exception_hook_passes_keyboard_interrupt_through():
             default.assert_called_once()
     finally:
         sys.excepthook = old_hook
+
+
+def test_an_exception_on_a_worker_thread_shows_the_notice_on_the_gui_thread(qapp):
+    import threading
+
+    import negpy.desktop.main as m
+
+    old_hook = sys.excepthook
+    shown_on: list = []
+    try:
+        with patch("PyQt6.QtWidgets.QMessageBox.critical", side_effect=lambda *a, **k: shown_on.append(threading.get_ident())):
+            m._install_exception_hook()
+            hook = sys.excepthook
+
+            def _worker():
+                try:
+                    raise ValueError("boom in a worker slot")
+                except ValueError:
+                    hook(*sys.exc_info())
+
+            with patch.object(m.logger, "critical"):
+                t = threading.Thread(target=_worker)
+                t.start()
+                t.join()
+            assert shown_on == []
+            qapp.processEvents()
+            assert shown_on == [threading.get_ident()]
+    finally:
+        sys.excepthook = old_hook

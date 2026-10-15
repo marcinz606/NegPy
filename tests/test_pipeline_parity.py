@@ -254,6 +254,35 @@ class TestExposureParity:
         )
         self._run_and_compare(s)
 
+    def test_shadow_hold_lift_matches(self):
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.exposure.logic import auto_shadow_from_metrics
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        s = replace(_make_base_settings(), exposure=ExposureConfig(auto_exposure=True, auto_normalize_contrast=True, grade=50.0))
+        h, w = self.img.shape[:2]
+        ctx = PipelineContext(scale_factor=1.0, original_size=(h, w), process_mode=s.process.process_mode)
+        DarkroomEngine().process(self.img, s, "parity_shadow_hold", ctx)
+        assert auto_shadow_from_metrics(s.exposure, s.process.process_mode, ctx.metrics) < -0.05
+
+        def both() -> tuple:
+            cpu = DarkroomEngine().process(self.img, s, "parity_shadow_hold")
+            tex, _ = self.gpu.process_to_texture(self.img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False)
+            return cpu, self.gpu._readback_downsampled(tex)
+
+        cpu_on, gpu_on = both()
+        saved = EXPOSURE_CONSTANTS["shadow_hold_strength"]
+        EXPOSURE_CONSTANTS["shadow_hold_strength"] = 0.0
+        try:
+            self.gpu.destroy_all()
+            self.gpu = GPUEngine()
+            cpu_off, gpu_off = both()
+        finally:
+            EXPOSURE_CONSTANTS["shadow_hold_strength"] = saved
+        cpu_delta, gpu_delta = cpu_on - cpu_off, gpu_on - gpu_off
+        assert np.max(np.abs(cpu_delta)) > 0.02
+        _assert_mostly_close(cpu_delta, gpu_delta, atol=2e-2, rtol=0.0, max_violation_frac=0.01)
+
     def test_paper_profile_ra4(self):
         # A non-default RA4 profile changes per-channel slopes, tint, and the
         # tonal curve constants — guards the new uniform/slope path's parity.
@@ -418,9 +447,8 @@ class TestLabParity:
         assert np.allclose(cpu_result, gpu_result, atol=0.5, rtol=0.2), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
 
     def test_chroma_denoise(self):
-        # Isolate chroma denoise: disable the sharpen default. The GPU shader scales
-        # its a*/b* blur radius by chroma_denoise * scale_factor (Fibonacci-disk taps
-        # approximating the CPU GaussianBlur sigma), so the two paths now track.
+        # Isolate chroma denoise from the sharpen default. The GPU scales its a*/b* blur radius by
+        # chroma_denoise * scale_factor to follow the CPU bilateralFilter sigmaSpace.
         s = replace(
             _make_base_settings(),
             lab=LabConfig(chroma_denoise=3.0, sharpen=0.0),
@@ -558,6 +586,28 @@ class TestToningParity:
             ),
         )
         self._run_and_compare(s)
+
+    def test_split_toning_tight_parity(self):
+        """A smooth ramp where the untoned engines agree exactly shows a mask mismatch the class tolerance absorbs."""
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.ascontiguousarray(np.stack([img, img * 0.95, img * 0.9], axis=-1))
+        base = _make_base_settings()
+        s = replace(
+            base,
+            toning=ToningConfig(shadow_tint_hue=210.0, shadow_tint_strength=1.0, highlight_tint_hue=45.0, highlight_tint_strength=1.0),
+        )
+
+        cpu = np.asarray(self.cpu.process(img, s, "parity_split_tight"))[..., :3].astype(np.float64)
+        tex, _ = self.gpu.process_to_texture(img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False)
+        gpu = np.asarray(self.gpu._readback_downsampled(tex))[..., :3].astype(np.float64)
+        untoned = np.asarray(self.cpu.process(img, base, "parity_split_tight_off"))[..., :3].astype(np.float64)
+
+        assert float(np.max(np.abs(cpu - untoned))) > 0.05, "split toning barely moves this ramp"
+        mx = float(np.max(np.abs(cpu - gpu)))
+        # The OETF compresses the highlight end, so a highlight-only mask mismatch moves RGB little.
+        assert mx < 2e-3, f"max abs diff {mx:.4f}"
 
     def _bw_settings(self, **toning_kwargs) -> WorkspaceConfig:
         base = _make_base_settings()
@@ -731,6 +781,29 @@ class TestLithParity(_AltProcessParity):
         s = self._settings(ToningConfig(gold_strength=0.8), alt_process=AltProcess.LITH)
         self._run_and_compare(s)
         self._assert_did_something(s, self._settings(alt_process=AltProcess.LITH))
+
+
+class TestSabattierParity(_AltProcessParity):
+    """CPU vs GPU parity for the Sabattier passes: the fold, and the Mackie-line blur that
+    pass 1 and pass 2 split between them."""
+
+    def test_enabled(self):
+        s = self._settings(alt_process=AltProcess.SABATTIER)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings())
+
+    def test_no_lines_and_a_hard_fold(self):
+        self._run_and_compare(self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=1.0, sabattier_strength=1.4))
+
+    def test_wide_lines(self):
+        s = self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=0.0)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.SABATTIER, sabattier_agitation=1.0))
+
+    def test_sabattier_selenium(self):
+        s = self._settings(ToningConfig(selenium_strength=0.8), alt_process=AltProcess.SABATTIER)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.SABATTIER))
 
 
 class TestCyanotypeParity(_AltProcessParity):

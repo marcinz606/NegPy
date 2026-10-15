@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from negpy.desktop.session import AppState
 
 from negpy.desktop.view.canvas.widget import ImageCanvas
 
@@ -11,6 +11,8 @@ class _Canvas:
     """Enough of ImageCanvas for the zoom math: the fit scale is supplied directly."""
 
     _source_scale = ImageCanvas._source_scale
+    _zoom_level_for_percent = ImageCanvas._zoom_level_for_percent
+    toggle_zoom_at = ImageCanvas.toggle_zoom_at
     current_zoom_percent = ImageCanvas.current_zoom_percent
     zoom_to_percent = ImageCanvas.zoom_to_percent
     zoom_to_original = ImageCanvas.zoom_to_original
@@ -20,7 +22,7 @@ class _Canvas:
         self.zoom_level = 1.0
         self.pan_offset = None
         self._fs = fit_scale
-        self.state = SimpleNamespace(
+        self.state = AppState(
             last_metrics={"render_long_edge": render_long_edge},
             original_res=original_res,
             hq_preview=False,
@@ -34,6 +36,13 @@ class _Canvas:
 
     def _sync_transform(self):
         pass
+
+    def fit_to_window(self):
+        self.zoom_level = 1.0
+
+    def _commit_anchored_zoom(self, zoom, anchor):
+        self.zoom_level = zoom
+        self.anchor = anchor
 
 
 def test_full_res_buffer_is_one_to_one():
@@ -96,3 +105,17 @@ def test_note_is_silent_on_hq():
 
 def test_note_is_silent_when_the_source_fits_the_preview_budget():
     assert _note(0.5, 1200, (1200, 800), 2.0, hq=False) == ""
+
+
+def test_double_click_at_fit_goes_to_one_to_one_at_the_click():
+    c = _Canvas(fit_scale=0.25, render_long_edge=6000, original_res=(6000, 4000))
+    c.toggle_zoom_at("click")
+    assert c.current_zoom_percent() == 100
+    assert c.anchor == "click"
+
+
+def test_double_click_while_zoomed_returns_to_fit():
+    c = _Canvas(fit_scale=0.25, render_long_edge=6000, original_res=(6000, 4000))
+    c.zoom_level = 2.5
+    c.toggle_zoom_at("click")
+    assert c.zoom_level == 1.0

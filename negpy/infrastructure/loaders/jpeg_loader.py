@@ -23,6 +23,10 @@ class JpegLoader(IImageLoader):
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
         img = iio.imread(file_path)
+        # Adobe CMYK JPEGs store inverted ink; PIL's conversion knows that and imageio does not.
+        with Image.open(file_path) as probe:
+            if probe.mode == "CMYK":
+                img = np.asarray(probe.convert("RGB"))
         if img.ndim == 2:
             img = np.stack([img] * 3, axis=-1)
         elif img.ndim == 3 and img.shape[2] == 4:

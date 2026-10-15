@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPushButton,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -23,15 +22,16 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.converters import ImageConverter
+from negpy.desktop.view.canvas.hud import INFO_FULL, frame_info
 from negpy.desktop.view.canvas.reference_pane import ReferencePane
-from negpy.desktop.view.canvas.toolbar import ActionToolbar
+from negpy.desktop.view.canvas.toolbar import ActionToolbar, frame_position
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import SpacePanKeyFilter, setup_keyboard_shortcuts
 from negpy.desktop.view.mac_menu_bar import install_mac_menus
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import hint_label, labeled_action
 from negpy.desktop.view.widgets.command_palette import CommandPalette, FindField
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
@@ -69,13 +69,6 @@ def _clamp_geometry(
     return x, y, w, h
 
 
-def frame_position(model, actual_idx: int) -> str:
-    """n / total in the Film Strip's order and filter, the one Next and Previous follow."""
-    total = model.rowCount()
-    row = model.actual_to_display(actual_idx)
-    return f"{row + 1} / {total}" if total > 1 and row >= 0 else ""
-
-
 def _read_screen_icc(screen: object) -> Optional[bytes]:
     """Monitor ICC profile bytes for a QScreen, or None (treat the display as sRGB).
 
@@ -99,6 +92,7 @@ class _EmptyStateOverlay(QWidget):
 
     add_files_requested = pyqtSignal()
     import_roll_requested = pyqtSignal()
+    scan_requested = pyqtSignal()
     tour_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget) -> None:
@@ -109,25 +103,16 @@ class _EmptyStateOverlay(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(12)
 
-        self.load_btn = QPushButton("Load some scans to get started")
-        self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.load_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {THEME.text_secondary}; "
-            f"border: none; font-size: {THEME.font_size_header}px; padding: 4px 8px; }}"
-            f"QPushButton:hover {{ color: {THEME.text_primary}; text-decoration: underline; }}"
+        self.load_btn = labeled_action(
+            "fa5s.folder-open", "Load Scans…", "Import a folder as a roll, add single files, or scan film", primary=True
         )
         self.load_btn.clicked.connect(self._show_load_menu)
         layout.addWidget(self.load_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+        drop_hint = hint_label("Or drop pictures or a folder onto the window")
+        drop_hint.setWordWrap(False)
+        layout.addWidget(drop_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        self.tour_btn = QPushButton("Take the Tour")
-        self.tour_btn.setFixedWidth(140)
-        self.tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tour_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {THEME.text_hint}; "
-            f"border: 1px solid {THEME.border_primary}; border-radius: 3px; "
-            f"padding: 5px 14px; font-size: {THEME.font_size_small}px; }}"
-            f"QPushButton:hover {{ color: {THEME.text_primary}; }}"
-        )
+        self.tour_btn = labeled_action("", "Take the Tour", "A short guided walk through the panels")
         self.tour_btn.clicked.connect(self.tour_requested)
         layout.addWidget(self.tour_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -135,6 +120,7 @@ class _EmptyStateOverlay(QWidget):
         menu = QMenu(self)
         menu.addAction("Import Folder as a Roll…").triggered.connect(self.import_roll_requested)
         menu.addAction("Add Files…").triggered.connect(self.add_files_requested)
+        menu.addAction("Scan…").triggered.connect(self.scan_requested)
         menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
 
     def eventFilter(self, obj, event) -> bool:
@@ -291,6 +277,7 @@ class MainWindow(QMainWindow):
         # session_panel is built further down; resolve the browser lazily.
         self.empty_state.add_files_requested.connect(lambda: self.session_panel.file_browser.prompt_add_files())
         self.empty_state.import_roll_requested.connect(lambda: self.session_panel.library_tree.prompt_import_folder())
+        self.empty_state.scan_requested.connect(self._show_scan_tab)
         self.empty_state.raise_()
 
         self.loading_overlay = LoadingOverlay(self.canvas)
@@ -387,6 +374,11 @@ class MainWindow(QMainWindow):
             self._last_immersive = self.controller.session.state.immersive_canvas
             self.canvas.fit_to_window()
 
+    def _show_scan_tab(self) -> None:
+        if not self.drawer.isVisible():
+            self.toggle_controls_dock()
+        self.right_panel.show_tab_by_key("scan")
+
     def show_tutorial(self) -> None:
         from negpy.desktop.view.widgets.tutorial_steps import build
 
@@ -444,7 +436,6 @@ class MainWindow(QMainWindow):
         self._restore_default_dock_state()
         self.drawer.setVisible(right_visible)
         self.session_dock.setVisible(True)
-        self.toolbar.btn_toggle_left.setChecked(True)
         self.controller.session.repo.save_global_setting("panel_left_visible", True)
 
     def dock_controls_panel(self) -> None:
@@ -452,7 +443,6 @@ class MainWindow(QMainWindow):
         self._restore_default_dock_state()
         self.session_dock.setVisible(left_visible)
         self.drawer.setVisible(True)
-        self.toolbar.btn_toggle_right.setChecked(True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
 
     def toggle_session_dock(self) -> None:
@@ -498,22 +488,30 @@ class MainWindow(QMainWindow):
 
     def _reference_snapshot(self):
         """The frame on the canvas as displayed now; the pane keeps it until pinned again."""
-        metrics = self.state.last_metrics
-        buffer = metrics.get("base_positive")
-        if not self.state.current_file_path or buffer is None or metrics.get("splash"):
+        shown = self.state.canvas_value
+        buffer = shown("base_positive")
+        if not self.state.current_file_path or buffer is None or shown("splash"):
             return None
         if isinstance(buffer, GPUTexture):
             buffer = buffer.readback()[:, :, :3]
-        display_cs, monitor, proof = self.controller.display_transform_params(proofed=bool(metrics.get("proof", True)))
+        display_cs, monitor, proof = self.controller.display_transform_params(proofed=bool(shown("proof", True)))
         return ImageConverter.to_qimage(np.ascontiguousarray(buffer, dtype=np.float32), display_cs, monitor, proof)
 
     def light_table_active(self) -> bool:
         return self.central_stack.currentIndex() == 1
 
+    def _leave_empty_light_table(self, *_args) -> None:
+        if self.light_table_active() and self.controller.session.asset_model.rowCount() == 0:
+            self.set_light_table(False)
+
     def set_light_table(self, on: bool) -> None:
         """Both side panels hide while the grid shows, so it has the whole window; their saved
         visibility is untouched. Esc, Shift+G or opening a frame leaves it."""
         browser = self.session_panel.file_browser
+        # Both panels hide with it, so an empty grid would have no way back but Esc.
+        if on and self.controller.session.asset_model.rowCount() == 0:
+            on = False
+            self.controller.set_status("No frames match the filter" if self.state.uploaded_files else "No frames loaded", 3000)
         browser.light_table_btn.blockSignals(True)
         browser.light_table_btn.setChecked(on)
         browser.light_table_btn.blockSignals(False)
@@ -539,8 +537,6 @@ class MainWindow(QMainWindow):
         self._restore_default_dock_state()
         self.session_dock.setVisible(True)
         self.drawer.setVisible(True)
-        self.toolbar.btn_toggle_left.setChecked(True)
-        self.toolbar.btn_toggle_right.setChecked(True)
         self.controller.session.repo.save_global_setting("panel_left_visible", True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
         self.canvas.hud.showMessage("Panel layout reset", timeout=1500)
@@ -558,10 +554,6 @@ class MainWindow(QMainWindow):
         # persist in the toggle methods instead and the saved state survives exit.
         self.toolbar.btn_toggle_left.clicked.connect(self.toggle_session_dock)
         self.toolbar.btn_toggle_right.clicked.connect(self.toggle_controls_dock)
-        self.session_dock.visibilityChanged.connect(self.toolbar.btn_toggle_left.setChecked)
-        self.drawer.visibilityChanged.connect(self.toolbar.btn_toggle_right.setChecked)
-        self.toolbar.btn_toggle_left.setChecked(self.session_dock.isVisible())
-        self.toolbar.btn_toggle_right.setChecked(self.drawer.isVisible())
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.preview_loaded.connect(self._refresh_image_info)
         self.controller.loading_started.connect(self._on_loading_started)
@@ -600,6 +592,10 @@ class MainWindow(QMainWindow):
         self.controller.export_finished.connect(self._on_export_finished)
         self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("Settings copied", timeout=1500))
         self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("Settings pasted", timeout=1500))
+        self.controller.session.color_vision_changed.connect(self.canvas.overlay.update)
+        model = self.controller.session.asset_model
+        for signal in (model.layoutChanged, model.modelReset, model.rowsRemoved):
+            signal.connect(self._leave_empty_light_table)
         self.controller.session.settings_synced.connect(lambda msg: self.canvas.hud.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
@@ -610,11 +606,20 @@ class MainWindow(QMainWindow):
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)
         self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
         self.controller.zones_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.zones_style_changed.connect(lambda _style: self.canvas.overlay.update())
+        self.canvas.overlay.zone_shares_changed.connect(self.toolbar.set_zone_shares)
+        self.canvas.overlay.zone_pointer_changed.connect(self.toolbar.set_zone_pointer)
+        self.controller.clipping_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.zone_highlight_changed.connect(self.canvas.overlay.update)
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.printing_notes_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.cursor_probe_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.densitometer_readout.connect(self.canvas.overlay.set_probe_reading)
+        self.controller.canvas_info_changed.connect(lambda _level: self._refresh_image_info())
         self.controller.printing_notes_requested.connect(self._save_printing_notes)
         self.controller.compare_frame_ready.connect(self.canvas.refresh_compare)
         self.controller.compare_changed.connect(lambda _on: self.canvas.refresh_compare())
+        self.controller.compare_hold_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
         self.controller.local_drag_changed.connect(self.canvas.overlay.set_local_slider_drag)
@@ -693,22 +698,21 @@ class MainWindow(QMainWindow):
             # file, so keep the viewer blank.
             return
         self.empty_state.setVisible(False)
-        metrics = self.state.last_metrics
-        if "base_positive" not in metrics:
-            logger.warning("Render completed but 'base_positive' not found in metrics")
-            return
-
+        shown = self.state.canvas_value
         # Passed on as it is: the GPU display path samples the texture and applies the
         # working-to-display LUT in its shader.
-        buffer = metrics["base_positive"]
-        content_rect = metrics.get("content_rect")
+        buffer = shown("base_positive")
+        if buffer is None:
+            logger.warning("Render completed but 'base_positive' not found in metrics")
+            return
+        content_rect = shown("content_rect")
 
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
             # No padding for a crop_preview_full buffer (the uncropped frame), as on the GPU: it would misalign
             # the tool rect. The buffer's flag decides, not the live tool: a render can land after the tool changes.
-            should_preview = (finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL) and not metrics.get(
+            should_preview = (finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL) and not shown(
                 "crop_preview_full"
             )
 
@@ -734,42 +738,61 @@ class MainWindow(QMainWindow):
         # Shared with the filmstrip thumbnail, so the same frame cannot render two different
         # colors in the two places (see display_transform_params).
         display_cs, monitor_bytes, proof = self.controller.display_transform_params(
-            splash=bool(metrics.get("splash")), proofed=bool(metrics.get("proof", True))
+            splash=bool(shown("splash")), proofed=bool(shown("proof", True))
         )
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
     def _refresh_image_info(self) -> None:
         """Updates the canvas HUD corner pills."""
-        if not self.state.current_file_path:
+        st = self.state
+        if not st.current_file_path:
             self.canvas.hud.set_zoom_note("")
-            self.canvas.hud.update_info("", "", "", "", "", "")
+            self.canvas.hud.update_info("", "", "")
             return
-
-        filename = os.path.basename(self.state.current_file_path)
-        w, h = self.state.original_res
-        res_str = f"{w} x {h} px"
-
-        mode_str = str(self.state.config.process.process_mode)
-        edits_str = f"Edits: {self.state.undo_index}"
-
-        tool_label = self.TOOL_LABELS.get(self.state.active_tool, "")
-        file_pos = frame_position(self.controller.session.asset_model, self.state.selected_file_idx)
-
-        self.canvas.hud.update_info(filename, res_str, mode_str, edits_str, tool_label, file_pos)
+        w, h = st.original_res
+        proof = os.path.splitext(os.path.basename(st.proof_icc_path))[0] if st.soft_proof_enabled and st.proof_icc_path else ""
+        self.canvas.hud.update_info(
+            *frame_info(
+                st.canvas_info_level,
+                st.config,
+                os.path.basename(st.current_file_path),
+                f"{w} x {h} px",
+                str(st.config.process.process_mode),
+                frame_position(self.controller.session.asset_model, st.selected_file_idx),
+                proof,
+            )
+        )
+        self._on_zoom_info_changed(self.canvas.zoom_level)
 
     def _on_zoom_info_changed(self, zoom: float) -> None:
-        self.canvas.hud.set_zoom_note(self.canvas.zoom_note())
+        """The zoom readout: under the navigator while it is up, else the bottom-right pill."""
+        if not self.state.current_file_path:
+            return
+        note = self.canvas.zoom_note()
+        percent = f"{self.canvas.current_zoom_percent()}%"
+        if not self.canvas.navigator.isHidden():
+            self.canvas.navigator.set_caption(" · ".join(s for s in (percent, note) if s))
+            self.canvas.hud.set_zoom_note("")
+            return
+        full = self.state.canvas_info_level == INFO_FULL
+        self.canvas.hud.set_zoom_note(" · ".join(s for s in (percent if full else "", note) if s))
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.canvas.hud.set_progress(current, total)
         self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})…")
 
-    def _on_export_finished(self, elapsed: float, failed: int) -> None:
+    def _on_export_finished(self, elapsed: float, errors: list) -> None:
         self.canvas.hud.hide_progress()
         msg = f"Export complete in {elapsed:.2f}s"
-        if failed:
-            msg += f" — {failed} failed"
-        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000, kind="warning" if failed else "info")
+        if errors:
+            msg += f" — {len(errors)} failed"
+        self.canvas.hud.showMessage(msg, timeout=6000 if errors else 3000, kind="warning" if errors else "info")
+        if errors:
+            # A toast holds one line and the next one replaces it; the box keeps every file.
+            box = QMessageBox(QMessageBox.Icon.Warning, "Export", f"{count_of(len(errors), 'file')} could not be exported.", parent=self)
+            box.setDetailedText("\n".join(errors))
+            box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            box.open()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -799,7 +822,6 @@ class MainWindow(QMainWindow):
         self.controls_panel.retouch_sidebar.clone_btn.setChecked(mode == ToolMode.CLONE)
 
         self._update_title()
-        self._refresh_image_info()
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():

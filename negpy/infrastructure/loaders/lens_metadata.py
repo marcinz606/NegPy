@@ -1,6 +1,6 @@
 """Read embedded lens metadata through format-specific readers.
 
-Supported formats: Sony ARW and DNG WarpRectilinear.
+Supported formats: Sony ARW, DNG WarpRectilinear and Panasonic RW2.
 """
 
 import os
@@ -15,7 +15,7 @@ import numpy as np
 import tifffile
 
 from negpy.features.lens.models import LensMetadata
-from negpy.features.lens.warps import IDENTITY, RectilinearWarp, SonyWarp
+from negpy.features.lens.warps import IDENTITY, PanasonicWarp, RectilinearWarp, SonyWarp
 
 _MAX_OPCODE_BYTES = 4 * 1024 * 1024
 
@@ -127,6 +127,53 @@ def _read_dng(page: Any) -> LensMetadata:
     return LensMetadata("DNG WarpRectilinear", parse_opcodes(bytes(opcode.value)), "Embedded DNG warp is an identity.", area, buffer_area)
 
 
+def _read_panasonic(file_path: str) -> LensMetadata:
+    """Read Panasonic RW2's embedded distortion polynomial from its non-TIFF IFD0. Follows darktable's Panasonic
+    model (GPL-3.0+) and https://github.com/trou/panasonic-rw2; radii are normalized to the decoded image's half-diagonal."""
+    with open(file_path, "rb") as f:
+        data = f.read()
+    if len(data) < 10 or data[:2] != b"II" or data[2:4] != b"\x55\x00":
+        raise ValueError("Not a Panasonic RW2 file.")
+    ifd = struct.unpack_from("<I", data, 4)[0]
+    if ifd + 2 > len(data):
+        raise ValueError("Panasonic RW2 IFD0 offset is out of range.")
+    entries = struct.unpack_from("<H", data, ifd)[0]
+    if entries > 16384 or ifd + 2 + entries * 12 > len(data):
+        raise ValueError("Panasonic RW2 IFD0 is malformed.")
+    value = None
+    for i in range(entries):
+        base = ifd + 2 + i * 12
+        tag, type_id, count = struct.unpack_from("<HHI", data, base)
+        if tag != 0x0119:
+            continue
+        if type_id != 7 or count != 32:
+            raise ValueError("Panasonic distortion tag has an unsupported type or count.")
+        off = struct.unpack_from("<I", data, base + 8)[0]
+        if off + 32 > len(data):
+            raise ValueError("Panasonic distortion data offset is out of range.")
+        value = data[off : off + 32]
+        break
+    if value is None:
+        return LensMetadata(reason="Panasonic RW2 carries no embedded distortion correction.")
+    words = struct.unpack("<16h", value)
+    if (words[7] & 0x0F) != 1:
+        return LensMetadata(reason="Panasonic distortion correction is off in this file.")
+    denom = 1.0 + words[5] / 32768.0
+    if denom <= 0.0:
+        raise ValueError("Panasonic distortion scale folds the image.")
+    scale = 1.0 / denom
+    a = words[8] / 32768.0
+    b = words[4] / 32768.0
+    c = words[11] / 32768.0
+    if not all(np.isfinite(v) for v in (scale, a, b, c)):
+        raise ValueError("Panasonic distortion coefficients are not finite.")
+    r = np.linspace(0.0, 1.5, 257)
+    ru = r + scale * (a * r**3 + b * r**5 + c * r**7)
+    if np.min(np.diff(ru)) <= 0.0:
+        raise ValueError("Panasonic distortion may fold the image.")
+    return LensMetadata("Panasonic RW2", (PanasonicWarp(scale, a, b, c),))
+
+
 def _read_tiff(file_path: str, parse_page: Callable[[Any], LensMetadata]) -> LensMetadata:
     with tifffile.TiffFile(file_path) as tif:
         pages = list(islice(tif.pages, 16))
@@ -143,6 +190,7 @@ def _read_tiff(file_path: str, parse_page: Callable[[Any], LensMetadata]) -> Len
 _READERS: dict[str, Callable[[str], LensMetadata]] = {
     ".arw": partial(_read_tiff, parse_page=_read_sony),
     ".dng": partial(_read_tiff, parse_page=_read_dng),
+    ".rw2": _read_panasonic,
 }
 
 

@@ -30,8 +30,13 @@ class EmbeddingWorker(QObject):
 
     def cancel(self) -> None:
         """Stops the running batch before its next unstarted file -- a file already
-        mid-decode finishes normally. Reset at the start of the next generate()."""
+        mid-decode finishes normally."""
         self._cancelled = True
+
+    def arm(self) -> None:
+        """Clears a Stop left from an earlier run. Called on the GUI thread before dispatch,
+        so a Stop pressed before the queued run starts is kept."""
+        self._cancelled = False
 
     @pyqtSlot(list)
     def generate(self, files: list) -> None:
@@ -40,7 +45,6 @@ class EmbeddingWorker(QObject):
 
         from negpy.services.assets import embeddings as embedding_service
 
-        self._cancelled = False
         try:
             total = len(files)
 

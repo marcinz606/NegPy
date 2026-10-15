@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
+import threading
 from typing import Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QObject, QPoint, QPointF, QRunnable, QSize, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QPointF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QNativeGestureEvent, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QToolButton, QWidget
 
@@ -16,11 +17,11 @@ from negpy.services.maps import MAX_ZOOM, MIN_ZOOM, TILE_SIZE, fetch_tile
 
 _ATTRIBUTION = "© OpenStreetMap contributors"
 _DRAG_SLOP_PX = 4
-_MAX_CONCURRENT_TILES = 4
-# Panning enqueues tiles faster than they arrive, and the pool joins its queue when the view
-# closes. Cap the queue so that join is short, and so stale requests cannot pile up.
+# Panning requests tiles faster than they arrive. Cap the requests so stale ones cannot pile up.
 _MAX_PENDING_TILES = 24
-_SHUTDOWN_WAIT_MS = 6000
+# Fetches run on daemon threads that nothing joins: a lookup stalled in DNS can outlive the
+# view and the app, and a join on it would freeze the GUI with the GIL held.
+_TILE_SLOTS = threading.Semaphore(4)
 # One mouse notch is 120 units. A trackpad sends many smaller deltas, so the wheel must sum
 # to a notch instead of taking a zoom level per event.
 _WHEEL_NOTCH = 120.0
@@ -37,19 +38,17 @@ class _TileSignals(QObject):
         self.stopped = False
 
 
-class _TileJob(QRunnable):
-    def __init__(self, signals: _TileSignals, z: int, x: int, y: int):
-        super().__init__()
-        self._signals = signals
-        self._key = (z, x, y)
+def _fetch_tile_job(signals: _TileSignals, z: int, x: int, y: int) -> None:
+    with _TILE_SLOTS:
+        if signals.stopped:
+            return
+        data = fetch_tile(z, x, y)
+    if not signals.stopped:
+        signals.ready.emit(z, x, y, data)
 
-    def run(self) -> None:
-        if self._signals.stopped:
-            return
-        data = fetch_tile(*self._key)
-        if self._signals.stopped:
-            return
-        self._signals.ready.emit(*self._key, data)
+
+def _start_fetch(signals: _TileSignals, key: tuple[int, int, int]) -> None:
+    threading.Thread(target=_fetch_tile_job, args=(signals, *key), daemon=True).start()
 
 
 class SlippyMapWidget(QWidget):
@@ -70,8 +69,6 @@ class SlippyMapWidget(QWidget):
         self._requested: set[tuple[int, int, int]] = set()
         self._missing: set[tuple[int, int, int]] = set()
 
-        self._pool = QThreadPool(self)
-        self._pool.setMaxThreadCount(_MAX_CONCURRENT_TILES)
         self._signals = _TileSignals()
         self._signals.ready.connect(self._on_tile_ready)
 
@@ -155,17 +152,12 @@ class SlippyMapWidget(QWidget):
         if key in self._tiles or key in self._requested or key in self._missing:
             return
         self._requested.add(key)
-        self._pool.start(_TileJob(self._signals, *key))
+        _start_fetch(self._signals, key)
 
     def shutdown(self) -> None:
-        """
-        Drop pending tiles and join the running ones here, not in the pool's destructor: that
-        destructor waits while holding the GIL, so a fetch thread could never finish and the
-        GUI would hang for good. waitForDone releases the GIL, so the wait is one fetch long.
-        """
+        """Drop pending tiles. A stopped view ignores what arrives, so nothing is still requested."""
         self._signals.stopped = True
-        self._pool.clear()
-        self._pool.waitForDone(_SHUTDOWN_WAIT_MS)
+        self._requested.clear()
 
     def hideEvent(self, event) -> None:  # noqa: N802 - Qt override
         self.shutdown()

@@ -5,6 +5,8 @@ Read after ``exec()`` via ``selected_frames()`` / ``frame_windows()`` /
 ``frame_offset()``.
 """
 
+from collections.abc import Callable
+
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap, QTransform
@@ -27,7 +29,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of, plural
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import EditedDot, StatusStrip, pin_dialog_default
+from negpy.desktop.view.styles.templates import EditedDot, StatusStrip, header_button, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
@@ -36,25 +38,27 @@ from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.params import clamp_frame_offset_mm
-from negpy.infrastructure.scanners.roll import effective_pitch_mm
+from negpy.infrastructure.scanners.roll import RollPreview, effective_pitch_mm
 
 _GUIDE_KEY = "scan_strip"  # the <!-- panel: --> marker its ⓘ reads out of the user guide
 _CLAMP_NOTICE = "Offset held at the frame pitch"
+# On a measured strip, a frame is held when it stops this far or more from the offset asked for.
+_HELD_MM = 0.5
 _CUT_NOTICE = "Offset cuts into the frame"
 # 135 full frame. Delivery ends one pitch past the frame start, so an offset beyond
 # (pitch - frame) discards that much picture off the frame tail.
 _FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
-# ±10 mm in tenths: a measured boundary can sit several millimetres off the picture.
+# The span of an offset slider when the pitch is not known: 10 mm, in tenths of a mm.
 _MAX_MEASURED_OFFSET_TENTHS = 100
 _TILE_H = 140  # default tile height; width follows the device aspect
 _TILE_H_MIN, _TILE_H_MAX = 90, 340  # what the size slider spans
 _GRID_MARGIN = 36  # dialog width the strip grid does not get: frame, scrollbar, padding
 _TILE_SLIDER_H = 18  # the per-frame offset slider under each tile
 _TILES_PER_ROW = 6  # columns assumed before the grid has a width to measure
-# A transport that measures the strip reports its frame count only as previews arrive, so ask
-# for a roll's worth and keep the tiles it answers with.
-_DISCOVERY_SLOTS = 40
+# A measuring transport reports its frame count only as previews arrive, so ask for a roll's
+# worth (80 half frames on a 40-exposure roll) and keep the tiles it answers with.
+_DISCOVERY_SLOTS = 100
 # Pause after an offset moves before its tiles are re-cut, so one drag makes one request.
 _RECUT_DELAY_MS = 250
 
@@ -157,6 +161,8 @@ class _Tile:
     ) -> None:
         self.frame = frame
         self.previewed_offset: float | None = None  # offset the shown preview was scanned at
+        self.held = False  # the transport held this frame short of the offset that the dialog asked for
+        self.cut: Callable[[float], RollPreview | None] | None = None  # cuts the tile again from the strip pass
         self.label = label
         self.checkbox = checkbox
         self.preview_btn = preview_btn
@@ -192,6 +198,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._film_type = film_type
         self._caps = device.capabilities
         # A measured strip has no capacity: tiles grow from what the preview finds.
+        self._requested: dict[int, float] = {}  # the offset asked for each frame in the last preview
         self._discovers = self._caps.adapter_frame_capacity is None and self._caps.roll_discovery
         # A measured strip arrives feed-axis-horizontal already, so only a portrait raster turns.
         self._rotation = 0 if self._discovers else _DISPLAY_ROTATION_DEG
@@ -232,10 +239,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.help_lbl.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         help_row.addWidget(self.help_lbl)
         help_row.addStretch()
-        self.help_btn = QPushButton(qta.icon("fa5s.info-circle", color=THEME.text_muted), "")
-        self.help_btn.setToolTip("Offset, Drift and cropping, in full")
-        self.help_btn.setFlat(True)
-        self.help_btn.setFixedSize(24, 22)
+        self.help_btn = header_button(qta.icon("fa5s.info-circle", color=THEME.text_muted), "Offset, Drift and cropping, in full")
         self.help_btn.setVisible(has_guide(_GUIDE_KEY))
         self.help_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Strip preview", self, repo=self._repo).exec())
         help_row.addWidget(self.help_btn)
@@ -245,13 +249,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         top.setSpacing(THEME.space_2xl)
 
         self.offset_slider = _ZeroTickSlider()
-        # A measured strip re-addresses the frame, so its offset may go either way; a feeder
-        # cannot back up and blacks out one pitch past the frame start. Both are a correction to
-        # a boundary, not a way to reach the next frame, so a measured strip gets the same
-        # ±2.5 mm span as Drift.
-        self.offset_slider.setRange(
-            -_MAX_MEASURED_OFFSET_TENTHS if self._discovers else 0, _MAX_MEASURED_OFFSET_TENTHS if self._discovers else 100
-        )
+        # On a measured strip, a frame moves in the two directions by one frame or less, as in
+        # Nikon Scan. The transport keeps each frame on the strip and gives the offset it used.
+        # A feeder cannot move back. It gives black data after one pitch from the frame start.
+        span = self._measured_span_tenths()
+        self.offset_slider.setRange(-span if self._discovers else 0, span if self._discovers else 100)
         self.offset_slider.setSingleStep(1)
         self.offset_slider.setPageStep(5)
         self.offset_slider.setMinimumWidth(160)
@@ -438,10 +440,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         checkbox.setChecked(checked)
         checkbox.setToolTip(f"Scan frame {frame}")
         oh.addWidget(checkbox)
-        preview_btn = QPushButton(qta.icon("fa5s.eye", color=THEME.text_secondary), "")
-        preview_btn.setToolTip(f"Preview frame {frame}")
-        preview_btn.setFlat(True)
-        preview_btn.setFixedSize(24, 20)
+        preview_btn = header_button(qta.icon("fa5s.eye", color=THEME.text_secondary), f"Preview frame {frame}")
         preview_btn.clicked.connect(lambda _checked=False, f=frame: self._on_preview_one(f))
         preview_btn.setVisible(not self._caps.strip_pass)
         oh.addWidget(preview_btn)
@@ -450,7 +449,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         grid.addWidget(overlay, 0, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         offset_slider = _ZeroTickSlider()
-        offset_slider.setRange(-_MAX_MEASURED_OFFSET_TENTHS, _MAX_MEASURED_OFFSET_TENTHS)
+        offset_slider.setRange(-self._measured_span_tenths(), self._measured_span_tenths())
         offset_slider.setFixedSize(self._tile_size()[0], _TILE_SLIDER_H)
         # Set before connecting, so building a tile does not refresh a half-built dialog.
         offset_slider.setValue(int(round(self._initial_frame_offsets.get(frame, 0.0) * 10)))
@@ -556,6 +555,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def frame_offset_modifier(self) -> float:
         return self.drift_slider.value() / 100.0
 
+    def _measured_span_tenths(self) -> int:
+        """The span of an offset slider on a measured strip, in tenths of a mm. This is one frame pitch."""
+        pitch = self._frame_pitch()
+        return round(pitch * 10) if pitch else _MAX_MEASURED_OFFSET_TENTHS
+
     def _frame_pitch(self) -> float:
         """Feed-axis frame pitch (mm) — the length a tile represents. 0.0 when unknown."""
         return effective_pitch_mm(self._caps)
@@ -656,7 +660,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             # setVisible, not set_active: a dot in a layout would be pinned to the dialog's corner.
             self._name_dots[name].setVisible(slider.is_moved())
         self._refresh_offset_indicators()
-        if self._discovers and self._tiles:
+        if self._discovers and self._tiles and self._cut_moved_tiles():
             self._recut.start()
 
     def _tile_coverage(self, tile: _Tile) -> tuple[float, float]:
@@ -679,15 +683,18 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
 
     def _refresh_offset_indicators(self) -> None:
         if self._discovers:
-            # Nothing is cut off, so there is no band to shade: the frame boundary itself is the
-            # line, drawn where the raster the operator is looking at now ends.
+            # A measured strip cuts the whole frame again, thus there is no line. Until the new
+            # tile comes, the old tile moves with the slider.
             for tile in self._tiles.values():
-                start, end = self._tile_coverage(tile)
-                edge = [(end, "right")] if tile.label.has_frame() and end < 1.0 else []
-                edge += [(start, "left")] if tile.label.has_frame() and start > 0.0 else []
-                tile.label.set_offset_indicators(edge)
+                tile.label.set_offset_indicators([])
                 if tile.label.has_frame():
-                    tile.label.set_coverage((start, end))
+                    tile.label.set_coverage(self._tile_coverage(tile))
+            held = sorted(tile.frame for tile in self._tiles.values() if tile.held)
+            if held:
+                frames = ", ".join(str(f) for f in held)
+                self.status_strip.set_message(f"{_CLAMP_NOTICE} on {plural(len(held), 'frame')} {frames}.")
+            elif self.status_strip.message().startswith(_CLAMP_NOTICE):
+                self.status_strip.set_message("")
             return
         pitch = self._frame_pitch()
         clamped: list[int] = []
@@ -779,6 +786,24 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._recut.stop()
         super().done(result)
 
+    def _cut_moved_tiles(self) -> bool:
+        """Cut the moved tiles again from the strip pass, without the worker. True if a moved tile needs a scan."""
+        pitch = self._frame_pitch()
+        if not pitch:
+            return False
+        scan = False
+        for frame, tile in sorted(self._tiles.items()):
+            asked = self._raw_offset_for_frame(frame) / pitch
+            if abs(asked - (tile.previewed_offset or 0.0)) <= 1e-4:
+                continue
+            preview = tile.cut(asked) if tile.cut is not None else None
+            if preview is None:
+                scan = True
+                continue
+            self._requested[frame] = asked
+            self._on_preview_ready(preview)
+        return scan
+
     def _recut_moved_tiles(self) -> None:
         """Re-cut, from the strip pass, the tiles whose offset no longer matches their pixels."""
         if self._previewing:
@@ -815,6 +840,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         except Exception as e:
             self.status_strip.set_message(f"Scanner busy — {e}")
             return
+        self._requested = dict(req.offsets)
         self._previewing = True
         self._recutting = message is not None
         self._set_previewing(True)
@@ -848,6 +874,13 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self.status_strip.set_message(f"Could not display frame {preview.slot}: {e}")
             return
         tile.previewed_offset = preview.offset
+        tile.cut = preview.cut
+        if self._discovers:
+            # A measured strip cuts the whole frame at the offset that the dialog asked for, or
+            # holds it at the limit. The tile is that frame, so it fills the window.
+            asked = self._requested.get(preview.slot, preview.offset)
+            tile.held = abs(asked - preview.offset) * self._frame_pitch() > _HELD_MM
+            tile.previewed_offset = asked
         # Anchor the tile to the next scan: a current raster sits flush left and ends at the
         # blackout boundary, so tile fractions are exactly the window fractions the batch
         # applies to an offset scan.
@@ -887,4 +920,4 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             return
         self._previewing = False
         self._set_previewing(False)
-        self.status_strip.set_message("Preview cancelled.")
+        self.status_strip.set_message("Preview canceled")

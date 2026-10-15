@@ -88,7 +88,7 @@ def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     inv_255 = 1.0 / 255.0
     for y in range(h):
         for x in range(w):
-            for ch in range(3):
+            for ch in range(c):
                 res[y, x, ch] = np.float32(img[y, x, ch]) * inv_255
     return res
 
@@ -127,7 +127,7 @@ def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     inv_65535 = 1.0 / 65535.0
     for y in range(h):
         for x in range(w):
-            for ch in range(3):
+            for ch in range(c):
                 res[y, x, ch] = np.float32(img[y, x, ch]) * inv_65535
     return res
 

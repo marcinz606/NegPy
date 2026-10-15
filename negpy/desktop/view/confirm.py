@@ -33,6 +33,26 @@ def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
     return True
 
 
+def warn_targets_affect_unbaked(parent, repo) -> None:
+    """On a confirmed target change, advise that unbaked frames move with the new targets, and
+    that baking a frame first keeps it fixed. Skippable via "Don't show again", persisted so a
+    one-time retune does not re-prompt for every frame after."""
+    if repo.get_global_setting("exposure_targets_warn_dismissed", False):
+        return
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Information)
+    box.setWindowTitle("Auto Density and Grade Targets")
+    box.setText("Changing the targets affects every frame, including ones not yet baked.")
+    box.setInformativeText("Bake Auto Density and Grade on a frame before you change the targets to keep its density and grade fixed.")
+    dismiss = QCheckBox("Don't show again")
+    box.setCheckBox(dismiss)
+    ok = box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(ok)
+    box.exec()
+    if dismiss.isChecked():
+        repo.save_global_setting("exposure_targets_warn_dismissed", True)
+
+
 def confirm_close_roll(parent, roll_name: str | None) -> bool:
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Question)
@@ -125,6 +145,20 @@ def confirm_delete_mask(parent) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_roll_auto_crop(parent, on: bool, count: int) -> bool:
+    """Ask before a Roll push changes the roll's Auto Crop: the frames that follow the
+    roll gain or lose an auto crop."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Auto Crop")
+    box.setText(f"Turn Auto Crop {'on' if on else 'off'} for this roll?")
+    change = "are auto-cropped" if on else "lose their auto crop"
+    box.setInformativeText(f"{count_of(count, 'frame')} that follow the roll {change}. A hand-drawn crop stays.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
     """Ask before resetting several frames to their defaults at once.
 
@@ -201,6 +235,24 @@ def confirm_assembly_mode(parent, mode: str, count: int) -> bool:
     return box.clickedButton() is turn_on
 
 
+def confirm_sensor_capture(parent) -> bool:
+    """Ask before Capture from Camera fires the shutter. Film left in the holder still
+    measures and saves a profile, a wrong one, so the rig is checked here."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Calibrate Sensor")
+    box.setText("Shoot the red, green and blue exposures now?")
+    box.setInformativeText(
+        "Take the film out of the holder. Set the camera to Manual (M), at the ISO and aperture you scan with.\n\n"
+        "NegPy lights each LED in turn and sets the shutter itself."
+    )
+    capture = box.addButton("Capture", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(capture)
+    box.exec()
+    return box.clickedButton() is capture
+
+
 def confirm_frame_merge(parent, title: str, counts: dict, skipped: list) -> Optional[bool]:
     """None on Cancel, else whether the sources go to the Trash. *counts* is frames per composite kind."""
     box = QMessageBox(parent)
@@ -248,6 +300,18 @@ def _confirm_with_verb(parent, title: str, text: str, informative: str, verb: st
     box.setDefaultButton(accept)
     box.exec()
     return box.clickedButton() is accept
+
+
+def confirm_remove_from_roll(parent, count: int, roll_name: str) -> bool:
+    """Ask before frames leave a roll. Their files and edits stay."""
+    subject = "this frame" if count == 1 else f"the {count_of(count, 'selected frame')}"
+    return _confirm_with_verb(
+        parent,
+        "Remove from Roll",
+        f"Remove {subject} from “{roll_name}”?",
+        "The files and their edits stay. Their scene, card locks and own edit in this roll are deleted.",
+        "Remove",
+    )
 
 
 def confirm_unfork_edit(parent) -> bool:

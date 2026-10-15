@@ -55,17 +55,17 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "bloom": ("Glow",),
 }
 
-_KIND_ORDER = {"slider": 0, "card": 1, "action": 2}
+_KIND_ORDER = {"slider": 0, "card": 1, "action": 2, "preset": 3}
 _MAX_ROWS = 30
 _VISIBLE_ROWS = 12
 
 
 @dataclass(frozen=True, eq=False)
 class Entry:
-    kind: str  # "slider" | "card" | "action"
+    kind: str  # "slider" | "card" | "action" | "preset"
     name: str
     where: str
-    target: object  # the widget, or the action id
+    target: object  # the widget, the action id, or the preset name
     words: str
 
 
@@ -114,7 +114,7 @@ def _card_of(widget: QWidget) -> CollapsibleSection | None:
 
 
 def build_index(window) -> list[Entry]:
-    """Live cards and sliders in the controls panel, and every action with a handler."""
+    """Live cards and sliders in the controls panel, every action with a handler, and every preset."""
     panel = window.right_panel
     entries = []
     for section in panel.findChildren(CollapsibleSection):
@@ -132,6 +132,10 @@ def build_index(window) -> list[Entry]:
         if action_id in nudges or action_id == "command_palette" or window.shortcut_manager.action_for(action_id) is None:
             continue
         entries.append(make_entry("action", spec.description, display_key(key_for(action_id)), action_id))
+    presets = window.controls_panel.presets_sidebar.preset_list
+    for row in range(presets.count()):
+        name = presets.item(row).text()
+        entries.append(make_entry("preset", name, "Preset", name))
     return entries
 
 
@@ -150,6 +154,13 @@ def open_entry(window, entry: Entry) -> None:
         handler = window.shortcut_manager.action_for(entry.target)
         if handler is not None:
             handler()
+        return
+    if entry.kind == "preset":
+        presets = window.controls_panel.presets_sidebar
+        hits = presets.preset_list.findItems(entry.target, Qt.MatchFlag.MatchExactly)
+        if hits:
+            presets.preset_list.setCurrentItem(hits[0])
+            presets.apply_btn.click()
         return
     if not window.drawer.isVisible():
         window.toggle_controls_dock()

@@ -16,8 +16,10 @@ from negpy.features.exposure.logic import (
     grade_coupled_shape,
     split_grade_deltas,
     local_ev_scale,
+    channel_density_ranges,
     local_grade_factor_map,
     highlight_hold_offset,
+    shadow_hold_offset,
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
@@ -184,6 +186,7 @@ class NormalizationProcessor:
         context.metrics["highlight_point"] = measure_highlight_point_from_log(prefiltered, anchor_bounds, None, 0.0)
 
         context.metrics["final_bounds"] = bounds
+        context.metrics["pre_trim_bounds"] = pre_trim_bounds
         context.metrics["normalized_log"] = res
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         return res
@@ -261,6 +264,12 @@ class PhotometricProcessor:
             if self.config.auto_normalize_contrast and hl_point is not None
             else 0.0
         )
+        sh_point = context.metrics.get("shadow_point")
+        sh_auto = (
+            shadow_hold_offset(slopes[1], pivots[1], sh_point, d_min=d_min, paper=paper)
+            if self.config.auto_normalize_contrast and sh_point is not None
+            else 0.0
+        )
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
@@ -317,10 +326,24 @@ class PhotometricProcessor:
         grade_map = None
         if local_maps is not None and local_maps[:, :, 1].any():
             grade_map = local_grade_factor_map(np.ascontiguousarray(local_maps[:, :, 1]), self.config.grade)
+        flash_map = None
+        if local_maps is not None and local_maps[:, :, 2].any():
+            flash_map = np.ascontiguousarray(local_maps[:, :, 2])
+        diff_kw: Dict[str, Any] = {}
+        diff_plane = context.metrics.get("diffusion_plane")
+        if self.config.diffusion > 0.0 and diff_plane is not None:
+            h, w = image.shape[:2]
+            y1, y2, x1, x2 = context.metrics.get("diffusion_roi") or (0, h, 0, w)
+            diff_kw = {
+                "diffusion": self.config.diffusion,
+                "diffusion_plane": diff_plane,
+                "diffusion_rect": (float(x1), float(y1), float(x2 - x1), float(y2 - y1)),
+                "diffusion_range": channel_density_ranges(final_bounds),
+            }
         key_kw: Dict[str, Any] = {}
-        if local_maps is not None and local_maps.shape[2] > 2 and self.local_config is not None:
+        if local_maps is not None and local_maps.shape[2] > 3 and self.local_config is not None:
             key_kw = {
-                "key_alpha": local_maps[:, :, 2:],
+                "key_alpha": local_maps[:, :, 3:],
                 "key_params": limited_mask_params(self.local_config, self.config, context.process_mode, context.metrics),
                 "grade_deltas": local_maps[:, :, 1],
             }
@@ -362,7 +385,7 @@ class PhotometricProcessor:
                 self.config.shoulder_width_trim_green,
                 self.config.shoulder_width_trim_blue,
             ),
-            shadow_density=self.config.shadow_density,
+            shadow_density=self.config.shadow_density + sh_auto,
             highlight_density=self.config.highlight_density + hl_auto,
             shadow_grade_deltas=sg_deltas,
             highlight_grade_deltas=hg_deltas,
@@ -380,6 +403,8 @@ class PhotometricProcessor:
             separation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.separation_damping,
             frame_grade=self.config.grade,
             preflash=self.config.preflash,
+            flash_map=flash_map,
+            **diff_kw,
             **key_kw,
         )
 

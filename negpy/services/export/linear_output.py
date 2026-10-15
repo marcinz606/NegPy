@@ -24,7 +24,7 @@ from negpy.features.geometry.logic import apply_radial_distortion
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lens.logic import apply_lens
 from negpy.features.lens.models import LensCorrections, LensMetadata
-from negpy.features.process.models import DemosaicMode, ProcessConfig
+from negpy.features.process.models import DemosaicMode, ProcessConfig, SensorUnmix
 from negpy.features.process.sensor import apply_sensor_correction
 from negpy.features.hdr.logic import merge_bracket
 from negpy.features.hdr.models import HdrConfig, hdr_active
@@ -410,9 +410,9 @@ def _decode_source(
     if hdr is not None and hdr_active(hdr):
         rgb, wb, meta = _decode_hdr(file_path, hdr, expansion=expansion, gamma_key=gamma_key, process=process)
         if apply_flatfield and flatfield is not None:
-            rgb = _apply_flatfield_correction(rgb, flatfield)
+            rgb = _apply_flatfield_correction(rgb, flatfield, orientation=read_orientation(file_path))
         if apply_sensor and process is not None and process.sensor_matrix is not None:
-            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix, process.sensor_unmix)
         if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, None, wb, meta
@@ -440,14 +440,14 @@ def _decode_source(
         if rgbscan is not None and is_rgb_triplet(rgbscan):
             rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, demosaic)
             if apply_flatfield and flatfield is not None:
-                rgb = _apply_flatfield_correction(rgb, flatfield)
+                rgb = _apply_flatfield_correction(rgb, flatfield, orientation=read_orientation(file_path))
             if apply_wb and not wb_blocked and wb is not None:
                 rgb = _apply_white_balance(rgb, wb)
             return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
         rgb, wb, decode_meta, lens_meta = _decode_camera_raw_buffer(file_path, demosaic)
         if apply_flatfield and flatfield is not None:
-            rgb = _apply_flatfield_correction(rgb, flatfield)
+            rgb = _apply_flatfield_correction(rgb, flatfield, orientation=read_orientation(file_path))
         warped = bool(lens.distortion and lens_meta.distortion or lens.ca and lens_meta.ca)
         if warped:
             rgb = apply_lens(rgb, lens_meta, read_orientation(file_path), lens)
@@ -459,7 +459,7 @@ def _decode_source(
             lens_corrected=warped,
         )
         if apply_sensor and process is not None and process.sensor_matrix is not None:
-            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix, process.sensor_unmix)
         if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, None, wb, merged
@@ -508,9 +508,11 @@ def _decode_tiff(
     from negpy.infrastructure.loaders.ir_planes import find_ir_plane
     from negpy.infrastructure.loaders.tiff_loader import _extract_ir_from_extrasamples, _read_sidecar_ir
 
+    from negpy.infrastructure.loaders.tiff_loader import planar_to_chunky
+
     with _tifffile.TiffFile(file_path) as tif:
         page = tif.pages[0]
-        arr = page.asarray()
+        arr = planar_to_chunky(page.asarray(), getattr(page, "planarconfig", 1))
     if arr.dtype == np.uint16:
         scale = 1.0 / 65535.0
     elif arr.dtype == np.uint8:
@@ -764,18 +766,18 @@ def _decode_stitch_part(
     rgbscan: Optional[RgbScanConfig],
     flatfield: Optional[FlatFieldConfig],
     process: Optional[ProcessConfig],
-) -> np.ndarray:
-    """Decode one stitch part with flatfield and sensor correction applied.
-
-    Triplet merge is performed when *rgbscan* is a valid triplet config.
-    Sensor correction is skipped for triplets (no cross-channel leakage
-    with narrowband exposures).
-    """
+    unmix: bool = True,
+) -> tuple[np.ndarray, Optional[_CameraWB], _SourceMeta]:
+    """Decode one stitch part as it decodes alone: flatfield, a triplet merge for a triplet *rgbscan*, and the sensor
+    correction when ``unmix``, never for a triplet (narrowband exposures carry no crosstalk). Returns (buffer, as-shot WB,
+    source metadata)."""
     is_triplet = rgbscan is not None and is_rgb_triplet(rgbscan)
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
 
+    wb: Optional[_CameraWB] = None
+    meta = _SourceMeta()
     if is_triplet:
-        primary_f32, _, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
+        primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic)
         cache: dict[str, np.ndarray] = {file_path: primary_f32}
 
         def _decode(path: str) -> np.ndarray:
@@ -788,13 +790,13 @@ def _decode_stitch_part(
         f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
         f32 = np.clip(f32, 0.0, 1.0)  # see _decode_camera_raw_triplet: the warp can ring past 1.0
     else:
-        f32, _, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
+        f32, _, wb, meta = _decode_linear(file_path, process=process)
 
     if flatfield is not None:
-        f32 = _apply_flatfield_correction(f32, flatfield)
-    if not is_triplet and process is not None and process.sensor_matrix is not None:
-        f32 = apply_sensor_correction(f32, process.sensor_matrix)
-    return f32
+        f32 = _apply_flatfield_correction(f32, flatfield, orientation=read_orientation(file_path))
+    if unmix and not is_triplet and process is not None and process.sensor_matrix is not None:
+        f32 = apply_sensor_correction(f32, process.sensor_matrix, process.sensor_unmix)
+    return f32, wb, meta
 
 
 def _decode_stitch(
@@ -807,15 +809,6 @@ def _decode_stitch(
     all_paths = [file_path, *stitch.stitch_paths]
     has_triplets = stitch_has_triplets(stitch)
 
-    primary_meta = _read_source_meta_tiff(file_path)
-    _, wb, decode_meta, _ = _decode_camera_raw_buffer(file_path, process.demosaic_export if process is not None else DemosaicMode.AUTO)
-    merged_meta = _SourceMeta(
-        make=primary_meta.make or decode_meta.make,
-        model=primary_meta.model or decode_meta.model,
-        datetime=primary_meta.datetime or decode_meta.datetime,
-        demosaic=decode_meta.demosaic,
-    )
-
     parts: list[np.ndarray] = []
     for i, path in enumerate(all_paths):
         part_rgbscan: Optional[RgbScanConfig] = None
@@ -823,10 +816,24 @@ def _decode_stitch(
             green, blue = stitch.stitch_triplets[i]
             if green and blue:
                 part_rgbscan = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
-        parts.append(_decode_stitch_part(path, part_rgbscan, flatfield, process))
+        # Unmixed once, assembled: the unmix reads the film base from the frame.
+        f32, part_wb, part_meta = _decode_stitch_part(path, part_rgbscan, flatfield, process, unmix=has_triplets)
+        parts.append(f32)
+        if i == 0:
+            wb, decode_meta = part_wb, part_meta
+
+    primary_meta = _read_source_meta_tiff(file_path)
+    merged_meta = _SourceMeta(
+        make=primary_meta.make or decode_meta.make,
+        model=primary_meta.model or decode_meta.model,
+        datetime=primary_meta.datetime or decode_meta.datetime,
+        demosaic=decode_meta.demosaic,
+    )
 
     irs: list[None] = [None] * len(parts)
     f32, _ = stitch_composite(parts, irs, stitch)
+    if not has_triplets and process is not None and process.sensor_matrix is not None:
+        f32 = apply_sensor_correction(f32, process.sensor_matrix, process.sensor_unmix)
     return f32, None, wb if not has_triplets else None, merged_meta
 
 
@@ -843,7 +850,10 @@ def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, flo
 
 
 def _build_xmp(source_path: str, wb: _CameraWB, title: str = "", wb_applied: bool = False) -> bytes:
-    raw_name = os.path.basename(source_path)
+    from xml.sax.saxutils import escape
+
+    raw_name = escape(os.path.basename(source_path))
+    title = escape(title)
     title_block = ""
     if title:
         title_block = f"  <dc:title>\n   <rdf:Alt>\n    <rdf:li xml:lang='x-default'>{title}</rdf:li>\n   </rdf:Alt>\n  </dc:title>\n"
@@ -937,6 +947,13 @@ def _parse_tiff_datetime(dt_str: Optional[str]) -> Optional[str]:
     return None
 
 
+def _sensor_record(process: Optional[ProcessConfig]) -> bool | str:
+    """The unmix as the description records it: its Method's name when a matrix was applied."""
+    if process is None or process.sensor_matrix is None:
+        return True
+    return SensorUnmix(process.sensor_unmix).label
+
+
 def _linear_description(
     source_name: str,
     camera_wb: Optional[_CameraWB],
@@ -944,7 +961,7 @@ def _linear_description(
     source_format: str,
     wb_applied: bool,
     flatfield_applied: bool,
-    sensor_applied: bool,
+    sensor_applied: bool | str,
     ice_applied: bool,
     gamma_key: str,
     demosaic: Optional[str] = None,
@@ -967,9 +984,8 @@ def _linear_description(
             parts.append(f"WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
         else:
             parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
-    else:
-        parts.append("no WB applied")
-    applied = (("flatfield", flatfield_applied), ("lens", lens_applied), ("sensor", sensor_applied), ("ICE", ice_applied))
+    sensor = f"sensor ({sensor_applied})" if isinstance(sensor_applied, str) else "sensor"
+    applied = (("flatfield", flatfield_applied), ("lens", lens_applied), (sensor, sensor_applied), ("ICE", ice_applied))
     corrections = [s for s, on in applied if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
@@ -987,9 +1003,17 @@ def _write_bytes(dest, data: bytes) -> None:
     """Write to a path or an already-open file-like *dest*."""
     if hasattr(dest, "write"):
         dest.write(data)
-    else:
-        with open(dest, "wb") as fh:
+        return
+    # Through a part file, so a failed write never destroys the file it would replace.
+    part = f"{dest}.part"
+    try:
+        with open(part, "wb") as fh:
             fh.write(data)
+        os.replace(part, dest)
+    except BaseException:
+        if os.path.exists(part):
+            os.unlink(part)
+        raise
 
 
 def _linear_resolution(source_path: Optional[str]) -> "Resolution":
@@ -1010,7 +1034,7 @@ def _write_tiff(
     source_format: str = "",
     wb_applied: bool = False,
     flatfield_applied: bool = False,
-    sensor_applied: bool = False,
+    sensor_applied: bool | str = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
     compression: TiffCompression = TiffCompression.ZIP,
@@ -1113,9 +1137,17 @@ def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
     data = bytes(bits)
     if hasattr(dest, "write"):
         dest.write(data)
-    else:
-        with open(dest, "wb") as fh:
+        return
+    # Through a part file, so a failed write never destroys the file it would replace.
+    part = f"{dest}.part"
+    try:
+        with open(part, "wb") as fh:
             fh.write(data)
+        os.replace(part, dest)
+    except BaseException:
+        if os.path.exists(part):
+            os.unlink(part)
+        raise
 
 
 def _attach_jxl_provenance(
@@ -1171,7 +1203,7 @@ def _write_jxl(
     source_format: str = "",
     wb_applied: bool = False,
     flatfield_applied: bool = False,
-    sensor_applied: bool = False,
+    sensor_applied: bool | str = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
     resolution: Optional[Resolution] = None,
@@ -1221,9 +1253,17 @@ def _write_jxl(
     )
     if hasattr(dest, "write"):
         dest.write(data)
-    else:
-        with open(dest, "wb") as fh:
+        return
+    # Through a part file, so a failed write never destroys the file it would replace.
+    part = f"{dest}.part"
+    try:
+        with open(part, "wb") as fh:
             fh.write(data)
+        os.replace(part, dest)
+    except BaseException:
+        if os.path.exists(part):
+            os.unlink(part)
+        raise
 
 
 def export_linear_output(
@@ -1301,7 +1341,7 @@ def export_linear_output(
             source_format=fmt,
             wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
-            sensor_applied=apply_sensor or is_stitch,
+            sensor_applied=_sensor_record(process) if apply_sensor or is_stitch else False,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
             resolution=resolution,
@@ -1318,7 +1358,7 @@ def export_linear_output(
             source_format=fmt,
             wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
-            sensor_applied=apply_sensor or is_stitch,
+            sensor_applied=_sensor_record(process) if apply_sensor or is_stitch else False,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
             resolution=resolution,

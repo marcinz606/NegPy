@@ -34,7 +34,7 @@ TRANSFER = (
 METERS = {"auto_exposure", "auto_normalize_contrast"}
 # The paper model's own controls; the transfer curve has no paper to apply them to.
 PRINT_ONLY = (
-    {"contrast_mask", "mask_spacer", "paper_dmin", "paper_black", "paper_profile", "preflash"}
+    {"contrast_mask", "mask_spacer", "diffusion", "paper_dmin", "paper_black", "paper_profile", "preflash"}
     | {n + t for n in ("grade",) for t in _TRIMS}
     | _with_trims("shadow_grade", "highlight_grade", "midtone_gamma")
 )
@@ -52,7 +52,7 @@ def test_every_exposure_control_declares_its_slide_behaviour():
 def test_the_negative_package_never_imports_the_slide_package():
     root = pathlib.Path(__file__).resolve().parent.parent / "negpy" / "features" / "exposure"
     for path in root.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else []
             if isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
@@ -68,7 +68,7 @@ def _moved(field: str, value):
         return value + 15.0
     if field in ("toe_width", "shoulder_width", "mask_spacer"):
         return value + 1.5
-    if field == "preflash":
+    if field in ("preflash", "diffusion"):
         return 0.8
     return value + 0.25
 

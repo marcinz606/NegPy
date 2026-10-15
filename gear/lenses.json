@@ -585,5 +585,410 @@
     "make": "Olympus",
     "focalLength": 50,
     "maxAperture": 1.8
+  },
+  {
+    "id": "lens-zeiss-distagon-c-40-4.0",
+    "displayName": "Zeiss Distagon C 40mm f/4",
+    "lensModel": "Distagon C 40mm f/4",
+    "make": "Carl Zeiss",
+    "focalLength": 40.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-distagon-c-50-4.0",
+    "displayName": "Zeiss Distagon C 50mm f/4",
+    "lensModel": "Distagon C 50mm f/4",
+    "make": "Carl Zeiss",
+    "focalLength": 50.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-distagon-c-60-3.5",
+    "displayName": "Zeiss Distagon C 60mm f/3.5",
+    "lensModel": "Distagon C 60mm f/3.5",
+    "make": "Carl Zeiss",
+    "focalLength": 60.0,
+    "maxAperture": 3.5,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-planar-c-80-2.8",
+    "displayName": "Zeiss Planar C 80mm f/2.8",
+    "lensModel": "Planar C 80mm f/2.8",
+    "make": "Carl Zeiss",
+    "focalLength": 80.0,
+    "maxAperture": 2.8,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-planar-c-100-3.5",
+    "displayName": "Zeiss Planar C 100mm f/3.5",
+    "lensModel": "Planar C 100mm f/3.5",
+    "make": "Carl Zeiss",
+    "focalLength": 100.0,
+    "maxAperture": 3.5,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-s-planar-c-120-5.6",
+    "displayName": "Zeiss S-Planar C 120mm f/5.6",
+    "lensModel": "S-Planar C 120mm f/5.6",
+    "make": "Carl Zeiss",
+    "focalLength": 120.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-c-150-4.0",
+    "displayName": "Zeiss Sonnar C 150mm f/4",
+    "lensModel": "Sonnar C 150mm f/4",
+    "make": "Carl Zeiss",
+    "focalLength": 150.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-c-250-5.6",
+    "displayName": "Zeiss Sonnar C 250mm f/5.6",
+    "lensModel": "Sonnar C 250mm f/5.6",
+    "make": "Carl Zeiss",
+    "focalLength": 250.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-tele-tessar-c-350-5.6",
+    "displayName": "Zeiss Tele-Tessar C 350mm f/5.6",
+    "lensModel": "Tele-Tessar C 350mm f/5.6",
+    "make": "Carl Zeiss",
+    "focalLength": 350.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-tele-tessar-c-500-8.0",
+    "displayName": "Zeiss Tele-Tessar C 500mm f/8",
+    "lensModel": "Tele-Tessar C 500mm f/8",
+    "make": "Carl Zeiss",
+    "focalLength": 500.0,
+    "maxAperture": 8.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-distagon-cf-40-4.0-fle",
+    "displayName": "Zeiss Distagon CF 40mm f/4 FLE",
+    "lensModel": "Distagon CF 40mm f/4 FLE T*",
+    "make": "Carl Zeiss",
+    "focalLength": 40.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-distagon-cf-50-4.0-fle",
+    "displayName": "Zeiss Distagon CF 50mm f/4 FLE",
+    "lensModel": "Distagon CF 50mm f/4 FLE T*",
+    "make": "Carl Zeiss",
+    "focalLength": 50.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-distagon-cf-60-3.5",
+    "displayName": "Zeiss Distagon CF 60mm f/3.5",
+    "lensModel": "Distagon CF 60mm f/3.5 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 60.0,
+    "maxAperture": 3.5,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-planar-cf-80-2.8",
+    "displayName": "Zeiss Planar CF 80mm f/2.8",
+    "lensModel": "Planar CF 80mm f/2.8 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 80.0,
+    "maxAperture": 2.8,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-planar-cf-100-3.5",
+    "displayName": "Zeiss Planar CF 100mm f/3.5",
+    "lensModel": "Planar CF 100mm f/3.5 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 100.0,
+    "maxAperture": 3.5,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-makro-planar-cf-120-4.0",
+    "displayName": "Zeiss Makro-Planar CF 120mm f/4",
+    "lensModel": "Makro-Planar CF 120mm f/4 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 120.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-cf-150-4.0",
+    "displayName": "Zeiss Sonnar CF 150mm f/4",
+    "lensModel": "Sonnar CF 150mm f/4 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 150.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-cf-180-4.0",
+    "displayName": "Zeiss Sonnar CF 180mm f/4",
+    "lensModel": "Sonnar CF 180mm f/4 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 180.0,
+    "maxAperture": 4.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-cf-250-5.6",
+    "displayName": "Zeiss Sonnar CF 250mm f/5.6",
+    "lensModel": "Sonnar CF 250mm f/5.6 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 250.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-sonnar-cf-250-5.6-sa",
+    "displayName": "Zeiss Sonnar CF 250mm f/5.6 Superachromat",
+    "lensModel": "Sonnar-Superachromat CF 250mm f/5.6 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 250.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-tele-tessar-cf-350-5.6",
+    "displayName": "Zeiss Tele-Tessar CF 350mm f/5.6",
+    "lensModel": "Tele-Tessar CF 350mm f/5.6 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 350.0,
+    "maxAperture": 5.6,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-zeiss-tele-apotessar-cf-500-8.0",
+    "displayName": "Zeiss Tele-Apotessar CF 500mm f/8",
+    "lensModel": "Tele-Apotessar CF 500mm f/8 T*",
+    "make": "Carl Zeiss",
+    "focalLength": 500.0,
+    "maxAperture": 8.0,
+    "notes": "Hasselblad V mount."
+  },
+  {
+    "id": "lens-nikon-ais-nikkor-300-4.5-ed-if",
+    "displayName": "Nikkor 300mm f/4.5 ED-IF AI-S",
+    "lensModel": "Nikkor 300mm f/4.5 ED-IF AI-S",
+    "make": "Nikon",
+    "focalLength": 300.0,
+    "maxAperture": 4.5,
+    "notes": "Manual-focus F-mount."
+  },
+  {
+    "id": "lens-nikon-afd-fisheye-nikkor-16-2.8",
+    "displayName": "AF Fisheye-Nikkor 16mm f/2.8D",
+    "lensModel": "AF Fisheye-Nikkor 16mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 16.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-20-2.8",
+    "displayName": "AF Nikkor 20mm f/2.8D",
+    "lensModel": "AF Nikkor 20mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 20.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-24-2.8",
+    "displayName": "AF Nikkor 24mm f/2.8D",
+    "lensModel": "AF Nikkor 24mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 24.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-28-2.8",
+    "displayName": "AF Nikkor 28mm f/2.8D",
+    "lensModel": "AF Nikkor 28mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 28.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-35-2.0",
+    "displayName": "AF Nikkor 35mm f/2D",
+    "lensModel": "AF Nikkor 35mm f/2D",
+    "make": "Nikon",
+    "focalLength": 35.0,
+    "maxAperture": 2.0,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-50-1.4",
+    "displayName": "AF Nikkor 50mm f/1.4D",
+    "lensModel": "AF Nikkor 50mm f/1.4D",
+    "make": "Nikon",
+    "focalLength": 50.0,
+    "maxAperture": 1.4,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-50-1.8",
+    "displayName": "AF Nikkor 50mm f/1.8D",
+    "lensModel": "AF Nikkor 50mm f/1.8D",
+    "make": "Nikon",
+    "focalLength": 50.0,
+    "maxAperture": 1.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-micro-nikkor-60-2.8",
+    "displayName": "AF Micro-Nikkor 60mm f/2.8D",
+    "lensModel": "AF Micro-Nikkor 60mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 60.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-85-1.8",
+    "displayName": "AF Nikkor 85mm f/1.8D",
+    "lensModel": "AF Nikkor 85mm f/1.8D",
+    "make": "Nikon",
+    "focalLength": 85.0,
+    "maxAperture": 1.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-dc-nikkor-105-2.0",
+    "displayName": "AF DC-Nikkor 105mm f/2D",
+    "lensModel": "AF DC-Nikkor 105mm f/2D",
+    "make": "Nikon",
+    "focalLength": 105.0,
+    "maxAperture": 2.0,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-micro-nikkor-105-2.8",
+    "displayName": "AF Micro-Nikkor 105mm f/2.8D",
+    "lensModel": "AF Micro-Nikkor 105mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 105.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-dc-nikkor-135-2.0",
+    "displayName": "AF DC-Nikkor 135mm f/2D",
+    "lensModel": "AF DC-Nikkor 135mm f/2D",
+    "make": "Nikon",
+    "focalLength": 135.0,
+    "maxAperture": 2.0,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-180-2.8-ed-if",
+    "displayName": "AF Nikkor 180mm f/2.8D ED-IF",
+    "lensModel": "AF Nikkor 180mm f/2.8D ED-IF",
+    "make": "Nikon",
+    "focalLength": 180.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-zoom-nikkor-35-70-2.8",
+    "displayName": "AF Zoom-Nikkor 35-70mm f/2.8D",
+    "lensModel": "AF Zoom-Nikkor 35-70mm f/2.8D",
+    "make": "Nikon",
+    "focalLength": 35.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-zoom-nikkor-80-200-2.8-ed",
+    "displayName": "AF Zoom-Nikkor 80-200mm f/2.8D ED",
+    "lensModel": "AF Zoom-Nikkor 80-200mm f/2.8D ED",
+    "make": "Nikon",
+    "focalLength": 80.0,
+    "maxAperture": 2.8,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-afd-nikkor-28-1.4",
+    "displayName": "AF Nikkor 28mm f/1.4D",
+    "lensModel": "AF Nikkor 28mm f/1.4D",
+    "make": "Nikon",
+    "focalLength": 28.0,
+    "maxAperture": 1.4,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-af-zoom-nikkor-28-85-3.5",
+    "displayName": "AF Zoom-Nikkor 28-85mm f/3.5-4.5",
+    "lensModel": "AF Zoom-Nikkor 28-85mm f/3.5-4.5",
+    "make": "Nikon",
+    "focalLength": 28.0,
+    "maxAperture": 3.5,
+    "notes": "Autofocus F-mount, aperture ring."
+  },
+  {
+    "id": "lens-nikon-uw-nikkor-15-2.8n",
+    "displayName": "UW-Nikkor 15mm f/2.8N",
+    "lensModel": "UW-Nikkor 15mm f/2.8N",
+    "make": "Nikon",
+    "focalLength": 15.0,
+    "maxAperture": 2.8,
+    "notes": "Nikonos mount, underwater only."
+  },
+  {
+    "id": "lens-nikon-uw-nikkor-20-2.8",
+    "displayName": "UW-Nikkor 20mm f/2.8",
+    "lensModel": "UW-Nikkor 20mm f/2.8",
+    "make": "Nikon",
+    "focalLength": 20.0,
+    "maxAperture": 2.8,
+    "notes": "Nikonos mount, underwater only."
+  },
+  {
+    "id": "lens-nikon-uw-nikkor-28-3.5",
+    "displayName": "UW-Nikkor 28mm f/3.5",
+    "lensModel": "UW-Nikkor 28mm f/3.5",
+    "make": "Nikon",
+    "focalLength": 28.0,
+    "maxAperture": 3.5,
+    "notes": "Nikonos mount, underwater only."
+  },
+  {
+    "id": "lens-nikon-w-nikkor-35-2.5",
+    "displayName": "W-Nikkor 35mm f/2.5",
+    "lensModel": "W-Nikkor 35mm f/2.5",
+    "make": "Nikon",
+    "focalLength": 35.0,
+    "maxAperture": 2.5,
+    "notes": "Nikonos mount, amphibious."
+  },
+  {
+    "id": "lens-nikon-w-nikkor-80-4.0",
+    "displayName": "W-Nikkor 80mm f/4",
+    "lensModel": "W-Nikkor 80mm f/4",
+    "make": "Nikon",
+    "focalLength": 80.0,
+    "maxAperture": 4.0,
+    "notes": "Nikonos mount, amphibious."
   }
 ]

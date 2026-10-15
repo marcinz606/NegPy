@@ -324,6 +324,20 @@ class TestGpuTilingPolicy(unittest.TestCase):
         with patch("negpy.services.rendering.gpu_engine.APP_CONFIG.max_texture_size", 1024):
             self.assertTrue(engine.requires_tiling(SimpleNamespace(shape=(900, 1100, 3)), WorkspaceConfig()))
 
+    def test_export_paper_over_texture_cap_tiles(self):
+        from dataclasses import replace
+
+        engine = self._engine(max_texture=8192)
+        settings = WorkspaceConfig()
+        pixels = replace(settings, export=replace(settings.export, export_resolution_mode="target_px", export_target_long_edge_px=6000))
+        small = SimpleNamespace(shape=(1000, 1500, 3))
+
+        with patch("negpy.services.rendering.gpu_engine.APP_CONFIG.max_texture_size", 4096):
+            self.assertTrue(engine.requires_tiling(small, pixels))
+            self.assertFalse(engine.requires_tiling(small, settings))
+            # A preview paper is capped in its own layout instead.
+            self.assertFalse(engine.requires_tiling(small, pixels, render_size_ref=1600.0))
+
     def test_releasing_pool_destroys_every_texture_except_retained(self):
         engine = GPUEngine.__new__(GPUEngine)
         kept = MagicMock()

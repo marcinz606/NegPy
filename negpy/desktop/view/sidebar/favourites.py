@@ -59,6 +59,8 @@ class FavouritesSidebar(BaseSidebar):
         # Not controller.config_updated: sidebar syncing is debounced and this signal fires at the
         # end of it, so the originals already hold the fresh values.
         self.controls.modified_synced.connect(self.sync_ui)
+        # The Auto-driven Tone sliders also move when a render lands with new meters.
+        self.controller.image_updated.connect(self.sync_ui)
 
     def _choices(self) -> list[tuple[str, str, str]]:
         widgets = slider_widget_map(self.controls)
@@ -92,6 +94,8 @@ class FavouritesSidebar(BaseSidebar):
 
     def sync_ui(self) -> None:
         for clone, src in self._mirrors:
+            if clone.default_value() != src.default_value():
+                clone.set_default(src.default_value())
             clone.setValue(src.value())
             # Only mode gating should hide a mirror. A collapsed section or an off-screen tab must
             # not. B&W hides the whole Colour section, so isHidden() alone misses it.

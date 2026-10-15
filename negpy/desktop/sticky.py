@@ -44,6 +44,10 @@ ALWAYS_STICKY_PROCESS: tuple[tuple[str, str], ...] = (
     ("last_demosaic_export", "demosaic_export"),
 )
 
+# The heal, scratch and exclusion brush belongs to the user, not to a frame: every frame
+# opens with the size last used, whatever size its own edit was saved with.
+BRUSH_SIZE_KEY = "last_brush_size"
+
 
 def load_sticky_rows(repo: IRepository) -> list[SettingRow]:
     """The rows the user has chosen to carry, defaults when they never chose."""
@@ -152,3 +156,29 @@ def migrate_legacy_export_destination(repo: IRepository) -> None:
         return
     remaining = {k: v for k, v in sticky_export.items() if k not in ("output_mode", "export_path", "output_subfolder")}
     repo.save_global_setting("last_export_config", remaining)
+
+
+_AUTO_CROP_ROW_MIGRATED_KEY = "auto_crop_sticky_row_v1"
+_SQUARE_ROW_MIGRATED_KEY = "sticky_rows_square_before_crop_v1"
+
+
+def migrate_square_before_crop_sticky_row(repo: IRepository) -> None:
+    """Add Square Before Crop to a saved row choice, once, as Auto Crop's own row was: it is
+    an Auto Crop setting and travels with it."""
+    if repo.get_global_setting(_SQUARE_ROW_MIGRATED_KEY):
+        return
+    repo.save_global_setting(_SQUARE_ROW_MIGRATED_KEY, True)
+    stored = repo.get_global_setting(STICKY_ROWS_KEY)
+    if isinstance(stored, list):
+        save_sticky_rows(repo, sorted(set(stored) | {"geometry.autocrop_square"}))
+
+
+def migrate_auto_crop_sticky_row(repo: IRepository) -> None:
+    """Add Auto Crop to a saved row choice, once. A user who never chose rows gets it from
+    DEFAULT_STICKY_IDS, and an untick after this stays."""
+    if repo.get_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY):
+        return
+    repo.save_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY, True)
+    stored = repo.get_global_setting(STICKY_ROWS_KEY)
+    if isinstance(stored, list):
+        save_sticky_rows(repo, sorted(set(stored) | {"geometry.crop_from_auto"}))

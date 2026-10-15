@@ -1,7 +1,7 @@
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -35,7 +35,9 @@ from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
-from negpy.services.assets.library import folder_counts, folder_label, summarize_counts
+from negpy.services.assets.composites import frame_count, saved_composites
+from negpy.services.assets.library import folder_counts, folder_image_paths, folder_label, summarize_counts
+from negpy.services.assets.triplets import saved_triplets
 from negpy.services.assets.presets import is_valid_preset_name
 
 _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
@@ -66,6 +68,12 @@ class LibraryTree(QWidget):
         self.repo = controller.session.repo
         self._sort_order, self._sort_descending = self._saved_sort()
         self._init_ui()
+        # Deferred: files_changed fires before the session saves its triplets.
+        self._count_timer = QTimer(self)
+        self._count_timer.setSingleShot(True)
+        self._count_timer.setInterval(0)
+        self._count_timer.timeout.connect(self.refresh_active_count)
+        controller.session.files_changed.connect(self._count_timer.start)
         self.reload()
 
     def _init_ui(self) -> None:
@@ -330,8 +338,7 @@ class LibraryTree(QWidget):
         is_folder = entry.get("kind") == "folder"
         folder_path = entry.get("folder_path", "")
         missing = is_folder and not os.path.isdir(folder_path)
-        count = "folder missing" if missing else summarize_counts(self._frame_count(entry), 0)
-        item = QTreeWidgetItem([label, count])
+        item = QTreeWidgetItem([label, "folder missing" if missing else self._count_text(roll_id, entry)])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
         item.setData(0, _MISSING_ROLE, missing)
@@ -352,11 +359,27 @@ class LibraryTree(QWidget):
             return THEME.text_on_accent
         return THEME.warn_amber if item.data(0, _MISSING_ROLE) else THEME.text_muted
 
-    def _frame_count(self, entry: dict) -> int:
+    def _count_text(self, roll_id: str, entry: dict) -> str:
+        return summarize_counts(self._frame_count(roll_id, entry), 0)
+
+    def _frame_count(self, roll_id: str, entry: dict) -> int:
         if entry.get("kind") == "folder":
-            images, _ = folder_counts(entry.get("folder_path", ""))
-            return images + len(entry.get("extra_paths") or ())
-        return len(entry.get("member_paths") or ())
+            skip = {os.path.normcase(os.path.normpath(p)) for p in entry.get("excluded_paths") or ()}
+            own = [p for p in folder_image_paths(entry.get("folder_path", "")) if os.path.normcase(os.path.normpath(p)) not in skip]
+            paths = [*own, *(entry.get("extra_paths") or ())]
+        else:
+            paths = entry.get("member_paths") or ()
+        # Discovery re-attaches a remembered triplet in Trichrome Mode only.
+        triplets = saved_triplets(self.repo) if self.controller.rgb_scan_mode_for_roll(roll_id) else {}
+        return frame_count(paths, saved_composites(self.repo), triplets)
+
+    def refresh_active_count(self) -> None:
+        """Re-read the open roll's count: a capture or a grouping changes it under a built tree."""
+        roll_id = self.controller.state.active_roll_id
+        entry = rolls.roll_for_id(self.repo, roll_id) if roll_id else None
+        for item in self._roll_items() if entry else ():
+            if item.data(0, _ROLL_ID_ROLE) == roll_id and not item.data(0, _MISSING_ROLE):
+                item.setText(1, self._count_text(roll_id, entry))
 
     def _selected_roll_id(self):
         item = self.tree.currentItem()

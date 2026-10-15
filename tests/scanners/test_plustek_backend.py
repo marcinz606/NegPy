@@ -200,6 +200,71 @@ def test_8100_v2_caps_match_pyopticfilm_model(monkeypatch):
     assert 1200 in caps.supported_dpi
 
 
+def test_8300i_se_caps_match_pyopticfilm_model(monkeypatch):
+    from pyopticfilm.device.model_8300i_se import MODEL_8300I_SE
+    from pyopticfilm.usb.device import PID_OPTICFILM_8300I_SE
+
+    info = UsbDeviceInfo(
+        vendor_id=VID_PLUSTEK,
+        product_id=PID_OPTICFILM_8300I_SE,
+        bus=4,
+        address=8,
+    )
+    _patch_enum(monkeypatch, [info])
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: MODEL_8300I_SE)
+    caps = PlustekBackend().list_devices()[0].capabilities
+    assert caps.ir_channel is True
+    assert caps.multi_exposure is True
+    assert caps.max_n_passes > 1
+    assert caps.prescan is True
+    assert 1200 in caps.supported_dpi
+
+
+def test_7600i_v1_caps_hide_gl128_only_features(monkeypatch):
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
+    from pyopticfilm.usb.device import PID_OPTICFILM_7600I
+
+    info = UsbDeviceInfo(
+        vendor_id=VID_PLUSTEK,
+        product_id=PID_OPTICFILM_7600I,
+        bus=5,
+        address=3,
+        bcd_device=0x0400,
+    )
+    _patch_enum(monkeypatch, [info])
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: MODEL_7600I_V1)
+    caps = PlustekBackend().list_devices()[0].capabilities
+    assert caps.ir_channel is True
+    assert caps.multi_exposure is False
+    assert caps.max_n_passes == 1
+    assert caps.prescan is False
+    assert caps.prescan_dpi == 0
+    assert set(caps.supported_dpi) == {1440, 3600, 7200}
+
+
+def test_7600i_v1_rejects_ir_at_unsupported_dpi():
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
+
+    with pytest.raises(RuntimeError, match="infrared"):
+        _validate_params(_params(dpi=1440, capture_ir=True), model=MODEL_7600I_V1)
+
+
+def test_7600i_v1_accepts_colour_ir_at_3600():
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
+
+    _validate_params(_params(dpi=3600, capture_ir=True), model=MODEL_7600I_V1)
+
+
+def test_7600i_v1_rejects_multi_pass():
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
+
+    with pytest.raises(RuntimeError, match="Multi-Pass"):
+        _validate_params(_params(dpi=3600, n_passes=3), model=MODEL_7600I_V1)
+
+
 def test_backend_list_devices_maps_caps(monkeypatch):
     _patch_enum(monkeypatch)
     devices = PlustekBackend().list_devices()

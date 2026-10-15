@@ -50,9 +50,11 @@ def _ensure_quiet_usb_drain(scanner: Scanner) -> None:
 
 
 def _caps_for(model: Any) -> ScannerCapabilities:
-    prescan_ready = bool(getattr(model, "scan_ready", False))
-    from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm
+    from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm, is_gl128_opticfilm
 
+    # Prescan and Multi-Pass are GL128 session features. Other scan-ready leaves (e.g. 7600i
+    # v1) report scan_ready but raise on those paths.
+    gl128 = is_gl128_opticfilm(model)
     return ScannerCapabilities(
         ir_channel=model.supports_infrared,
         supported_dpi=tuple(sorted(model.resolutions_dpi)),
@@ -61,14 +63,13 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         max_area_mm=model.max_area_mm,
         auto_exposure=False,
         autofocus=False,
-        prescan=prescan_ready,
-        prescan_dpi=PRESCAN_DPI if prescan_ready else 0,
-        prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if prescan_ready else False,
-        prescan_default_crop=default_frame_crop_norm(model) if prescan_ready else None,
+        prescan=gl128,
+        prescan_dpi=PRESCAN_DPI if gl128 else 0,
+        prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if gl128 else False,
+        prescan_default_crop=default_frame_crop_norm(model) if gl128 else None,
         multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
-        # Multi-Pass (repeating the existing single exposure) needs no long-exposure register —
-        # every scan-ready GL128 model supports it, independent of ME's exposure_long gating.
-        max_n_passes=MAX_N_PASSES if getattr(model, "scan_ready", False) else MIN_N_PASSES,
+        # Multi-Pass needs no long-exposure register; it is GL128-only in pyopticfilm.
+        max_n_passes=MAX_N_PASSES if gl128 else MIN_N_PASSES,
         adapter_frame_capacity=None,
         adapter_frame_control=False,
         can_eject=False,
@@ -171,13 +172,21 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
         raise RuntimeError("Autofocus requested but the device has no autofocus option")
     if params.capture_ir and model is not None and getattr(model, "supports_infrared", None) is False:
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support infrared")
+    if params.capture_ir and model is not None:
+        ir_resolutions = getattr(model, "infrared_resolutions_dpi", None)
+        if isinstance(ir_resolutions, (tuple, list)) and ir_resolutions and dpi not in ir_resolutions:
+            raise RuntimeError(
+                f"{getattr(model, 'model', 'device')} scans infrared at {', '.join(str(d) for d in sorted(ir_resolutions))} dpi"
+            )
     mode = params.multi_exposure_mode
     if mode != MultiExposureMode.OFF and model is not None and not getattr(model, "exposure_long", None):
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
     if not (MIN_N_PASSES <= params.n_passes <= MAX_N_PASSES):
         raise RuntimeError(f"n_passes={params.n_passes} out of range ({MIN_N_PASSES}-{MAX_N_PASSES})")
     if params.n_passes > 1:
-        if model is not None and not getattr(model, "scan_ready", False):
+        from pyopticfilm.scan.bringup import is_gl128_opticfilm
+
+        if model is not None and not is_gl128_opticfilm(model):
             raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Multi-Pass")
         if params.capture_ir:
             raise RuntimeError("IR and Multi-Pass cannot be combined yet — scan IR separately, or set Passes to 1.")
@@ -239,7 +248,7 @@ class PlustekBackend:
             raise ScannerUnavailable(
                 "Plustek USB needs pyopticfilm (uv sync --group plustek). "
                 "On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md) — "
-                "e.g. 07b3:1825 (8200i SE) or 07b3:1824 (8100 V2)."
+                "e.g. 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1)."
             ) from exc
         self._calib_cache = calib_cache
         self._sessions: dict[str, PlustekSession] = {}
@@ -320,7 +329,10 @@ class PlustekBackend:
             return
         known = {d.device_id: d for d in list_devices()}
         if device_id in known:
-            raise RuntimeError(f"{device_id} is not a supported Plustek film scanner (e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2).")
+            raise RuntimeError(
+                f"{device_id} is not a supported Plustek film scanner "
+                "(e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2, 07b3:181f 8300i SE, 07b3:0c3b 7600i v1)."
+            )
         raise RuntimeError(f"Unknown or disconnected device: {device_id}")
 
     def _scan_on_scanner(
@@ -422,12 +434,18 @@ class PlustekBackend:
 
         Progress uses 0–0.1 so a cold measure does not look hung. Film may stay
         loaded — shading runs at home before position feeds, like SilverFast.
+        GL128 only: other scan-ready leaves (e.g. 7600i v1) calibrate live in-scan.
         """
         if cancel.is_set():
             raise RuntimeError("Scan cancelled before start")
         _safe_progress(progress, 0.02, "Calibrating")
         from pyopticfilm.exceptions import CalibrationError
+        from pyopticfilm.scan.bringup import bringup_scan_geometry, is_gl128_opticfilm
         from pyopticfilm.scan.geometry import ScanGeometry
+
+        if not is_gl128_opticfilm(scanner.model):
+            _safe_progress(progress, 0.1, "Calibrating")
+            return
 
         geo = geometry if isinstance(geometry, ScanGeometry) else None
         if geo is None and window is not None:
@@ -435,13 +453,7 @@ class PlustekBackend:
 
             geo = compute_geometry(dpi, model=scanner.model, area=window)
         if geo is None:
-            from pyopticfilm.scan.bringup import (
-                bringup_scan_geometry,
-                is_gl128_opticfilm,
-            )
-
-            if is_gl128_opticfilm(scanner.model):
-                geo, _ = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
+            geo, _ = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         if geo is None:
             _safe_progress(progress, 0.1, "Calibrating")
             return

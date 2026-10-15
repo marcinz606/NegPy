@@ -1,22 +1,51 @@
-"""Sensor (CFA) crosstalk calibration for single-shot narrowband scans.
-
-The camera's color-filter passbands overlap the narrowband source's bands, so a
-pure red/green/blue exposure leaks into the other channels — a fixed property of
-the sensor+light pair, independent of film. Calibrated once from three bare-light
-exposures and corrected with a 3x3 unmix in the LINEAR domain, before the
-log/inversion where the film-dye crosstalk (Density Mixer) lives.
+"""Sensor (CFA) crosstalk of a sensor+light pair for single-shot narrowband scans: calibrated from three
+bare-light exposures, corrected by a 3x3 unmix on the linear capture, before the log where film-dye crosstalk lives.
+Where the film passes almost none of a band, the subtraction falls below grain and the log turns it into maximum
+density; `SensorUnmix` picks how that case is handled.
 """
 
 from typing import Optional
 
+import cv2
 import numpy as np
+from numba import prange
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.logic import narrowband_allowed
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, SensorUnmix
+from negpy.kernel.system.parallel import parallel_njit
 
 _EPS = 1e-4
+# Three captures whose normalized responses are this ill-conditioned are one light three times.
+_MAX_CONDITION = 1e3
+
+# Two-Scale's color layer: no channel is corrected below this fraction of its raw value.
+COLOR_FLOOR = 0.15
+
+# Two-Scale: exact Linear while its gain on a channel's own value stays within TWO_SCALE_START
+# of its gain at the film base; the capped detail takes over fully at TWO_SCALE_FULL.
+TWO_SCALE_START = 1.15
+TWO_SCALE_FULL = 1.5
+# Color-layer blur as a fraction of the long edge, so preview and export split at the same detail.
+_TWO_SCALE_SIGMA = 1.0 / 1200.0
+
+# Density: the film base is the thinnest negative in the frame interior.
+_BASE_BUFFER = 0.1
+# The base is the median color of this share of an averaged grid, the cells thinnest in all
+# three channels together. _BASE_PERCENTILE is each channel's thin end.
+_BASE_SHARE = 0.005
+_BASE_GRID_EDGE = 512
+_BASE_PERCENTILE = 99.5
+# A channel whose thin end sits within this fraction of its maximum is clipped.
+_CLIP_PLATEAU = 0.998
+_LOG_FLOOR = 1e-6
+# No channel is read denser than this transmission relative to the base, 3 D, past any film:
+# a dead or black-clipped pixel would otherwise reach the other channels through the log.
+_DENSITY_RANGE = 1e-3
+# Two-Scale: a channel this far below the other two against its blurred neighborhood is a dead or
+# black-clipped photosite; a real edge moves all three channels together.
+_DEFECT_RATIO = 1.0 / 64.0
 
 
 def measure_capture(img: ImageBuffer, center: float = 0.5) -> tuple[float, float, float]:
@@ -42,20 +71,185 @@ def build_sensor_matrix(
     if np.any(diag <= _EPS * s.max(axis=0)):
         raise ValueError("a capture has no signal in its own channel — check the R/G/B assignment")
     s_norm = s / diag
+    not_independent = "captures are not independent — three distinct single-band exposures are required"
+    # Near-singular: the inverse would amplify capture noise into the correction.
+    if np.linalg.cond(s_norm) > _MAX_CONDITION:
+        raise ValueError(not_independent)
     try:
         correction = np.linalg.inv(s_norm)
     except np.linalg.LinAlgError:
-        raise ValueError("captures are not independent — three distinct single-band exposures are required") from None
+        raise ValueError(not_independent) from None
     return tuple(float(x) for x in correction.reshape(-1))
 
 
-def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple]) -> ImageBuffer:
+def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str) -> ImageBuffer:
     """Un-mix a linear (H, W, 3) capture with the baked 3x3; identity when None."""
     if matrix is None:
         return img
     m = np.asarray(matrix, dtype=np.float32).reshape(3, 3)
-    out = np.einsum("ck,hwk->hwc", m, img[:, :, :3].astype(np.float32, copy=False))
-    return np.clip(out, 0.0, None)
+    x = img[:, :, :3].astype(np.float32, copy=False)
+    mode = SensorUnmix(mode)
+    if mode in (SensorUnmix.DENSITY, SensorUnmix.TWO_SCALE):
+        out = _density_unmix(x, m) if mode == SensorUnmix.DENSITY else _two_scale_unmix(x, m)
+        if out is not None:
+            return out
+    out = np.empty_like(x)
+    _unmix_kernel(x, m, out)
+    return out
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _unmix_kernel(x: np.ndarray, m: np.ndarray, out: np.ndarray) -> None:
+    """The unmix, clipped at zero."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
+            for c in range(3):
+                out[i, j, c] = max(m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2, 0.0)
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _log_unmix_kernel(x: np.ndarray, c: np.ndarray, offset: np.ndarray, floor: np.ndarray, out: np.ndarray) -> None:
+    """exp(c @ ln x + offset) per pixel, with each channel held at its ``floor`` or above."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            l0 = np.log(max(x[i, j, 0], floor[0]))
+            l1 = np.log(max(x[i, j, 1], floor[1]))
+            l2 = np.log(max(x[i, j, 2], floor[2]))
+            for k in range(3):
+                out[i, j, k] = np.exp(c[k, 0] * l0 + c[k, 1] * l1 + c[k, 2] * l2 + offset[k])
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _two_scale_layer_kernel(
+    blurred: np.ndarray,
+    m: np.ndarray,
+    own: np.ndarray,
+    floor: float,
+    log_floor: float,
+    start: float,
+    full: float,
+    color: np.ndarray,
+    weight: np.ndarray,
+) -> None:
+    """Soft-floored unmix of the blurred capture, and the blend weight: a smoothstep on the
+    largest ratio of a channel's unmix gain to its gain at the film base (``own``). The gain
+    is the unfloored unmix's, so a channel the floor holds up still reads as amplified."""
+    h, w = blurred.shape[0], blurred.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = blurred[i, j, 0], blurred[i, j, 1], blurred[i, j, 2]
+            ratio = 0.0
+            for c in range(3):
+                u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
+                ratio = max(ratio, blurred[i, j, c] * own[c] / max(u, log_floor))
+                f = floor * m[c, c] * blurred[i, j, c]
+                d = u - f
+                color[i, j, c] = max(0.5 * (u + f + np.sqrt(d * d + f * f)), log_floor)
+            t = min(max((ratio - start) / (full - start), 0.0), 1.0)
+            weight[i, j] = t * t * (3.0 - 2.0 * t)
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _two_scale_kernel(
+    x: np.ndarray,
+    blurred: np.ndarray,
+    color: np.ndarray,
+    weight: np.ndarray,
+    m: np.ndarray,
+    c: np.ndarray,
+    floor: float,
+    log_defect: float,
+    out: np.ndarray,
+) -> None:
+    """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c.
+    A channel whose detail sits ``log_defect`` below both others takes their mean instead."""
+    h, w = x.shape[0], x.shape[1]
+    for i in prange(h):
+        for j in range(w):
+            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
+            wt = weight[i, j]
+            if wt > 0.0:
+                e0 = np.log(max(x0, floor) / max(blurred[i, j, 0], floor))
+                e1 = np.log(max(x1, floor) / max(blurred[i, j, 1], floor))
+                e2 = np.log(max(x2, floor) / max(blurred[i, j, 2], floor))
+                d0 = 0.5 * (e1 + e2) if e0 < log_defect + min(e1, e2) else e0
+                d1 = 0.5 * (e0 + e2) if e1 < log_defect + min(e0, e2) else e1
+                d2 = 0.5 * (e0 + e1) if e2 < log_defect + min(e0, e1) else e2
+            for k in range(3):
+                lin = max(m[k, 0] * x0 + m[k, 1] * x1 + m[k, 2] * x2, 0.0)
+                if wt > 0.0:
+                    capped = color[i, j, k] * np.exp(c[k, 0] * d0 + c[k, 1] * d1 + c[k, 2] * d2)
+                    lin += wt * (capped - lin)
+                out[i, j, k] = lin
+
+
+def density_unmix_matrix(matrix, base) -> np.ndarray:
+    """The sensor matrix linearised in log space around ``base``. Rows sum to 1."""
+    m = np.asarray(matrix, dtype=np.float64).reshape(3, 3)
+    b = np.asarray(base, dtype=np.float64)
+    return (m * b[None, :]) / (m @ b)[:, None]
+
+
+def film_base(x: np.ndarray) -> Optional[np.ndarray]:
+    """Film base color: the median of the frame-interior cells thinnest in all three channels
+    together. One shared cell set, so a colored object cannot pass for the base in a single
+    channel. Only the color is meaningful. None when the thin end is clipped in the capture."""
+    sample = np.ascontiguousarray(get_analysis_crop(x[::4, ::4, :3], _BASE_BUFFER), dtype=np.float32)
+    flat = sample.reshape(-1, 3)
+    if flat.shape[0] == 0 or np.any(np.percentile(flat, _BASE_PERCENTILE, axis=0) >= _CLIP_PLATEAU * flat.max(axis=0)):
+        return None
+    h, w = sample.shape[:2]
+    scale = _BASE_GRID_EDGE / max(h, w)
+    if scale < 1.0:
+        sample = cv2.resize(sample, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    logs = np.log(np.maximum(sample.reshape(-1, 3), _LOG_FLOOR)).astype(np.float64)
+    # A cell is as thin as its least-thin channel, each channel against its own thin end.
+    thin = (logs - np.percentile(logs, _BASE_PERCENTILE, axis=0)).min(axis=1)
+    return np.exp(np.median(logs[thin >= np.quantile(thin, 1.0 - _BASE_SHARE)], axis=0))
+
+
+def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
+    """The unmix applied to log transmittance, exact at the film base; never reaches zero.
+    None when the base gives no usable linearisation point."""
+    base = film_base(x)
+    if base is None:
+        return None
+    at_base = m.astype(np.float64) @ base
+    if np.any(base <= _LOG_FLOOR) or np.any(at_base <= _LOG_FLOOR):
+        return None
+    c = density_unmix_matrix(m, base)
+    offset = (np.log(at_base) - c @ np.log(base)).astype(np.float32)
+    out = np.empty_like(x)
+    _log_unmix_kernel(x, c.astype(np.float32), offset, (base * _DENSITY_RANGE).astype(np.float32), out)
+    return out
+
+
+def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
+    """Linear where the unmix amplifies a channel no more than at the film base. Elsewhere a blurred, soft-floored
+    unmix gives the color and the detail returns at the base's log gain, so grain is never amplified past it.
+    Never reaches zero; None when the base gives no usable linearisation point."""
+    base = film_base(x)
+    if base is None or np.any(base <= _LOG_FLOOR) or np.any(m.astype(np.float64) @ base <= _LOG_FLOOR):
+        return None
+    c = density_unmix_matrix(m, base).astype(np.float32)
+    own = (np.diag(m) / np.diag(c)).astype(np.float32)
+    h, w = x.shape[:2]
+    sigma = max(1.0, max(h, w) * _TWO_SCALE_SIGMA)
+    # The color layer and the weight are smooth by construction, so they are built small.
+    step = max(1, int(sigma // 2))
+    small = x if step == 1 else cv2.resize(x, (-(-w // step), -(-h // step)), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), sigma / step)
+    color = np.empty_like(small)
+    weight = np.empty(small.shape[:2], np.float32)
+    _two_scale_layer_kernel(small, m, own, COLOR_FLOOR, _LOG_FLOOR, TWO_SCALE_START, TWO_SCALE_FULL, color, weight)
+    if step > 1:
+        small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
+    out = np.empty_like(x)
+    _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, float(np.log(_DEFECT_RATIO)), out)
+    return out
 
 
 def unmix_block_reason(process: ProcessConfig) -> str:
@@ -100,4 +294,5 @@ def sensor_token(process: ProcessConfig) -> str:
     matrix = effective_sensor_matrix(process)
     if matrix is None:
         return ""
-    return "|sn:" + ",".join(f"{v:.6g}" for v in matrix)
+    mode = SensorUnmix(process.sensor_unmix)
+    return "|sn:" + ",".join(f"{v:.6g}" for v in matrix) + ("" if mode == SensorUnmix.LINEAR else f"|{mode}")

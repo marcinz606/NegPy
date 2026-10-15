@@ -4,7 +4,7 @@ Its hash is the file hash plus ``#<half>``, so hash-keyed stores are per frame; 
 """
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
 
 import numpy as np
 
@@ -171,24 +171,37 @@ def slice_half(
     return buf[y1:y2, x1:x2]
 
 
+def asset_slice(file_info: Dict[str, Any]) -> Optional[tuple]:
+    """``slice_half``'s (half, split_x, crop_rect, gutter_thickness, split_axis) for the asset,
+    or None for a whole-frame asset without a crop rect."""
+    half = int(file_info.get("half") or 0)
+    if not half and not file_info.get("crop_rect"):
+        return None
+    raw_rect = file_info.get("crop_rect")
+    crop_rect = tuple(float(v) for v in raw_rect) if isinstance(raw_rect, (tuple, list)) else None
+    return (
+        half,
+        float(file_info.get("split_x") or 0.5),
+        crop_rect,
+        float(file_info.get("gutter_thickness") or 0.0),
+        str(file_info.get("split_axis") or "x"),
+    )
+
+
+def slice_chain(buf: np.ndarray, slices: Sequence[tuple]) -> np.ndarray:
+    """*buf* cut by each ``slice_half`` argument tuple in turn."""
+    for half, split_x, crop_rect, gutter_thickness, split_axis in slices:
+        buf = slice_half(buf, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness, split_axis=split_axis)
+    return buf
+
+
 def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:
     """Apply the asset's half slice; no-op for whole-frame assets without a crop rect.
 
     A whole-frame asset with a ``crop_rect`` is a diptych: cropped to the rect, still whole, split later per half.
     """
-    half = int(file_info.get("half") or 0)
-    if not half and not file_info.get("crop_rect"):
-        return buf
-    raw_rect = file_info.get("crop_rect")
-    crop_rect = tuple(float(v) for v in raw_rect) if isinstance(raw_rect, (tuple, list)) else None
-    return slice_half(
-        buf,
-        half,
-        float(file_info.get("split_x") or 0.5),
-        crop_rect=crop_rect,
-        gutter_thickness=float(file_info.get("gutter_thickness") or 0.0),
-        split_axis=str(file_info.get("split_axis") or "x"),
-    )
+    args = asset_slice(file_info)
+    return buf if args is None else slice_chain(buf, (args,))
 
 
 @dataclass(frozen=True)
@@ -248,18 +261,9 @@ def remap_point(x: float, y: float, half: int, old_geom: HalfGeometry, new_geom:
 
 
 def remap_workspace_config(config: "WorkspaceConfig", half: int, old_geom: HalfGeometry, new_geom: HalfGeometry) -> "WorkspaceConfig":
-    """Re-anchor every position-based manual edit in a half's saved config, so a
-    heal stroke, dust spot, scratch line or dodge/burn mask stays on the same
-    physical film location after that half's crop/split changes.
-
-    ``geometry.crop_rect`` is cleared instead: unlike these, it lives in
-    transformed-image space (after rotation/flip/keystone/distortion), not raw
-    space, so the same point-remap does not apply to it, and a rect drawn
-    against the old half's frame boundary has no correct position in the new
-    one. Clearing (not remapping) leaves an auto-detected crop armed to
-    re-detect against the new boundary, and drops a manual one back to none —
-    either beats silently keeping a crop that no longer lines up with the frame.
-    """
+    """Re-anchor every position-based manual edit in a half's saved config (heal, dust, scratch, dodge/burn) to the same
+    film location after the half's crop/split changes. ``geometry.crop_rect`` and ``process.analysis_rect`` live in
+    transformed-image space and have no place on the new boundary, so they are cleared: an auto crop re-detects, a manual one drops."""
     if old_geom == new_geom:
         return config
 
@@ -279,6 +283,8 @@ def remap_workspace_config(config: "WorkspaceConfig", half: int, old_geom: HalfG
     heal_strokes = [stroke(*s) for s in retouch.manual_heal_strokes]
     dust_spots = [(*pt((x, y)), size) for (x, y, size) in retouch.manual_dust_spots]
     scratch_lines = [(*pt((x0, y0)), *pt((x1, y1)), width) for (x0, y0, x1, y1, width) in retouch.scratch_lines]
+    clone_strokes = [(*stroke(*c[:4]), *c[4:]) for c in retouch.clone_strokes]
+    exclusions = [([pt(p) for p in points], size, *rest) for points, size, *rest in retouch.dust_exclusion_strokes]
     masks = tuple(replace(m, vertices=tuple(tuple(pt(v)) for v in m.vertices)) for m in config.local.masks)
 
     geometry = config.geometry
@@ -289,9 +295,12 @@ def remap_workspace_config(config: "WorkspaceConfig", half: int, old_geom: HalfG
             manual_heal_strokes=heal_strokes,
             manual_dust_spots=dust_spots,
             scratch_lines=scratch_lines,
+            clone_strokes=clone_strokes,
+            dust_exclusion_strokes=exclusions,
         ),
         local=replace(config.local, masks=masks),
         geometry=replace(geometry, crop_rect=None) if geometry.crop_rect is not None else geometry,
+        process=replace(config.process, analysis_rect=None) if config.process.analysis_rect is not None else config.process,
     )
 
 

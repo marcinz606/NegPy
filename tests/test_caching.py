@@ -36,3 +36,12 @@ def test_pipeline_cache_clear() -> None:
     assert cache.source_hash == ""
     assert cache.base is None
     assert cache.exposure is None
+
+
+def test_config_hash_tells_minus_one_from_minus_two():
+    """hash(-1.0) == hash(-2.0): a slider moving between them must not reuse the stage."""
+    from negpy.features.geometry.models import GeometryConfig
+    from negpy.kernel.caching.logic import calculate_config_hash
+
+    assert calculate_config_hash((-1.0,)) != calculate_config_hash((-2.0,))
+    assert calculate_config_hash(GeometryConfig(fine_rotation=-1.0)) != calculate_config_hash(GeometryConfig(fine_rotation=-2.0))

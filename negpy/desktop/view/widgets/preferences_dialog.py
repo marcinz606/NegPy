@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, fields
 
 import qtawesome as qta
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.styles.color_vision import PALETTES
 from negpy.desktop.view.styles.templates import default_button_height, field_label, hint_label, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
@@ -173,6 +175,7 @@ class PreferencesDialog(QDialog):
 
         for title, builder in (
             ("Interface", self._build_interface),
+            ("Accessibility", self._build_accessibility),
             ("Performance", self._build_performance),
             ("Session & Storage", self._build_storage),
         ):
@@ -270,6 +273,35 @@ class PreferencesDialog(QDialog):
             )
         )
         grid.addLayout(interface_row, row, 0, 1, 2)
+        return host
+
+    def _build_accessibility(self) -> QWidget:
+        host, grid = self._grid()
+        grid.addWidget(field_label("Color vision"), 0, 0)
+        self.vision_combo = QComboBox()
+        for palette in PALETTES:
+            swatch = QPixmap(16, 16)
+            painter = QPainter(swatch)
+            for x, y, color in zip((0, 8, 0, 8), (0, 0, 8, 8), (*palette.pair, *palette.dodge_burn)):
+                painter.fillRect(x, y, 8, 8, QColor(color))
+            painter.setPen(QColor(THEME.border_color))
+            painter.drawRect(0, 0, 15, 15)
+            painter.end()
+            self.vision_combo.addItem(QIcon(swatch), palette.label, palette.key)
+        self.vision_combo.setCurrentIndex(max(self.vision_combo.findData(self.session.state.color_vision), 0))
+        self.vision_combo.setToolTip("Marks told apart by color alone use colors this vision keeps")
+        self.vision_combo.currentIndexChanged.connect(lambda i: self.session.set_color_vision(self.vision_combo.itemData(i)))
+        grid.addWidget(self.vision_combo, 0, 1)
+        grid.addWidget(
+            hint_label(
+                "Sets the colors of the Retouch dust overlay, the Dodge & Burn masks and Printing Notes. "
+                "The color-blind choices use the Okabe–Ito palette."
+            ),
+            1,
+            0,
+            1,
+            2,
+        )
         return host
 
     def _build_performance(self) -> QWidget:

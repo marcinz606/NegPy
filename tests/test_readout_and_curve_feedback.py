@@ -25,6 +25,35 @@ def test_histogram_marker_set_clear_and_paint() -> None:
     widget.grab()
 
 
+def test_print_histogram_shares_the_bottom_band() -> None:
+    """A mid-gray spike lands in the density histogram's band at mid-plot, not across the chart."""
+    from PyQt6.QtGui import QColor
+
+    widget = PhotometricCurveWidget()
+    widget.resize(200, 120)
+    widget.update_curve(ExposureConfig())
+    before = widget.grab().toImage()
+
+    bins = np.zeros((4, 256))
+    bins[3, 128] = 1000.0
+    bins[3, 0] = bins[3, 255] = 1.0
+    widget.set_output_histogram(bins)
+    after = widget.grab().toImage()
+
+    changed = [
+        (x, y)
+        for y in range(after.height())
+        for x in range(after.width())
+        if QColor(after.pixel(x, y)).rgb() != QColor(before.pixel(x, y)).rgb()
+    ]
+    assert changed
+    h = widget.height()
+    assert min(y for _, y in changed) >= h - widget._DENSITY_HIST_FRAC * h - 2
+    peak_y = min(y for _, y in changed)
+    mid_x = widget._wx(128.5 / 256, widget.width())
+    assert any(abs(x - mid_x) <= 2 for x, y in changed if y == peak_y)
+
+
 def test_channel_density_toggle_selects_the_row_count() -> None:
     from negpy.features.exposure.analysis import DENSITY_HIST_BINS
 

@@ -956,7 +956,7 @@ class PreviewManager:
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
                 )
-            parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
+            parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield, orientation=part_meta.get("orientation", 1)))
             irs.append(part_meta.get("ir_preview"))
             if i == 0:
                 meta = dict(part_meta)

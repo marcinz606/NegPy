@@ -73,7 +73,7 @@ def test_resolved_rect_excludes_crop_offset():
     img = _frame_image(1200, 1800)
     _, plain = _resolve_armed_autocrop(img, _armed())
     _, offset = _resolve_armed_autocrop(img, _armed(autocrop_offset=25))
-    assert plain[0] == offset[0]
+    assert plain.rect == offset.rect
 
 
 def test_offset_change_keeps_the_detected_rect():
@@ -120,3 +120,16 @@ def test_detection_key_ignores_offset_only():
 
 def test_resolve_returns_none_on_a_degenerate_buffer():
     assert resolve_autocrop_rect(np.zeros((1, 1, 3), dtype=np.float32), GeometryConfig(), 1600) is None
+
+
+def test_auto_crop_detects_on_the_distorted_frame():
+    """The render applies Distortion before the crop; detection must see the same frame."""
+    from negpy.features.geometry.logic import apply_radial_distortion
+
+    img = _frame_image(1200, 1800)
+    k1 = 0.2
+    rect = resolve_autocrop_rect(img, GeometryConfig(distortion_k1=k1, autocrop_ratio="Free"), 1200.0)
+    expected = resolve_autocrop_rect(apply_radial_distortion(img, k1), GeometryConfig(autocrop_ratio="Free"), 1200.0)
+    assert rect == expected
+    assert autocrop_detection_key(GeometryConfig(distortion_k1=k1)) != autocrop_detection_key(GeometryConfig())
+    assert autocrop_detection_key(GeometryConfig()) == autocrop_detection_key(GeometryConfig(distortion_k1=0.0))

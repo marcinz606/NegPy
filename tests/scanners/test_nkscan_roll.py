@@ -84,18 +84,6 @@ def test_a_mechanism_that_takes_no_thumbnail_scans_each_frame_instead() -> None:
     assert all(s["samples"] == 1 and not s["infrared"] and not s["clean"] for s in module.opened[-1].scans)
 
 
-def test_a_frame_past_the_end_of_the_strip_pass_is_scanned_instead() -> None:
-    """An offset can walk a rect off the pass; the film is still reachable by scanning it."""
-    session, module, _ = _roll()
-    _previews(session, (3,))
-    assert module.opened[-1].scans == []
-
-    session.set_offset(3, 1.0)
-    preview = _previews(session, (3,))[0]
-    assert preview.error is None and preview.rgb is not None
-    assert len(module.opened[-1].scans) == 1
-
-
 def test_the_film_format_reaches_the_measurement() -> None:
     backend, module = make_backend()
     device = backend.list_devices()[0]
@@ -147,7 +135,7 @@ def test_an_absolute_rect_can_be_re_addressed_backwards() -> None:
 def test_an_offset_beyond_the_range_is_clamped() -> None:
     session, _module, _ = _roll()
     session.set_offset(1, 4.0)
-    assert _previews(session, (1,))[0].offset == 1.0
+    assert _previews(session, (1,))[0].offset < 1.0
 
 
 # ── failure and cancellation ──────────────────────────────────────────────
@@ -188,11 +176,11 @@ def test_a_pre_set_cancel_never_touches_the_unit() -> None:
 # ── lifetime ──────────────────────────────────────────────────────────────
 
 
-def test_close_releases_the_unit_and_is_idempotent() -> None:
+def test_close_keeps_the_unit_open_and_is_idempotent() -> None:
     session, module, _ = _roll()
     session.close()
     session.close()
-    assert module.opened[-1].closed
+    assert not module.opened[-1].closed
 
 
 def test_a_closed_strip_refuses_a_preview() -> None:
@@ -234,7 +222,7 @@ def test_ejecting_forgets_the_strip_pass_because_that_film_is_gone() -> None:
 
 
 def test_a_tile_is_cut_at_the_address_the_scan_will_use() -> None:
-    """The tile uses the column pitch the pass measured, not optical over thumbnail dpi."""
+    """The tile uses the column addresses the pass reports, not optical over thumbnail dpi."""
     backend, module = make_backend()
     device = backend.list_devices()[0]
     session = backend.open_roll(device, dpi=500)
@@ -243,12 +231,112 @@ def test_a_tile_is_cut_at_the_address_the_scan_will_use() -> None:
     finally:
         session.close()
 
-    scale = module.addresses_per_column
+    columns = backend.column_addresses(device.id)
     strip = backend.strip_pass(device.id)
-    assert strip is not None
+    assert strip is not None and columns is not None
     for preview, (slot, rect) in zip(previews, enumerate(module.frames, 1)):
-        expected = strip[:, round(rect[0] / scale) : round(rect[2] / scale)]
+        expected = strip[:, np.searchsorted(columns, rect[0]) : np.searchsorted(columns, rect[2])]
         assert preview.rgb.shape[1] == expected.shape[1]
         # Every band carries its own slot, so a tile cut at the wrong column opens on the gap.
         assert set(np.unique(preview.rgb[:, 0])) == {slot}
         assert set(np.unique(preview.rgb)) <= {0, slot}
+
+
+def test_a_tile_is_cut_from_unevenly_spaced_columns() -> None:
+    """A unit that counts perforations resamples its pass, so its columns are not evenly spaced."""
+    from negpy.infrastructure.scanners.nkscan_roll import slice_frame
+
+    columns = np.array([0, 40, 82, 121, 168, 205, 250, 290])
+    strip = np.arange(len(columns))[None, :, None].repeat(2, axis=0)
+
+    tile = slice_frame(strip, (82, 0, 205, 10), columns)
+
+    assert tile is not None
+    assert list(tile[0, :, 0]) == [2, 3, 4]
+
+
+def test_a_rect_past_the_strip_pass_stops_at_its_last_column() -> None:
+    from negpy.infrastructure.scanners.nkscan_roll import slice_frame
+
+    columns = np.array([0, 40, 82, 121])
+    strip = np.arange(len(columns))[None, :, None].repeat(2, axis=0)
+
+    tile = slice_frame(strip, (82, 0, 400, 10), columns)
+
+    assert tile is not None and list(tile[0, :, 0]) == [2, 3]
+    assert slice_frame(strip, (82, 0, 121, 10), None) is None
+
+
+def test_a_frame_before_the_first_column_starts_at_the_first_column() -> None:
+    from negpy.infrastructure.scanners.nkscan_roll import slice_frame
+
+    columns = np.array([126, 168, 210, 252, 294])
+    strip = np.arange(len(columns))[None, :, None].repeat(2, axis=0)
+
+    tile = slice_frame(strip, (84, 0, 252, 10), columns)
+
+    assert tile is not None
+    assert list(tile[0, :, 0]) == [0, 1, 2]
+
+
+def test_a_re_cut_of_a_measured_strip_opens_no_unit() -> None:
+    """A nudge re-cuts from the strip pass, as Nikon Scan does; the unit is not touched."""
+    backend, module = make_backend()
+    device = backend.list_devices()[0]
+    first = backend.open_roll(device, dpi=500)
+    _previews(first)
+    first.close()
+    opened = len(module.opened)
+
+    again = backend.open_roll(device, dpi=500)
+    again.set_offset(2, 0.1)
+    previews = _previews(again, slots=(2,))
+    again.close()
+
+    assert previews[0].rgb is not None
+    assert len(module.opened) == opened
+
+
+def test_a_nudge_past_the_strip_pass_is_held_at_its_end_and_not_scanned() -> None:
+    backend, module = make_backend()
+    device = backend.list_devices()[0]
+    session = backend.open_roll(device, dpi=500)
+    _previews(session)
+
+    session.set_offset(3, 1.0)
+    (preview,) = _previews(session, slots=(3,))
+    session.close()
+
+    assert preview.rgb is not None
+    assert preview.offset < 1.0
+    assert all(not s.scans for s in module.opened)
+
+
+def test_the_strip_pass_reports_its_progress() -> None:
+    """The dialog shows the progress of the strip pass, which is the long part of a preview."""
+    session, _module, _ = _roll(progress_steps=0)
+    seen = []
+    list(session.preview((1,), cancel=threading.Event(), progress=lambda fraction, phase: seen.append(phase)))
+    session.close()
+    assert "Detecting frames" in seen
+
+
+def test_a_cut_moves_the_tile_without_the_unit() -> None:
+    """A nudge crops the strip pass again. The unit does nothing."""
+    session, module, _ = _roll()
+    first = _previews(session, slots=(2,))[0]
+    unit = module.opened[-1]
+    before = (len(unit.scans), len(unit.discoveries), unit.staged)
+
+    assert first.cut is not None
+    moved = first.cut(0.1)
+
+    assert moved is not None and moved.slot == 2 and moved.offset > 0
+    assert moved.rgb.shape == first.rgb.shape and not (moved.rgb == first.rgb).all()
+    assert (len(unit.scans), len(unit.discoveries), unit.staged) == before
+    assert moved.cut is not None
+
+
+def test_without_a_strip_pass_a_preview_has_no_cut() -> None:
+    session, _module, _ = _roll(thumbnail=False)
+    assert all(p.cut is None for p in _previews(session))

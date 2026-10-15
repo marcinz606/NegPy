@@ -1,7 +1,7 @@
 """RollSession for transports that scan one frame at a time."""
 
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 from negpy.infrastructure.scanners.base import ScannerBackend, ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
@@ -41,7 +41,9 @@ class PerFrameRollSession:
     def approve(self, slot: int) -> None:
         """No-op: a per-frame transport addresses frames directly, never infers a boundary."""
 
-    def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:
+    def preview(
+        self, slots: Iterable[int], *, cancel: threading.Event, progress: Callable[..., None] | None = None
+    ) -> Iterator[RollPreview]:
         # A device with no adapter (Plustek: single manual holder, no SANE `frame`
         # option) has one implicit "current position" — requesting frame=1 on it
         # fails loud (see sane_backend._require_writable_option). slot_count is 1
@@ -62,7 +64,7 @@ class PerFrameRollSession:
                 frame=slot if has_adapter else None,
             )
             try:
-                result = self._backend.scan(self._device.id, params, lambda _fraction, _phase="": None, cancel)
+                result = self._backend.scan(self._device.id, params, progress or (lambda _fraction, _phase="": None), cancel)
             except Exception as error:
                 if cancel.is_set():
                     return

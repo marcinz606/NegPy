@@ -49,6 +49,9 @@ class ExposureConfig:
     contrast_mask: float = 0.0
     # The mask's spacer: the scale above which tones are masked. [2.0, 6.0] %.
     mask_spacer: float = 4.0
+    # A diffuser under the enlarger lens: the paper sees the light mixed with a blurred copy,
+    # so shadows bleed into highlights. [0, 1]; 0 = off; fixed spread (DIFFUSION_SPREAD).
+    diffusion: float = 0.0
     # Split grade: zone contrast in ISO-R points (negative = harder), global
     # value + per-layer trims like Grade.
     shadow_grade: float = 0.0
@@ -192,12 +195,21 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Pass-1 chroma ceiling: admits strong correctable casts, rejects saturated content.
     "neutral_axis_first_pass_cap": 0.55,
     "neutral_axis_min_pixels": 64,
+    # Foliage sector: cells whose offset from the stretched neutral exceeds this chroma at a
+    # hue in this range never enter a near-neutral set. Hue is atan2(-s, t) in degrees, with
+    # t = (dR + dB) / 2 and s = (dR - dB) / 2 the offsets from green: 0 is green, 45 yellow.
+    "neutral_axis_foliage_chroma": 0.03,
+    "neutral_axis_foliage_hue": (-25.0, 80.0),
     # Confidence sample-size half-point: the size term is n / (n + this).
     "neutral_axis_confidence_n0": 256,
     # Mid/shadow deviation-difference dead zone (a plausible crossover passes free)
     # and the roll-off width of the confidence agreement term beyond it.
     "neutral_axis_agreement_deadzone": 0.10,
     "neutral_axis_agreement_scale": 0.20,
+    # Interdecile width of a near-neutral set's R-G and B-G offsets: a wide set holds colored
+    # content beside its grays, so confidence rolls off past the dead zone over the scale.
+    "neutral_axis_width_deadzone": 0.15,
+    "neutral_axis_width_scale": 0.30,
     # Width (percentile points) of the luma-extreme band the same-pixel color
     # floor refs read; Color Clip sets the band's depth.
     "color_bounds_band_width": 4.0,
@@ -254,6 +266,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "highlight_hold_percentile": 2.0,
     "highlight_hold_density": 0.10,
     "highlight_hold_max": 0.5,
+    # Auto Grade shadow hold: a partial shadow lift (never a burn) on Shadow Reach's tail past
+    # its line plus the overshoot, capped at shadow_hold_max. 0 = off.
+    "shadow_hold_strength": 0.40,
+    "shadow_hold_overshoot": 0.15,
+    "shadow_hold_max": 0.3,
     # Preflash threshold: the density above paper white that the ISO R range starts at.
     "preflash_threshold_density": 0.04,
     # Flat / digital-intermediate master (RenderIntent.FLAT). A log-video master:
@@ -290,6 +307,7 @@ TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
     "auto_grade_strength": (0.0, 1.0),
     "shadow_reach_density": (1.4, 2.2),
     "highlight_hold_density": (0.0, 0.4),
+    "shadow_hold_strength": (0.0, 1.0),
 }
 DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
 

@@ -97,11 +97,12 @@
         });
       };
 
-      # nixpkgs' pname is "wgpu-py" but upstream's pyproject.toml declares
+      # Older nixpkgs packages this as "wgpu-py" (newer renamed it to "wgpu"),
+      # while upstream's pyproject.toml declares
       # name = "wgpu", so pythonMetadataCheckPhase can't find dist-info under
       # "wgpu-py" and fails the build. Skip that check.
       wgpu = hacks.nixpkgsPrebuilt {
-        from = python3Packages.wgpu-py.overrideAttrs {dontCheckPythonMetadata = true;};
+        from = (python3Packages.wgpu-py or python3Packages.wgpu).overrideAttrs {dontCheckPythonMetadata = true;};
         prev = prev.wgpu;
       };
     };
@@ -121,10 +122,13 @@
           (old.postInstall or "")
           + ''
             site_packages="$out/${python.sitePackages}"
-            cp -r icc media crosstalk gear "$site_packages/"
-            cp -r negpy/features "$site_packages/negpy/"
-            cp -r negpy/desktop/view/styles "$site_packages/negpy/desktop/view/"
-            cp VERSION "$site_packages/"
+            # An editable install has no package tree here and reads these from the repo.
+            if [ -d "$site_packages/negpy" ]; then
+              cp -r icc media crosstalk gear "$site_packages/"
+              cp -r negpy/features "$site_packages/negpy/"
+              cp -r negpy/desktop/view/styles "$site_packages/negpy/desktop/view/"
+              cp VERSION "$site_packages/"
+            fi
           '';
       });
     };
@@ -264,6 +268,8 @@
               pkgs.vulkan-loader
               pkgs.libGL
             ];
+            # Replaces the host's path: plugins from a different Qt build abort QApplication.
+            QT_PLUGIN_PATH = "${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}";
           };
           shellHook = ''
             unset PYTHONPATH

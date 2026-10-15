@@ -6,7 +6,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
-from negpy.kernel.image.logic import get_luminance, working_oetf_encode
+from negpy.kernel.image.logic import get_luminance, rgb_to_lab_working, working_oetf_decode, working_oetf_encode
 
 # Mirrored by the chart's x-range (PhotometricCurveWidget._X_MIN/_X_MAX) and the WGSL
 # literals in shaders/density_hist.wgsl. Keep them in lock step.
@@ -20,6 +20,21 @@ OUTPUT_HIST_BINS = 256
 # in color_hist.wgsl. A color is in or out of gamut as a triple rather than per channel,
 # which is what the marginal RGBL histogram cannot answer.
 COLOR_HIST_BINS = 32
+
+# Waveform: print luma per image column, (bins, cols) with row 0 = black. waveform.wgsl mirrors this.
+WAVEFORM_COLS = 256
+WAVEFORM_BINS = 128
+# Per-cell R, G, B sums are fixed point (u32 atomics on the GPU): encoded value x this scale.
+WAVEFORM_COLOR_SCALE = 1023
+
+# Vectorscope: CIELAB a*b* in hue x log-chroma bins, so linear and log displays read one
+# histogram; the last chroma bin holds all past SCOPE_MAX_CHROMA. vectorscope.wgsl mirrors this.
+SCOPE_HUE_BINS = 180
+SCOPE_CHROMA_BINS = 64
+SCOPE_MAX_CHROMA = 60.0
+SCOPE_LOG_KNEE = 4.0  # chroma where the log axis turns from linear to compressed
+# The scope reads a distribution, so the CPU twin bins a strided sample.
+_SCOPE_MAX_SAMPLES = 262_144
 
 # Full-res exports run through the same normalization stage, so cap the cost.
 _MAX_HIST_SAMPLES = 2_000_000
@@ -37,6 +52,15 @@ def output_histogram(buffer: Any) -> Optional[np.ndarray]:
     step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _MAX_HIST_SAMPLES)))
     if step > 1:
         buffer = buffer[::step, ::step]
+    if buffer.dtype == np.uint8:
+        # An 8-bit frame (the camera live view) bins by value: the same bins as the float
+        # path's floor(v / 255 * 256).
+        rows = [np.bincount(buffer[..., c].ravel(), minlength=OUTPUT_HIST_BINS) for c in range(3)]
+        lum = get_luminance(np.ascontiguousarray(buffer.astype(np.float32) / 255.0))
+        rows.append(
+            np.bincount(np.minimum((lum * OUTPUT_HIST_BINS).astype(np.int64), OUTPUT_HIST_BINS - 1).ravel(), minlength=OUTPUT_HIST_BINS)
+        )
+        return np.stack(rows).astype(float)
     buffer = np.ascontiguousarray(buffer.astype(np.float32, copy=False))
     lum = get_luminance(buffer)
     rows = [np.histogram(buffer[..., c], bins=OUTPUT_HIST_BINS, range=(0, 1))[0] for c in range(3)]
@@ -80,6 +104,129 @@ def gamut_fraction(color_hist: Any, out_of_gamut: Any) -> Optional[float]:
     return float(hist[mask].sum() / total) if total > 0 else None
 
 
+def _waveform_cells(buffer: Any) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """(sampled H×W×3 float32 buffer, flat bin * WAVEFORM_COLS + col index per pixel)."""
+    if buffer is None:
+        return None
+    buffer = np.asarray(buffer)
+    if buffer.ndim != 3 or buffer.shape[-1] < 3 or min(buffer.shape[:2]) < 1:
+        return None
+    step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _MAX_HIST_SAMPLES)))
+    if step > 1:
+        buffer = buffer[::step, ::step]
+    rgb = np.ascontiguousarray(buffer[..., :3], dtype=np.float32)
+    lum = get_luminance(rgb)
+    w = lum.shape[1]
+    cols = np.minimum(np.arange(w) * WAVEFORM_COLS // w, WAVEFORM_COLS - 1)
+    bins = np.clip((np.nan_to_num(lum) * WAVEFORM_BINS).astype(np.int32), 0, WAVEFORM_BINS - 1)
+    return rgb, (bins * WAVEFORM_COLS + cols[None, :]).ravel()
+
+
+def waveform(buffer: Any) -> Optional[np.ndarray]:
+    """(WAVEFORM_BINS, WAVEFORM_COLS) luma counts per image column of an H×W×3 encoded
+    buffer. CPU counterpart of waveform.wgsl."""
+    cells = _waveform_cells(buffer)
+    if cells is None:
+        return None
+    return np.bincount(cells[1], minlength=WAVEFORM_BINS * WAVEFORM_COLS).reshape(WAVEFORM_BINS, WAVEFORM_COLS).astype(float)
+
+
+def waveform_color(buffer: Any) -> Optional[np.ndarray]:
+    """(3, WAVEFORM_BINS, WAVEFORM_COLS) fixed-point sums of the encoded R, G, B in each
+    waveform cell. CPU counterpart of the sums in waveform.wgsl."""
+    cells = _waveform_cells(buffer)
+    if cells is None:
+        return None
+    rgb, flat = cells
+    fixed = np.round(np.clip(np.nan_to_num(rgb.reshape(-1, 3)), 0.0, 1.0) * WAVEFORM_COLOR_SCALE)
+    sums = [np.bincount(flat, weights=fixed[:, c], minlength=WAVEFORM_BINS * WAVEFORM_COLS) for c in range(3)]
+    return np.stack(sums).reshape(3, WAVEFORM_BINS, WAVEFORM_COLS)
+
+
+def scope_radius(chroma: Any, log: bool) -> Any:
+    """Chroma -> 0..1 of the scope's radius (unclipped)."""
+    c = np.asarray(chroma, dtype=np.float64)
+    if log:
+        return np.log1p(c / SCOPE_LOG_KNEE) / np.log1p(SCOPE_MAX_CHROMA / SCOPE_LOG_KNEE)
+    return c / SCOPE_MAX_CHROMA
+
+
+def scope_chroma(radius: Any, log: bool) -> Any:
+    """Exact inverse of scope_radius."""
+    r = np.asarray(radius, dtype=np.float64)
+    if log:
+        return np.expm1(r * np.log1p(SCOPE_MAX_CHROMA / SCOPE_LOG_KNEE)) * SCOPE_LOG_KNEE
+    return r * SCOPE_MAX_CHROMA
+
+
+def _scope_bins(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    hue = np.floor((np.arctan2(b, a) + np.pi) / (2 * np.pi) * SCOPE_HUE_BINS).astype(np.int64) % SCOPE_HUE_BINS
+    radius = scope_radius(np.hypot(a, b), log=True)
+    chroma = np.clip(np.floor(radius * SCOPE_CHROMA_BINS), 0, SCOPE_CHROMA_BINS - 1).astype(np.int64)
+    return hue * SCOPE_CHROMA_BINS + chroma
+
+
+def vectorscope_histogram(buffer: Any) -> Optional[np.ndarray]:
+    """(SCOPE_HUE_BINS, SCOPE_CHROMA_BINS) a*b* counts of an H×W×3 encoded buffer. CPU
+    counterpart of vectorscope.wgsl."""
+    if buffer is None:
+        return None
+    buffer = np.asarray(buffer)
+    if buffer.ndim != 3 or buffer.shape[-1] < 3 or min(buffer.shape[:2]) < 1:
+        return None
+    step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _SCOPE_MAX_SAMPLES)))
+    if step > 1:
+        buffer = buffer[::step, ::step]
+    encoded = np.clip(np.nan_to_num(np.asarray(buffer[..., :3], dtype=np.float32)), 0.0, 1.0)
+    lab = rgb_to_lab_working(np.asarray(working_oetf_decode(encoded)))
+    flat = _scope_bins(lab[..., 1].ravel().astype(np.float64), lab[..., 2].ravel().astype(np.float64))
+    counts = np.bincount(flat, minlength=SCOPE_HUE_BINS * SCOPE_CHROMA_BINS)
+    return counts.reshape(SCOPE_HUE_BINS, SCOPE_CHROMA_BINS).astype(float)
+
+
+def scope_point(rgb: Sequence[float]) -> Tuple[float, float, float]:
+    """(luma, a*, b*) of one display-encoded pixel: where it lands on the waveform and the vectorscope."""
+    encoded = np.clip(np.asarray([rgb], dtype=np.float32), 0.0, 1.0)
+    luma = float(get_luminance(encoded)[0])
+    lab = rgb_to_lab_working(np.asarray(working_oetf_decode(encoded)))[0]
+    return luma, float(lab[1]), float(lab[2])
+
+
+@lru_cache(maxsize=4)
+def _scope_lookup(size: int, log: bool) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Polar bin of each display pixel (-1 outside the disc), each bin's pixel count, and for
+    the bins no pixel samples (near neutral, finer than a pixel) the flat pixel they fold into."""
+    u = (np.arange(size) + 0.5) / size * 2.0 - 1.0
+    x, y = np.meshgrid(u, u[::-1])
+    radius = np.hypot(x, y)
+    chroma = scope_chroma(np.minimum(radius, 1.0), log)
+    hue = np.arctan2(y, x)
+    idx = _scope_bins(chroma * np.cos(hue), chroma * np.sin(hue))
+    idx[radius > 1.0] = -1
+    area = np.bincount(idx[idx >= 0], minlength=SCOPE_HUE_BINS * SCOPE_CHROMA_BINS).astype(float)
+
+    orphans = np.flatnonzero(area == 0)
+    centre_hue = ((orphans // SCOPE_CHROMA_BINS) + 0.5) / SCOPE_HUE_BINS * 2 * np.pi - np.pi
+    centre_c = scope_chroma(((orphans % SCOPE_CHROMA_BINS) + 0.5) / SCOPE_CHROMA_BINS, log=True)
+    r = np.minimum(scope_radius(centre_c, log), 1.0)
+    col = np.clip(((r * np.cos(centre_hue) + 1.0) / 2.0 * size).astype(np.int64), 0, size - 1)
+    row = np.clip(((1.0 - r * np.sin(centre_hue)) / 2.0 * size).astype(np.int64), 0, size - 1)
+    return idx, area, orphans, row * size + col
+
+
+def vectorscope_density(counts: Any, size: int, log: bool) -> np.ndarray:
+    """(size, size) pixels per display pixel, +a right and +b up. Each polar bin's count is
+    spread over the display pixels it covers, so a bin's on-screen area does not change its brightness."""
+    idx, area, orphans, orphan_px = _scope_lookup(size, log)
+    flat = np.asarray(counts, dtype=float).ravel()
+    out = np.zeros(idx.shape)
+    inside = idx >= 0
+    picked = idx[inside]
+    out[inside] = flat[picked] / np.maximum(area[picked], 1.0)
+    np.add.at(out.reshape(-1), orphan_px, flat[orphans])
+    return out
+
+
 def output_clip_fractions(bins: np.ndarray) -> Tuple[float, float]:
     """Worst-channel share of the black / white bin (shadow, highlight clipping)."""
     bins = np.asarray(bins, dtype=float)
@@ -117,23 +264,45 @@ def encoded_of_zone(zone: float) -> float:
 
 
 def zone_occupancy(l_bins: np.ndarray) -> np.ndarray:
-    """Fold display-encoded luma histogram bins into ZONE_COUNT occupancy fractions."""
+    """Fold display-encoded luma histogram bins into the share of each zone 0..X, rounded to the
+    nearest zone as zone_field rounds, so the strip and the Zone Overlay count alike."""
     l_bins = np.asarray(l_bins, dtype=float)
-    out = np.zeros(ZONE_COUNT)
+    out = np.zeros(ZONE_COUNT + 1)
     total = float(l_bins.sum())
     if total <= 0.0:
         return out
     centers = (np.arange(l_bins.size) + 0.5) / l_bins.size
-    cells = np.minimum(np.asarray(zone_of_encoded(centers)).astype(int), ZONE_COUNT - 1)
+    cells = np.clip(np.rint(np.asarray(zone_of_encoded(centers))), 0, ZONE_COUNT).astype(int)
     np.add.at(out, cells, l_bins)
     return out / total
 
 
 def zone_warnings(occ: np.ndarray) -> Tuple[bool, bool]:
-    """(shadow, highlight): a texture zone pair is empty while its extreme holds mass."""
+    """(shadow, highlight): a texture zone pair is empty while its extreme pair holds mass."""
     shadow = float(occ[2] + occ[3]) < ZONE_EMPTY and float(occ[0] + occ[1]) > ZONE_LOADED
-    highlight = float(occ[7] + occ[8]) < ZONE_EMPTY and float(occ[9]) > ZONE_LOADED
+    highlight = float(occ[7] + occ[8]) < ZONE_EMPTY and float(occ[9] + occ[10]) > ZONE_LOADED
     return shadow, highlight
+
+
+MASK_MAX_EDGE = 1024  # canvas masks are drawn scaled to the view, so finer adds nothing
+
+
+def _mask_preview(rgb: Any, max_edge: int) -> Optional[np.ndarray]:
+    rgb = np.asarray(rgb)
+    if rgb.ndim != 3 or rgb.shape[-1] < 3 or min(rgb.shape[:2]) < 1:
+        return None
+    step = max(1, -(-max(rgb.shape[:2]) // max_edge))
+    return np.ascontiguousarray(rgb[::step, ::step, :3], dtype=np.float32)
+
+
+def clip_masks(rgb: Any, max_edge: int = MASK_MAX_EDGE) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """(shadow, highlight): pixels with any channel in the output histogram's black or white
+    bin, the bins the Clipping row and the chart's clip marks count."""
+    small = _mask_preview(rgb, max_edge)
+    if small is None:
+        return None
+    edge = 1.0 / OUTPUT_HIST_BINS
+    return np.any(small < edge, axis=-1), np.any(small >= 1.0 - edge, axis=-1)
 
 
 ZONE_GRID_CELLS = 24  # cells along the frame's long edge
@@ -175,6 +344,53 @@ def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
             cx, cy = centroids[i]
             j = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
             out.append((int(xs[j]), int(ys[j]), int(zone)))
+    return out
+
+
+ZONE_FIELD_MAX_EDGE = 768  # drawn scaled to the view; finer only sharpens grain
+
+
+def zone_field(rgb: Any, max_edge: int = ZONE_FIELD_MAX_EDGE) -> Optional[np.ndarray]:
+    """Integer Adams zone (0..10) per pixel of a display-encoded H×W×3 frame, at most
+    `max_edge` on the long side; None if the frame isn't one. Smoothed first, so grain
+    does not split one tone into speckled zones."""
+    rgb = np.asarray(rgb)
+    if rgb.ndim != 3 or rgb.shape[-1] < 3 or min(rgb.shape[:2]) < 2:
+        return None
+    h, w = rgb.shape[:2]
+    # Slice first: INTER_AREA straight off a full-res HQ buffer is slow.
+    step = max(1, max(h, w) // (2 * max_edge))
+    small = np.ascontiguousarray(rgb[::step, ::step, :3], dtype=np.float32)
+    scale = min(1.0, max_edge / max(small.shape[:2]))
+    sh, sw = small.shape[:2]
+    lum = get_luminance(cv2.resize(small, (max(1, round(sw * scale)), max(1, round(sh * scale))), interpolation=cv2.INTER_AREA))
+    lum = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), 2.0)
+    zones = np.clip(np.rint(np.nan_to_num(zone_of_encoded(lum))), 0, ZONE_COUNT).astype(np.uint8)
+    return cv2.medianBlur(zones, 5)
+
+
+def zone_shares(zones: np.ndarray) -> np.ndarray:
+    """Fraction of the frame in each zone 0..10."""
+    return np.bincount(zones.ravel(), minlength=ZONE_COUNT + 1)[: ZONE_COUNT + 1] / max(1, zones.size)
+
+
+def zone_anchors(zones: np.ndarray, min_share: float = 0.01) -> List[Tuple[int, int, int, float]]:
+    """(x, y, zone, inset) per region holding at least `min_share` of the frame, at its most
+    interior pixel; `inset` is that pixel's distance to the region's edge. The frame edge
+    counts as an edge, so a numeral never sits half off the picture."""
+    out: List[Tuple[int, int, int, float]] = []
+    min_area = min_share * zones.size
+    for zone in np.unique(zones):
+        count, comp, stats, _ = cv2.connectedComponentsWithStats((zones == zone).astype(np.uint8), connectivity=4)
+        for i in range(1, count):  # 0 is the background (everything not this zone)
+            if stats[i, cv2.CC_STAT_AREA] < min_area:
+                continue
+            mask = (comp == i).astype(np.uint8)
+            mask[0, :] = mask[-1, :] = 0
+            mask[:, 0] = mask[:, -1] = 0
+            dist = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+            y, x = np.unravel_index(int(np.argmax(dist)), dist.shape)
+            out.append((int(x), int(y), int(zone), float(dist[y, x])))
     return out
 
 

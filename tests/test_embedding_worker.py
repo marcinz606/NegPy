@@ -101,9 +101,8 @@ def test_cancel_mid_batch_flips_is_cancelled_for_that_same_run():
     assert seen == [False, True]
 
 
-def test_generate_resets_cancel_for_the_next_batch():
-    """A cancel() left over from a batch that already finished does not leak into the
-    next one -- each generate() call starts fresh."""
+def test_arm_resets_cancel_for_the_next_batch():
+    """The controller arms the worker before each dispatch, so a stale cancel() does not reach the next batch."""
     vector = np.zeros(2, dtype=np.float32)
     seen = []
 
@@ -116,6 +115,7 @@ def test_generate_resets_cancel_for_the_next_batch():
     with patch("negpy.services.assets.embeddings.generate_batch_embeddings", side_effect=fake_batch):
         worker.generate([_file("h1")])
     worker.cancel()  # requested after that batch already finished -- stale by the next run
+    worker.arm()
 
     with patch("negpy.services.assets.embeddings.generate_batch_embeddings", side_effect=fake_batch):
         worker.generate([_file("h2")])

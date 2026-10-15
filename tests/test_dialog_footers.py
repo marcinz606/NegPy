@@ -17,7 +17,7 @@ def _dialog_sources() -> list[Path]:
 def test_every_dialog_with_buttons_pins_its_default():
     missing = []
     for path in _dialog_sources():
-        src = path.read_text()
+        src = path.read_text(encoding="utf-8")
         has_buttons = "QPushButton(" in src or "QDialogButtonBox(" in src
         pinned = "pin_dialog_default(" in src or "pin_button_box(" in src
         if has_buttons and not pinned:
@@ -29,7 +29,7 @@ def test_no_dialog_hand_rolls_the_primary_look():
     """The filled button is the [primary] QSS rule; a local accent stylesheet drifts from it."""
     offenders = []
     for path in _dialog_sources():
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             if "setStyleSheet(" in line and "accent_primary" in line and "background" in line:
                 offenders.append(f"{path.name}: {line.strip()[:80]}")
     assert not offenders, offenders

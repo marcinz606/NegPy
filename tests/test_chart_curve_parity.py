@@ -227,3 +227,15 @@ def test_preflash_curve_matches_the_kernel():
         kernel = -np.log10(np.maximum(np.asarray(out)[0, :, 1], 1e-9))
         curve = CharacteristicCurve(slope, pivot, preflash=preflash, grade=grade)
         np.testing.assert_allclose(kernel, np.asarray(curve(x)).ravel(), atol=1e-4)
+
+
+def test_print_curve_takes_the_papers_midtone_gamma():
+    """Zone tools and tone-limited masks read print_curve; the render uses the paper's own gamma."""
+    from negpy.features.exposure.logic import effective_midtone_gamma, print_curve
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    config = ExposureConfig(paper_profile="kodak_endura", midtone_gamma=0.1)
+    curve = print_curve(config, 2.0, 0.5, ProcessMode.C41)
+    paper = effective_paper_profile("kodak_endura", ProcessMode.C41)
+    assert curve.midtone_gamma == effective_midtone_gamma(paper, 0.1)
+    assert curve.midtone_gamma != effective_midtone_gamma(None, 0.1)

@@ -1,0 +1,11 @@
+name = "Kodak VISION3 200T 5213/7213 (approx)"
+type = "specsheet-based"
+
+# 3x3 row-major density unmixing matrix (out R/G/B × in R/G/B)
+# Derived analytically from spectral dye-density curves (datasheet H-1-5213,
+# D-mins subtracted), sampled at 650/550/450 nm per the crosstalk-from-datasheet skill.
+matrix = [
+  [ 1.0000, -0.0549, -0.0002 ],
+  [-0.1518,  1.0000, -0.0317 ],
+  [-0.0575, -0.0259,  1.0000 ],
+]

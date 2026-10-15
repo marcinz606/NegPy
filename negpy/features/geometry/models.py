@@ -1,6 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
+
+from negpy.features.process.models import invalidate_local_bounds
+
+if TYPE_CHECKING:
+    from negpy.domain.models import WorkspaceConfig
 
 
 # Valid fine_rotation span (degrees), shared by the sidebar slider and the crop
@@ -21,6 +26,7 @@ class AspectRatio(StrEnum):
     R_16_9 = "16:9"
     R_16_10 = "16:10"
     R_8_5_11 = "8.5:11"
+    R_ISO_A = "1:1.4142"
     # Reciprocal (portrait) mirrors of the ratios above. The crop tool's picker omits
     # them (CROP_RATIO_CHOICES) because it auto-orients a ratio to the current drag,
     # so both forms would show the same shape twice. They stay real members because
@@ -35,6 +41,7 @@ class AspectRatio(StrEnum):
     R_9_16 = "9:16"
     R_10_16 = "10:16"
     R_11_8_5 = "11:8.5"
+    R_ISO_A_LANDSCAPE = "1.4142:1"
 
 
 # Ratios offered in the crop tool's picker: one canonical entry per shape (the
@@ -51,6 +58,7 @@ CROP_RATIO_CHOICES: list[AspectRatio] = [
     AspectRatio.R_16_9,
     AspectRatio.R_16_10,
     AspectRatio.R_8_5_11,
+    AspectRatio.R_ISO_A,
 ]
 
 # Maps each portrait AspectRatio to its canonical entry in CROP_RATIO_CHOICES, so a
@@ -65,6 +73,7 @@ _PORTRAIT_TO_CANONICAL_CROP_RATIO: dict[str, str] = {
     AspectRatio.R_9_16: AspectRatio.R_16_9,
     AspectRatio.R_10_16: AspectRatio.R_16_10,
     AspectRatio.R_11_8_5: AspectRatio.R_8_5_11,
+    AspectRatio.R_ISO_A_LANDSCAPE: AspectRatio.R_ISO_A,
 }
 
 
@@ -126,6 +135,10 @@ class GeometryConfig:
     # Fraction of the detected rebate to cut: 0.0 = film edge, 1.0 = image edge, above
     # 1.0 bites into the picture. Image mode only.
     autocrop_rebate_trim: float = 1.0
+    # Square Before Crop: Auto Crop squares a freshly armed frame first (_resolve_armed_autocrop).
+    autocrop_square: bool = False
+    # This arm's squaring has run, found an angle or not; a new arm (with_auto_crop) clears it.
+    autocrop_squared: bool = False
 
     # One normalized rect in transformed-image space, auto or manual. `crop_from_auto`
     # doubles as Auto Crop's armed state:
@@ -153,3 +166,32 @@ class GeometryConfig:
             object.__setattr__(self, "autocrop_ratio", AspectRatio(self.autocrop_ratio))
         except ValueError:
             object.__setattr__(self, "autocrop_ratio", AspectRatio.FREE)
+
+
+def holds_own_skew(geometry: GeometryConfig) -> bool:
+    """The frame already has its own Fine Rotation, Tilt or Swing, set by hand, by the Auto
+    Skew button or by an earlier squaring: Auto Crop's squaring leaves it as it is."""
+    return geometry.fine_rotation != 0.0 or geometry.converge_v != 0.0 or geometry.converge_h != 0.0
+
+
+def squares_on_arm(geometry: GeometryConfig) -> bool:
+    """Square Before Crop squares this frame before its next crop detection: on, not yet run
+    for this arm, and no skew of the frame's own."""
+    return geometry.autocrop_square and not geometry.autocrop_squared and not holds_own_skew(geometry)
+
+
+def with_auto_crop(config: "WorkspaceConfig", on: bool) -> "WorkspaceConfig":
+    """*config* with Auto Crop on (armed) or off (uncropped). Every path that turns it on or
+    off goes through here: a rect kept across the switch would read as the other kind."""
+    geometry = replace(config.geometry, crop_rect=None, crop_from_auto=on, crop_detect_key="", autocrop_squared=False)
+    return replace(config, geometry=geometry, process=replace(config.process, **invalidate_local_bounds(config.process)))
+
+
+def with_auto_crop_field(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
+    """*config* with a `crop_from_auto` in *fields* applied through with_auto_crop when it
+    changes, popping it so the caller overlays only the rest."""
+    if "crop_from_auto" in fields:
+        on = bool(fields.pop("crop_from_auto"))
+        if on != config.geometry.crop_from_auto:
+            config = with_auto_crop(config, on)
+    return config

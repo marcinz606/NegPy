@@ -1,6 +1,6 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import Any, Dict, Optional, TYPE_CHECKING, Tuple
 
 import cv2
 import numpy as np
@@ -22,6 +22,9 @@ _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
 MASK_SPACER_DEFAULT = 4.0
 MASK_SPACER_MIN = 2.0
 MASK_SPACER_MAX = 6.0
+# Diffusion's blur sigma in per-cent of the printed frame's short side: one diffuser at the
+# lens, whose spread a printer does not vary between prints.
+DIFFUSION_SPREAD = 2.0
 
 
 @njit(cache=True, fastmath=True)
@@ -328,23 +331,33 @@ def _rms_chroma(triplets: np.ndarray) -> np.ndarray:
     return np.sqrt(((r - g) ** 2 + (g - b) ** 2 + (r - b) ** 2) / 3.0)
 
 
+def _foliage_cells(norm_f: np.ndarray) -> np.ndarray:
+    """Cells in the foliage sector. In a frame with no grays the lowest-chroma cells are
+    desaturated leaves, and neutralizing them prints magenta (a printer's subject failure)."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    dr = norm_f[:, 0] - norm_f[:, 1]
+    db = norm_f[:, 2] - norm_f[:, 1]
+    t, s = (dr + db) / 2.0, (dr - db) / 2.0
+    lo, hi = c["neutral_axis_foliage_hue"]
+    hue = np.degrees(np.arctan2(-s, t))
+    return (np.hypot(t, s) > float(c["neutral_axis_foliage_chroma"])) & (hue > float(lo)) & (hue < float(hi))
+
+
 def measure_neutral_axis_from_log(
     img_log: ImageBuffer,
     bounds: "LogNegativeBounds",
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
+    *,
+    exclude_foliage: bool = True,
 ) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]]:
-    """
-    Per-channel neutral axis: median raw-log density at a highlight, a midtone and a shadow
-    luma band, over each band's lowest-chroma pixels. Two passes: pass 1 selects through the
-    residual cast under a loose cap (a strong but correctable cast must not collapse the axis;
-    saturated content still fails it), then the affine R/B->G correction implied by its
-    mid+shadow refs re-ranks chroma so pass 2 selects true neutrals under the strict cap.
-    Returns (midtone, shadow, highlight, confidence) — highlight is None when that band has no
-    trustworthy neutral set (callers then fit a 2-point line); confidence in [0,1] combines the
-    grey sets' corrected tightness, the midtone sample size and mid<->shadow deviation agreement
-    (drives Auto Cast Removal). None overall when midtone or shadow is missing (shadow tie).
-    """
+    """Per-channel neutral axis: median raw-log density of the lowest-chroma pixels in a highlight, midtone and shadow band.
+    Pass 1 uses a loose cap so a strong but correctable cast keeps the axis; its mid+shadow correction re-ranks chroma for a
+    strict pass 2. Returns (midtone, shadow, highlight or None, confidence in [0, 1]); None without a midtone or shadow set.
+    `exclude_foliage` drops foliage-sector cells first. Only a per-channel stretch makes the window's neutral a gray, so a
+    caller metering against the slide's fixed window passes False."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     if roi:
@@ -360,6 +373,9 @@ def measure_neutral_axis_from_log(
     flat_log = img_log.reshape(-1, 3)
     norm_f = norm.reshape(-1, 3)
     luma_f = luma.reshape(-1)
+    if exclude_foliage:
+        keep = ~_foliage_cells(norm_f)
+        flat_log, norm_f, luma_f = flat_log[keep], norm_f[keep], luma_f[keep]
     chroma_f = _rms_chroma(norm_f)
 
     c = EXPOSURE_CONSTANTS
@@ -371,7 +387,7 @@ def measure_neutral_axis_from_log(
 
     def _band_refs(
         lo: float, hi: float, chroma_vals: np.ndarray, cap_val: float
-    ) -> Optional[Tuple[Tuple[float, float, float], float, int]]:
+    ) -> Optional[Tuple[Tuple[float, float, float], float, int, float]]:
         band = (luma_f >= lo) & (luma_f <= hi)
         if int(band.sum()) < min_px:
             return None
@@ -384,8 +400,13 @@ def measure_neutral_axis_from_log(
             return None
         # One gather for all three channels: the per-channel fancy index is the cost here.
         sel = flat_log[idx]
-        refs = (float(np.median(sel[:, 0])), float(np.median(sel[:, 1])), float(np.median(sel[:, 2])))
-        return (refs, near_neutral_chroma, int(idx.size))
+        # R and B are green plus the set's median offset from green. Independent channel
+        # medians can each fall in a different cluster of a set that holds two colors.
+        green = float(np.median(sel[:, 1]))
+        refs = (green + float(np.median(sel[:, 0] - sel[:, 1])), green, green + float(np.median(sel[:, 2] - sel[:, 1])))
+        offsets = (norm_f[idx][:, (0, 2)] - norm_f[idx][:, 1:2]).astype(np.float64)
+        p10, p90 = np.percentile(offsets, (10.0, 90.0), axis=0)
+        return (refs, near_neutral_chroma, int(idx.size), float(np.max(p90 - p10)))
 
     def _norm_ref(refs: Tuple[float, float, float]) -> Tuple[float, float, float]:
         out = []
@@ -432,7 +453,9 @@ def measure_neutral_axis_from_log(
     dm, ds = _norm_ref(mid[0]), _norm_ref(shadow[0])
     spread = max(abs((dm[ch] - dm[1]) - (ds[ch] - ds[1])) for ch in (0, 2))
     agree = 1.0 - min(max(spread - dead, 0.0) / scale, 1.0)
-    confidence = float(np.clip(tight * size_term * agree, 0.0, 1.0))
+    width = max(mid[3], shadow[3])
+    single = 1.0 - min(max(width - float(c["neutral_axis_width_deadzone"]), 0.0) / float(c["neutral_axis_width_scale"]), 1.0)
+    confidence = float(np.clip(tight * size_term * agree * single, 0.0, 1.0))
     return (mid[0], shadow[0], highlight[0] if highlight is not None else None, confidence)
 
 
@@ -650,10 +673,22 @@ def normalized_roi(roi: Optional[Tuple[int, int, int, int]], shape: Tuple[int, i
     return (y1 / float(h), y2 / float(h), x1 / float(w), x2 / float(w))
 
 
-def contrast_mask_plane(
+def geometry_kwargs(geometry: Any, distortion_k1: float) -> Dict[str, Any]:
+    """The geometry an analysis-grid plane replays, as `analysis_grid`'s keyword arguments,
+    so every plane on both engines replays the same fields."""
+    return {
+        "rotation": geometry.rotation,
+        "fine_rotation": geometry.fine_rotation,
+        "flip_horizontal": geometry.flip_horizontal,
+        "flip_vertical": geometry.flip_vertical,
+        "distortion_k1": distortion_k1,
+        "converge_v": geometry.converge_v,
+        "converge_h": geometry.converge_h,
+    }
+
+
+def analysis_grid(
     image: ImageBuffer,
-    bounds: LogNegativeBounds,
-    unmix: Optional[np.ndarray],
     rotation: int = 0,
     fine_rotation: float = 0.0,
     flip_horizontal: bool = False,
@@ -662,19 +697,10 @@ def contrast_mask_plane(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
-    spacer: float = MASK_SPACER_DEFAULT,
-) -> Tuple[np.ndarray, float]:
-    """
-    The blurred low-gamma plane an unsharp mask is built from, zero-mean, on the analysis
-    grid, plus the val it was centred on. The gamma's sign picks the mask's polarity and
-    so the direction; the centre is the val a flat area rotates about, which the Analysis
-    chart needs to draw the mask's band.
-
-    Takes the linear frame *before* geometry and replays it on the downsampled copy, so
-    both engines call this on the same array. `roi_norm` is the printed frame as
-    (y1, y2, x1, x2) fractions: a rebate or surround blurred in prints as a vignette.
-    `spacer` is per-cent of the grid: the scale above which tones are masked.
-    """
+) -> np.ndarray:
+    """The frame before geometry, downsampled to the analysis grid, geometry replayed and cropped to `roi_norm`
+    ((y1, y2, x1, x2) fractions; a rebate blurred in prints as a vignette). Both engines call this on the same
+    array, and the Contrast Mask and Diffusion planes are blurred from it."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
     from negpy.features.geometry.logic import apply_fine_rotation, apply_keystone, apply_radial_distortion
 
@@ -704,6 +730,27 @@ def contrast_mask_plane(
         x1 = max(0, min(gw - 1, int(round(roi_norm[2] * gw))))
         x2 = max(x1 + 1, min(gw, int(round(roi_norm[3] * gw))))
         image = np.ascontiguousarray(image[y1:y2, x1:x2])
+    return image
+
+
+def contrast_mask_plane(
+    image: ImageBuffer,
+    bounds: LogNegativeBounds,
+    unmix: Optional[np.ndarray],
+    rotation: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
+    roi_norm: Optional[Tuple[float, float, float, float]] = None,
+    spacer: float = MASK_SPACER_DEFAULT,
+) -> Tuple[np.ndarray, float]:
+    """The zero-mean blurred low-gamma plane an unsharp mask is built from, on `analysis_grid`, plus the val it
+    was centred on (the Analysis chart draws the mask's band from it). The gamma's sign picks the polarity.
+    `spacer` is per-cent of the grid: the scale above which tones are masked."""
+    image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
 
     # A frame that never metered normalizes to huge values; no stretch, no mask.
     if luminance_density_range(bounds) < 1e-6:
@@ -715,6 +762,38 @@ def contrast_mask_plane(
     blurred = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)
     centre = float(blurred.mean())
     return blurred - centre, centre
+
+
+def diffusion_grid(
+    image: ImageBuffer,
+    unmix: Optional[np.ndarray],
+    rotation: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
+    roi_norm: Optional[Tuple[float, float, float, float]] = None,
+) -> np.ndarray:
+    """The unmixed light blurred by `DIFFUSION_SPREAD`, as log density on `analysis_grid`. It takes no bounds:
+    the print's normalization is a per-channel gain on that light."""
+    image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
+    light = np.ascontiguousarray(10.0 ** unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), dtype=np.float32)
+    sigma = DIFFUSION_SPREAD * 0.01 * min(light.shape[:2])
+    return np.log10(cv2.GaussianBlur(light, (0, 0), sigma, borderType=cv2.BORDER_REPLICATE))
+
+
+def diffusion_plane(grid: np.ndarray, bounds: LogNegativeBounds, panchromatic: bool = False) -> Optional[np.ndarray]:
+    """`diffusion_grid` in the print's normalization, for the kernel to mix as light. `panchromatic` collapses it
+    to luma, as a B&W print does the pixel. None when the frame never metered."""
+    if luminance_density_range(bounds) < 1e-6:
+        return None
+    val = normalize_log_image(grid, bounds)
+    if panchromatic:
+        lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
+        val = np.dstack([lum, lum, lum])
+    return np.ascontiguousarray(val, dtype=np.float32)
 
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
@@ -861,8 +940,8 @@ def analyze_log_exposure_bounds(
         color deviation (white balance / orange-mask cast). A tighter (larger) clip
         gives a more robust channel balance; a gentler (smaller) clip samples nearer
         the extremes. Default neutral is base_color_clip.
-    The luminance centre+span comes from the luma sampling, the per-channel color
-    offsets from the color sampling, so the cast clip is tunable without compressing
+    The per-channel refs come from the color sampling, and the luma sampling sets how
+    far past them the window reaches, so the cast clip is tunable without compressing
     highlights. Identical channels (mono) give zero deviation at any clip.
     """
     img_log = to_log_density(image)
@@ -901,7 +980,7 @@ def analyze_log_exposure_bounds_from_log(
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, sorted_grid)
 
-    # Color pass: per-channel deviations recombined onto the luma mean centre and span. The
+    # Color pass: per-channel refs, widened to the luma window. The
     # ceils (thin end, base-anchored) come from per-channel percentiles at color_clip. The
     # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs and fall
     # back to the percentile pass when the band holds no trustworthy neutrals, and always for
@@ -911,10 +990,24 @@ def analyze_log_exposure_bounds_from_log(
         sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)
         if sp is not None:
             c_floors = [sp[0], sp[1], sp[2]]
-    mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
-    mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
-    floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
-    ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
+    spans = [c_floors[ch] - c_ceils[ch] for ch in range(3)]
+    total = sum(spans)
+    if all(s * total > 0 for s in spans):
+        # The luma window reaches past the color refs by one shared fraction of each channel's own
+        # span: a reach in log units tints a film whose channels differ in density range. A ratio
+        # of sums, not a mean of per-channel ratios, so a near-flat channel cannot inflate it.
+        reach_f = sum(floors[ch] - c_floors[ch] for ch in range(3)) / total
+        reach_c = sum(ceils[ch] - c_ceils[ch] for ch in range(3)) / total
+        # The window sits off the luma mean by the base's mean-minus-median channel offset, the
+        # placement the print constants are tuned to.
+        shift = (sum(c_ceils) - 3.0 * sorted(c_ceils)[1]) / total
+        floors = [c_floors[ch] + (reach_f + shift) * spans[ch] for ch in range(3)]
+        ceils = [c_ceils[ch] + (reach_c + shift) * spans[ch] for ch in range(3)]
+    else:
+        mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
+        mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
+        floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
+        ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
 
     return LogNegativeBounds(
         (floors[0], floors[1], floors[2]),

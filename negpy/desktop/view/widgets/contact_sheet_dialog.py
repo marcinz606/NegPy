@@ -6,7 +6,7 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
-from negpy.desktop.view.canvas.overlay import draw_resize_handles, draw_view_badge, hit_resize_handle, resize_cursor
+from negpy.desktop.view.canvas.overlay import draw_resize_handles, draw_view_badge, hit_resize_handle, resize_cursor, view_badge_width
 from negpy.desktop.view.styles.templates import (
     FIELD_LABEL_WIDTH,
     field_label,
@@ -189,8 +189,8 @@ class SheetCanvas(QWidget):
         corners, edges = self._handles()
         draw_resize_handles(painter, corners, edges)
         if self._drag is not None and self._readout:
-            width = painter.fontMetrics().horizontalAdvance(self._readout) + 2 * THEME.space_lg
-            draw_view_badge(painter, self._readout, (self.width() - width) / 2, THEME.space_lg, width)
+            width = view_badge_width(painter, self._readout, dot=False)
+            draw_view_badge(painter, self._readout, (self.width() - width) / 2, THEME.space_lg, width, dot=False)
         painter.end()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -430,6 +430,14 @@ class ContactSheetDialog(QDialog):
         self.proof_label.setWordWrap(True)
         col.addWidget(self.proof_label)
 
+        self.pick_btn = tool_toggle(
+            "fa5s.times-circle",
+            "Pick Frames",
+            "Show every frame; click one to leave it out or put it back. Rejected frames start left out",
+        )
+        self.pick_btn.toggled.connect(lambda _checked: self._schedule_render())
+        col.addWidget(self.pick_btn)
+
         toggles = QHBoxLayout()
         toggles.setSpacing(THEME.space_md)
         self.edge_btn = labeled_toggle(
@@ -446,14 +454,26 @@ class ContactSheetDialog(QDialog):
         self.label_btn.toggled.connect(self._on_label_toggled)
         toggles.addWidget(self.label_btn, 1)
         col.addLayout(toggles)
-
-        self.pick_btn = tool_toggle(
-            "fa5s.times-circle",
-            "Pick Frames",
-            "Show every frame; click one to leave it out or put it back. Rejected frames start left out",
+        self.white_btn = labeled_toggle(
+            "fa5s.print", " White Paper", settings.white_paper, "Print on white paper with dark labels, to save ink on a home printer"
         )
-        self.pick_btn.toggled.connect(lambda _checked: self._schedule_render())
-        col.addWidget(self.pick_btn)
+        self.white_btn.toggled.connect(lambda _checked: self._schedule_render())
+        self.film_base_btn = labeled_toggle(
+            "fa5s.film",
+            " Film Base",
+            settings.film_base,
+            "Print the film base black, as a darkroom contact print. Off prints it as paper, with the strip outlined, the "
+            "edge print and frame numbers in dark ink and the perforations as rings, so a home printer inks the frames, "
+            "the markings, the outline and the rings alone",
+        )
+        self.film_base_btn.setEnabled(self.white_btn.isChecked())
+        self.white_btn.toggled.connect(self.film_base_btn.setEnabled)
+        self.film_base_btn.toggled.connect(lambda _checked: self._schedule_render())
+        second = QHBoxLayout()
+        second.setSpacing(THEME.space_md)
+        second.addWidget(self.white_btn, 1)
+        second.addWidget(self.film_base_btn, 1)
+        col.addLayout(second)
 
         self.summary_label = hint_label()
         self.summary_label.setWordWrap(True)
@@ -753,6 +773,8 @@ class ContactSheetDialog(QDialog):
             self._label_on(),
             self.edge_btn.isChecked(),
             self.order_btn.currentIndex() == _BY_SCENE,
+            self.white_btn.isChecked(),
+            self.film_base_btn.isChecked(),
         )
 
     def kept_frames(self) -> tuple[SheetFrame, ...]:
@@ -775,4 +797,10 @@ class ContactSheetDialog(QDialog):
 
     def look(self) -> SheetLook:
         edge = replace(self._look.edge, printed=self.edge_btn.isChecked())
-        return replace(self._look, edge=edge, label=self._label_text if self._label_on() else "")
+        return replace(
+            self._look,
+            edge=edge,
+            label=self._label_text if self._label_on() else "",
+            white_paper=self.white_btn.isChecked(),
+            film_base=self.film_base_btn.isChecked(),
+        )

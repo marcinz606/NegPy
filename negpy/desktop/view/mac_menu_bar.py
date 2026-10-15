@@ -111,9 +111,9 @@ class MacMenuBar(QMenuBar):
     def _build_help(self) -> QMenu:
         menu = self._menu("Help")
         self._add(menu, "Take the Tour", slot=self._window.show_tutorial)
-        self._add(menu, "Keyboard Shortcuts", action_id="show_shortcuts")
+        self._add(menu, "Keyboard Shortcuts…", action_id="show_shortcuts")
         self._add(menu, "Customize Shortcuts…", slot=self._open_shortcut_editor)
-        self._add(menu, "Analysis Panel Guide", action_id="show_analysis_help")
+        self._add(menu, "Analysis Panel Guide…", action_id="show_analysis_help")
         menu.addSeparator()
         # No registry entry: the item exists only in this bar, and a binding would advertise
         # it in the shortcut editor and the ? overlay on Windows and Linux, where nothing

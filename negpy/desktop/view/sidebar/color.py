@@ -4,7 +4,7 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, wrap_tooltip
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
@@ -15,7 +15,7 @@ class ColorSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
 
-        self.region_btn = ChoiceButton(
+        self.region_btn = SegmentedChoice(
             (("fa5s.globe", "Global"), ("fa5s.moon", "Shadows"), ("fa5s.sun", "Highlights")),
             "Region for Temperature, CMY and Pick WB: Global applies to the entire tonal range; "
             "Shadows and Highlights bias toward shadow (low-density) or highlight (high-density) areas",

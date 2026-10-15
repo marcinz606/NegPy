@@ -12,7 +12,7 @@ from negpy.features.process.sensor import (
     sensor_token,
     unmix_block_reason,
 )
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, SensorUnmix
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -50,13 +50,13 @@ def test_rejects_zero_own_channel_and_singular():
 
 def test_apply_none_is_same_object():
     img = np.random.default_rng(0).random((8, 8, 3)).astype(np.float32)
-    assert apply_sensor_correction(img, None) is img
+    assert apply_sensor_correction(img, None, SensorUnmix.LINEAR) is img
 
 
 def test_apply_unmixes_clips_and_keeps_float32():
     clean = np.array([[[0.6, 0.2, 0.1]]], dtype=np.float32)
     mixed = np.einsum("ck,hwk->hwc", _s_norm().astype(np.float32), clean)
-    out = apply_sensor_correction(mixed, build_sensor_matrix(_RGB_R, _RGB_G, _RGB_B))
+    out = apply_sensor_correction(mixed, build_sensor_matrix(_RGB_R, _RGB_G, _RGB_B), SensorUnmix.LINEAR)
     assert np.allclose(out[0, 0], clean[0, 0], atol=1e-5)
     assert out.dtype == np.float32
     assert np.all(out >= 0.0)
@@ -167,7 +167,7 @@ def test_run_pipeline_gates_triplets(monkeypatch):
 
     calls = []
 
-    def _recorder(img, matrix):
+    def _recorder(img, matrix, mode="linear"):
         calls.append(matrix)
         return img
 
@@ -204,3 +204,12 @@ def test_run_pipeline_gates_triplets(monkeypatch):
     wb_cfg = replace(cfg, process=replace(cfg.process, linear_raw=False))
     ip.run_pipeline(img, wb_cfg, "h", render_size_ref=float(APP_CONFIG.preview_render_size), prefer_gpu=False)
     assert calls == [None]  # camera-WB buffer: wrong basis for a neutral-WB matrix
+
+
+def test_three_near_identical_captures_are_refused():
+    with pytest.raises(ValueError, match="not independent"):
+        build_sensor_matrix((1.0, 0.999, 0.998), (0.999, 1.0, 0.999), (0.998, 0.999, 1.0))
+
+
+def test_a_broadband_light_with_heavy_crosstalk_still_builds():
+    build_sensor_matrix((1.0, 0.8, 0.5), (0.9, 1.0, 0.9), (0.5, 0.8, 1.0))

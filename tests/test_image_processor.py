@@ -414,13 +414,13 @@ def test_repair_falls_back_to_a_whole_frame_pass_when_defects_swarm() -> None:
 def test_run_pipeline_skip_flatfield(monkeypatch) -> None:
     """The export/contact-sheet CPU fallback passes an already-flat-fielded buffer;
     skip_flatfield must prevent a second apply_flatfield (the latent double-apply)."""
-    import negpy.services.rendering.image_processor as ip
+    import negpy.services.rendering.lens as lens
 
     service = ImageProcessor()
     monkeypatch.setattr(service.engine_cpu, "process", lambda img, s, sh, ctx: img)
     calls = []
-    real = ip.apply_flatfield
-    monkeypatch.setattr(ip, "apply_flatfield", lambda img, ff: (calls.append(1), real(img, ff))[1])
+    real = lens.apply_flatfield
+    monkeypatch.setattr(lens, "apply_flatfield", lambda img, ff, *a, **kw: (calls.append(1), real(img, ff, *a, **kw))[1])
 
     img = np.full((64, 64, 3), 0.5, dtype=np.float32)
     service.run_pipeline(img, WorkspaceConfig(), "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
@@ -458,3 +458,20 @@ def test_detect_luma_reads_the_prepared_plane(monkeypatch) -> None:
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.66, dust_size=4))
     score, _ = service._detect_luma(cfg, clean, "s", detect_buffer=plane)
     assert score is not None and score[80:83, 80:83].max() < 1.0, "the speck is read from the plane, not the buffer"
+
+
+def test_an_8bit_export_to_a_profile_lcms_refuses_stays_tagged_with_the_working_space(tmp_path):
+    """A CMYK, Gray or Lab Export ICC cannot take RGB pixels; untagged, they read as sRGB."""
+    from PIL import Image, ImageCms
+
+    from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+
+    path = tmp_path / "lab.icc"
+    path.write_bytes(ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes())
+    img = Image.fromarray((np.random.default_rng(0).random((8, 8, 3)) * 255).astype(np.uint8))
+    proc = ImageProcessor()
+
+    out, icc = proc.apply_color_management(img, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, str(path))
+
+    assert out.mode == "RGB"
+    assert icc == proc._get_target_icc_bytes(WORKING_COLOR_SPACE, None)

@@ -9,6 +9,9 @@ from negpy.services.assets import flatfield as ffstore
 from negpy.services.assets.flatfield import FlatFieldProfiles
 
 
+_EVEN = ff.Evenness(low=-0.01, high=0.01, color=0.005, clipped=False)
+
+
 def _gain(h=24, w=32) -> np.ndarray:
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     g = 1.0 + 0.5 * (xx / w) + 0.25 * (yy / h)
@@ -19,7 +22,7 @@ def _gain(h=24, w=32) -> np.ndarray:
 def store_dir(tmp_path, monkeypatch):
     """Point the profile store at a temp dir and stub the RAW decode/bake."""
     monkeypatch.setattr(ffstore.APP_CONFIG, "flatfield_dir", str(tmp_path / "flatfield"), raising=False)
-    monkeypatch.setattr(FlatFieldProfiles, "_bake_gain", staticmethod(lambda path: _gain()))
+    monkeypatch.setattr(FlatFieldProfiles, "_bake_gain", staticmethod(lambda path: ffstore.Baked(_gain(), _EVEN, _gain() * 0.4)))
     return tmp_path
 
 
@@ -27,7 +30,7 @@ def test_import_and_load_round_trip(store_dir):
     gain = _gain()
     pid = FlatFieldProfiles.import_gain(gain, name="Rig A", k1=-0.08, source="/refs/flat.dng")
 
-    loaded, token = FlatFieldProfiles.load_gain(pid)
+    loaded, token, _ = FlatFieldProfiles.load_gain(pid)
     assert np.array_equal(loaded, gain)
     assert token == ff.gain_token(gain)
 
@@ -70,9 +73,9 @@ def test_create_bakes_and_activates_via_provider(store_dir):
 
     ff.set_gain_provider(FlatFieldProfiles.load_gain)
     try:
-        stored, _ = FlatFieldProfiles.load_gain(pid)
+        stored = FlatFieldProfiles.load_gain(pid).gain
         img = np.full((24, 32, 3), 0.5, dtype=np.float32)
-        out = ff.apply_flatfield(img, FlatFieldConfig(apply=True, profile_id=pid))
+        out = ff.apply_flatfield(img, FlatFieldConfig(apply=True, profile_id=pid), orientation=1)
         assert np.allclose(out, img * stored)  # provider resolved the baked gain and applied it
     finally:
         ff.set_gain_provider(None)
@@ -94,3 +97,51 @@ def test_metadata_reads_do_not_require_the_gain(store_dir):
     assert prof is not None and prof.name == "MetaOnly" and prof.k1 == 0.05
     assert ("meta-only", "MetaOnly") in FlatFieldProfiles.list_profiles()
     assert FlatFieldProfiles.load_gain("meta-only") is None  # no gain member to resolve
+
+
+def test_create_checked_returns_the_reference_check(store_dir):
+    baked = FlatFieldProfiles.create_checked("rig", "/fake/ref.dng")
+    assert baked is not None
+    pid, check = baked
+    assert FlatFieldProfiles.get(pid) is not None
+    assert check == _EVEN
+
+
+def test_a_checked_profile_stores_its_reference_copy_and_check(store_dir):
+    pid, _ = FlatFieldProfiles.create_checked("rig", "/fake/ref.dng")
+    stored = FlatFieldProfiles.load_check(pid)
+    assert stored is not None
+    np.testing.assert_allclose(stored.reference, _gain() * 0.4, rtol=1e-3)
+    assert stored.check == pytest.approx(_EVEN)
+
+
+def test_an_imported_gain_has_no_reference_copy(store_dir):
+    pid = FlatFieldProfiles.import_gain(_gain(), name="old")
+    stored = FlatFieldProfiles.load_check(pid)
+    assert stored is not None and stored.reference is None and stored.check is None
+
+
+def test_load_check_of_a_missing_profile_is_none(store_dir):
+    assert FlatFieldProfiles.load_check("ghost") is None
+
+
+def test_a_reference_is_baked_in_sensor_layout(tmp_path, monkeypatch):
+    from negpy.kernel.image.logic import apply_exif_orientation
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    monkeypatch.setattr(ffstore.APP_CONFIG, "flatfield_dir", str(tmp_path / "flatfield"), raising=False)
+    sensor = _gain(48, 64) * 0.4
+    reference_path = tmp_path / "flat.arw"
+    reference_path.write_bytes(b"")
+    monkeypatch.setattr(
+        PreviewManager,
+        "load_linear_preview",
+        lambda self, path, **kw: (apply_exif_orientation(sensor, 6), (48, 64), {"orientation": 6}),
+    )
+
+    pid = FlatFieldProfiles.create("rig", str(reference_path))
+
+    gain = FlatFieldProfiles.load_gain(pid).gain
+    np.testing.assert_allclose(gain, ff.compute_gain(sensor), rtol=1e-5)
+    assert FlatFieldProfiles.load_check(pid).reference.shape[:2] == ff.check_copy(sensor).shape[:2]
+    assert str(FlatFieldProfiles._read(pid, ("layout",))["layout"]) == ffstore.SENSOR_LAYOUT

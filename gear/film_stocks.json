@@ -1,22 +1,33 @@
 [
   {
     "id": "film-portra-400",
-    "displayName": "Kodak Portra 400",
+    "displayName": "Kodak Ektacolor Pro 400 (formerly Portra 400)",
     "manufacturer": "Kodak",
-    "stockName": "Portra 400",
+    "stockName": "Ektacolor Pro 400",
     "iso": 400,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Professional color negative, warm and gentle skin tones."
+    "notes": "Professional color negative; fine T-grain, neutral with slight warmth, exceptional skin tones, wide latitude that shifts pastel when overexposed."
   },
   {
     "id": "film-portra-160",
-    "displayName": "Kodak Portra 160",
+    "displayName": "Kodak Ektacolor Pro 160 (formerly Portra 160)",
     "manufacturer": "Kodak",
-    "stockName": "Portra 160",
+    "stockName": "Ektacolor Pro 160",
     "iso": 160,
     "format": "35mm",
-    "colorType": "ColorNegative"
+    "colorType": "ColorNegative",
+    "notes": "Professional color negative; ultra-fine T-grain, very neutral with refined saturation and a gentle highlight rolloff; the studio portrait standard."
+  },
+  {
+    "id": "film-ektacolor-pro-800",
+    "displayName": "Kodak Ektacolor Pro 800 (formerly Portra 800)",
+    "manufacturer": "Kodak",
+    "stockName": "Ektacolor Pro 800",
+    "iso": 800,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Professional color negative; remarkably fine T-grain for its speed, neutral, subdued saturation, extraordinary skin tones."
   },
   {
     "id": "film-gold-200",
@@ -25,7 +36,8 @@
     "stockName": "Gold 200",
     "iso": 200,
     "format": "35mm",
-    "colorType": "ColorNegative"
+    "colorType": "ColorNegative",
+    "notes": "Consumer color negative; cubic grain, warm bias with amber highlights, olive greens and teal-leaning shadows."
   },
   {
     "id": "film-tri-x-400",
@@ -34,7 +46,38 @@
     "stockName": "Tri-X 400",
     "iso": 400,
     "format": "35mm",
-    "colorType": "B&W Negative"
+    "colorType": "B&W Negative",
+    "notes": "Classic cubic-grain B&W; Kodak shoulder rolloff, rich midtone separation, grain that clumps when pushed."
+  },
+  {
+    "id": "film-ektapan-100",
+    "displayName": "Kodak Ektapan 100 (formerly T-Max 100)",
+    "manufacturer": "Kodak",
+    "stockName": "Ektapan 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Ultra-fine T-grain B&W; extended toe for shadow detail, clean linear rendering with little shoulder."
+  },
+  {
+    "id": "film-ektapan-400",
+    "displayName": "Kodak Ektapan 400 (formerly T-Max 400)",
+    "manufacturer": "Kodak",
+    "stockName": "Ektapan 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fine T-grain B&W; finer and more linear than Tri-X, grain keeps its structure when pushed."
+  },
+  {
+    "id": "film-ektapan-p3200",
+    "displayName": "Kodak Ektapan P3200 (formerly T-Max P3200)",
+    "manufacturer": "Kodak",
+    "stockName": "Ektapan P3200",
+    "iso": 3200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "High-speed T-grain B&W designed to be push processed; visible grain, punchy contrast."
   },
   {
     "id": "film-hp5-400",
@@ -43,7 +86,8 @@
     "stockName": "HP5 Plus 400",
     "iso": 400,
     "format": "35mm",
-    "colorType": "B&W Negative"
+    "colorType": "B&W Negative",
+    "notes": "Classic cubic-grain B&W; more linear than Tri-X with less shoulder, defined grain, wide latitude, pushes well."
   },
   {
     "id": "film-fp4-125",
@@ -52,7 +96,8 @@
     "stockName": "FP4 Plus 125",
     "iso": 125,
     "format": "35mm",
-    "colorType": "B&W Negative"
+    "colorType": "B&W Negative",
+    "notes": "Medium-speed cubic-grain B&W; fine grain, smooth gradation from highlight to shadow."
   },
   {
     "id": "film-delta-100",
@@ -92,7 +137,7 @@
     "iso": 50,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Ultra-fine grain, slow speed."
+    "notes": "Ultra-fine cubic grain, the finest of Ilford's traditional emulsions; narrow latitude."
   },
   {
     "id": "film-xp2-400",
@@ -102,7 +147,7 @@
     "iso": 400,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Chromogenic B&W on a C-41 process, wide exposure latitude."
+    "notes": "Chromogenic B&W on a C-41 process; dye-cloud grain that smooths with overexposure, very wide latitude."
   },
   {
     "id": "film-sfx-200",
@@ -116,23 +161,33 @@
   },
   {
     "id": "film-kentmere-100",
-    "displayName": "Kentmere 100",
+    "displayName": "Kentmere Pan 100 (formerly Kentmere 100)",
     "manufacturer": "Kentmere",
-    "stockName": "Kentmere 100",
+    "stockName": "Pan 100",
     "iso": 100,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Budget B&W, made by Ilford."
+    "notes": "Budget cubic-grain B&W from Harman; FP4-class technology with less silver."
+  },
+  {
+    "id": "film-kentmere-200",
+    "displayName": "Kentmere Pan 200",
+    "manufacturer": "Kentmere",
+    "stockName": "Pan 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget cubic-grain B&W from Harman; higher contrast, clear base with reduced antihalation so bright specular lights halate."
   },
   {
     "id": "film-kentmere-400",
-    "displayName": "Kentmere 400",
+    "displayName": "Kentmere Pan 400 (formerly Kentmere 400)",
     "manufacturer": "Kentmere",
-    "stockName": "Kentmere 400",
+    "stockName": "Pan 400",
     "iso": 400,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Budget B&W, made by Ilford."
+    "notes": "Budget cubic-grain B&W from Harman; HP5-class technology with less silver."
   },
   {
     "id": "film-ektachrome-e100",
@@ -141,7 +196,8 @@
     "stockName": "Ektachrome E100",
     "iso": 100,
     "format": "35mm",
-    "colorType": "ColorSlide"
+    "colorType": "ColorSlide",
+    "notes": "Slide film; ultra-fine T-grain, neutral and accurate, clean whites, moderate saturation."
   },
   {
     "id": "film-cinestill-800t",
@@ -151,7 +207,7 @@
     "iso": 800,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Tungsten-balanced color negative with characteristic halation."
+    "notes": "Vision3 500T with the remjet removed; tungsten balanced, daylight goes teal, red halation around bright lights."
   },
   {
     "id": "film-vision3-250d-remjet",
@@ -181,7 +237,7 @@
     "iso": 500,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Motion picture stock, tungsten balanced. With remjet layer"
+    "notes": "Motion picture stock, tungsten balanced. With remjet layer."
   },
   {
     "id": "film-vision3-500t-ahu",
@@ -201,6 +257,1166 @@
     "iso": 250,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Motion picture panchromatic negative."
+    "notes": "Motion picture panchromatic negative; medium-coarse cubic grain, high contrast."
+  },
+  {
+    "id": "film-kodak-ektar-100",
+    "displayName": "Kodak Ektar 100",
+    "manufacturer": "Kodak",
+    "stockName": "Ektar 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Color negative; ultra-fine T-grain, extreme saturation, neutral-cool with reds that push magenta, unflattering to skin, tight latitude."
+  },
+  {
+    "id": "film-kodak-ultramax-400",
+    "displayName": "Kodak UltraMax 400",
+    "manufacturer": "Kodak",
+    "stockName": "UltraMax 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Consumer color negative; T-grain, warm, punchy and saturated, higher contrast than Gold."
+  },
+  {
+    "id": "film-kodak-colorplus-200",
+    "displayName": "Kodak ColorPlus 200",
+    "manufacturer": "Kodak",
+    "stockName": "ColorPlus 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Budget consumer color negative; coarser cubic grain, warm but less controlled than Gold, narrow latitude."
+  },
+  {
+    "id": "film-kodak-pro-image-100",
+    "displayName": "Kodak Pro Image 100",
+    "manufacturer": "Kodak",
+    "stockName": "Pro Image 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Consumer color negative; fine cubic grain, neutral to slightly warm, moderate saturation, clean shadows."
+  },
+  {
+    "id": "film-kodak-kodacolor-100",
+    "displayName": "Kodak Kodacolor 100",
+    "manufacturer": "Kodak",
+    "stockName": "Kodacolor 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Consumer color negative; parentage contested between Pro Image 100 and the Kodacolor VR line."
+  },
+  {
+    "id": "film-kodak-kodacolor-200",
+    "displayName": "Kodak Kodacolor 200",
+    "manufacturer": "Kodak",
+    "stockName": "Kodacolor 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Consumer color negative; ColorPlus 200's emulsion by all accounts: warm, coarser cubic grain."
+  },
+  {
+    "id": "film-vision3-50d-remjet",
+    "displayName": "Kodak Vision3 50D",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 50D",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, daylight balanced. With remjet layer."
+  },
+  {
+    "id": "film-vision3-200t-remjet",
+    "displayName": "Kodak Vision3 200T",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 200T",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, tungsten balanced. With remjet layer."
+  },
+  {
+    "id": "film-fujifilm-200",
+    "displayName": "Fujifilm 200",
+    "manufacturer": "Fujifilm",
+    "stockName": "200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak-made consumer color negative; Gold 200 in all observed behaviour: cubic grain, warm bias, amber push, teal shadows."
+  },
+  {
+    "id": "film-fujifilm-400",
+    "displayName": "Fujifilm 400",
+    "manufacturer": "Fujifilm",
+    "stockName": "400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak-made consumer color negative; UltraMax 400 in all observed behaviour: warm, punchy, saturated."
+  },
+  {
+    "id": "film-fujifilm-superia-x-tra-400",
+    "displayName": "Fujifilm Superia X-TRA 400",
+    "manufacturer": "Fujifilm",
+    "stockName": "Superia X-TRA 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Fuji-made consumer color negative; tabular grain finer than Gold, neutral to cool, clean reds, vibrant blues, true greens."
+  },
+  {
+    "id": "film-fujifilm-superia-premium-400",
+    "displayName": "Fujifilm Superia Premium 400",
+    "manufacturer": "Fujifilm",
+    "stockName": "Superia Premium 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Fuji-made consumer color negative; fine tabular grain, bright, low contrast, mint greens, cool pleasant skin."
+  },
+  {
+    "id": "film-fujifilm-fujicolor-100",
+    "displayName": "Fujifilm Fujicolor 100",
+    "manufacturer": "Fujifilm",
+    "stockName": "Fujicolor 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Fuji-made consumer color negative; fine tabular grain, bright, moderate saturation, medium-low contrast, holds its color across exposure."
+  },
+  {
+    "id": "film-fujifilm-provia-100f",
+    "displayName": "Fujifilm Provia 100F",
+    "manufacturer": "Fujifilm",
+    "stockName": "Provia 100F",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorSlide",
+    "notes": "Slide film; ultra-fine grain, realistic color with a slight vibrancy lift, true greens, deep clean blues, good skin tones."
+  },
+  {
+    "id": "film-fujifilm-velvia-50",
+    "displayName": "Fujifilm Velvia 50",
+    "manufacturer": "Fujifilm",
+    "stockName": "Velvia 50",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorSlide",
+    "notes": "Slide film; ultra-fine grain, extreme saturation across the spectrum, high contrast with hard clipping, unforgiving of skin tones."
+  },
+  {
+    "id": "film-fujifilm-velvia-100",
+    "displayName": "Fujifilm Velvia 100",
+    "manufacturer": "Fujifilm",
+    "stockName": "Velvia 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorSlide",
+    "notes": "Slide film; ultra-fine grain, even more saturated than Velvia 50 with harsher transitions."
+  },
+  {
+    "id": "film-fujifilm-neopan-acros-ii-100",
+    "displayName": "Fujifilm Neopan Acros II 100",
+    "manufacturer": "Fujifilm",
+    "stockName": "Neopan Acros II 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthopanchromatic ultra-fine-grain B&W; precise, clean midtone separation, narrow latitude, near-zero reciprocity failure."
+  },
+  {
+    "id": "film-ilford-ortho-plus-80",
+    "displayName": "Ilford Ortho Plus 80",
+    "manufacturer": "Ilford",
+    "stockName": "Ortho Plus 80",
+    "iso": 80,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthochromatic fine-grain B&W, blind to red: reds print dark, skies light."
+  },
+  {
+    "id": "film-harman-phoenix-ii-200",
+    "displayName": "Harman Phoenix II 200",
+    "manufacturer": "Harman",
+    "stockName": "Phoenix II 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Harman's own color negative with no orange mask; visible grain, high saturation and contrast, warm bias, narrow latitude."
+  },
+  {
+    "id": "film-harman-red-125",
+    "displayName": "Harman Red 125",
+    "manufacturer": "Harman",
+    "stockName": "Red 125",
+    "iso": 125,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Redscale color negative on Phoenix technology, exposed through the base; heavy warm-red shift, no orange mask."
+  },
+  {
+    "id": "film-cinestill-400d",
+    "displayName": "CineStill 400D",
+    "manufacturer": "CineStill",
+    "stockName": "400D",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Daylight-balanced cinema-derived color negative with the remjet removed; custom T-grain, soft natural saturation, warm skin tones, subtle halation."
+  },
+  {
+    "id": "film-cinestill-50d",
+    "displayName": "CineStill 50D",
+    "manufacturer": "CineStill",
+    "stockName": "50D",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 50D with the remjet removed; ultra-fine cinema T-grain, low saturation, pastel palette, minimal halation."
+  },
+  {
+    "id": "film-cinestill-bwxx",
+    "displayName": "CineStill BwXX",
+    "manufacturer": "CineStill",
+    "stockName": "BwXX",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Kodak Double-X 5222 cinema stock; medium-coarse cubic grain, high contrast with deep blacks and compressed midtones."
+  },
+  {
+    "id": "film-reto-amber-800",
+    "displayName": "RETO Amber 800",
+    "manufacturer": "RETO",
+    "stockName": "Amber 800",
+    "iso": 800,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 500T with the remjet removed; tungsten balanced, teal daylight cast, red halation."
+  },
+  {
+    "id": "film-reto-amber-d400",
+    "displayName": "RETO Amber D400",
+    "manufacturer": "RETO",
+    "stockName": "Amber D400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 250D with the remjet removed; daylight balanced, soft muted palette with brown-leaning shadows."
+  },
+  {
+    "id": "film-reto-amber-d100",
+    "displayName": "RETO Amber D100",
+    "manufacturer": "RETO",
+    "stockName": "Amber D100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 50D with the remjet removed; daylight balanced, fine grain, cool blue cast, rich saturation."
+  },
+  {
+    "id": "film-reto-retocolor-aqua-400",
+    "displayName": "RETOCOLOR Aqua 400",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Aqua 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative; heavy blue-cyan cast, low contrast, faded rendering, true speed far below its box rating."
+  },
+  {
+    "id": "film-reto-retocolor-glow-400",
+    "displayName": "RETOCOLOR Glow 400",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Glow 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative; muted warm tones, soft faded rendering, visible cubic grain."
+  },
+  {
+    "id": "film-reto-retocolor-maple-100",
+    "displayName": "RETOCOLOR Maple 100",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Maple 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative on a clear base; overall cyan tilt with reds that pop, fine grain."
+  },
+  {
+    "id": "film-reto-retocolor-prism-200",
+    "displayName": "RETOCOLOR Prism 200",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Prism 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "RETO's all-purpose color negative; vivid, balanced color without a cast."
+  },
+  {
+    "id": "film-reto-retocolor-prism-400",
+    "displayName": "RETOCOLOR Prism 400",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Prism 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "RETO's all-purpose color negative; vivid, balanced color without a cast."
+  },
+  {
+    "id": "film-reto-retocolor-mosaic-100",
+    "displayName": "RETOCOLOR Mosaic 100",
+    "manufacturer": "RETO",
+    "stockName": "RETOCOLOR Mosaic 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorSlide",
+    "notes": "Boutique slide film of undisclosed emulsion; fine grain, vibrant color."
+  },
+  {
+    "id": "film-candido-50d",
+    "displayName": "Candido 50D",
+    "manufacturer": "Candido",
+    "stockName": "50D",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 50D emulsion without remjet and with an integrated anti-halation layer; daylight balanced, near grain-free."
+  },
+  {
+    "id": "film-candido-200-studio",
+    "displayName": "Candido 200 Studio",
+    "manufacturer": "Candido",
+    "stockName": "200 Studio",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 200T emulsion without remjet and with an integrated anti-halation layer; tungsten balanced."
+  },
+  {
+    "id": "film-candido-400-classic",
+    "displayName": "Candido 400 Classic",
+    "manufacturer": "Candido",
+    "stockName": "400 Classic",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 250D emulsion without remjet and with an integrated anti-halation layer; daylight balanced."
+  },
+  {
+    "id": "film-candido-800-reserve",
+    "displayName": "Candido 800 Reserve",
+    "manufacturer": "Candido",
+    "stockName": "800 Reserve",
+    "iso": 800,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 500T emulsion without remjet and with an integrated anti-halation layer; tungsten balanced."
+  },
+  {
+    "id": "film-silbersalz35-50d",
+    "displayName": "Silbersalz35 50D",
+    "manufacturer": "Silbersalz35",
+    "stockName": "50D",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 50D with the remjet intact; daylight balanced, ECN-2."
+  },
+  {
+    "id": "film-silbersalz35-200t",
+    "displayName": "Silbersalz35 200T",
+    "manufacturer": "Silbersalz35",
+    "stockName": "200T",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 200T with the remjet intact; tungsten balanced, ECN-2."
+  },
+  {
+    "id": "film-silbersalz35-250d",
+    "displayName": "Silbersalz35 250D",
+    "manufacturer": "Silbersalz35",
+    "stockName": "250D",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 250D with the remjet intact; daylight balanced, ECN-2."
+  },
+  {
+    "id": "film-silbersalz35-500t",
+    "displayName": "Silbersalz35 500T",
+    "manufacturer": "Silbersalz35",
+    "stockName": "500T",
+    "iso": 500,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 500T with the remjet intact; tungsten balanced, ECN-2."
+  },
+  {
+    "id": "film-flic-film-cine-colour-50d",
+    "displayName": "Flic Film Cine Colour 50D",
+    "manufacturer": "Flic Film",
+    "stockName": "Cine Colour 50D",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 50D with the remjet intact; daylight balanced, ECN-2."
+  },
+  {
+    "id": "film-flic-film-cine-colour-200t",
+    "displayName": "Flic Film Cine Colour 200T",
+    "manufacturer": "Flic Film",
+    "stockName": "Cine Colour 200T",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 200T with the remjet intact; tungsten balanced, ECN-2."
+  },
+  {
+    "id": "film-flic-film-cine-colour-250d",
+    "displayName": "Flic Film Cine Colour 250D",
+    "manufacturer": "Flic Film",
+    "stockName": "Cine Colour 250D",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 250D with the remjet intact; daylight balanced, ECN-2."
+  },
+  {
+    "id": "film-flic-film-cine-colour-500t",
+    "displayName": "Flic Film Cine Colour 500T",
+    "manufacturer": "Flic Film",
+    "stockName": "Cine Colour 500T",
+    "iso": 500,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Vision3 500T with the remjet intact; tungsten balanced, ECN-2."
+  },
+  {
+    "id": "film-flic-film-elektra-100",
+    "displayName": "Flic Film Elektra 100",
+    "manufacturer": "Flic Film",
+    "stockName": "Elektra 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak Aerocolor IV aerial color negative with no orange mask; fine grain, daylight balanced."
+  },
+  {
+    "id": "film-flic-film-aurora-400",
+    "displayName": "Flic Film Aurora 400",
+    "manufacturer": "Flic Film",
+    "stockName": "Aurora 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak Aerocolor IV aerial color negative with no orange mask; the faster-rated sibling of Elektra."
+  },
+  {
+    "id": "film-flic-film-ultrapan-100",
+    "displayName": "Flic Film UltraPan 100",
+    "manufacturer": "Flic Film",
+    "stockName": "UltraPan 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget cubic-grain B&W; Fomapan 100's emulsion by community consensus."
+  },
+  {
+    "id": "film-orwo-wolfen-nc500",
+    "displayName": "ORWO Wolfen NC500",
+    "manufacturer": "ORWO",
+    "stockName": "Wolfen NC500",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Cine-heritage color negative; high vintage grain, de-saturated with a green-yellow cast, narrow latitude."
+  },
+  {
+    "id": "film-orwo-wolfen-nc400",
+    "displayName": "ORWO Wolfen NC400",
+    "manufacturer": "ORWO",
+    "stockName": "Wolfen NC400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Wolfen color negative on a grey triacetate base; ORWO's successor generation to NC500."
+  },
+  {
+    "id": "film-orwo-wolfen-un54",
+    "displayName": "ORWO Wolfen UN54+",
+    "manufacturer": "ORWO",
+    "stockName": "Wolfen UN54+",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Cine B&W stock with no added anti-halation; traditional grain, moderate contrast; the emulsion of Lomography Potsdam Kino."
+  },
+  {
+    "id": "film-orwo-wolfen-np100",
+    "displayName": "ORWO Wolfen NP100",
+    "manufacturer": "ORWO",
+    "stockName": "Wolfen NP100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "UN54 emulsion with a dyed anti-halation layer between base and emulsion for sharper rendering."
+  },
+  {
+    "id": "film-orwo-wolfen-p400",
+    "displayName": "ORWO Wolfen P400",
+    "manufacturer": "ORWO",
+    "stockName": "Wolfen P400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "N74+ cine emulsion finished for stills; traditional grain, true speed below its box rating."
+  },
+  {
+    "id": "film-orwo-n74",
+    "displayName": "ORWO N74+",
+    "manufacturer": "ORWO",
+    "stockName": "N74+",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Cine B&W stock; traditional grain, moderate contrast; the emulsion of Lomography Berlin Kino."
+  },
+  {
+    "id": "film-optik-oldschool-opticolour-200",
+    "displayName": "Optik Oldschool OptiColour 200",
+    "manufacturer": "Optik Oldschool",
+    "stockName": "OptiColour 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "ORWO Wolfen NC200 emulsion; warm, natural color with strong greens and reds, coarse grain for its speed, medium-low contrast."
+  },
+  {
+    "id": "film-kono-color-200",
+    "displayName": "KONO Color 200",
+    "manufacturer": "KONO",
+    "stockName": "Color 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "ORWO Wolfen NC200 emulsion, the same as OptiColour 200; warm, natural, grainy."
+  },
+  {
+    "id": "film-lucky-color-200",
+    "displayName": "Lucky Color 200",
+    "manufacturer": "Lucky",
+    "stockName": "Color 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Reformulated Chinese consumer color negative; visible traditional grain, strong red bias, weak cyans, about a stop of overexposure latitude."
+  },
+  {
+    "id": "film-lucky-color-400",
+    "displayName": "Lucky Color 400",
+    "manufacturer": "Lucky",
+    "stockName": "Color 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Newer-generation Chinese consumer color negative; traditional grain."
+  },
+  {
+    "id": "film-lucky-shd-100",
+    "displayName": "Lucky SHD 100",
+    "manufacturer": "Lucky",
+    "stockName": "SHD 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Chinese traditional-grain B&W on a thin clear polyester base with an inherent blue tint; moderate contrast, strong highlight separation, wide latitude."
+  },
+  {
+    "id": "film-lucky-shd-400",
+    "displayName": "Lucky SHD 400",
+    "manufacturer": "Lucky",
+    "stockName": "SHD 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Chinese traditional-grain B&W on a thin clear polyester base with an inherent blue tint; moderate contrast, wide latitude."
+  },
+  {
+    "id": "film-lomography-800",
+    "displayName": "Lomography 800",
+    "manufacturer": "Lomography",
+    "stockName": "800",
+    "iso": 800,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "High-speed color negative; fine grain for its speed, warm with magenta-pink highlights and cyan-blue shadows."
+  },
+  {
+    "id": "film-lomography-cn-100",
+    "displayName": "Lomography CN 100",
+    "manufacturer": "Lomography",
+    "stockName": "CN 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak consumer-family color negative; visible traditional grain, warm muted 1980s palette with more vibrancy than Gold."
+  },
+  {
+    "id": "film-lomography-cn-400",
+    "displayName": "Lomography CN 400",
+    "manufacturer": "Lomography",
+    "stockName": "CN 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Kodak consumer-family color negative; moderate-coarse grain, vibrant with muted brownish midtones and vintage shadows."
+  },
+  {
+    "id": "film-lomography-cine200-tungsten",
+    "displayName": "Lomography Cine200 Tungsten",
+    "manufacturer": "Lomography",
+    "stockName": "Cine200 Tungsten",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Repackaged tungsten-balanced cinema stock of unnamed source; moderate cine grain."
+  },
+  {
+    "id": "film-lomography-lomochrome-classicolor-200",
+    "displayName": "Lomography LomoChrome Classicolor 200",
+    "manufacturer": "Lomography",
+    "stockName": "LomoChrome Classicolor 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Color negative of unconfirmed base; warm, muted saturation, mid-century consumer rendering."
+  },
+  {
+    "id": "film-lomography-lomochrome-purple-xr",
+    "displayName": "Lomography LomoChrome Purple XR",
+    "manufacturer": "Lomography",
+    "stockName": "LomoChrome Purple XR",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative with an infrared-look purple shift whose strength follows the exposure index."
+  },
+  {
+    "id": "film-lomography-lomochrome-metropolis-xr",
+    "displayName": "Lomography LomoChrome Metropolis XR",
+    "manufacturer": "Lomography",
+    "stockName": "LomoChrome Metropolis XR",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative; desaturated and gritty, more muted the less it is exposed."
+  },
+  {
+    "id": "film-lomography-lomochrome-turquoise-xr",
+    "displayName": "Lomography LomoChrome Turquoise XR",
+    "manufacturer": "Lomography",
+    "stockName": "LomoChrome Turquoise XR",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Experimental color negative with a teal shift in warm tones whose strength follows the exposure index."
+  },
+  {
+    "id": "film-lomography-redscale-xr",
+    "displayName": "Lomography Redscale XR",
+    "manufacturer": "Lomography",
+    "stockName": "Redscale XR",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Color negative exposed through its base; deep red to golden shift with exposure."
+  },
+  {
+    "id": "film-lomography-earl-grey-100",
+    "displayName": "Lomography Earl Grey 100",
+    "manufacturer": "Lomography",
+    "stockName": "Earl Grey 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 100 emulsion; budget cubic grain."
+  },
+  {
+    "id": "film-lomography-lady-grey-400",
+    "displayName": "Lomography Lady Grey 400",
+    "manufacturer": "Lomography",
+    "stockName": "Lady Grey 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 400 emulsion; coarse cubic grain."
+  },
+  {
+    "id": "film-lomography-potsdam-kino-100",
+    "displayName": "Lomography Potsdam Kino 100",
+    "manufacturer": "Lomography",
+    "stockName": "Potsdam Kino 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "ORWO UN54 cine emulsion; traditional grain, no added anti-halation."
+  },
+  {
+    "id": "film-lomography-berlin-kino-400",
+    "displayName": "Lomography Berlin Kino 400",
+    "manufacturer": "Lomography",
+    "stockName": "Berlin Kino 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "ORWO N74 cine emulsion; traditional grain, moderate contrast."
+  },
+  {
+    "id": "film-lomography-babylon-kino-13",
+    "displayName": "Lomography Babylon Kino 13",
+    "manufacturer": "Lomography",
+    "stockName": "Babylon Kino 13",
+    "iso": 13,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Ultra-slow specialty B&W of unconfirmed cine base."
+  },
+  {
+    "id": "film-adox-color-mission-200",
+    "displayName": "ADOX Color Mission 200",
+    "manufacturer": "ADOX",
+    "stockName": "Color Mission 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Single-batch color negative; medium traditional grain, minty greens and peachy reds, neither Kodak-warm nor Fuji-cool, narrow latitude."
+  },
+  {
+    "id": "film-adox-cms-20-ii",
+    "displayName": "ADOX CMS 20 II",
+    "manufacturer": "ADOX",
+    "stockName": "CMS 20 II",
+    "iso": 20,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthopanchromatic microfilm emulsion for pictorial use; virtually grainless at 800 lp/mm, very narrow latitude, needs its matched developer."
+  },
+  {
+    "id": "film-adox-silvermax-100",
+    "displayName": "ADOX Silvermax 100",
+    "manufacturer": "ADOX",
+    "stockName": "Silvermax 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Double-silver traditional emulsion; extended tonal range with its matched developer."
+  },
+  {
+    "id": "film-adox-chs-100-ii",
+    "displayName": "ADOX CHS 100 II",
+    "manufacturer": "ADOX",
+    "stockName": "CHS 100 II",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthopanchromatic traditional emulsion; soft rendering, creamy highlights, 1950s character."
+  },
+  {
+    "id": "film-adox-hr-50",
+    "displayName": "ADOX HR-50",
+    "manufacturer": "ADOX",
+    "stockName": "HR-50",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Modified Aviphot Pan 80 aerial emulsion; ultra-fine grain, super-panchromatic into the near infrared, narrow latitude."
+  },
+  {
+    "id": "film-adox-scala-50",
+    "displayName": "ADOX Scala 50",
+    "manufacturer": "ADOX",
+    "stockName": "Scala 50",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "B&W Slide",
+    "notes": "B&W reversal on an Aviphot Pan 80 base; ultra-fine grain, super-panchromatic, narrow latitude."
+  },
+  {
+    "id": "film-street-candy-street-savvy-400",
+    "displayName": "Street Candy Street Savvy 400",
+    "manufacturer": "Street Candy",
+    "stockName": "Street Savvy 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Color negative of unknown base; vibrant, accurate skin tones, moderate traditional grain, wide latitude."
+  },
+  {
+    "id": "film-street-candy-psychedelic-400",
+    "displayName": "Street Candy Psychedelic 400",
+    "manufacturer": "Street Candy",
+    "stockName": "Psychedelic 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Color negative of unknown base; muted desaturated warmth, faded 1970s palette."
+  },
+  {
+    "id": "film-street-candy-atm-400",
+    "displayName": "Street Candy ATM 400",
+    "manufacturer": "Street Candy",
+    "stockName": "ATM 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Repurposed surveillance B&W; high contrast, extended red sensitivity."
+  },
+  {
+    "id": "film-bergger-pancro-400",
+    "displayName": "Bergger Pancro 400",
+    "manufacturer": "Bergger",
+    "stockName": "Pancro 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Dual-emulsion (silver bromide and iodide) B&W; rich midtones, creamy gradual transitions, smooth highlight rolloff, wide latitude."
+  },
+  {
+    "id": "film-jch-streetpan-400",
+    "displayName": "JCH StreetPan 400",
+    "manufacturer": "JCH",
+    "stockName": "StreetPan 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Repurposed surveillance B&W on an Aviphot Pan 400 base; high contrast, deep blacks, extended red sensitivity."
+  },
+  {
+    "id": "film-kosmo-foto-mono-100",
+    "displayName": "Kosmo Foto Mono 100",
+    "manufacturer": "Kosmo Foto",
+    "stockName": "Mono 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 100 emulsion; budget cubic grain."
+  },
+  {
+    "id": "film-ferrania-p30",
+    "displayName": "Ferrania P30",
+    "manufacturer": "Ferrania",
+    "stockName": "P30",
+    "iso": 80,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Cinema B&W; very fine grain, high inherent contrast with deep blacks and bright highlights."
+  },
+  {
+    "id": "film-ferrania-orto-50",
+    "displayName": "Ferrania Orto 50",
+    "manufacturer": "Ferrania",
+    "stockName": "Orto 50",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthochromatic cinema B&W; very fine grain, reds dark and skies light, sharp micro-contrast, narrow latitude."
+  },
+  {
+    "id": "film-ferrania-p33",
+    "displayName": "Ferrania P33",
+    "manufacturer": "Ferrania",
+    "stockName": "P33",
+    "iso": 160,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Panchromatic cinema B&W; fine grain, broader latitude and less extreme contrast than P30."
+  },
+  {
+    "id": "film-foma-fomapan-100-classic",
+    "displayName": "Fomapan 100 Classic",
+    "manufacturer": "Foma",
+    "stockName": "Fomapan 100 Classic",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget cubic-grain B&W; slightly coarser than FP4 Plus."
+  },
+  {
+    "id": "film-foma-fomapan-200-creative",
+    "displayName": "Fomapan 200 Creative",
+    "manufacturer": "Foma",
+    "stockName": "Fomapan 200 Creative",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget B&W with T-crystal grain; moderate grain and contrast."
+  },
+  {
+    "id": "film-foma-fomapan-400-action",
+    "displayName": "Fomapan 400 Action",
+    "manufacturer": "Foma",
+    "stockName": "Fomapan 400 Action",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget B&W; coarse cubic grain, more prominent than HP5 Plus or Tri-X."
+  },
+  {
+    "id": "film-foma-ortho-400",
+    "displayName": "Foma Ortho 400",
+    "manufacturer": "Foma",
+    "stockName": "Ortho 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fast orthochromatic B&W; reds dark, blues and greens light, moderate contrast, visible traditional grain."
+  },
+  {
+    "id": "film-foma-retropan-320-soft",
+    "displayName": "Foma Retropan 320 Soft",
+    "manufacturer": "Foma",
+    "stockName": "Retropan 320 Soft",
+    "iso": 320,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Low-contrast pictorial B&W; soft cubic grain, gentle rendering."
+  },
+  {
+    "id": "film-foma-fomapan-r100",
+    "displayName": "Fomapan R100",
+    "manufacturer": "Foma",
+    "stockName": "Fomapan R100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Slide",
+    "notes": "B&W reversal on a transparent base; traditional cubic grain, a little more contrast than Scala 50."
+  },
+  {
+    "id": "film-arista-edu-ultra-100",
+    "displayName": "Arista EDU Ultra 100",
+    "manufacturer": "Arista",
+    "stockName": "EDU Ultra 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 100 emulsion; budget cubic grain."
+  },
+  {
+    "id": "film-arista-edu-ultra-200",
+    "displayName": "Arista EDU Ultra 200",
+    "manufacturer": "Arista",
+    "stockName": "EDU Ultra 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 200 emulsion; T-crystal grain, moderate contrast."
+  },
+  {
+    "id": "film-arista-edu-ultra-400",
+    "displayName": "Arista EDU Ultra 400",
+    "manufacturer": "Arista",
+    "stockName": "EDU Ultra 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Fomapan 400 emulsion; coarse cubic grain."
+  },
+  {
+    "id": "film-ultrafine-extreme-100",
+    "displayName": "Ultrafine eXtreme 100",
+    "manufacturer": "Ultrafine",
+    "stockName": "eXtreme 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "House-brand B&W of undisclosed make; traditional cubic grain, forgiving latitude."
+  },
+  {
+    "id": "film-ultrafine-extreme-400",
+    "displayName": "Ultrafine eXtreme 400",
+    "manufacturer": "Ultrafine",
+    "stockName": "eXtreme 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "House-brand B&W of undisclosed make; traditional cubic grain, forgiving latitude."
+  },
+  {
+    "id": "film-rollei-rpx-25",
+    "displayName": "Rollei RPX 25",
+    "manufacturer": "Rollei",
+    "stockName": "RPX 25",
+    "iso": 25,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Aviphot Pan 80 aerial emulsion; ultra-fine grain, extended red, narrow latitude."
+  },
+  {
+    "id": "film-rollei-rpx-100",
+    "displayName": "Rollei RPX 100",
+    "manufacturer": "Rollei",
+    "stockName": "RPX 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Kentmere 100 emulsion; budget cubic grain."
+  },
+  {
+    "id": "film-rollei-rpx-400",
+    "displayName": "Rollei RPX 400",
+    "manufacturer": "Rollei",
+    "stockName": "RPX 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Kentmere 400 emulsion; budget cubic grain."
+  },
+  {
+    "id": "film-rollei-infrared-400",
+    "displayName": "Rollei Infrared 400",
+    "manufacturer": "Rollei",
+    "stockName": "Infrared 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hyperpanchromatic Aviphot Pan 200 emulsion with near-infrared sensitivity to about 750 nm; moderate traditional grain."
+  },
+  {
+    "id": "film-rollei-retro-80s",
+    "displayName": "Rollei Retro 80S",
+    "manufacturer": "Rollei",
+    "stockName": "Retro 80S",
+    "iso": 80,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Aviphot Pan 80 aerial emulsion on a clear base; ultra-fine grain, super-panchromatic into the near infrared."
+  },
+  {
+    "id": "film-rollei-retro-400s",
+    "displayName": "Rollei Retro 400S",
+    "manufacturer": "Rollei",
+    "stockName": "Retro 400S",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Aviphot Pan 200 emulsion without the infrared sensitization refinement; fine grain, extended red."
+  },
+  {
+    "id": "film-rollei-superpan-200",
+    "displayName": "Rollei Superpan 200",
+    "manufacturer": "Rollei",
+    "stockName": "Superpan 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Aviphot Pan 200 emulsion; fine grain, super-panchromatic."
+  },
+  {
+    "id": "film-rollei-ortho-25-plus",
+    "displayName": "Rollei Ortho 25 Plus",
+    "manufacturer": "Rollei",
+    "stockName": "Ortho 25 Plus",
+    "iso": 25,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthochromatic technical B&W; ultra-fine grain, reds near black, high contrast, cutting sharpness, narrow latitude."
+  },
+  {
+    "id": "film-rollei-paul-reinhold-640",
+    "displayName": "Rollei Paul & Reinhold 640",
+    "manufacturer": "Rollei",
+    "stockName": "Paul & Reinhold 640",
+    "iso": 640,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Traditional B&W of undisclosed base; punchy contrast, deep shadows, fine grain for its speed."
+  },
+  {
+    "id": "film-rollei-blackbird-100",
+    "displayName": "Rollei Blackbird 100",
+    "manufacturer": "Rollei",
+    "stockName": "Blackbird 100",
+    "iso": 64,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Orthopanchromatic high-contrast B&W on a clear synthetic base; ultra-fine grain, deep blacks, highlights that blow fast, no tolerance for underexposure."
+  },
+  {
+    "id": "film-fpp-dracula-64",
+    "displayName": "FPP Dracula 64",
+    "manufacturer": "FPP",
+    "stockName": "Dracula 64",
+    "iso": 64,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-wolfman-100",
+    "displayName": "FPP WolfMan 100",
+    "manufacturer": "FPP",
+    "stockName": "WolfMan 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-she-wolf-100",
+    "displayName": "FPP She Wolf 100",
+    "manufacturer": "FPP",
+    "stockName": "She Wolf 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-jekyll-hyde-100",
+    "displayName": "FPP Jekyll/Hyde 100",
+    "manufacturer": "FPP",
+    "stockName": "Jekyll/Hyde 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-frankenstein-200",
+    "displayName": "FPP Frankenstein 200",
+    "manufacturer": "FPP",
+    "stockName": "Frankenstein 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-mummy-400",
+    "displayName": "FPP Mummy 400",
+    "manufacturer": "FPP",
+    "stockName": "Mummy 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
+  },
+  {
+    "id": "film-fpp-jiangshi-400",
+    "displayName": "FPP Jiangshi 400",
+    "manufacturer": "FPP",
+    "stockName": "Jiangshi 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Hand-rolled from an undisclosed emulsion."
   }
 ]

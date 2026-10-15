@@ -55,3 +55,21 @@ def test_an_inside_point_still_round_trips(case) -> None:
     grid = _grid(**case)
     raw = CoordinateMapping.map_click_to_raw(0.4, 0.6, grid)
     assert CoordinateMapping.map_raw_to_viewport(*raw, grid) == pytest.approx((0.4, 0.6), abs=0.02)
+
+
+def test_a_click_in_the_fine_rotation_wedge_maps_off_frame_not_to_the_corner() -> None:
+    grid = _grid(fine_rot=6.0)
+    rx, ry = CoordinateMapping.map_click_to_raw(0.005, 0.005, grid)
+    assert (rx, ry) != pytest.approx((0.0, 0.0), abs=1e-3)
+    assert rx < 0.05 or ry < 0.0 or rx < 0.0
+
+
+def test_the_rotated_grid_matches_a_warp_inside_the_frame() -> None:
+    import cv2
+
+    flat = _grid()
+    m = cv2.getRotationMatrix2D((320 / 2.0, 240 / 2.0), 6.0, 1.0)
+    warped = cv2.warpAffine(flat, m, (320, 240), flags=cv2.INTER_LINEAR)
+    solved = _grid(fine_rot=6.0)
+    # warpAffine interpolates in 1/32 px steps; the solved grid is exact.
+    np.testing.assert_allclose(solved[60:180, 80:240], warped[60:180, 80:240], atol=2e-4)

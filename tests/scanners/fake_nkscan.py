@@ -69,6 +69,8 @@ class FakeCapabilities:
     max_samples: int = 16
     framing: str = "thumbnail"
     thumbnail: bool = True
+    film_format: str | None = None
+    film_formats: tuple[str, ...] = ("135", "half", "IX240", "16")
     multi_line: bool = True
     eject: bool = True
     autofocus: bool = True
@@ -94,8 +96,10 @@ class FakeDiscovery:
     frames: list[tuple[int, int, int, int]]
     thumbnail: dict[str, np.ndarray] | None = None
     addresses_per_column: float | None = None
+    column_addresses: list[int] | None = None
     thumbnail_complete: bool | None = None
     thumbnail_blocks: int | None = None
+    base_density: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -118,7 +122,7 @@ class FakeNkscanModule:
     locations: tuple[str, ...] = (DEVICE_ID,)
     frames: tuple[tuple[int, int, int, int], ...] = FRAMES
     caps: FakeCapabilities = field(default_factory=FakeCapabilities)
-    media_loaded_at_open: bool = True
+    film_loaded: bool = True  # the unit's own state, which every session reads
     film_waiting: bool = True  # what load() finds in the adapter
     load_error: Exception | None = None
     with_eject: bool = False
@@ -129,6 +133,7 @@ class FakeNkscanModule:
     strip_slack: int = 4  # columns past the last frame; negative pushes frames off the pass
     # Not the caps' 4000 / 250, as on a real pass.
     addresses_per_column: float = 16.3
+    base_density: tuple[float, float, float] = (0.42, 0.74, 0.88)
     scan_error: Exception | None = None
     short_pass: bool = False  # the next pass, thumbnail or frame, stops before its last block
     discover_error: Exception | None = None
@@ -190,6 +195,7 @@ class FakeSession:
         self.loads = 0
         self.ejects = 0
         self.discoveries: list[str | None] = []
+        self.films: list[str | None] = []
         self.scans: list[dict[str, Any]] = []
         self.meters: list[dict[str, Any]] = []
         module.opened.append(self)
@@ -205,14 +211,14 @@ class FakeSession:
         return self._module.caps
 
     def media_loaded(self) -> bool:
-        return self._module.media_loaded_at_open or getattr(self, "took_film", False)
+        return self._module.film_loaded
 
     def load(self) -> bool:
         self.loads += 1
         if self._module.load_error is not None:
             raise self._module.load_error
-        self.took_film = self._module.film_waiting
-        return self.took_film
+        self._module.film_loaded = self._module.film_waiting
+        return self._module.film_loaded
 
     def stage(self) -> None:
         self.staged += 1
@@ -221,24 +227,32 @@ class FakeSession:
         self.ejects += 1
         return self._module.with_eject
 
+    def nikon_profile(self, film: str) -> bytes | None:
+        return b"profile for " + film.encode()
+
     def discover_frames(
         self,
         format: str | None = None,  # noqa: A002 - the binding's own name
+        film: str | None = None,
         progress: Callable[..., Any] | None = None,
     ) -> FakeDiscovery:
         module = self._module
         self.discoveries.append(format)
+        self.films.append(film)
         if progress is not None:
             progress("discover", 0, 1, 1)
         if module.discover_error is not None:
             raise module.discover_error
         thumbnail = module.strip_pass()
+        cols = next(iter(thumbnail.values())).shape[1] if thumbnail else 0
         return FakeDiscovery(
             frames=list(module.frames),
             thumbnail=thumbnail,
             addresses_per_column=module.addresses_per_column if thumbnail else None,
+            column_addresses=[round(c * module.addresses_per_column) for c in range(cols)] if thumbnail else None,
             thumbnail_complete=not module.short_pass if thumbnail else None,
             thumbnail_blocks=(1 - module.short_pass) if thumbnail else None,
+            base_density=module.base_density if thumbnail else None,
         )
 
     def scan_frame(
@@ -249,7 +263,10 @@ class FakeSession:
         superfine: bool = False,
         infrared: bool = False,
         clean: bool = False,
-        lock_white_balance: bool = True,
+        film: str | None = None,
+        format: str | None = None,  # noqa: A002 - the binding's own name
+        base_density: tuple[float, float, float] | None = None,
+        lock_white_balance: bool | None = None,
         exposures: dict[str, int] | None = None,
         progress: Callable[..., Any] | None = None,
     ) -> FakeScanResult:
@@ -270,6 +287,9 @@ class FakeSession:
                 "superfine": superfine,
                 "infrared": infrared,
                 "clean": clean,
+                "film": film,
+                "format": format,
+                "base_density": base_density,
                 "lock_white_balance": lock_white_balance,
                 "exposures": exposures,
             }
@@ -283,7 +303,8 @@ class FakeSession:
         colors = {name: np.full((rows, cols), value, np.uint16) for name, value in (("red", 10), ("green", 20), ("blue", 30))}
         return FakeScanResult(
             colors=colors,
-            ir=np.full((rows, cols), 40, np.uint16) if infrared else None,
+            # nkscan also reads the infrared plane to clean, and returns it.
+            ir=np.full((rows, cols), 40, np.uint16) if infrared or clean else None,
             dpi=int(dpi or module.caps.optical_dpi),
             rows=rows,
             cols=cols,
@@ -297,10 +318,22 @@ class FakeSession:
         self,
         frame: tuple[int, int, int, int],
         infrared: bool = False,
-        lock_white_balance: bool = True,
+        film: str | None = None,
+        format: str | None = None,  # noqa: A002 - the binding's own name
+        base_density: tuple[float, float, float] | None = None,
+        lock_white_balance: bool | None = None,
         progress: Callable[..., Any] | None = None,
     ) -> dict[str, int]:
-        self.meters.append({"frame": frame, "infrared": infrared, "lock_white_balance": lock_white_balance})
+        self.meters.append(
+            {
+                "frame": frame,
+                "infrared": infrared,
+                "film": film,
+                "format": format,
+                "base_density": base_density,
+                "lock_white_balance": lock_white_balance,
+            }
+        )
         if self._module.scan_error is not None:
             raise self._module.scan_error
         exposures = {"red": 11, "green": 22, "blue": 33}

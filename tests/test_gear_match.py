@@ -153,3 +153,22 @@ def test_an_impossible_date_is_not_inferred():
     match = match_gear_for_folder("2024-13-40_family_trip", GearLibrary())
 
     assert match.capture_date == ""
+
+
+def test_a_token_with_the_speed_outranks_a_shared_subject_word():
+    ektapan = FilmStock(manufacturer="Kodak", stock_name="Ektapan 400", display_name="Kodak Ektapan 400 (formerly T-Max 400)")
+    savvy = FilmStock(manufacturer="Street Candy", stock_name="Street Savvy 400")
+    library = _library(film_stocks=[ektapan, savvy])
+
+    match = match_gear_for_folder("2026_tmax400_street_nyc", library)
+
+    assert match.film_stock_id == ektapan.id
+
+
+def test_two_stocks_named_by_plain_words_stay_ambiguous():
+    lucky = FilmStock(manufacturer="Lucky", stock_name="Color 200")
+    trix = FilmStock(manufacturer="Kodak", stock_name="Tri-X 400")
+    library = _library(film_stocks=[lucky, trix])
+
+    assert match_gear_for_folder("lucky_trix", library).film_stock_id == ""
+    assert match_gear_for_folder("lucky_trix400", library).film_stock_id == trix.id

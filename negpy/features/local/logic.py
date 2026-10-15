@@ -124,16 +124,11 @@ def compute_local_maps(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
 ) -> np.ndarray:
-    """
-    Build the per-pixel dodge/burn maps [h, w, 2 + K] float32. Planes 0 and 1 are sums
-    over the unlimited masks of the mask's value times its feathered alpha: print
-    exposure in stops (positive = burn, negative = dodge) and the local grade delta in
-    ISO-R points. Plane 2 + k is the feathered alpha alone of the k-th of
-    `limited_masks`, whose weight also depends on each pixel's tone, so it cannot be
-    pre-summed. All-zeros when there are no masks.
-    """
+    """Per-pixel dodge/burn maps [h, w, 3 + K] float32. Planes 0-2 sum the unlimited masks' value x feathered alpha:
+    stops (positive = burn), grade delta in ISO-R points, flash fraction. Plane 3 + k is the alpha of the k-th of
+    `limited_masks`, which cannot be pre-summed because its weight depends on tone. All zeros with no masks."""
     limited = limited_indices(config)
-    maps = np.zeros((h, w, 2 + len(limited)), dtype=np.float32)
+    maps = np.zeros((h, w, 3 + len(limited)), dtype=np.float32)
     if not config.masks:
         return maps
 
@@ -160,11 +155,13 @@ def compute_local_maps(
 
         alpha = rasterise(mask.shape, transformed, h, w, mask.feather * short_side, mask.invert)
         if i in limited:
-            maps[:, :, 2 + limited.index(i)] = alpha
+            maps[:, :, 3 + limited.index(i)] = alpha
             continue
         maps[:, :, 0] += mask.stops * alpha
         if mask.grade:
             maps[:, :, 1] += mask.grade * alpha
+        if mask.flash:
+            maps[:, :, 2] += mask.flash * alpha
 
     return maps
 
@@ -176,5 +173,5 @@ def limited_indices(config: LocalAdjustmentsConfig) -> List[int]:
 
 
 def limited_masks(config: LocalAdjustmentsConfig) -> List[LocalMask]:
-    """The tone-limited masks in plane order (plane 2 + k of compute_local_maps)."""
+    """The tone-limited masks in plane order (plane 3 + k of compute_local_maps)."""
     return [config.masks[i] for i in limited_indices(config)]

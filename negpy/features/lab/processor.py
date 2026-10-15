@@ -5,7 +5,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_glow_and_halation,
-    apply_output_sharpening,
+    apply_usm_sharpening,
     apply_rl_sharpening,
     apply_saturation,
 )
@@ -29,7 +29,7 @@ class PhotoLabProcessor:
             img = apply_saturation(img, self.config.saturation, self.config.skin_protection)
 
         if self.config.sharpen > 0:
-            sharpen = apply_rl_sharpening if self.config.sharpen_method == SharpenMethod.RL else apply_output_sharpening
+            sharpen = apply_rl_sharpening if self.config.sharpen_method == SharpenMethod.RL else apply_usm_sharpening
             img = sharpen(
                 img,
                 self.config.sharpen,

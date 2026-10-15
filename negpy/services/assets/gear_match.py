@@ -71,21 +71,28 @@ def _squash(text: str) -> str:
     return "".join(_TOKEN_RE.findall(text.lower()))
 
 
-def _is_match(folder_tokens: set, folder_squashed: str, name_parts: list) -> bool:
+def _match_strength(folder_tokens: set, folder_squashed: str, name_parts: list) -> int:
+    """2 for a folder token that carries a digit (portra400, hp5) or the whole name as a run
+    (penf); 1 for a shared word; 0 for none. A stock's speed is in its name, so a token with a
+    digit names the stock, while a plain word may be the subject (street, gold, lucky)."""
     name = " ".join(p for p in name_parts if p)
     if not name:
-        return False
+        return 0
     candidate_tokens = _tokens(name)
-    if folder_tokens & candidate_tokens:
-        return True
     candidate_squashed = _squash(name)
+    shared = folder_tokens & candidate_tokens
+    runs = {t for t in folder_tokens if len(t) >= 3 and t in candidate_squashed}
+    if any(any(c.isdigit() for c in t) for t in shared | runs):
+        return 2
     if len(candidate_squashed) >= _MIN_SQUASH_LEN and candidate_squashed in folder_squashed:
-        return True
-    return any(len(t) >= 3 and t in candidate_squashed for t in folder_tokens)
+        return 2
+    return 1 if shared or runs else 0
 
 
 def _best_match(folder_tokens: set, folder_squashed: str, items: list, name_parts) -> Optional[str]:
-    matches = [item.id for item in items if _is_match(folder_tokens, folder_squashed, name_parts(item))]
+    scored = [(item.id, _match_strength(folder_tokens, folder_squashed, name_parts(item))) for item in items]
+    best = max((s for _, s in scored), default=0)
+    matches = [item_id for item_id, s in scored if s == best and s > 0]
     return matches[0] if len(matches) == 1 else None
 
 

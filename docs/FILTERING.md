@@ -1,10 +1,10 @@
 # Filtering the Film Strip
 
-The search box in the left sidebar filters the film strip by filename. Sorting, hot folder mode and "Export All" all use the visible (filtered) set.
+The search box in the left sidebar filters the film strip by filename. Sorting, hot folder mode and "Export All" use only the visible (filtered) set.
 
 ## Plain mode (default)
 
-Type any text. NegPy matches it against each filename, and ignores case.
+NegPy matches the text against each filename and ignores case.
 
 | Input | Matches |
 |-------|---------|
@@ -12,7 +12,7 @@ Type any text. NegPy matches it against each filename, and ignores case.
 | `.cr2` | every `.cr2` file |
 | `_42` | files that contain `_42` anywhere in the name |
 
-Click the **×** in the box to clear the filter. All loaded files come back immediately.
+Click the **×** in the box to clear the filter.
 
 ## Regex mode
 
@@ -24,12 +24,12 @@ Click the **`.*`** toggle beside the search box. NegPy compiles the pattern with
 | `\.(cr2\|nef)$` | only `.cr2` or `.nef` files |
 | `roll_\d+_scan` | files like `roll_3_scan.tif` |
 
-An invalid regex (for example an unclosed `[`) turns the input border red and keeps the previous filter. Nothing disappears while you type.
+An invalid regex (for example an unclosed `[`) turns the input border red and keeps the previous filter.
 
-## Behaviour
+## Behavior
 
-- **The selection follows the filter.** NegPy drops hidden files from the multi-select set. The active file moves to the first visible selection, or clears if nothing matches. Sync Edits never touches an invisible file.
-- **Export All exports only what is visible.** Filter to a subset, then click Export All. Only that subset is written.
-- **Hot Folder mode still ingests new files.** New files that do not match the active filter stay hidden until you clear or relax the filter.
-- **The sort order is kept.** The filter is applied after the sort, so the visible order follows your Name/Date and Asc/Desc choice.
-- **The filter is session-only.** NegPy starts with an empty filter.
+- NegPy drops hidden files from the multi-select set. The active file moves to the first visible selection, or clears if nothing matches. Sync Edits never changes a hidden file.
+- Export All writes only the visible files.
+- Hot Folder mode still ingests new files. A new file that does not match the filter stays hidden until you clear or relax the filter.
+- The filter applies after the sort, so the visible order follows your Name/Date and Asc/Desc choice.
+- The filter lasts for one session.

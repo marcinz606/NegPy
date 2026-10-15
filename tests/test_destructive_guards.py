@@ -29,7 +29,7 @@ def _wheel(widget) -> QWheelEvent:
 
 
 def test_dropdowns_and_number_boxes_ignore_the_wheel(qapp):
-    from negpy.desktop.main import WheelScrollsPanel
+    from negpy.desktop.main import AppEventFilter
     from negpy.desktop.view.widgets.sliders import CompactSlider
 
     _, sidebar = _panel(ScanSidebar)
@@ -40,7 +40,7 @@ def test_dropdowns_and_number_boxes_ignore_the_wheel(qapp):
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     boxes.append(slider.spin)
 
-    guard = WheelScrollsPanel(qapp)
+    guard = AppEventFilter(qapp)
     qapp.installEventFilter(guard)
     try:
         for box in boxes:

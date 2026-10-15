@@ -205,9 +205,9 @@ def test_write_error_surfaces_and_batch_continues(tmp_path, monkeypatch) -> None
     assert list(tmp_path.glob("*.part")) == []  # tmp file cleaned up on failure
 
 
-def test_unexpected_exception_aborts_batch_with_error(tmp_path) -> None:
+def test_an_exception_fails_one_file_and_the_batch_finishes(tmp_path) -> None:
     worker, proc = _worker()
-    proc.render_export.side_effect = RuntimeError("kaboom")
+    proc.render_export.side_effect = [RuntimeError("kaboom"), (np.zeros((4, 4, 3), np.float32), "sRGB")]
     errors: list[str] = []
     finished: list[bool] = []
     worker.error.connect(errors.append)
@@ -215,8 +215,33 @@ def test_unexpected_exception_aborts_batch_with_error(tmp_path) -> None:
 
     worker.run_batch([_task(tmp_path, "a.cr2"), _task(tmp_path, "b.cr2")])
 
-    assert errors == ["kaboom"]
-    assert finished == []
+    assert errors == ["Export failed for a.cr2: kaboom"]
+    assert finished == [True]
+    assert len(list(tmp_path.glob("*.jpg"))) == 1
+
+
+def test_an_exception_in_the_finisher_fails_one_file_and_the_batch_finishes(tmp_path) -> None:
+    worker, proc = _worker()
+    proc.encode_export.side_effect = [RuntimeError("disk gone"), (b"JPG", "jpg")]
+    errors: list[str] = []
+    finished: list[bool] = []
+    worker.error.connect(errors.append)
+    worker.finished.connect(lambda: finished.append(True))
+
+    worker.run_batch([_task(tmp_path, "a.cr2"), _task(tmp_path, "b.cr2")])
+
+    assert errors == ["disk gone"]
+    assert finished == [True]
+
+
+def test_free_text_exposure_with_a_decimal_denominator_parses() -> None:
+    import piexif
+
+    from negpy.features.metadata.writer import _parse_exposure_str
+
+    assert _parse_exposure_str("1/2.5s f/8")[piexif.ExifIFD.ExposureTime] == (2, 5)
+    assert _parse_exposure_str("1/125s")[piexif.ExifIFD.ExposureTime] == (1, 125)
+    assert piexif.ExifIFD.ExposureTime not in _parse_exposure_str("1/0s")
 
 
 def test_no_overwrite_numbers_a_conflicting_target(tmp_path) -> None:
@@ -417,3 +442,31 @@ def test_concurrent_prefetch_and_prepare_agree(tmp_path) -> None:
     assert np.array_equal(ref, got)
     assert proc._prepare_slot is not None
     assert np.array_equal(ref, proc._prepare_slot[1][0])
+
+
+def test_a_frame_never_opened_exports_with_its_source_exif(tmp_path, monkeypatch) -> None:
+    from negpy.desktop.workers import export as export_mod
+    from negpy.features.metadata.models import MetadataConfig
+
+    exif = {"0th": {271: b"Nikon"}}
+    monkeypatch.setattr(export_mod, "read_exif_from_file", lambda path: exif)
+    seen: list = []
+    monkeypatch.setattr(export_mod, "embed_metadata", lambda bits, cfg, source_exif, **k: (seen.append(source_exif), bits)[1])
+    worker, _ = _worker()
+
+    worker.run_batch([_task(tmp_path, "a.cr2", metadata_config=MetadataConfig())])
+
+    assert seen == [exif]
+
+
+def test_overwrite_never_replaces_another_frame_of_the_same_batch(tmp_path) -> None:
+    """A RAW+JPEG pair names to one stem; Overwrite must not let the JPEG replace the RAW's export."""
+    worker, proc = _worker()
+    proc.encode_export.side_effect = [(b"FIRST", "jpg"), (b"SECOND", "jpg")]
+    preset = _preset(tmp_path, overwrite=True)
+    src = tmp_path / "src"
+    src.mkdir()
+
+    worker.run_batch([_task(src, "DSC_0001.NEF", preset), _task(src, "DSC_0001.JPG", preset)])
+
+    assert sorted(p.read_bytes() for p in tmp_path.glob("*.jpg")) == [b"FIRST", b"SECOND"]

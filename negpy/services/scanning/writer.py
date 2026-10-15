@@ -53,10 +53,20 @@ def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> st
         rgb = _to_grey(rgb)
         photometric = "minisblack"
 
+    # The scan resolution, and the profile of the scanner data, so other programs show the file correctly.
+    tags = {"resolution": (result.dpi, result.dpi), "resolutionunit": "INCH"} if result.dpi else {}
     fd, tmp_path = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(path) or ".")
     os.close(fd)
     try:
-        tifffile.imwrite(tmp_path, rgb, photometric=photometric, compression="zlib", predictor=True)
+        tifffile.imwrite(
+            tmp_path,
+            rgb,
+            photometric=photometric,
+            compression="zlib",
+            predictor=True,
+            iccprofile=None if mono else result.icc_profile,
+            **tags,
+        )
         os.replace(tmp_path, path)
     except Exception:
         if os.path.exists(tmp_path):
@@ -70,7 +80,7 @@ def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> st
         fd_ir, tmp_ir = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(ir_path) or ".")
         os.close(fd_ir)
         try:
-            tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="zlib", predictor=True)
+            tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="zlib", predictor=True, **tags)
             os.replace(tmp_ir, ir_path)
         except Exception:
             if os.path.exists(tmp_ir):

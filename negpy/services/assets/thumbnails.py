@@ -239,7 +239,8 @@ def get_thumbnail_worker(
         img.thumbnail((ts, ts), Image.Resampling.LANCZOS)
         square_img: Image.Image = prepare_thumbnail(preview_positive(img, process_mode), ts)
 
-        if asset_store:
+        # A canvas render may have saved this frame's thumbnail during the decode; keep it.
+        if asset_store and asset_store.get_thumbnail_fingerprint(cache_key) in (None, QUICK):
             asset_store.save_thumbnail(cache_key, square_img, fingerprint=QUICK)
 
         return square_img

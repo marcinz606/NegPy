@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -22,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QValidator
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from negpy.desktop.view.sidebar.scan import ScanCaptureMode, ScanSidebar, estimated_frame_bytes
 from negpy.desktop.view.styles.theme import THEME
@@ -133,6 +134,7 @@ class _FakeController(QObject):
     scan_ejected = pyqtSignal(bool)
     scan_eject_error = pyqtSignal(str)
     scan_strip_returned = pyqtSignal(bool)
+    scan_media_polled = pyqtSignal(str, object)
     scan_exposure_metered = pyqtSignal(object, int)
     scan_meter_error = pyqtSignal(str)
 
@@ -141,6 +143,7 @@ class _FakeController(QObject):
         self.session = SimpleNamespace(repo=_FakeRepo(settings))
         self.started: list[tuple[str, object]] = []
         self.ejected_ids: list[str] = []
+        self.polled_ids: list[str] = []
         self.device_requests = 0
         self.backend_requests: list[str] = []
         self.cancels = 0
@@ -165,6 +168,12 @@ class _FakeController(QObject):
 
     def eject_scanner(self, device_id: str) -> None:
         self.ejected_ids.append(device_id)
+
+    def poll_scanner_media(self, device_id: str) -> None:
+        self.polled_ids.append(device_id)
+
+
+_OUT = tempfile.gettempdir()  # an existing absolute folder: Scan refuses any other
 
 
 def _sidebar(device: ScannerDevice | None = None, settings: dict | None = None) -> tuple[ScanSidebar, _FakeController]:
@@ -304,7 +313,7 @@ def test_scan_params_include_prescan_crop() -> None:
         SE_DEVICE,
         settings={"backend": "plustek", "scan_window": (0.1, 0.2, 0.9, 0.8)},
     )
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
     kind, req = controller.started[0]
     assert kind == "scan"
@@ -381,7 +390,7 @@ def test_saved_depth_wins_when_the_device_offers_it() -> None:
 
 def test_an_unreadable_frame_list_refuses_the_scan() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.frame_spec_edit.setText("2-")
 
     assert sidebar.scan_btn.isEnabled() is False
@@ -394,7 +403,7 @@ def test_an_unreadable_frame_list_refuses_the_scan() -> None:
 
 def test_scan_on_capacity_device_routes_to_batch() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.frame_spec_edit.setText("2-4")
 
     sidebar._on_scan()
@@ -409,7 +418,7 @@ def test_scan_on_capacity_device_routes_to_batch() -> None:
 
 def test_scan_on_plain_device_routes_to_single() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
 
     sidebar._on_scan()
 
@@ -421,7 +430,7 @@ def test_scan_on_plain_device_routes_to_single() -> None:
 
 def test_scan_uses_dialog_selection_and_per_frame_windows() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     rect = (0.1, 0.1, 0.5, 0.5)
     sidebar.settings = replace(sidebar._settings, selected_frames=(1, 2, 4), frame_windows={4: rect})
 
@@ -521,7 +530,7 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
     # _on_scan() re-reads settings from the UI right before building the
     # request — the rebuild must not wipe dialog-owned fields.
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.settings = replace(sidebar._settings, frame_offset_mm=1.5, frame_offset_modifier_mm=0.2)
 
     sidebar._on_scan()
@@ -534,7 +543,7 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
 
 def test_scan_carries_the_per_frame_corrections_into_the_batch_request() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.settings = replace(sidebar._settings, frame_offsets={2: -0.4})
 
     sidebar._on_scan()
@@ -562,7 +571,7 @@ def test_eject_when_done_sits_in_the_eject_menu_of_a_strip_feeder() -> None:
 
 def test_ae_flag_flows_into_scan_params() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.ae_btn.setChecked(True)
     sidebar.autofocus_btn.setChecked(True)
 
@@ -575,7 +584,7 @@ def test_ae_flag_flows_into_scan_params() -> None:
 
 def test_unsupported_ae_af_forced_off_in_scan_params() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.ae_btn.setChecked(True)
     sidebar.autofocus_btn.setChecked(True)
 
@@ -619,7 +628,7 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
     sidebar._on_scan_error(msg)
 
     assert f"Error: {msg}" in sidebar.status_strip.message()
-    assert popped == [("Scan Failed", msg)]
+    assert popped == [("Scan", msg)]
 
 
 def test_indeterminate_scan_phase_uses_busy_progress_bar() -> None:
@@ -661,14 +670,14 @@ def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
 
 def test_a_measured_strip_scans_as_a_batch() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
     assert [kind for kind, _req in controller.started] == ["batch"]
 
 
 def test_the_nkscan_options_reach_the_request() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.clean_btn.setChecked(True)
     sidebar.superfine_btn.setChecked(True)
     sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(4))
@@ -682,7 +691,7 @@ def test_the_nkscan_options_reach_the_request() -> None:
 def test_a_saved_clean_never_reaches_a_device_that_cannot_do_it() -> None:
     """The same guard as autofocus: a stale saved value must not become a refused option."""
     sidebar, controller = _sidebar(FULL_DEVICE, settings={"clean": True, "superfine": True, "samples": 8})
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
 
     params = controller.started[-1][1].params
@@ -705,7 +714,7 @@ def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
 
 def test_a_typed_frame_list_reaches_the_batch_without_a_preview() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.frame_spec_edit.setText("1,3-5")
 
     sidebar._on_scan()
@@ -724,7 +733,7 @@ def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
     sidebar.settings = replace(sidebar._settings, selected_frames=(2, 4))
     assert sidebar.frame_spec_edit.text() == "2,4"
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
     assert controller.started[-1][1].frames == (2, 4)
 
@@ -732,7 +741,7 @@ def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
 def test_a_measured_strip_with_nothing_picked_scans_the_whole_strip() -> None:
     """Its frame count is unknown until the film is measured, so the batch names no frames."""
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
 
     kind, req = controller.started[-1]
@@ -741,7 +750,7 @@ def test_a_measured_strip_with_nothing_picked_scans_the_whole_strip() -> None:
 
 def test_a_feeder_with_nothing_picked_still_uses_its_frame_range() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
 
     assert controller.started[-1][1].frames == tuple(range(1, 7))
@@ -847,7 +856,7 @@ def test_going_back_to_colour_negative_restores_them() -> None:
 
 def test_the_film_type_reaches_the_request_and_the_settings() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("positive"))
     sidebar._on_scan()
 
@@ -1083,6 +1092,62 @@ def test_a_returned_strip_not_back_in_asks_for_it_again() -> None:
     assert sidebar.status_strip.message() == "The scanner returned the strip while idle — insert it again"
 
 
+def test_film_removed_outside_negpy_drops_the_frame_selection() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    controller.scan_media_polled.emit(FULL_DEVICE.id, True)
+    sidebar.settings = replace(sidebar._settings, selected_frames=(1, 3))
+
+    controller.scan_media_polled.emit(FULL_DEVICE.id, False)
+
+    assert sidebar.settings.selected_frames == ()
+    assert "Film removed" in sidebar.status_strip.message()
+
+
+def test_film_inserted_says_so() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    controller.scan_media_polled.emit(FULL_DEVICE.id, False)
+    assert sidebar.status_strip.message() == "No film loaded"
+
+    controller.scan_media_polled.emit(FULL_DEVICE.id, True)
+
+    assert sidebar.status_strip.message() == "Film loaded"
+
+
+def test_a_film_poll_of_another_device_or_without_a_state_changes_nothing() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    controller.scan_media_polled.emit(FULL_DEVICE.id, True)
+    sidebar.settings = replace(sidebar._settings, selected_frames=(1,))
+
+    controller.scan_media_polled.emit("another:device", False)
+    controller.scan_media_polled.emit(FULL_DEVICE.id, None)
+
+    assert sidebar.settings.selected_frames == (1,)
+
+
+def test_the_film_poll_waits_for_the_last_answer() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    # The right panel shows the footer and the cards, never the sidebar itself
+    host = QWidget()
+    sidebar.footer.setParent(host)
+    host.show()
+
+    sidebar._poll_media()
+    sidebar._poll_media()
+    assert controller.polled_ids == [FULL_DEVICE.id]
+
+    controller.scan_media_polled.emit(FULL_DEVICE.id, True)
+    sidebar._poll_media()
+    assert controller.polled_ids == [FULL_DEVICE.id, FULL_DEVICE.id]
+
+
+def test_no_film_poll_while_the_panel_is_hidden() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+
+    sidebar._poll_media()
+
+    assert controller.polled_ids == []
+
+
 def test_ejecting_with_nothing_picked_says_only_that() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
     sidebar._on_ejected(True)
@@ -1104,6 +1169,13 @@ def test_an_empty_dpi_box_falls_back_to_the_finest_the_device_offers() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
     sidebar.dpi_combo.clear()  # nothing selected and nothing typed
     assert sidebar._dpi() == 2400
+
+
+def test_a_typed_dpi_counts_without_enter() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)  # supported_dpi=(1200, 2400)
+    sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(2400))
+    sidebar.dpi_combo.lineEdit().setText("1800")
+    assert sidebar._dpi() == 1800
 
 
 def test_a_pass_the_device_cannot_run_is_not_shown_at_all() -> None:
@@ -1133,7 +1205,7 @@ def test_the_format_combo_offers_the_mono_tiff() -> None:
 
 def test_the_chosen_format_reaches_the_batch_request() -> None:
     sidebar, controller = _sidebar(LS50_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.fmt_btn.setCurrentIndex(sidebar.fmt_btn.findData("TIFF (mono)"))
 
     sidebar._on_scan()
@@ -1158,6 +1230,28 @@ def _meter_frame(sidebar: ScanSidebar, monkeypatch, frame: int = 2) -> None:
 
     monkeypatch.setattr(scan_module.QInputDialog, "getInt", lambda *_a, **_k: (frame, True))
     sidebar.exposure_meter_btn.click()
+
+
+def test_meter_frame_while_the_scanner_is_busy_leaves_the_panel_idle(monkeypatch) -> None:
+    sidebar, controller = _sidebar(LOCKING_DEVICE)
+
+    def busy(_req) -> None:
+        raise RuntimeError("A scanner request is already active")
+
+    controller.start_meter = busy
+    _meter_frame(sidebar, monkeypatch)
+
+    assert sidebar._scanning is False
+    assert "busy" in sidebar.status_strip.message()
+
+
+@pytest.mark.parametrize("folder", ["~/Scans", "relative/scans", "/no/such/negpy-folder"])
+def test_scan_refuses_an_output_folder_that_is_not_an_existing_absolute_path(folder) -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    sidebar.output.folder_edit.setText(folder)
+    sidebar._on_scan()
+    assert controller.started == []
+    assert "Output folder" in sidebar.status_strip.message()
 
 
 def test_the_exposure_lock_row_shows_only_where_the_backend_offers_it() -> None:
@@ -1194,14 +1288,14 @@ def test_a_metered_frame_locks_every_later_scan_of_that_device(monkeypatch) -> N
     )
     assert "frame 2" in sidebar.exposure_lock_status.text()
     assert sidebar.exposure_unlock_btn.isEnabled()
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
     assert controller.started[-1][1].params.exposures == _LOCK
 
 
 def test_a_lock_metered_on_another_scanner_is_not_sent() -> None:
     sidebar, controller = _sidebar(LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": "usb:other"})
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
 
     sidebar._on_scan()
 
@@ -1218,7 +1312,7 @@ def test_unlock_forgets_the_lock() -> None:
 
     assert sidebar.settings.exposure_lock is None
     assert controller.session.repo.get_global_setting("scanner_settings")["exposure_lock"] is None
-    sidebar.output.folder_edit.setText("/tmp/negpy-test")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar._on_scan()
     assert controller.started[-1][1].params.exposures is None
 
@@ -1280,7 +1374,7 @@ def test_a_saved_debug_log_that_cannot_start_shows_off(monkeypatch: pytest.Monke
 
 def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.output.folder_roll_btn.setChecked(False)
     sidebar.output.roll_edit.setText("Portra 1")
 
@@ -1288,24 +1382,24 @@ def test_scan_as_roll_writes_into_the_roll_subfolder() -> None:
 
     _, req = controller.started[0]
     assert req.as_roll is True
-    assert req.output_folder == os.path.join("/tmp/negpy-scan-out", "Portra 1")
+    assert req.output_folder == os.path.join(_OUT, "Portra 1")
 
 
 def test_scan_as_roll_off_still_writes_where_the_output_says() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.output.as_roll_btn.setChecked(False)
 
     sidebar._on_scan()
 
     _, req = controller.started[0]
     assert req.as_roll is False
-    assert req.output_folder == "/tmp/negpy-scan-out"
+    assert req.output_folder == _OUT
 
 
 def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.output.folder_edit.setText(_OUT)
     sidebar.output.folder_roll_btn.setChecked(False)
     sidebar.output.roll_edit.setText("../escape")
 
@@ -1314,15 +1408,17 @@ def test_scan_as_roll_refuses_an_unsafe_roll_name() -> None:
     assert controller.started == []
 
 
-def test_folder_as_roll_scans_into_the_output_folder_itself() -> None:
+def test_folder_as_roll_scans_into_the_output_folder_itself(tmp_path) -> None:
+    roll = tmp_path / "Portra 1"
+    roll.mkdir()
     sidebar, controller = _sidebar(MINIMAL_DEVICE)
-    sidebar.output.folder_edit.setText("/tmp/negpy-scan-out/Portra 1")
+    sidebar.output.folder_edit.setText(str(roll))
 
     sidebar._on_scan()
 
     _, req = controller.started[0]
     assert req.as_roll is True
-    assert req.output_folder == "/tmp/negpy-scan-out/Portra 1"
+    assert req.output_folder == str(roll)
     assert sidebar.output.roll_edit.isEnabled() is False
 
 
@@ -1346,3 +1442,27 @@ def test_an_active_exposure_lock_shows_above_scan() -> None:
 
     assert "Exposure locked" not in _summary(sidebar)
     assert sidebar.exposure_lock_status.property("hint") == "muted"
+
+
+def test_a_pattern_without_the_sequence_refuses_the_scan_before_it_starts() -> None:
+    sidebar, controller = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    sidebar.output.folder_edit.setText(_OUT)
+    sidebar.pattern_edit.setText("fixed_name")
+
+    sidebar._on_scan()
+
+    assert controller.started == []
+    assert sidebar._scanning is False
+
+
+def test_frames_past_the_holders_slots_refuse_the_scan() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    capacity = FULL_DEVICE.capabilities.adapter_frame_capacity
+    if not capacity or FULL_DEVICE.capabilities.roll_discovery:
+        pytest.skip("needs a holder with a fixed slot count")
+    sidebar.output.folder_edit.setText(_OUT)
+    sidebar.frame_spec_edit.setText(f"1-{capacity + 1}")
+
+    assert sidebar.scan_btn.isEnabled() is False
+    sidebar._on_scan()
+    assert controller.started == []

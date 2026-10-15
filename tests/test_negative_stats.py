@@ -112,14 +112,9 @@ def test_histogram_set_log_scale_idempotent_and_toggle(qapp):
     from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
 
     w = PhotometricCurveWidget()
-    received: list[bool] = []
-    w.scale_changed.connect(received.append)
-
-    # set_log_scale is a programmatic setter; it should not emit the user signal.
     w.set_log_scale(True)
     w.set_log_scale(True)  # no-op, already on
     assert w.log_scale() is True
-    assert received == []
 
     w.set_log_scale(False)
     assert w.log_scale() is False

@@ -144,3 +144,18 @@ class TestMonoTiff:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = write_tiff_16bit(result, os.path.join(tmpdir, "mono_ir"), mono=True)
             assert os.path.exists(path.replace(".tif", "_IR.tif"))
+
+
+def test_the_profile_and_the_resolution_are_in_the_file(tmp_path) -> None:
+    """Other programs show the scan as the nkscan CLI file shows, and NegPy reads it as before."""
+    import tifffile
+
+    rgb = np.zeros((4, 6, 3), dtype=np.uint16)
+    result = ScanResult(rgb=rgb, ir=None, dpi=4000, device_model="LS-50", icc_profile=b"profile bytes")
+
+    path = write_tiff_16bit(result, str(tmp_path / "scan"))
+
+    with tifffile.TiffFile(path) as tif:
+        tags = tif.pages[0].tags
+        assert bytes(tags["InterColorProfile"].value) == b"profile bytes"
+        assert tags["XResolution"].value == (4000, 1)

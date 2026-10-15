@@ -241,7 +241,7 @@ class UpdateDialog(QDialog):
         self.later_button.setEnabled(False)
         self.bar.setRange(0, 1)
         self.bar.setValue(1)
-        self._set_status("Installing — NegPy will close and reopen on the new version.")
+        self._set_status("Installing — NegPy will close and reopen on the new version")
 
         try:
             apply_update(path, self.info)

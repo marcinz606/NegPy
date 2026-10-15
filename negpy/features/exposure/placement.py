@@ -10,7 +10,13 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 import numpy as np
 
 from negpy.features.exposure.analysis import zone_of_encoded
-from negpy.features.exposure.logic import auto_highlight_from_metrics, curve_params_from_metrics, print_curve, print_curve_output
+from negpy.features.exposure.logic import (
+    auto_highlight_from_metrics,
+    auto_shadow_from_metrics,
+    curve_params_from_metrics,
+    print_curve,
+    print_curve_output,
+)
 from negpy.features.local.logic import limited_masks
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
 
@@ -77,7 +83,8 @@ def _zones_of(exposure: Any, process_mode: Optional[str], metrics: Any, vals: An
     """Zones the achromatic print curve puts normalized-log `vals` on under `exposure`."""
     slopes, pivots, curvs = curve_params_from_metrics(exposure, process_mode, metrics)
     hl = exposure.highlight_density + auto_highlight_from_metrics(exposure, process_mode, metrics)
-    curve = print_curve(exposure, slopes[1], pivots[1], process_mode, curvature=curvs[1], highlight_density=hl)
+    sh = exposure.shadow_density + auto_shadow_from_metrics(exposure, process_mode, metrics)
+    curve = print_curve(exposure, slopes[1], pivots[1], process_mode, curvature=curvs[1], highlight_density=hl, shadow_density=sh)
     return np.asarray(zone_of_encoded(print_curve_output(curve, vals).astype(np.float64)))
 
 

@@ -3,11 +3,12 @@ import math
 import sys
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout, QMenu, QWidget, QPinchGesture, QGestureEvent
-from PyQt6.QtGui import QCursor, QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
-from PyQt6.QtCore import QEvent, pyqtSignal, Qt, QPointF
+from PyQt6.QtGui import QCursor, QImage, QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
+from PyQt6.QtCore import QEvent, QRectF, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.hud import CanvasHud
+from negpy.desktop.view.canvas.navigator import CanvasNavigator, visible_part
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -27,6 +28,8 @@ logger = get_logger(__name__)
 # Inset for the floating bottom toolbar, so the pill is not flush against the canvas edge
 # or clipped by it on tight laptop layouts.
 _TOOLBAR_INSET = THEME.space_xl
+# Clear space kept around the frame at fit.
+FIT_MARGIN = THEME.space_xl
 
 
 def clamp_canvas_zoom_level(zoom: float) -> float:
@@ -165,6 +168,7 @@ class ImageCanvas(QWidget):
 
         # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)
+        self.gpu_widget.fit_margin = FIT_MARGIN
         gpu = GPUDevice.get()
         if gpu.is_available:
             try:
@@ -176,6 +180,7 @@ class ImageCanvas(QWidget):
 
         # UI Overlay layer
         self.overlay = CanvasOverlay(state, self)
+        self.overlay.fit_margin = FIT_MARGIN
         self.root_layout.addWidget(self.overlay)
 
         self.overlay.clicked.connect(self.clicked.emit)
@@ -200,8 +205,11 @@ class ImageCanvas(QWidget):
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
         self.overlay.local_mask_edited.connect(self.local_mask_edited.emit)
         self.overlay.local_vertex_deleted.connect(self.local_vertex_deleted.emit)
+        self.overlay.zoom_toggle_requested.connect(self.toggle_zoom_at)
 
         self.hud = CanvasHud(self)
+        self.navigator = CanvasNavigator(self)
+        self.navigator.center_requested.connect(self.center_on)
         self._floating_toolbar: Optional[QWidget] = None
 
         self.grabGesture(Qt.GestureType.PinchGesture)
@@ -219,6 +227,7 @@ class ImageCanvas(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._layout_floating_widgets()
+        self._sync_navigator()
         # The fit scale moves with the viewport, so the true-zoom % readout must refresh.
         self.zoom_changed.emit(self.zoom_level)
 
@@ -229,6 +238,9 @@ class ImageCanvas(QWidget):
     def _layout_floating_widgets(self) -> None:
         self.hud.setGeometry(self.rect())
         tb = self._floating_toolbar
+        nav = self.navigator.sizeHint()
+        nav_bottom = self.height() - (self._toolbar_reserved_height() if tb is not None else 0) - _TOOLBAR_INSET
+        self.navigator.setGeometry(self.width() - nav.width() - _TOOLBAR_INSET, nav_bottom - nav.height(), nav.width(), nav.height())
         if tb is not None:
             if hasattr(tb, "set_available_width"):
                 tb.set_available_width(self.width())
@@ -239,10 +251,12 @@ class ImageCanvas(QWidget):
             x = max(inset, min(x, self.width() - tw - inset))
             y = max(inset, self.height() - th - inset)
             tb.setGeometry(x, y, tw, th)
+            self.hud.set_bottom_clearance(th + inset)
         self._raise_floating_widgets()
 
     def _raise_floating_widgets(self) -> None:
         self.hud.raise_()
+        self.navigator.raise_()
         if self._floating_toolbar is not None:
             self._floating_toolbar.raise_()
 
@@ -268,7 +282,7 @@ class ImageCanvas(QWidget):
 
     def _image_dims(self) -> Optional[Tuple[int, int]]:
         """Current rendered image size as (width, height), or None if nothing is shown."""
-        buf = self.state.last_metrics.get("base_positive")
+        buf = self.state.canvas_value("base_positive")
         if buf is None:
             return None
         import numpy as np
@@ -300,13 +314,14 @@ class ImageCanvas(QWidget):
         vh = max(1.0, self.height() * dpr)
         if not self.state.immersive_canvas:
             vh = max(1.0, vh - self._toolbar_reserved_height() * dpr)
-        return min(vw / max(1, img_w), vh / max(1, img_h))
+        margin = 2.0 * FIT_MARGIN * dpr
+        return min(max(1.0, vw - margin) / max(1, img_w), max(1.0, vh - margin) / max(1, img_h))
 
     def _source_scale(self) -> float:
         """Rendered-buffer pixels per source pixel. Below 1 when the frame rendered
         against a downscaled preview, so zoom stays quoted in scan pixels whatever
         resolution the pipeline was handed."""
-        long_edge = float(self.state.last_metrics.get("render_long_edge") or 0.0)
+        long_edge = float(self.state.canvas_value("render_long_edge") or 0.0)
         source_edge = float(max(self.state.original_res or (0, 0)))
         if long_edge <= 0.0 or source_edge <= 0.0:
             return 1.0
@@ -329,19 +344,86 @@ class ImageCanvas(QWidget):
         """Fit the image to the viewport (zoom_level 1.0 is the shader's fit); reset pan."""
         self.set_zoom(1.0)
 
-    def zoom_to_percent(self, percent: float) -> None:
-        """Set the true pixel zoom to ``percent`` (100 = 1 source pixel : 1 device pixel)."""
+    def _zoom_level_for_percent(self, percent: float) -> Optional[float]:
         fs = self._fit_scale()
         if not fs:
-            self.set_zoom(1.0)
-            return
-        zmin = APP_CONFIG.canvas_zoom_min
+            return None
         # Allow above the normal wheel max, so a true 100% stays reachable for images much larger
         # than the viewport, where 1 / fit_scale exceeds canvas_zoom_max.
-        self.zoom_level = max(zmin, (percent / 100.0) / (fs * self._source_scale()))
+        return max(APP_CONFIG.canvas_zoom_min, (percent / 100.0) / (fs * self._source_scale()))
+
+    def zoom_to_percent(self, percent: float) -> None:
+        """Set the true pixel zoom to ``percent`` (100 = 1 source pixel : 1 device pixel)."""
+        zoom = self._zoom_level_for_percent(percent)
+        if zoom is None:
+            self.set_zoom(1.0)
+            return
+        self.zoom_level = zoom
         if self.zoom_level <= 1.0:
             self.pan_offset = QPointF(0, 0)
         self._sync_transform()
+
+    def toggle_zoom_at(self, anchor: QPointF) -> None:
+        """Double-click: back to fit, or from fit to 100% with the clicked spot kept under the cursor."""
+        if abs(self.zoom_level - 1.0) > 1e-3:
+            self.fit_to_window()
+            return
+        zoom = self._zoom_level_for_percent(100.0)
+        if zoom is not None:
+            self._commit_anchored_zoom(zoom, anchor)
+
+    def center_on(self, nx: float, ny: float) -> None:
+        """Pan so the buffer point (nx, ny) sits at the center of the unobstructed view."""
+        view = self.overlay._view_rect
+        if view.isEmpty():
+            return
+        reserve = self._toolbar_reserved_height() if not self.state.immersive_canvas else 0
+        cx, cy = self.width() / 2.0, (self.height() - reserve) / 2.0
+        self.pan_by_viewport_delta(cx - (view.x() + nx * view.width()), cy - (view.y() + ny * view.height()))
+
+    def _navigator_image(self) -> Optional[QImage]:
+        """The displayed frame on the CPU path; else the frame's film-strip thumbnail, cut out of
+        its square padding. A GPU frame has no host copy, and an HQ readback costs far more than
+        the map is worth."""
+        if self.overlay._qimage is not None:
+            return self.overlay._qimage
+        st = self.state
+        if not 0 <= st.selected_file_idx < len(st.uploaded_files):
+            return None
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        icon = st.thumbnails.get(asset_thumbnail_key(st.uploaded_files[st.selected_file_idx]))
+        dims = self.display_size()
+        if icon is None or not dims:
+            return None
+        side = APP_CONFIG.thumbnail_size
+        thumb = icon.pixmap(side, side).toImage()
+        side = thumb.width()
+        aspect = dims[0] / max(1, dims[1])
+        w, h = (side, round(side / aspect)) if aspect >= 1.0 else (round(side * aspect), side)
+        return thumb.copy((side - w) // 2, (side - h) // 2, max(1, w), max(1, h))
+
+    def _sync_navigator(self) -> None:
+        """Shown while part of the frame is off screen, in a view whose geometry the map shares."""
+        view = self.overlay._view_rect
+        dims = self.display_size()
+        visible = visible_part(view, QRectF(self.rect()))
+        shown = (
+            dims is not None
+            and not visible.isEmpty()
+            and (visible.width() < 0.995 or visible.height() < 0.995)
+            and not self.state.test_strip
+            and not self.state.canvas_value("crop_preview_full")
+        )
+        if not shown:
+            self.navigator.hide()
+            return
+        assert dims is not None
+        self.navigator.set_view(self._navigator_image(), dims[0] / max(1, dims[1]), visible)
+        if self.navigator.isHidden():
+            self._layout_floating_widgets()
+            self.navigator.show()
+            self.navigator.wake()
 
     def zoom_to_original(self) -> None:
         """Zoom to one source pixel per device pixel (100%). Below HQ the preview is
@@ -375,6 +457,7 @@ class ImageCanvas(QWidget):
         self._last_buffer = None
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
+        self.navigator.hide()
 
     def release_gpu_texture(self) -> None:
         """Drop the displayed texture before the engine frees its pool.
@@ -542,10 +625,8 @@ class ImageCanvas(QWidget):
             self._pinch_brush_step(k)
             ev.setAccepted(g, True)
             return True
-        anchor = g.centerPoint()
-        w = ev.widget()
-        if w is not None and w is not self:
-            anchor = w.mapTo(self, anchor)
+        # A pinch reports its center in screen coordinates.
+        anchor = self.mapFromGlobal(g.centerPoint())
         if self._apply_scale_at(k, anchor):
             ev.setAccepted(g, True)
             return True
@@ -656,6 +737,7 @@ class ImageCanvas(QWidget):
         self.gpu_widget.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
         self.overlay.fit_height_reserve = reserve
         self.overlay.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
+        self._sync_navigator()
         self.zoom_changed.emit(self.zoom_level)
         self.update()
 
@@ -704,6 +786,7 @@ class ImageCanvas(QWidget):
             self.overlay.show()
             self.overlay.raise_()
         self._raise_floating_widgets()
+        self._sync_navigator()
         # The image resolution can change between renders, for example on toggling HQ, which
         # shifts the fit scale. Refresh the true-zoom readout for the new buffer.
         self.zoom_changed.emit(self.zoom_level)
@@ -796,7 +879,7 @@ class ImageCanvas(QWidget):
         coords = self.overlay.image_coords_at(pos)
         if coords is None:
             return
-        act = menu.addAction("Exclude From Optical Removal")
+        act = menu.addAction("Exclude from Optical Removal")
         act.triggered.connect(lambda _=False, c=coords: self._controller.handle_dust_exclusion_painted([c]))  # type: ignore[union-attr]
 
     def _unload_current_file(self) -> None:

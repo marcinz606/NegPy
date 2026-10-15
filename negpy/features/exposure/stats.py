@@ -62,7 +62,8 @@ def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[
     return StatRow("Exposure", f"{ev:+.1f} EV")
 
 
-def _clipping_row(clip_low: Optional[float], clip_high: Optional[float]) -> StatRow:
+def clipping_row(clip_low: Optional[float], clip_high: Optional[float]) -> StatRow:
+    """The Clipping row: worst-channel shares at the black and white ends, warning above 1%."""
     if clip_low is None or clip_high is None:
         return StatRow("Clipping", _EMPTY)
     lo, hi = float(clip_low), float(clip_high)
@@ -113,7 +114,7 @@ def negative_statistics(
     return [
         _negative_row(norm_density_range),
         _exposure_row(metered_anchor, norm_density_range),
-        _clipping_row(clip_low, clip_high),
+        clipping_row(clip_low, clip_high),
         _scan_clip_row(scan_clip),
         _repair_row(repair),
         _gamut_row(gamut),

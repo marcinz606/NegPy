@@ -59,7 +59,7 @@ from negpy.desktop.view.frame_merge_action import (
     merge_to_tiff,
     mergeable_in,
 )
-from negpy.desktop.view.keyboard_shortcuts import _close_roll, _reset_roll, _reset_selected, close_roll_label
+from negpy.desktop.view.keyboard_shortcuts import _close_roll, _reset_roll, _reset_selected, close_roll_label, remove_from_roll
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
@@ -71,6 +71,7 @@ from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
     TOOLBAR_BUTTON_HEIGHT,
     TOOLBAR_ICON_SIZE,
+    icon_button,
     tool_toggle,
     wrap_tooltip,
 )
@@ -493,6 +494,10 @@ class ThumbnailGridView(QListView):
         self._pre_press_selection: set[QPersistentModelIndex] = set()
         self._placing_scenes = False
         self._scene_bands: list[tuple[int, int, int, QRect]] = []  # (ordinal, first row, last row, band)
+        # Hover tracks the pointer, not only a scroll. The macOS style turns on neither, so a
+        # plain move never reaches the view.
+        self.setMouseTracking(True)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         # Reserve the vertical scrollbar permanently so the viewport width is stable. Otherwise
         # scaling toggles the scrollbar, which changes the width, flips the column count back
         # and flickers.
@@ -896,12 +901,21 @@ class FileBrowser(QWidget):
         self.act_sheet_all = sheet_menu.addAction("All Frames")
         self.act_sheet_keepers = sheet_menu.addAction("Keepers Only")
         self.act_sheet_unrejected = sheet_menu.addAction("Hide Rejected")
-        for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected):
+        self.act_sheet_unmarked = sheet_menu.addAction("Unmarked Only")
+        for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected, self.act_sheet_unmarked):
             act.setCheckable(True)
             self._sheet_group.addAction(act)
         self.act_sheet_all.triggered.connect(lambda: self._apply_sheet_filter("all"))
         self.act_sheet_keepers.triggered.connect(lambda: self._apply_sheet_filter("keepers"))
         self.act_sheet_unrejected.triggered.connect(lambda: self._apply_sheet_filter("unrejected"))
+        self.act_sheet_unmarked.triggered.connect(lambda: self._apply_sheet_filter("unmarked"))
+        sheet_menu.addSeparator()
+        self.act_advance_after_mark = sheet_menu.addAction("Advance After Marking")
+        self.act_advance_after_mark.setCheckable(True)
+        self.act_advance_after_mark.setChecked(bool(self.session.repo.get_global_setting("advance_after_mark", False)))
+        self.act_advance_after_mark.setToolTip("Marking a frame Keeper or Reject moves on to the next frame")
+        self.act_advance_after_mark.toggled.connect(lambda on: self.session.repo.save_global_setting("advance_after_mark", on))
+        sheet_menu.setToolTipsVisible(True)
         self.sheet_btn.setMenu(sheet_menu)
 
         # The frames' own order; the Library's roll list has a Sort of its own.
@@ -974,11 +988,9 @@ class FileBrowser(QWidget):
 
         # Same query text, wider net: the box above filters what is loaded, and this runs it
         # against every library folder and opens what it finds.
-        self.library_search_btn = QToolButton()
-        self.library_search_btn.setIcon(qta.icon("mdi.folder-search-outline", color=THEME.text_primary))
-        self.library_search_btn.setFixedSize(28, 28)
-        self.library_search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.library_search_btn.setToolTip("Search the whole library — runs this search across your library folders and loads the matches")
+        self.library_search_btn = icon_button(
+            "mdi.folder-search-outline", "Search the whole library — runs this search across your library folders and loads the matches"
+        )
 
         # Opt-in (Preferences); hidden until then. Mutually exclusive with regex/the
         # structured query language -- ranks this session's frames by meaning instead.
@@ -1457,6 +1469,7 @@ class FileBrowser(QWidget):
         self.act_sheet_all.setChecked(mode == "all")
         self.act_sheet_keepers.setChecked(mode == "keepers")
         self.act_sheet_unrejected.setChecked(mode == "unrejected")
+        self.act_sheet_unmarked.setChecked(mode == "unmarked")
         icon_color = "white" if mode != "all" else THEME.text_primary
         self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=icon_color))
         self.session.asset_model.set_sheet_filter(mode)
@@ -1475,6 +1488,8 @@ class FileBrowser(QWidget):
             names.append("Keepers")
         elif model.sheet_filter == "unrejected":
             names.append("Hide Rejected")
+        elif model.sheet_filter == "unmarked":
+            names.append("Unmarked Only")
         return names
 
     def _on_thumbnail_refresh_progress(self, text: str) -> None:
@@ -1587,7 +1602,8 @@ class FileBrowser(QWidget):
         # what is loaded would re-offer it every poll: hash it, turn it away, repeat.
         existing = {f["path"] for f in self.session.state.uploaded_files} | self.session.state.duplicate_paths
 
-        new_files = FolderWatchService.scan_for_new_files(folder_path, existing)
+        removed = rolls.excluded_paths(self.session.repo, [folder_path])
+        new_files = [p for p in FolderWatchService.scan_for_new_files(folder_path, existing) if not rolls.is_excluded_key(p, removed)]
         if new_files:
             self.controller.request_asset_discovery(new_files, hot_folder=True)
 
@@ -1791,7 +1807,7 @@ class FileBrowser(QWidget):
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
         if multi:
-            menu.addAction(f"Reset {count_of(n, 'frame')}").triggered.connect(lambda: _reset_selected(self, self.controller))
+            menu.addAction(f"Reset {count_of(n, 'frame').title()}…").triggered.connect(lambda: _reset_selected(self, self.controller))
         else:
             menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
             act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
@@ -1839,7 +1855,7 @@ class FileBrowser(QWidget):
                 self._add_hdr_anchor_menu(menu, active)
                 menu.addAction("Unmerge Exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
             if active.get("diptych"):
-                menu.addAction("Unsplit Diptych").triggered.connect(self.prompt_undiptych)
+                menu.addAction("Unsplit Diptych…").triggered.connect(self.prompt_undiptych)
             if active.get("half"):
                 from negpy.services.assets.half_frame import base_hash
 
@@ -1850,7 +1866,7 @@ class FileBrowser(QWidget):
                 if base and self.controller.half_frame_override(base) is not None:
                     menu.addAction("Reset Split to Roll Default").triggered.connect(lambda: self._on_reset_half_frame_split(base))
             if state.active_roll_id and active.get("path"):
-                if rolls.is_forked(self.session.repo, state.active_roll_id, active.get("hash") or ""):
+                if rolls.is_forked(self.session.repo, state.active_roll_id, rolls.unforked_hash(active.get("hash") or "")):
                     menu.addAction("Use the Shared Edit Again…").triggered.connect(self.prompt_unfork_edit)
                 elif len(rolls.rolls_containing_path(self.session.repo, active["path"])) >= 2:
                     menu.addAction("Edit Independently in This Roll").triggered.connect(
@@ -1861,6 +1877,10 @@ class FileBrowser(QWidget):
         menu.addSeparator()
         unload_label = "Unload Selected…" if multi else "Unload…"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
+        if state.active_roll_id:
+            menu.addAction(label_with_shortcut("Remove from Roll…", "remove_from_roll")).triggered.connect(
+                lambda: remove_from_roll(self, self.controller)
+            )
         return menu
 
     def _add_scene_menu(self, menu: QMenu, frames: List[dict], multi: bool) -> None:

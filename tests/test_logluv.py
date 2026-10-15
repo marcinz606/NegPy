@@ -74,6 +74,12 @@ class TestLogLuv32:
         decoded = decode_strip_logluv32(compressed, len(packed))
         np.testing.assert_array_equal(decoded, packed)
 
+        # libtiff codes each scanline on its own, so a strip of several rows is the rows'
+        # streams one after another.
+        rows = _pack_logluv32(np.linspace(0.1, 2.0, 12)).reshape(3, 4)
+        strip = b"".join(encode_strip_simple(row) for row in rows)
+        np.testing.assert_array_equal(decode_strip_logluv32(strip, 12, width=4), rows.ravel())
+
 
 class TestLogLuv24:
     def test_zero_luminance(self):

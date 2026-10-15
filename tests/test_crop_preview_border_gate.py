@@ -1,11 +1,13 @@
 import pathlib
 import unittest
+from functools import partial
+from typing import Optional
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
 
-from negpy.desktop.session import UNCROPPED_PREVIEW_TOOLS, ToolMode
+from negpy.desktop.session import UNCROPPED_PREVIEW_TOOLS, AppState, ToolMode
 from negpy.domain.models import WorkspaceConfig
 
 
@@ -29,10 +31,12 @@ class TestNegativePeekFramesLikeTheTools(unittest.TestCase):
             preview_camera_wb=None,
             metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),
             last_metrics={},
+            peek_frame=None,
         )
         stub = SimpleNamespace(state=state, image_updated=MagicMock())
+        stub._store_peek_frame = partial(AppController._store_peek_frame, stub)
         AppController._paint_negative_peek(stub)
-        return state.last_metrics
+        return state.peek_frame
 
     def test_every_uncropped_tool_peeks_the_whole_frame(self):
         for tool in UNCROPPED_PREVIEW_TOOLS:
@@ -47,7 +51,7 @@ class TestNegativePeekFramesLikeTheTools(unittest.TestCase):
 
 
 class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
-    def _update(self, metrics: dict) -> MagicMock:
+    def _update(self, metrics: dict, peek_frame: Optional[dict] = None) -> MagicMock:
         from dataclasses import replace
 
         from negpy.desktop.view.main_window import MainWindow
@@ -55,19 +59,21 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
         cfg = WorkspaceConfig()
         cfg = replace(cfg, finish=replace(cfg.finish, border_size=1.0))
         stub = SimpleNamespace(
-            state=SimpleNamespace(
+            state=AppState(
                 uploaded_files=[{"hash": "h1"}],
                 last_metrics=metrics,
                 gpu_enabled=False,
                 config=cfg,
                 # The live tool contradicts the buffer: the gate must not read it.
                 active_tool=ToolMode.NONE,
+                peek_frame=peek_frame,
             ),
             empty_state=MagicMock(),
             controller=MagicMock(display_transform_params=MagicMock(return_value=("sRGB", None, False))),
             canvas=MagicMock(),
         )
         MainWindow._on_image_updated(stub)
+        self.display_params = stub.controller.display_transform_params
         return stub.canvas.update_buffer
 
     def test_a_crop_preview_buffer_is_not_padded(self):
@@ -84,13 +90,35 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
         self.assertGreater(rect[0], 0)
 
 
+class TestThePeekFrameIsPainted(unittest.TestCase):
+    _update = TestBorderGateReadsTheBuffersFlag._update
+
+    def setUp(self):
+        self.print_buffer = np.full((200, 300, 3), 0.5, dtype=np.float32)
+        self.metrics = {"base_positive": self.print_buffer, "content_rect": (10, 10, 280, 180), "splash": False, "proof": True}
+
+    def test_a_peek_on_screen_is_painted_in_place_of_the_print(self):
+        peek = np.full((100, 150, 3), 0.2, dtype=np.float32)
+        frame = {"base_positive": peek, "content_rect": None, "crop_preview_full": True, "splash": True, "proof": False}
+        update = self._update(self.metrics, peek_frame=frame)
+        self.assertIs(update.call_args[0][0], peek)
+        self.assertIsNone(update.call_args.kwargs["content_rect"])
+        self.display_params.assert_called_once_with(splash=True, proofed=False)
+
+    def test_without_a_peek_frame_the_print_is_painted(self):
+        update = self._update({**self.metrics, "crop_preview_full": True})
+        self.assertIs(update.call_args[0][0], self.print_buffer)
+        self.assertEqual(update.call_args.kwargs["content_rect"], (10, 10, 280, 180))
+        self.display_params.assert_called_once_with(splash=False, proofed=True)
+
+
 class TestTheToolSetIsSpelledOnce(unittest.TestCase):
     def test_no_hand_spelled_copy_outside_session(self):
         root = pathlib.Path(__file__).resolve().parents[1] / "negpy"
         offenders = [
             str(p.relative_to(root))
             for p in root.rglob("*.py")
-            if p.name != "session.py" and "ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW" in p.read_text()
+            if p.name != "session.py" and "ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW" in p.read_text(encoding="utf-8")
         ]
         self.assertEqual(offenders, [], "spell the set once: UNCROPPED_PREVIEW_TOOLS in session.py")
 

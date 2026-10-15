@@ -188,4 +188,4 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
             return
         self._previewing = False
         self._set_previewing(False)
-        self.status_strip.set_message("Preview cancelled.")
+        self.status_strip.set_message("Preview canceled")

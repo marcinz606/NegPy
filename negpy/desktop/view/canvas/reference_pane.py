@@ -48,4 +48,4 @@ class ReferencePane(QWidget):
         width, height = self._image.width() * scale, self._image.height() * scale
         painter.drawImage(QRectF(area.center().x() - width / 2, area.center().y() - height / 2, width, height), self._image)
         text = f"REFERENCE · {self._name}" if self._name else "REFERENCE"
-        draw_view_badge(painter, text, THEME.space_xl, THEME.space_xl, painter.fontMetrics().horizontalAdvance(text) + 24.0)
+        draw_view_badge(painter, text, THEME.space_xl, THEME.space_xl)

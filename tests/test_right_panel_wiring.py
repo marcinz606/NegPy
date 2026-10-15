@@ -9,16 +9,17 @@ Stubs on the unbound methods throughout: no test in this repo constructs a real
 RightPanel, since it pulls in a full chain of sidebars that need a real controller.
 """
 
+from typing import Optional
 from unittest.mock import MagicMock
 
+from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 
 
-def _panel_stub(last_metrics: dict) -> MagicMock:
+def _panel_stub(last_metrics: dict, peek_frame: Optional[dict] = None) -> MagicMock:
     panel = MagicMock()
-    panel.controller.session.state.last_metrics = last_metrics
-    panel.controller.state.flat_peek = False
-    panel.controller.state.negative_peek = True
+    state = AppState(last_metrics=last_metrics, negative_peek=peek_frame is not None, peek_frame=peek_frame)
+    panel.controller.state = panel.controller.session.state = state
     panel._clip_fracs = (None, None)
     # Nothing is being soft-proofed in these stubs, so the printability row is absent.
     panel._gamut_fraction.return_value = None
@@ -27,6 +28,15 @@ def _panel_stub(last_metrics: dict) -> MagicMock:
 
 def test_update_analysis_refreshes_histograms() -> None:
     metrics = {"interactive": False, "histogram_density": [1.0]}
+    panel = _panel_stub(metrics, peek_frame={"interactive": False})
+
+    RightPanel._update_analysis(panel)
+
+    panel._update_histograms.assert_called_once_with(metrics)
+
+
+def test_update_analysis_tracks_mid_gesture_frames() -> None:
+    metrics = {"interactive": True, "histogram_density": [1.0]}
     panel = _panel_stub(metrics)
 
     RightPanel._update_analysis(panel)
@@ -34,12 +44,14 @@ def test_update_analysis_refreshes_histograms() -> None:
     panel._update_histograms.assert_called_once_with(metrics)
 
 
-def test_update_analysis_skips_mid_gesture_frames() -> None:
-    panel = _panel_stub({"interactive": True})
+def test_a_peek_refreshes_over_a_stale_interactive_print() -> None:
+    """Flat Peek renders with readback_metrics=False, so the print can still say interactive."""
+    metrics = {"interactive": True, "histogram_density": [1.0]}
+    panel = _panel_stub(metrics, peek_frame={"interactive": False})
 
     RightPanel._update_analysis(panel)
 
-    panel._update_histograms.assert_not_called()
+    panel._update_histograms.assert_called_once_with(metrics)
 
 
 def _group_panel_stub(*, scan_index: int = 5, active_group: int = 0, n_groups: int = 6) -> MagicMock:
@@ -63,6 +75,58 @@ def test_switch_group_persists_the_index_and_updates_the_stack():
     assert panel._active_group == 1
     panel._group_buttons[1].setChecked.assert_called_once_with(True)
     panel._group_buttons[0].setChecked.assert_called_once_with(False)
+
+
+def test_analysis_shows_on_the_roll_and_frame_tabs_only():
+    panel = _group_panel_stub()
+
+    for index, key in enumerate(panel._group_keys):
+        panel.analysis_section.reset_mock()
+        RightPanel._switch_group(panel, index)
+        panel.analysis_section.setVisible.assert_called_once_with(key in ("roll", "frame"))
+
+
+def test_roll_and_frame_each_restore_their_own_analysis_expanded_state():
+    panel = _group_panel_stub()
+    panel._analysis_expanded_setting = lambda: RightPanel._analysis_expanded_setting(panel)
+    saved = {"section_expanded_analysis_roll": False, "section_expanded_analysis": True}
+    panel.controller.session.repo.get_global_setting.side_effect = saved.get
+
+    RightPanel._switch_group(panel, 0)
+    panel.analysis_section.set_expanded.assert_called_with(False)
+    RightPanel._switch_group(panel, 1)
+    panel.analysis_section.set_expanded.assert_called_with(True)
+
+    panel.analysis_section.reset_mock()
+    RightPanel._switch_group(panel, 2)
+    panel.analysis_section.set_expanded.assert_not_called()
+
+
+def test_only_an_expanded_analysis_drag_sets_the_saved_height():
+    panel = MagicMock()
+    panel._analysis_expanded_size = 300
+    panel.splitter.sizes.return_value = [40, 860]
+    panel.analysis_section.toggle_button.isChecked.return_value = False
+
+    RightPanel._on_analysis_splitter_moved(panel)
+    assert panel._analysis_expanded_size == 300
+    panel.controller.session.repo.save_global_setting.assert_not_called()
+
+    panel.splitter.sizes.return_value = [500, 400]
+    panel.analysis_section.toggle_button.isChecked.return_value = True
+    RightPanel._on_analysis_splitter_moved(panel)
+    assert panel._analysis_expanded_size == 500
+    panel.controller.session.repo.save_global_setting.assert_called_once_with("analysis_splitter_sizes", [500, 400])
+
+
+def test_analysis_split_waits_for_the_first_show():
+    panel = MagicMock()
+    panel.splitter.sizes.return_value = [189, 287]
+    panel._analysis_split_shown = False
+
+    RightPanel._resize_splitter_for_analysis(panel, True)
+
+    panel.splitter.setSizes.assert_not_called()
 
 
 def test_switch_group_activates_the_chosen_scanner_only_on_the_scan_tab():
@@ -185,3 +249,50 @@ def test_first_run_analysis_height_shrinks_on_a_short_screen():
     assert default_analysis_split(screen(1440))[0] == 320
     assert default_analysis_split(screen(900))[0] == 270
     assert default_analysis_split(None)[0] == 320
+
+
+def test_update_analysis_tells_the_strip_whether_placement_is_available() -> None:
+    panel = _panel_stub({"interactive": False, "histogram_density": [1.0]})
+    panel.controller.zone_placement_available.return_value = False
+
+    RightPanel._update_analysis(panel)
+
+    panel.zone_strip.set_placement_enabled.assert_called_once_with(False)
+
+
+def test_histogram_scale_choice_sets_the_chart_and_persists() -> None:
+    panel = MagicMock()
+
+    RightPanel._on_histogram_scale(panel, 1)
+
+    panel.curve_widget.set_log_scale.assert_called_once_with(True)
+    panel.controller.session.repo.save_global_setting.assert_called_once_with("histogram_log_scale", True)
+
+
+def test_chart_zone_tints_follow_color_vision() -> None:
+    from negpy.desktop.view.styles.color_vision import palette_for
+
+    panel = MagicMock()
+    panel.controller.state = AppState(color_vision="tritan")
+
+    RightPanel._sync_chart_colors(panel)
+
+    panel.curve_widget.set_zone_colors.assert_called_once_with(*palette_for("tritan").dodge_burn)
+
+
+def test_roll_tab_apply_offers_every_card_of_its_sections():
+    from negpy.desktop.view.sidebar.controls_panel import _SECTION_CARDS
+    from negpy.desktop.view.sidebar.right_panel import _ROLL_SECTION_ATTRS, _ROLL_TAB_CARDS
+
+    for section, cards in _SECTION_CARDS.items():
+        if f"{section}_section" in _ROLL_SECTION_ATTRS:
+            assert set(cards) <= set(_ROLL_TAB_CARDS), section
+
+
+def test_roll_tab_apply_offers_auto_crop():
+    from negpy.desktop.settings_catalog import rows_for_fields
+    from negpy.desktop.view.sidebar.right_panel import _ROLL_TAB_CARDS
+    from negpy.services.assets.rolls import card_fields
+
+    rows = rows_for_fields(f for card in _ROLL_TAB_CARDS for f in card_fields(card))
+    assert "Auto Crop" in {r.label for r in rows}

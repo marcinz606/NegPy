@@ -467,6 +467,11 @@ QFrame#toolbar_separator {
     background-color: @border_color;
 }
 
+QToolButton#toolbar_overflow::menu-indicator {
+    image: none;
+    width: 0px;
+}
+
 /* Shortcut overview/Customize dialog rows. Transparent by default so the row
    frame doesn't paint the global @bg_dark over the @bg_card collapsible card;
    the highlighted variant is the jump-to-row flash. */

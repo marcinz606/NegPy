@@ -1329,7 +1329,7 @@ def test_crop_ratio_choices_has_no_reciprocal_duplicates():
 
 def test_crop_ratio_choices_covers_common_print_and_screen_sizes():
     values = {r.value for r in CROP_RATIO_CHOICES}
-    for expected in ("7:5", "16:9", "16:10", "8.5:11"):
+    for expected in ("7:5", "16:9", "16:10", "8.5:11", "1:1.4142"):
         assert expected in values
 
 
@@ -1345,6 +1345,7 @@ def test_canonical_crop_ratio_maps_portrait_forms_to_the_picker_entry():
         ("9:16", "16:9"),
         ("10:16", "16:10"),
         ("11:8.5", "8.5:11"),
+        ("1.4142:1", "1:1.4142"),
     ):
         assert canonical_crop_ratio(hidden) == canonical
         assert canonical in choice_values
@@ -1711,3 +1712,31 @@ def test_rebate_trim_is_inert_when_nothing_was_refined_away():
 
 def test_rebate_trim_keeps_the_roi_rather_than_collapsing_it():
     assert scale_roi_inset((0, 400, 0, 600), (150, 250, 12, 588), 3.0) == (150, 250, 12, 588)
+
+
+def test_an_inset_wider_than_the_crop_never_inverts_the_roi():
+    from negpy.features.geometry.logic import apply_margin_to_roi
+
+    y1, y2, x1, x2 = apply_margin_to_roi((100, 140, 200, 260), 1000, 1000, 100.0)
+    assert y2 > y1 and x2 > x1
+
+
+def test_a_small_crop_with_a_large_crop_offset_renders():
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.engine import DarkroomEngine
+
+    cfg = WorkspaceConfig()
+    cfg = replace(cfg, geometry=replace(cfg.geometry, crop_rect=(0.4, 0.4, 0.5, 0.5), autocrop_offset=100))
+    img = np.random.default_rng(0).uniform(0.1, 0.9, (400, 600, 3)).astype(np.float32)
+
+    out = np.asarray(DarkroomEngine().process(img, cfg, "small-crop"))
+
+    assert out.size > 0 and np.isfinite(out).all()
+
+
+def test_off_frame_mask_vertices_keep_their_place():
+    from negpy.features.geometry.logic import map_coords_to_geometry
+
+    assert map_coords_to_geometry(-0.2, 1.3, (100, 200)) == pytest.approx((-0.2, 1.3), abs=1e-6)

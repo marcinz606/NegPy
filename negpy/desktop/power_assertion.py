@@ -1,8 +1,9 @@
 """Best-effort idle-sleep protection for unattended desktop operations.
 
 The scanner process remains responsible for its own USB lifecycle.  This module
-only asks macOS to keep the computer awake while a user-requested operation is
-running.  Other platforms deliberately receive an inert assertion.
+only asks the operating system to keep the computer awake while a user-requested
+operation is running.  macOS and Windows receive a real assertion; other platforms
+receive an inert one.
 """
 
 from __future__ import annotations
@@ -18,6 +19,9 @@ from negpy.kernel.system.logging import get_logger
 
 
 logger = get_logger(__name__)
+
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
 
 
 class UnattendedPowerAssertion(Protocol):
@@ -59,6 +63,23 @@ class _NSProcessInfoPowerAssertion:
             logger.warning("could not end the macOS NSProcessInfo activity", exc_info=True)
 
 
+class _WindowsPowerAssertion:
+    """Windows keeps the execution state per thread: release on the thread that acquired it."""
+
+    def __init__(self, kernel32: Any) -> None:
+        self._kernel32: Any | None = kernel32
+
+    def release(self) -> None:
+        kernel32 = self._kernel32
+        if kernel32 is None:
+            return
+        self._kernel32 = None
+        try:
+            kernel32.SetThreadExecutionState(_ES_CONTINUOUS)
+        except Exception:
+            logger.warning("could not clear the Windows execution state", exc_info=True)
+
+
 class _CaffeinatePowerAssertion:
     _WAIT_SECONDS = 2.0
 
@@ -91,20 +112,44 @@ def _load_foundation() -> Any:
     return importlib.import_module("Foundation")
 
 
+def _load_kernel32() -> Any:
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.SetThreadExecutionState.argtypes = [ctypes.c_uint32]
+    kernel32.SetThreadExecutionState.restype = ctypes.c_uint32
+    return kernel32
+
+
+def _acquire_windows(kernel32_loader: Callable[[], Any] | None) -> UnattendedPowerAssertion:
+    """Block idle system sleep for the calling thread; the display may still turn off."""
+
+    try:
+        kernel32 = (_load_kernel32 if kernel32_loader is None else kernel32_loader)()
+        if not kernel32.SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED):
+            raise OSError("SetThreadExecutionState refused the request")
+        return _WindowsPowerAssertion(kernel32)
+    except Exception:
+        logger.warning("could not create a Windows idle-sleep assertion", exc_info=True)
+        return _NoOpPowerAssertion()
+
+
 def acquire_unattended_power_assertion(
     reason: str,
     *,
     _platform: str | None = None,
     _foundation_loader: Callable[[], Any] | None = None,
+    _kernel32_loader: Callable[[], Any] | None = None,
     _process_factory: Callable[..., _CaffeinateProcess] | None = None,
     _parent_pid: int | None = None,
 ) -> UnattendedPowerAssertion:
-    """Prevent macOS idle sleep until the returned assertion is released.
+    """Prevent idle sleep until the returned assertion is released.
 
-    ``NSProcessInfo`` is preferred because its activity is owned by this
-    process.  PyObjC is optional, so packaged builds fall back to
+    On macOS, ``NSProcessInfo`` is preferred because its activity is owned by
+    this process.  PyObjC is optional, so packaged builds fall back to
     ``/usr/bin/caffeinate -i -w <parent pid>``.  The ``-w`` binding makes the
     helper release its assertion even if NegPy exits without normal cleanup.
+    On Windows the assertion belongs to the calling thread and ends with it.
     Backend failures are logged and degrade to a no-op instead of blocking a
     scan.
     """
@@ -113,6 +158,8 @@ def acquire_unattended_power_assertion(
     if not reason:
         raise ValueError("power assertion reason must not be empty")
     platform = sys.platform if _platform is None else _platform
+    if platform == "win32":
+        return _acquire_windows(_kernel32_loader)
     if platform != "darwin":
         return _NoOpPowerAssertion()
 

@@ -752,3 +752,15 @@ def test_dust_toggle_changes_engine_source_hash():
         proc.run_pipeline(img, cfg_on, "src", render_size_ref=1600.0, prefer_gpu=False, readback_metrics=False)
 
     assert seen[0] != seen[1], "dust_remove toggle left source_hash unchanged"
+
+
+def test_trace_scratch_follows_a_steep_line_across_a_wide_hq_buffer():
+    """At the steepest slope a wide frame moves the line far past the search rows."""
+    img, row0, slope = _transport_scratch(h=600, w=5000, depth=0.2, slope=0.018)
+    h, w = img.shape[:2]
+    line = trace_scratch(img, 0.5, (row0 + 0.5) / h)
+    assert line is not None
+    nx0, ny0, nx1, ny1, _width = line
+    assert nx1 - nx0 > 0.8
+    fitted = (ny1 - ny0) * h / max((nx1 - nx0) * w, 1e-6)
+    assert abs(fitted - slope) < 0.002

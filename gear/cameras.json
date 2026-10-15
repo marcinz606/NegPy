@@ -292,5 +292,96 @@
     "model": "M645 1000s",
     "displayName": "Mamiya 645 1000s",
     "notes": "Medium-format 6x4.5 SLR."
+  },
+  {
+    "id": "cam-hasselblad-500c",
+    "make": "Hasselblad",
+    "model": "500C",
+    "displayName": "Hasselblad 500C",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-500cm",
+    "make": "Hasselblad",
+    "model": "500C/M",
+    "displayName": "Hasselblad 500C/M",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-501c",
+    "make": "Hasselblad",
+    "model": "501C",
+    "displayName": "Hasselblad 501C",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-501cm",
+    "make": "Hasselblad",
+    "model": "501CM",
+    "displayName": "Hasselblad 501CM",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-503cx",
+    "make": "Hasselblad",
+    "model": "503CX",
+    "displayName": "Hasselblad 503CX",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-503cxi",
+    "make": "Hasselblad",
+    "model": "503CXi",
+    "displayName": "Hasselblad 503CXi",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-hasselblad-503cw",
+    "make": "Hasselblad",
+    "model": "503CW",
+    "displayName": "Hasselblad 503CW",
+    "notes": "Medium-format 6x6 SLR."
+  },
+  {
+    "id": "cam-nikon-nikonos-i",
+    "make": "Nikon",
+    "model": "Nikonos I",
+    "displayName": "Nikonos I",
+    "notes": "35mm amphibious viewfinder camera."
+  },
+  {
+    "id": "cam-nikon-nikonos-ii",
+    "make": "Nikon",
+    "model": "Nikonos II",
+    "displayName": "Nikonos II",
+    "notes": "35mm amphibious viewfinder camera."
+  },
+  {
+    "id": "cam-nikon-nikonos-iii",
+    "make": "Nikon",
+    "model": "Nikonos III",
+    "displayName": "Nikonos III",
+    "notes": "35mm amphibious viewfinder camera."
+  },
+  {
+    "id": "cam-nikon-nikonos-iv-a",
+    "make": "Nikon",
+    "model": "Nikonos IV-A",
+    "displayName": "Nikonos IV-A",
+    "notes": "35mm amphibious viewfinder camera."
+  },
+  {
+    "id": "cam-nikon-nikonos-v",
+    "make": "Nikon",
+    "model": "Nikonos V",
+    "displayName": "Nikonos V",
+    "notes": "35mm amphibious viewfinder camera."
+  },
+  {
+    "id": "cam-nikon-nikonos-rs",
+    "make": "Nikon",
+    "model": "Nikonos RS",
+    "displayName": "Nikonos RS",
+    "notes": "35mm amphibious autofocus SLR."
   }
 ]

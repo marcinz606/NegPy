@@ -30,6 +30,7 @@ def _values(**overrides) -> dict:
         "export_print_size": 24.0,
         "export_dpi": 360,
         "export_target_long_edge_px": 3000,
+        "output_sharpen": 0.35,
         "output_mode": ExportPresetOutputMode.SUBFOLDER_OF_SOURCE,
         "output_subfolder": "web",
         "output_path": "/tmp/out",
@@ -370,3 +371,21 @@ def test_load_does_not_reset_cursor_in_focused_filename_field(qapp):
 
     assert form.filename_edit.cursorPosition() == 6
     form.hide()
+
+
+def test_output_sharpening_round_trips_and_follows_the_resize_modes(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_resolution_mode=ExportResolutionMode.TARGET_PX.value, output_sharpen=0.35))
+    assert form.values()["output_sharpen"] == 0.35
+    assert not form._size_rail.isHidden()
+    form.load(_values(export_resolution_mode=ExportResolutionMode.ORIGINAL.value))
+    assert form._size_rail.isHidden()
+
+
+def test_output_sharpening_hides_for_a_flat_master(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_resolution_mode=ExportResolutionMode.PRINT.value))
+    form.set_flat_mode(True)
+    assert form.output_sharpen_slider.isHidden()
+    form.set_flat_mode(False)
+    assert not form.output_sharpen_slider.isHidden()

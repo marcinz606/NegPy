@@ -686,6 +686,19 @@ class TestFrameSelection:
         self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=12), dev)
         assert dev.recorded.get("frame") == 12
 
+    def test_a_frame_past_the_loaded_strip_is_refused(self) -> None:
+        """coolscan3 clamps the frame to the last one loaded; scanning on would save that frame again."""
+        import pytest
+
+        class ClampingDev(FakeSaneDev):
+            def __setattr__(self, name: str, value: Any) -> None:
+                super().__setattr__(name, min(value, 6) if name == "frame" else value)
+
+        dev = ClampingDev(np.zeros((6, 5, 4), dtype=np.uint16))
+        with pytest.raises(RuntimeError, match="past the end"):
+            self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=7), dev)
+        assert ("start",) not in dev.events
+
     def test_frame_untouched_when_none(self) -> None:
         rng = np.random.default_rng(19)
         dev = FakeSaneDev(rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16))

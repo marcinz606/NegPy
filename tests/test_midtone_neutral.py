@@ -4,7 +4,8 @@ Neutrality of Cast Removal — the per-channel gray balance fit to green's axis.
 Green-dominant content inflates green's normalization span, casting neutrals. The fit
 uses low-chroma refs at a midtone + shadow (a line) and, when a highlight ref is found, a
 highlight too (a quadratic) so neutrals hold across the whole range, not just the midtone —
-no highlight overshoot. A pure neutral negative must stay neutral.
+no highlight overshoot. A pure neutral negative must stay neutral. A green shift past the
+foliage chroma floor reads as foliage, so Cast Removal leaves it.
 """
 
 import unittest
@@ -65,16 +66,22 @@ def _neutral_ab(out: np.ndarray) -> tuple[float, float]:
 
 class TestMidtoneNeutral(unittest.TestCase):
     def test_green_dominant_midtone_neutralized(self):
-        img = _negative(green_log=-0.22)
+        # The ramp's green shift stays under the foliage chroma floor at every tone.
+        img = _negative(green_log=-0.31)
         a_off, _ = _neutral_ab(_render(img, cast_removal=False))
         a_on, b_on = _neutral_ab(_render(img, cast_removal=True))
-        # Without the fix the neutral midtone is clearly green (a* << 0).
+        self.assertLess(a_off, -2.0, f"fixture not green enough (a*={a_off:.1f})")
+        self.assertLess(abs(a_on), abs(a_off) * 0.3, f"midtone still cast (a*={a_on:.1f})")
+        self.assertLess(abs(b_on), 1.0, f"midtone b* off (b*={b_on:.1f})")
+
+    def test_strong_green_shift_reads_as_foliage(self):
+        # Past the floor the shifted ramp is indistinguishable from leaves, so it gets no
+        # axis, and the shadow-tie fallback must not push it either way.
+        img = _negative(green_log=-0.22)
+        a_off, _ = _neutral_ab(_render(img, cast_removal=False))
+        a_on, _ = _neutral_ab(_render(img, cast_removal=True))
         self.assertLess(a_off, -8.0, f"fixture not green enough (a*={a_off:.1f})")
-        # The balance pulls the a* (green/magenta) cast toward neutral. The saturated
-        # content block lowers the neutral-reference confidence, which derates the
-        # applied strength — assert a strong reduction, not exact neutrality.
-        self.assertLess(abs(a_on), abs(a_off) * 0.7, f"midtone still cast (a*={a_on:.1f})")
-        self.assertLess(abs(b_on), 4.0, f"midtone b* off (b*={b_on:.1f})")
+        self.assertLess(abs(a_on - a_off), 1.0)
 
     def test_pure_neutral_unchanged(self):
         # No content block: endpoint equalization is already exact, so Cast Removal

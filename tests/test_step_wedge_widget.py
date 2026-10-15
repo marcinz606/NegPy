@@ -9,6 +9,7 @@ import numpy as np
 from PyQt6.QtGui import QPainter, QPixmap
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.widgets.charts import StepWedgeWidget
 from negpy.features.exposure.analysis import WEDGE_STEPS, wedge_step_density, wedge_vals
@@ -119,8 +120,7 @@ def _panel_stub(flat_peek: bool) -> MagicMock:
     panel._gamut_fraction.return_value = None
     panel.controller.state.flat_peek = flat_peek
     panel.controller.state.negative_peek = False
-    panel.controller.session.state.config = WorkspaceConfig()
-    panel.controller.session.state.last_metrics = {}
+    panel.controller.session.state = AppState(config=WorkspaceConfig())
     panel.controller.display_transform_params.return_value = ("sRGB", None, None)
     panel.step_wedge = StepWedgeWidget()
     return panel

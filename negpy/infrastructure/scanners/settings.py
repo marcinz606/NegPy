@@ -113,19 +113,18 @@ class ScannerSettings:
 def resolve_batch_selection(
     settings: ScannerSettings, *, capacity: int | None = None, whole_strip: bool = False
 ) -> tuple[tuple[int, ...], dict[int, Rect], Rect | None]:
-    """(frames, per-frame windows, base window) for a BatchRequest.
-
-    A named selection wins. With none, a transport that measures the film gets an empty tuple,
-    meaning every frame it finds; a feeder gets every slot it holds, because its own frame
-    count reads 0 and an empty tuple there would scan nothing.
-    """
+    """(frames, per-frame windows, base window) for a BatchRequest. A named selection wins. Else a transport that measures
+    the film gets () for every frame it finds, and a feeder every slot it holds: its frame count reads 0, so () would scan
+    nothing. Only a single-frame device reads `scan_window`."""
     if settings.selected_frames:
         frames = tuple(sorted(settings.selected_frames))
         windows = {f: settings.frame_windows[f] for f in frames if f in settings.frame_windows}
         return frames, windows, None
-    if whole_strip or capacity is None:
+    if whole_strip:
+        return (), {}, None
+    if capacity is None:
         return (), {}, settings.scan_window
-    return tuple(range(1, capacity + 1)), {}, settings.scan_window
+    return tuple(range(1, capacity + 1)), {}, None
 
 
 def parse_frame_spec(text: str) -> tuple[int, ...]:

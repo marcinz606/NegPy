@@ -5,7 +5,7 @@ import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QListWidget, QVBoxLayout, QWidget
 
 from conftest import FakeController, FakeRepo
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
@@ -73,8 +73,11 @@ def _fake_window():
         reveal_widget=MagicMock(),
     )
     manager = SimpleNamespace(action_for=lambda action_id: (lambda: None) if action_id in ("toggle_compare", "density_up") else None)
+    presets = QListWidget()
+    presets.addItem("Portra Warm")
     window = QWidget()
     window.right_panel = panel
+    window.controls_panel = SimpleNamespace(presets_sidebar=SimpleNamespace(preset_list=presets, apply_btn=MagicMock()))
     window.shortcut_manager = manager
     window.drawer = SimpleNamespace(isVisible=lambda: True)
     window._keep = root
@@ -88,6 +91,15 @@ def test_index_holds_live_controls_and_actions_only(qapp):
     assert [(e.name, e.where, e.target) for e in sliders] == [("Toe", "Exposure › Tone", toe)]
     assert [(e.kind, e.name) for e in entries if e.kind == "card"] == [("card", "Tone")]
     assert [e.target for e in entries if e.kind == "action"] == ["toggle_compare"]
+    assert [(e.name, e.where) for e in entries if e.kind == "preset"] == [("Portra Warm", "Preset")]
+
+
+def test_opening_a_preset_selects_it_and_starts_its_apply(qapp):
+    window, _root, _toe = _fake_window()
+    command_palette.open_entry(window, make_entry("preset", "Portra Warm", "Preset", "Portra Warm"))
+    presets = window.controls_panel.presets_sidebar
+    assert presets.preset_list.currentItem().text() == "Portra Warm"
+    presets.apply_btn.click.assert_called_once_with()
 
 
 def test_a_slider_row_drives_the_real_control(qapp):

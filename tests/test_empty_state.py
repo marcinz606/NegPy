@@ -30,11 +30,11 @@ def overlay(host):
 
 
 def test_prompt_is_a_button_not_a_label(overlay):
-    assert overlay.load_btn.text() == "Load some scans to get started"
+    assert overlay.load_btn.text() == "Load Scans…"
     assert overlay.load_btn.isEnabled()
 
 
-def test_load_menu_offers_both_import_routes(overlay, monkeypatch):
+def test_load_menu_offers_every_import_route(overlay, monkeypatch):
     captured: list[str] = []
 
     class _Menu:
@@ -50,7 +50,7 @@ def test_load_menu_offers_both_import_routes(overlay, monkeypatch):
 
     monkeypatch.setattr("negpy.desktop.view.main_window.QMenu", _Menu)
     overlay._show_load_menu()
-    assert captured == ["Import Folder as a Roll…", "Add Files…"]
+    assert captured == ["Import Folder as a Roll…", "Add Files…", "Scan…"]
 
 
 def test_tour_button_emits_its_signal(overlay):
@@ -77,3 +77,13 @@ def test_overlay_stays_centred_on_its_parent(overlay, host):
     host.resize(1200, 500)
     QApplication.processEvents()
     assert overlay.geometry().center().x() == host.rect().center().x()
+
+
+def test_scan_opens_the_scan_tab_through_the_saved_panel_toggle():
+    from negpy.desktop.view.main_window import MainWindow
+
+    win = MagicMock()
+    win.drawer.isVisible.return_value = False
+    MainWindow._show_scan_tab(win)
+    win.toggle_controls_dock.assert_called_once_with()
+    win.right_panel.show_tab_by_key.assert_called_once_with("scan")

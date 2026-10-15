@@ -1,9 +1,10 @@
 import numpy as np
 import pytest
-from negpy.services.export.contact_sheet import ContactSheetService, label_caps, palette_for
+from negpy.services.export.contact_sheet import PERF_RING, ContactSheetService, label_caps, palette_for
 from negpy.services.export.contact_sheet_edge import EdgeFamily, EdgeStyle
 from negpy.services.export.contact_sheet_layout import (
     DEFAULT_PAPER,
+    FRAME_SIZES_120,
     PERF_ACROSS,
     PERF_FROM_EDGE,
     SheetFormat,
@@ -41,6 +42,17 @@ def test_paper_prints_the_no_film_tone(palette):
     look = SheetLook(palette, 0, EdgeStyle())
     _plan, sheet = _render(look=look)
     assert tuple(sheet[3, 3]) == palette_for(look).no_film
+
+
+@pytest.mark.parametrize("palette", ["bw", "color", "slide"])
+def test_white_paper_prints_white_with_a_dark_label(palette):
+    look = SheetLook(palette, 0, EdgeStyle(), white_paper=True)
+    pal = palette_for(look)
+    assert pal.no_film == (255, 255, 255)
+    assert pal.label == (0, 0, 0)
+    assert pal.rebate == palette_for(SheetLook(palette, 0, EdgeStyle())).rebate
+    _plan, sheet = _render(look=look)
+    assert tuple(sheet[3, 3]) == (255, 255, 255)
 
 
 def test_rebate_prints_just_above_the_paper_black():
@@ -149,3 +161,71 @@ def test_120_has_no_perforations():
     # Where a 135 hole row would start; 120's rebate is 2.5 mm deep and has no stock text here.
     rebate = sheet[_px(strip.y + 2.2), _px(strip.x + 2) : _px(strip.x + strip.length - 2)]
     assert (rebate == 5).all()
+
+
+def test_a_paper_film_base_prints_white_with_dark_ink_and_rings():
+    look = SheetLook("bw", 0, EdgeStyle(EdgeFamily.KODAK, "KODAK TRI-X 400", False), white_paper=True, film_base=False)
+    pal = palette_for(look)
+    assert pal.no_film == pal.rebate == (255, 255, 255)
+    assert pal.ink == pal.label == (0, 0, 0)
+    plan, sheet = _render(look=look)
+    strip = plan.pages[0].strips[0]
+    # The rebate between the perforation row and the image, between two perforations: paper.
+    centers = perforation_centers(strip.roll_start, strip.roll_start + strip.length)
+    between_x = _px(strip.x + (centers[3] + centers[4]) / 2)
+    rebate_y = _px(strip.y + PERF_FROM_EDGE + PERF_ACROSS + 0.35)
+    assert tuple(sheet[rebate_y, between_x]) == (255, 255, 255)
+    # The perforation's edge: a ring darker than the paper, inside its hole.
+    ring_y = _px(strip.y + PERF_FROM_EDGE + PERF_RING / 2)
+    hole_y = _px(strip.y + PERF_FROM_EDGE + PERF_ACROSS / 2)
+    center_x = _px(strip.x + centers[3])
+    assert sheet[ring_y, center_x].max() < 200
+    assert tuple(sheet[hole_y, center_x]) == (255, 255, 255)
+
+
+def test_white_paper_keeps_the_film_black_until_the_base_is_turned_off():
+    with_base = palette_for(SheetLook("bw", 0, EdgeStyle(), white_paper=True))
+    assert with_base.rebate == palette_for(SheetLook("bw", 0, EdgeStyle())).rebate
+
+
+def test_a_paper_film_base_keeps_the_strip_outline_and_a_draft_ring():
+    look = SheetLook("bw", 0, EdgeStyle(), white_paper=True, film_base=False)
+    plan, sheet = _render(look=look)
+    strip = plan.pages[0].strips[0]
+    # The strip's top edge is a line on the paper; the darkroom look paints no outline.
+    assert sheet[_px(strip.y), _px(strip.x + 1.0)].max() < 200
+    film_plan, film_sheet = _render()
+    assert tuple(film_sheet[_px(strip.y), _px(strip.x + 1.0)]) == palette_for(SheetLook("bw", 0, EdgeStyle())).rebate
+    # At a draft scale the ring is still at least a pixel.
+    draft_scale = 2.0
+    draft = ContactSheetService.render_sheet(plan, 0, [np.full((200, 300, 3), 128, np.uint8)] * 6, [0] * 6, draft_scale, look, draft=True)
+    centers = perforation_centers(strip.roll_start, strip.roll_start + strip.length)
+    ring_y = int(round((strip.y + PERF_FROM_EDGE + 0.25) * draft_scale))
+    assert draft[ring_y, int(round((strip.x + centers[3]) * draft_scale))].max() < 255
+
+
+_PAPER_LOOK = SheetLook("bw", 0, EdgeStyle(EdgeFamily.KODAK, "KODAK TRI-X 400", False), white_paper=True, film_base=False)
+_EVERY_FORMAT = [film_geometry(SheetFormat.FULL_FRAME), film_geometry(SheetFormat.HALF_FRAME)] + [
+    film_geometry(SheetFormat.MEDIUM, size) for size in FRAME_SIZES_120
+]
+
+
+@pytest.mark.parametrize("geometry", _EVERY_FORMAT, ids=lambda geo: geo.frame_size or geo.format.value)
+@pytest.mark.parametrize("scale, draft", [(300 / 25.4, False), (2.0, True)], ids=["print", "draft"])
+def test_a_paper_film_base_outlines_the_strip_on_every_format(geometry, scale, draft):
+    plan = plan_sheets(DEFAULT_PAPER.width, DEFAULT_PAPER.height, geometry, 6, label=False)
+    tiles = [np.full((200, 300, 3), 128, np.uint8)] * 6
+    sheet = ContactSheetService.render_sheet(plan, 0, tiles, [0] * 6, scale, _PAPER_LOOK, draft=draft)
+    strip = plan.pages[0].strips[0]
+
+    def px(mm):
+        return int(round(mm * scale))
+
+    x0, y0 = px(strip.x), px(strip.y)
+    x1, y1 = px(strip.x + strip.length) - 1, px(strip.y + geometry.width) - 1
+    mid_y = (y0 + y1) // 2
+    ring = palette_for(_PAPER_LOOK).rim
+    # The film's four edges are lines in the ring tone, and the rebate inside them is paper.
+    assert tuple(sheet[y0, x0]) == tuple(sheet[y1, x1]) == tuple(sheet[mid_y, x0]) == tuple(sheet[mid_y, x1]) == ring
+    line = max(1, px(PERF_RING))
+    assert tuple(sheet[y0 + line, x0 + line]) == (255, 255, 255)
