@@ -70,6 +70,7 @@ from negpy.features.retouch.logic import (
 )
 from negpy.features.retouch import openice
 from negpy.features.retouch.clone import apply_clone_strokes, clone_token
+from negpy.features.leak.bake import leak_active, leak_token, remove_leak
 from negpy.features.retouch.models import IR_METHOD_OPENICE
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
@@ -319,6 +320,14 @@ def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
     return cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) > 0
 
 
+def precorrect_preview(img: ImageBuffer, settings: WorkspaceConfig, gain_slices: tuple = (), orientation: int = 1) -> ImageBuffer:
+    """A decoded preview buffer flat-fielded and sensor-unmixed, as the source bakes read it."""
+    img = flatfield_source(img, settings, gain_slices, orientation=orientation)
+    if preview_takes_unmix(settings):
+        img = apply_sensor_correction(img, effective_sensor_matrix(settings.process), settings.process.sensor_unmix)
+    return img
+
+
 def preview_takes_unmix(params: WorkspaceConfig) -> bool:
     """Whether a preview source gets the sensor unmix. Triplet composites take each channel
     from its own single-band exposure, so unmixing them would inject crosstalk that was never
@@ -422,6 +431,12 @@ class ImageProcessor:
         self._clone_img: Optional[np.ndarray] = None
         self._clone_strokes: tuple = ()
         self._clone_out: Optional[np.ndarray] = None
+        # Leak bake, keyed on input identity and the leak settings.
+        self._leak_img: Optional[np.ndarray] = None
+        self._leak_key: tuple = ()
+        self._leak_out: Optional[np.ndarray] = None
+        # Film the leak burned out, at the leak's work size, from the last bake: the canvas shows it.
+        self._leak_burned: Optional[np.ndarray] = None
         # The OpenICE method's whole result, on its own slot. The two IR methods share no
         # state, so whichever loses can be deleted without unpicking the other.
         self._ice_key: Optional[tuple] = None
@@ -633,6 +648,20 @@ class ImageProcessor:
         self._manual_value = value
         return value
 
+    def _leak_bake(self, img: np.ndarray, settings: WorkspaceConfig) -> np.ndarray:
+        """The first source bake: the repairs after it copy and fill from leak-free film. A flat master keeps it, as
+        a leak is a fault of the film, not a print decision."""
+        if not leak_active(settings):
+            self._leak_burned = None
+            return img
+        key = (img.shape, leak_token(settings))
+        if self._leak_img is img and self._leak_key == key and self._leak_out is not None:
+            return self._leak_out
+        self._slow_step("reducing light leak")
+        out, self._leak_burned = remove_leak(img, settings)
+        self._leak_img, self._leak_key, self._leak_out = img, key, out
+        return out
+
     def _clone_bake(self, img: np.ndarray, settings: WorkspaceConfig) -> np.ndarray:
         """The last source bake: a clone copies film that is already clean."""
         strokes = tuple(getattr(settings.retouch, "clone_strokes", ()))
@@ -755,7 +784,7 @@ class ImageProcessor:
         film_base: Optional[tuple] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
-        fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
+        fallbacks pass a buffer already flat-fielded and leak-baked. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
         decoded frame. ``source_orientation``: the EXIF orientation baked into *img*. The flat-field gain takes both."""
         # Flat-field is a source pre-correction, before geometry and crop. Folding its token
         # into source_hash invalidates the engine cache when it changes. Stitch buffers arrive
@@ -779,12 +808,9 @@ class ImageProcessor:
             img = self._precorrect_value
         else:
             source = img
+            # skip_flatfield buffers come from _load_source_f32, which already applied both.
             if not skip_flatfield:
-                img = flatfield_source(img, settings, gain_slices, orientation=source_orientation)
-            # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
-            # come from _load_source_f32, which already applied it.
-            if not skip_flatfield and preview_takes_unmix(settings):
-                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process), settings.process.sensor_unmix)
+                img = precorrect_preview(img, settings, gain_slices, source_orientation)
             # Both no-op'd: caching would pin a second reference to the same buffer.
             if img is not source:
                 self._precorrect_key = precorrect_key
@@ -805,6 +831,7 @@ class ImageProcessor:
             + highlight_reconstruction_token(settings.process)
             + highlight_reconstruction_bakes_wb_token(settings.process)
             + sensor_token(settings.process)
+            + leak_token(settings)
             + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + heal_token
@@ -820,6 +847,9 @@ class ImageProcessor:
         # Gated: the bake caches are single-slot and the export prefetch bakes on a helper thread.
         want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
         with self._prepare_gate:
+            if not skip_flatfield:
+                img = self._leak_bake(img, settings)
+            leak_burned = self._leak_burned if leak_active(settings) and not skip_flatfield else None
             img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, auto_hash)
 
             orig_ret = settings.retouch
@@ -873,6 +903,7 @@ class ImageProcessor:
         dust_mask = detected_dust < 1.0 if detected_dust is not None else None
         context.metrics["detected_dust_mask"] = dust_mask
         context.metrics["hair_inpaint_masks"] = hair_masks
+        context.metrics["leak_burned_mask"] = leak_burned
         context.metrics["ir_corrected_mask"] = ir_corrected_mask
         # The B&W/Kodachrome guard.
         if want_ir:
@@ -1360,12 +1391,14 @@ class ImageProcessor:
             + highlight_reconstruction_token(params.process)
             + highlight_reconstruction_bakes_wb_token(params.process)
             + sensor_token(params.process)
+            + leak_token(params)
             + demosaic_token(params.process.demosaic_export)
             + ir_bake_token(params.retouch, ir_full is not None)
             + manual_bake_token(params.retouch)
             + luma_bake_token(params.retouch)
             + clone_token(params.retouch)
         )
+        f32_buffer = self._leak_bake(f32_buffer, params)
         f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
         orig_ret = params.retouch
         detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
@@ -1866,11 +1899,13 @@ class ImageProcessor:
                 + highlight_reconstruction_token(params.process)
                 + highlight_reconstruction_bakes_wb_token(params.process)
                 + sensor_token(params.process)
+                + leak_token(params)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
                 + luma_bake_token(params.retouch)
                 + clone_token(params.retouch)
             )
+            f32_buffer = self._leak_bake(f32_buffer, params)
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             orig_ret = params.retouch
             detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
@@ -2435,6 +2470,8 @@ class ImageProcessor:
         self._precorrect_key = None
         self._precorrect_value = None
         self._prepare_slot = None
+        self._leak_img = None
+        self._leak_out = None
 
     def cleanup(self, release_source_cache: bool = True, collect: bool = True, retain: Any = None) -> None:
         """Evacuates transient GPU resources; ``retain`` survives the teardown."""

@@ -72,6 +72,7 @@ from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.desktop.workers.chart_fit import ChartSource
 from negpy.desktop.workers.frame_merge import FrameMergeTask, FrameMergeWorker
+from negpy.desktop.workers.leak_roll import LeakAutoTask, LeakAutoWorker, LeakRollTask, LeakRollWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, lightbox_level, wb_only_cam_xyz
 from negpy.features.process.logic import (
@@ -204,6 +205,7 @@ from negpy.services.assets.thumbnail_fingerprint import (
 )
 from negpy.services.assets import semantic_model
 from negpy.kernel.system.paths import get_default_user_dir
+from negpy.features.leak.models import LeakConfig
 from negpy.features.retouch.logic import downsample_ir, trace_scratch
 from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN, RetouchConfig
 from negpy.features.pickbetter.logic import (
@@ -391,6 +393,7 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
         local=LocalAdjustmentsConfig(),
         toning=ToningConfig(),
         finish=FinishConfig(),
+        leak=LeakConfig(),
         retouch=RetouchConfig(),
     )
 
@@ -455,6 +458,9 @@ def _stamp_render_serial(last_metrics: Dict[str, Any], metrics: Dict[str, Any]) 
 #: A Film Base patch whose log luminance varies more than this across its pixels is not flat film.
 _FILM_BASE_FLAT_DECADES = 0.02
 
+# The burned-film hint shows once this share of the work frame is burned under a leak.
+_LEAK_BURNED_HINT_SHARE = 0.002
+
 
 class AppController(QObject):
     """
@@ -517,6 +523,8 @@ class AppController(QObject):
     contact_sheet_requested = pyqtSignal(object)  # ContactSheetJob
     hdr_requested = pyqtSignal(object)
     frame_merge_requested = pyqtSignal(list)
+    leak_roll_requested = pyqtSignal(object)
+    leak_auto_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_cancel_requested = pyqtSignal()
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -719,6 +727,8 @@ class AppController(QObject):
         self.hdr_worker.moveToThread(self.export_thread)
         self.frame_merge_worker = FrameMergeWorker()
         self.frame_merge_worker.moveToThread(self.export_thread)
+        self.leak_roll_worker = LeakRollWorker()
+        self.leak_roll_worker.moveToThread(self.export_thread)
         self.export_thread.start()
 
         self.thumb_thread = QThread()
@@ -773,6 +783,13 @@ class AppController(QObject):
         # unstarted thread stays invisible to their teardown loops. The app starts it as
         # soon as the Camera Scanning tab polls or the user acts.
         self._capture_thread_started = False
+
+        # Started on first Auto, as the capture thread is: unit tests that never run Auto see no running thread.
+        self.leak_auto_thread = QThread()
+        self.leak_auto_worker = LeakAutoWorker()
+        self.leak_auto_worker.moveToThread(self.leak_auto_thread)
+        self._leak_auto_started = False
+        self._leak_auto_busy = False
 
         self.contact_sheet_preview = ContactSheetPreview()
         self._contact_sheet_pending: Optional[dict] = None
@@ -998,6 +1015,15 @@ class AppController(QObject):
         self.frame_merge_requested.connect(self.frame_merge_worker.run)
         self.frame_merge_worker.progress.connect(self._on_batch_progress)
         self.frame_merge_worker.finished.connect(self._on_frame_merge_finished)
+
+        self.leak_roll_requested.connect(self.leak_roll_worker.run)
+        self.leak_roll_worker.progress.connect(self._on_batch_progress)
+        self.leak_roll_worker.finished.connect(self._on_leak_roll_finished)
+        self.leak_roll_worker.cancelled.connect(lambda: self._on_batch_cancelled("leak_roll"))
+        self.leak_roll_worker.error.connect(self._on_leak_roll_error)
+        self.leak_auto_requested.connect(self.leak_auto_worker.run)
+        self.leak_auto_worker.finished.connect(self._on_leak_auto_finished)
+        self.leak_auto_worker.error.connect(self._on_leak_auto_error)
 
         self.hdr_requested.connect(self.hdr_worker.run)
         self.hdr_worker.progress.connect(self._on_batch_progress)
@@ -1520,6 +1546,7 @@ class AppController(QObject):
             "stitch": self.stitch_worker,
             "hdr": self.hdr_worker,
             "frame_merge": self.frame_merge_worker,
+            "leak_roll": self.leak_roll_worker,
             "embeddings": self.embedding_worker,
             "library_index": self.embedding_worker,
         }.get(owner)
@@ -1589,6 +1616,8 @@ class AppController(QObject):
             self.hdr_worker.cancel()
         elif self._active_batch == "frame_merge":
             self.frame_merge_worker.cancel()
+        elif self._active_batch == "leak_roll":
+            self.leak_roll_worker.cancel()
         elif self._active_batch == "library_index":
             self._library_index_cancelled = True
             self.embedding_worker.cancel()
@@ -3174,6 +3203,12 @@ class AppController(QObject):
         """Dust-detection overlay: "off", "marked" or "ir". Repaint only — the data is
         already in state.last_metrics / state.preview_ir, no re-render needed."""
         self.state.dust_overlay_mode = mode
+        self.dust_overlay_changed.emit()
+
+    def set_leak_show_burned(self, on: bool) -> None:
+        """Wash the film the light leak burned out on the canvas. Repaint only: the mask is
+        already in state.last_metrics."""
+        self.state.leak_show_burned = bool(on)
         self.dust_overlay_changed.emit()
 
     def toggle_zones_overlay(self, force: Optional[bool] = None) -> None:
@@ -4799,6 +4834,264 @@ class AppController(QObject):
         )
         self.request_render()
 
+    def handle_leak_shape_created(self, kind: str, viewport_vertices: list) -> None:
+        """Adds a drawn light leak shape and turns leak removal on; the tool stays armed for the next.
+        An edge leak snaps to the picture side nearest the drawn line."""
+        from negpy.features.leak.models import LeakKind
+        from negpy.features.leak.shapes import new_band, new_edge, new_spot, snap_edge
+
+        if self._diptych_blocks_canvas():
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or len(viewport_vertices) < 2:
+            return
+        raw = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_vertices[:3]]
+        a, b = (float(raw[0][0]), float(raw[0][1])), (float(raw[1][0]), float(raw[1][1]))
+        if LeakKind(kind) is LeakKind.SPOT:
+            if len(raw) < 3:
+                return
+            shape = new_spot(a, b, (float(raw[2][0]), float(raw[2][1])))
+        elif LeakKind(kind) is LeakKind.EDGE:
+            box = self._leak_picture_box()
+            ends = snap_edge(a, b, box) if box is not None else None
+            if ends is None:
+                self.set_status("Draw an edge leak along a side of the picture", 3000)
+                return
+            shape = new_edge(*ends)
+        else:
+            shape = new_band(a, b)
+        shapes = self.state.config.leak.leak_shapes + (shape,)
+        self.state.leak_selected = len(shapes) - 1
+        self._set_leaks(shapes, leak_remove=True)
+
+    def _leak_picture_box(self):
+        """The picture box raw-normalized, (x0, y0, x1, y1), as the leak bake reads it; None
+        without a frame or a box."""
+        from negpy.features.leak.film import work_copy
+        from negpy.features.leak.rebate import picture_rect
+
+        source = self.state.preview_raw
+        if source is None:
+            return None
+        small = work_copy(np.asarray(source, dtype=np.float32))
+        rect = picture_rect(small, self.state.config.geometry)
+        if rect is None:
+            return None
+        h, w = small.shape[:2]
+        y0, y1, x0, x1 = rect
+        return (x0 / w, y0 / h, x1 / w, y1 / h)
+
+    def handle_leak_paint_completed(self, viewport_pts: list) -> None:
+        """A painted stroke grows the selected painted leak, else starts one, with the brush the heal
+        tools share; drawing turns removal on."""
+        from negpy.features.leak.models import LeakKind
+        from negpy.features.leak.shapes import new_paint, with_stroke
+
+        if self._diptych_blocks_canvas():
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or not viewport_pts:
+            return
+        raw = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_pts]
+        points = [(float(x), float(y)) for x, y in raw]
+        size = float(self.state.config.retouch.manual_dust_size)
+        shapes = list(self.state.config.leak.leak_shapes)
+        idx = self.state.leak_selected
+        if 0 <= idx < len(shapes) and shapes[idx].kind is LeakKind.PAINT:
+            shapes[idx] = with_stroke(shapes[idx], points, size)
+        else:
+            shapes.append(new_paint(points, size))
+            self.state.leak_selected = len(shapes) - 1
+        self._set_leaks(tuple(shapes), leak_remove=True)
+
+    def handle_leak_shape_edited(self, index: int, shape) -> None:
+        """Replaces a leak shape after a handle drag on the canvas."""
+        shapes = list(self.state.config.leak.leak_shapes)
+        if not 0 <= index < len(shapes):
+            return
+        shapes[index] = shape
+        self.state.leak_selected = index
+        self._set_leaks(tuple(shapes))
+
+    def auto_leaks(self) -> None:
+        """Finds the frame's light leaks and adds a shape over each: an edge where lit rebate carries
+        on into the picture, a band along a straight leak. Runs on the leak Auto thread; the result
+        lands in _on_leak_auto_finished."""
+        source = self.state.preview_raw
+        if source is None or self._leak_auto_busy:
+            return
+        if not self._leak_auto_started:
+            self.leak_auto_thread.start()
+            self._leak_auto_started = True
+        self._leak_auto_busy = True
+        self.set_status("Finding light leaks")
+        img = np.array(source, dtype=np.float32, copy=True)
+        self.leak_auto_requested.emit(
+            LeakAutoTask(
+                self.state.current_file_hash or "",
+                img,
+                self.state.config,
+                gain_slices=self._preview_gain_slices(None),
+                orientation=self.state.preview_orientation,
+            )
+        )
+
+    def _on_leak_auto_finished(self, payload: dict) -> None:
+        """Adds a shape over each leak Auto found that has none yet, and arms the tool for what it
+        found so the handles can be adjusted. A result for a frame no longer open is dropped."""
+        from negpy.features.leak.models import LeakKind
+        from negpy.features.leak.shapes import same_leak
+
+        self._leak_auto_busy = False
+        self.set_status("")
+        if payload["hash"] != (self.state.current_file_hash or ""):
+            return
+        found = payload["found"]
+        if not found:
+            self.set_status("No light leak found", 3000)
+            return
+        shape = payload["shape"]
+        have = self.state.config.leak.leak_shapes
+        new: tuple = ()
+        for leak in found:
+            if not any(same_leak(leak, old, shape) for old in have + new):
+                new += (leak,)
+        tool = ToolMode.LEAK_EDGE if (new or found)[0].kind is LeakKind.EDGE else ToolMode.LEAK_BAND
+        if not new:
+            self.set_status("This leak already has a shape", 3000)
+            self.set_active_tool(tool)
+            return
+        self.state.leak_selected = len(have) + len(new) - 1
+        self._set_leaks(have + new, leak_remove=True)
+        self.set_active_tool(tool)
+
+    def _on_leak_auto_error(self, message: str) -> None:
+        self._leak_auto_busy = False
+        self.set_status(f"Auto failed: {message}", 5000, kind="error")
+
+    def _set_leaks(self, shapes: tuple, **changes) -> None:
+        leak = replace(self.state.config.leak, leak_shapes=tuple(shapes), **changes)
+        self.session.update_config(replace(self.state.config, leak=leak), persist=True)
+        self.request_render()
+
+    def undo_last_leak(self) -> None:
+        shapes = self.state.config.leak.leak_shapes
+        if shapes:
+            if self.state.leak_selected >= len(shapes) - 1:
+                self.state.leak_selected = -1
+            self._set_leaks(shapes[:-1])
+
+    def leaks_from_roll(self) -> None:
+        """With other frames selected, carries the current frame's leaks to each, placed by its own
+        picture box; each frame then reads the leak's strength and color itself. With none, finds
+        the roll's frames that show a leak and selects them, to draw one and carry it."""
+        from negpy.features.leak.roll import picture_box
+
+        files = self.state.uploaded_files
+        current = self.state.current_file_hash
+        picked = [files[i] for i in sorted(set(self.state.selected_indices)) if 0 <= i < len(files) and not is_composite(files[i])]
+        targets = [f for f in picked if f.get("hash") != current]
+        shapes = self.state.config.leak.leak_shapes
+        if targets and not shapes:
+            self.set_status("Draw or find a leak on this frame first, then From Roll carries it", 4000)
+            return
+        source = None
+        if targets:
+            raw = self.state.preview_raw
+            source = picture_box(np.asarray(raw, dtype=np.float32), self.state.config.geometry) if raw is not None else None
+            if source is None:
+                self.set_status("This frame has no picture box to carry the leak by", 4000)
+                return
+        else:
+            targets = [f for f in files if not is_composite(f)]
+        if not targets:
+            return
+        title = "Carrying the leak across the roll" if shapes and source is not None else "Finding light leaks"
+        if self._begin_batch("leak_roll", title, abortable=True) is None:
+            return
+        self.leak_roll_requested.emit(
+            LeakRollTask(
+                files=tuple(dict(f) for f in targets),
+                params_by_path={f["path"]: self._batch_params_for(f) for f in targets},
+                shapes=shapes if source is not None else (),
+                source=source,
+            )
+        )
+
+    def _on_leak_roll_finished(self, payload: dict) -> None:
+        self._end_batch("leak_roll")
+        files = self.state.uploaded_files
+        if "found" in payload:
+            wanted = set(payload["found"])
+            indices = [i for i, f in enumerate(files) if f.get("hash") in wanted]
+            if not indices:
+                self.set_status("No frame shows a light leak Auto can find", 4000)
+                return
+            self.session.update_selection(indices)
+            self.set_status(f"Selected {len(indices)} frames that show a light leak: draw it on one, then From Roll again", 6000)
+            return
+        assets = {f.get("hash"): f for f in files}
+        saved = []
+        for file_hash, shapes in payload["shapes"].items():
+            asset = assets.get(file_hash)
+            if asset is None:
+                continue
+            config = self.session.config_for_asset(asset)
+            leak = replace(config.leak, leak_shapes=tuple(shapes), leak_remove=True)
+            self.session.repo.save_file_settings(file_hash, replace(config, leak=leak), file_path=asset["path"])
+            saved.append(file_hash)
+        if saved:
+            self.session.frames_edited_offscreen.emit(saved)
+        self.set_status(f"Leak carried to {len(saved)} frames", 4000)
+
+    def _on_leak_roll_error(self, message: str) -> None:
+        self._end_batch("leak_roll")
+        self.set_status(f"From Roll failed: {message}", 5000, kind="error")
+
+    def select_leak(self, index: int) -> None:
+        self.state.leak_selected = index
+        self.config_updated.emit()
+
+    def set_leak_enabled(self, index: int, enabled: bool) -> None:
+        """Turn one leak's removal off or on, independent of selection."""
+        shapes = list(self.state.config.leak.leak_shapes)
+        if not 0 <= index < len(shapes):
+            return
+        shapes[index] = replace(shapes[index], enabled=bool(enabled))
+        self._set_leaks(tuple(shapes))
+
+    def delete_leak(self, index: int) -> None:
+        from negpy.desktop.view.confirm import confirm_delete_leak
+
+        shapes = self.state.config.leak.leak_shapes
+        if not 0 <= index < len(shapes) or not confirm_delete_leak(None):
+            return
+        sel = self.state.leak_selected
+        self.state.leak_selected = -1 if sel == index else (sel - 1 if sel > index else sel)
+        self._set_leaks(shapes[:index] + shapes[index + 1 :])
+
+    def update_selected_leak(self, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
+        """Change the selected leak's Strength, Falloff, Color or Color Trim."""
+        shapes = list(self.state.config.leak.leak_shapes)
+        idx = self.state.leak_selected
+        if not 0 <= idx < len(shapes):
+            return
+        shapes[idx] = replace(shapes[idx], **changes)
+        leak = replace(self.state.config.leak, leak_shapes=tuple(shapes))
+        self.session.update_config(replace(self.state.config, leak=leak), persist=persist)
+        self.request_render(readback_metrics=readback_metrics)
+
+    def clear_leaks(self) -> None:
+        from negpy.desktop.view.confirm import confirm_clear_leaks
+
+        count = len(self.state.config.leak.leak_shapes)
+        if count == 0 or not confirm_clear_leaks(None, count):
+            return
+        self.state.leak_selected = -1
+        self._set_leaks(())
+
     def undo_last_clone(self) -> None:
         strokes = list(self.state.config.retouch.clone_strokes)
         if strokes:
@@ -5490,6 +5783,7 @@ class AppController(QObject):
         "lab": "Lab",
         "altproc": "Alternative Processes",
         "toning": "Toning",
+        "leak": "Light Leak",
         "retouch": "Retouch",
         "finish": "Finishing",
     }
@@ -8740,6 +9034,9 @@ class AppController(QObject):
             _stamp_render_serial(self.state.last_metrics, metrics)
         if "ir_degenerate" in metrics:
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
+        if "leak_burned_mask" in metrics:
+            burned = metrics["leak_burned_mask"]
+            self.state.leak_burned = burned is not None and float(np.mean(burned)) >= _LEAK_BURNED_HINT_SHARE
         self.metrics_available.emit(metrics)
 
         # Do not persist bounds from a splash render, or from a frame with no identity of
@@ -8976,7 +9273,7 @@ class AppController(QObject):
             self.render_thread.wait()
         # A long batch runs inside its slot, so quit() alone would wait for all of it.
         if self.export_thread.isRunning():
-            for worker in (self.export_worker, self.stitch_worker, self.hdr_worker, self.frame_merge_worker):
+            for worker in (self.export_worker, self.stitch_worker, self.hdr_worker, self.frame_merge_worker, self.leak_roll_worker):
                 worker.cancel()
             self.export_thread.quit()
             self.export_thread.wait()
@@ -9020,6 +9317,9 @@ class AppController(QObject):
         if self.capture_thread.isRunning():
             self.capture_thread.quit()
             self.capture_thread.wait()
+        if self.leak_auto_thread.isRunning():
+            self.leak_auto_thread.quit()
+            self.leak_auto_thread.wait()
         # Memo-owned textures outlive the pool, so they must die before the device.
         self._render_memo.clear()
         self.render_worker.destroy_all()

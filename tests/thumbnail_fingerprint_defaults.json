@@ -134,6 +134,14 @@
    "sharpen_radius": "1.0",
    "skin_protection": "0.5"
   },
+  "leak": {
+   "leak_contrast": "0.25",
+   "leak_dmax": "0.0",
+   "leak_grain": "0.5",
+   "leak_recover": "true",
+   "leak_remove": "false",
+   "leak_shapes": "[]"
+  },
   "local": {
    "masks": "[]"
   },

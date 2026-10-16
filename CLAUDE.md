@@ -61,7 +61,7 @@ A card holds the roll's or the rig's values (the film edge, the scanning lens, t
 - **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) runs the same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
 - **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first and falls back to CPU. Export always runs full-res, with CPU stage caching off (`PipelineContext.cache_stages`). Linear DNG decode, CPU saturation and unsharp masking use row blocks to bound temporary storage. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi` and a `metrics` dict between stages.
 - **Embedded lens correction** (`features/lens`) is a single-file decode step shared by preview and export: flat-field, lens warp, then sensor unmix and user geometry. Its independent distortion and CA settings and its flat-field token belong to the source identity. It is disabled for composite setup, composite assembly and RGB+IR sources.
-- **Source bakes** run before either engine, on the linear source: flat-field, sensor unmix and every defect repair (IR, detected specks, painted heal strokes). Both engines re-upload that source per frame, so a bake needs no shader and has parity for free. Each bake folds a token into `source_hash` to invalidate the engine cache.
+- **Source bakes** run before either engine, on the linear source: flat-field, sensor unmix, light leak (`features/leak/`) and every defect repair (IR, detected specks, painted heal strokes). Both engines re-upload that source per frame, so a bake needs no shader and has parity for free. Each bake folds a token into `source_hash` to invalidate the engine cache.
 - **Working space**: scene-linear internally. The working OETF (Adobe RGB 1998 TRC, a pure 563/256 power with no linear segment) is the final engine step. Lab/toning compute CIELAB directly from linear, D65. Adobe RGB, not a wide gamut, because ProPhoto's imaginary primaries inflate chroma in the saturation and toning stages.
 
 `docs/PIPELINE.md` describes each stage's behavior and controls in depth.
@@ -76,6 +76,8 @@ Every feature lives in `negpy/features/<name>/`:
 - `shaders/<name>.wgsl`: optional GPU compute shader
 
 `features/transparency/` has no `models.py`: its controls are the Exposure and Process fields. `tests/test_slide_separation.py` classifies every new `ExposureConfig` field as transfer-live, Positive-only, print-only or routing.
+
+`features/leak/` has no `processor.py`: light leak reduction is a source bake (`bake.py`), split into the film curve, rebate reading, shapes, estimate, recovery and Auto.
 
 `features/altprocess/` holds only `models.py`. Lith, cyanotype and Sabattier are mutually exclusive, so they share the Alternative Processes panel and one `AltProcessConfig`; their logic and shaders stay in `features/lith/`, `features/cyanotype/` and `features/sabattier/`. Sabattier's Mackie-line blur is the stage's one spatial term: its taps come from `gaussian_kernel_1d` on both engines, and the tiled export grows its halo by the kernel's half-width.
 

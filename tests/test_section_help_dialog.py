@@ -33,6 +33,7 @@ GUIDED_KEYS = (
     "lab",
     "altproc",
     "toning",
+    "leak",
     "retouch",
     "finish",
     "library",
