@@ -85,3 +85,17 @@ def test_store_knows_which_sensor_profiles_its_presets_own():
     assert store.owns_sensor_profile("Portra")
     assert not store.owns_sensor_profile("Hand Made")
     assert not store.owns_sensor_profile("")
+
+
+def test_rgb_only_framing_raises_each_dimmed_channel_to_the_floor():
+    assert framing_levels(180, 185, 155, rgb_only=True) == (115, 115, 115)
+    assert framing_levels(255, 230, 90, rgb_only=True) == (115, 115, 90)  # never above the recipe
+
+
+def test_rgb_only_framing_keeps_dark_channels_dark():
+    assert framing_levels(100, 90, 0, rgb_only=True) == (100, 90, 0)
+    assert framing_levels(0, 0, 0, rgb_only=True) == (0, 0, 0)
+
+
+def test_white_capable_framing_has_no_floor():
+    assert framing_levels(180, 185, 155) == (22, 23, 19)

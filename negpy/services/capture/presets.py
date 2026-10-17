@@ -14,17 +14,26 @@ from dataclasses import asdict, dataclass
 #: headroom.
 FRAMING_DIM_STOPS = 3
 
+#: The lowest framing level that visibly lights an RGB-only Scanlight (v1-v3). Their LEDs stay
+#: dark at the dimmed levels a v4 shows, so each dimmed channel is raised to this level.
+FRAMING_MIN_LEVEL_RGB_ONLY = 115
 
-def framing_levels(r: int, g: int, b: int, stops: int = FRAMING_DIM_STOPS) -> tuple[int, int, int]:
+
+def framing_levels(r: int, g: int, b: int, stops: int = FRAMING_DIM_STOPS, *, rgb_only: bool = False) -> tuple[int, int, int]:
     """The framing-light mix for a scan-level RGB recipe: the same color, `stops` dimmer.
 
     Dimming the light rather than speeding the shutter keeps the scan start free of the
     1-2 s a verified shutter write costs, and works on bodies whose shutter NegPy cannot
     drive. A lit channel never dims to 0, so the mix keeps its hue at single-digit levels.
+    On an RGB-only Scanlight each lit channel is raised to FRAMING_MIN_LEVEL_RGB_ONLY, never
+    above its recipe level; the hue then drifts toward neutral.
     """
 
     def dim(level: int) -> int:
-        return max(1, level >> stops) if level > 0 else 0
+        if level <= 0:
+            return 0
+        dimmed = max(1, level >> stops)
+        return min(level, max(dimmed, FRAMING_MIN_LEVEL_RGB_ONLY)) if rgb_only else dimmed
 
     return dim(r), dim(g), dim(b)
 
