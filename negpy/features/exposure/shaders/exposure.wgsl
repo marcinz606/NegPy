@@ -63,6 +63,8 @@ struct ExposureUniforms {
     // Diffusion: xyz = each channel's log range (channel_density_ranges), w = the Hold Black
     // taper span (black_hold_taper, 0 = off).
     diff_range: vec4<f32>,
+    // Print-stock LUT: xyz = e_max per dye (0 = no LUT), w = the black luminance BPC maps to 0.
+    lut: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -75,6 +77,48 @@ struct ExposureUniforms {
 @group(0) @binding(4) var mask_tex: texture_2d<f32>;
 // Shape alpha of each tone-limited mask, one per channel (planes 2+ of compute_local_maps).
 @group(0) @binding(5) var key_tex: texture_2d<f32>;
+// The stock's LUT unrolled to 2D: node (i, j, k) at texel (i + N*j, k). A 1x1 dummy without one.
+@group(0) @binding(6) var lut_tex: texture_2d<f32>;
+
+fn lut_node(i: i32, j: i32, k: i32, n: i32) -> vec3<f32> {
+    return textureLoad(lut_tex, vec2<i32>(i + n * j, k), 0).xyz;
+}
+
+// Tetrahedral interpolation; mirrors tetra_lookup in print_lut.py.
+fn lut_tetra(e: vec3<f32>) -> vec3<f32> {
+    let n = i32(textureDimensions(lut_tex).y);
+    let p = clamp(e / params.lut.xyz, vec3<f32>(0.0), vec3<f32>(1.0)) * f32(n - 1);
+    let i = min(vec3<i32>(p), vec3<i32>(n - 2));
+    let f = p - vec3<f32>(i);
+    let c000 = lut_node(i.x, i.y, i.z, n);
+    let c111 = lut_node(i.x + 1, i.y + 1, i.z + 1, n);
+    if (f.x >= f.y) {
+        if (f.y >= f.z) {
+            let c100 = lut_node(i.x + 1, i.y, i.z, n);
+            let c110 = lut_node(i.x + 1, i.y + 1, i.z, n);
+            return c000 + f.x * (c100 - c000) + f.y * (c110 - c100) + f.z * (c111 - c110);
+        } else if (f.x >= f.z) {
+            let c100 = lut_node(i.x + 1, i.y, i.z, n);
+            let c101 = lut_node(i.x + 1, i.y, i.z + 1, n);
+            return c000 + f.x * (c100 - c000) + f.z * (c101 - c100) + f.y * (c111 - c101);
+        }
+        let c001 = lut_node(i.x, i.y, i.z + 1, n);
+        let c101 = lut_node(i.x + 1, i.y, i.z + 1, n);
+        return c000 + f.z * (c001 - c000) + f.x * (c101 - c001) + f.y * (c111 - c101);
+    }
+    if (f.z >= f.y) {
+        let c001 = lut_node(i.x, i.y, i.z + 1, n);
+        let c011 = lut_node(i.x, i.y + 1, i.z + 1, n);
+        return c000 + f.z * (c001 - c000) + f.y * (c011 - c001) + f.x * (c111 - c011);
+    } else if (f.z >= f.x) {
+        let c010 = lut_node(i.x, i.y + 1, i.z, n);
+        let c011 = lut_node(i.x, i.y + 1, i.z + 1, n);
+        return c000 + f.y * (c010 - c000) + f.z * (c011 - c010) + f.x * (c111 - c011);
+    }
+    let c010 = lut_node(i.x, i.y + 1, i.z, n);
+    let c110 = lut_node(i.x + 1, i.y + 1, i.z, n);
+    return c000 + f.y * (c010 - c000) + f.x * (c110 - c010) + f.z * (c111 - c110);
+}
 
 // The planes at this pixel. Mirrors plane_taps in exposure/logic.py.
 fn plane_sample(coords: vec2<i32>) -> vec4<f32> {
@@ -346,9 +390,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     var transmittance = pow(vec3<f32>(10.0), -dens);
-    // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue
-    // (negative toe raises the clip point). oetf_encode clamps the tail to 0.
-    if (params.bpc != 0.0) {
+    if (params.lut.x > 0.0) {
+        transmittance = pow(vec3<f32>(10.0), -d_min_rgb) * lut_tetra(dens - d_min_rgb);
+        if (params.bpc != 0.0) {
+            transmittance = (transmittance - vec3<f32>(params.lut.w)) / (1.0 - params.lut.w);
+        }
+    } else if (params.bpc != 0.0) {
+        // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue
+        // (negative toe raises the clip point). oetf_encode clamps the tail to 0.
         let db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
         let tb = pow(vec3<f32>(10.0), -db);
         transmittance = (transmittance - tb) / (vec3<f32>(1.0) - tb);

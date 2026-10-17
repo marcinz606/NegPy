@@ -244,6 +244,8 @@ RGB_SWEEP = Sweep((THEME.channel_red_text, THEME.channel_green_text, THEME.chann
 RING_AROUND_SWEEP = Sweep((THEME.filter_magenta, THEME.filter_yellow))
 # Light to dark on the diagonal: a test strip's density runs across it and its grade down it.
 TEST_STRIP_SWEEP = Sweep((THEME.canvas_bg_white, THEME.mode_bw), angle=45)
+# Paper white to a warm print, across the bands: a paper test strip prints one stock per band.
+PAPER_STRIP_SWEEP = Sweep((THEME.canvas_bg_white, THEME.mode_c41))
 # The clipping overlay's own two colors: clipped highlights, then clipped shadows.
 CLIPPING_SWEEP = Sweep((THEME.clip_warning, THEME.clip_shadow))
 

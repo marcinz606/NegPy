@@ -288,6 +288,7 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
     controller.state.flat_peek = False
     controller.state.compare_mode = False
     controller.state.grain_focuser = False
+    controller.state.test_strip_expanded = None
     window.canvas.overlay.cancel_in_progress.return_value = True
 
     controller.state.test_strip = True
@@ -391,6 +392,7 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
         window.light_table_active.return_value = False
         controller.state.test_strip = False
         controller.state.test_strip_pending = False
+        controller.state.test_strip_expanded = None
         controller.state.pick_better = False
         controller.state.pick_better_pending = False
         controller.state.negative_peek = False

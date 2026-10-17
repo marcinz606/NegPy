@@ -22,6 +22,7 @@ from negpy.features.exposure.normalization import (
     contrast_mask_plane,
     diffusion_grid,
     diffusion_plane,
+    base_scan_density,
     effective_crosstalk_matrix,
     geometry_kwargs,
     measure_base_log,
@@ -120,6 +121,17 @@ class DarkroomEngine:
 
         return new_img, True
 
+    def _source_base_log(self, img_in: ImageBuffer, ctx: PipelineContext) -> Optional[tuple]:
+        """The clear base in raw log: the roll's picked one (the Film Base tool) wins, else the
+        rebate read, measured once per source before geometry."""
+        picked = ctx.metrics.get("film_base")
+        if picked is not None:
+            return tuple(picked)
+        if not self.cache.base_measured:
+            self.cache.base_log = measure_base_log(img_in)
+            self.cache.base_measured = True
+        return self.cache.base_log
+
     def process(
         self,
         img: ImageBuffer,
@@ -167,14 +179,8 @@ class DarkroomEngine:
             # export runs with stage caching off. The base is a property of the source, read
             # once per source before geometry.
             if ctx.cache_stages and ctx.readback_metrics and render_path(settings.process) is RenderPath.PRINT:
-                picked = ctx.metrics.get("film_base")  # set on the roll with the Film Base tool, in raw log space; wins
-                if picked is not None:
-                    ctx.metrics["base_log"], ctx.metrics["base_source"] = tuple(picked), "picked"
-                else:
-                    if not self.cache.base_measured:
-                        self.cache.base_log = measure_base_log(img_in)
-                        self.cache.base_measured = True
-                    ctx.metrics["base_log"], ctx.metrics["base_source"] = self.cache.base_log, "read"
+                ctx.metrics["base_log"] = self._source_base_log(img_in, ctx)
+                ctx.metrics["base_source"] = "picked" if ctx.metrics.get("film_base") is not None else "read"
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
             return base_processor(settings).process(img_in, ctx)
 
@@ -238,6 +244,15 @@ class DarkroomEngine:
             exposure_models.TARGETS_REVISION,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
+        # Outside the cached stage: a drag renders without readback, so a cache entry it made holds no base.
+        if context.cache_stages and context.readback_metrics:
+            context.metrics["film_base_density"] = (
+                base_scan_density(
+                    self._source_base_log(img, context), effective_crosstalk_matrix(settings.process, settings.process.process_mode)
+                )
+                if render_path(settings.process) is RenderPath.PRINT
+                else None
+            )
 
         # Built from the source and keyed on base, so the GPU calls the same helper and the slider re-runs only exposure.
         # Pre-trim bounds, as on the GPU: White/Black Point trims are a look, not the source.

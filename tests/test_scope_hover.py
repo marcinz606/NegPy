@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from negpy.desktop.session import AppState
 from negpy.features.exposure.analysis import WAVEFORM_BINS, WAVEFORM_COLS, scope_point, vectorscope_histogram
 
 
@@ -37,6 +38,7 @@ def test_the_panel_marks_both_scopes_and_clears_them() -> None:
     from negpy.desktop.view.sidebar.right_panel import RightPanel
 
     panel = MagicMock()
+    panel.controller.state = AppState()
     RightPanel._on_pixel_readout(panel, (1.3, 0.5, (0.5, 0.5, 0.5)))
 
     column, luma = panel.waveform_widget.set_marker.call_args[0][0]
@@ -44,9 +46,11 @@ def test_the_panel_marks_both_scopes_and_clears_them() -> None:
     assert luma == pytest.approx(0.5, abs=1e-3)
     a, b = panel.vectorscope_widget.set_marker.call_args[0][0]
     assert abs(a) < 0.5 and abs(b) < 0.5
+    assert panel.parade_widget.set_marker.call_args[0][0] == (1.0, 0.5, 0.5, 0.5)
 
     RightPanel._on_pixel_readout(panel, None)
     panel.waveform_widget.set_marker.assert_called_with(None)
+    panel.parade_widget.set_marker.assert_called_with(None)
     panel.vectorscope_widget.set_marker.assert_called_with(None)
 
 

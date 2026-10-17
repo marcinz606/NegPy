@@ -31,6 +31,7 @@ from negpy.features.exposure.normalization import (
     geometry_kwargs,
     luma_source_bounds,
     normalized_roi,
+    base_scan_density,
     density_above_base,
     luminance_density_range,
     measure_base_log,
@@ -64,7 +65,8 @@ from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.sabattier.logic import SABATTIER_CONSTANTS, line_sigma_px
-from negpy.features.exposure.logic import diffusion_mix
+from negpy.features.exposure.logic import black_density_rgb, diffusion_mix
+from negpy.features.exposure.print_lut import PrintLut, lut_black_luminance
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
@@ -121,7 +123,7 @@ TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
 # Metrics buffer in u32 words: RGBL output and density histograms, joint RGB histogram, luma waveform, a*b* vectorscope,
-# waveform RGB sums. 256 B-aligned offsets, mirrored as WGSL array lengths. Append-only.
+# waveform RGB sums, RGB parade, scan-side density parade, scan full-scale columns. 256 B-aligned offsets, mirrored as WGSL array lengths. Append-only.
 _METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
 _METRICS_DENSITY_BASE = 1024
 _METRICS_DENSITY_WORDS = DENSITY_HIST_BINS * 4  # R, G, B, Luma
@@ -133,7 +135,13 @@ _METRICS_SCOPE_BASE = _METRICS_WAVE_BASE + _METRICS_WAVE_WORDS
 _METRICS_SCOPE_WORDS = SCOPE_HUE_BINS * SCOPE_CHROMA_BINS
 _METRICS_WAVE_RGB_BASE = _METRICS_SCOPE_BASE + _METRICS_SCOPE_WORDS
 _METRICS_WAVE_RGB_WORDS = 3 * WAVEFORM_BINS * WAVEFORM_COLS
-METRICS_BUFFER_SIZE = (_METRICS_WAVE_RGB_BASE + _METRICS_WAVE_RGB_WORDS) * 4
+_METRICS_PARADE_BASE = _METRICS_WAVE_RGB_BASE + _METRICS_WAVE_RGB_WORDS
+_METRICS_PARADE_WORDS = 3 * WAVEFORM_BINS * WAVEFORM_COLS
+_METRICS_DENSITY_PARADE_BASE = _METRICS_PARADE_BASE + _METRICS_PARADE_WORDS
+_METRICS_DENSITY_PARADE_WORDS = 3 * WAVEFORM_BINS * WAVEFORM_COLS
+_METRICS_FULL_SCALE_BASE = _METRICS_DENSITY_PARADE_BASE + _METRICS_DENSITY_PARADE_WORDS
+_METRICS_FULL_SCALE_WORDS = 3 * WAVEFORM_COLS
+METRICS_BUFFER_SIZE = (_METRICS_FULL_SCALE_BASE + _METRICS_FULL_SCALE_WORDS) * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -336,6 +344,9 @@ class GPUEngine:
         self._buffers: Dict[str, GPUBuffer] = {}
         self._sampler: Optional[Any] = None
         self._tex_cache: Dict[Tuple[int, int, int, str], GPUTexture] = {}
+        # Print-stock LUTs by key, outside the pool: a stock's LUT outlives the frames that use it.
+        self._lut_textures: Dict[str, Tuple[Any, GPUTexture]] = {}
+        self._exposure_lut: Optional[PrintLut] = None
         self._tex_gen: Dict[Tuple[int, int, int, str], int] = {}
         self._render_gen: int = 0
 
@@ -355,11 +366,11 @@ class GPUEngine:
             "density_hist",
         ]
         # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
-        # alignment (exposure, 416B) occupies multiple aligned slots.
+        # alignment (exposure) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 432,
+            "exposure": 448,
             "transfer": 224,
             "clahe_u": 32,
             "lab": 96,
@@ -369,7 +380,7 @@ class GPUEngine:
             "toning": 64,
             "finish": 60,
             "layout": 48,
-            "density_hist": 16,
+            "density_hist": 48,
         }
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
@@ -889,6 +900,7 @@ class GPUEngine:
         else:
             bounds, base_bounds = resolve_bounds_detailed(settings.process, _analyze_bounds)
             anchor_bounds = luma_source_bounds(settings.process, base_bounds)
+        pass_base_log = None  # a rebate read with no source identity to cache it under (the tiled reference pass)
         if prefiltered is not None and readback_metrics and not transfer and (density_above_base_value is None or needs_bounds_analysis):
             # Only a preview reads the densities, like the anchor's readback_metrics gate. A base
             # the user set on the roll wins; else the rebate reader's, a property of the source
@@ -898,7 +910,7 @@ class GPUEngine:
                 density_above_base_value = density_above_base(tuple(film_base), bounds, prefiltered, unmix_m)
             else:
                 if analysis_source_hash is None:
-                    base_log = measure_base_log(img)
+                    base_log = pass_base_log = measure_base_log(img)
                 else:
                     if self._base_cache is None or self._base_cache[0] != analysis_source_hash:
                         self._base_cache = (analysis_source_hash, measure_base_log(img))
@@ -1296,6 +1308,7 @@ class GPUEngine:
                         (3, tex_local_ev.view),
                         (4, tex_mask.view),
                         (5, tex_local_key.view),
+                        (6, self._lut_texture(self._exposure_lut).view),
                     ],
                     w_rot,
                     h_rot,
@@ -1526,7 +1539,8 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
-            # The density histogram slice sits past the RGBL bins, so one shared readback.
+            # The density histogram slice sits past the RGBL bins, so one shared readback. The same pass
+            # bins the scan-side parade: Peek Negative paints without a render, so it reads this print's scan.
             self._dispatch_pass(
                 enc,
                 "density_hist",
@@ -1541,6 +1555,23 @@ class GPUEngine:
                         },
                     ),
                     (2, self._get_uniform_binding("density_hist")),
+                    (
+                        3,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_DENSITY_PARADE_BASE * 4,
+                            "size": _METRICS_DENSITY_PARADE_WORDS * 4,
+                        },
+                    ),
+                    (4, tex_geom.view),
+                    (
+                        5,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_FULL_SCALE_BASE * 4,
+                            "size": _METRICS_FULL_SCALE_WORDS * 4,
+                        },
+                    ),
                 ],
                 crop_w,
                 crop_h,
@@ -1586,6 +1617,14 @@ class GPUEngine:
                             "size": _METRICS_WAVE_RGB_WORDS * 4,
                         },
                     ),
+                    (
+                        3,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_PARADE_BASE * 4,
+                            "size": _METRICS_PARADE_WORDS * 4,
+                        },
+                    ),
                 ],
                 crop_w,
                 crop_h,
@@ -1628,6 +1667,15 @@ class GPUEngine:
             floors=tuple(f + wp for f, wp in zip(_base_bounds.floors, _wp3)),
             ceils=tuple(c + bp for c, bp in zip(_base_bounds.ceils, _bp3)),
         )
+        # The scan Parade's base: the roll's picked base, else this source's rebate read.
+        read_base_log = None
+        if not transfer:
+            if film_base is not None:
+                read_base_log = tuple(film_base)
+            elif self._base_cache is not None and self._base_cache[0] == analysis_source_hash:
+                read_base_log = self._base_cache[1]
+            else:
+                read_base_log = pass_base_log
         metrics: Dict[str, Any] = {
             "active_roi": roi,
             "base_positive": tex_final,
@@ -1639,6 +1687,7 @@ class GPUEngine:
             "norm_density_range": luminance_density_range(bounds),
             "density_above_base": density_above_base_value,
             "base_source": "picked" if film_base is not None else "read",
+            "film_base_density": base_scan_density(read_base_log, unmix_m),
             "metered_anchor": metered_anchor,
             "contrast_mask_centre": mask_centre,
             "textural_range": textural_range,
@@ -1670,6 +1719,21 @@ class GPUEngine:
             metrics["waveform_color"] = (
                 raw_metrics[_METRICS_WAVE_RGB_BASE : _METRICS_WAVE_RGB_BASE + _METRICS_WAVE_RGB_WORDS]
                 .reshape((3, WAVEFORM_BINS, WAVEFORM_COLS))
+                .astype(np.float64)
+            )
+            metrics["waveform_parade"] = (
+                raw_metrics[_METRICS_PARADE_BASE : _METRICS_PARADE_BASE + _METRICS_PARADE_WORDS]
+                .reshape((3, WAVEFORM_BINS, WAVEFORM_COLS))
+                .astype(np.float64)
+            )
+            metrics["density_parade"] = (
+                raw_metrics[_METRICS_DENSITY_PARADE_BASE : _METRICS_DENSITY_PARADE_BASE + _METRICS_DENSITY_PARADE_WORDS]
+                .reshape((3, WAVEFORM_BINS, WAVEFORM_COLS))
+                .astype(np.float64)
+            )
+            metrics["scan_full_scale"] = (
+                raw_metrics[_METRICS_FULL_SCALE_BASE : _METRICS_FULL_SCALE_BASE + _METRICS_FULL_SCALE_WORDS]
+                .reshape((3, WAVEFORM_COLS))
                 .astype(np.float64)
             )
             metrics["vectorscope"] = (
@@ -1943,7 +2007,7 @@ class GPUEngine:
             compose_density_matrices,
             effective_constants,
             effective_paper_profile,
-            resolve_dye_matrix,
+            resolve_print_color,
             resolve_saturation_matrix,
         )
 
@@ -2023,7 +2087,14 @@ class GPUEngine:
             LogNegativeBounds(adj_floors, adj_ceils),
         )
         dmin_rgb = paper_dmin_rgb(d_min, paper)
-        dye = resolve_dye_matrix(paper)
+        dye, lut = resolve_print_color(paper)
+        self._exposure_lut = lut
+        lut_row = (0.0, 0.0, 0.0, 0.0)
+        if lut is not None:
+            lut_black = 0.0
+            if not exp.paper_black:
+                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), _toe3, float(pc["toe_height"])))
+            lut_row = (*(float(v) for v in lut.e_max), lut_black)
         # Density-space Dye Separation, composed into the same dye_mix slot as the paper's
         # real crosstalk. Mirrors apply_characteristic_curve exactly.
         if settings.process.process_mode == ProcessMode.BW:
@@ -2155,6 +2226,8 @@ class GPUEngine:
             # Diffusion: each channel's log range, one normalized unit of val in density; w = the
             # Hold Black taper span (0 = off).
             + struct.pack("ffff", *channel_density_ranges(LogNegativeBounds(adj_floors, adj_ceils)), black_hold_taper(exp, paper))
+            # Print-stock LUT: xyz = e_max (0 = no LUT), w = the black that BPC maps to 0.
+            + struct.pack("ffff", *lut_row)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -2349,8 +2422,13 @@ class GPUEngine:
             struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy) + struct.pack("iiii", cw, ch, crop_w, crop_h) + struct.pack("f", scale)
         )
 
-        # ROI offset + crop dims for the density-histogram pass (tex_norm is uncropped).
-        dh_data = struct.pack("IIII", crop_offset[0], crop_offset[1], crop_w, crop_h)
+        # ROI offset + crop dims for the density-histogram pass (tex_norm is uncropped), and the bounds
+        # the scan parade inverts the stretch with.
+        dh_data = (
+            struct.pack("IIII", crop_offset[0], crop_offset[1], crop_w, crop_h)
+            + struct.pack("ffff", adj_floors[0], adj_floors[1], adj_floors[2], 0.0)
+            + struct.pack("ffff", adj_ceils[0], adj_ceils[1], adj_ceils[2], 0.0)
+        )
 
         full_buffer = bytearray()
         for name, d in zip(
@@ -3046,9 +3124,31 @@ class GPUEngine:
             gc.collect()
         logger.info("GPUEngine: VRAM resources released")
 
+    def _lut_texture(self, lut: Optional[PrintLut]) -> GPUTexture:
+        """The LUT unrolled to 2D, node (i, j, k) at texel (i + N*j, k); a 1x1 dummy without one."""
+        key = "" if lut is None else lut.key
+        cached = self._lut_textures.get(key)
+        if cached is None or cached[0] is not lut:
+            if cached is not None:
+                cached[1].destroy()
+                self._bind_group_cache.clear()
+            usage = wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST
+            if lut is None:
+                tex = GPUTexture(1, 1, usage=usage)
+                tex.upload(np.ones((1, 1, 4), dtype=np.float32))
+            else:
+                n = lut.table.shape[0]
+                tex = GPUTexture(n * n, n, usage=usage)
+                tex.upload(np.ascontiguousarray(lut.table.transpose(2, 1, 0, 3).reshape(n, n * n, 3)))
+            self._lut_textures[key] = (lut, tex)
+        return self._lut_textures[key][1]
+
     def destroy_all(self) -> None:
         """Full resource teardown."""
         self.cleanup()
+        for _, tex in self._lut_textures.values():
+            tex.destroy()
+        self._lut_textures.clear()
         if self._metrics_staging is not None:
             self._metrics_staging.destroy()
             self._metrics_staging = None

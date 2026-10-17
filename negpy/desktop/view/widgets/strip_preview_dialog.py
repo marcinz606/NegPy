@@ -12,7 +12,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QFrame,
     QGridLayout,
@@ -35,6 +34,7 @@ from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.params import clamp_frame_offset_mm
@@ -292,7 +292,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
 
         # A measured strip previews out of its own pass, whose resolution nothing chooses.
         self.preview_dpi_label = QLabel("Preview DPI")
-        self.preview_dpi_combo = QComboBox()
+        self.preview_dpi_combo = StepCombo()
         for dpi in sorted(self._caps.supported_dpi) or [_PREVIEW_FALLBACK_DPI]:
             self.preview_dpi_combo.addItem(str(dpi), dpi)
         self.preview_dpi_combo.setCurrentIndex(0)  # lowest: fastest, framing only

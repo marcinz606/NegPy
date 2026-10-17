@@ -837,5 +837,11 @@ def align_slider_columns(root: QWidget) -> None:
             spacer = field.value_spacer = QSpacerItem(0, 0)
             row.addSpacerItem(spacer)
         reserve = slider_row.spacing() + value_width + margins.right()
-        spacer.changeSize(reserve, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        # A trailing widget marked value_column sits in the value column instead of narrowing the field.
+        for k in range(row.count()):
+            item = row.itemAt(k)
+            if item.widget() is not None and item.widget().property("value_column"):
+                # The item's hint, not the widget's: it honors a fixed size.
+                reserve -= item.sizeHint().width() + row.spacing()
+        spacer.changeSize(max(reserve, 0), 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         row.invalidate()

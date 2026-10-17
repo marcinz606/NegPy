@@ -62,6 +62,7 @@ class DensitometerReading:
     val_luma: float  # Rec.709 luma of the val triplet (curve-dot x)
     print_density: float  # reflection density of the displayed tone
     zone: float  # print zone 0..10 (analysis.zone_of_encoded ruler, V = 18% gray)
+    val_rgb: Optional[Tuple[float, float, float]] = None  # normalized val per channel (scan parade marker)
 
 
 def compute_reading(
@@ -82,7 +83,8 @@ def compute_reading(
     t = max(t, 10.0**-_PRINT_DENSITY_MAX)
     print_density = min(_PRINT_DENSITY_MAX, -math.log10(t))
     zone = float(zone_of_encoded(lum))
-    return DensitometerReading((dd[0], dd[1], dd[2]), val_luma, print_density, zone)
+    val = (float(val_rgb[0]), float(val_rgb[1]), float(val_rgb[2]))
+    return DensitometerReading((dd[0], dd[1], dd[2]), val_luma, print_density, zone, val)
 
 
 def zone_roman(zone: float) -> str:

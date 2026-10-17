@@ -27,6 +27,14 @@ def _alpha(color: str, alpha: int) -> QColor:
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
 
+def _draw_plated_text(painter: QPainter, rect: QRect, flags: Qt.AlignmentFlag, text: str) -> None:
+    """A chart label on a dark plate, so it reads over a bright trace."""
+    box = painter.boundingRect(rect, flags, text).adjusted(-2, 0, 2, 0)
+    painter.fillRect(box, _alpha(THEME.canvas_bg_black, 190))
+    painter.setPen(_alpha(THEME.text_hint, 230))
+    painter.drawText(rect, flags, text)
+
+
 def _draw_hover_ring(painter: QPainter, at: QPointF) -> None:
     """The hovered pixel's mark on a scope: the curve's tracking ring over a dark halo, so it holds over a bright trace."""
     painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -698,39 +706,136 @@ class PhotometricCurveWidget(QWidget):
 class WaveformWidget(QWidget):
     """Print luma across the frame: x is the image column, y the print tone, brightness the pixel
     count, each cell in its pixels' mean color. Columns that reach paper black or paper white are
-    marked on the bottom and top edges."""
+    marked on the bottom and top edges. With parade=True it draws R, G and B side by side, each
+    channel's own tone across the frame; in the scan domain, each channel's scan density, dense at the
+    bottom, with solid marks at the density range the stretch maps onto the curve. The parade's overlay
+    draws the three on one plot, added: where they coincide the trace is white. The orange mask keeps
+    a scan's channels apart, so the overlay and the cross-panel line need the base-relative view there."""
 
     _GUIDE_ZONES = ((3, "III"), (5, "V"), (7, "VII"))
+    _PARADE_GAP = 3
+    _SCAN_GUIDES = (1.0, 2.0)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, parade: bool = False):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
+        self._parade = parade
         self._counts: np.ndarray | None = None
         self._color: np.ndarray | None = None
         self._log_scale = False
-        self._image: QImage | None = None
-        self._marker: tuple[float, float] | None = None
+        self._images: list[QImage] | None = None
+        self._marker: tuple[float, ...] | None = None
+        self._scan = False
+        self._scan_marks: np.ndarray | None = None
+        self._scan_caption = ""
+        self._full_scale: np.ndarray | None = None
+        self._scan_base: np.ndarray | None = None
+        self._base_relative = False
+        self._overlay = False
+
+    def set_overlay(self, enabled: bool) -> None:
+        """Draw a parade's R, G and B added on one plot instead of side by side."""
+        if bool(enabled) != self._overlay:
+            self._overlay = bool(enabled)
+            self._images = None
+            self.update()
+
+    def _aligned(self) -> bool:
+        """Whether one height means the same in every channel: always on the print, and on the scan
+        only with each channel's base at the top."""
+        return not self._scan or self._base_shifts() is not None
+
+    def _split(self) -> bool:
+        return self._parade and not (self._overlay and self._aligned())
+
+    def set_scan_domain(
+        self, enabled: bool, marks: Any = None, caption: str = "Scan density", full_scale: Any = None, base: Any = None
+    ) -> None:
+        """Read the counts as scan density (Peek Negative) rather than print tone. ``marks`` is the
+        (3, 2) per-channel stretch ends and ``base`` the (3,) clear film base, 0..1 up the panel;
+        ``full_scale`` the (3, cols) counts of scan pixels at sensor clip, which set the top ticks.
+        A domain change drops the marker."""
+        enabled = bool(enabled)
+        marks = None if marks is None or not enabled else np.asarray(marks, dtype=float)
+        base = None if base is None or not enabled else np.asarray(base, dtype=float).reshape(3)
+        if enabled != self._scan:
+            self._marker = None
+            self._images = None
+        old_shifts = self._base_shifts()
+        self._scan = enabled
+        self._scan_marks = marks
+        self._scan_base = base
+        new_shifts = self._base_shifts()
+        if (old_shifts is None) != (new_shifts is None) or (new_shifts is not None and not np.array_equal(old_shifts, new_shifts)):
+            self._images = None
+        self._scan_caption = caption if enabled else ""
+        self._full_scale = None if full_scale is None or not enabled else np.asarray(full_scale, dtype=float)
+        self.update()
+
+    def set_base_relative(self, enabled: bool) -> None:
+        """Shift each scan channel so its clear film base, else its thin stretch mark, sits at the top."""
+        if bool(enabled) != self._base_relative:
+            self._base_relative = bool(enabled)
+            self._images = None
+            self.update()
+
+    def _base_shifts(self) -> np.ndarray | None:
+        """Per-channel shift up the panel, in bins, that puts each film base (else thin mark) at the top."""
+        if not (self._scan and self._base_relative):
+            return None
+        if self._scan_base is not None:
+            zero = self._scan_base
+        elif self._scan_marks is not None:
+            zero = self._scan_marks.max(axis=1)
+        else:
+            return None
+        from negpy.features.exposure.analysis import WAVEFORM_BINS
+
+        # The zero's own bin lands in the top bin.
+        return (WAVEFORM_BINS - 1 - np.minimum(np.floor(np.clip(zero, 0.0, 1.0) * WAVEFORM_BINS), WAVEFORM_BINS - 1)).astype(int)
+
+    def _shown_panels(self) -> np.ndarray:
+        """The counts as drawn: each scan channel moved up by its base shift, with mass pushed past
+        an edge kept in that edge bin."""
+        panels = self._panels()
+        shifts = self._base_shifts()
+        if shifts is None:
+            return panels
+        out = np.zeros_like(panels)
+        bins = panels.shape[1]
+        for c, k in enumerate(shifts.tolist()):
+            k = max(-bins + 1, min(bins - 1, k))
+            if k >= 0:
+                out[c, k:] = panels[c, : bins - k]
+                out[c, -1] += panels[c, bins - k :].sum(axis=0)
+            else:
+                out[c, : bins + k] = panels[c, -k:]
+                out[c, 0] += panels[c, :-k].sum(axis=0)
+        return out
 
     def set_log_scale(self, enabled: bool) -> None:
         if bool(enabled) != self._log_scale:
             self._log_scale = bool(enabled)
-            self._image = None
+            self._images = None
             self.update()
 
-    def set_marker(self, point: tuple[float, float] | None) -> None:
-        """The hovered pixel as (column 0..1 across the frame, print luma 0..1); None hides."""
+    def set_marker(self, point: tuple[float, ...] | None) -> None:
+        """The hovered pixel as (column 0..1 across the frame, print luma 0..1), or (column, R, G, B)
+        on a parade, each 0..1 up the panel; None hides."""
         if point != self._marker:
             self._marker = point
             self.update()
 
     def set_data(self, counts: Any, color: Any = None) -> None:
         """(bins, cols) counts, bin 0 = black, and optional (3, bins, cols) R, G, B sums of
-        each cell; None counts clears."""
+        each cell; on a parade, (3, bins, cols) channel counts. None counts clears."""
         if counts is not None:
             counts = np.asarray(counts, dtype=float)
-            if counts.ndim != 2 or float(counts.max()) <= 0.0:
+            if counts.ndim != (3 if self._parade else 2) or float(counts.max()) <= 0.0:
                 counts = None
+        if counts is not None and self._parade:
+            color = None
         if color is not None:
             color = np.asarray(color, dtype=float)
             if counts is None or color.shape != (3, *counts.shape):
@@ -739,63 +844,167 @@ class WaveformWidget(QWidget):
             return
         self._counts = counts
         self._color = color
-        self._image = None
+        self._images = None
         self.update()
 
-    def _trace_image(self) -> QImage | None:
-        if self._image is None and self._counts is not None:
-            vals = np.log1p(self._counts) if self._log_scale else self._counts
+    def _panels(self) -> np.ndarray:
+        """(panels, bins, cols) counts: one panel, or R, G, B on a parade."""
+        assert self._counts is not None
+        return self._counts if self._parade else self._counts[None]
+
+    def _trace_images(self) -> list[QImage] | None:
+        if self._images is None and self._counts is not None:
+            vals = np.log1p(self._shown_panels()) if self._log_scale else self._shown_panels()
             # A flat area piles into a few bins; scaling by their peak would leave every other trace black.
             ref = float(np.percentile(vals[vals > 0], 99))
-            level = np.clip(vals / ref, 0.0, 1.0)
-            if self._color is None:
-                tint = np.ones((*level.shape, 3))
+            levels = np.clip(vals / ref, 0.0, 1.0)
+            if self._parade:
+                hexes = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
+                tints = [np.broadcast_to(np.array(QColor(c).getRgbF()[:3]), (*levels.shape[1:], 3)) for c in hexes]
+            elif self._color is None:
+                tints = [np.ones((*levels.shape[1:], 3))]
             else:
                 # Each cell's mean color at full brightness; the count sets how bright it draws.
                 mean = np.moveaxis(self._color, 0, -1)
                 peak = mean.max(axis=-1, keepdims=True)
-                tint = np.divide(mean, peak, out=np.ones_like(mean), where=peak > 0)
-            rgb = np.ascontiguousarray(np.flipud(tint * level[..., None] * 255.0).astype(np.uint8))
-            h, w = level.shape
-            self._image = QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
-        return self._image
+                tints = [np.divide(mean, peak, out=np.ones_like(mean), where=peak > 0)]
+            if self._parade and not self._split():
+                # Pure primaries, not the channel tokens: only these add up to white where R, G and B coincide.
+                levels = levels.max(axis=0, keepdims=True)
+                tints = [np.moveaxis(np.clip(vals / ref, 0.0, 1.0), 0, -1) / np.maximum(levels[0][..., None], 1e-9)]
+            self._images = []
+            for level, tint in zip(levels, tints):
+                rgb = np.ascontiguousarray(np.flipud(tint * level[..., None] * 255.0).astype(np.uint8))
+                h, w = level.shape
+                self._images.append(QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy())
+        return self._images
+
+    def _shown_marks(self, tones: np.ndarray) -> np.ndarray:
+        """Per-channel axis positions (first axis R, G, B) moved by the base shift, as drawn."""
+        shifts = self._base_shifts()
+        if shifts is None:
+            return tones
+        from negpy.features.exposure.analysis import WAVEFORM_BINS
+
+        offset = shifts / WAVEFORM_BINS
+        return tones + (offset[:, None] if tones.ndim == 2 else offset)
+
+    def _scan_ranges(self) -> list[float] | None:
+        """Each channel's density range between its stretch marks: the film's own range, which a
+        scan's exposure moves up or down the axis but does not change."""
+        if not self._scan or self._scan_marks is None or self._counts is None:
+            return None
+        from negpy.features.exposure.analysis import SCAN_DENSITY_RANGE
+
+        lo, hi = SCAN_DENSITY_RANGE
+        return [abs(float(top) - float(bottom)) * (hi - lo) for bottom, top in self._scan_marks]
+
+    def _panel_rects(self, n: int) -> list[QRect]:
+        w, h = self.width(), self.height()
+        gap = self._PARADE_GAP if n > 1 else 0
+        pw = (w - gap * (n - 1)) / n
+        return [QRect(int(i * (pw + gap)), 0, int((i + 1) * pw + i * gap) - int(i * (pw + gap)), h) for i in range(n)]
 
     def paintEvent(self, event) -> None:
-        from negpy.features.exposure.analysis import encoded_of_zone
+        from negpy.features.exposure.analysis import encoded_of_zone, scan_density_axis
 
         painter = QPainter(self)
         w, h = self.width(), self.height()
         painter.fillRect(self.rect(), QColor(THEME.canvas_bg_black))
 
-        image = self._trace_image()
+        images = self._trace_images()
         counts = self._counts
-        if image is not None and counts is not None:
+        rects = self._panel_rects(3 if self._split() else 1)
+        # The rect each channel's marks and rings sit in: its own panel, or the one shared plot.
+        channel_rects = rects if self._split() else rects * 3
+        ticks: list[tuple[int, int, int]] = []
+        if images is not None and counts is not None:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawImage(QRect(0, 0, w, h), image)
-
-            cols = counts.shape[1]
-            painter.setPen(QPen(QColor(THEME.clip_warning), 2))
-            for row, y in ((0, h - 3), (-1, 2)):
-                for c in np.flatnonzero(counts[row]).tolist():
-                    painter.drawLine(int(c * w / cols), y, int((c + 1) * w / cols), y)
+            # Ticks read the unshifted counts: past the axis at the bottom, at full scale (or paper white) at the top.
+            raw = self._panels()
+            bottom, top = raw[:, 0] > 0, raw[:, -1] > 0
+            if self._scan and self._full_scale is not None and self._full_scale.shape == top.shape:
+                top = self._full_scale > 0
+            if not self._split() and self._parade:
+                bottom, top = bottom.any(axis=0, keepdims=True), top.any(axis=0, keepdims=True)
+            for image, rect, low, high in zip(images, rects, bottom, top):
+                painter.drawImage(rect, image)
+                cols = low.shape[0]
+                for marks, y in ((low, h - 3), (high, 2)):
+                    for c in np.flatnonzero(marks).tolist():
+                        ticks.append((rect.x() + int(c * rect.width() / cols), rect.x() + int((c + 1) * rect.width() / cols), y))
+            if self._split():
+                painter.setPen(QPen(QColor(THEME.border_primary), 1))
+                for rect in rects[1:]:
+                    painter.drawLine(rect.x() - 2, 0, rect.x() - 2, h)
 
         font = QFont(self.font())
         font.setPixelSize(THEME.font_size_micro)
         painter.setFont(font)
-        for zone, label in self._GUIDE_ZONES:
-            y = int(h - encoded_of_zone(zone) * h)
+        if self._scan:
+            guides = [(float(scan_density_axis(d)), f"{d:.1f}") for d in self._SCAN_GUIDES]
+        else:
+            guides = [(float(encoded_of_zone(zone)), label) for zone, label in self._GUIDE_ZONES]
+        for tone, label in guides:
+            y = int(h - tone * h)
             painter.setPen(QPen(_alpha(THEME.border_hover, 200), 1, Qt.PenStyle.DashLine))
             painter.drawLine(0, y, w, y)
-            painter.setPen(_alpha(THEME.text_hint, 200))
-            painter.drawText(QRect(THEME.space_xs, y - 12, 40, 12), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, label)
+            _draw_plated_text(
+                painter, QRect(THEME.space_xs, y - 12, 40, 12), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, label
+            )
+        ranges = self._scan_ranges()
+        if self._split():
+            # Channel letters, so the panel order reads without telling the traces apart by hue.
+            for i, (rect, letter) in enumerate(zip(rects, "RGB")):
+                text = letter if ranges is None else f"{letter} {ranges[i]:.2f}"
+                _draw_plated_text(
+                    painter,
+                    rect.adjusted(0, THEME.space_xs, -THEME.space_xs, 0),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                    text,
+                )
+        if self._scan:
+            caption = self._scan_caption
+            if ranges is not None and not self._split():
+                caption += " · range " + "  ".join(f"{letter} {r:.2f}" for letter, r in zip("RGB", ranges))
+            _draw_plated_text(
+                painter, QRect(THEME.space_xs, THEME.space_xs, w, 12), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, caption
+            )
+            if self._scan_marks is not None and counts is not None:
+                hexes = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
+                for rect, ends, hex_ in zip(channel_rects, self._shown_marks(self._scan_marks), hexes):
+                    painter.setPen(QPen(_alpha(THEME.text_primary if self._split() else hex_, 170), 1))
+                    for tone in ends:
+                        y = int(min(max(h - tone * h, 1.0), h - 2.0))
+                        painter.drawLine(rect.x(), y, rect.x() + rect.width() - 1, y)
+            if self._scan_base is not None and counts is not None:
+                hexes = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
+                for rect, tone, hex_ in zip(channel_rects, self._shown_marks(self._scan_base), hexes):
+                    painter.setPen(QPen(_alpha(THEME.text_primary if self._split() else hex_, 220), 1, Qt.PenStyle.DotLine))
+                    y = int(min(max(h - tone * h, 1.0), h - 2.0))
+                    painter.drawLine(rect.x(), y, rect.x() + rect.width() - 1, y)
 
         if self._marker is not None and counts is not None:
-            # Kept a ring's width inside the frame, so an edge column's mark is not cut in half.
-            mx = min(max(self._marker[0] * w, 5.0), w - 5.0)
-            my = min(max(h - self._marker[1] * h, 5.0), h - 5.0)
-            painter.setPen(QPen(_alpha(THEME.text_on_accent, 90), 1, Qt.PenStyle.DashLine))
-            painter.drawLine(QPointF(mx, 0), QPointF(mx, h))
-            _draw_hover_ring(painter, QPointF(mx, my))
+            x, *tones = self._marker
+            if len(tones) == 3 and self._scan:
+                tones = list(self._shown_marks(np.asarray(tones, dtype=float)))
+            if len(tones) == 3 and self._split() and self._aligned():
+                # Green's level across all three panels: a neutral rings on it in each.
+                gy = min(max(h - tones[1] * h, 0.0), h - 1.0)
+                painter.setPen(QPen(_alpha(THEME.text_on_accent, 90), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(QPointF(0, gy), QPointF(w, gy))
+            for rect, tone in zip(channel_rects if len(tones) == 3 else rects, tones):
+                # Kept a ring's width inside the panel, so an edge column's mark is not cut in half.
+                mx = min(max(rect.x() + x * rect.width(), rect.x() + 5.0), rect.x() + rect.width() - 5.0)
+                my = min(max(h - tone * h, 5.0), h - 5.0)
+                painter.setPen(QPen(_alpha(THEME.text_on_accent, 90), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(QPointF(mx, 0), QPointF(mx, h))
+                _draw_hover_ring(painter, QPointF(mx, my))
+
+        # Over the label plates, so a clipped column under a caption still shows.
+        painter.setPen(QPen(QColor(THEME.clip_warning), 2))
+        for x1, x2, y in ticks:
+            painter.drawLine(x1, y, x2, y)
 
         painter.setPen(QPen(QColor(THEME.border_primary), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)

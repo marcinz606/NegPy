@@ -273,6 +273,7 @@ QComboBox QAbstractItemView::item {
     border: none;
     border-radius: 3px;
     padding: 5px 12px;
+    margin: 0;
 }
 
 QComboBox QAbstractItemView::item:selected,

@@ -183,7 +183,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `?` | Show shortcuts |
 <!-- shortcuts:end -->
 
-While a test strip or ring-around is up, `[` and `]` turn that proof's ladder instead of the image. The first `Esc` clears in-progress points; the second puts the tool down.
+While a test strip or ring-around is up, `[` and `]` turn that proof's ladder instead of the image. While the paper test strip is up, `←` and `→` step to the neighbor paper instead of the neighbor file, `Enter` keeps the paper shown full frame, and `Esc` goes back to the strip. The first `Esc` clears in-progress points; the second puts the tool down.
 
 ## Mouse
 | Input | Action |

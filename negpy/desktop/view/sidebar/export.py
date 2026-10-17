@@ -5,7 +5,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -36,6 +35,7 @@ from negpy.desktop.view.widgets.collapsible import make_section
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
@@ -349,7 +349,7 @@ class ExportSidebar(BaseSidebar):
         fmt_row = QHBoxLayout()
         fmt_row.setContentsMargins(0, 0, 0, 0)
         fmt_row.addWidget(field_label("Format", FIELD_LABEL_WIDTH))
-        self.linear_format_combo = QComboBox()
+        self.linear_format_combo = StepCombo()
         self.linear_format_combo.addItem("TIFF", "tiff")
         self.linear_format_combo.addItem("JPEG XL (lossless)", "jxl")
         idx = self.linear_format_combo.findData(self.state.linear_format)
@@ -374,7 +374,7 @@ class ExportSidebar(BaseSidebar):
         expansion_row.setContentsMargins(0, 0, 0, 0)
         self.linear_expansion_label = field_label("Expansion", FIELD_LABEL_WIDTH)
         expansion_row.addWidget(self.linear_expansion_label)
-        self.linear_expansion_combo = QComboBox()
+        self.linear_expansion_combo = StepCombo()
         self.linear_expansion_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         expansion_row.addWidget(self.linear_expansion_combo)
         self.linear_expansion_row = QWidget()
@@ -429,7 +429,7 @@ class ExportSidebar(BaseSidebar):
         gamma_row.setContentsMargins(0, 0, 0, 0)
         self.linear_gamma_label = field_label("Input gamma", FIELD_LABEL_WIDTH)
         gamma_row.addWidget(self.linear_gamma_label)
-        self.linear_gamma_combo = QComboBox()
+        self.linear_gamma_combo = StepCombo()
         self.linear_gamma_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         gamma_row.addWidget(self.linear_gamma_combo)
         self.linear_gamma_row = QWidget()
@@ -734,7 +734,7 @@ class ExportSidebar(BaseSidebar):
         col.addWidget(self.soft_proof_btn)
 
         # Saved printer x paper conditions.
-        self.proof_condition_combo = QComboBox()
+        self.proof_condition_combo = StepCombo()
         constrain_combo(self.proof_condition_combo)
         self.proof_condition_combo.setToolTip(
             "A saved printer and paper set-up: profile, intent and simulation toggles in one pick. "
@@ -748,14 +748,14 @@ class ExportSidebar(BaseSidebar):
 
         # Proof profile: defaults to the export target, so the proof answers "what will the
         # file look like" until a print is named.
-        self.proof_profile_combo = QComboBox()
+        self.proof_profile_combo = StepCombo()
         constrain_combo(self.proof_profile_combo)
         self.proof_profile_combo.setToolTip(
             "What the preview is proofed through. Follows the Export profile unless you name a "
             "printer or paper here. Set one to proof a print while exporting something else."
         )
 
-        self.proof_intent_combo = QComboBox()
+        self.proof_intent_combo = StepCombo()
         constrain_combo(self.proof_intent_combo)
         for value, label in PROOF_INTENT_LABELS.items():
             self.proof_intent_combo.addItem(label, value)
@@ -816,7 +816,7 @@ class ExportSidebar(BaseSidebar):
             ColorSpace.PROPHOTO.value,
         ]
         self.display_map = [None] + self.display_spaces
-        self.display_combo = QComboBox()
+        self.display_combo = StepCombo()
         self.display_combo.addItems(["As detected"] + self.display_spaces)
         constrain_combo(self.display_combo)
         self.display_combo.setToolTip("Monitor profile the preview is displayed on (affects preview only, not export)")

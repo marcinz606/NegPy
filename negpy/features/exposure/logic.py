@@ -9,9 +9,10 @@ from negpy.features.exposure.papers import (
     PaperProfile,
     compose_density_matrices,
     effective_constants,
-    resolve_dye_matrix,
+    resolve_print_color,
     resolve_saturation_matrix,
 )
+from negpy.features.exposure.print_lut import lut_black_luminance, tetra_lookup
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.parallel import parallel_njit
 
@@ -197,6 +198,10 @@ def _apply_print_curve_kernel(
     diff_mix: float,
     diff_range: np.ndarray,
     use_diff: bool,
+    lut: np.ndarray,
+    lut_e_max: np.ndarray,
+    lut_black: float,
+    use_lut: bool,
     bpc: bool = False,
     black_hold: float = 0.0,
 ) -> np.ndarray:
@@ -227,6 +232,9 @@ def _apply_print_curve_kernel(
 
     bpc: black point compensation — paper Dmax maps to display black (ICC
     relative-colorimetric style).
+
+    lut/lut_e_max: the stock's LUT when use_lut is set; it replaces 10^-D on the density above
+    base, and BPC then maps the luminance lut_black to 0 for all channels alike.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -390,17 +398,26 @@ def _apply_print_curve_kernel(
                 dens[1] = d_min_rgb[1] + s_mean + separation_damping_gain(sep_k3[1], sep_damping, chroma, sep_ref) * (s1 - s_mean)
                 dens[2] = d_min_rgb[2] + s_mean + separation_damping_gain(sep_k3[2], sep_damping, chroma, sep_ref) * (s2 - s_mean)
 
-            for ch in range(3):
-                transmittance = 10.0 ** (-dens[ch])
-                if bpc:
-                    transmittance = (transmittance - bpc_black[ch]) / (1.0 - bpc_black[ch])
+            if use_lut:
+                lr, lg, lb = tetra_lookup(lut, lut_e_max, dens[0] - d_min_rgb[0], dens[1] - d_min_rgb[1], dens[2] - d_min_rgb[2])
+                rgb = (lr, lg, lb)
+                for ch in range(3):
+                    transmittance = 10.0 ** (-d_min_rgb[ch]) * rgb[ch]
+                    if bpc:
+                        transmittance = (transmittance - lut_black) / (1.0 - lut_black)
+                    res[y, x, ch] = min(max(transmittance, 0.0), 1.0)
+            else:
+                for ch in range(3):
+                    transmittance = 10.0 ** (-dens[ch])
+                    if bpc:
+                        transmittance = (transmittance - bpc_black[ch]) / (1.0 - bpc_black[ch])
 
-                final_val = transmittance
-                if final_val < 0.0:
-                    final_val = 0.0
-                elif final_val > 1.0:
-                    final_val = 1.0
-                res[y, x, ch] = final_val
+                    final_val = transmittance
+                    if final_val < 0.0:
+                        final_val = 0.0
+                    elif final_val > 1.0:
+                        final_val = 1.0
+                    res[y, x, ch] = final_val
     return res
 
 
@@ -659,6 +676,17 @@ def per_channel_widths(
     return tw3, sw3
 
 
+_NO_LUT = np.ones((2, 2, 2, 3), dtype=np.float32)
+_NO_LUT_E_MAX = np.ones(3, dtype=np.float32)
+
+
+def black_density_rgb(d_max: float, toe: Any, toe_height: float) -> Tuple[float, float, float]:
+    """The density black point compensation maps to black, per channel; the kernel prologue and
+    exposure.wgsl compute the same: a negative toe raises the clip point."""
+    db = [d_max + t * toe_height if t < 0.0 else d_max for t in toe]
+    return (db[0], db[1], db[2])
+
+
 def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
     """
     Per-channel paper-white floor: d_min plus the paper's base tint (a minimum
@@ -745,7 +773,7 @@ def apply_characteristic_curve(
     offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
     s_cmy = np.ascontiguousarray(np.array(shadow_cmy, dtype=np.float32))
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
-    dye = resolve_dye_matrix(paper)
+    dye, lut = resolve_print_color(paper)
     sat_k3 = per_channel_dye_separation(dye_separation, dye_separation_trims)
     use_sep_damping = separation_damping > 0.0 and sat_k3 != (1.0, 1.0, 1.0)
     sat = None if use_sep_damping else resolve_saturation_matrix(sat_k3)
@@ -775,19 +803,24 @@ def apply_characteristic_curve(
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
     tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
     flash_v, flash_gamma = preflash_params(frame_grade, d_min, paper)
+    toe_k = [t * ts for t in toe3]
+    d_min_rgb = paper_dmin_rgb(d_min, paper)
+    lut_black = 0.0
+    if lut is not None and bpc:
+        lut_black = lut_black_luminance(lut, d_min_rgb, black_density_rgb(float(c["d_max"]), toe_k, float(c["toe_height"])))
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
         curvs,
-        np.array([t * ts for t in toe3], dtype=np.float64),
+        np.array(toe_k, dtype=np.float64),
         np.array([s * ts for s in sh3], dtype=np.float64),
         np.array(tw3, dtype=np.float64),
         np.array(sw3, dtype=np.float64),
         offsets,
         s_cmy,
         h_cmy,
-        d_min_rgb=np.array(paper_dmin_rgb(d_min, paper), dtype=np.float64),
+        d_min_rgb=np.array(d_min_rgb, dtype=np.float64),
         d_max=float(c["d_max"]),
         a_toe_base=float(c["toe_sharpness_base"]),
         a_sh_base=float(c["shoulder_sharpness_base"]),
@@ -833,6 +866,10 @@ def apply_characteristic_curve(
         diff_mix=diffusion_mix(diffusion),
         diff_range=np.array(diffusion_range, dtype=np.float64),
         use_diff=use_diff,
+        lut=_NO_LUT if lut is None else lut.table,
+        lut_e_max=_NO_LUT_E_MAX if lut is None else lut.e_max,
+        lut_black=lut_black,
+        use_lut=lut is not None,
         bpc=bool(bpc),
         black_hold=float(black_hold),
     )

@@ -59,6 +59,35 @@ def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     assert _combo_items(sidebar.paper_combo) == items
 
 
+def _groups(combo) -> dict:
+    """Each choice's key mapped to the header above it."""
+    out, header = {}, None
+    for text, key in _combo_items(combo):
+        if key is None:
+            header = text
+        else:
+            out[key] = header
+    return out
+
+
+def test_print_stock_list_groups_digital_paper_and_print_film(qapp):
+    controller, sidebar = _sidebar()
+    groups = _groups(sidebar.paper_combo)
+    assert groups["neutral"] == groups["pakon"] == "Digital"
+    assert groups["kodak_endura"] == groups["fuji_crystal"] == "Paper"
+    assert groups["kodak_2383"] == groups["kodak_2393"] == "Print film"
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
+    sidebar.sync_ui()
+    assert _groups(sidebar.paper_combo)["ilford_mg_rc"] == "Paper"
+
+
+def test_a_print_stock_from_another_mode_shows_the_digital_default(qapp):
+    _controller, sidebar = _sidebar(paper_profile="ilford_mg_rc")
+    assert sidebar.paper_combo.currentData() == "neutral"
+
+
 def test_channel_selector_retargets_and_syncs(qapp):
     _controller, sidebar = _sidebar(
         toe_trim_red=0.4,
@@ -183,3 +212,40 @@ def test_mini_curve_paints_base_and_channel_traces(qapp):
     assert not w.grab().isNull()
     w.set_curves([], [])
     assert not w.grab().isNull()
+
+
+def test_paper_strip_button_follows_the_proof(qapp):
+    controller, sidebar = _sidebar()
+    btn = sidebar.paper_strip_btn
+    btn.click()
+    controller.toggle_paper_strip.assert_called_once_with(force=True)
+
+    state = controller.state
+    state.test_strip, state.test_strip_kind = True, "paper"
+    sidebar._sync_paper_strip_btn(True)
+    assert btn.isChecked() and btn.isEnabled()
+
+    state.test_strip_kind = "tone"
+    sidebar._sync_paper_strip_btn(True)
+    assert not btn.isChecked()
+
+    state.test_strip, state.test_strip_pending, state.test_strip_kind = False, True, "paper"
+    sidebar._sync_paper_strip_btn(False)
+    assert btn.isChecked() and not btn.isEnabled()
+
+
+def test_paper_strip_button_sits_beside_print_stock_and_goes_with_it(qapp):
+    controller, sidebar = _sidebar()
+    rows = (sidebar.layout.itemAt(i).layout() for i in range(sidebar.layout.count()))
+    row = next(r for r in rows if r is not None and r.indexOf(sidebar.paper_combo) >= 0)
+    assert row.indexOf(sidebar.paper_strip_btn) == row.indexOf(sidebar.paper_combo) + 1
+
+    sidebar.ch_btn.setCurrentIndex(1)
+    assert not sidebar.paper_strip_btn.isEnabled()
+    sidebar.ch_btn.setCurrentIndex(0)
+    assert sidebar.paper_strip_btn.isEnabled()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    sidebar.sync_ui()
+    assert sidebar.paper_strip_btn.isHidden()

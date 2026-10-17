@@ -5,7 +5,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.analysis import density_histogram
+from negpy.features.exposure.analysis import density_histogram, density_parade, scan_full_scale_columns
 from negpy.features.exposure.logic import cast_solve_inputs, filtration_offsets, neutral_axis_affine
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
@@ -119,6 +119,12 @@ class TransparencyBaseProcessor:
         context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
         context.metrics["normalized_log"] = res
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
+        # The Crop tool shows the whole frame, so the parade's columns span it too (the GPU's full_frame).
+        # Export and batch thumbnails render with stage caching off and skip it.
+        if context.cache_stages:
+            parade_roi = None if context.crop_preview_full else context.active_roi
+            context.metrics["density_parade"] = density_parade(img_log, parade_roi)
+            context.metrics["scan_full_scale"] = scan_full_scale_columns(image, parade_roi)
         return res
 
 

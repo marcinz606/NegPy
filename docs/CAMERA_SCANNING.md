@@ -137,9 +137,10 @@ capture, **B&W Negative** and **Slide** fix it, for the import and for Meter.
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files go
 to an auto-numbered per-roll subfolder and are imported and merged automatically. A
 single-capture preset writes one file per frame. **Retake** shoots the current frame again
-without advancing the counter. **Delay between exposures** adds a pause between the red,
-green and blue captures, for older bodies that lock up the USB/PTP link when a new capture
-command arrives too soon.
+without advancing the counter. **Capture Delay** holds both for up to 8 s before the first
+exposure, so a table that shakes when you let go of the camera can settle; **Stop** ends the
+wait. **Delay between exposures** adds a pause between the red, green and blue captures, for
+older bodies that lock up the USB/PTP link when a new capture command arrives too soon.
 
 **Narrowband light.** Narrowband LEDs separate the dye layers more cleanly than white light, so
 colors render more saturated. The *Digital (Adobe RGB)* print stock prints them through ideal

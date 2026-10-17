@@ -26,6 +26,12 @@ from negpy.desktop.view.slider_targets import slider_widget_map
 from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 
 
+def _toggle_if_live(button) -> None:
+    """Toggle a panel button only while it can be used: a grayed-out or gated one keeps its setting."""
+    if button.isEnabled() and not hidden_by_gating(button):
+        button.toggle()
+
+
 def _context_undo(controller) -> None:
     """Undo the active retouch tool's last stroke, else the last edit."""
     if controller.session.state.active_tool == ToolMode.CLONE:
@@ -90,6 +96,12 @@ def _reset_selected(window, controller) -> None:
         controller.request_render()
 
 
+def _step_file(controller, step: int) -> None:
+    """Previous/next file, or the neighbor paper while the paper strip is up."""
+    if not controller.step_paper_strip(step):
+        (controller.session.next_file if step > 0 else controller.session.prev_file)()
+
+
 def _context_cancel(controller, window) -> None:
     """Esc ladder: whatever has taken the canvas over goes first — a test strip, any peek,
     the before/after split — then the grain focuser loupe, then an armed zone, then
@@ -97,6 +109,9 @@ def _context_cancel(controller, window) -> None:
     itself, or the Zone Overlay when no tool is armed."""
     if window.light_table_active():
         window.set_light_table(False)
+        return
+    if controller.state.test_strip and controller.state.test_strip_expanded is not None:
+        controller.show_paper_strip(None)
         return
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
@@ -414,8 +429,8 @@ class ShortcutManager:
         right = self.window.right_panel
 
         actions: dict[str, Callable[[], None]] = {
-            "prev_file": controller.session.prev_file,
-            "next_file": controller.session.next_file,
+            "prev_file": lambda: _step_file(controller, -1),
+            "next_file": lambda: _step_file(controller, 1),
             "first_file": controller.session.first_file,
             "last_file": controller.session.last_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
@@ -493,7 +508,10 @@ class ShortcutManager:
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_clipping_overlay": controller.toggle_clipping_overlay,
             "toggle_zone_hover_highlight": controller.toggle_zone_hover_highlight,
+            "toggle_parade_overlay": lambda: _toggle_if_live(right.parade_overlay_btn),
+            "toggle_scan_parade_base": lambda: _toggle_if_live(right.scan_base_btn),
             "toggle_test_strip": controller.toggle_test_strip,
+            "toggle_paper_strip": controller.toggle_paper_strip,
             "toggle_pick_better": controller.toggle_pick_better,
             "finish_pick_better": controller.pick_better_finish,
             "undo_pick_better": controller.pick_better_undo,

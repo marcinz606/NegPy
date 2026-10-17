@@ -36,9 +36,15 @@ spektrafilm by Andrea Volpato, licensed CC BY-SA 4.0:
   https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt
 
 Modified by NegPy: the CSVs keep each profile's channel_density on its 5 nm grid
-where all three dyes are defined, and papers.py holds the dye matrices and tone
-constants fitted to that data. NegPy distributes them under the GPL v3, which
+where all three dyes are defined; print_luts/kodak_e4021.npz and kodak_2393.npz
+are baked from them, and papers.py holds the tone constants fitted to that data. NegPy distributes them under the GPL v3, which
 Creative Commons lists as a BY-SA compatible license.
+
+The print LUTs negpy/features/exposure/print_luts/fuji_ca_dpii.npz and
+fuji_ca_hd.npz, and the paper white, base tint and Dmax of the Fujicolor
+Crystal Archive stocks in papers.py, are derived from Fujifilm's Frontier-PD
+printer profiles for Crystal Archive DPII and HD paper (FUJIFILM, made with Argyll CMS). The profiles are not distributed with
+NegPy.
 
 scripts/crosstalk_dyes/kodak_vision3_dyes.csv is the mean of spektrafilm's
 traces of the Kodak VISION3 50D, 200T, 250D and 500T dye curves (H-1-5203,

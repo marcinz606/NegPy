@@ -19,6 +19,7 @@ from negpy.features.exposure.analysis import (
     vectorscope_histogram,
     waveform,
     waveform_color,
+    waveform_parade,
 )
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.lens.models import LensCorrections
@@ -135,9 +136,10 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class TestStripTask:
-    """Request to print a proof mosaic off one frame: the density × grade strip or the color
-    ring-around. `overrides` is one ExposureConfig field-override dict per patch, row-major
-    over `grid`, unrotated — the worker assembles all four orientations."""
+    """Request to print a proof mosaic off one frame: the density × grade strip, the color
+    ring-around or the paper strip. `overrides` is one ExposureConfig field-override dict per
+    patch, row-major over `grid`, unrotated — the worker assembles all four orientations.
+    `keep_tiles` also hands back every whole-frame render, which the paper strip shows full frame."""
 
     buffer: np.ndarray
     config: WorkspaceConfig
@@ -153,6 +155,7 @@ class TestStripTask:
     # As-shot WB multipliers, needed only when the buffer was decoded without WB.
     camera_wb: Optional[list] = None
     source_orientation: int = 1
+    keep_tiles: bool = False
 
 
 @dataclass(frozen=True)
@@ -331,7 +334,7 @@ class RenderWorker(QObject):
 
     finished = pyqtSignal(object, dict)  # (ndarray|GPUTexture, metrics)
     metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
-    strip_finished = pyqtSignal(object, object)  # (one mosaic ndarray per quarter-turn, content_rect|None)
+    strip_finished = pyqtSignal(object, object, object)  # (one mosaic ndarray per quarter-turn, content_rect|None, tiles|None)
     strip_progress = pyqtSignal(int, int)  # (patches printed, total)
     pick_better_finished = pyqtSignal(object, object, object)  # (current, left, right ndarrays)
     busy = pyqtSignal(str)  # a slow uncached pipeline step is starting
@@ -410,7 +413,11 @@ class RenderWorker(QObject):
         metrics.pop("histogram_raw", None)
         metrics.pop("waveform", None)
         metrics.pop("waveform_color", None)
+        metrics.pop("waveform_parade", None)
         metrics.pop("vectorscope", None)
+        # No joined scan to rebin; None, not a pop, so the merged metrics drop the last frame's.
+        metrics["density_parade"] = None
+        metrics["scan_full_scale"] = None
         along = 1 if task.split_axis == "x" else 0
         gap = gap_px(left.shape[along], right.shape[along], task.gutter_thickness)
         return join_halves(left, right, gap, axis=task.split_axis), metrics
@@ -448,6 +455,7 @@ class RenderWorker(QObject):
                 metrics["histogram_color"] = color_histogram(result)
                 metrics["waveform"] = waveform(result)
                 metrics["waveform_color"] = waveform_color(result)
+                metrics["waveform_parade"] = waveform_parade(result)
                 metrics["vectorscope"] = vectorscope_histogram(result)
 
             # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
@@ -529,7 +537,7 @@ class RenderWorker(QObject):
             mosaics = tuple(strip_mosaic(rotate_grid(tiles, task.grid, k), proof_grid(task.grid, k)) for k in range(4))
             # Unproofed like every other rendered buffer. The overlay proofs the mosaic through
             # the same display LUT the canvas uses.
-            self.strip_finished.emit(mosaics, content_rect)
+            self.strip_finished.emit(mosaics, content_rect, tuple(tiles) if task.keep_tiles else None)
 
         except Exception as e:
             logger.exception("Test strip render failed")

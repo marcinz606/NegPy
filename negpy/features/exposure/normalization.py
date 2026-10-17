@@ -544,6 +544,14 @@ def density_above_base(
     return (base - thin, base - median, base - dense)
 
 
+def base_scan_density(base_log: Optional[Tuple[float, float, float]], unmix: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    """Per-channel scan density of the clear base after the crosstalk unmix: the space the scan
+    Parade plots. None without a base."""
+    if base_log is None:
+        return None
+    return -unmix_log_image(np.asarray(base_log, dtype=np.float32).reshape(1, 1, 3), unmix).reshape(3).astype(np.float64)
+
+
 def luminance_density_range(bounds: LogNegativeBounds) -> float:
     """
     Single global density range as a Rec.709 luminance weighting of the

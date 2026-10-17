@@ -14,7 +14,6 @@ from typing import Callable, Optional
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QHBoxLayout,
@@ -44,6 +43,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.gear_catalog_dialog import GearCatalogDialog, resolve_other_gear_pick
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.gear_logic import (
     CATEGORY_SINGULAR,
@@ -175,7 +175,7 @@ class GearItemsPanel(QWidget):
         root.addWidget(hint_label("Cameras, lenses, film stocks and processes you own. Catalog shows the full shipped list."))
 
         root.addWidget(field_label("Category"))
-        self.category_list = QComboBox()
+        self.category_list = StepCombo()
         self.category_list.setToolTip(wrap_tooltip("Which kind of gear this pane lists"))
         for key, label in _CATEGORIES:
             self.category_list.addItem(qta.icon(_CATEGORY_ICONS[key], color=THEME.text_primary), label, key)
@@ -230,13 +230,13 @@ class GearItemsPanel(QWidget):
         self.stock_name_edit = QLineEdit()
         self.iso_spin = QSpinBox()
         self.iso_spin.setRange(1, 12800)
-        self.format_combo = QComboBox()
+        self.format_combo = StepCombo()
         self.format_combo.addItems([e.value for e in FilmFormat])
-        self.color_combo = QComboBox()
+        self.color_combo = StepCombo()
         self.color_combo.addItems([e.value for e in FilmColorType])
         self.developer_edit = QLineEdit()
         self.developer_edit.setPlaceholderText("e.g. D-76")
-        self.push_pull_combo = QComboBox()
+        self.push_pull_combo = StepCombo()
         self.push_pull_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.dilution_edit = QLineEdit()
         self.dilution_edit.setPlaceholderText("e.g. 1+50, stock")
@@ -731,7 +731,7 @@ class GearPresetsPanel(QWidget):
         self.preset_film_combo = SearchableGearCombo(placeholder="Search film stocks…")
         self.preset_process_combo = SearchableGearCombo(placeholder="Search processes…")
         self.preset_scan_combo = SearchableGearCombo(placeholder="Search scan setups…")
-        self.preset_format_combo = QComboBox()
+        self.preset_format_combo = StepCombo()
         self.preset_format_combo.addItems(FORMAT_OPTIONS)
         self.preset_format_other_edit = QLineEdit()
         self.preset_format_other_edit.setPlaceholderText("e.g. 6×7")
@@ -739,7 +739,7 @@ class GearPresetsPanel(QWidget):
         self.preset_developer_edit.setPlaceholderText("e.g. D-76")
         self.preset_dilution_edit = QLineEdit()
         self.preset_dilution_edit.setPlaceholderText("e.g. 1+50")
-        self.preset_push_combo = QComboBox()
+        self.preset_push_combo = StepCombo()
         self.preset_push_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.preset_time_edit = QLineEdit()
         self.preset_time_edit.setPlaceholderText(DEV_TIME_HINT)

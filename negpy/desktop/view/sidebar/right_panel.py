@@ -23,7 +23,7 @@ from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.desktop.view.styles.fonts import ui_font_family
-from negpy.desktop.view.styles.templates import CLIPPING_SWEEP, EditedDot, gradient_icon
+from negpy.desktop.view.styles.templates import CLIPPING_SWEEP, EditedDot, gradient_icon, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, VectorscopeWidget, WaveformWidget, ZoneStripWidget
@@ -36,6 +36,12 @@ from negpy.features.process.models import ProcessMode
 from negpy.services.assets.rolls import card_fields
 from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
+
+_SCAN_BASE_TIP = (
+    "Base Relative: each channel's density above its clear film base (the Film Base set on the roll, "
+    "else the base read from the rebate, else the stretch's thin end), so the mask's offset is gone "
+    "and the channels compare at one height"
+)
 
 # The Roll tab's cards that own settings, for its header's Apply picker.
 _ROLL_TAB_CARDS = (
@@ -212,6 +218,7 @@ class RightPanel(QWidget):
 
         self.curve_widget = PhotometricCurveWidget()
         self.waveform_widget = WaveformWidget()
+        self.parade_widget = WaveformWidget(parade=True)
         self.vectorscope_widget = VectorscopeWidget()
         self.step_wedge = StepWedgeWidget()
         self.zone_strip = ZoneStripWidget()
@@ -219,17 +226,23 @@ class RightPanel(QWidget):
         self.zone_placement = ZonePlacementRows()
         self.stats_widget = NegativeStatsWidget()
         self._clip_fracs: tuple = (None, None)
+        self._hover_x: float | None = None
+        self._scan_bounds: Any = None
+        self._scan_full_scale: Any = None
+        self._scan_base_density: Any = None
+        self._scan_base_source = ""
 
         repo = self.controller.session.repo
         self.scale_btn = SegmentedChoice(
             (("", "Lin"), ("", "Log")),
-            "Histogram and waveform count scale: Log lifts small counts so thin tails and clipped ends "
-            "read. On the Vectorscope it is the chroma scale, kept apart for B&W and color frames: Log "
-            "opens up the near-neutral center, where a toner lives.",
+            "Histogram, waveform and parade count scale: Log lifts small counts so thin tails and clipped ends "
+            "read. The scan parade in Peek Negative keeps its own, Log at first. On the Vectorscope it is the "
+            "chroma scale, kept apart for B&W and color frames: Log opens up the near-neutral center, where a toner lives.",
         )
         self.scale_btn.setCurrentIndex(1 if repo.get_global_setting("histogram_log_scale") else 0)
         self.curve_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
         self.waveform_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
+        self.parade_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
         self.scale_btn.currentChanged.connect(self._on_histogram_scale)
         self._sync_chart_colors()
         self.controller.session.color_vision_changed.connect(self._sync_chart_colors)
@@ -237,25 +250,45 @@ class RightPanel(QWidget):
         self.chart_stack = QStackedWidget()
         self.chart_stack.addWidget(self.curve_widget)
         self.chart_stack.addWidget(self.waveform_widget)
+        self.chart_stack.addWidget(self.parade_widget)
         self.chart_stack.addWidget(self.vectorscope_widget)
         self.view_btn = SegmentedChoice(
-            (("", "Curve"), ("", "Waveform"), ("", "Vectorscope")),
+            (("", "Curve"), ("", "Waveform"), ("", "Parade"), ("", "Vectorscope")),
             "Analysis chart",
-            data=("curve", "waveform", "vectorscope"),
+            data=("curve", "waveform", "parade", "vectorscope"),
         )
         self.view_btn.set_choice_tooltip(0, "The paper curve over the scan's and the print's histograms")
         self.view_btn.set_choice_tooltip(1, "The print's tones across the frame, column by column, on the zone scale")
-        self.view_btn.set_choice_tooltip(2, "The print's colors on the a*b* plane: a cast, a toner, a split tone")
-        self.view_btn.currentChanged.connect(self._on_analysis_view)
+        self.view_btn.set_choice_tooltip(
+            2,
+            "The print's R, G and B side by side across the frame: a neutral sits at one height in all three, and a "
+            "channel that drifts across the frame is uneven light or Flat Field. In Peek Negative, the scan's density per channel",
+        )
+        self.view_btn.set_choice_tooltip(3, "The print's colors on the a*b* plane: a cast, a toner, a split tone")
+        # Restored before the handler connects: it reaches widgets built further down.
         saved_view = self.view_btn.findData(repo.get_global_setting("analysis_view", "curve"))
         self.view_btn.setCurrentIndex(max(0, saved_view))
+        self.view_btn.currentChanged.connect(self._on_analysis_view)
         self.chart_stack.setCurrentIndex(self.view_btn.currentIndex())
         self._sync_scale_btn()
+
+        self.parade_overlay_btn = tool_toggle("fa5s.layer-group", "", "Parade Overlay: R, G and B on one plot, white where they agree")
+        self.parade_overlay_btn.setChecked(bool(repo.get_global_setting("parade_overlay", False)))
+        self.parade_overlay_btn.toggled.connect(self._on_parade_overlay)
+        self.scan_base_btn = tool_toggle("fa5s.ruler-vertical", "", _SCAN_BASE_TIP)
+        self.scan_base_btn.setChecked(bool(repo.get_global_setting("scan_parade_base_relative", False)))
+        self.scan_base_btn.toggled.connect(self._on_scan_base)
+        self.parade_widget.set_base_relative(self.scan_base_btn.isChecked())
+        self._sync_parade_overlay()
+        self.controller.session.color_vision_changed.connect(self._sync_parade_overlay)
+        self._sync_parade_tools()
 
         chart_row = QHBoxLayout()
         chart_row.setContentsMargins(0, 0, 0, 0)
         chart_row.addWidget(self.view_btn)
         chart_row.addStretch(1)
+        chart_row.addWidget(self.scan_base_btn)
+        chart_row.addWidget(self.parade_overlay_btn)
         chart_row.addWidget(self.scale_btn)
 
         analysis_layout.addWidget(self.chart_stack, 1)
@@ -542,6 +575,8 @@ class RightPanel(QWidget):
         for btn, key, base in zip(self._group_buttons, self._group_keys, self._group_tooltips):
             btn.setToolTip(tooltip_with_shortcut(base, f"tab_{key}"))
         self._refresh_zone_strip_hint()
+        self._sync_parade_overlay()
+        self.scan_base_btn.setToolTip(tooltip_with_shortcut(_SCAN_BASE_TIP, "toggle_scan_parade_base"))
         self.metadata_sidebar.apply_shortcut_tooltips()
         self.export_sidebar.apply_shortcut_tooltips()
         self.gear_panel.apply_shortcut_tooltips()
@@ -558,22 +593,60 @@ class RightPanel(QWidget):
         self.zone_highlight_btn.blockSignals(False)
 
     def _on_pixel_readout(self, readout) -> None:
-        """Marks the hovered pixel on the waveform (its column and tone) and the vectorscope (its a*b*)."""
+        """Marks the hovered pixel on the waveform and parade (its column and tones) and the vectorscope (its a*b*).
+        In Peek Negative the parade marks the scan density instead, from the densitometer reading that follows."""
         if readout is None:
+            self._hover_x = None
             self.waveform_widget.set_marker(None)
+            self.parade_widget.set_marker(None)
             self.vectorscope_widget.set_marker(None)
             return
         from negpy.features.exposure.analysis import scope_point
 
         nx, _ny, rgb = readout
         luma, a, b = scope_point(rgb)
-        self.waveform_widget.set_marker((min(max(nx, 0.0), 1.0), luma))
+        x = min(max(nx, 0.0), 1.0)
+        self._hover_x = x
+        self.waveform_widget.set_marker((x, luma))
+        if not self.controller.state.negative_peek:
+            self.parade_widget.set_marker((x, *(min(max(float(c), 0.0), 1.0) for c in rgb[:3])))
         self.vectorscope_widget.set_marker((a, b))
 
     def _on_analysis_view(self, index: int) -> None:
         self.chart_stack.setCurrentIndex(index)
         self.controller.session.repo.save_global_setting("analysis_view", self.view_btn.currentData())
+        self._sync_parade_tools()
         self._sync_scale_btn()
+
+    def _on_parade_overlay(self, on: bool) -> None:
+        self.controller.session.repo.save_global_setting("parade_overlay", on)
+        self._sync_parade_overlay()
+
+    def _sync_parade_tools(self) -> None:
+        parade = self.view_btn.currentData() == "parade"
+        self.parade_overlay_btn.setVisible(parade)
+        self.scan_base_btn.setVisible(parade and bool(self.controller.state.negative_peek))
+
+    def _on_scan_base(self, on: bool) -> None:
+        self.controller.session.repo.save_global_setting("scan_parade_base_relative", on)
+        self.parade_widget.set_base_relative(on)
+        if self.controller.state.negative_peek:
+            self._push_scan_domain(True)
+        self._sync_parade_overlay()
+
+    def _sync_parade_overlay(self) -> None:
+        """The overlay reads by hue alone (fringes of the primaries), so only Standard color vision gets it.
+        On the scan the mask keeps the channels apart, so it needs the base-relative view."""
+        standard = self.controller.state.color_vision == "standard"
+        apart = bool(self.controller.state.negative_peek) and not self.scan_base_btn.isChecked()
+        self.parade_overlay_btn.setEnabled(standard and not apart)
+        tip = "Parade Overlay: R, G and B on one plot, white where they agree"
+        if not standard:
+            tip += ". Off under this Color vision: its fringes tell the channels apart by hue alone"
+        elif apart:
+            tip += ". On the scan, turn on Base Relative first: the film's mask keeps the channels apart"
+        self.parade_overlay_btn.setToolTip(tooltip_with_shortcut(tip, "toggle_parade_overlay"))
+        self.parade_widget.set_overlay(standard and self.parade_overlay_btn.isChecked())
 
     def _scope_scale_key(self) -> str:
         bw = self.controller.state.config.process.process_mode == ProcessMode.BW
@@ -584,14 +657,26 @@ class RightPanel(QWidget):
         key = self._scope_scale_key()
         return bool(self.controller.session.repo.get_global_setting(key, key == "vectorscope_log_bw"))
 
+    def _scan_parade_log(self) -> bool:
+        # The scan's thin and dense ends are small areas that a linear count scale hides.
+        return bool(self.controller.session.repo.get_global_setting("scan_parade_log", True))
+
     def _sync_scale_btn(self) -> None:
-        """Lin/Log shows the visible chart's own scale: the histograms' one, or the vectorscope's for this film mode."""
+        """Lin/Log shows the visible chart's own scale: the histograms' one, the vectorscope's for
+        this film mode, or the scan parade's in Peek Negative."""
         scope_log = self._scope_log()
         self.vectorscope_widget.set_log_scale(scope_log)
-        if self.view_btn.currentData() == "vectorscope":
+        hist_log = bool(self.controller.session.repo.get_global_setting("histogram_log_scale"))
+        scan = self.controller.state.negative_peek
+        parade_log = self._scan_parade_log() if scan else hist_log
+        self.parade_widget.set_log_scale(parade_log)
+        view = self.view_btn.currentData()
+        if view == "vectorscope":
             log = scope_log
+        elif view == "parade":
+            log = parade_log
         else:
-            log = bool(self.controller.session.repo.get_global_setting("histogram_log_scale"))
+            log = hist_log
         self.scale_btn.blockSignals(True)
         self.scale_btn.setCurrentIndex(1 if log else 0)
         self.scale_btn.blockSignals(False)
@@ -605,8 +690,14 @@ class RightPanel(QWidget):
             self.vectorscope_widget.set_log_scale(log)
             self.controller.session.repo.save_global_setting(self._scope_scale_key(), log)
             return
+        if self.view_btn.currentData() == "parade" and self.controller.state.negative_peek:
+            self.parade_widget.set_log_scale(log)
+            self.controller.session.repo.save_global_setting("scan_parade_log", log)
+            return
         self.curve_widget.set_log_scale(log)
         self.waveform_widget.set_log_scale(log)
+        if not self.controller.state.negative_peek:
+            self.parade_widget.set_log_scale(log)
         self.controller.session.repo.save_global_setting("histogram_log_scale", log)
 
     def _sync_chart_colors(self) -> None:
@@ -784,6 +875,44 @@ class RightPanel(QWidget):
     def _on_densitometer(self, reading: Any) -> None:
         self.probe_row.set_reading(reading)
         self.curve_widget.set_tracking_point(None if reading is None else reading.val_luma)
+        if self.controller.state.negative_peek:
+            from negpy.features.exposure.analysis import scan_density_axis, scan_density_of_val
+
+            val = None if reading is None else reading.val_rgb
+            if val is None or self._hover_x is None or self._scan_bounds is None:
+                self.parade_widget.set_marker(None)
+            else:
+                tones = scan_density_axis(scan_density_of_val(val, self._scan_bounds))
+                self.parade_widget.set_marker((self._hover_x, *(min(max(float(t), 0.0), 1.0) for t in tones)))
+
+    def _scan_marks_and_caption(self) -> tuple:
+        """The scan parade's per-channel stretch ends (0..1 up the panel) and its caption, which
+        names the unmix when the parade reads unmixed density."""
+        from negpy.features.exposure.analysis import scan_density_axis
+        from negpy.features.exposure.normalization import effective_crosstalk_matrix
+
+        config = self.controller.state.config
+        unmixed = effective_crosstalk_matrix(config.process, config.process.process_mode) is not None
+        caption = "Scan density"
+        if self.scan_base_btn.isChecked():
+            if self._scan_base_density is None:
+                caption += " above thin end"
+            else:
+                caption += " above film base" if self._scan_base_source == "picked" else " above rebate base"
+        if unmixed:
+            caption += ", unmixed"
+        bounds = self._scan_bounds
+        if bounds is None:
+            return None, caption
+        ends = np.stack([-np.asarray(bounds.floors, dtype=float)[:3], -np.asarray(bounds.ceils, dtype=float)[:3]], axis=-1)
+        return scan_density_axis(ends), caption
+
+    def _push_scan_domain(self, negative: bool) -> None:
+        from negpy.features.exposure.analysis import scan_density_axis
+
+        marks, caption = self._scan_marks_and_caption()
+        base = None if self._scan_base_density is None else scan_density_axis(self._scan_base_density)
+        self.parade_widget.set_scan_domain(negative, marks, caption, full_scale=self._scan_full_scale, base=base)
 
     def _update_histograms(self, metrics: Dict[str, Any]) -> None:
         """Feed the merged chart's two distributions, the zone strip and the clip stats."""
@@ -796,8 +925,21 @@ class RightPanel(QWidget):
 
         self.curve_widget.set_density_histogram(metrics.get("histogram_density"))
         # A peek renders without metrics, so the last print's waveform would describe the wrong image.
-        peeking = self.controller.state.negative_peek or self.controller.state.flat_peek
+        # Peek Negative shows the scan the last print was made from, so the parade reads that scan.
+        negative = self.controller.state.negative_peek
+        peeking = negative or self.controller.state.flat_peek
         self.waveform_widget.set_data(None if peeking else metrics.get("waveform"), metrics.get("waveform_color"))
+        self._scan_bounds = metrics.get("final_bounds") if negative else None
+        self._scan_full_scale = metrics.get("scan_full_scale") if negative else None
+        self._scan_base_density = metrics.get("film_base_density") if negative else None
+        self._scan_base_source = metrics.get("base_source", "")
+        self._push_scan_domain(negative)
+        self._sync_parade_tools()
+        self._sync_parade_overlay()
+        if negative:
+            self.parade_widget.set_data(metrics.get("density_parade"))
+        else:
+            self.parade_widget.set_data(None if peeking else metrics.get("waveform_parade"))
         self.vectorscope_widget.set_data(None if peeking else metrics.get("vectorscope"))
 
         # Peek Negative applied no curve, so the print histogram, curve and zone strip

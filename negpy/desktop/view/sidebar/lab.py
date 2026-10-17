@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.process.models import ProcessMode
 
@@ -35,7 +36,7 @@ class LabSidebar(BaseSidebar):
 
         method_row = QHBoxLayout()
         method_row.addWidget(field_label("Method"))
-        self.sharpen_method_combo = QComboBox()
+        self.sharpen_method_combo = StepCombo()
         self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
         self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
         self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))

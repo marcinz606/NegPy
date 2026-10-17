@@ -8,7 +8,7 @@ Read after ``exec()`` via ``window()``.
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
@@ -16,6 +16,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
 
@@ -55,7 +56,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Preview DPI"))
-        self.preview_dpi_combo = QComboBox()
+        self.preview_dpi_combo = StepCombo()
         for dpi in sorted(self._caps.supported_dpi) or [_PREVIEW_FALLBACK_DPI]:
             self.preview_dpi_combo.addItem(str(dpi), dpi)
         self.preview_dpi_combo.setCurrentIndex(0)  # lowest: fastest, framing only

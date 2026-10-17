@@ -1,9 +1,10 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.view.widgets.choice_button import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.altprocess.models import AltProcess, Sensitizer
 from negpy.features.process.models import ProcessMode
 
@@ -103,7 +104,7 @@ class AltProcessSidebar(BaseSidebar):
         col.setContentsMargins(0, 0, 0, 0)
 
         sens_row = QHBoxLayout()
-        self.sensitizer_combo = QComboBox()
+        self.sensitizer_combo = StepCombo()
         for s in Sensitizer:
             self.sensitizer_combo.addItem(_SENSITIZER_LABELS[s], s.value)
         self._select_sensitizer(conf.cyano_sensitizer)

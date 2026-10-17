@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
+from negpy.desktop.view.sidebar.scanlight import _BUILTIN_WHITE_PRESETS, ScanlightSidebar
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.presets import ScanlightPreset
 
@@ -1473,15 +1473,15 @@ def _white_preset_item(w):
 
 def test_rgb_only_scanlight_hides_white_slider_and_preset():
     w = _sidebar()
-    w._light_has_white = False  # a v1-v3 body: no white LED
+    w._light_verified, w._light_has_white = True, False  # a v1-v3 body: no white LED
     w._refresh_light_channels()
     assert w.w_slider.isHidden()  # W slider gone
-    assert not _white_preset_item(w).isEnabled()  # white-light preset greyed out
+    assert not _white_preset_item(w).isEnabled()
 
 
 def test_white_scanlight_keeps_white_slider_and_preset():
     w = _sidebar()
-    w._light_has_white = True  # v4 / Big
+    w._light_verified, w._light_has_white = True, True  # v4 / Big
     w._refresh_light_channels()
     assert not w.w_slider.isHidden()
     assert _white_preset_item(w).isEnabled()
@@ -2173,3 +2173,85 @@ def test_keep_light_on_shortcut_acts_only_while_the_toggle_shows(hidden):
     manager._build_actions()["scanlight_keep_light_on"]()
 
     assert btn.toggle.called is not hidden
+
+
+def _rgb_only_poll():
+    return _poll(usb_ok=True, usb_model="Canon", light_detail="Scanlight v2/v3 (fw5)") | {"light_has_white": False}
+
+
+@pytest.mark.parametrize(("has_white", "expected"), [(True, (25, 12, 11, 0)), (False, (115, 100, 90, 0))])
+def test_triplet_framing_on_an_rgb_only_scanlight_clears_its_floor(monkeypatch, has_white, expected):
+    # The v4 dims 3 stops; an RGB-only body raises each channel to its floor, capped at the preset.
+    w = _sidebar()
+    w._light_has_white = has_white
+    _select_stored(w, monkeypatch, _rgb_preset())
+    w.controller.set_scanlight_color.reset_mock()
+    w._push_light()
+    assert w.controller.set_scanlight_color.call_args[0][:4] == expected
+
+
+def test_a_sticky_white_mode_is_cleared_on_an_rgb_only_scanlight():
+    ctrl = MagicMock()
+    ctrl.session.repo.get_global_setting.side_effect = lambda k, default=None: (
+        {"white_mode": True, "r_level": 0, "g_level": 0, "b_level": 0, "w_level": 255} if k == "scanlight_settings" else default
+    )
+    w = ScanlightSidebar(ctrl)
+    w._on_poll_status(_rgb_only_poll())
+    assert not w._settings.white_mode
+    assert (w._settings.r_level, w._settings.g_level, w._settings.b_level, w._settings.w_level) == (255, 255, 255, 0)
+    ctrl.set_scanlight_color.reset_mock()
+    w.lv_btn.setChecked(True)
+    r, g, b, white, _port = ctrl.set_scanlight_color.call_args[0]
+    assert white == 0 and min(r, g, b) > 0
+
+
+def test_white_mode_never_lights_a_missing_white_led():
+    w = _sidebar()
+    w._light_has_white = False
+    w._settings = replace(w._settings, white_mode=True)
+    w.controller.set_scanlight_color.reset_mock()
+    w._push_light()
+    assert w.controller.set_scanlight_color.call_args[0][3] == 0
+
+
+def _white_rows_hidden(w):
+    view = w.preset_combo.view()
+    return [view.isRowHidden(w.preset_combo.findData(name)) for name in _BUILTIN_WHITE_PRESETS]
+
+
+def test_white_presets_show_only_once_a_white_led_is_reported():
+    w = _sidebar()
+    assert all(_white_rows_hidden(w))  # no poll yet
+    w._on_poll_status(_rgb_only_poll())
+    assert all(_white_rows_hidden(w))
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Canon") | {"light_has_white": True})
+    assert not any(_white_rows_hidden(w))
+    w._reload_presets()
+    assert not any(_white_rows_hidden(w))  # a rebuilt list keeps them
+
+
+def test_a_sticky_white_mode_survives_until_the_light_reports():
+    ctrl = MagicMock()
+    ctrl.session.repo.get_global_setting.side_effect = lambda k, default=None: (
+        {"white_mode": True, "w_level": 255} if k == "scanlight_settings" else default
+    )
+    w = ScanlightSidebar(ctrl)
+    assert w._settings.white_mode  # a v4's white preset is not dropped before the first poll
+
+
+def test_rgb_only_framing_leaves_the_scan_at_the_preset_levels(tmp_path, monkeypatch):
+    w = _sidebar()
+    w._light_verified, w._light_has_white = True, False
+    _select_stored(w, monkeypatch, _rgb_preset())
+    assert w.controller.set_scanlight_color.call_args[0][:3] == (115, 100, 90)
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].levels == (200, 100, 90)
+
+
+def test_a_missed_poll_keeps_the_white_presets_offered():
+    w = _sidebar()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Canon") | {"light_has_white": True})
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Canon", light_ok=False) | {"light_has_white": True})
+    assert not any(_white_rows_hidden(w))

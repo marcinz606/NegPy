@@ -5,7 +5,6 @@ from dataclasses import replace
 
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -30,6 +29,7 @@ from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.granular_settings_dialog import ScopeRadios, build_scope_row
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.capture import (
     CAPTURE_DATE_HINT,
@@ -186,7 +186,7 @@ class RollSettingsDialog(QDialog):
         # The stock carries the film's format, so Format lives in the Gear row, matching
         # GEAR_FIELDS (settings_catalog applies it as a unit with camera/lens/film stock).
         col.addWidget(field_label("Format"))
-        self.format_combo = QComboBox()
+        self.format_combo = StepCombo()
         self.format_combo.setToolTip(wrap_tooltip("Film format written to the frame's metadata"))
         self.format_combo.addItems(FORMAT_OPTIONS)
         self.format_combo.setCurrentText(format_label(self._meta.format))
@@ -327,7 +327,7 @@ class RollSettingsDialog(QDialog):
         col.addLayout(row1)
 
         col.addWidget(field_label("Push / Pull"))
-        self.push_pull_combo = QComboBox()
+        self.push_pull_combo = StepCombo()
         self.push_pull_combo.setToolTip(wrap_tooltip("Stops the film was pushed or pulled in development."))
         self.push_pull_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.push_pull_combo.setCurrentIndex(

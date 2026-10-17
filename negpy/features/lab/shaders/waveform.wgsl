@@ -5,6 +5,9 @@
 // Fixed-point encoded R, G, B sums per cell, indexed ch * 32768 + bin * 256 + col. Mirrors
 // WAVEFORM_COLOR_SCALE and waveform_color() in analysis.py.
 @group(0) @binding(2) var<storage, read_write> sums: array<atomic<u32>, 98304>;
+// RGB parade: each encoded channel's own counts, indexed ch * 32768 + bin * 256 + col.
+// Mirrors waveform_parade() in analysis.py.
+@group(0) @binding(3) var<storage, read_write> parade: array<atomic<u32>, 98304>;
 
 const COLS = 256u;
 const BINS = 128.0;
@@ -36,4 +39,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     atomicAdd(&sums[cell], fixed.r);
     atomicAdd(&sums[32768u + cell], fixed.g);
     atomicAdd(&sums[65536u + cell], fixed.b);
+
+    let ch_bins = vec3<u32>(clamp(floor(color * BINS), vec3<f32>(0.0), vec3<f32>(BINS - 1.0)));
+    atomicAdd(&parade[ch_bins.r * COLS + col], 1u);
+    atomicAdd(&parade[32768u + ch_bins.g * COLS + col], 1u);
+    atomicAdd(&parade[65536u + ch_bins.b * COLS + col], 1u);
 }

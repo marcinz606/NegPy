@@ -1,10 +1,11 @@
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, header_row, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.choice_button import ChoiceButton, SegmentedChoice
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.process.models import ProcessConfig, ProcessMode, SensorUnmix, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
 from negpy.features.rgbscan.models import is_rgb_triplet
@@ -70,7 +71,7 @@ class SensorSidebar(BaseSidebar):
 
         row = QHBoxLayout()
         self.sensor_label = field_label("Profile")
-        self.sensor_combo = QComboBox()
+        self.sensor_combo = StepCombo()
         self.sensor_combo.addItems(SensorProfiles.list_profiles())
         self.sensor_combo.setToolTip(
             "<table width='280'><tr><td>"
@@ -116,7 +117,7 @@ class SensorSidebar(BaseSidebar):
 
         matrix_row = QHBoxLayout()
         self.crosstalk_label = field_label("Matrix")
-        self.crosstalk_combo = QComboBox()
+        self.crosstalk_combo = StepCombo()
         self._fill_crosstalk_combo()
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
         # Wrap the long tooltip in a fixed-width table, so Qt word-wraps it to the panel width

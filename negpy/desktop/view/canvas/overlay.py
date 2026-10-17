@@ -30,6 +30,8 @@ from negpy.features.exposure.analysis import (
     clip_masks,
     encoded_of_zone,
     loupe_acutance,
+    paper_grid,
+    paper_grid_cells,
     proof_grid,
     ring_cc,
     ring_nearest_cell,
@@ -44,6 +46,7 @@ from negpy.features.exposure.analysis import (
     zone_shares,
 )
 from negpy.features.exposure.densitometer import zone_roman
+from negpy.features.exposure.papers import profiles_for_mode
 from negpy.features.geometry.logic import (
     compute_geometry_crop_rect,
     rotation_drag_angle,
@@ -378,6 +381,7 @@ class CanvasOverlay(QWidget):
     straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
     keystone_line_marked = pyqtSignal(str, float, float, float, float)
     test_strip_picked = pyqtSignal(int, int)  # (row, col) of the clicked patch
+    paper_strip_kept = pyqtSignal()  # Enter over a paper shown full frame
     zone_pin_moved = pyqtSignal(int, float, float, bool)  # (pin index, nx, ny, drag ended)
     zone_placement_confirmed = pyqtSignal()  # Enter over the canvas: commit the solved print
     zoom_toggle_requested = pyqtSignal(QPointF)  # double-click with no tool armed
@@ -2001,10 +2005,16 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def _strip_qimage(self) -> Optional[QImage]:
-        """The mosaic under the canvas's own display transform, cached by buffer identity."""
+        """The mosaic, the paper grid or the paper shown full frame, under the canvas's own display
+        transform, cached by buffer identity."""
         mosaic = self.state.test_strip_mosaic
         if mosaic is None:
             return None
+        tiles = self.state.test_strip_tiles
+        if tiles is not None and self.state.test_strip_expanded is not None:
+            mosaic = tiles[self.state.test_strip_expanded]
+        elif self._paper_grid_up() and self.state.test_strip_grid is not None:
+            mosaic = self.state.test_strip_grid
         key = (id(mosaic), self._display_cs, self._monitor_icc_bytes, self._proof)
         if self._strip_cache is not None and self._strip_cache[0] == key:
             return self._strip_cache[1]
@@ -2014,16 +2024,58 @@ class CanvasOverlay(QWidget):
 
     def _strip_base_grid(self) -> Tuple[int, int]:
         """(rows, cols) of the proof's unrotated ladder."""
+        if self.state.test_strip_kind == "paper":
+            return 1, len(self.state.test_strip_tiles or ())
         return RING_GRID if self.state.test_strip_kind == "color" else STRIP_GRID
 
+    def _paper_grid_up(self) -> bool:
+        return self.state.test_strip_kind == "paper" and self.state.test_strip_layout == "grid"
+
     def _strip_grid(self) -> Tuple[int, int]:
-        """(rows, cols) of the proof as it sits on the canvas, after its rotation."""
+        """(rows, cols) of the proof as it sits on the canvas, after its rotation. The paper grid
+        holds whole frames, so it does not turn."""
+        if self._paper_grid_up():
+            return paper_grid(len(self.state.test_strip_tiles or ()))
         return proof_grid(self._strip_base_grid(), self.state.test_strip_rotation)
+
+    def _strip_cell_at(self, nx: float, ny: float) -> Optional[Tuple[int, int]]:
+        """The patch under a content-normalized point; None off every paper grid cell."""
+        if not self._paper_grid_up():
+            return strip_cell_at(nx, ny, self._strip_grid())
+        cols = self._strip_grid()[1]
+        for i, (x0, y0, x1, y1) in enumerate(paper_grid_cells(len(self.state.test_strip_tiles or ()))):
+            if x0 <= nx < x1 and y0 <= ny < y1:
+                return divmod(i, cols)
+        return None
+
+    def _draw_cell_labels(self, painter: QPainter, patches: List[Tuple[int, int, QRectF]], texts: List[str], current: int) -> None:
+        """Each paper grid cell named at its top; the print stock in force is accented."""
+        painter.save()
+        painter.setFont(_overlay_label_font(painter))
+        flags = Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap
+        for i, (text, (_row, _col, cell)) in enumerate(zip(texts, patches)):
+            box = cell.adjusted(_STRIP_LABEL_INSET_PX, _STRIP_LABEL_INSET_PX, -_STRIP_LABEL_INSET_PX, -_STRIP_LABEL_INSET_PX)
+            painter.setPen(QColor(0, 0, 0, 190))
+            painter.drawText(box.translated(1.0, 1.0), flags, text)
+            painter.setPen(QColor(THEME.accent_primary) if i == current else QColor(255, 255, 255, 235))
+            painter.drawText(box, flags, text)
+        painter.restore()
 
     def _strip_patch_rects(self, rect: QRectF) -> List[Tuple[int, int, QRectF]]:
         """(row, col, screen rect) per patch. Edges are computed from the same fractions
         the mosaic was sliced on, so the drawn separators sit on the real seams."""
         rows, cols = self._strip_grid()
+        if self._paper_grid_up():
+            cells = paper_grid_cells(len(self.state.test_strip_tiles or ()))
+            return [
+                (
+                    *divmod(i, cols),
+                    QRectF(
+                        rect.x() + x0 * rect.width(), rect.y() + y0 * rect.height(), (x1 - x0) * rect.width(), (y1 - y0) * rect.height()
+                    ),
+                )
+                for i, (x0, y0, x1, y1) in enumerate(cells)
+            ]
         xs = [rect.x() + rect.width() * c / cols for c in range(cols + 1)]
         ys = [rect.y() + rect.height() * r / rows for r in range(rows + 1)]
         return [(r, c, QRectF(xs[c], ys[r], xs[c + 1] - xs[c], ys[r + 1] - ys[r])) for r in range(rows) for c in range(cols)]
@@ -2046,7 +2098,7 @@ class CanvasOverlay(QWidget):
             for text, flags, on_axis in (
                 (
                     top_texts[col] if row == 0 else "",
-                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap,
                     col == current[1],
                 ),
                 (
@@ -2084,6 +2136,9 @@ class CanvasOverlay(QWidget):
         if rect.isEmpty():
             return
         painter.drawImage(rect, img)
+        # A paper shown full frame is named in the toolbar, so it carries no marks.
+        if self.state.test_strip_expanded is not None:
+            return
 
         patches = self._strip_patch_rects(rect)
         rows, cols = self._strip_grid()
@@ -2106,7 +2161,17 @@ class CanvasOverlay(QWidget):
         exposure = self.state.config.exposure
         base_grid = self._strip_base_grid()
         rotation = self.state.test_strip_rotation
-        if self.state.test_strip_kind == "color":
+        if self.state.test_strip_kind == "paper":
+            papers = profiles_for_mode(self.state.config.process.process_mode)
+            keys = [key for key, _ in papers]
+            shown = keys.index(exposure.paper_profile) if exposure.paper_profile in keys else 0
+            if self._paper_grid_up():
+                self._draw_cell_labels(painter, patches, [profile.short for _, profile in papers], shown)
+                return
+            # Only the band's own axis carries its name.
+            pairs = [(profile.short, "") for _, profile in papers]
+            current = (0, shown)
+        elif self.state.test_strip_kind == "color":
             # :+g so a fractional step prints as one rather than rounding away.
             pairs = [(f"Y {ring_cc(c):+g}", f"M {ring_cc(r):+g}") for r in range(base_grid[0]) for c in range(base_grid[1])]
             current = ring_nearest_cell(exposure.wb_magenta, exposure.wb_yellow)
@@ -3096,9 +3161,14 @@ class CanvasOverlay(QWidget):
         # While the strip is up the canvas is a picker: a click keeps a patch, and no tool or
         # pan gets the event.
         if event.button() == Qt.MouseButton.LeftButton and self.state.test_strip:
+            if self.state.test_strip_expanded is not None:
+                event.accept()
+                return
             coords = self._map_to_image_coords(event.position())
+            cell = self._strip_cell_at(*coords) if coords is not None else None
+            if cell is not None:
+                self.test_strip_picked.emit(*cell)
             if coords is not None:
-                self.test_strip_picked.emit(*strip_cell_at(*coords, self._strip_grid()))
                 event.accept()
                 return
 
@@ -3381,7 +3451,8 @@ class CanvasOverlay(QWidget):
             self.cursor_left.emit()
 
         if self.state.test_strip:
-            hover = strip_cell_at(*coords, self._strip_grid()) if coords is not None else None
+            picking = coords is not None and self.state.test_strip_expanded is None
+            hover = self._strip_cell_at(*coords) if picking else None
             if hover != self._strip_hover:
                 self._strip_hover = hover
                 self.update()
@@ -3704,7 +3775,9 @@ class CanvasOverlay(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def _finish_draw_if_active(self) -> None:
-        if self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
+        if self.state.test_strip and self.state.test_strip_expanded is not None:
+            self.paper_strip_kept.emit()
+        elif self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
             self._finish_scratch()
         elif self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing and len(self._lasso_pts) >= 3:
             self._finish_lasso()
@@ -3715,7 +3788,8 @@ class CanvasOverlay(QWidget):
             self.zone_placement_confirmed.emit()
 
     def finish_in_progress(self) -> None:
-        """What Enter does: close the scratch, lasso, crop or zone pins being drawn."""
+        """What Enter does: close the scratch, lasso, crop or zone pins being drawn, or keep the
+        paper shown full frame."""
         self._finish_draw_if_active()
 
     def has_scratch_points(self) -> bool:

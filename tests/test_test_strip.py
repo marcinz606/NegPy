@@ -6,6 +6,9 @@ from negpy.features.exposure.analysis import (
     STRIP_DENSITIES,
     STRIP_GRADES,
     STRIP_GRID,
+    paper_grid,
+    paper_grid_cells,
+    paper_grid_mosaic,
     proof_grid,
     rotate_grid,
     rotated_cell,
@@ -158,3 +161,33 @@ def test_the_accent_follows_the_patch_it_marks(grid, rotation):
         for base_col in range(grid[1]):
             row, col = rotated_cell((base_row, base_col), grid, rotation)
             assert placed[row * cols + col] == base_row * grid[1] + base_col
+
+
+@pytest.mark.parametrize(
+    "count, grid",
+    [(10, (2, 5)), (9, (3, 3)), (8, (2, 4)), (3, (1, 3)), (11, (3, 4)), (7, (3, 3)), (5, (2, 3))],
+)
+def test_the_paper_grid_is_even_when_it_can_be_and_near_square_otherwise(count, grid):
+    assert paper_grid(count) == grid
+
+
+def test_an_even_paper_grid_is_a_centered_block_of_frame_shaped_cells():
+    """Ten papers: 2x5 cells a fifth of the frame each, the block centered top to bottom."""
+    tiles = _tiles(60, 90, grid=(2, 5))
+    mosaic = paper_grid_mosaic(tiles)
+
+    assert mosaic.shape == tiles[0].shape
+    for i in range(10):
+        row, col = divmod(i, 5)
+        y0, x0 = 18 + row * 12, col * 18
+        assert np.all(mosaic[y0 : y0 + 12, x0 : x0 + 18] == float(i)), i
+    assert np.all(mosaic[:18] == 0.0) and np.all(mosaic[42:] == 0.0)
+
+
+def test_a_short_last_row_is_centered():
+    """Seven papers fill a 3x3 grid as 3 + 3 + 1, the last one in the middle of its row."""
+    mosaic = paper_grid_mosaic(_tiles(60, 90, grid=(1, 7)))
+    assert np.all(mosaic[40:60, 30:60] == 6.0)
+    assert np.all(mosaic[40:60, :30] == 0.0) and np.all(mosaic[40:60, 60:] == 0.0)
+    cells = paper_grid_cells(7)
+    assert cells[6] == pytest.approx((1 / 3, 2 / 3, 2 / 3, 1.0))

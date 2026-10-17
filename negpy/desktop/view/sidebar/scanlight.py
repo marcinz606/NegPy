@@ -17,9 +17,9 @@ import qtawesome as qta
 from PyQt6.QtCore import QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QImage, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QInputDialog,
+    QListView,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -48,6 +48,7 @@ from negpy.desktop.view.styles.templates import (
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
@@ -65,6 +66,7 @@ from negpy.services.capture.calibration import (
 from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
+_CAPTURE_BAR = "Capturing… %p%"  # the status strip's bar while a scan runs
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text, "W": THEME.text_secondary}
 
 # One source for the over/under advice, shown on both surfaces of an aborted calibration:
@@ -156,6 +158,7 @@ class ScanlightSidebar(QWidget):
         self._scanning = False
         self._camera_verified = False  # "Live View & Scan" is gated until Check confirms camera…
         self._light_verified = False  # …and light, plus a folder + a selected preset
+        self._white_offered = False  # white-light presets show once a poll reports a white LED
         self._rgb_mode = True  # Scanlight present → RGB (presets + sliders); else normal white-light scan
         self._manual_mode = False  # True while building a preset by hand (sliders + exposure editable)
         self._manual_populate_pending = False  # seed the sidebar exposure steppers from the body once, then let the user drive
@@ -317,6 +320,12 @@ class ScanlightSidebar(QWidget):
         self._rgb_hint = hint_label("You can also connect the Scanlight to scan in RGB.")
         self._rgb_hint.setVisible(False)
         cam.addWidget(self._rgb_hint)
+        self.capture_delay_slider = CompactSlider("Capture Delay", 0, 8, 0, step=1, precision=1, unit=" s")
+        self.capture_delay_slider.setValue(self._settings.capture_delay_s)
+        self.capture_delay_slider.setToolTip(
+            "Wait this long after Scan or Retake before the shot, so a table that shakes when you let go can settle. Stop ends the wait."
+        )
+        cam.addWidget(self.capture_delay_slider)
         layout.addWidget(self.camera_body)
 
         # Scanlight only: _set_rgb_mode hides it for white-light scanning.
@@ -325,7 +334,7 @@ class ScanlightSidebar(QWidget):
         rgb.setContentsMargins(0, 0, 0, 0)
         rgb.setSpacing(THEME.space_md)
 
-        self.preset_combo = QComboBox()
+        self.preset_combo = StepCombo()
         self.preset_combo.setToolTip(
             wrap_tooltip(
                 "Pick a saved film-stock preset (RGB levels + ISO + shutter + aperture, shown read-only), a "
@@ -440,9 +449,11 @@ class ScanlightSidebar(QWidget):
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
         self.output.changed.connect(self._apply_gating)
         self.inter_exposure_delay_slider.valueChanged.connect(self._update_settings_from_ui)
+        self.capture_delay_slider.valueChanged.connect(self._update_settings_from_ui)
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
+        self.controller.capture_countdown.connect(self._on_countdown)
         self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
         self.controller.capture_live_view_failed.connect(self._on_live_view_failed)
@@ -489,7 +500,7 @@ class ScanlightSidebar(QWidget):
     def _push_light(self) -> None:
         if not self._rgb_mode:
             return  # normal white-light scanning has no Scanlight to control
-        if self._settings.white_mode:
+        if self._settings.white_mode and self._light_has_white:
             # A white-light preset: the W slider is the scan light itself.
             self.controller.set_scanlight_color(0, 0, 0, int(self.w_slider.value()), self._settings.port)
         else:
@@ -498,9 +509,9 @@ class ScanlightSidebar(QWidget):
             # white LED an RGB-only body lacks. White stays off: the Scanlight cannot mix both.
             r, g, b = (int(slider.value()) for slider in (self.r_slider, self.g_slider, self.b_slider))
             if not self._manual_mode and self._preset_selected() and not self._settings.single_capture:
-                # A triplet preset frames by its own mix, dimmed: all three channels burn at once
-                # against a single-channel exposure. The scan takes its levels from the preset.
-                r, g, b = framing_levels(r, g, b)
+                # A triplet preset frames by its own mix through framing_levels: all three channels
+                # burn at once against a single-channel exposure. The scan takes the preset's levels.
+                r, g, b = framing_levels(r, g, b, rgb_only=not self._light_has_white)
             self.controller.set_scanlight_color(r, g, b, 0, self._settings.port)
         self._update_settings_from_ui()
 
@@ -532,6 +543,7 @@ class ScanlightSidebar(QWidget):
             if idx >= 0:
                 self.preset_combo.setCurrentIndex(idx)
         self.preset_combo.blockSignals(False)
+        self._refresh_light_channels()
         self._refresh_preset_hint()
         self._apply_gating()
 
@@ -1575,6 +1587,7 @@ class ScanlightSidebar(QWidget):
             as_roll=self.output.as_roll(),
             single_capture=single,
             sensor_profile=preset.sensor_profile if preset is not None else "",
+            capture_delay_s=s.capture_delay_s,
         )
         self.set_scanning(True)
         if rgb and not req.white_mode and not single:
@@ -1585,8 +1598,18 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(float)
     def _on_progress(self, progress: float) -> None:
-        self.status_strip.set_progress("Capturing… %p%", progress)
+        self.status_strip.set_progress(_CAPTURE_BAR, progress)
         self.lv_window.set_progress(progress)
+
+    @pyqtSlot(int)
+    def _on_countdown(self, seconds: int) -> None:
+        # The strip shows its bar, not messages, while a scan runs, so the countdown is a bar too.
+        text = f"Capturing in {seconds} s…" if seconds > 0 else "Capturing…"
+        self.lv_window.set_status(text)
+        if seconds > 0:
+            self.status_strip.set_progress_indeterminate(text)
+        else:
+            self.status_strip.start_progress(_CAPTURE_BAR)
 
     @pyqtSlot(str)
     def _on_channel(self, letter: str) -> None:
@@ -1856,22 +1879,42 @@ class ScanlightSidebar(QWidget):
 
     def _refresh_light_channels(self) -> None:
         """Adapt the light controls to the connected Scanlight. An RGB-only body (v1-v3, no white
-        LED) hides the W slider and greys out the white-light preset, since neither can do anything;
-        the live-view framing then lights all three RGB channels instead of a missing white one
-        (`_push_light`). A body with a white LED (v4 / Big) keeps them."""
+        LED) hides the W slider and the white-light presets, since neither can do anything. The
+        presets show only once a poll has reported a white LED (v4 / Big)."""
         has_white = self._light_has_white
+        if self._light_verified:
+            self._white_offered = has_white  # a missed poll keeps the last reported answer
+        offer_white = self._white_offered
+        rgb_only = self._light_verified and not has_white
         self.w_slider.setVisible(has_white)
         model = self.preset_combo.model()
+        view = self.preset_combo.view()
         for white_name in _BUILTIN_WHITE_PRESETS:
             white_idx = self.preset_combo.findData(white_name)
-            if white_idx >= 0 and isinstance(model, QStandardItemModel):
-                item = model.item(white_idx)
-                if item is not None:
-                    item.setEnabled(has_white)
-        # A white-light preset selected on an RGB-only body cannot run, so drop it.
-        if not has_white and self.preset_combo.currentData() in _BUILTIN_WHITE_PRESETS:
+            if white_idx < 0:
+                continue
+            if isinstance(view, QListView):
+                view.setRowHidden(white_idx, not offer_white)
+            if isinstance(model, QStandardItemModel) and (item := model.item(white_idx)) is not None:
+                item.setEnabled(offer_white)
+        if rgb_only and self.preset_combo.currentData() in _BUILTIN_WHITE_PRESETS:
             self.preset_combo.setCurrentIndex(0)
             self._on_preset_selected(0)
+        # White mode is sticky and outlives the dropdown's selection across a restart, so an
+        # RGB-only body clears the setting itself and gets the default RGB light back.
+        if rgb_only and self._settings.white_mode:
+            defaults = ScanlightSettings.defaults()
+            r, g, b = defaults.r_level, defaults.g_level, defaults.b_level
+            for slider, value in ((self.r_slider, r), (self.g_slider, g), (self.b_slider, b), (self.w_slider, 0)):
+                self._set_slider(slider, value)
+            self._settings = replace(
+                self._settings, white_mode=False, white_process_mode=defaults.white_process_mode, r_level=r, g_level=g, b_level=b, w_level=0
+            )
+            self._save_settings()
+            self._refresh_preset_hint()
+            self._apply_gating()
+            if self.lv_btn.isChecked():
+                self._push_light()
 
     def _set_rgb_mode(self, on: bool) -> None:
         """Switch between RGB (Scanlight) and normal white-light scanning, driven by the
@@ -1893,7 +1936,7 @@ class ScanlightSidebar(QWidget):
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
         if active:
-            self.status_strip.start_progress("Capturing… %p%")
+            self.status_strip.start_progress(_CAPTURE_BAR)
         else:
             self.status_strip.stop_progress()
         self.scan_btn.setText(" Stop" if active else " Scan")
@@ -1925,6 +1968,7 @@ class ScanlightSidebar(QWidget):
             b_level=int(self.b_slider.value()),
             w_level=int(self.w_slider.value()),
             inter_exposure_delay_ms=int(self.inter_exposure_delay_slider.value()),
+            capture_delay_s=float(self.capture_delay_slider.value()),
             single_capture=self.capture_btn.currentIndex() == 1,
             shutter_r=shutter,
             shutter_g=shutter,

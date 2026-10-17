@@ -32,6 +32,7 @@ from negpy.desktop.view.styles.templates import (
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import (
     DEFAULT_N_PASSES,
@@ -250,7 +251,7 @@ class ScanSidebar(QWidget):
         self.backend_btn.setCurrentIndex(max(self.backend_btn.findData(self._settings.backend), 0))
         device.addLayout(field_row("Backend", self.backend_btn))
 
-        self.device_combo = QComboBox()
+        self.device_combo = StepCombo()
         self.device_combo.setToolTip(wrap_tooltip("Select scanner"))
         self.device_combo.addItem("Detecting scanners…", None)
         self.refresh_btn = _icon_button("fa5s.redo", "Refresh device list")
@@ -297,7 +298,7 @@ class ScanSidebar(QWidget):
         quality.addWidget(self.film_type_widget)
 
         # Frame length, for a transport that measures the strip and cannot infer it.
-        self.format_combo = QComboBox()
+        self.format_combo = StepCombo()
         self.format_combo.setToolTip(wrap_tooltip("Frame length on the loaded film; Auto where the holder fixes it"))
         # Not "Format": the output file format owns that label in the Output card.
         self.film_format_widget = self._row_widget(field_row("Film format", self.format_combo))

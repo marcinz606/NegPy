@@ -3,7 +3,6 @@ from dataclasses import asdict, replace
 from typing import Optional
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,6 +25,7 @@ from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.view.widgets.tab_header import TabHeader
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_sequential_frame_dialog
@@ -212,7 +212,7 @@ class MetadataSidebar(BaseSidebar):
         proc.addWidget(self.process_combo)
 
         proc.addWidget(field_label("Format"))
-        self.format_combo = QComboBox()
+        self.format_combo = StepCombo()
         self.format_combo.setToolTip(wrap_tooltip("Film format written to the frame's metadata"))
         self.format_combo.addItems(FORMAT_OPTIONS)
         self.format_combo.setCurrentText(format_label(conf.format))
@@ -246,7 +246,7 @@ class MetadataSidebar(BaseSidebar):
         proc.addLayout(dev_name_row)
 
         proc.addWidget(field_label("Push / Pull"))
-        self.push_pull_combo = QComboBox()
+        self.push_pull_combo = StepCombo()
         self.push_pull_combo.addItems(PUSH_PULL_OPTIONS)
         idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
         self.push_pull_combo.setCurrentIndex(idx)

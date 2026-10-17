@@ -4,7 +4,6 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -30,6 +29,7 @@ from negpy.desktop.view.styles.templates import (
 )
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, align_slider_columns
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
 from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
@@ -160,7 +160,7 @@ class CrosstalkEditorDialog(QDialog):
         self.name_edit.textChanged.connect(self._on_name_changed)
         rl.addLayout(field_row("Name", self.name_edit))
 
-        self.type_combo = QComboBox()
+        self.type_combo = StepCombo()
         for value, label in _TYPE_CHOICES:
             self.type_combo.addItem(label, value)
         self.type_combo.setToolTip(
@@ -176,7 +176,7 @@ class CrosstalkEditorDialog(QDialog):
         )
         rl.addLayout(field_row("Type", self.type_combo))
 
-        self.process_combo = QComboBox()
+        self.process_combo = StepCombo()
         for value, label in _PROCESS_CHOICES:
             self.process_combo.addItem(label, value)
         self.process_combo.setToolTip(

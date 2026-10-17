@@ -77,7 +77,7 @@ Tabs that do not change the render:
 | **Gear** | Gear library | Cameras, lenses, films, processes, scan setups |
 | **Scan** | Scanner · the scanner's cards · Output | Direct capture from a film scanner or camera |
 
-On a slider, click the value to type one, drag the name to scrub (**Shift** for finer steps), and double-click or **Ctrl**+click the track to reset. A **dot** on a panel header or tab marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there.
+On a slider, click the value to type one, drag the name to scrub (**Shift** for finer steps), and double-click or **Ctrl**+click the track to reset. On a dropdown, **‹** and **›** step to the previous or next choice; click the name for the full list. A **dot** on a panel header or tab marks a non-default value. Each panel header has a **reset** action and an **ⓘ** that opens this guide there.
 
 ### What carries to the next frame
 
@@ -311,13 +311,16 @@ The gray **negative density histogram** shows the scan on the curve's horizontal
 
 In Peek Negative the density histogram splits into R, G, B and luminance: a spike at an edge is that channel clipping, a trace apart from the others a strong cast.
 
-#### Curve / Waveform / Vectorscope
+#### Curve / Waveform / Parade / Vectorscope
 
-The selector under the chart picks the chart. **Curve** is the paper curve and histograms above. **Waveform** plots print tone across the frame's width; a red tick marks a column that reaches paper black or white. **Vectorscope** plots the print's colors on the CIELAB a\*b\* plane, neutral at the center. On a color frame, a cluster off the center is a cast; on a toned B&W print, a toner draws an arm toward its hue.
+The selector under the chart picks the chart. **Curve** is the paper curve and histograms above. **Waveform** plots print tone across the frame's width; a red tick marks a column that reaches paper black or white. **Parade** plots the print's R, G and B side by side, each channel's tone across the frame. A neutral sits at one height in all three, so judge a cast on neutrals; on neutral or even content, a channel that drifts across the frame is uneven light or a Flat Field mismatch. While you hover, a dashed line marks the pixel's green level in all three panels. In Peek Negative the Parade shows the scan: each channel's density in the camera's own channels (−log10 of the scan after any Crosstalk unmix, 0 at sensor full scale at the top, 3.0 at the bottom). On a negative, the solid lines are the range the stretch maps onto the curve, and the number beside each channel letter is that range. Scan exposure moves the traces (0.3 per stop) but not the range, so compare scans from one camera or scanner, light and unmix by their ranges. The dotted line is the clear film base: the Film Base set on the roll, else the base read from the rebate. A red tick marks a column with pixels at sensor clip (top) or in the axis's last step (bottom). **Vectorscope** plots the print's colors on the CIELAB a\*b\* plane, neutral at the center. On a color frame, a cluster off the center is a cast; on a toned B&W print, a toner draws an arm toward its hue.
+
+*   **Parade Overlay** (layers icon): R, G and B on one plot, white where they agree. Grayed out under any Color vision choice but Standard (§15), and on the scan unless Base Relative is on.
+*   **Base Relative** (ruler icon, Peek Negative): moves each channel so its film base, else its thin line, sits at the top, so the channels and the hover line compare at one height. The caption names the zero.
 
 #### Lin / Log
 
-Sets the count scale of the histograms and the waveform: **Log** shows thin tails (to find clipping), **Lin** the bulk of the frame. On the Vectorscope it sets the chroma scale: **Log** (the B&W default) opens up the near-neutral center where a toner sits, **Lin** (the color default) keeps a color frame's spread in proportion.
+Sets the count scale of the histograms, the waveform and the parade: **Log** shows thin tails (to find clipping), **Lin** the bulk of the frame. The Parade in Peek Negative keeps its own scale, **Log** by default, because the scan's thin and dense ends are small areas. On the Vectorscope it sets the chroma scale: **Log** (the B&W default) opens up the near-neutral center where a toner sits, **Lin** (the color default) keeps a color frame's spread in proportion.
 
 #### Clipping triangles
 
@@ -449,11 +452,12 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 
 The paper's characteristic curve. Its own **Global / R / G / B** selector applies the curve controls to all layers or as per-dye-layer trims.
 
-*   **Print stock**: a bundled paper or print film (RA4 papers and the Kodak 2383 and 2393 print films in Color Negative, B&W papers in B&W Negative) that sets the curve and, on color stock, the colors its dyes make, taken from the datasheet: less saturated than *Digital*, with reds leaning orange and cyans leaning blue. The other controls trim on top. *Digital (Adobe RGB)*, the default, is an idealized print: NegPy's own curve and perfect dyes. Each B&W paper has its own lith color (§6.2).
+*   **Print stock**: a bundled paper or print film (RA4 papers and the Kodak 2383 and 2393 print films in Color Negative, B&W papers in B&W Negative) that sets the curve and, on color stock, the colors its dyes make, from the datasheet or, for the two Fujicolor Crystal Archive stocks (standard and HD), from Fujifilm's measured Frontier profiles: less saturated than *Digital*, with reds leaning orange and cyans leaning blue, and grays that drift slightly as the real dyes do. The other controls trim on top. *Digital (Adobe RGB)*, the default, is an idealized print: NegPy's own curve and perfect dyes. *Digital (Pakon Minilab)* is that curve with a Pakon minilab's colors. Each B&W paper has its own lith color (§6.2).
 *   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation through the paper's dyes, easing off at toe and shoulder. 1.0 is off; lower values pull toward neutral. **Chroma** (Look tab) scales color evenly instead.
     *   **Separation Damping** (0 to 1): higher keeps the push on muted color and eases it on saturated color. Grayed out at Dye Separation 1.0.
 *   **Paper White**: simulates paper base density, so whites print at about 0.93.
 *   **Paper Black**: shows the paper's slightly milky Dmax. Off (default) applies black-point compensation.
+*   **Paper Test Strip** (the striped button beside Print stock): prints the frame on every print stock, in the list's order: as one band per stock (**Strip**) or as a grid of small whole frames (**Grid**), chosen in the toolbar. Click a paper to see it on the whole frame; **‹** and **›** in the toolbar, or the arrow keys, step to the neighbor paper. **Keep** (or Enter) makes the paper shown the Print stock; the back button (or Esc) returns to every paper.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.
 *   **Shoulder** (-1 to 1) + **Shoulder Width** (0.1 to 5): highlight roll-off. Positive compresses highlights; negative extends them and can clip.
@@ -1120,6 +1124,7 @@ Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux): w
 *   **Histogram** and **Zebras**: the frame's RGB histogram, and hatching on pixels at the top (red) and bottom (blue) of the preview range. The preview clips before the RAW does, so a zebra is an early warning.
 *   **Meter** (white-light and camera-only scanning): one RAW probe sets the shutter so the region that must not clip (a negative's clear base, a slide's brightest highlights) lands just under clipping. The white-light preset's film type decides which. A clipped reading steps down two stops; meter again.
 *   **Scan** and **Retake**: **Scan** shoots the next frame, auto-numbered, and imports it; **Retake** (the redo arrow beside **Live View**) shoots the last frame again. In the Live View window, `Space` or `S` scans and `R` retakes.
+*   **Capture Delay** (0 to 8 s, default 0): **Scan** and **Retake** wait this long before the first exposure, so a table that shakes when you let go can settle. The panel counts down; **Stop** ends the wait.
 *   **Keep Light On** (the bulb beside **Retake**, off by default): the Scanlight goes dark after each scan; this lights it again with the framing light, so you can frame the next shot on the camera's screen. Live View lights it again without this toggle.
 *   **Narrowband**: RGB-lit scans render more saturated than white light; a **Print stock** other than *Digital* prints them through real dyes.
 
@@ -1128,9 +1133,9 @@ Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux): w
 
 Shown while a Scanlight is connected.
 
-*   **Preset**: forces its RGB levels, ISO, shutter and aperture each frame. **+** calibrates: place the rectangle on clear film base, name it, run it; it solves a shutter and LED levels just under clipping. **Create a manual preset…** sets one by hand.
+*   **Preset**: forces its RGB levels, ISO, shutter and aperture each frame. **+** calibrates: place the rectangle on clear film base, name it, run it; it solves a shutter and LED levels just under clipping. **Create a manual preset…** sets one by hand. The White Light presets show only on a Scanlight with a white LED (v4 and Big Scanlight); on a v1 to v3, a Single Capture preset lights R, G and B together instead.
 *   **Red**, **Green**, **Blue**, **White** (0 to 255): LED levels, editable while you build a manual preset. **Light Off** turns every channel off.
-*   **Capture mode**: **Triplet** shoots one exposure per LED and merges them; **Single Capture** shoots one exposure with all three lit and imports it as an ordinary RAW.
+*   **Capture mode**: **Triplet** shoots one exposure per LED and merges them; **Single Capture** shoots one exposure with all three lit and imports it as an ordinary RAW. A selected Triplet preset lights a dimmed framing mix, raised per channel on an RGB-only Scanlight (v1 to v3) so it stays visible; the scan uses the preset's own levels.
 *   **Create Sensor Profile** (Single Capture only, default on): also saves a sensor profile under the preset's name; a roll scanned with the preset takes it and turns Linear RAW on. Other rolls do not get it.
 *   **ISO**, **Shutter**, **Aperture**: the preset's exposure, editable while you build a manual preset.
 *   **Channel Delay** (0 to 5000 ms): pauses between R, G and B for bodies that lock up. Triplet presets only.

@@ -21,6 +21,10 @@ OUTPUT_HIST_BINS = 256
 # which is what the marginal RGBL histogram cannot answer.
 COLOR_HIST_BINS = 32
 
+# Scan parade axis in density (-log10 of the linear scan): 0 = sensor full scale, the top edge
+# bin; past 3.0 (1/1000 of full scale) a scan holds little but noise. Mirrored by SCAN_D_MIN / SCAN_D_SPAN in density_hist.wgsl.
+SCAN_DENSITY_RANGE = (0.0, 3.0)
+
 # Waveform: print luma per image column, (bins, cols) with row 0 = black. waveform.wgsl mirrors this.
 WAVEFORM_COLS = 256
 WAVEFORM_BINS = 128
@@ -141,6 +145,19 @@ def waveform_color(buffer: Any) -> Optional[np.ndarray]:
     fixed = np.round(np.clip(np.nan_to_num(rgb.reshape(-1, 3)), 0.0, 1.0) * WAVEFORM_COLOR_SCALE)
     sums = [np.bincount(flat, weights=fixed[:, c], minlength=WAVEFORM_BINS * WAVEFORM_COLS) for c in range(3)]
     return np.stack(sums).reshape(3, WAVEFORM_BINS, WAVEFORM_COLS)
+
+
+def waveform_parade(buffer: Any) -> Optional[np.ndarray]:
+    """(3, WAVEFORM_BINS, WAVEFORM_COLS) counts of each encoded channel per image column: the
+    RGB parade. CPU counterpart of the parade counts in waveform.wgsl."""
+    cells = _waveform_cells(buffer)
+    if cells is None:
+        return None
+    rgb, flat = cells
+    cols = flat % WAVEFORM_COLS
+    bins = np.clip((np.nan_to_num(rgb.reshape(-1, 3)) * WAVEFORM_BINS).astype(np.int32), 0, WAVEFORM_BINS - 1)
+    counts = [np.bincount(bins[:, c] * WAVEFORM_COLS + cols, minlength=WAVEFORM_BINS * WAVEFORM_COLS) for c in range(3)]
+    return np.stack(counts).reshape(3, WAVEFORM_BINS, WAVEFORM_COLS).astype(float)
 
 
 def scope_radius(chroma: Any, log: bool) -> Any:
@@ -483,6 +500,46 @@ def strip_mosaic(tiles: List[np.ndarray], grid: Tuple[int, int]) -> np.ndarray:
     return out
 
 
+# Calibration knob: past this many columns per row, an even grid draws the papers smaller than
+# a near-square one with a short last row.
+PAPER_GRID_MAX_RATIO = 3
+
+
+def paper_grid(count: int) -> Tuple[int, int]:
+    """(rows, cols) of the paper strip's grid layout: the even grid nearest square, else near square."""
+    for rows in range(int(np.sqrt(count)), 0, -1):
+        if count % rows == 0 and count // rows <= PAPER_GRID_MAX_RATIO * rows:
+            return rows, count // rows
+    cols = int(np.ceil(np.sqrt(count)))
+    return -(-count // cols), cols
+
+
+def paper_grid_cells(count: int) -> List[Tuple[float, float, float, float]]:
+    """(x0, y0, x1, y1) of each paper's cell as fractions of the frame, row-major. Cells are
+    frame-shaped, so a render fills its cell; the block and a short last row are centered."""
+    rows, cols = paper_grid(count)
+    size = 1.0 / max(rows, cols)
+    top = (1.0 - rows * size) / 2
+    cells = []
+    for i in range(count):
+        row, col = divmod(i, cols)
+        x0 = (1.0 - min(cols, count - row * cols) * size) / 2 + col * size
+        y0 = top + row * size
+        cells.append((x0, y0, x0 + size, y0 + size))
+    return cells
+
+
+def paper_grid_mosaic(tiles: Sequence[np.ndarray]) -> np.ndarray:
+    """One frame holding every render whole, each scaled into its `paper_grid_cells` cell; the
+    frame around the block stays black."""
+    out = np.zeros_like(tiles[0])
+    h, w = out.shape[:2]
+    for tile, (x0, y0, x1, y1) in zip(tiles, paper_grid_cells(len(tiles))):
+        top, bottom, left, right = round(y0 * h), round(y1 * h), round(x0 * w), round(x1 * w)
+        out[top:bottom, left:right] = cv2.resize(tile, (right - left, bottom - top), interpolation=cv2.INTER_AREA)
+    return out
+
+
 def strip_patch_rect(h: int, w: int, row: int, col: int, grid: Tuple[int, int]) -> Tuple[int, int, int, int]:
     """(x0, y0, x1, y1) of one patch inside an h×w frame — the bounds `strip_mosaic` filled."""
     rows, cols = grid
@@ -598,3 +655,70 @@ def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, 
     rows = [np.histogram(np.clip(img[..., c], lo, hi), bins=DENSITY_HIST_BINS, range=DENSITY_HIST_RANGE)[0] for c in range(3)]
     rows.append(np.histogram(np.clip(lum, lo, hi), bins=DENSITY_HIST_BINS, range=DENSITY_HIST_RANGE)[0])
     return np.stack(rows).astype(np.float64)
+
+
+def scan_density_axis(density: Any) -> Any:
+    """Scan density -> 0..1 up the scan parade, SCAN_DENSITY_RANGE's dense end at 0 (unclipped)."""
+    lo, hi = SCAN_DENSITY_RANGE
+    return (hi - np.asarray(density, dtype=np.float64)) / (hi - lo)
+
+
+def scan_density_of_val(val: Any, bounds: Any) -> np.ndarray:
+    """Per-channel scan density of a normalized val triplet: the stretch inverted with its bounds."""
+    floors = np.asarray(bounds.floors, dtype=np.float64)[:3]
+    ceils = np.asarray(bounds.ceils, dtype=np.float64)[:3]
+    return -(floors + np.asarray(val, dtype=np.float64)[:3] * (ceils - floors))
+
+
+def _parade_samples(img: np.ndarray, roi: Optional[Tuple[int, int, int, int]]) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """The crop's RGB, stride-subsampled, and each sample column's parade column."""
+    if roi is not None:
+        y1, y2, x1, x2 = roi
+        img = img[y1:y2, x1:x2]
+    if min(img.shape[:2]) < 1:
+        return None
+    full_w = img.shape[1]
+    step = max(1, round(np.sqrt(img.shape[0] * full_w / _MAX_HIST_SAMPLES)))
+    cols = np.minimum(np.arange(0, full_w, step) * WAVEFORM_COLS // full_w, WAVEFORM_COLS - 1)
+    return img[::step, ::step, :3], cols
+
+
+def density_parade(img_log: Any, roi: Optional[Tuple[int, int, int, int]] = None) -> Optional[np.ndarray]:
+    """(3, WAVEFORM_BINS, WAVEFORM_COLS) counts of each channel's scan density (-log10 of the
+    linear scan, after any crosstalk unmix: the log the stretch reads) per image column of the
+    crop, on SCAN_DENSITY_RANGE; out-of-range mass lands in the edge bins. CPU counterpart of the
+    parade in density_hist.wgsl."""
+    if img_log is None:
+        return None
+    img = np.asarray(img_log)
+    if img.ndim != 3 or img.shape[-1] < 3:
+        return None
+    sampled = _parade_samples(img, roi)
+    if sampled is None:
+        return None
+    img, cols = sampled
+    pos = scan_density_axis(-np.nan_to_num(img.astype(np.float32)))
+    bins = np.clip(np.floor(pos * WAVEFORM_BINS), 0, WAVEFORM_BINS - 1).astype(np.int64)
+    flat_cols = np.broadcast_to(cols[None, :], bins.shape[:2]).ravel()
+    counts = [np.bincount(bins[..., c].ravel() * WAVEFORM_COLS + flat_cols, minlength=WAVEFORM_BINS * WAVEFORM_COLS) for c in range(3)]
+    return np.stack(counts).reshape(3, WAVEFORM_BINS, WAVEFORM_COLS).astype(float)
+
+
+def scan_full_scale_columns(image: Any, roi: Optional[Tuple[int, int, int, int]] = None) -> Optional[np.ndarray]:
+    """(3, WAVEFORM_COLS) counts of linear scan pixels at or above the sensor clip level, per
+    parade column. Read before the crosstalk unmix, which can move a clipped channel off full
+    scale on the parade. CPU counterpart of the clip count in density_hist.wgsl."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if image is None:
+        return None
+    img = np.asarray(image)
+    if img.ndim != 3 or img.shape[-1] < 3:
+        return None
+    sampled = _parade_samples(img, roi)
+    if sampled is None:
+        return None
+    img, cols = sampled
+    clipped = img >= float(EXPOSURE_CONSTANTS["scan_clip_level"])
+    flat_cols = np.broadcast_to(cols[None, :], clipped.shape[:2]).ravel()
+    return np.stack([np.bincount(flat_cols, weights=clipped[..., c].ravel().astype(np.float64), minlength=WAVEFORM_COLS) for c in range(3)])

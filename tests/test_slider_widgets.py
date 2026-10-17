@@ -286,3 +286,32 @@ def test_field_row_in_a_slider_card_spans_the_track(qapp):
     assert label.alignment() & Qt.AlignmentFlag.AlignRight
     assert combo.x() == slider.x() + slider.slider.x()
     assert combo.geometry().right() == slider.x() + slider.slider.geometry().right()
+
+
+def test_a_value_column_button_leaves_the_field_the_whole_track(qapp):
+    from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+
+    from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, field_label
+    from negpy.desktop.view.widgets.sliders import align_slider_columns
+
+    card = QWidget()
+    body = QVBoxLayout(card)
+    slider = CompactSlider("Sharpening", 0.0, 1.0, 0.5)
+    body.addWidget(slider)
+    row = QHBoxLayout()
+    combo = QComboBox()
+    button = QPushButton()
+    button.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+    button.setProperty("value_column", True)
+    row.addWidget(field_label("Method"))
+    row.addWidget(combo, 1)
+    row.addWidget(button)
+    body.addLayout(row)
+    align_slider_columns(card)
+    card.resize(400, 100)
+    card.show()
+    qapp.processEvents()
+
+    track_right = slider.x() + slider.slider.geometry().right()
+    assert combo.geometry().right() == track_right
+    assert track_right < button.x() and button.geometry().right() <= card.width()
