@@ -6,8 +6,6 @@ from typing import Iterable
 
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QPushButton
 
 from negpy.desktop.view.confirm import confirm_reset_tab
 from negpy.desktop.view.styles.templates import header_button, wrap_tooltip
@@ -44,15 +42,6 @@ class TabHeader(CollapsibleSection):
 
         self.reset_requested.connect(self._on_reset)
         self.refresh()
-
-    def add_lead_toggle(self, icon: QIcon, tooltip: str) -> QPushButton:
-        """A tool that works across the tab's cards, in place of the layers icon."""
-        assert self.icon_label is not None
-        btn = header_button(icon, tooltip)
-        btn.setCheckable(True)
-        self._header_row.insertWidget(self._header_row.indexOf(self.icon_label), btn)
-        self.icon_label.hide()
-        return btn
 
     def bind(self, sections: Iterable[CollapsibleSection]) -> None:
         self._sections = tuple(sections)

@@ -27,6 +27,9 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.state.flat_output = False
     controller.session.state.config.flatfield.profile_id = ""
     controller.session.state.zones_overlay = False
+    controller.session.state.test_strip = False
+    controller.session.state.test_strip_kind = "tone"
+    controller.session.state.test_strip_expanded = None
     controller.session.state.clipping_overlay = False
     controller.session.state.printing_notes = False
     controller.session.state.grain_focuser = False
@@ -813,3 +816,75 @@ class TestZoneRow(unittest.TestCase):
         tb = _make_toolbar()
         tb.zone_legend.zone_hovered.emit(6)
         tb.controller.highlight_zone.assert_called_with(6)
+
+
+class TestPaperStripRow(unittest.TestCase):
+    KEYS = ["neutral", "pakon", "kodak_endura", "fuji_crystal"]
+
+    def _rows(self, tb: ActionToolbar) -> tuple[bool, bool, bool, bool]:
+        rows = (tb._view_row, tb._tool_row, tb._paper_row, tb._zone_row)
+        return tuple(not row.isHidden() for row in rows)
+
+    def _paper_up(self, expanded=None) -> ActionToolbar:
+        tb = _make_toolbar()
+        state = tb.session.state
+        state.test_strip = True
+        state.test_strip_kind = "paper"
+        state.test_strip_expanded = expanded
+        state.test_strip_layout = "bands"
+        tb.controller.paper_strip_keys.return_value = self.KEYS
+        tb._sync_tool_row()
+        return tb
+
+    def test_the_paper_strip_swaps_in_its_row_and_an_armed_tool_outranks_it(self):
+        tb = self._paper_up()
+        self.assertEqual(self._rows(tb), (False, False, True, False))
+        self.assertFalse(tb.paper_strip_hint.isHidden())
+        self.assertTrue(tb.paper_strip_combo.isHidden())
+        self.assertTrue(tb.btn_paper_keep.isHidden())
+
+        tb.session.state.zones_overlay = True
+        tb._sync_tool_row()
+        self.assertEqual(self._rows(tb), (False, False, True, False))
+
+        tb.session.state.active_tool = ToolMode.CROP_MANUAL
+        tb._sync_tool_row()
+        self.assertEqual(self._rows(tb), (False, True, False, False))
+
+    def test_a_tone_strip_keeps_the_view_row(self):
+        tb = self._paper_up()
+        tb.session.state.test_strip_kind = "tone"
+        tb._sync_tool_row()
+        self.assertEqual(self._rows(tb), (True, False, False, False))
+
+    def test_a_paper_shown_full_frame_is_named_and_can_be_kept(self):
+        tb = self._paper_up(expanded=2)
+        self.assertTrue(tb.paper_strip_hint.isHidden())
+        self.assertFalse(tb.paper_strip_combo.isHidden())
+        self.assertEqual(tb.paper_strip_combo.currentText(), "Kodak Endura Premier")
+        self.assertFalse(tb.btn_paper_keep.isHidden())
+        tb.controller.show_paper_strip.assert_not_called()
+
+    def test_the_row_drives_the_paper_strip(self):
+        tb = self._paper_up(expanded=2)
+        tb.paper_strip_combo.setCurrentIndex(3)
+        tb.controller.show_paper_strip.assert_called_once_with(3)
+        tb.btn_paper_back.click()
+        tb.controller.show_paper_strip.assert_called_with(None)
+        tb.btn_paper_keep.click()
+        tb.controller.keep_paper_strip.assert_called_once_with()
+        tb.btn_paper_close.click()
+        tb.controller.toggle_paper_strip.assert_called_once_with(force=False)
+
+    def test_the_strip_or_grid_choice_lays_the_papers_out(self):
+        tb = self._paper_up()
+        self.assertFalse(tb.paper_layout.isHidden())
+        self.assertEqual(tb.paper_layout.currentData(), "bands")
+        tb.paper_layout.setCurrentIndex(1)
+        tb.controller.set_paper_strip_layout.assert_called_once_with("grid")
+
+        tb.session.state.test_strip_layout = "grid"
+        tb.session.state.test_strip_expanded = 1
+        tb._sync_tool_row()
+        self.assertTrue(tb.paper_layout.isHidden())
+        self.assertEqual(tb.btn_paper_back.text().strip(), "Grid")

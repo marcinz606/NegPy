@@ -274,12 +274,19 @@ class AppState:
     test_strip_mosaic: Optional[Any] = None
     test_strip_mosaics: Optional[tuple] = None
     test_strip_content_rect: Optional[tuple] = None
-    # Which proof owns the canvas: "tone" (density x grade) or "color" (M/Y ring-around).
-    # One slot, so every path that drops a proof drops both kinds.
+    # Which proof owns the canvas: "tone" (density x grade), "color" (M/Y ring-around) or
+    # "paper" (a band per print stock). One slot, so every path that drops a proof drops all kinds.
     test_strip_kind: str = "tone"
-    # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear
+    # Quarter-turns CCW the ladder is turned by. Shared by every kind and kept across clear
     # and reprint, so a chosen orientation sticks for the session.
     test_strip_rotation: int = 0
+    # Paper strip only: each print stock's whole-frame render, and the one shown full frame
+    # (an index into them), or None while the bands are up. "grid" lays the papers out whole
+    # in `test_strip_grid` instead of as bands; kept for the session like the rotation.
+    test_strip_tiles: Optional[tuple] = None
+    test_strip_expanded: Optional[int] = None
+    test_strip_layout: str = "bands"
+    test_strip_grid: Optional[Any] = None
 
     # Pick Better: a session-only two-up, dropped by any real render. `pick_better` is True
     # while the three-frame window (committed edit on top, the two candidates below) is up;

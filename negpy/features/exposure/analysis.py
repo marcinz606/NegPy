@@ -500,6 +500,29 @@ def strip_mosaic(tiles: List[np.ndarray], grid: Tuple[int, int]) -> np.ndarray:
     return out
 
 
+def paper_grid(count: int) -> Tuple[int, int]:
+    """(rows, cols) of the paper strip's grid layout: near square, one cell per paper."""
+    cols = int(np.ceil(np.sqrt(count)))
+    return -(-count // cols), cols
+
+
+def paper_grid_mosaic(tiles: Sequence[np.ndarray]) -> np.ndarray:
+    """One frame holding every render whole, scaled into its own cell of `paper_grid`, row-major.
+    Each keeps its aspect, centered; cells past the last render stay black."""
+    rows, cols = paper_grid(len(tiles))
+    out = np.zeros_like(tiles[0])
+    h, w = out.shape[:2]
+    for i, tile in enumerate(tiles):
+        row, col = divmod(i, cols)
+        y0, y1 = _strip_bounds(h, rows, row)
+        x0, x1 = _strip_bounds(w, cols, col)
+        scale = min((y1 - y0) / h, (x1 - x0) / w)
+        th, tw = max(1, round(h * scale)), max(1, round(w * scale))
+        top, left = y0 + (y1 - y0 - th) // 2, x0 + (x1 - x0 - tw) // 2
+        out[top : top + th, left : left + tw] = cv2.resize(tile, (tw, th), interpolation=cv2.INTER_AREA)
+    return out
+
+
 def strip_patch_rect(h: int, w: int, row: int, col: int, grid: Tuple[int, int]) -> Tuple[int, int, int, int]:
     """(x0, y0, x1, y1) of one patch inside an h×w frame — the bounds `strip_mosaic` filled."""
     rows, cols = grid

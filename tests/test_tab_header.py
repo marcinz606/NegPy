@@ -3,6 +3,8 @@ expand that reach all of them at once. Cards keep their own headers."""
 
 from unittest.mock import MagicMock, patch
 
+import qtawesome as qta
+
 from PyQt6.QtGui import QIcon
 
 from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS, rows_for_fields, rows_for_section
@@ -233,3 +235,57 @@ def test_pick_better_leads_the_exposure_header():
 
     assert header._header_row.indexOf(panel.pick_better_btn) == 0
     panel.controller.toggle_pick_better.assert_called_once_with(force=True)
+
+
+def _paper_section():
+    return CollapsibleSection("Paper Response", icon=qta.icon("fa5s.scroll"))
+
+
+def _paper_panel(section):
+    from negpy.desktop.session import AppState
+
+    panel = MagicMock()
+    panel.paper_section = section
+    panel.controller.state = AppState()
+    panel._paper_strip_tooltip = ControlsPanel._paper_strip_tooltip
+    ControlsPanel._add_paper_strip(panel, section)
+    return panel
+
+
+def test_the_paper_strip_takes_the_paper_response_icon():
+    section = _paper_section()
+    panel = _paper_panel(section)
+    row = section._header_row
+
+    panel.paper_strip_btn.click()
+
+    assert section.icon_label.isHidden()
+    assert row.indexOf(panel.paper_strip_btn) < row.indexOf(section.title_label)
+    panel.controller.toggle_paper_strip.assert_called_once_with(force=True)
+
+
+def test_the_paper_strip_button_follows_the_proof_and_steps_aside_on_a_slide():
+    from dataclasses import replace
+
+    from negpy.features.process.models import ProcessMode
+
+    section = _paper_section()
+    panel = _paper_panel(section)
+    btn, state = panel.paper_strip_btn, panel.controller.state
+
+    def sync():
+        ControlsPanel._sync_paper_strip_btn(panel)
+
+    state.test_strip, state.test_strip_kind = True, "paper"
+    sync()
+    assert btn.isChecked() and btn.isEnabled()
+    state.test_strip_kind = "tone"
+    sync()
+    assert not btn.isChecked()
+    state.test_strip, state.test_strip_pending, state.test_strip_kind = False, True, "paper"
+    sync()
+    assert btn.isChecked() and not btn.isEnabled()
+
+    state.config = replace(state.config, process=replace(state.config.process, process_mode=ProcessMode.E6))
+    sync()
+    assert btn.isHidden() and not section.icon_label.isHidden()

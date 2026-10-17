@@ -11,6 +11,8 @@ from PyQt6.QtGui import QMouseEvent, QPainter, QPixmap
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.features.exposure.analysis import RING_GRID, STRIP_DENSITIES, STRIP_GRADES
+from negpy.features.exposure.papers import profiles_for_mode
+from negpy.features.process.models import ProcessMode
 
 
 def _press(pos: QPointF) -> QMouseEvent:
@@ -214,3 +216,124 @@ def test_each_proof_kind_lays_out_its_own_grid() -> None:
     overlay.state.test_strip_kind = "tone"
     assert overlay._strip_grid() == (len(STRIP_GRADES), len(STRIP_DENSITIES))
     assert len(overlay._strip_patch_rects(QRectF(0, 0, 90, 90))) == len(STRIP_GRADES) * len(STRIP_DENSITIES)
+
+
+PAPER_SHORTS = [p.short for _, p in profiles_for_mode(ProcessMode.C41)]
+
+
+def _paper_overlay(expanded=None) -> CanvasOverlay:
+    """The paper strip on a C-41 frame printed on Endura Premier, the third band."""
+    state = AppState()
+    state.test_strip = True
+    state.test_strip_kind = "paper"
+    state.test_strip_mosaic = np.zeros((400, 400, 3), dtype=np.float32)
+    state.test_strip_tiles = tuple(np.full((400, 400, 3), i / 10, dtype=np.float32) for i in range(len(PAPER_SHORTS)))
+    state.test_strip_expanded = expanded
+    state.config = replace(state.config, exposure=replace(state.config.exposure, paper_profile="kodak_endura"))
+    overlay = CanvasOverlay(state)
+    overlay._view_rect = QRectF(0, 0, 400, 400)
+    overlay._current_size = (400, 400)
+    return overlay
+
+
+def test_the_paper_strip_names_each_band_along_the_top() -> None:
+    overlay = _paper_overlay()
+    assert overlay._strip_grid() == (1, len(PAPER_SHORTS))
+    top, left, current = _strip_labels(overlay)
+
+    assert top == PAPER_SHORTS
+    assert left == [""]
+    assert current == (0, 2)
+
+
+def test_a_turned_paper_strip_names_its_bands_down_the_side() -> None:
+    overlay = _paper_overlay()
+    overlay.state.test_strip_rotation = 1
+    top, left, current = _strip_labels(overlay)
+
+    assert top == [""]
+    assert left == list(reversed(PAPER_SHORTS))
+    assert current == (len(PAPER_SHORTS) - 3, 0)
+
+
+def test_a_paper_shown_full_frame_paints_its_own_render_and_no_bands() -> None:
+    overlay = _paper_overlay(expanded=3)
+    with patch("negpy.desktop.view.canvas.overlay.ImageConverter.to_qimage") as convert:
+        convert.return_value = QPixmap(4, 4).toImage()
+        assert _paint(overlay, "_draw_strip_labels").called is False
+    assert convert.call_args.args[0] is overlay.state.test_strip_tiles[3]
+
+
+def test_a_click_on_a_paper_shown_full_frame_picks_nothing() -> None:
+    overlay = _paper_overlay(expanded=1)
+    picked: list = []
+    overlay.test_strip_picked.connect(lambda r, c: picked.append((r, c)))
+
+    overlay.mousePressEvent(_press(QPointF(50, 50)))
+
+    assert picked == []
+
+
+def test_enter_keeps_the_paper_shown_full_frame_only() -> None:
+    overlay = _paper_overlay()
+    kept: list = []
+    overlay.paper_strip_kept.connect(lambda: kept.append(1))
+
+    overlay.finish_in_progress()
+    assert kept == []
+    overlay.state.test_strip_expanded = 2
+    overlay.finish_in_progress()
+    assert kept == [1]
+
+
+def _grid_overlay() -> CanvasOverlay:
+    overlay = _paper_overlay()
+    overlay.state.test_strip_layout = "grid"
+    overlay.state.test_strip_grid = np.zeros((400, 400, 3), dtype=np.float32)
+    return overlay
+
+
+def test_the_paper_grid_names_each_paper_in_its_own_cell() -> None:
+    overlay = _grid_overlay()
+    overlay.state.test_strip_rotation = 1  # the bands turn; the grid does not
+    assert overlay._strip_grid() == (3, 3)
+
+    pixmap = QPixmap(400, 400)
+    painter = QPainter(pixmap)
+    with patch.object(overlay, "_draw_cell_labels") as spy:
+        overlay._draw_test_strip(painter)
+    painter.end()
+    texts, current = spy.call_args.args[2:]
+    assert texts == PAPER_SHORTS
+    assert current == 2
+
+
+def test_the_paper_grid_paints_its_own_mosaic() -> None:
+    overlay = _grid_overlay()
+    with patch("negpy.desktop.view.canvas.overlay.ImageConverter.to_qimage") as convert:
+        convert.return_value = QPixmap(4, 4).toImage()
+        overlay._strip_qimage()
+    assert convert.call_args.args[0] is overlay.state.test_strip_grid
+
+
+def test_a_click_picks_the_grid_cell_under_it() -> None:
+    overlay = _grid_overlay()
+    picked: list = []
+    overlay.test_strip_picked.connect(lambda r, c: picked.append((r, c)))
+
+    overlay.mousePressEvent(_press(QPointF(350, 200)))
+
+    assert picked == [(1, 2)]
+
+
+def test_an_empty_grid_cell_is_no_target() -> None:
+    overlay = _grid_overlay()
+    overlay.state.test_strip_tiles = overlay.state.test_strip_tiles[:7]
+    picked: list = []
+    overlay.test_strip_picked.connect(lambda r, c: picked.append((r, c)))
+
+    overlay.mousePressEvent(_press(QPointF(350, 350)))
+
+    assert overlay._strip_cell_at(0.9, 0.9) is None
+    assert overlay._strip_cell_at(0.1, 0.9) == (2, 0)
+    assert picked == []

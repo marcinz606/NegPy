@@ -626,6 +626,7 @@ class MainWindow(QMainWindow):
         self.controller.compare_hold_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
+        self.canvas.paper_strip_kept.connect(self.controller.keep_paper_strip)
         self.controller.pick_better_changed.connect(self._on_pick_better_changed)
         self.controller.pick_better_ready.connect(self._on_pick_better_ready)
         self._pick_better_window.picked.connect(self.controller.pick_better_select)

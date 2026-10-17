@@ -98,6 +98,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "preset_apply": ShortcutEntry("", "Apply the selected preset", "Actions"),
     "preset_save": ShortcutEntry("", "Save a preset from the current settings", "Actions"),
     "toggle_test_strip": ShortcutEntry("Shift+T", "Density × grade test strip", "Tools"),
+    "toggle_paper_strip": ShortcutEntry("", "Paper test strip: the frame on every print stock", "Tools"),
     "toggle_pick_better": ShortcutEntry("", "Pick Better: pick the better of two images", "Exposure"),
     "finish_pick_better": ShortcutEntry("", "Finish Pick Better", "Exposure"),
     "undo_pick_better": ShortcutEntry("", "Undo Pick Better", "Exposure"),

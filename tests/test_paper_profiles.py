@@ -174,6 +174,12 @@ class TestPaperProfiles(unittest.TestCase):
         self.assertEqual(len(c41), 1 + sum(p.kind == "ra4" for p in PAPER_PROFILES.values()))
         self.assertEqual(len(bw), 1 + sum(p.kind == "bw" for p in PAPER_PROFILES.values()))
 
+    def test_every_stock_has_a_distinct_short_name_for_its_strip_band(self):
+        for mode in (ProcessMode.C41, ProcessMode.BW):
+            shorts = [p.short for _, p in profiles_for_mode(mode)]
+            self.assertTrue(all(shorts), mode)
+            self.assertEqual(len(set(shorts)), len(shorts), mode)
+
 
 if __name__ == "__main__":
     unittest.main()

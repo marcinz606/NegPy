@@ -6,6 +6,8 @@ from negpy.features.exposure.analysis import (
     STRIP_DENSITIES,
     STRIP_GRADES,
     STRIP_GRID,
+    paper_grid,
+    paper_grid_mosaic,
     proof_grid,
     rotate_grid,
     rotated_cell,
@@ -158,3 +160,30 @@ def test_the_accent_follows_the_patch_it_marks(grid, rotation):
         for base_col in range(grid[1]):
             row, col = rotated_cell((base_row, base_col), grid, rotation)
             assert placed[row * cols + col] == base_row * grid[1] + base_col
+
+
+@pytest.mark.parametrize("count, grid", [(9, (3, 3)), (7, (3, 3)), (4, (2, 2)), (5, (2, 3))])
+def test_the_paper_grid_is_near_square_and_fits_every_paper(count, grid):
+    assert paper_grid(count) == grid
+
+
+def test_each_paper_cell_holds_its_whole_render_scaled_down():
+    tiles = _tiles(60, 90, grid=(1, 7))
+    mosaic = paper_grid_mosaic(tiles)
+
+    assert mosaic.shape == tiles[0].shape
+    # A 3x3 grid of 20x30 cells, row-major; the two cells past the last paper stay black.
+    for i in range(9):
+        row, col = divmod(i, 3)
+        cell = mosaic[row * 20 : (row + 1) * 20, col * 30 : (col + 1) * 30]
+        assert np.all(cell == (float(i) if i < 7 else 0.0)), i
+
+
+def test_a_paper_cell_off_the_frame_shape_keeps_the_render_aspect():
+    """Five papers make a 2x3 grid, so each cell is wider than the frame: the render is centered."""
+    tiles = [np.ones((60, 90, 3), np.float32) for _ in range(5)]
+    mosaic = paper_grid_mosaic(tiles)
+    cell = mosaic[:30, :30]
+    # 30x30 cell, the 60x90 render fits at 20x30: centered, with black above and below.
+    assert np.all(cell[5:25] == 1.0)
+    assert np.all(cell[:5] == 0.0) and np.all(cell[25:] == 0.0)

@@ -96,6 +96,12 @@ def _reset_selected(window, controller) -> None:
         controller.request_render()
 
 
+def _step_file(controller, step: int) -> None:
+    """Previous/next file, or the neighbor paper while the paper strip is up."""
+    if not controller.step_paper_strip(step):
+        (controller.session.next_file if step > 0 else controller.session.prev_file)()
+
+
 def _context_cancel(controller, window) -> None:
     """Esc ladder: whatever has taken the canvas over goes first — a test strip, any peek,
     the before/after split — then the grain focuser loupe, then an armed zone, then
@@ -103,6 +109,9 @@ def _context_cancel(controller, window) -> None:
     itself, or the Zone Overlay when no tool is armed."""
     if window.light_table_active():
         window.set_light_table(False)
+        return
+    if controller.state.test_strip and controller.state.test_strip_expanded is not None:
+        controller.show_paper_strip(None)
         return
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
@@ -420,8 +429,8 @@ class ShortcutManager:
         right = self.window.right_panel
 
         actions: dict[str, Callable[[], None]] = {
-            "prev_file": controller.session.prev_file,
-            "next_file": controller.session.next_file,
+            "prev_file": lambda: _step_file(controller, -1),
+            "next_file": lambda: _step_file(controller, 1),
             "first_file": controller.session.first_file,
             "last_file": controller.session.last_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
@@ -502,6 +511,7 @@ class ShortcutManager:
             "toggle_parade_overlay": lambda: _toggle_if_live(right.parade_overlay_btn),
             "toggle_scan_parade_base": lambda: _toggle_if_live(right.scan_base_btn),
             "toggle_test_strip": controller.toggle_test_strip,
+            "toggle_paper_strip": controller.toggle_paper_strip,
             "toggle_pick_better": controller.toggle_pick_better,
             "finish_pick_better": controller.pick_better_finish,
             "undo_pick_better": controller.pick_better_undo,

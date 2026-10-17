@@ -7,7 +7,15 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import gradient_icon, header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    PAPER_STRIP_SWEEP,
+    gradient_icon,
+    header_row,
+    hint_label,
+    section_subheader,
+    set_hint_kind,
+    wrap_tooltip,
+)
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -17,6 +25,7 @@ from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode, invalidate_local_bounds
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -316,6 +325,7 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.scroll",
             background_widget=self.paper_curve,
         )
+        self._add_paper_strip(self.paper_section)
 
         self.lab_sidebar = LabSidebar(self.controller)
         self.lab_section = self._make_section(
@@ -457,6 +467,39 @@ class ControlsPanel(QWidget):
             "the mode; Undo re-shows the previous pair.",
             "toggle_pick_better",
         )
+
+    def _add_paper_strip(self, section: CollapsibleSection) -> None:
+        """The Paper Test Strip tries every print stock, so it takes the Paper Response card's own icon."""
+        self.paper_strip_btn = section.add_lead_toggle(gradient_icon("fa5s.scroll", PAPER_STRIP_SWEEP), self._paper_strip_tooltip())
+        self.paper_strip_btn.clicked.connect(lambda checked: self.controller.toggle_paper_strip(force=checked))
+        # Session state, not config, so the button follows the controller rather than sync_ui.
+        self.controller.test_strip_changed.connect(self._sync_paper_strip_btn)
+
+    @staticmethod
+    def _paper_strip_tooltip(printing: bool = False) -> str:
+        if printing:
+            return "Printing the paper test strip…"
+        return tooltip_with_shortcut(
+            "Paper Test Strip: print the frame on every print stock, as a band each or as a grid of "
+            "small frames. Click a paper to see it on the whole frame, step to the next paper, and keep "
+            "the one you like. The 90° rotate controls turn the bands while the strip is up.",
+            "toggle_paper_strip",
+        )
+
+    def _sync_paper_strip_btn(self, _up: bool = False) -> None:
+        state = self.controller.state
+        icon = self.paper_section.icon_label
+        assert icon is not None
+        # A slide is rendered from the capture and no print stock reaches it, so the card keeps its plain icon.
+        printable = render_path(state.config.process) is RenderPath.PRINT
+        self.paper_strip_btn.setVisible(printable)
+        icon.setVisible(not printable)
+        # One shared slot, so the kind gates this or the other proofs light this button too.
+        mine = state.test_strip_kind == "paper"
+        pending = state.test_strip_pending and mine
+        self.paper_strip_btn.setChecked((state.test_strip or state.test_strip_pending) and mine)
+        self.paper_strip_btn.setEnabled(not pending)
+        self.paper_strip_btn.setToolTip(wrap_tooltip(self._paper_strip_tooltip(printing=pending)))
 
     def _sync_pick_better_btn(self, _up: bool) -> None:
         """ponytail: Pick Better is one job with no per-pair progress — the button is
@@ -1013,6 +1056,7 @@ class ControlsPanel(QWidget):
         self.color_sidebar.sync_ui()
         self.tone_sidebar.sync_ui()
         self.paper_sidebar.sync_ui()
+        self._sync_paper_strip_btn()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()
         self.altproc_sidebar.sync_ui()
