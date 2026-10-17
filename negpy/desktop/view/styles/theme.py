@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Dict
 
@@ -151,3 +152,85 @@ SCENE_COLORS = (THEME.channel_blue, THEME.status_success, THEME.warn_amber, THEM
 
 def scene_color(ordinal: int) -> str:
     return SCENE_COLORS[(ordinal - 1) % len(SCENE_COLORS)]
+
+
+# Preferences > Interface > UI Theme. Every "surfaces, darkest first" background and border
+# lightened by the same offset that turns bg_dark into a photographic middle gray, so the
+# depth ordering between panel, card and header is unchanged. The grays used for secondary
+# and hint copy go white, since they read too close to the new mid-gray surfaces otherwise;
+# text_muted stays put, since it is documented as deliberately low-contrast (disabled only).
+# surface_overlay_strong/_hover back the Metering, Filtration, Tone and Paper Response
+# headers (collapsible.py's background_widget cards): a translucent wash over that card's
+# mini chart, not a flat token read, so it needs its own override alongside bg_header.
+_MIDDLE_GRAY_OVERRIDES: Dict[str, str] = {
+    "bg_dark": "#808080",
+    "bg_panel": "#808080",
+    "bg_input": "#7D7D7D",
+    "bg_card": "#858585",
+    "bg_header": "#898989",
+    "bg_status_bar": "#7D7D7D",
+    "bg_selected": "#959595",
+    "bg_hover": "#999999",
+    "bg_menu_selected": "#A1A1A1",
+    "border_input": "#8D8D8D",
+    "border_primary": "#999999",
+    "border_color": "#A6A6A6",
+    "border_hover": "#ADADAD",
+    "bg_indicator": "#8D8D8D",
+    "bg_indicator_hover": "#939393",
+    "bg_indicator_disabled": "#878787",
+    "slider_fill_disabled": "#9D9D9D",
+    "surface_overlay_strong": "rgba(141,141,141,0.82)",
+    "surface_overlay_hover": "rgba(149,149,149,0.88)",
+    "text_secondary": "#FFFFFF",
+    "text_hint": "#FFFFFF",
+    "text_unit": "#FFFFFF",
+}
+
+# Same lightening, anchored to canvas_bg_mid_grey (the "Mid Gray" canvas swatch) instead of a
+# photographic middle gray. Still dark enough that the existing text grays stay readable, so
+# none of them need the white override above.
+_DARK_GRAY_OVERRIDES: Dict[str, str] = {
+    "bg_dark": "#404040",
+    "bg_panel": "#404040",
+    "bg_input": "#3D3D3D",
+    "bg_card": "#454545",
+    "bg_header": "#494949",
+    "bg_status_bar": "#3D3D3D",
+    "bg_selected": "#555555",
+    "bg_hover": "#595959",
+    "bg_menu_selected": "#616161",
+    "border_input": "#4D4D4D",
+    "border_primary": "#595959",
+    "border_color": "#666666",
+    "border_hover": "#6D6D6D",
+    "bg_indicator": "#4D4D4D",
+    "bg_indicator_hover": "#535353",
+    "bg_indicator_disabled": "#474747",
+    "slider_fill_disabled": "#5D5D5D",
+    "surface_overlay_strong": "rgba(77,77,77,0.82)",
+    "surface_overlay_hover": "rgba(85,85,85,0.88)",
+}
+
+UI_THEMES: tuple[tuple[str, str], ...] = (
+    ("black", "Black (Default)"),
+    ("dark_gray", "Dark Gray"),
+    ("middle_gray", "Middle Gray"),
+)
+_THEME_OVERRIDES: Dict[str, Dict[str, str]] = {
+    "dark_gray": _DARK_GRAY_OVERRIDES,
+    "middle_gray": _MIDDLE_GRAY_OVERRIDES,
+}
+# A theme saved under its pre-rename key still resolves, so a restart before this build
+# lands does not silently fall back to Black.
+_LEGACY_THEME_KEYS: Dict[str, str] = {"mid_gray": "dark_gray"}
+_DEFAULT_THEME = ThemeConfig()
+
+
+def apply_theme(key: str) -> None:
+    """Patches the shared THEME instance in place so every module that already holds a
+    reference to it (imported at their own load time) picks up the chosen palette. Read once
+    at startup; switching requires a restart to repaint every baked stylesheet and icon."""
+    overrides = _THEME_OVERRIDES.get(_LEGACY_THEME_KEYS.get(key, key), {})
+    for f in dataclasses.fields(THEME):
+        object.__setattr__(THEME, f.name, overrides.get(f.name, getattr(_DEFAULT_THEME, f.name)))
