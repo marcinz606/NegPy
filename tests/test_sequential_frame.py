@@ -1,7 +1,23 @@
 from unittest.mock import MagicMock
+import pytest
 
 from negpy.desktop.session import DesktopSessionManager
 from negpy.infrastructure.storage.repository import StorageRepository
+
+
+@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임")])
+@pytest.mark.parametrize("count", [1, 2])
+def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: str, count: int) -> None:
+    from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
+    from negpy.kernel.system import i18n
+
+    previous = i18n.language()
+    try:
+        i18n.configure(locale)
+        dialog = SequentialFrameDialog(None, count, count, 10)
+        assert dialog.preview.text().endswith(f"({count} {noun})")
+    finally:
+        i18n.configure(previous)
 
 
 def _session() -> DesktopSessionManager:

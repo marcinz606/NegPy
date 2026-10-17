@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -88,12 +89,16 @@ class SessionPanel(QWidget):
         self.update_info = info
         self.update_found.emit(info.version)
         self.update_label.setText(
-            f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">Update Available: v{info.version}</a>'
+            tr(
+                '<a href="#update" style="color:{status_success}; text-decoration:none;">Update Available: v{version}</a>',
+                status_success=THEME.status_success,
+                version=info.version,
+            )
         )
         self.update_label.setToolTip(
-            "Install this update — NegPy downloads it, closes, and reopens on the new version"
+            tr("Install this update — NegPy downloads it, closes, and reopens on the new version")
             if info.can_self_install
-            else "See what is new and where to download it"
+            else tr("See what is new and where to download it")
         )
         self.update_label.setVisible(True)
 
@@ -116,7 +121,7 @@ class SessionPanel(QWidget):
     def _on_manual_check(self, info: Optional[UpdateInfo]) -> None:
         self._checking = False
         if info is None:
-            QMessageBox.information(self, "Check for Updates", f"NegPy {get_app_version()} is up to date.")
+            QMessageBox.information(self, tr("Check for Updates"), tr("NegPy {value} is up to date.", value=get_app_version()))
             return
         self._on_update_checked(info)
         self.show_update_dialog()

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer
@@ -17,7 +18,7 @@ _TOAST_MIN_WIDTH = 320
 _TOAST_PADDING = 40
 
 INFO_OFF, INFO_BASIC, INFO_FULL = range(3)
-INFO_LEVEL_LABELS = ("Off", "Basic", "Full")
+INFO_LEVEL_LABELS = (tr("Off"), tr("Basic"), tr("Full"))
 
 
 def _film_line(meta: Any) -> str:

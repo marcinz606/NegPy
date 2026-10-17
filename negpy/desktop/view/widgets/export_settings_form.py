@@ -1,3 +1,5 @@
+from negpy.desktop.view.styles.templates import add_choice_items, choice_label
+from negpy.kernel.system.i18n import tr
 import os
 from typing import Any, Dict, Optional
 
@@ -112,13 +114,13 @@ class ExportSettingsForm(QWidget):
         format_box.setContentsMargins(0, 0, 0, 0)
         format_box.setSpacing(10)
 
-        format_box.addWidget(section_subheader("FORMAT"))
+        format_box.addWidget(section_subheader(tr("FORMAT")))
 
         fmt_row = QHBoxLayout()
-        fmt_row.addWidget(self._row_label("Format"))
+        fmt_row.addWidget(self._row_label(tr("Format")))
         self.fmt_combo = StepCombo()
         for f in ExportFormat:
-            self.fmt_combo.addItem(f.value, f.value)
+            self.fmt_combo.addItem(choice_label(f.value), f.value)
         constrain_combo(self.fmt_combo)
         self.fmt_combo.currentIndexChanged.connect(self._on_fmt_changed)
         fmt_row.addWidget(self.fmt_combo)
@@ -131,11 +133,11 @@ class ExportSettingsForm(QWidget):
         self._depth_container = QWidget()
         depth_row = QHBoxLayout(self._depth_container)
         depth_row.setContentsMargins(0, 0, 0, 0)
-        depth_row.addWidget(self._row_label("Bit Depth"))
+        depth_row.addWidget(self._row_label(tr("Bit Depth")))
         self.bit_depth_combo = StepCombo()
         for label, data in (("8-bit", 8), ("16-bit", 16)):
             self.bit_depth_combo.addItem(label, data)
-        self.bit_depth_combo.setToolTip("JPEG and WebP are 8-bit formats and ignore this")
+        self.bit_depth_combo.setToolTip(tr("JPEG and WebP are 8-bit formats and ignore this"))
         constrain_combo(self.bit_depth_combo)
         self.bit_depth_combo.currentIndexChanged.connect(self._on_changed)
         depth_row.addWidget(self.bit_depth_combo)
@@ -144,11 +146,11 @@ class ExportSettingsForm(QWidget):
         self._quality_container = QWidget()
         quality_box = QVBoxLayout(self._quality_container)
         quality_box.setContentsMargins(0, 0, 0, 0)
-        self.quality_spin = CompactSlider("JPEG Quality", 1, 100, 90, step=1, precision=1)
+        self.quality_spin = CompactSlider(tr("JPEG Quality"), 1, 100, 90, step=1, precision=1)
         self.quality_spin.valueChanged.connect(self._on_changed)
         quality_box.addWidget(self.quality_spin)
         self.jpeg_progressive_btn = tool_toggle(
-            "fa5s.stream", "Progressive", "Renders in passes while downloading; slightly smaller on large images", align_left=True
+            "fa5s.stream", tr("Progressive"), tr("Renders in passes while downloading; slightly smaller on large images"), align_left=True
         )
         self.jpeg_progressive_btn.toggled.connect(self._on_changed)
         quality_box.addWidget(self.jpeg_progressive_btn)
@@ -165,15 +167,15 @@ class ExportSettingsForm(QWidget):
         self._tiff_container = QWidget()
         tiff_row = QHBoxLayout(self._tiff_container)
         tiff_row.setContentsMargins(0, 0, 0, 0)
-        tiff_row.addWidget(self._row_label("Compression"))
+        tiff_row.addWidget(self._row_label(tr("Compression")))
         self.tiff_compression_combo = StepCombo()
         for label, data in (
-            ("Uncompressed", TiffCompression.NONE),
+            (tr("Uncompressed"), TiffCompression.NONE),
             ("LZW", TiffCompression.LZW),
             ("ZIP", TiffCompression.ZIP),
         ):
             self.tiff_compression_combo.addItem(label, data)
-        self.tiff_compression_combo.setToolTip("All three are lossless; ZIP is usually the smallest")
+        self.tiff_compression_combo.setToolTip(tr("All three are lossless; ZIP is usually the smallest"))
         constrain_combo(self.tiff_compression_combo)
         self.tiff_compression_combo.currentIndexChanged.connect(self._on_changed)
         tiff_row.addWidget(self.tiff_compression_combo)
@@ -183,8 +185,8 @@ class ExportSettingsForm(QWidget):
         self._png_container = QWidget()
         png_box = QVBoxLayout(self._png_container)
         png_box.setContentsMargins(0, 0, 0, 0)
-        self.png_level_spin = CompactSlider("Compression", 0, 9, 6, step=1, precision=1)
-        self.png_level_spin.setToolTip("Lossless either way: higher = slower, smaller file")
+        self.png_level_spin = CompactSlider(tr("Compression"), 0, 9, 6, step=1, precision=1)
+        self.png_level_spin.setToolTip(tr("Lossless either way: higher = slower, smaller file"))
         self.png_level_spin.valueChanged.connect(self._on_changed)
         png_box.addWidget(self.png_level_spin)
         root.addWidget(self._png_container)
@@ -194,18 +196,20 @@ class ExportSettingsForm(QWidget):
         jxl_box = QVBoxLayout(self._jxl_container)
         jxl_box.setContentsMargins(0, 0, 0, 0)
 
-        self.jxl_lossless_btn = tool_toggle("fa5s.gem", "Lossless", "Encode without loss; Distance applies only when off", align_left=True)
+        self.jxl_lossless_btn = tool_toggle(
+            "fa5s.gem", tr("Lossless"), tr("Encode without loss; Distance applies only when off"), align_left=True
+        )
         self.jxl_lossless_btn.setChecked(True)
         self.jxl_lossless_btn.toggled.connect(self._on_jxl_lossless_toggled)
         jxl_box.addWidget(self.jxl_lossless_btn)
 
-        self.jxl_distance_spin = CompactSlider("Distance", 0.0, 15.0, 1.0, step=0.1)
-        self.jxl_distance_spin.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
+        self.jxl_distance_spin = CompactSlider(tr("Distance"), 0.0, 15.0, 1.0, step=0.1)
+        self.jxl_distance_spin.setToolTip(tr("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss"))
         self.jxl_distance_spin.valueChanged.connect(self._on_changed)
         jxl_box.addWidget(self.jxl_distance_spin)
 
-        self.jxl_effort_spin = CompactSlider("Effort", 1, 9, 7, step=1, precision=1)
-        self.jxl_effort_spin.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.jxl_effort_spin = CompactSlider(tr("Effort"), 1, 9, 7, step=1, precision=1)
+        self.jxl_effort_spin.setToolTip(tr("Encoder effort: higher = slower, smaller file"))
         self.jxl_effort_spin.valueChanged.connect(self._on_changed)
         jxl_box.addWidget(self.jxl_effort_spin)
 
@@ -220,18 +224,18 @@ class ExportSettingsForm(QWidget):
         webp_box.setContentsMargins(0, 0, 0, 0)
 
         self.webp_lossless_btn = tool_toggle(
-            "fa5s.gem", "Lossless", "Encode without loss; Quality then sets compression effort", align_left=True
+            "fa5s.gem", tr("Lossless"), tr("Encode without loss; Quality then sets compression effort"), align_left=True
         )
         self.webp_lossless_btn.toggled.connect(self._on_changed)
         webp_box.addWidget(self.webp_lossless_btn)
 
-        self.webp_quality_spin = CompactSlider("Quality", 1, 100, 90, step=1, precision=1)
-        self.webp_quality_spin.setToolTip("Lossy: visual quality. Lossless: compression effort.")
+        self.webp_quality_spin = CompactSlider(tr("Quality"), 1, 100, 90, step=1, precision=1)
+        self.webp_quality_spin.setToolTip(tr("Lossy: visual quality. Lossless: compression effort."))
         self.webp_quality_spin.valueChanged.connect(self._on_changed)
         webp_box.addWidget(self.webp_quality_spin)
 
-        self.webp_method_spin = CompactSlider("Method", 0, 6, 4, step=1, precision=1)
-        self.webp_method_spin.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.webp_method_spin = CompactSlider(tr("Method"), 0, 6, 4, step=1, precision=1)
+        self.webp_method_spin.setToolTip(tr("Encoder effort: higher = slower, smaller file"))
         self.webp_method_spin.valueChanged.connect(self._on_changed)
         webp_box.addWidget(self.webp_method_spin)
 
@@ -246,16 +250,18 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._size_section)
 
-        root.addWidget(section_subheader("SIZE"))
+        root.addWidget(section_subheader(tr("SIZE")))
 
         self.mode_btn = SegmentedChoice(
-            (("", "Original"), ("", "Print"), ("", "Pixels")),
-            "Original exports at the source resolution. Print sizes the export for a print: paper "
-            "size and DPI. Pixels sizes it to a pixel count on the long edge",
+            (("", tr("Original")), ("", tr("Print")), ("", tr("Pixels"))),
+            tr(
+                "Original exports at the source resolution. Print sizes the export for a print: paper "
+                "size and DPI. Pixels sizes it to a pixel count on the long edge"
+            ),
         )
         self.mode_btn.currentChanged.connect(self._on_mode_toggled)
         mode_row = QHBoxLayout()
-        mode_row.addWidget(self._row_label("Resolution"))
+        mode_row.addWidget(self._row_label(tr("Resolution")))
         mode_row.addWidget(self.mode_btn, 1)
         root.addLayout(mode_row)
 
@@ -267,13 +273,13 @@ class ExportSettingsForm(QWidget):
         self.size_input.setValue(30.0)
         self.size_input.setSuffix(" cm")
         self.size_input.setLocale(QLocale.c())
-        self.size_input.setToolTip("Long edge of the print")
+        self.size_input.setToolTip(tr("Long edge of the print"))
         self.size_input.valueChanged.connect(self._on_changed)
         print_inner.addLayout(self._field_row("Size", self.size_input))
         self.dpi_input = QSpinBox()
         self.dpi_input.setRange(72, 4800)
         self.dpi_input.setValue(300)
-        self.dpi_input.setToolTip("Print resolution in dots per inch")
+        self.dpi_input.setToolTip(tr("Print resolution in dots per inch"))
         self.dpi_input.valueChanged.connect(self._on_changed)
         print_inner.addLayout(self._field_row("DPI", self.dpi_input))
 
@@ -285,11 +291,11 @@ class ExportSettingsForm(QWidget):
         self.target_px_input.setRange(256, 32768)
         self.target_px_input.setValue(2000)
         self.target_px_input.setSuffix(" px")
-        self.target_px_input.setToolTip("Long edge of the exported image")
+        self.target_px_input.setToolTip(tr("Long edge of the exported image"))
         self.target_px_input.valueChanged.connect(self._on_changed)
-        target_px_inner.addLayout(self._field_row("Long edge", self.target_px_input))
-        self.output_sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, 0.0)
-        self.output_sharpen_slider.setToolTip("Sharpens the export at its final size, after the resize. It adds to the Lab Sharpening")
+        target_px_inner.addLayout(self._field_row(tr("Long edge"), self.target_px_input))
+        self.output_sharpen_slider = CompactSlider(tr("Sharpening"), 0.0, 1.0, 0.0)
+        self.output_sharpen_slider.setToolTip(tr("Sharpens the export at its final size, after the resize. It adds to the Lab Sharpening"))
         self.output_sharpen_slider.valueChanged.connect(self._on_changed)
         options = QWidget()
         options_box = QVBoxLayout(options)
@@ -302,10 +308,10 @@ class ExportSettingsForm(QWidget):
         self._ratio_row_widget = QWidget()
         ratio_row = QHBoxLayout(self._ratio_row_widget)
         ratio_row.setContentsMargins(0, 0, 0, 0)
-        ratio_row.addWidget(self._row_label("Paper ratio"))
+        ratio_row.addWidget(self._row_label(tr("Paper ratio")))
         self.ratio_combo = StepCombo()
         ratios = [AspectRatio.ORIGINAL] + [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
-        self.ratio_combo.addItems(ratios)
+        add_choice_items(self.ratio_combo, ratios)
         constrain_combo(self.ratio_combo)
         self.ratio_combo.currentTextChanged.connect(self._on_changed)
         ratio_row.addWidget(self.ratio_combo)
@@ -320,17 +326,21 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._color_section)
 
-        self.icc_import_btn = icon_button("fa5s.folder-open", f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
+        self.icc_import_btn = icon_button(
+            "fa5s.folder-open", tr("Import an ICC profile into {user_icc_dir}", user_icc_dir=APP_CONFIG.user_icc_dir)
+        )
         self.icc_import_btn.clicked.connect(self._import_icc)
-        root.addLayout(header_row(section_subheader("COLOR MANAGEMENT"), self.icc_import_btn))
+        root.addLayout(header_row(section_subheader(tr("COLOR MANAGEMENT")), self.icc_import_btn))
 
         input_row = QHBoxLayout()
-        input_row.addWidget(self._row_label("Input ICC"))
+        input_row.addWidget(self._row_label(tr("Input ICC")))
         self.input_combo = StepCombo()
         constrain_combo(self.input_combo)
         self.input_combo.setToolTip(
-            "Treat the source as this profile, for a scan whose profile is known but untagged. "
-            "Processing itself is scene-linear on Adobe RGB primaries."
+            tr(
+                "Treat the source as this profile, for a scan whose profile is known but untagged. "
+                "Processing itself is scene-linear on Adobe RGB primaries."
+            )
         )
         self.input_combo.currentIndexChanged.connect(self._on_changed)
         input_row.addWidget(self.input_combo)
@@ -340,12 +350,14 @@ class ExportSettingsForm(QWidget):
         # downstream (encode_export, effective_output_icc), so offering both as separate
         # rows shows a live-looking selector that the other one silently voids.
         profile_row = QHBoxLayout()
-        profile_row.addWidget(self._row_label("Export profile"))
+        profile_row.addWidget(self._row_label(tr("Export profile")))
         self.export_profile_combo = StepCombo()
         constrain_combo(self.export_profile_combo)
         self.export_profile_combo.setToolTip(
-            "Color space the exported file is converted to and tagged with. Pick an imported "
-            "ICC profile to target a printer or paper instead."
+            tr(
+                "Color space the exported file is converted to and tagged with. Pick an imported "
+                "ICC profile to target a printer or paper instead."
+            )
         )
         self.export_profile_combo.currentIndexChanged.connect(self._on_export_profile_changed)
         profile_row.addWidget(self.export_profile_combo)
@@ -383,10 +395,10 @@ class ExportSettingsForm(QWidget):
         self.export_profile_combo.blockSignals(True)
         try:
             self.input_combo.clear()
-            self.input_combo.addItem("None", None)
+            self.input_combo.addItem(tr("None"), None)
             self.export_profile_combo.clear()
             for cs in EXPORT_COLOR_SPACES:
-                self.export_profile_combo.addItem(cs, cs)
+                self.export_profile_combo.addItem(choice_label(cs), cs)
             if custom:
                 self.export_profile_combo.insertSeparator(self.export_profile_combo.count())
             for path in custom:
@@ -404,7 +416,7 @@ class ExportSettingsForm(QWidget):
         'NegPy ignored my profile'. Item lookups go by payload, not text."""
         idx = self.export_profile_combo.findData(ColorSpace.SAME_AS_SOURCE.value)
         if idx >= 0:
-            label = ColorSpace.SAME_AS_SOURCE.value
+            label = choice_label(ColorSpace.SAME_AS_SOURCE.value)
             self.export_profile_combo.setItemText(idx, f"{label} ({color_space})" if color_space else label)
 
     def _on_export_profile_changed(self) -> None:
@@ -415,7 +427,7 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _import_icc(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import ICC Profile", "", "ICC profiles (*.icc *.icm)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Import ICC Profile"), "", tr("ICC profiles (*.icc *.icm)"))
         if not path:
             return
         # ColorSpaceRegistry prefers a user file named after a space, so such an import
@@ -424,16 +436,19 @@ class ExportSettingsForm(QWidget):
         if stem in _EXPORT_SPACES:
             confirm = QMessageBox.question(
                 self,
-                "Replace Built-in Space",
-                f"A profile named '{stem}' replaces NegPy's own {stem} profile everywhere, "
-                "instead of appearing as a separate choice. Import anyway?",
+                tr("Replace Built-in Space"),
+                tr(
+                    "A profile named '{stem}' replaces NegPy's own {value} profile everywhere, instead of appearing as a separate choice. Import anyway?",
+                    stem=stem,
+                    value=stem,
+                ),
             )
             if confirm != QMessageBox.StandardButton.Yes:
                 return
         try:
             stored = import_icc_profile(path, APP_CONFIG.user_icc_dir)
         except (ValueError, OSError) as e:
-            QMessageBox.warning(self, "Import ICC Profile", str(e))
+            QMessageBox.warning(self, tr("Import ICC Profile"), str(e))
             return
         self._reload_icc_profiles(select=stored)
         self._on_export_profile_changed()
@@ -441,14 +456,14 @@ class ExportSettingsForm(QWidget):
     # --- DESTINATION ---------------------------------------------------------
 
     def _build_destination(self, root: QVBoxLayout) -> None:
-        root.addWidget(section_subheader("DESTINATION"))
+        root.addWidget(section_subheader(tr("DESTINATION")))
 
         mode_row = QHBoxLayout()
-        mode_row.addWidget(self._row_label("Folder"))
+        mode_row.addWidget(self._row_label(tr("Folder")))
         self.output_mode_combo = StepCombo()
-        self.output_mode_combo.addItem("Subfolder of source", ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)
-        self.output_mode_combo.addItem("Same as source", ExportPresetOutputMode.SAME_AS_SOURCE)
-        self.output_mode_combo.addItem("Absolute path", ExportPresetOutputMode.ABSOLUTE)
+        self.output_mode_combo.addItem(tr("Subfolder of source"), ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)
+        self.output_mode_combo.addItem(tr("Same as source"), ExportPresetOutputMode.SAME_AS_SOURCE)
+        self.output_mode_combo.addItem(tr("Absolute path"), ExportPresetOutputMode.ABSOLUTE)
         constrain_combo(self.output_mode_combo)
         self.output_mode_combo.currentIndexChanged.connect(self._on_output_mode_changed)
         mode_row.addWidget(self.output_mode_combo)
@@ -457,9 +472,9 @@ class ExportSettingsForm(QWidget):
         self._subfolder_container = QWidget()
         sf_inner = QHBoxLayout(self._subfolder_container)
         sf_inner.setContentsMargins(0, 0, 0, 0)
-        sf_inner.addWidget(self._row_label("Subfolder"))
+        sf_inner.addWidget(self._row_label(tr("Subfolder")))
         self.subfolder_edit = QLineEdit()
-        self.subfolder_edit.setPlaceholderText("e.g. TIFF")
+        self.subfolder_edit.setPlaceholderText(tr("e.g. TIFF"))
         self.subfolder_edit.textChanged.connect(self._on_changed)
         sf_inner.addWidget(self.subfolder_edit)
         root.addWidget(self._subfolder_container)
@@ -467,29 +482,31 @@ class ExportSettingsForm(QWidget):
         self._abspath_container = QWidget()
         ap_inner = QHBoxLayout(self._abspath_container)
         ap_inner.setContentsMargins(0, 0, 0, 0)
-        ap_inner.addWidget(self._row_label("Path"))
+        ap_inner.addWidget(self._row_label(tr("Path")))
         self.abspath_edit = QLineEdit()
-        self.abspath_edit.setToolTip("Export folder")
+        self.abspath_edit.setToolTip(tr("Export folder"))
         self.abspath_edit.textChanged.connect(self._on_changed)
-        self.abspath_browse_btn = icon_button("fa5s.folder-open", "Choose export folder")
+        self.abspath_browse_btn = icon_button("fa5s.folder-open", tr("Choose export folder"))
         self.abspath_browse_btn.clicked.connect(self._browse_output_path)
         ap_inner.addWidget(self.abspath_edit)
         ap_inner.addWidget(self.abspath_browse_btn)
         root.addWidget(self._abspath_container)
 
         filename_row = QHBoxLayout()
-        filename_row.addWidget(self._row_label("Filename"))
+        filename_row.addWidget(self._row_label(tr("Filename")))
         self.filename_edit = QLineEdit()
-        self.filename_edit.setPlaceholderText("Filename Pattern…")
+        self.filename_edit.setPlaceholderText(tr("Filename Pattern…"))
         self.filename_edit.setToolTip(
-            "Jinja2 template. Variables:\n"
-            "{{ original_name }}, {{ colorspace }}, {{ format }},\n"
-            "{{ paper_ratio }}, {{ size }}, {{ dpi }}, {{ target_px }},\n"
-            "{{ border }}, {{ date }},\n"
-            "{{ roll }}, {{ frame }}, {{ frame|pad(3) }}, {{ frame_padded }},\n"
-            "{{ camera }}, {{ lens }}, {{ film }}, {{ film_iso }}, {{ film_format }},\n"
-            "{{ developer }}, {{ push_pull }}, {{ scanning }}, {{ exposure }}\n"
-            "(see docs/TEMPLATING.md for the full list)"
+            tr(
+                "Jinja2 template. Variables:\n"
+                "{{ original_name }}, {{ colorspace }}, {{ format }},\n"
+                "{{ paper_ratio }}, {{ size }}, {{ dpi }}, {{ target_px }},\n"
+                "{{ border }}, {{ date }},\n"
+                "{{ roll }}, {{ frame }}, {{ frame|pad(3) }}, {{ frame_padded }},\n"
+                "{{ camera }}, {{ lens }}, {{ film }}, {{ film_iso }}, {{ film_format }},\n"
+                "{{ developer }}, {{ push_pull }}, {{ scanning }}, {{ exposure }}\n"
+                "(see docs/TEMPLATING.md for the full list)"
+            )
         )
         self.filename_edit.textChanged.connect(self._on_changed)
         filename_row.addWidget(self.filename_edit)
@@ -497,8 +514,8 @@ class ExportSettingsForm(QWidget):
 
         self.overwrite_btn = tool_toggle(
             "fa5s.copy",
-            "Overwrite Existing Files",
-            "On: replace existing files without asking. Off: ask first (Overwrite / Rename / Cancel).",
+            tr("Overwrite Existing Files"),
+            tr("On: replace existing files without asking. Off: ask first (Overwrite / Rename / Cancel)."),
             align_left=True,
         )
         self.overwrite_btn.toggled.connect(self._on_changed)
@@ -563,8 +580,10 @@ class ExportSettingsForm(QWidget):
         blocked = self.is_export_blocked()
         if blocked:
             self.jxl_cs_warning.setText(
-                f"JPEG XL can't tag {self.export_profile_combo.currentText()} — "
-                "choose sRGB, P3 D65, Rec 2020, or Grayscale, or a different format."
+                tr(
+                    "JPEG XL can't tag {value} — choose sRGB, P3 D65, Rec 2020, or Grayscale, or a different format.",
+                    value=self.export_profile_combo.currentText(),
+                )
             )
         self.jxl_cs_warning.setVisible(blocked)
 
@@ -579,7 +598,7 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _browse_output_path(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self.abspath_edit.text())
+        path = QFileDialog.getExistingDirectory(self, tr("Select Export Directory"), self.abspath_edit.text())
         if path:
             self.abspath_edit.setText(path)
 
@@ -630,13 +649,13 @@ class ExportSettingsForm(QWidget):
             # "(lossless)" on the JXL entry: a flat master is always lossless, since
             # flat_export_config() forces jxl_lossless=True, so the label should never leave that in
             # doubt the way the general "JXL" entry does.
-            flat_items = [(ExportFormat.TIFF.value, ExportFormat.TIFF.value), ("JXL (lossless)", ExportFormat.JXL.value)]
+            flat_items = [(ExportFormat.TIFF.value, ExportFormat.TIFF.value), (tr("JXL (lossless)"), ExportFormat.JXL.value)]
             for label, data in flat_items:
                 self.fmt_combo.addItem(label, data)
             target = current if current in (ExportFormat.TIFF.value, ExportFormat.JXL.value) else ExportFormat.TIFF.value
         else:
             for f in ExportFormat:
-                self.fmt_combo.addItem(f.value, f.value)
+                self.fmt_combo.addItem(choice_label(f.value), f.value)
             all_formats = [f.value for f in ExportFormat]
             target = current if current in all_formats else ExportFormat.JPEG.value
         idx = self.fmt_combo.findData(target)
@@ -724,7 +743,7 @@ class ExportSettingsForm(QWidget):
             self.dpi_input.setValue(v["export_dpi"])
             self.target_px_input.setValue(v["export_target_long_edge_px"])
             self.output_sharpen_slider.setValue(v.get("output_sharpen", 0.0))
-            self.ratio_combo.setCurrentText(v["paper_aspect_ratio"])
+            _select_data(self.ratio_combo, str(v["paper_aspect_ratio"]))
 
             self._export_space = v["export_color_space"]
             _select_data(self.input_combo, v.get("icc_input_path"))
@@ -766,7 +785,7 @@ class ExportSettingsForm(QWidget):
             "webp_lossless": self.webp_lossless_btn.isChecked(),
             "webp_method": int(self.webp_method_spin.value()),
             "export_resolution_mode": self._current_mode_value(),
-            "paper_aspect_ratio": self.ratio_combo.currentText(),
+            "paper_aspect_ratio": self.ratio_combo.currentData(),
             "export_print_size": self.size_input.value(),
             "export_dpi": self.dpi_input.value(),
             "export_target_long_edge_px": self.target_px_input.value(),

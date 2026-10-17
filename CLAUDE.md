@@ -18,6 +18,7 @@ make test         # pytest only
 make lint         # ruff check
 make type         # ty check (not mypy)
 make format       # ruff format + autofix
+make translations # Extract translation sources and preserve existing translations
 
 # Single test
 uv run pytest tests/test_exposure_logic.py::test_name -v
@@ -82,6 +83,8 @@ Every feature lives in `negpy/features/<name>/`:
 `features/lens/warps.py` holds frozen lens models with `has_distortion`, `has_ca` and `remap(...)`, as defined by `LensWarp` in `models.py`. `logic.py` applies their maps in row blocks. File readers are registered in `infrastructure/loaders/lens_metadata.py`.
 
 ### Desktop (MVC)
+
+- **Internationalization** (`kernel/system/i18n.py`): load the saved `ui_language` before importing desktop modules. Language changes require a restart. Wrap display strings in `tr`, interpolate named values after translation, and use `mark` for labels also used as lookup keys. Keep enum values, settings keys, paths and user text untranslated. Register English, Simplified Chinese, Japanese and Korean in `LANGUAGES`; `make translations` updates each registered catalog under `negpy/translations/` and `sources.json`. `make translations-check` checks coverage and placeholders across all catalogs. Localized panel guides live beside the catalogs and fall back to `docs/USER_GUIDE.md` per panel. Ship the catalogs and guides in `build.py` and package data.
 
 - `AppState` (`negpy/desktop/session.py`): mutable session state
 - `AppController` (`negpy/desktop/controller.py`): the single controller; all UI interactions call it; emits `config_updated` / `image_updated`

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import gc
 import threading
 from dataclasses import dataclass, replace
@@ -82,7 +83,7 @@ class StitchWorker(QObject):
         except StitchError as e:
             self.error.emit(str(e))
         except Exception as e:
-            self.error.emit(f"Stitch failed: {e}")
+            self.error.emit(tr("Stitch failed: {e}", e=e))
         finally:
             parts.clear()
             self._processor.cleanup(release_source_cache=True, collect=False)

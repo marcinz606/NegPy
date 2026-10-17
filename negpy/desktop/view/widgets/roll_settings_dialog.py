@@ -1,6 +1,10 @@
 """Batch metadata tagging: edit gear, capture and process fields once, then apply
 them to the current frame, a selection, or the whole roll."""
 
+from negpy.desktop.view.styles.templates import add_choice_items
+
+from negpy.kernel.system.i18n import tr
+
 from dataclasses import replace
 
 from PyQt6.QtWidgets import (
@@ -77,7 +81,7 @@ class RollSettingsDialog(QDialog):
         repo=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Roll Settings")
+        self.setWindowTitle(tr("Roll Settings"))
         self.resize(440, 640)
         self._library = gear_library
         self._repo = repo
@@ -90,7 +94,7 @@ class RollSettingsDialog(QDialog):
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
         root.setSpacing(THEME.space_xl)
 
-        root.addWidget(hint_label("Set values once, then apply the ticked groups to the current frame, a selection or the whole roll."))
+        root.addWidget(hint_label(tr("Set values once, then apply the ticked groups to the current frame, a selection or the whole roll.")))
         root.addLayout(self._build_preset_row())
 
         scroll = QScrollArea()
@@ -128,7 +132,7 @@ class RollSettingsDialog(QDialog):
         row = _METADATA_ROWS[label]
         default = MetadataConfig()
         edited = any(getattr(self._meta, f) != getattr(default, f) for f in row.fields)
-        box = QCheckBox(label)
+        box = QCheckBox(tr(label))
         box.setChecked(edited)
         self._checks[label] = box
         wrapper = QWidget()
@@ -162,40 +166,40 @@ class RollSettingsDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_md)
 
-        col.addWidget(field_label("Camera"))
-        self.camera_combo = SearchableGearCombo(placeholder="Search cameras…")
-        self.camera_combo.setToolTip(wrap_tooltip("Original film camera body. Click and type to search."))
+        col.addWidget(field_label(tr("Camera")))
+        self.camera_combo = SearchableGearCombo(placeholder=tr("Search cameras…"))
+        self.camera_combo.setToolTip(wrap_tooltip(tr("Original film camera body. Click and type to search.")))
         self.camera_combo.set_gear_items(self._library.cameras, self._meta.camera_id or "", lambda c: c.resolved_display_name)
         self.camera_combo.selection_changed.connect(lambda _id: self._on_gear_changed("camera_id", self.camera_combo))
         col.addWidget(self.camera_combo)
 
-        col.addWidget(field_label("Lens"))
-        self.lens_combo = SearchableGearCombo(placeholder="Search lenses…")
-        self.lens_combo.setToolTip(wrap_tooltip("Original lens used on the film camera. Click and type to search."))
+        col.addWidget(field_label(tr("Lens")))
+        self.lens_combo = SearchableGearCombo(placeholder=tr("Search lenses…"))
+        self.lens_combo.setToolTip(wrap_tooltip(tr("Original lens used on the film camera. Click and type to search.")))
         self.lens_combo.set_gear_items(self._library.lenses, self._meta.lens_id or "", lambda x: x.resolved_display_name)
         self.lens_combo.selection_changed.connect(lambda _id: self._on_gear_changed("lens_id", self.lens_combo))
         col.addWidget(self.lens_combo)
 
-        col.addWidget(field_label("Film stock"))
-        self.film_stock_combo = SearchableGearCombo(placeholder="Search film stocks…")
-        self.film_stock_combo.setToolTip(wrap_tooltip("Film stock used for the original capture. Click and type to search."))
+        col.addWidget(field_label(tr("Film stock")))
+        self.film_stock_combo = SearchableGearCombo(placeholder=tr("Search film stocks…"))
+        self.film_stock_combo.setToolTip(wrap_tooltip(tr("Film stock used for the original capture. Click and type to search.")))
         self.film_stock_combo.set_gear_items(self._library.film_stocks, self._meta.film_stock_id or "", lambda x: x.resolved_display_name)
         self.film_stock_combo.selection_changed.connect(lambda _id: self._on_gear_changed("film_stock_id", self.film_stock_combo))
         col.addWidget(self.film_stock_combo)
 
         # The stock carries the film's format, so Format lives in the Gear row, matching
         # GEAR_FIELDS (settings_catalog applies it as a unit with camera/lens/film stock).
-        col.addWidget(field_label("Format"))
+        col.addWidget(field_label(tr("Format")))
         self.format_combo = StepCombo()
-        self.format_combo.setToolTip(wrap_tooltip("Film format written to the frame's metadata"))
-        self.format_combo.addItems(FORMAT_OPTIONS)
-        self.format_combo.setCurrentText(format_label(self._meta.format))
+        self.format_combo.setToolTip(wrap_tooltip(tr("Film format written to the frame's metadata")))
+        add_choice_items(self.format_combo, FORMAT_OPTIONS)
+        self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(format_label(self._meta.format))))
         self.format_combo.currentTextChanged.connect(self._on_format_changed)
         col.addWidget(self.format_combo)
 
         self.format_other_edit = QLineEdit()
-        self.format_other_edit.setPlaceholderText("e.g. 6×7")
-        self.format_other_edit.setToolTip(wrap_tooltip("A format the list does not carry, written as you type it"))
+        self.format_other_edit.setPlaceholderText(tr("e.g. 6×7"))
+        self.format_other_edit.setToolTip(wrap_tooltip(tr("A format the list does not carry, written as you type it")))
         self.format_other_edit.setText(self._meta.format_other)
         self.format_other_edit.setVisible(self._meta.format == "Other")
         self.format_other_edit.textEdited.connect(lambda t: self._set_meta("Analog Gear", format_other=t.strip()))
@@ -215,13 +219,13 @@ class RollSettingsDialog(QDialog):
 
     def _on_gear_changed(self, field: str, combo: SearchableGearCombo) -> None:
         self._meta = metadata_from_gear(self._meta, self._library, **{field: combo.selected_id()})
-        self.format_combo.setCurrentText(format_label(self._meta.format))
+        self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(format_label(self._meta.format))))
         self.format_other_edit.setText(self._meta.format_other)
         self.format_other_edit.setVisible(self._meta.format == "Other")
         self._checks["Analog Gear"].setChecked(True)
 
     def _on_format_changed(self, text: str) -> None:
-        value = format_value(text)
+        value = format_value(self.format_combo.currentData())
         self.format_other_edit.setVisible(value == "Other")
         self._set_meta("Analog Gear", format=value)
 
@@ -231,8 +235,10 @@ class RollSettingsDialog(QDialog):
         self.capture_date_edit.setText(self._meta.capture_date)
         self.capture_date_edit.setToolTip(
             wrap_tooltip(
-                "When the frames were shot. Give only what you know: a year, a year and month, "
-                "a date, or a date and time. An offset like +02:00 may follow a time."
+                tr(
+                    "When the frames were shot. Give only what you know: a year, a year and month, "
+                    "a date, or a date and time. An offset like +02:00 may follow a time."
+                )
             )
         )
         self.capture_date_edit.textEdited.connect(lambda _t: self._checks["Capture Date"].setChecked(True))
@@ -244,7 +250,7 @@ class RollSettingsDialog(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(THEME.space_sm)
         self.place_edit = QLineEdit()
-        self.place_edit.setPlaceholderText("Pick on a map, or paste coordinates")
+        self.place_edit.setPlaceholderText(tr("Pick on a map, or paste coordinates"))
         self.place_edit.setText(
             place_summary(
                 self._meta.location_city,
@@ -255,11 +261,11 @@ class RollSettingsDialog(QDialog):
             )
         )
         self.place_edit.setToolTip(
-            wrap_tooltip("Capture place. Paste a coordinate pair or a map link here, or use the map button to pick one.")
+            wrap_tooltip(tr("Capture place. Paste a coordinate pair or a map link here, or use the map button to pick one."))
         )
         self.place_edit.editingFinished.connect(self._on_place_edited)
         row.addWidget(self.place_edit, 1)
-        map_btn = icon_button("fa5s.map-marked-alt", "Pick the capture place on a map (contacts OpenStreetMap)")
+        map_btn = icon_button("fa5s.map-marked-alt", tr("Pick the capture place on a map (contacts OpenStreetMap)"))
         map_btn.clicked.connect(self._open_location_picker)
         row.addWidget(map_btn)
         return self._group("Place", body)
@@ -295,9 +301,9 @@ class RollSettingsDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_md)
 
-        col.addWidget(field_label("Saved process"))
-        self.process_combo = SearchableGearCombo(placeholder="Search processes…")
-        self.process_combo.setToolTip(wrap_tooltip("A saved development recipe. Picking one fills Developer and Push / Pull."))
+        col.addWidget(field_label(tr("Saved process")))
+        self.process_combo = SearchableGearCombo(placeholder=tr("Search processes…"))
+        self.process_combo.setToolTip(wrap_tooltip(tr("A saved development recipe. Picking one fills Developer and Push / Pull.")))
         self.process_combo.set_gear_items(self._library.processes, self._meta.process_id or "", lambda p: p.resolved_display_name)
         self.process_combo.selection_changed.connect(lambda _id: self._on_process_selected())
         col.addWidget(self.process_combo)
@@ -306,19 +312,19 @@ class RollSettingsDialog(QDialog):
         row1.setSpacing(THEME.space_sm)
         dev_col = QVBoxLayout()
         dev_col.setSpacing(THEME.space_md)
-        dev_col.addWidget(field_label("Developer"))
+        dev_col.addWidget(field_label(tr("Developer")))
         self.developer_edit = QLineEdit()
-        self.developer_edit.setPlaceholderText("e.g. D-76")
-        self.developer_edit.setToolTip(wrap_tooltip("Developer the film was processed in."))
+        self.developer_edit.setPlaceholderText(tr("e.g. D-76"))
+        self.developer_edit.setToolTip(wrap_tooltip(tr("Developer the film was processed in.")))
         self.developer_edit.setText(self._meta.developer)
         self.developer_edit.textEdited.connect(lambda _t: self._checks["Process"].setChecked(True))
         dev_col.addWidget(self.developer_edit)
         dil_col = QVBoxLayout()
         dil_col.setSpacing(THEME.space_md)
-        dil_col.addWidget(field_label("Dilution"))
+        dil_col.addWidget(field_label(tr("Dilution")))
         self.dilution_edit = QLineEdit()
-        self.dilution_edit.setPlaceholderText("e.g. 1+50")
-        self.dilution_edit.setToolTip(wrap_tooltip("Working strength, for example 1+1, 1+50 or stock."))
+        self.dilution_edit.setPlaceholderText(tr("e.g. 1+50"))
+        self.dilution_edit.setToolTip(wrap_tooltip(tr("Working strength, for example 1+1, 1+50 or stock.")))
         self.dilution_edit.setText(self._meta.process_dilution)
         self.dilution_edit.textEdited.connect(lambda _t: self._checks["Process"].setChecked(True))
         dil_col.addWidget(self.dilution_edit)
@@ -326,10 +332,10 @@ class RollSettingsDialog(QDialog):
         row1.addLayout(dil_col, 1)
         col.addLayout(row1)
 
-        col.addWidget(field_label("Push / Pull"))
+        col.addWidget(field_label(tr("Push / Pull")))
         self.push_pull_combo = StepCombo()
-        self.push_pull_combo.setToolTip(wrap_tooltip("Stops the film was pushed or pulled in development."))
-        self.push_pull_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
+        self.push_pull_combo.setToolTip(wrap_tooltip(tr("Stops the film was pushed or pulled in development.")))
+        add_choice_items(self.push_pull_combo, [PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.push_pull_combo.setCurrentIndex(
             PUSH_PULL_VALUES.index(self._meta.push_pull) if self._meta.push_pull in PUSH_PULL_VALUES else 3
         )
@@ -340,19 +346,19 @@ class RollSettingsDialog(QDialog):
         row2.setSpacing(THEME.space_sm)
         time_col = QVBoxLayout()
         time_col.setSpacing(THEME.space_md)
-        time_col.addWidget(field_label("Time"))
+        time_col.addWidget(field_label(tr("Time")))
         self.dev_time_edit = QLineEdit()
         self.dev_time_edit.setPlaceholderText(DEV_TIME_HINT)
-        self.dev_time_edit.setToolTip(wrap_tooltip("Development time, as mm:ss or plain minutes."))
+        self.dev_time_edit.setToolTip(wrap_tooltip(tr("Development time, as mm:ss or plain minutes.")))
         self.dev_time_edit.setText(format_dev_time(self._meta.process_time_seconds))
         self.dev_time_edit.textEdited.connect(lambda _t: self._checks["Process"].setChecked(True))
         time_col.addWidget(self.dev_time_edit)
         temp_col = QVBoxLayout()
         temp_col.setSpacing(THEME.space_md)
-        temp_col.addWidget(field_label("Temperature (°C)"))
+        temp_col.addWidget(field_label(tr("Temperature (°C)")))
         self.dev_temp_edit = QLineEdit()
-        self.dev_temp_edit.setPlaceholderText("e.g. 20")
-        self.dev_temp_edit.setToolTip(wrap_tooltip("Development temperature, in °C."))
+        self.dev_temp_edit.setPlaceholderText(tr("e.g. 20"))
+        self.dev_temp_edit.setToolTip(wrap_tooltip(tr("Development temperature, in °C.")))
         self.dev_temp_edit.setText(format_temperature(self._meta.process_temperature_c))
         self.dev_temp_edit.textEdited.connect(lambda _t: self._checks["Process"].setChecked(True))
         temp_col.addWidget(self.dev_temp_edit)
@@ -378,16 +384,16 @@ class RollSettingsDialog(QDialog):
         col = QVBoxLayout(body)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_md)
-        col.addWidget(field_label("Saved setup"))
-        self.scan_setup_combo = SearchableGearCombo(placeholder="Search scan setups…")
-        self.scan_setup_combo.setToolTip(wrap_tooltip("A saved digitizing setup. Picking one fills Scanning."))
+        col.addWidget(field_label(tr("Saved setup")))
+        self.scan_setup_combo = SearchableGearCombo(placeholder=tr("Search scan setups…"))
+        self.scan_setup_combo.setToolTip(wrap_tooltip(tr("A saved digitizing setup. Picking one fills Scanning.")))
         self.scan_setup_combo.set_gear_items(self._library.scan_setups, self._meta.scanning_id or "", lambda s: s.resolved_display_name)
         self.scan_setup_combo.selection_changed.connect(lambda _id: self._on_scan_setup_selected())
         col.addWidget(self.scan_setup_combo)
-        col.addWidget(field_label("Scanning"))
+        col.addWidget(field_label(tr("Scanning")))
         self.scanning_edit = QLineEdit()
-        self.scanning_edit.setPlaceholderText("e.g. DSLR copy-stand scan")
-        self.scanning_edit.setToolTip(wrap_tooltip("How the film was digitized."))
+        self.scanning_edit.setPlaceholderText(tr("e.g. DSLR copy-stand scan"))
+        self.scanning_edit.setToolTip(wrap_tooltip(tr("How the film was digitized.")))
         self.scanning_edit.setText(self._meta.scanning)
         self.scanning_edit.textEdited.connect(lambda _t: self._checks["Scanning"].setChecked(True))
         col.addWidget(self.scanning_edit)
@@ -400,9 +406,9 @@ class RollSettingsDialog(QDialog):
 
     def _build_roll_group(self) -> QWidget:
         self.capture_roll_edit = QLineEdit()
-        self.capture_roll_edit.setPlaceholderText("e.g. Roll001")
+        self.capture_roll_edit.setPlaceholderText(tr("e.g. Roll001"))
         self.capture_roll_edit.setText(self._meta.capture_roll)
-        self.capture_roll_edit.setToolTip(wrap_tooltip("Scan capture roll name. Used in export filename templates as {{ roll }}."))
+        self.capture_roll_edit.setToolTip(wrap_tooltip(tr("Scan capture roll name. Used in export filename templates as {{ roll }}.")))
         self.capture_roll_edit.textEdited.connect(lambda _t: self._checks["Roll"].setChecked(True))
         return self._group("Roll", self.capture_roll_edit)
 
@@ -411,11 +417,11 @@ class RollSettingsDialog(QDialog):
     def _build_preset_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(THEME.space_sm)
-        self.preset_combo = SearchableGearCombo(placeholder="Load from a metadata preset…")
-        self.preset_combo.setToolTip(wrap_tooltip("A saved set of metadata values. Click and type to search."))
+        self.preset_combo = SearchableGearCombo(placeholder=tr("Load from a metadata preset…"))
+        self.preset_combo.setToolTip(wrap_tooltip(tr("A saved set of metadata values. Click and type to search.")))
         self.preset_combo.set_labeled_items([(n, n) for n in sorted(MetadataPresets.list_presets())], "")
         row.addWidget(self.preset_combo, 1)
-        load_btn = labeled_action("fa5s.download", " Load", "Fill these fields from the preset, and tick the groups it stores")
+        load_btn = labeled_action("fa5s.download", tr(" Load"), tr("Fill these fields from the preset, and tick the groups it stores"))
         load_btn.clicked.connect(self._on_load_preset)
         row.addWidget(load_btn)
         return row
@@ -438,7 +444,7 @@ class RollSettingsDialog(QDialog):
         self.camera_combo.set_selected_id(m.camera_id or "")
         self.lens_combo.set_selected_id(m.lens_id or "")
         self.film_stock_combo.set_selected_id(m.film_stock_id or "")
-        self.format_combo.setCurrentText(format_label(m.format))
+        self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(format_label(m.format))))
         self.format_other_edit.setText(m.format_other)
         self.format_other_edit.setVisible(m.format == "Other")
         self.capture_date_edit.setText(m.capture_date)
@@ -462,9 +468,9 @@ class RollSettingsDialog(QDialog):
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.addStretch()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
-        self.apply_btn = QPushButton("Apply")
+        self.apply_btn = QPushButton(tr("Apply"))
         self.apply_btn.clicked.connect(self.accept)
         row.addWidget(cancel_btn)
         row.addWidget(self.apply_btn)

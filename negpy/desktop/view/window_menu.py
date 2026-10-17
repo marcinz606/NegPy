@@ -16,6 +16,8 @@ Qt maps the window states onto AppKit correctly, so nothing here needs Objective
 ``showMaximized`` leaves the NSWindow ``isZoomed``.
 """
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -61,12 +63,12 @@ class WindowMenu(QMenu):
         self._window = window
         self._dynamic: list[QAction] = []
 
-        self.act_minimize = self._add("Minimize", MENU_KEYS["minimize"], self._minimize)
-        self.act_zoom = self._add("Zoom", "", self._zoom)
+        self.act_minimize = self._add(tr("Minimize"), MENU_KEYS["minimize"], self._minimize)
+        self.act_zoom = self._add(tr("Zoom"), "", self._zoom)
         self.addSeparator()
-        self.act_close = self._add("Close", MENU_KEYS["close"], self._close)
+        self.act_close = self._add(tr("Close"), MENU_KEYS["close"], self._close)
         self.addSeparator()
-        self.act_bring_all = self._add("Bring All to Front", "", self._bring_all_to_front)
+        self.act_bring_all = self._add(tr("Bring All to Front"), "", self._bring_all_to_front)
         self._list_separator = self.addSeparator()
 
         self.aboutToShow.connect(self.refresh)

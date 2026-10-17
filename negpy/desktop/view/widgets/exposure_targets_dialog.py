@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Dict
 
 from PyQt6.QtCore import pyqtSignal
@@ -19,66 +20,78 @@ _OFF_AT_MIN = frozenset({"shadow_hold_strength", "highlight_hold_density"})
 _GROUPS = (
     (
         "Auto Density",
-        "How bright the metered midtone prints and how far the meter is trusted.",
+        tr("How bright the metered midtone prints and how far the meter is trusted."),
         (
             (
                 "anchor_target_density",
-                "Print Density Target",
-                "Density the metered reference tone prints at. Raise for darker, moodier prints; lower for brighter ones.",
+                tr("Print Density Target"),
+                tr("Density the metered reference tone prints at. Raise for darker, moodier prints; lower for brighter ones."),
             ),
             (
                 "anchor_meter_strength",
-                "Metering Strength",
-                "How far the anchor moves from the assumed key toward what was measured. "
-                "0% ignores the meter; 100% forces every frame to the metered midtone "
-                "(low-key and high-key scenes lose their intended key).",
+                tr("Metering Strength"),
+                tr(
+                    "How far the anchor moves from the assumed key toward what was measured. "
+                    "0% ignores the meter; 100% forces every frame to the metered midtone "
+                    "(low-key and high-key scenes lose their intended key)."
+                ),
             ),
             (
                 "anchor_meter_band",
-                "Metering Band",
-                "Hard safety clamp around the assumed key. Raise to allow bigger exposure "
-                "swings between frames; lower to keep a roll consistent.",
+                tr("Metering Band"),
+                tr(
+                    "Hard safety clamp around the assumed key. Raise to allow bigger exposure "
+                    "swings between frames; lower to keep a roll consistent."
+                ),
             ),
         ),
     ),
     (
         "Auto Grade",
-        "The contrast each frame prints at, from its textural density range.",
+        tr("The contrast each frame prints at, from its textural density range."),
         (
             (
                 "auto_grade_target",
-                "Contrast Target",
-                "Printed contrast aimed for across all frames. Raise for punchier prints, lower for softer ones.",
+                tr("Contrast Target"),
+                tr("Printed contrast aimed for across all frames. Raise for punchier prints, lower for softer ones."),
             ),
             (
                 "auto_grade_strength",
-                "Adaptation Strength",
-                "How far the grade is pulled toward a normal negative's textural range. 0% prints "
-                "every frame on one fixed paper; 100% prints every frame's detail range alike.",
+                tr("Adaptation Strength"),
+                tr(
+                    "How far the grade is pulled toward a normal negative's textural range. 0% prints "
+                    "every frame on one fixed paper; 100% prints every frame's detail range alike."
+                ),
             ),
         ),
     ),
     (
-        "Shadows and Highlights",
-        "Where Auto Grade puts the darkest and brightest textured tones.",
+        tr("Shadows and Highlights"),
+        tr("Where Auto Grade puts the darkest and brightest textured tones."),
         (
             (
                 "shadow_reach_density",
-                "Shadow Reach",
-                "Print density the darkest textured tones must reach. The grade only goes harder "
-                "for it, so a flat negative still prints a black. Lower for softer shadows.",
+                tr("Shadow Reach"),
+                tr(
+                    "Print density the darkest textured tones must reach. The grade only goes harder "
+                    "for it, so a flat negative still prints a black. Lower for softer shadows."
+                ),
             ),
             (
                 "shadow_hold_strength",
-                "Shadow Hold",
-                "How far the shadows of a contrasty frame are lifted when its darkest textured tones "
-                "print far past black. Raise for more open shadows; Off leaves them.",
+                tr("Shadow Hold"),
+                tr(
+                    "How far the shadows of a contrasty frame are lifted when its darkest textured tones "
+                    "print far past black. Raise for more open shadows; Off leaves them."
+                ),
             ),
             (
                 "highlight_hold_density",
-                "Highlight Hold",
-                "Print density the brightest textured tones must keep, so a sunlit wall or sky holds "
-                "tone instead of printing paper white. Off lets them reach paper white.",
+                tr("Highlight Hold"),
+                tr(
+                    "Print density the brightest textured tones must keep, so a sunlit wall or sky holds "
+                    "tone instead of printing paper white. Off lets them reach paper white."
+                ),
             ),
         ),
     ),
@@ -116,7 +129,7 @@ class ExposureTargetsDialog(QDialog):
 
     def __init__(self, current: Dict[str, float], parent=None, *, repo=None):
         super().__init__(parent)
-        self.setWindowTitle("Auto Density and Grade Targets")
+        self.setWindowTitle(tr("Auto Density and Grade Targets"))
         float_over_app(self)
         self.setMinimumWidth(340)
 
@@ -124,7 +137,7 @@ class ExposureTargetsDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_xl, THEME.space_xl, THEME.space_xl, THEME.space_xl)
         root.setSpacing(THEME.space_sm)
-        root.addWidget(hint_label("These apply to every frame. The open frame previews them."))
+        root.addWidget(hint_label(tr("These apply to every frame. The open frame previews them.")))
 
         for title, hint, entries in _GROUPS:
             root.addWidget(section_subheader(title))

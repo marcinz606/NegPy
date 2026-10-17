@@ -1,5 +1,7 @@
 """Half-frame crop and split dialog. After ``exec()``, ``scope()`` names the frames Apply targets."""
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Optional
 
 import numpy as np
@@ -34,9 +36,9 @@ def _with_alpha(hex_color: str, alpha: int) -> QColor:
 # Export button offers, chosen here rather than before the dialog even opens, since
 # what to apply to is a decision made after seeing the frame, not before.
 APPLY_SCOPES = {
-    "current": ("Apply to current frame", " Apply to Current"),
-    "selected": ("Apply to selected frames", " Apply to Selected"),
-    "all": ("Apply to all frames", " Apply to All"),
+    "current": (tr("Apply to current frame"), tr(" Apply to Current")),
+    "selected": (tr("Apply to selected frames"), tr(" Apply to Selected")),
+    "all": (tr("Apply to all frames"), tr(" Apply to All")),
 }
 
 _HANDLE_TOL = 0.04
@@ -307,7 +309,7 @@ class _HalfFrameLabel(QLabel):
         else:
             painter.fillRect(self.rect(), QColor(THEME.bg_dark))
             painter.setPen(QColor(THEME.text_muted))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No preview")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No preview"))
         painter.end()
 
 
@@ -327,7 +329,7 @@ class HalfFrameDialog(QDialog):
         initial_axis: str = "x",
         initial_scope: str = "current",
         process_mode: str = "",
-        title: str = "Half Frame — split & crop",
+        title: str = tr("Half Frame — split & crop"),
         parent=None,
         *,
         repo=None,
@@ -345,18 +347,20 @@ class HalfFrameDialog(QDialog):
         layout.addWidget(self._label, 1)
 
         hint = QLabel(
-            "Drag the green rectangle to crop. Drag the orange line to set the split. Use the slider to thicken the cut band (the physical black separator)."
+            tr(
+                "Drag the green rectangle to crop. Drag the orange line to set the split. Use the slider to thicken the cut band (the physical black separator)."
+            )
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {THEME.text_hint};")
         layout.addWidget(hint)
 
         axis_row = QHBoxLayout()
-        axis_row.addWidget(field_label("Split direction"))
-        self._axis_vertical = QRadioButton("Vertical")
-        self._axis_vertical.setToolTip(wrap_tooltip("A vertical cut: the two halves sit side by side."))
-        self._axis_horizontal = QRadioButton("Horizontal")
-        self._axis_horizontal.setToolTip(wrap_tooltip("A horizontal cut: the two halves sit stacked, as a rotated scan lays them."))
+        axis_row.addWidget(field_label(tr("Split direction")))
+        self._axis_vertical = QRadioButton(tr("Vertical"))
+        self._axis_vertical.setToolTip(wrap_tooltip(tr("A vertical cut: the two halves sit side by side.")))
+        self._axis_horizontal = QRadioButton(tr("Horizontal"))
+        self._axis_horizontal.setToolTip(wrap_tooltip(tr("A horizontal cut: the two halves sit stacked, as a rotated scan lays them.")))
         self._axis_vertical.toggled.connect(lambda on: on and self._set_axis("x"))
         self._axis_horizontal.toggled.connect(lambda on: on and self._set_axis("y"))
         axis_row.addWidget(self._axis_vertical)
@@ -365,7 +369,7 @@ class HalfFrameDialog(QDialog):
         layout.addLayout(axis_row)
 
         gutter_row = QHBoxLayout()
-        gutter_row.addWidget(field_label("Cut thickness"))
+        gutter_row.addWidget(field_label(tr("Cut thickness")))
         self._gutter_slider = QSlider(Qt.Orientation.Horizontal)
         self._gutter_slider.setRange(0, 100)
         self._gutter_slider.setValue(int((initial_gutter or 0.0) * 1000))
@@ -377,15 +381,15 @@ class HalfFrameDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self._auto_btn = QPushButton("Auto-detect")
+        self._auto_btn = QPushButton(tr("Auto-detect"))
         self._auto_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self._auto_btn.clicked.connect(self._on_auto)
         btn_row.addWidget(self._auto_btn)
-        self._reset_btn = QPushButton("Reset")
+        self._reset_btn = QPushButton(tr("Reset"))
         self._reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
         self._reset_btn.clicked.connect(self._on_reset)
         btn_row.addWidget(self._reset_btn)
-        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn = QPushButton(tr("Cancel"))
         self._cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self._cancel_btn)
 
@@ -399,7 +403,7 @@ class HalfFrameDialog(QDialog):
             act.triggered.connect(lambda _checked=False, k=key: self._set_scope(k))
             group.addAction(act)
             self._scope_actions[key] = act
-        container, self._ok_btn, self._scope_btn = make_split_button("Apply", "fa5s.check", apply_menu, primary=True)
+        container, self._ok_btn, self._scope_btn = make_split_button(tr("Apply"), "fa5s.check", apply_menu, primary=True)
         self._ok_btn.clicked.connect(self.accept)
         btn_row.addWidget(container)
         pin_dialog_default(self._ok_btn, self._auto_btn, self._reset_btn, self._cancel_btn)

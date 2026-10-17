@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import dataclasses
 import threading
 from dataclasses import dataclass, field
@@ -222,7 +223,7 @@ class ScanWorker(QObject):
         elif kind == "cancelled":
             self.cancelled.emit()
         else:
-            self.error.emit(payload or "Unknown scan error")
+            self.error.emit(payload or tr("Unknown scan error"))
         if returned is not None:
             self.strip_returned.emit(returned.loaded)
 
@@ -309,7 +310,7 @@ class ScanWorker(QObject):
         if kind == "cancelled":
             self.cancelled.emit()
         elif kind == "error":
-            self.error.emit(payload or "Unknown scan error")
+            self.error.emit(payload or tr("Unknown scan error"))
             if returned is not None:
                 self.strip_returned.emit(returned.loaded)
         elif kind == "finished" and req.eject_when_done:
@@ -367,7 +368,7 @@ class ScanWorker(QObject):
         if kind == "cancelled":
             self.cancelled.emit()
         elif kind == "error":
-            self.error.emit(payload or "Unknown scan error")
+            self.error.emit(payload or tr("Unknown scan error"))
         else:
             self.roll_preview_finished.emit()
         if returned is not None:

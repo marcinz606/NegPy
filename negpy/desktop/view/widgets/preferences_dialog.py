@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import LANGUAGES, tr
 import os
 from dataclasses import dataclass, fields
 
@@ -38,6 +39,7 @@ from negpy.kernel.system.override import (
 )
 from negpy.kernel.system.parallel import parallel_enabled, set_parallel_enabled
 from negpy.services.assets import semantic_model
+from negpy.desktop.view.widgets.choice_button import ChoiceButton
 
 UI_SCALES: tuple[int, ...] = (80, 90, 100, 110, 120)
 
@@ -58,59 +60,61 @@ class NumberRow:
 NUMBER_ROWS: tuple[NumberRow, ...] = (
     NumberRow(
         "preview_render_size",
-        "Preview size",
+        tr("Preview size"),
         PREVIEW_SIZE_MIN,
         PREVIEW_SIZE_MAX,
         128,
         " px",
-        "Long edge of the interactive canvas. Higher is sharper at 100% zoom, and more VRAM and CPU per frame.",
+        tr("Long edge of the interactive canvas. Higher is sharper at 100% zoom, and more VRAM and CPU per frame."),
     ),
     NumberRow(
         "preview_cache_max_entries",
-        "Preview cache",
+        tr("Preview cache"),
         1,
         64,
         1,
-        " photos",
-        "How many recently-viewed photos stay decoded in memory for instant navigation.",
+        tr(" photos"),
+        tr("How many recently-viewed photos stay decoded in memory for instant navigation."),
     ),
     NumberRow(
         "preview_cache_max_bytes",
-        "Preview cache limit",
+        tr("Preview cache limit"),
         128,
         32768,
         128,
         " MB",
-        "Memory ceiling for that cache. Lower it on a machine with little RAM.",
+        tr("Memory ceiling for that cache. Lower it on a machine with little RAM."),
         scale=1024 * 1024,
     ),
     NumberRow(
         "preview_cache_max_full_res_entries",
-        "HQ buffers",
+        tr("HQ buffers"),
         1,
         16,
         1,
-        " photos",
-        "Full-resolution HQ buffers kept in memory. Each is hundreds of MB, and keeping the previous frame makes going back instant.",
+        tr(" photos"),
+        tr("Full-resolution HQ buffers kept in memory. Each is hundreds of MB, and keeping the previous frame makes going back instant."),
     ),
     NumberRow(
         "render_memo_max_entries",
-        "Rendered frames",
+        tr("Rendered frames"),
         1,
         64,
         1,
-        " frames",
-        "Rendered frames held for navigating back with no re-render.",
+        tr(" frames"),
+        tr("Rendered frames held for navigating back with no re-render."),
     ),
     NumberRow(
         "max_texture_size",
-        "GPU texture cap",
+        tr("GPU texture cap"),
         0,
         16384,
         1024,
         " px",
-        "Largest GPU texture dimension, including HQ preview loads. 0 lets the hardware "
-        "decide (a lower default applies automatically on integrated GPUs).",
+        tr(
+            "Largest GPU texture dimension, including HQ preview loads. 0 lets the hardware "
+            "decide (a lower default applies automatically on integrated GPUs)."
+        ),
     ),
 )
 
@@ -142,7 +146,7 @@ class PreferencesDialog(QDialog):
         self._pinned = _pinned_keys() if pinned_keys is None else pinned_keys
         self._spins: dict[str, QSpinBox] = {}
 
-        self.setWindowTitle("Preferences")
+        self.setWindowTitle(tr("Preferences"))
         self.resize(700, 720)
         self._init_ui()
         remember_dialog_geometry(self, self.repo, "preferences")
@@ -152,7 +156,7 @@ class PreferencesDialog(QDialog):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
-        intro = QLabel("Settings for the whole application. Changes apply as you make them, except where a row says otherwise.")
+        intro = QLabel(tr("Settings for the whole application. Changes apply as you make them, except where a row says otherwise."))
         intro.setWordWrap(True)
         root.addWidget(intro)
 
@@ -174,10 +178,10 @@ class PreferencesDialog(QDialog):
         sections.setSpacing(THEME.space_sm)
 
         for title, builder in (
-            ("Interface", self._build_interface),
-            ("Accessibility", self._build_accessibility),
-            ("Performance", self._build_performance),
-            ("Session & Storage", self._build_storage),
+            (tr("Interface"), self._build_interface),
+            (tr("Accessibility"), self._build_accessibility),
+            (tr("Performance"), self._build_performance),
+            (tr("Session & Storage"), self._build_storage),
         ):
             section = CollapsibleSection(title)
             section.set_content(builder())
@@ -189,7 +193,7 @@ class PreferencesDialog(QDialog):
 
         footer = QHBoxLayout()
         footer.addStretch()
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton(tr("Close"))
         close_btn.clicked.connect(self.accept)
         footer.addWidget(close_btn)
         root.addLayout(footer)
@@ -216,18 +220,30 @@ class PreferencesDialog(QDialog):
         state = self.session.state
         row = 0
 
-        grid.addWidget(field_label("UI scale"), row, 0)
+        self.language_combo = ChoiceButton(
+            tuple(("", tr(label)) for _, label in LANGUAGES),
+            tr("Interface language. Restart NegPy to apply the change."),
+            data=tuple(key for key, _ in LANGUAGES),
+        )
+        saved_language = self.repo.get_global_setting("ui_language", "system")
+        self.language_combo.setCurrentIndex(max(0, self.language_combo.findData(saved_language)))
+        self.language_combo.currentChanged.connect(self._on_language_changed)
+        grid.addWidget(field_label(tr("Language")), row, 0)
+        grid.addWidget(self.language_combo, row, 1)
+        row += 1
+
+        grid.addWidget(field_label(tr("UI scale")), row, 0)
         self.scale_combo = StepCombo()
         for pct in UI_SCALES:
-            self.scale_combo.addItem(f"{pct}%", pct / 100.0)
+            self.scale_combo.addItem(tr("{value}%", value=pct), pct / 100.0)
         current = float(self.repo.get_global_setting("ui_scale", 1.0) or 1.0)
         self.scale_combo.setCurrentIndex(min(range(len(UI_SCALES)), key=lambda i: abs(UI_SCALES[i] / 100.0 - current)))
         self.scale_combo.currentIndexChanged.connect(self._on_ui_scale_changed)
-        self.scale_combo.setToolTip("Scale the whole interface")
+        self.scale_combo.setToolTip(tr("Scale the whole interface"))
         grid.addWidget(self.scale_combo, row, 1)
         row += 1
 
-        grid.addWidget(field_label("Canvas background"), row, 0)
+        grid.addWidget(field_label(tr("Canvas background")), row, 0)
         pills = QHBoxLayout()
         pills.setSpacing(THEME.space_sm)
         self.canvas_group = QButtonGroup(self)
@@ -248,28 +264,28 @@ class PreferencesDialog(QDialog):
         row += 1
 
         self.immersive_box = self._add_checkbox(
-            grid, row, "Immersive canvas", state.immersive_canvas, "Toolbar overlaps the image, instead of sitting below it"
+            grid, row, tr("Immersive canvas"), state.immersive_canvas, tr("Toolbar overlaps the image, instead of sitting below it")
         )
         self.immersive_box.toggled.connect(self.session.set_immersive_canvas)
         row += 1
 
         self.sticky_zoom_box = self._add_checkbox(
-            grid, row, "Sticky zoom", state.sticky_zoom, "Keep the zoom level when switching images, instead of resetting to fit"
+            grid, row, tr("Sticky zoom"), state.sticky_zoom, tr("Keep the zoom level when switching images, instead of resetting to fit")
         )
         self.sticky_zoom_box.toggled.connect(self.session.set_sticky_zoom)
         row += 1
 
         self.invert_zoom_box = self._add_checkbox(
-            grid, row, "Reverse scroll zoom", state.invert_zoom_scroll, "Scroll up zooms out instead of in"
+            grid, row, tr("Reverse scroll zoom"), state.invert_zoom_scroll, tr("Scroll up zooms out instead of in")
         )
         self.invert_zoom_box.toggled.connect(self.session.set_invert_zoom_scroll)
         row += 1
 
         interface_row, _ = _button_row(
             (
-                ("Customize Shortcuts…", "fa5s.keyboard", self._open_shortcut_editor),
-                ("Edit Toolbar…", "fa5s.wrench", self._open_toolbar_editor),
-                ("Reset Panel Layout", "fa5s.thumbtack", self._reset_panel_layout),
+                (tr("Customize Shortcuts…"), "fa5s.keyboard", self._open_shortcut_editor),
+                (tr("Edit Toolbar…"), "fa5s.wrench", self._open_toolbar_editor),
+                (tr("Reset Panel Layout"), "fa5s.thumbtack", self._reset_panel_layout),
             )
         )
         grid.addLayout(interface_row, row, 0, 1, 2)
@@ -277,7 +293,7 @@ class PreferencesDialog(QDialog):
 
     def _build_accessibility(self) -> QWidget:
         host, grid = self._grid()
-        grid.addWidget(field_label("Color vision"), 0, 0)
+        grid.addWidget(field_label(tr("Color vision")), 0, 0)
         self.vision_combo = StepCombo()
         for palette in PALETTES:
             swatch = QPixmap(16, 16)
@@ -289,13 +305,15 @@ class PreferencesDialog(QDialog):
             painter.end()
             self.vision_combo.addItem(QIcon(swatch), palette.label, palette.key)
         self.vision_combo.setCurrentIndex(max(self.vision_combo.findData(self.session.state.color_vision), 0))
-        self.vision_combo.setToolTip("Marks told apart by color alone use colors this vision keeps")
+        self.vision_combo.setToolTip(tr("Marks told apart by color alone use colors this vision keeps"))
         self.vision_combo.currentIndexChanged.connect(lambda i: self.session.set_color_vision(self.vision_combo.itemData(i)))
         grid.addWidget(self.vision_combo, 0, 1)
         grid.addWidget(
             hint_label(
-                "Sets the colors of the Retouch dust overlay, the Dodge & Burn masks and Printing Notes. "
-                "The color-blind choices use the Okabe–Ito palette."
+                tr(
+                    "Sets the colors of the Retouch dust overlay, the Dodge & Burn masks and Printing Notes. "
+                    "The color-blind choices use the Okabe–Ito palette."
+                )
             ),
             1,
             0,
@@ -309,17 +327,20 @@ class PreferencesDialog(QDialog):
         row = 0
 
         self.gpu_box = self._add_checkbox(
-            grid, row, "GPU acceleration", self.session.state.gpu_enabled and self._gpu_available, "Render the pipeline on the GPU"
+            grid, row, tr("GPU acceleration"), self.session.state.gpu_enabled and self._gpu_available, tr("Render the pipeline on the GPU")
         )
         row += 1
         if self._gpu_available:
             self.gpu_box.toggled.connect(self._on_gpu_changed)
-            grid.addWidget(hint_label(f"Active backend: {self._backend_name()}"), row, 0, 1, 2)
+            grid.addWidget(hint_label(tr("Active backend: {value}", value=self._backend_name())), row, 0, 1, 2)
             if self.session.state.gpu_viewport_failed:
                 row += 1
                 grid.addWidget(
                     hint_label(
-                        f"GPU viewport failed to start ({self.session.state.gpu_viewport_failed}); the display runs on the CPU.",
+                        tr(
+                            "GPU viewport failed to start ({gpu_viewport_failed}); the display runs on the CPU.",
+                            gpu_viewport_failed=self.session.state.gpu_viewport_failed,
+                        ),
                         "warning",
                     ),
                     row,
@@ -329,21 +350,26 @@ class PreferencesDialog(QDialog):
                 )
         else:
             self.gpu_box.setEnabled(False)
-            grid.addWidget(hint_label("No GPU available on this hardware — the CPU pipeline is in use."), row, 0, 1, 2)
+            grid.addWidget(hint_label(tr("No GPU available on this hardware — the CPU pipeline is in use.")), row, 0, 1, 2)
         row += 1
 
         self.semantic_box = self._add_checkbox(
             grid,
             row,
-            "Search by meaning",
+            tr("Search by meaning"),
             self.session.state.semantic_search_enabled,
-            "Type a plain-language description in the Film Strip search box to find frames, instead of field:value terms",
+            tr("Type a plain-language description in the Film Strip search box to find frames, instead of field:value terms"),
         )
         self.semantic_box.toggled.connect(self._on_semantic_search_changed)
         row += 1
         if not semantic_model.clip_model_ready():
             grid.addWidget(
-                hint_label(f"Downloads a small model ({semantic_model.MODEL_DOWNLOAD_SIZE}) the first time this is turned on."),
+                hint_label(
+                    tr(
+                        "Downloads a small model ({MODEL_DOWNLOAD_SIZE}) the first time this is turned on.",
+                        MODEL_DOWNLOAD_SIZE=semantic_model.MODEL_DOWNLOAD_SIZE,
+                    )
+                ),
                 row,
                 0,
                 1,
@@ -354,32 +380,34 @@ class PreferencesDialog(QDialog):
         self.parallel_box = self._add_checkbox(
             grid,
             row,
-            "Multi-core CPU rendering",
+            tr("Multi-core CPU rendering"),
             parallel_enabled(),
-            "Spread the CPU rendering kernels across cores. Experimental: turn it off if the app closes without warning.",
+            tr("Spread the CPU rendering kernels across cores. Experimental: turn it off if the app closes without warning."),
         )
         self.parallel_box.toggled.connect(self._on_parallel_changed)
         row += 1
-        grid.addWidget(hint_label(f"{os.cpu_count() or '?'} cores available. Applies at once, no restart."), row, 0, 1, 2)
+        grid.addWidget(hint_label(tr("{value} cores available. Applies at once, no restart.", value=os.cpu_count() or "?")), row, 0, 1, 2)
         row += 1
 
         self.low_vram_tiling_box = self._add_checkbox(
             grid,
             row,
-            "Reduce export memory use",
+            tr("Reduce export memory use"),
             APP_CONFIG.low_vram_export_tiling,
-            "Use smaller tiles and less pipelining during export, at some cost to export speed. "
-            "Turn this on if exporting crashes on your GPU (typically an older or "
-            "memory-constrained integrated one).",
+            tr(
+                "Use smaller tiles and less pipelining during export, at some cost to export speed. "
+                "Turn this on if exporting crashes on your GPU (typically an older or "
+                "memory-constrained integrated one)."
+            ),
         )
         if "low_vram_export_tiling" in self._pinned:
             self.low_vram_tiling_box.setEnabled(False)
-            self.low_vram_tiling_box.setToolTip("Set in override.toml, which wins over this dialog")
+            self.low_vram_tiling_box.setToolTip(tr("Set in override.toml, which wins over this dialog"))
         else:
             self.low_vram_tiling_box.toggled.connect(self._on_low_vram_tiling_changed)
         row += 1
-        note = "Applies to the next export started, no restart needed." + (
-            " Set in override.toml." if "low_vram_export_tiling" in self._pinned else ""
+        note = tr("Applies to the next export started, no restart needed.") + (
+            tr(" Set in override.toml.") if "low_vram_export_tiling" in self._pinned else ""
         )
         grid.addWidget(hint_label(note), row, 0, 1, 2)
         row += 1
@@ -393,23 +421,25 @@ class PreferencesDialog(QDialog):
             spin.setValue(self._stored_number(spec))
             if spec.key in self._pinned:
                 spin.setEnabled(False)
-                spin.setToolTip("Set in override.toml, which wins over this dialog")
+                spin.setToolTip(tr("Set in override.toml, which wins over this dialog"))
             else:
                 spin.valueChanged.connect(lambda value, s=spec: self._on_number_changed(s, value))
             self._spins[spec.key] = spin
             grid.addWidget(spin, row, 1)
             row += 1
-            note = spec.hint + (" Set in override.toml." if spec.key in self._pinned else "")
+            note = spec.hint + (tr(" Set in override.toml.") if spec.key in self._pinned else "")
             grid.addWidget(hint_label(note), row, 0, 1, 2)
             row += 1
 
         self.vram_warning_box = self._add_checkbox(
             grid,
             row,
-            "Show GPU memory warning",
+            tr("Show GPU memory warning"),
             bool(self.repo.get_global_setting("show_vram_capped_warning", default=True)),
-            "Status message when a scan is downsampled because it is larger than the GPU texture "
-            "cap above. Turning this off does not change the downsampling itself.",
+            tr(
+                "Status message when a scan is downsampled because it is larger than the GPU texture "
+                "cap above. Turning this off does not change the downsampling itself."
+            ),
         )
         self.vram_warning_box.toggled.connect(self._on_vram_warning_changed)
         row += 1
@@ -423,16 +453,16 @@ class PreferencesDialog(QDialog):
         self.sticky_settings_box = self._add_checkbox(
             grid,
             0,
-            "Carry settings between frames",
+            tr("Carry settings between frames"),
             state.sticky_settings_enabled,
-            "Apply Persistent Settings to a file with no saved edit, instead of starting at default settings",
+            tr("Apply Persistent Settings to a file with no saved edit, instead of starting at default settings"),
         )
         self.sticky_settings_box.toggled.connect(self._on_sticky_settings_changed)
 
         button_row, buttons = _button_row(
             (
-                ("Persistent Settings…", "fa5s.thumbtack", self._open_sticky_dialog),
-                ("Manage Database…", "fa5s.database", self._open_database_dialog),
+                (tr("Persistent Settings…"), "fa5s.thumbtack", self._open_sticky_dialog),
+                (tr("Manage Database…"), "fa5s.database", self._open_database_dialog),
             )
         )
         self._persistent_settings_button = buttons[0]
@@ -440,7 +470,7 @@ class PreferencesDialog(QDialog):
         grid.addLayout(button_row, 1, 0, 1, 2)
 
         grid.addWidget(
-            hint_label("Persistent Settings chooses which edits carry onto the next file you open."),
+            hint_label(tr("Persistent Settings chooses which edits carry onto the next file you open.")),
             2,
             0,
             1,
@@ -461,7 +491,7 @@ class PreferencesDialog(QDialog):
         return max(spec.minimum, min(spec.maximum, value // spec.scale))
 
     def _mark_restart(self) -> None:
-        self._restart_hint.setText("Restart NegPy to apply the changed startup settings.")
+        self._restart_hint.setText(tr("Restart NegPy to apply the changed startup settings."))
         self._restart_hint.show()
 
     def _on_number_changed(self, spec: NumberRow, value: int) -> None:
@@ -470,6 +500,10 @@ class PreferencesDialog(QDialog):
 
     def _on_ui_scale_changed(self, index: int) -> None:
         self.repo.save_global_setting("ui_scale", float(self.scale_combo.itemData(index)))
+        self._mark_restart()
+
+    def _on_language_changed(self, index: int) -> None:
+        self.repo.save_global_setting("ui_language", self.language_combo.currentData())
         self._mark_restart()
 
     def _on_sticky_settings_changed(self, checked: bool) -> None:
@@ -501,7 +535,9 @@ class PreferencesDialog(QDialog):
         set_parallel_enabled(bool(checked))
         self.repo.save_global_settings({"cpu_parallel": bool(checked), "cpu_parallel_active": bool(checked)})
         self.controller.set_status(
-            "Multi-core CPU rendering on — turn it off if the app closes unexpectedly" if checked else "Multi-core CPU rendering off",
+            tr("Multi-core CPU rendering on — turn it off if the app closes unexpectedly")
+            if checked
+            else tr("Multi-core CPU rendering off"),
             5000,
         )
 

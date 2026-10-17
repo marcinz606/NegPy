@@ -1,5 +1,6 @@
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
+import pytest
 
 from negpy.desktop.view.widgets.step_combo import StepCombo
 
@@ -87,3 +88,30 @@ def test_a_header_never_becomes_current(qapp):
 
     assert combo.currentIndex() == -1
     assert changed == []
+
+
+@pytest.mark.parametrize("locale", ["zh_CN", "ja", "ko"])
+def test_export_ratio_arrows_keep_stored_values_in_translated_ui(qapp, locale: str) -> None:
+    from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
+    from negpy.kernel.system import i18n
+
+    previous = i18n.language()
+    try:
+        i18n.configure(locale)
+        form = ExportSettingsForm()
+        combo = form.ratio_combo
+        assert form.values()["paper_aspect_ratio"] == "Original"
+
+        _click(combo, "next")
+        assert combo.currentText() != "Free"
+        assert form.values()["paper_aspect_ratio"] == "Free"
+
+        _click(combo, "next")
+        assert form.values()["paper_aspect_ratio"] == "1:1"
+
+        _click(combo, "prev")
+        _click(combo, "prev")
+        assert combo.currentText() != "Original"
+        assert form.values()["paper_aspect_ratio"] == "Original"
+    finally:
+        i18n.configure(previous)

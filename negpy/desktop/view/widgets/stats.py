@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import mark, tr
 from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -8,36 +9,46 @@ from negpy.desktop.view.styles.templates import header_button, labeled_action
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
 
-CLIPPING_TOOLTIP = "Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns amber above 1%."
+CLIPPING_TOOLTIP = tr("Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns amber above 1%.")
 
 _TOOLTIPS = {
     "Negative": (
-        "The negative itself: relative density range (luminance) and its development character vs a "
-        "nominal frame — flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a "
-        "roll; a heuristic from this scan's normalized bounds, not a calibrated densitometer reading."
+        tr(
+            "The negative itself: relative density range (luminance) and its development character vs a "
+            "nominal frame — flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a "
+            "roll; a heuristic from this scan's normalized bounds, not a calibrated densitometer reading."
+        )
     ),
     "Exposure": (
-        "Where the frame's midtone sits, in stops from neutral: positive = brighter (high-key), "
-        "negative = darker (low-key). Approximate — read off the metered midtone, not a precise meter."
+        tr(
+            "Where the frame's midtone sits, in stops from neutral: positive = brighter (high-key), "
+            "negative = darker (low-key). Approximate — read off the metered midtone, not a precise meter."
+        )
     ),
-    "Clipping": CLIPPING_TOOLTIP,
-    "Scan clip": (
-        "Share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and "
-        "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
-        "expose the scan lower. Turns amber above 1%."
+    mark("Clipping"): CLIPPING_TOOLTIP,
+    mark("Scan clip"): (
+        tr(
+            "Share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and "
+            "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
+            "expose the scan lower. Turns amber above 1%."
+        )
     ),
-    "Gamut": (
-        "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
-        "tone ran off the end of the paper; this says a color is outside what the profile can make, "
-        "so it will be pulled to the nearest one it can. Blank unless soft proofing to an "
-        "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
-        "which pixel. Turns amber above 2%."
+    mark("Gamut"): (
+        tr(
+            "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
+            "tone ran off the end of the paper; this says a color is outside what the profile can make, "
+            "so it will be pulled to the nearest one it can. Blank unless soft proofing to an "
+            "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
+            "which pixel. Turns amber above 2%."
+        )
     ),
-    "Repair": (
-        "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
-        "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
-        "Reads none until a route fires; turns amber above 5%, where a route is repairing the "
-        "picture rather than the dust on it."
+    mark("Repair"): (
+        tr(
+            "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
+            "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
+            "Reads none until a route fires; turns amber above 5%, where a route is repairing the "
+            "picture rather than the dust on it."
+        )
     ),
 }
 
@@ -63,7 +74,7 @@ def _lock_height(label: QLabel, sample: str) -> None:
 class DensitometerRow(QWidget):
     """Hover spot-densitometer read-out shown between the H&D curve and the stats."""
 
-    _TOOLTIP = (
+    _TOOLTIP = tr(
         "Spot densitometer — hover the image to read the pixel: ΔD per channel, the displayed tone's reflection "
         "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). ΔD is density "
         "above the thin end of the normalization window. On a negative that end is the detected thin bound plus "
@@ -78,7 +89,7 @@ class DensitometerRow(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(THEME.space_lg)
         grid.setColumnStretch(1, 1)
-        name = QLabel("Probe")
+        name = QLabel(tr("Probe"))
         name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self._value = QLabel(_PROBE_EMPTY)
         self._value.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;")
@@ -106,7 +117,7 @@ class ZonePlacementRows(QWidget):
     apply_clicked = pyqtSignal()
     remove_clicked = pyqtSignal(int)
 
-    _TOOLTIP = (
+    _TOOLTIP = tr(
         "Zone placement — pick a zone on the strip above, then click the photo: that spot is asked "
         "to print there. The steppers trim a pin by thirds, and Place zones solves Print Density "
         "(one pin), Print Density + Grade (two pins), or those plus one knee control for the middle "
@@ -140,15 +151,15 @@ class ZonePlacementRows(QWidget):
             swatch.setStyleSheet(f"background: {color}; border-radius: {THEME.radius_md}px;")
             name = QLabel("")
             name.setStyleSheet(name_css)
-            minus = header_button(qta.icon("fa5s.minus", color=THEME.text_secondary), "One third of a zone darker")
-            plus = header_button(qta.icon("fa5s.plus", color=THEME.text_secondary), "One third of a zone lighter")
+            minus = header_button(qta.icon("fa5s.minus", color=THEME.text_secondary), tr("One third of a zone darker"))
+            plus = header_button(qta.icon("fa5s.plus", color=THEME.text_secondary), tr("One third of a zone lighter"))
             target = QLabel("")
             target.setStyleSheet(value_css)
             target.setAlignment(Qt.AlignmentFlag.AlignCenter)
             target.setMinimumWidth(34)
             lands = QLabel("")
             lands.setStyleSheet(warn_css)
-            remove = header_button(qta.icon("fa5s.times", color=THEME.text_secondary), "Remove this pin")
+            remove = header_button(qta.icon("fa5s.times", color=THEME.text_secondary), tr("Remove this pin"))
             minus.clicked.connect(lambda _=False, idx=i: self._step(idx, -1.0 / 3.0))
             plus.clicked.connect(lambda _=False, idx=i: self._step(idx, 1.0 / 3.0))
             remove.clicked.connect(lambda _=False, idx=i: self.remove_clicked.emit(idx))
@@ -172,7 +183,7 @@ class ZonePlacementRows(QWidget):
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, THEME.space_xs, 0, THEME.space_xs)
-        self.apply_btn = labeled_action("", "Place Zones", "Commit the solved print (Enter)", primary=True)
+        self.apply_btn = labeled_action("", tr("Place Zones"), tr("Commit the solved print (Enter)"), primary=True)
         self.apply_btn.clicked.connect(self.apply_clicked.emit)
         buttons.addWidget(self.apply_btn)
         col.addLayout(buttons)
@@ -202,18 +213,18 @@ class ZonePlacementRows(QWidget):
                 continue
             self._targets[index] = target
             self._rows[index].setVisible(True)
-            self._names[index].setText(f"Pin {index + 1} · reads {measured}")
+            self._names[index].setText(tr("Pin {value} · reads {measured}", value=index + 1, measured=measured))
             self._target_labels[index].setText(zone_roman(target))
             if achieved is not None:
-                self._lands[index].setText(f"→ lands {achieved}")
-                self._lands[index].setToolTip("Outside the paper's scale at this grade and exposure — closest print shown.")
+                self._lands[index].setText(tr("→ lands {achieved}", achieved=achieved))
+                self._lands[index].setToolTip(tr("Outside the paper's scale at this grade and exposure — closest print shown."))
             else:
                 self._lands[index].setText("")
                 self._lands[index].setToolTip("")
             self._lands[index].setVisible(achieved is not None)
             solvable = row_solvable
         self.apply_btn.setEnabled(solvable)
-        self.apply_btn.setToolTip("The outer pins read the same tone — grade needs two different tones." if not solvable else "")
+        self.apply_btn.setToolTip(tr("The outer pins read the same tone — grade needs two different tones.") if not solvable else "")
         self.solving.setText(solving)
         self.solving.setVisible(bool(solving))
 
@@ -285,7 +296,7 @@ class NegativeStatsWidget(QWidget):
             tip = _TOOLTIPS.get(row.name, "")
             if row.detail:
                 tip = f"{tip}\n\n{row.detail}" if tip else row.detail
-            self._names[i].setText(row.name)
+            self._names[i].setText(tr(row.name))
             self._values[i].setText(row.value)
             self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
             # Tooltip per stat (hover its name or value), not merged across the pair.

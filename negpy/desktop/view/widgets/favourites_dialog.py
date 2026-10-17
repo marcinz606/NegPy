@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
@@ -47,9 +48,11 @@ class FavouritesDialog(QDialog):
         choices: list[tuple[str, str, str]],
         selected: list[str],
         *,
-        title: str = "Edit Favorites",
-        chosen_header: str = "FAVORITES",
-        hint: str = "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel.",
+        title: str = tr("Edit Favorites"),
+        chosen_header: str = tr("FAVORITES"),
+        hint: str = tr(
+            "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel."
+        ),
         defaults: list[str] | None = None,
         repo=None,
     ):
@@ -86,7 +89,7 @@ class FavouritesDialog(QDialog):
         layout.setContentsMargins(0, 0, THEME.space_xl, 0)
         layout.setSpacing(THEME.space_sm)
 
-        title = QLabel("AVAILABLE")
+        title = QLabel(tr("AVAILABLE"))
         title.setStyleSheet(pane_header_qss())
         layout.addWidget(title)
 
@@ -134,13 +137,13 @@ class FavouritesDialog(QDialog):
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
         if self._defaults is not None:
-            restore = QPushButton("Restore Defaults")
+            restore = QPushButton(tr("Restore Defaults"))
             restore.clicked.connect(self._restore_defaults)
             row.addWidget(restore)
         row.addStretch()
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(tr("Cancel"))
         cancel.clicked.connect(self.reject)
-        self.apply_btn = QPushButton("Apply")
+        self.apply_btn = QPushButton(tr("Apply"))
         self.apply_btn.clicked.connect(self.accept)
         row.addWidget(cancel)
         row.addWidget(self.apply_btn)

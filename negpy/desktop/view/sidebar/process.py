@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import math
 from dataclasses import replace
 
@@ -47,9 +48,9 @@ _COLOR_CLIP_MAX = 5.0
 # Mode bar: one film icon per mode, with the color carrying which one. Orange mask,
 # silver grey, slide blue.
 _MODES = (
-    (ProcessMode.C41, "Color", THEME.mode_c41, "Color Negative (C-41) — orange-masked negative"),
-    (ProcessMode.BW, "B&W", THEME.mode_bw, "B&W Negative — panchromatic silver negative"),
-    (ProcessMode.E6, "Slide", THEME.mode_e6, "Transparency — slide / reversal film"),
+    (ProcessMode.C41, tr("Color"), THEME.mode_c41, tr("Color Negative (C-41) — orange-masked negative")),
+    (ProcessMode.BW, tr("B&W"), THEME.mode_bw, tr("B&W Negative — panchromatic silver negative")),
+    (ProcessMode.E6, tr("Slide"), THEME.mode_e6, tr("Transparency — slide / reversal film")),
 )
 
 
@@ -90,7 +91,7 @@ class ProcessSidebar(BaseSidebar):
     def set_clipping(self, clip_low: float | None, clip_high: float | None) -> None:
         """Show the print's shadow and highlight clipping shares: the Analysis stats' Clipping row."""
         row = clipping_row(clip_low, clip_high)
-        self.clipping_hint.setText(f"{row.name}: {row.value}")
+        self.clipping_hint.setText(tr("{value}: {value1}", value=row.name, value1=row.value))
         set_hint_kind(self.clipping_hint, "warning" if row.warn else "muted")
 
     def _init_ui(self) -> None:
@@ -104,12 +105,12 @@ class ProcessSidebar(BaseSidebar):
         mode_col.setContentsMargins(0, 0, 0, 0)
         mode_col.setSpacing(THEME.space_sm)
 
-        self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
+        self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, tr("Auto-detect the film process on load"))
         self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         mode_row = QHBoxLayout()
         mode_col.addLayout(mode_row)
-        self.mode_btn = SegmentedChoice(tuple(("mdi6.film", label, color) for _mode, label, color, _tip in _MODES), "Film process")
+        self.mode_btn = SegmentedChoice(tuple(("mdi6.film", label, color) for _mode, label, color, _tip in _MODES), tr("Film process"))
         for i, (*_rest, tip) in enumerate(_MODES):
             self.mode_btn.set_choice_tooltip(i, tip)
         mode_row.addWidget(self.mode_btn, 1)
@@ -120,15 +121,17 @@ class ProcessSidebar(BaseSidebar):
         # setting to dig for.
         self.positive_source_btn = self._labeled_toggle(
             "fa5s.image",
-            " Positive",
+            tr(" Positive"),
             conf.positive_source,
             (
-                "This source is already a finished positive, not a raw scanner or camera "
-                "capture — a print, a scan already inverted by other software, or a "
-                "negative the scanner positivized itself. Decodes its embedded profile "
-                "(sRGB if it has none) instead of reading it as literal linear data, and "
-                "skips the exposure lift and filmic roll-off a raw capture needs, so the "
-                "Print/tone controls shape the image directly. Slide only."
+                tr(
+                    "This source is already a finished positive, not a raw scanner or camera "
+                    "capture — a print, a scan already inverted by other software, or a "
+                    "negative the scanner positivized itself. Decodes its embedded profile "
+                    "(sRGB if it has none) instead of reading it as literal linear data, and "
+                    "skips the exposure lift and filmic roll-off a raw capture needs, so the "
+                    "Print/tone controls shape the image directly. Slide only."
+                )
             ),
         )
         mode_col.addWidget(self.positive_source_btn)
@@ -137,7 +140,7 @@ class ProcessSidebar(BaseSidebar):
             "fa5s.lock",
             "",
             False,
-            "Lock Bounds — freeze normalization bounds so crop and analysis sliders no longer re-analyze",
+            tr("Lock Bounds — freeze normalization bounds so crop and analysis sliders no longer re-analyze"),
         )
 
         # Everything that measures this frame, or nudges what the measurement produced.
@@ -149,12 +152,12 @@ class ProcessSidebar(BaseSidebar):
         analysis_col = QVBoxLayout(self.analysis_bar)
         analysis_col.setContentsMargins(0, 0, 0, 0)
         analysis_col.setSpacing(THEME.space_sm)
-        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
+        self.analysis_buffer_slider = CompactSlider(tr("Analysis Buffer"), 0.0, 0.25, conf.analysis_buffer)
         self.reanalyze_frame_btn = self._icon_action(
-            "fa5s.redo", "Reanalyze Frame — measure this frame's bounds again from its current crop and analysis settings"
+            "fa5s.redo", tr("Reanalyze Frame — measure this frame's bounds again from its current crop and analysis settings")
         )
         self.lock_bounds_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.analysis_header = section_subheader("ANALYSIS")
+        self.analysis_header = section_subheader(tr("ANALYSIS"))
         analysis_col.addLayout(header_row(self.analysis_header, self.reanalyze_frame_btn, self.lock_bounds_btn))
         self.clipping_hint = hint_label("")
         self.clipping_hint.setToolTip(wrap_tooltip(CLIPPING_TOOLTIP))
@@ -163,18 +166,22 @@ class ProcessSidebar(BaseSidebar):
 
         self.analysis_region_btn = clearable_tool_toggle(
             "fa5s.vector-square",
-            "Draw Region",
-            "Draw a freehand analysis region on the image — the meters read exactly that area "
-            "(overrides the Analysis Buffer). Double-click inside it to confirm.",
-            "Clear Region: clear the freehand analysis region (fall back to the Analysis Buffer)",
+            tr("Draw Region"),
+            tr(
+                "Draw a freehand analysis region on the image — the meters read exactly that area "
+                "(overrides the Analysis Buffer). Double-click inside it to confirm."
+            ),
+            tr("Clear Region: clear the freehand analysis region (fall back to the Analysis Buffer)"),
         )
         self.clear_analysis_region_btn = self.analysis_region_btn.clear_btn
         self.film_base_btn = clearable_tool_toggle(
             "fa5s.crosshairs",
-            "Film Base",
-            "Film Base: click the clear rebate to set the roll's film base. The Negative row's hover then reads "
-            "Dmax, Dmed and Dmin above it. Without one, the base is read from the rebate.",
-            "Clear Film Base: forget the roll's base; the rebate is read instead",
+            tr("Film Base"),
+            tr(
+                "Film Base: click the clear rebate to set the roll's film base. The Negative row's hover then reads "
+                "Dmax, Dmed and Dmin above it. Without one, the base is read from the rebate."
+            ),
+            tr("Clear Film Base: forget the roll's base; the rebate is read instead"),
         )
         self.clear_film_base_btn = self.film_base_btn.clear_btn
         tools_row = QHBoxLayout()
@@ -185,25 +192,27 @@ class ProcessSidebar(BaseSidebar):
 
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
-            "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
+            tr("Luma Range Clip"), -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
         )
         initial_color_slider_val = _color_value_to_slider(conf.color_range_clip)
         self.color_range_clip_slider = CompactSlider(
-            "Color Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
+            tr("Color Clip"), -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
         )
         analysis_col.addWidget(self.luma_range_clip_slider)
         analysis_col.addWidget(self.color_range_clip_slider)
 
         self.ch_btn = channel_selector(
-            "Global sets the shared white/black point offsets (all layers). Red, Green and Blue "
-            "trim the cyan-, magenta- and yellow-dye emulsions",
+            tr(
+                "Global sets the shared white/black point offsets (all layers). Red, Green and Blue "
+                "trim the cyan-, magenta- and yellow-dye emulsions"
+            ),
         )
-        self.point_header = section_subheader("WHITE / BLACK POINT")
+        self.point_header = section_subheader(tr("WHITE / BLACK POINT"))
         analysis_col.addWidget(self.point_header)
         analysis_col.addWidget(self.ch_btn)
 
-        self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
-        self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
+        self.white_point_slider = CompactSlider(tr("White Point"), -0.25, 0.25, conf.white_point_offset, has_neutral=True)
+        self.black_point_slider = CompactSlider(tr("Black Point"), -0.25, 0.25, conf.black_point_offset, has_neutral=True)
         analysis_col.addWidget(self.white_point_slider)
         analysis_col.addWidget(self.black_point_slider)
 
@@ -215,29 +224,31 @@ class ProcessSidebar(BaseSidebar):
         baseline_col = QVBoxLayout(self.baseline_bar)
         baseline_col.setContentsMargins(0, 0, 0, 0)
         baseline_col.setSpacing(THEME.space_sm)
-        self.avg_header = section_subheader("USE AVERAGE")
+        self.avg_header = section_subheader(tr("USE AVERAGE"))
         baseline_col.addWidget(self.avg_header)
         self.baseline_source_hint = hint_label("")
         baseline_col.addWidget(self.baseline_source_hint)
         avg_row = QHBoxLayout()
         self.use_luma_avg_btn = self._small_toggle(
             "mdi6.brightness-6",
-            "Luma",
+            tr("Luma"),
             conf.use_luma_average,
-            "Take the tonal-range (black/white-point) baseline from the picked roll; color still re-derives per frame",
+            tr("Take the tonal-range (black/white-point) baseline from the picked roll; color still re-derives per frame"),
         )
         self.use_color_avg_btn = self._small_toggle(
             "mdi6.palette-outline",
-            "Color",
+            tr("Color"),
             conf.use_color_average,
-            "Take the per-channel color-balance baseline from the picked roll; luma range still re-derives per frame",
+            tr("Take the per-channel color-balance baseline from the picked roll; luma range still re-derives per frame"),
         )
         self.use_cast_avg_btn = self._small_toggle(
             "mdi6.scale-balance",
-            "Cast",
+            tr("Cast"),
             conf.use_cast_average,
-            "Take Cast Removal's neutral axis from the picked roll or scene, so every frame gets the same "
-            "gray balance; off measures this frame's own grays. Color Negative only",
+            tr(
+                "Take Cast Removal's neutral axis from the picked roll or scene, so every frame gets the same "
+                "gray balance; off measures this frame's own grays. Color Negative only"
+            ),
         )
         avg_row.addWidget(self.use_luma_avg_btn)
         avg_row.addWidget(self.use_color_avg_btn)
@@ -248,15 +259,17 @@ class ProcessSidebar(BaseSidebar):
         # happen to have been shot. The menu still offers those and writes a frame name; this
         # writes a value and wins. 0 = the reference, the brightest unclipped frame, which is the
         # most a merge can open at. output_scale clamps above it.
-        self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" st")
+        self.render_ev_slider = CompactSlider(tr("Render Exposure"), -4.0, 0.0, 0.0, step=0.05, unit=" st")
         self.render_ev_slider.setToolTip(
             wrap_tooltip(
-                "Which exposure a merged bracket renders at, in stops below the reference frame. "
-                "The reference is the longest capture that does not clip, so it is the brightest "
-                "the merge can open at — a slide's own highlights are denser than clear film, so "
-                "that is usually brighter than the shot you metered for.<br><br>"
-                "Right-click the frame for <b>Render exposure</b> to snap to an exposure you "
-                "actually shot; this slider goes anywhere between them."
+                tr(
+                    "Which exposure a merged bracket renders at, in stops below the reference frame. "
+                    "The reference is the longest capture that does not clip, so it is the brightest "
+                    "the merge can open at — a slide's own highlights are denser than clear film, so "
+                    "that is usually brighter than the shot you metered for.<br><br>"
+                    "Right-click the frame for <b>Render exposure</b> to snap to an exposure you "
+                    "actually shot; this slider goes anywhere between them."
+                )
             )
         )
         # Live again: the merge is cached unscaled, so a change of exposure is one multiply on the
@@ -373,11 +386,13 @@ class ProcessSidebar(BaseSidebar):
             repo = self.controller.session.repo
             stale = rolls.frame_baseline_stale(repo, conf)
             set_hint_kind(self.baseline_source_hint, "warning" if stale else "muted")
-            suffix = ", from an older analysis" if stale else ""
-            self.baseline_source_hint.setText(f"Baseline: {rolls.baseline_label(repo, conf)}{suffix}")
+            baseline = rolls.baseline_label(repo, conf)
+            self.baseline_source_hint.setText(
+                tr("Baseline: {value}, from an older analysis", value=baseline) if stale else tr("Baseline: {value}", value=baseline)
+            )
         else:
             set_hint_kind(self.baseline_source_hint, "warning")
-            self.baseline_source_hint.setText("No baseline yet: this frame uses its own analysis until Roll Analysis runs")
+            self.baseline_source_hint.setText(tr("No baseline yet: this frame uses its own analysis until Roll Analysis runs"))
 
     def _on_reanalyze_frame(self) -> None:
         conf = self.state.config
@@ -472,8 +487,8 @@ class ProcessSidebar(BaseSidebar):
 
             idx = self._channel_index()
             suffix = _CH_LABEL[idx]
-            self.white_point_slider.label.setText("White Point" + suffix)
-            self.black_point_slider.label.setText("Black Point" + suffix)
+            self.white_point_slider.label.setText(tr("White Point") + suffix)
+            self.black_point_slider.label.setText(tr("Black Point") + suffix)
             if idx == 0:
                 self.white_point_slider.setValue(conf.white_point_offset)
                 self.black_point_slider.setValue(conf.black_point_offset)

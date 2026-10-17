@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLineEdit, QVBoxLayout
 
 from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box, wrap_tooltip
@@ -14,29 +15,31 @@ class RenameRollDialog(QDialog):
 
     def __init__(self, current_name: str, parent=None, *, folder_backed: bool = True, repo=None):
         super().__init__(parent)
-        self.setWindowTitle("Rename Roll")
+        self.setWindowTitle(tr("Rename Roll"))
         self.setMinimumWidth(340)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_xl, THEME.space_xl, THEME.space_xl, THEME.space_xl)
         root.setSpacing(THEME.space_lg)
 
-        root.addWidget(field_label("Name"))
+        root.addWidget(field_label(tr("Name")))
         self.name_edit = QLineEdit(current_name)
-        self.name_edit.setToolTip(wrap_tooltip("The roll's name in the library"))
+        self.name_edit.setToolTip(wrap_tooltip(tr("The roll's name in the library")))
         self.name_edit.selectAll()
         root.addWidget(self.name_edit)
 
-        self.rename_folder_check = QCheckBox("Also rename the folder on disk")
-        self.rename_folder_check.setToolTip(wrap_tooltip("Rename the actual folder as well, in place"))
+        self.rename_folder_check = QCheckBox(tr("Also rename the folder on disk"))
+        self.rename_folder_check.setToolTip(wrap_tooltip(tr("Rename the actual folder as well, in place")))
         self.rename_folder_check.setVisible(folder_backed)
         root.addWidget(self.rename_folder_check)
         if folder_backed:
             root.addWidget(
                 hint_label(
-                    "Renames the actual folder, in place. Inside a cloud-sync folder (Dropbox, "
-                    "iCloud, OneDrive), a sync client may see this as a delete and re-upload "
-                    "rather than a rename.",
+                    tr(
+                        "Renames the actual folder, in place. Inside a cloud-sync folder (Dropbox, "
+                        "iCloud, OneDrive), a sync client may see this as a delete and re-upload "
+                        "rather than a rename."
+                    ),
                     kind="warning",
                 )
             )

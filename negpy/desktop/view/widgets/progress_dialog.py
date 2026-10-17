@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -25,7 +26,7 @@ class ProgressDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Working…")
+        self.setWindowTitle(tr("Working…"))
         self.setModal(False)
         float_over_app(self, claim_keys=False)
         self.setFixedWidth(360)
@@ -70,7 +71,7 @@ class ProgressDialog(QDialog):
         footer.addWidget(self._count)
         footer.addStretch(1)
 
-        self._abort = QPushButton("Abort")
+        self._abort = QPushButton(tr("Abort"))
         self._abort.clicked.connect(self._on_abort)
         pin_dialog_default(None, self._abort)
         footer.addWidget(self._abort)
@@ -84,7 +85,7 @@ class ProgressDialog(QDialog):
         self._bar.setRange(0, 0)  # indeterminate until first progress
         self._abort.setVisible(abortable)
         self._abort.setEnabled(True)
-        self._abort.setText("Abort")
+        self._abort.setText(tr("Abort"))
         self.show()
         self.raise_()
 
@@ -106,5 +107,5 @@ class ProgressDialog(QDialog):
 
     def _on_abort(self) -> None:
         self._abort.setEnabled(False)
-        self._abort.setText("Aborting…")
+        self._abort.setText(tr("Aborting…"))
         self.abort_requested.emit()

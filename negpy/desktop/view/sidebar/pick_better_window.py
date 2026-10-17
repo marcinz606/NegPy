@@ -13,6 +13,7 @@ and each label letterboxes its frame, so a preview keeps its aspect ratio — it
 and never width-capped.
 """
 
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -52,7 +53,7 @@ class PickBetterWindow(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Pick Better")
+        self.setWindowTitle(tr("Pick Better"))
         self.setModal(False)
         float_over_app(self)  # must precede the first show(): the panel flags hide a visible window
         self._user_resized = False  # a manual drag is remembered for the app session, then the aspect follow stops
@@ -83,9 +84,9 @@ class PickBetterWindow(QDialog):
 
         # The A/Skip/B captions are children of the panel, repositioned to each photo's top edge on
         # resize and on a new frame, so they hug the photo (a layout row would sit at the panel's top).
-        self._cap_left = caption_label("A")
-        self._cap_center = caption_label("Skip")
-        self._cap_right = caption_label("B")
+        self._cap_left = caption_label(tr("A"))
+        self._cap_center = caption_label(tr("Skip"))
+        self._cap_right = caption_label(tr("B"))
         for cap in (self._cap_left, self._cap_center, self._cap_right):
             cap.setParent(self._image_panel)
             cap.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -116,10 +117,10 @@ class PickBetterWindow(QDialog):
         # A control row under the photos: the Difference slider widens or narrows the A/B spread
         # live, and the Custom Routing button opens a window to reorder the round order.
         control_row = QHBoxLayout()
-        self._diff_slider = CompactSlider("Difference", 0.25, 4.0, 1.0, step=0.05, unit="×")
+        self._diff_slider = CompactSlider(tr("Difference"), 0.25, 4.0, 1.0, step=0.05, unit="×")
         self._diff_slider.valueChanged.connect(self.diffChanged)
         self._custom_routing_btn = labeled_action(
-            "fa5s.route", "Custom Routing", "Open the window that reorders which parameter each round proposes"
+            "fa5s.route", tr("Custom Routing"), tr("Open the window that reorders which parameter each round proposes")
         )
         self._custom_routing_btn.clicked.connect(self.customRoutingClicked)
         control_row.addWidget(self._diff_slider, 1)
@@ -129,8 +130,8 @@ class PickBetterWindow(QDialog):
         # Bottom-right: Undo (re-show the previous pair) and OK (close = end the mode).
         button_row = QHBoxLayout()
         button_row.addStretch(1)
-        self.undo_btn = labeled_action("fa5s.undo", " Undo", "Revert the last pick and re-show that pair")
-        self.ok_btn = labeled_action("fa5s.check", " OK", "Finish Pick Better and close the window", primary=True)
+        self.undo_btn = labeled_action("fa5s.undo", tr(" Undo"), tr("Revert the last pick and re-show that pair"))
+        self.ok_btn = labeled_action("fa5s.check", tr(" OK"), tr("Finish Pick Better and close the window"), primary=True)
         button_row.addWidget(self.undo_btn)
         button_row.addWidget(self.ok_btn)
         layout.addLayout(button_row)

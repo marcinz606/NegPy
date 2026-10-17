@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import QEvent, QModelIndex, Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
@@ -73,7 +74,7 @@ class ShortcutEditorDialog(QDialog):
         self._highlight_timer = QTimer(self)
         self._highlight_timer.setSingleShot(True)
         self._highlight_timer.timeout.connect(self._clear_highlight)
-        self.setWindowTitle("Customize Shortcuts")
+        self.setWindowTitle(tr("Customize Shortcuts"))
         self.resize(820, 720)
         self._init_ui()
         remember_dialog_geometry(self, repo, "shortcut_editor")
@@ -84,15 +85,17 @@ class ShortcutEditorDialog(QDialog):
         root.setSpacing(12)
 
         intro = QLabel(
-            "Set shortcuts and keyboard step sizes for slider actions. "
-            "Search by name or press a shortcut to filter results, then choose or press Enter. "
-            "Duplicate bindings are rejected. Reset All restores defaults."
+            tr(
+                "Set shortcuts and keyboard step sizes for slider actions. "
+                "Search by name or press a shortcut to filter results, then choose or press Enter. "
+                "Duplicate bindings are rejected. Reset All restores defaults."
+            )
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
 
         self._search_edit = ShortcutSearchLineEdit(self._known_bindings)
-        self._search_edit.setPlaceholderText("Search actions, press a shortcut, then choose or Enter…")
+        self._search_edit.setPlaceholderText(tr("Search actions, press a shortcut, then choose or Enter…"))
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textEdited.connect(self._on_search_edited)
         self._search_edit.installEventFilter(self)
@@ -123,11 +126,11 @@ class ShortcutEditorDialog(QDialog):
         root.addWidget(self._scroll, stretch=1)
 
         buttons = QHBoxLayout()
-        reset_btn = QPushButton("Reset All")
+        reset_btn = QPushButton(tr("Reset All"))
         reset_btn.clicked.connect(self._reset_all)
-        save_btn = QPushButton("Save")
+        save_btn = QPushButton(tr("Save"))
         save_btn.clicked.connect(self._save)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
         buttons.addWidget(reset_btn)
         buttons.addStretch()
@@ -263,7 +266,7 @@ class ShortcutEditorDialog(QDialog):
         grid.setVerticalSpacing(8)
 
         header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
-        for col, label in enumerate(("Action", "Default", "Shortcut", "Step")):
+        for col, label in enumerate((tr("Action"), tr("Default"), tr("Shortcut"), tr("Step"))):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)
             grid.addWidget(hdr, 0, col)
@@ -349,7 +352,7 @@ class ShortcutEditorDialog(QDialog):
         if group.step_suffix:
             spin.setSuffix(group.step_suffix)
         spin.setValue(self._initial_slider_steps.get(group.id, group.default_step))
-        spin.setToolTip("Amount applied per shortcut press")
+        spin.setToolTip(tr("Amount applied per shortcut press"))
         self._step_edits[group.id] = spin
         return spin
 
@@ -381,15 +384,22 @@ class ShortcutEditorDialog(QDialog):
             if other is not None:
                 QMessageBox.warning(
                     self,
-                    "Duplicate Shortcut",
-                    f'"{display_key(key)}" is assigned to both "{REGISTRY[other].description}" and "{REGISTRY[action_id].description}".',
+                    tr("Duplicate Shortcut"),
+                    tr(
+                        '"{value}" is assigned to both "{description}" and "{value1}".',
+                        value=display_key(key),
+                        description=REGISTRY[other].description,
+                        value1=REGISTRY[action_id].description,
+                    ),
                 )
                 return
             seen[(clash_scope(action_id, key), key)] = action_id
 
         for group_id, spin in self._step_edits.items():
             if spin.value() <= 0:
-                QMessageBox.warning(self, "Customize Shortcuts", f"Step size for {group_id} must be greater than zero.")
+                QMessageBox.warning(
+                    self, tr("Customize Shortcuts"), tr("Step size for {group_id} must be greater than zero.", group_id=group_id)
+                )
                 return
 
         self.accept()

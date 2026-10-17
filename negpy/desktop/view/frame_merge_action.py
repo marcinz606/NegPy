@@ -1,5 +1,7 @@
 """Merge to TIFF Negative, the one action behind every surface that offers it."""
 
+from negpy.kernel.system.i18n import tr
+
 from typing import List, Optional
 
 from negpy.desktop.session import composite_kind
@@ -53,5 +55,5 @@ def merge_to_tiff(parent, controller, scope: str) -> None:
 
 
 def _nothing_message(scope: str) -> str:
-    where = {SCOPE_FRAME: "This frame", SCOPE_SELECTION: "Nothing selected", SCOPE_ROLL: "No frame in this roll"}[scope]
+    where = {SCOPE_FRAME: tr("This frame"), SCOPE_SELECTION: tr("Nothing selected"), SCOPE_ROLL: tr("No frame in this roll")}[scope]
     return f"{where} is not a triplet or a stitch" if scope == SCOPE_FRAME else f"{where} can be merged"

@@ -2,6 +2,8 @@
 other than their defaults, and acts on all of them at once. A tab holding one card has no
 bar, since that card's header covers the same ground."""
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Iterable
 
 import qtawesome as qta
@@ -32,7 +34,8 @@ class TabHeader(CollapsibleSection):
         self._sections: tuple = ()
 
         self.apply_btn = header_button(
-            qta.icon("fa5s.film", color=THEME.text_muted), f"Apply every {title} setting to the selected frames or the whole roll…"
+            qta.icon("fa5s.film", color=THEME.text_muted),
+            tr("Apply every {title} setting to the selected frames or the whole roll…", title=title),
         )
         self.apply_btn.clicked.connect(self.apply_requested)
         self.cards_btn = header_button(qta.icon("fa5s.angle-double-up", color=THEME.text_muted), "")
@@ -63,7 +66,9 @@ class TabHeader(CollapsibleSection):
         edited = [s for s in live if s.modified_count]
         self.set_modified(sum(s.modified_count for s in edited))
         self.set_roll_revert(any(s.roll_revert_available for s in live))
-        self.title_label.setText(f"{len(edited)} of {count_of(len(live), 'card')} edited" if edited else "No cards edited")
+        self.title_label.setText(
+            tr("{value} of {value1} edited", value=len(edited), value1=count_of(len(live), "card")) if edited else tr("No cards edited")
+        )
         self._sync_cards_button()
 
     def _live_sections(self) -> list:
@@ -90,4 +95,4 @@ class TabHeader(CollapsibleSection):
     def _sync_cards_button(self) -> None:
         collapse = self._any_expanded()
         self.cards_btn.setIcon(qta.icon("fa5s.angle-double-up" if collapse else "fa5s.angle-double-down", color=THEME.text_muted))
-        self.cards_btn.setToolTip(wrap_tooltip(f"{'Collapse' if collapse else 'Expand'} every card on this tab"))
+        self.cards_btn.setToolTip(wrap_tooltip(tr("{value} every card on this tab", value=tr("Collapse") if collapse else "Expand")))

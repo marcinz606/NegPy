@@ -1,3 +1,5 @@
+from negpy.kernel.system.text import plural
+from negpy.kernel.system.i18n import tr
 import os
 import re
 import threading
@@ -74,7 +76,7 @@ class ToolMode(Enum):
 UNCROPPED_PREVIEW_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE})
 
 # Zone Overlay looks, by stored key and menu label.
-ZONE_STYLES = {"false_color": "Color", "zone_map": "Grayscale", "grid": "Grid"}
+ZONE_STYLES = {"false_color": tr("Color"), "zone_map": tr("Grayscale"), "grid": tr("Grid")}
 
 
 @dataclass
@@ -431,11 +433,11 @@ def composite_summary(asset: Dict[str, Any]) -> str:
     if kind == "hdr":
         return f"HDR merge of {count_of(len(hdr_frame_paths(asset)), 'exposure')}"
     if kind == "rgb":
-        return "Trichrome triplet"
+        return tr("Trichrome triplet")
     if kind == "half":
         return f"Half-frame split ({int(asset['half'])} of 2)"
     if kind == "diptych":
-        return "Diptych — both halves, each with its own edit"
+        return tr("Diptych — both halves, each with its own edit")
     return ""
 
 
@@ -681,7 +683,7 @@ class AssetListModel(QAbstractListModel):
             if file_info.get("scene"):
                 lines.append(f"Scene: {file_info['scene'][2]}")
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
-                lines.append("Thumbnail predates a settings change; open the frame to refresh it.")
+                lines.append(tr("Thumbnail predates a settings change; open the frame to refresh it."))
             return "\n".join(lines)
 
         if role == Qt.ItemDataRole.UserRole:
@@ -1523,7 +1525,7 @@ class DesktopSessionManager(QObject):
         if luma or color:
             src_bounds = _source_effective_bounds(source_config.process)
             if src_bounds is None:
-                self.settings_synced.emit("Render the source frame before syncing bounds")
+                self.settings_synced.emit(tr("Render the source frame before syncing bounds"))
                 return 0
             # A source riding a baseline passes that baseline on, so its origin goes with it.
             rides = src_bounds == (source_config.process.locked_floors, source_config.process.locked_ceils)
@@ -1572,7 +1574,7 @@ class DesktopSessionManager(QObject):
         rows,
         scope: str = "current",
         finish: Optional[Callable[[WorkspaceConfig], WorkspaceConfig]] = None,
-        label: str = "Preset applied",
+        label: str = tr("Preset applied"),
     ) -> int:
         """Overlay a preset's rows onto the current frame, the selection or the visible roll; the
         active frame is a target too. `finish` runs on each overlaid config, for fields outside
@@ -1611,7 +1613,16 @@ class DesktopSessionManager(QObject):
         if count:
             n = len(rows) + int(finish is not None)
             noun = "setting" if n == 1 else "settings"
-            self.settings_synced.emit(f"{label}: {n} {noun} to {count} frame{'s' if count != 1 else ''}")
+            self.settings_synced.emit(
+                tr(
+                    "{label}: {n} {noun} to {count} {frame_word}",
+                    label=label,
+                    n=n,
+                    noun=noun,
+                    count=count,
+                    frame_word=plural(count, "frame"),
+                )
+            )
             self.settings_saved.emit()
             if changed_hashes:
                 self.frames_edited_offscreen.emit(changed_hashes)
@@ -1662,7 +1673,7 @@ class DesktopSessionManager(QObject):
             count += 1
         if count:
             self.settings_saved.emit()
-            self.settings_synced.emit(f"Assigned {count} sequential frame numbers")
+            self.settings_synced.emit(tr("Assigned {count} sequential frame numbers", count=count))
             if changed_hashes:
                 self.frames_edited_offscreen.emit(changed_hashes)
         return count
@@ -1691,7 +1702,7 @@ class DesktopSessionManager(QObject):
                 changed_hashes.append(target_hash)
             count += 1
         if count:
-            self.settings_synced.emit(f"Reset {count} frame{'s' if count != 1 else ''} to defaults")
+            self.settings_synced.emit(tr("Reset {count} {frame_word} to defaults", count=count, frame_word=plural(count, "frame")))
             self.settings_saved.emit()
             if changed_hashes:
                 self.frames_edited_offscreen.emit(changed_hashes)
@@ -1732,7 +1743,7 @@ class DesktopSessionManager(QObject):
 
         if count:
             total = count + int(active_included)
-            self.settings_synced.emit(f"Rotated {total} frame{'s' if total != 1 else ''}")
+            self.settings_synced.emit(tr("Rotated {total} {frame_word}", total=total, frame_word=plural(total, "frame")))
             self.settings_saved.emit()
         return touched_keys
 
@@ -1765,7 +1776,7 @@ class DesktopSessionManager(QObject):
 
         if count:
             total = count + int(active_included)
-            self.settings_synced.emit(f"Flipped {total} frame{'s' if total != 1 else ''}")
+            self.settings_synced.emit(tr("Flipped {total} {frame_word}", total=total, frame_word=plural(total, "frame")))
             self.settings_saved.emit()
         return touched_keys
 
@@ -2129,7 +2140,7 @@ class DesktopSessionManager(QObject):
             )
 
         if len(self._scope_indices("selection")) > 1:
-            self.apply_preset_fields(clip, rows, "selection", finish=with_bounds if bounds else None, label="Pasted")
+            self.apply_preset_fields(clip, rows, "selection", finish=with_bounds if bounds else None, label=tr("Pasted"))
             self.state_changed.emit()
             return
         merged = apply_selected_fields(clip, self.state.config, rows)
@@ -2323,7 +2334,7 @@ class DesktopSessionManager(QObject):
 
         if not (0 <= index < len(self.state.uploaded_files)):
             return
-        name = os.path.splitext(os.path.basename(red_path))[0] + " (RGB)"
+        name = os.path.splitext(os.path.basename(red_path))[0] + tr(" (RGB)")
         self.state.uploaded_files[index] = {
             "name": name,
             "path": red_path,

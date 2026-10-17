@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from dataclasses import replace
 
 from PyQt6.QtWidgets import QHBoxLayout
@@ -20,31 +21,31 @@ class LensSidebar(BaseSidebar):
         conf = self.state.config.geometry
 
         self.distortion_slider = CompactSlider(
-            "Distortion Correction", -0.10, 0.10, conf.distortion_k1, step=0.001, precision=1000, has_neutral=True
+            tr("Distortion Correction"), -0.10, 0.10, conf.distortion_k1, step=0.001, precision=1000, has_neutral=True
         )
         # Nothing derives the readout's decimals from `precision`, so a 0.001 step needs both.
         self.distortion_slider.spin.setDecimals(3)
         self.distortion_slider.setToolTip(
             wrap_tooltip(
-                "Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference."
+                tr("Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference.")
             )
         )
 
         self.metadata_distortion_btn = self._labeled_toggle(
             "fa5s.camera",
-            " Distortion",
+            tr(" Distortion"),
             conf.lens_distortion_from_metadata,
-            "Apply embedded scanning-lens distortion correction. Replaces manual distortion.",
+            tr("Apply embedded scanning-lens distortion correction. Replaces manual distortion."),
         )
         self.metadata_ca_btn = self._labeled_toggle(
             "fa5s.camera",
-            " CA",
+            tr(" CA"),
             conf.lens_ca_from_metadata,
-            "Apply embedded lateral chromatic aberration correction. Can be used with manual distortion.",
+            tr("Apply embedded lateral chromatic aberration correction. Can be used with manual distortion."),
         )
         # The file's own profile first: its distortion replaces the manual slider below.
         btn_row = QHBoxLayout()
-        btn_row.addWidget(field_label("Embedded"))
+        btn_row.addWidget(field_label(tr("Embedded")))
         btn_row.addWidget(self.metadata_distortion_btn, 1)
         btn_row.addWidget(self.metadata_ca_btn, 1)
         self.layout.addLayout(btn_row)
@@ -77,9 +78,9 @@ class LensSidebar(BaseSidebar):
             lens = self.state.preview_lens
         requested = replace(config, geometry=replace(config.geometry, lens_distortion_from_metadata=True, lens_ca_from_metadata=True))
         if not metadata_lens_corrections(requested):
-            lens = LensMetadata(reason="Embedded lens correction is unavailable for composites.")
+            lens = LensMetadata(reason=tr("Embedded lens correction is unavailable for composites."))
         if self.state.has_ir:
-            lens = LensMetadata(reason="Embedded lens correction is unavailable for RGB+IR sources.")
+            lens = LensMetadata(reason=tr("Embedded lens correction is unavailable for RGB+IR sources."))
         for button, enabled, available in (
             (self.metadata_distortion_btn, config.geometry.lens_distortion_from_metadata, lens.distortion),
             (self.metadata_ca_btn, config.geometry.lens_ca_from_metadata, lens.ca),
@@ -87,7 +88,7 @@ class LensSidebar(BaseSidebar):
             button.setChecked(enabled)
             button.setEnabled(available or enabled)
             button.edited_dot.set_active(enabled)
-        text = lens.description if lens.available else f"Unavailable: {lens.reason}"
+        text = lens.description if lens.available else tr("Unavailable: {reason}", reason=lens.reason)
         self.lens_hint.setText(text)
         self.lens_hint.setVisible(bool(text))
         self.distortion_slider.setEnabled(not config.geometry.lens_distortion_from_metadata)

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import logging
 import math
 import os
@@ -1340,7 +1341,7 @@ class CanvasOverlay(QWidget):
         if before is None or target.isEmpty():
             return
         painter.drawImage(target, before, self._compare_before_src(before))
-        draw_view_badge(painter, "BEFORE", target.left() + 12, target.top() + 12)
+        draw_view_badge(painter, tr("BEFORE"), target.left() + 12, target.top() + 12)
 
     def _split_screen_x(self) -> float:
         rect = self._content_view_rect()
@@ -1380,20 +1381,20 @@ class CanvasOverlay(QWidget):
         painter.drawText(knob, Qt.AlignmentFlag.AlignCenter, "◂▸")
 
         if x - target.left() > 92:
-            draw_view_badge(painter, "BEFORE", target.left() + 12, target.top() + 12)
+            draw_view_badge(painter, tr("BEFORE"), target.left() + 12, target.top() + 12)
         if target.right() - x > 92:
-            draw_view_badge(painter, "AFTER", target.right() - 12 - view_badge_width(painter, "AFTER"), target.top() + 12)
+            draw_view_badge(painter, tr("AFTER"), target.right() - 12 - view_badge_width(painter, "AFTER"), target.top() + 12)
 
     def _draw_peek_badge(self, painter: QPainter) -> None:
         """Name the peek on the canvas. Otherwise only the toolbar says the view is on."""
         if self.state.negative_peek:
-            text = "NEGATIVE"
+            text = tr("NEGATIVE")
         elif self.state.embedded_peek:
-            text = "EMBEDDED"
+            text = tr("EMBEDDED")
         elif self.state.flatfield_peek:
-            text = "FLAT FIELD"
+            text = tr("FLAT FIELD")
         else:
-            text = "FLAT SCAN"
+            text = tr("FLAT SCAN")
         rect = self._content_view_rect()
         if rect.isEmpty():
             return
@@ -1926,7 +1927,7 @@ class CanvasOverlay(QWidget):
             x0, y0 = int(src.x()), int(src.y())
             x1, y1 = int(src.right()), int(src.bottom())
             acutance = loupe_acutance(host[y0:y1, x0:x1])
-        label = f"acutance {acutance:.1f} · {'full res' if self.state.hq_preview else 'preview res'}"
+        label = tr("acutance {acutance:.1f} · {value}", acutance=acutance, value="full res" if self.state.hq_preview else "preview res")
 
         badge = QRectF(dest.center().x() - 96.0, dest.bottom() + 6.0, 192.0, _LOUPE_BADGE_H)
         painter.setBrush(QColor(0, 0, 0, 170))
@@ -3777,7 +3778,7 @@ class CanvasOverlay(QWidget):
                 hud = getattr(self.parent(), "hud", None)
                 if hud is not None and not self._crop_redraw_hint_shown:
                     self._crop_redraw_hint_shown = True
-                    hud.showMessage("Drag outside the box to redraw the crop", timeout=2500)
+                    hud.showMessage(tr("Drag outside the box to redraw the crop"), timeout=2500)
                 self._end_crop_drag()
                 self.update()
                 event.accept()

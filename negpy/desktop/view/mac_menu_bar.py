@@ -21,6 +21,8 @@ Items dispatch through ``ShortcutManager.action_for``, so a menu item and its sh
 never run different code, and ``sync_shortcuts`` re-reads the bindings after a rebind.
 """
 
+from negpy.kernel.system.i18n import tr
+
 import sys
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -103,23 +105,23 @@ class MacMenuBar(QMenuBar):
     def _build_app(self) -> QMenu:
         """About and Preferences, which macOS moves into the application menu. Their roles are
         the exception to the NoRole rule above."""
-        menu = self._menu("NegPy")
+        menu = self._menu(tr("NegPy"))
         self._add(menu, "About NegPy", action_id="show_about", role=QAction.MenuRole.AboutRole)
         self._add(menu, "Preferences…", action_id="open_preferences", role=QAction.MenuRole.PreferencesRole)
         return menu
 
     def _build_help(self) -> QMenu:
-        menu = self._menu("Help")
+        menu = self._menu(tr("Help"))
         self._add(menu, "Take the Tour", slot=self._window.show_tutorial)
         self._add(menu, "Keyboard Shortcuts…", action_id="show_shortcuts")
-        self._add(menu, "Customize Shortcuts…", slot=self._open_shortcut_editor)
-        self._add(menu, "Analysis Panel Guide…", action_id="show_analysis_help")
+        self._add(menu, tr("Customize Shortcuts…"), slot=self._open_shortcut_editor)
+        self._add(menu, tr("Analysis Panel Guide…"), action_id="show_analysis_help")
         menu.addSeparator()
         # No registry entry: the item exists only in this bar, and a binding would advertise
         # it in the shortcut editor and the ? overlay on Windows and Linux, where nothing
         # can run it.
-        self._add(menu, "Report an Issue…", slot=self._report_an_issue)
-        self._add(menu, "Check for Updates…", action_id="check_for_updates")
+        self._add(menu, tr("Report an Issue…"), slot=self._report_an_issue)
+        self._add(menu, tr("Check for Updates…"), action_id="check_for_updates")
         return menu
 
     # -- state ----------------------------------------------------------------------

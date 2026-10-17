@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
@@ -16,17 +17,17 @@ _TICK = "✓ "
 
 # Roll Analysis is the action, Roll Baseline the field it fills; the Library's own
 # menu item runs the same action, so it reads these rather than restating them.
-BATCH_ANALYSIS_TOOLTIP = (
+BATCH_ANALYSIS_TOOLTIP = tr(
     "Roll Analysis — measures the exposure of every loaded frame outside a scene and saves the average as this roll's baseline"
 )
-BATCH_ANALYSIS_DISABLED_TOOLTIP = "Open this roll first — Roll Analysis measures the files currently loaded."
-FROM_FRAME_TOOLTIP = (
+BATCH_ANALYSIS_DISABLED_TOOLTIP = tr("Open this roll first — Roll Analysis measures the files currently loaded.")
+FROM_FRAME_TOOLTIP = tr(
     "Use This Frame — save the current frame's bounds as this roll's baseline, in place of a measured "
     "average. Every frame outside a scene on Use Luma/Color Average follows it, including one loaded later."
 )
-FROM_FRAME_DISABLED_TOOLTIP = "Open this roll first — the baseline is written onto the files currently loaded."
-STALE_ROLL_HINT = "Baseline from an older analysis: run Reanalyze"
-STALE_SCENE_TOOLTIP = "Baseline from an older analysis: run Scene Analysis"
+FROM_FRAME_DISABLED_TOOLTIP = tr("Open this roll first — the baseline is written onto the files currently loaded.")
+STALE_ROLL_HINT = tr("Baseline from an older analysis: run Reanalyze")
+STALE_SCENE_TOOLTIP = tr("Baseline from an older analysis: run Scene Analysis")
 
 
 class RollAnalysisSidebar(BaseSidebar):
@@ -44,23 +45,23 @@ class RollAnalysisSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.roll_combo = SearchableGearCombo(placeholder="Search rolls…")
-        self.roll_combo.setToolTip(wrap_tooltip("Picking a roll loads its saved baseline onto the loaded files."))
+        self.roll_combo = SearchableGearCombo(placeholder=tr("Search rolls…"))
+        self.roll_combo.setToolTip(wrap_tooltip(tr("Picking a roll loads its saved baseline onto the loaded files.")))
         self.reanalyze_btn = self._icon_action("fa5s.tachometer-alt", BATCH_ANALYSIS_TOOLTIP)
         self.from_frame_btn = self._icon_action("fa5s.crosshairs", FROM_FRAME_TOOLTIP)
-        self.layout.addLayout(header_row(section_subheader("ROLLS"), self.reanalyze_btn, self.from_frame_btn))
+        self.layout.addLayout(header_row(section_subheader(tr("ROLLS")), self.reanalyze_btn, self.from_frame_btn))
         self.layout.addWidget(self.roll_combo)
 
         self.roll_status_hint = hint_label("", "muted")
         self.layout.addWidget(self.roll_status_hint)
 
-        self.scenes_header = section_subheader("SCENES")
+        self.scenes_header = section_subheader(tr("SCENES"))
         self.layout.addWidget(self.scenes_header)
         self.scene_rows = QWidget()
         self._scene_rows_layout = QVBoxLayout(self.scene_rows)
         self._scene_rows_layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.scene_rows)
-        self.scenes_hint = hint_label("Select frames in the Film Strip, then right-click › Scene › Group as Scene…", "muted")
+        self.scenes_hint = hint_label(tr("Select frames in the Film Strip, then right-click › Scene › Group as Scene…"), "muted")
         self.layout.addWidget(self.scenes_hint)
 
         self._roll_sync_key = None
@@ -145,21 +146,28 @@ class RollAnalysisSidebar(BaseSidebar):
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             label = field_label(
-                f'<span style="color:{scene_color(ordinal)}">●</span> {ordinal}  {entry["name"]} · {count_of(count, "frame")}{tick}'
+                tr(
+                    '<span style="color:{value}">●</span> {ordinal}  {value1} · {value2}{tick}',
+                    value=scene_color(ordinal),
+                    ordinal=ordinal,
+                    value1=entry["name"],
+                    value2=count_of(count, "frame"),
+                    tick=tick,
+                )
             )
             if stale:
                 label.setToolTip(STALE_SCENE_TOOLTIP)
             row_layout.addWidget(label, 1)
             analyze = self._icon_action(
-                "fa5s.tachometer-alt", f"Scene Analysis — measure “{entry['name']}” and give its frames their own baseline"
+                "fa5s.tachometer-alt", tr("Scene Analysis — measure “{value}” and give its frames their own baseline", value=entry["name"])
             )
             analyze.clicked.connect(lambda _=False, sid=scene_id: self.controller.request_scene_analysis(sid))
-            select = self._icon_action("fa5s.object-group", f"Select the frames of “{entry['name']}” in the Film Strip")
+            select = self._icon_action("fa5s.object-group", tr("Select the frames of “{value}” in the Film Strip", value=entry["name"]))
             select.clicked.connect(lambda _=False, sid=scene_id: self.controller.select_scene_frames(sid))
             for btn in (analyze, select):
                 btn.setEnabled(count > 0)
                 row_layout.addWidget(btn)
-            delete = self._icon_action("fa5s.trash", f"Delete “{entry['name']}” — its frames keep their edits and baseline")
+            delete = self._icon_action("fa5s.trash", tr("Delete “{value}” — its frames keep their edits and baseline", value=entry["name"]))
             delete.clicked.connect(lambda _=False, sid=scene_id: prompt_delete_scene(self, self.controller, sid))
             row_layout.addWidget(delete)
             self._scene_rows_layout.addWidget(row)
@@ -173,7 +181,9 @@ class RollAnalysisSidebar(BaseSidebar):
         entry = rolls.roll_for_id(self.controller.session.repo, selected_id) if selected_id else None
         if active_id and selected_id and selected_id != active_id:
             set_hint_kind(self.roll_status_hint, "warning")
-            self.roll_status_hint.setText(f"Using “{self._name_for_id(selected_id)}”, a baseline saved for a different roll")
+            self.roll_status_hint.setText(
+                tr("Using “{value}”, a baseline saved for a different roll", value=self._name_for_id(selected_id))
+            )
         elif entry and rolls.baseline_stale(entry.get("normalization")):
             set_hint_kind(self.roll_status_hint, "warning")
             self.roll_status_hint.setText(STALE_ROLL_HINT)

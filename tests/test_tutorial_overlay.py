@@ -51,7 +51,7 @@ def test_built_steps_are_consistent() -> None:
 
 def test_tour_keys_come_from_the_registry() -> None:
     source = open("negpy/desktop/view/widgets/tutorial_steps.py", encoding="utf-8").read()
-    ids = set(re.findall(r"_k\('([a-z_]+)'\)", source))
+    ids = set(re.findall(r"_k\(['\"]([a-z_]+)['\"]\)", source))
     assert ids and ids <= set(shortcut_registry.REGISTRY)
     assert "show_tour" in shortcut_registry.REGISTRY
 

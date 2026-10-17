@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 
 from PyQt6.QtWidgets import QHBoxLayout
@@ -15,16 +16,18 @@ class TrichromeSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.enable_btn = self._small_toggle(
             "mdi.google-circles-communities",
-            "Trichrome Mode",
+            tr("Trichrome Mode"),
             self.controller.rgb_scan_mode_for_roll(self.state.active_roll_id),
             wrap_tooltip(
-                "Assemble each frame from its red, green and blue exposures, grouped in capture order on load. "
-                "Each roll keeps its own mode."
+                tr(
+                    "Assemble each frame from its red, green and blue exposures, grouped in capture order on load. "
+                    "Each roll keeps its own mode."
+                )
             ),
             align_left=True,
         )
         self.edit_btn = self._icon_action(
-            "fa5s.pen", "Edit Triplet…: assign this frame's three exposures by hand, for a frame the grouping got wrong"
+            "fa5s.pen", tr("Edit Triplet…: assign this frame's three exposures by hand, for a frame the grouping got wrong")
         )
         row = QHBoxLayout()
         row.addWidget(self.enable_btn, 1)
@@ -46,7 +49,7 @@ class TrichromeSidebar(BaseSidebar):
         thumbnails every frame again, so it asks first. With nothing loaded there is
         nothing to regroup and nothing to confirm."""
         loaded = len(self.state.uploaded_files)
-        if checked and loaded and not confirm_assembly_mode(self, "Trichrome", loaded):
+        if checked and loaded and not confirm_assembly_mode(self, tr("Trichrome"), loaded):
             self._follow_mode(False)
             return
         self.controller.set_rgb_scan_mode(checked)
@@ -67,9 +70,9 @@ class TrichromeSidebar(BaseSidebar):
             self.edit_btn.setEnabled(bool(self.state.uploaded_files))
             if is_rgb_triplet(conf):
                 green, blue = os.path.basename(conf.green_path), os.path.basename(conf.blue_path)
-                self.hint.setText(f"This frame is assembled with {green} and {blue}.")
+                self.hint.setText(tr("This frame is assembled with {green} and {blue}.", green=green, blue=blue))
             else:
-                self.hint.setText("This frame is a single exposure.")
+                self.hint.setText(tr("This frame is a single exposure."))
         finally:
             self.block_signals(False)
 

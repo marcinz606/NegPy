@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 import numpy as np
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -62,7 +64,7 @@ class PrescanCropDialog(QDialog):
         self._busy = False
         self._scan_now = False  # set when the user chooses Scan over Apply crop
 
-        self.setWindowTitle("Prescan — Set Crop")
+        self.setWindowTitle(tr("Prescan — Set Crop"))
         self.setModal(True)
         self.resize(720, 560)
 
@@ -71,10 +73,10 @@ class PrescanCropDialog(QDialog):
         # Acquisition sits at the top, as in the other two preview dialogs; the footer is for
         # leaving.
         top = QHBoxLayout()
-        top.addWidget(QLabel("Prescan"))
+        top.addWidget(QLabel(tr("Prescan")))
         top.addStretch()
-        self._retry_btn = QPushButton("Rescan")
-        self._retry_btn.setToolTip("Run the preview pass again")
+        self._retry_btn = QPushButton(tr("Rescan"))
+        self._retry_btn.setToolTip(tr("Run the preview pass again"))
         self._retry_btn.setEnabled(False)
         top.addWidget(self._retry_btn)
         root.addLayout(top)
@@ -87,15 +89,15 @@ class PrescanCropDialog(QDialog):
         root.addWidget(self._label, 1)
 
         row = QHBoxLayout()
-        self._clear_btn = QPushButton("Clear Crop")
-        self._clear_btn.setToolTip("Scan the full window instead of a crop")
+        self._clear_btn = QPushButton(tr("Clear Crop"))
+        self._clear_btn.setToolTip(tr("Scan the full window instead of a crop"))
         self._clear_btn.setEnabled(False)
-        self._cancel_btn = QPushButton("Cancel")
-        self._ok_btn = QPushButton("Apply Crop")
-        self._ok_btn.setToolTip("Keep this crop and return to the Scan panel")
+        self._cancel_btn = QPushButton(tr("Cancel"))
+        self._ok_btn = QPushButton(tr("Apply Crop"))
+        self._ok_btn.setToolTip(tr("Keep this crop and return to the Scan panel"))
         self._ok_btn.setEnabled(False)
-        self._scan_btn = QPushButton("Scan Frame")
-        self._scan_btn.setToolTip("Scan now with the current settings")
+        self._scan_btn = QPushButton(tr("Scan Frame"))
+        self._scan_btn.setToolTip(tr("Scan now with the current settings"))
         self._scan_btn.setEnabled(False)
         row.addWidget(self._clear_btn)
         row.addStretch()
@@ -136,8 +138,8 @@ class PrescanCropDialog(QDialog):
         if self._busy:
             return
         self._busy = True
-        self._strip.set_message("Scanning preview at 1200 dpi…")
-        self._strip.start_progress("Prescanning at 1200 dpi… %p%")
+        self._strip.set_message(tr("Scanning preview at 1200 dpi…"))
+        self._strip.start_progress(tr("Prescanning at 1200 dpi… %p%"))
         self._retry_btn.setEnabled(False)
         self._ok_btn.setEnabled(False)
         self._scan_btn.setEnabled(False)
@@ -158,7 +160,7 @@ class PrescanCropDialog(QDialog):
     def _on_progress(self, value: float) -> None:
         if not self._busy:
             return
-        self._strip.set_progress("Prescanning at 1200 dpi… %p%", float(value))
+        self._strip.set_progress(tr("Prescanning at 1200 dpi… %p%"), float(value))
 
     def _on_prescan_ready(self, result: object) -> None:
         if not self._busy:
@@ -168,7 +170,7 @@ class PrescanCropDialog(QDialog):
         self._retry_btn.setEnabled(True)
         self._clear_btn.setEnabled(True)
         if not isinstance(result, ScanResult):
-            self._strip.set_message("Prescan returned no image")
+            self._strip.set_message(tr("Prescan returned no image"))
             return
         u8 = _preview_u8(result.rgb)
         qimg = ImageConverter.to_qimage(u8)
@@ -182,7 +184,7 @@ class PrescanCropDialog(QDialog):
             self._label.set_window(image_rect)
         self._ok_btn.setEnabled(True)
         self._scan_btn.setEnabled(True)
-        self._strip.set_message("Drag the rectangle to set the scan crop")
+        self._strip.set_message(tr("Drag the rectangle to set the scan crop"))
 
     def _on_prescan_error(self, message: str) -> None:
         if not self._busy:
@@ -190,7 +192,7 @@ class PrescanCropDialog(QDialog):
         self._busy = False
         self._strip.stop_progress()
         self._retry_btn.setEnabled(True)
-        self._strip.set_message(message or "Prescan failed")
+        self._strip.set_message(message or tr("Prescan failed"))
 
     def _on_prescan_cancelled(self) -> None:
         if not self._busy:
@@ -198,7 +200,7 @@ class PrescanCropDialog(QDialog):
         self._busy = False
         self._strip.stop_progress()
         self._retry_btn.setEnabled(True)
-        self._strip.set_message("Prescan canceled")
+        self._strip.set_message(tr("Prescan canceled"))
 
     def _on_window_changed(self, rect: object) -> None:
         if rect is None:

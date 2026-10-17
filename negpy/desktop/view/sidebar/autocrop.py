@@ -1,3 +1,5 @@
+from negpy.desktop.view.styles.templates import add_choice_items, select_choice
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QLabel
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -23,54 +25,54 @@ class AutocropSidebar(BaseSidebar):
         conf = self.state.config.geometry
 
         ratio_row = QHBoxLayout()
-        ratio_row.addWidget(self._field_label("Ratio"))
+        ratio_row.addWidget(self._field_label(tr("Ratio")))
         self.ratio_combo = StepCombo()
         # One entry per shape (see CROP_RATIO_CHOICES). The crop tool auto-orients to match the
         # current drag, so a separate portrait entry for every ratio would duplicate the same
         # shape twice.
-        self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
-        self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
-        self.ratio_combo.setPlaceholderText("Select Ratio…")
-        self.ratio_combo.setToolTip(wrap_tooltip("Aspect ratio the auto crop and the crop tool snap to"))
+        add_choice_items(self.ratio_combo, [r.value for r in CROP_RATIO_CHOICES])
+        select_choice(self.ratio_combo, canonical_crop_ratio(conf.autocrop_ratio))
+        self.ratio_combo.setPlaceholderText(tr("Select Ratio…"))
+        self.ratio_combo.setToolTip(wrap_tooltip(tr("Aspect ratio the auto crop and the crop tool snap to")))
         ratio_row.addWidget(self.ratio_combo, 1)
 
-        self.detect_ratio_btn = self._icon_action("fa5s.crosshairs", "Detect closest aspect ratio from the film frame")
+        self.detect_ratio_btn = self._icon_action("fa5s.crosshairs", tr("Detect closest aspect ratio from the film frame"))
         ratio_row.addWidget(self.detect_ratio_btn)
 
         self.layout.addLayout(ratio_row)
 
-        auto_tip = "Auto Crop: find the frame edges and crop to them; off clears the crop. New frames start with it"
+        auto_tip = tr("Auto Crop: find the frame edges and crop to them; off clears the crop. New frames start with it")
         self.auto_frame_btn = self._small_toggle("fa5s.magic", "", conf.crop_from_auto, auto_tip)
         self.auto_frame_btn.plain_tooltip = auto_tip
         self.auto_frame_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        all_tip = (
+        all_tip = tr(
             "Auto-crop all frames together: confident frames calibrate weak ones; hand-drawn and ambiguous "
             "crops are kept. Runs before Roll Analysis"
         )
         self.auto_crop_all_btn = self._icon_action("fa5s.layer-group", all_tip)
         self.auto_crop_all_btn.plain_tooltip = all_tip
         self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        square_tip = (
+        square_tip = tr(
             "Square Before Crop: Auto Crop sets Fine Rotation, Tilt and Swing from the frame's own edges, "
             "then crops the squared frame. A frame with its own rotation, Tilt or Swing keeps them"
         )
         self.square_btn = self._small_toggle("fa5s.ruler-combined", "", conf.autocrop_square, square_tip)
         self.square_btn.plain_tooltip = square_tip
         self.square_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.layout.addLayout(header_row(section_subheader("AUTO CROP"), self.square_btn, self.auto_frame_btn, self.auto_crop_all_btn))
+        self.layout.addLayout(header_row(section_subheader(tr("AUTO CROP")), self.square_btn, self.auto_frame_btn, self.auto_crop_all_btn))
 
         mode_row = QHBoxLayout()
-        mode_row.addWidget(self._field_label("Mode"))
+        mode_row.addWidget(self._field_label(tr("Mode")))
         self.mode_combo = StepCombo()
-        self.mode_combo.addItem("Image only", AutocropMode.IMAGE.value)
-        self.mode_combo.addItem("Film edge", AutocropMode.FILM.value)
+        self.mode_combo.addItem(tr("Image only"), AutocropMode.IMAGE.value)
+        self.mode_combo.addItem(tr("Film edge"), AutocropMode.FILM.value)
         self._select_mode(conf.autocrop_mode)
-        self.mode_combo.setToolTip(wrap_tooltip("Auto crop target: exposed image only, or full film including rebate/sprockets"))
+        self.mode_combo.setToolTip(wrap_tooltip(tr("Auto crop target: exposed image only, or full film including rebate/sprockets")))
         mode_row.addWidget(self.mode_combo, 1)
         self.layout.addLayout(mode_row)
 
         self.offset_slider = CompactSlider(
-            "Crop Offset",
+            tr("Crop Offset"),
             -5.0,
             100.0,
             float(conf.autocrop_offset),
@@ -78,9 +80,9 @@ class AutocropSidebar(BaseSidebar):
             precision=1,
             unit=" px",
         )
-        self.offset_slider.setToolTip(wrap_tooltip("How far inside the detected edge the crop lands"))
+        self.offset_slider.setToolTip(wrap_tooltip(tr("How far inside the detected edge the crop lands")))
         self.rebate_trim_slider = CompactSlider(
-            "Rebate Trim",
+            tr("Rebate Trim"),
             0.0,
             150.0,
             conf.autocrop_rebate_trim * 100.0,
@@ -90,8 +92,10 @@ class AutocropSidebar(BaseSidebar):
         )
         self.rebate_trim_slider.setToolTip(
             wrap_tooltip(
-                "How far into the detected rebate auto crop cuts: 0% stops at the film edge, "
-                "100% lands on the image edge, above 100% bites in to clear a white border"
+                tr(
+                    "How far into the detected rebate auto crop cuts: 0% stops at the film edge, "
+                    "100% lands on the image edge, above 100% bites in to clear a white border"
+                )
             )
         )
         self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
@@ -99,7 +103,7 @@ class AutocropSidebar(BaseSidebar):
         self.layout.addWidget(SliderGroup(self.offset_slider, self.rebate_trim_slider))
 
     def _connect_signals(self) -> None:
-        self.ratio_combo.currentTextChanged.connect(self.controller.set_crop_ratio)
+        self.ratio_combo.currentIndexChanged.connect(lambda _: self.controller.set_crop_ratio(self.ratio_combo.currentData()))
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.auto_frame_btn.toggled.connect(self._on_auto_frame_toggled)
@@ -142,7 +146,7 @@ class AutocropSidebar(BaseSidebar):
         conf = self.state.config.geometry
         self.block_signals(True)
         try:
-            self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
+            select_choice(self.ratio_combo, canonical_crop_ratio(conf.autocrop_ratio))
             self._select_mode(conf.autocrop_mode)
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)

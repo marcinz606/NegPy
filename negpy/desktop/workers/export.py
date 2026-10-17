@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import List, Optional, Any, Union
@@ -350,8 +351,10 @@ class ExportWorker(QObject):
                         out_dir0, filename0, ext0 = resolve_export_naming(task)
                         if _export_target_is_a_source(os.path.join(out_dir0, f"{filename0}.{ext0}"), task):
                             self.error.emit(
-                                f"Export skipped for {task.file_info['name']}: it would overwrite the source file. "
-                                "Change the filename pattern or destination."
+                                tr(
+                                    "Export skipped for {value}: it would overwrite the source file. Change the filename pattern or destination.",
+                                    value=task.file_info["name"],
+                                )
                             )
                             continue
 
@@ -385,7 +388,7 @@ class ExportWorker(QObject):
                         _drain(pending)
                     pending = finisher.submit(self._finish_task, task, buffer, status, embed_plan)
                 except Exception as e:
-                    self.error.emit(f"Export failed for {full_name}: {e}")
+                    self.error.emit(tr("Export failed for {full_name}: {e}", full_name=full_name, e=e))
 
             if pending is not None:
                 _drain(pending)
@@ -493,7 +496,7 @@ class ExportWorker(QObject):
                 try:
                     export_linear_output(task.file_info["path"], task.out_path, **task.options)
                 except Exception as e:
-                    self.error.emit(f"Linear Output failed for {name}: {e}")
+                    self.error.emit(tr("Linear Output failed for {name}: {e}", name=name, e=e))
 
             self.finished.emit()
         except Exception as e:
@@ -514,7 +517,7 @@ class ExportWorker(QObject):
             settings = job.settings
             plan = plan_sheets(settings.paper_width, settings.paper_height, geometry, len(job.frames), settings.roll_label, job.breaks)
             if not plan.pages:
-                self.error.emit(f"Contact sheet: {plan.reason}")
+                self.error.emit(tr("Contact sheet: {reason}", reason=plan.reason))
                 self.finished.emit()
                 return
             dpi = best_dpi(settings.paper_width, settings.paper_height, settings.dpi)
@@ -557,7 +560,7 @@ class ExportWorker(QObject):
                     )
                     if tile is None:
                         # The frame prints blank so the numbering stays in step.
-                        self.error.emit(f"{frame.name}: could not be rendered for the contact sheet")
+                        self.error.emit(tr("{name}: could not be rendered for the contact sheet", name=frame.name))
                         continue
                     turns[index] = turns_for(frame, geometry, tile.shape[:2])
                     tiles[index] = tile

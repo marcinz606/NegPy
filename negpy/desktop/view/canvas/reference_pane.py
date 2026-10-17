@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QRectF, pyqtSignal
@@ -20,7 +21,7 @@ class ReferencePane(QWidget):
         self._image: Optional[QImage] = None
         self._name = ""
         self.setMinimumWidth(160)
-        self.close_btn = icon_button("fa5s.times", "Close the reference")
+        self.close_btn = icon_button("fa5s.times", tr("Close the reference"))
         self.close_btn.setParent(self)
         self.close_btn.clicked.connect(self.closed)
 
@@ -47,5 +48,5 @@ class ReferencePane(QWidget):
         scale = min(area.width() / self._image.width(), area.height() / self._image.height())
         width, height = self._image.width() * scale, self._image.height() * scale
         painter.drawImage(QRectF(area.center().x() - width / 2, area.center().y() - height / 2, width, height), self._image)
-        text = f"REFERENCE · {self._name}" if self._name else "REFERENCE"
+        text = tr("REFERENCE · {_name}", _name=self._name) if self._name else tr("REFERENCE")
         draw_view_badge(painter, text, THEME.space_xl, THEME.space_xl)

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import mark, tr
 from typing import List, Optional
 
 import qtawesome as qta
@@ -40,20 +41,20 @@ from negpy.desktop.view.widgets.floating_panel import float_over_app
 #: Plain str values, like _PROCESS_CHOICES below: combo item data round-trips through
 #: QVariant, which does not match an enum member against the equal string from disk.
 _TYPE_CHOICES: tuple[tuple[str, str], ...] = (
-    (str(CrosstalkType.TUNED), "Tuned on a rig"),
-    (str(CrosstalkType.MEASURED), "Measured"),
-    (str(CrosstalkType.SPECSHEET), "From spec sheets (approx)"),
+    (str(CrosstalkType.TUNED), tr("Tuned on a rig")),
+    (str(CrosstalkType.MEASURED), tr("Measured")),
+    (str(CrosstalkType.SPECSHEET), tr("From spec sheets (approx)")),
 )
 
-_CHANNELS = ("Red", "Green", "Blue")
+_CHANNELS = (mark("Red"), mark("Green"), mark("Blue"))
 #: A term's slider range. Rows are normalized, so a term past ±1 only rescales the row.
 _TERM_RANGE = 1.0
 
 #: Film processes a matrix can describe. A B&W negative has one emulsion, so there is
 #: nothing to unmix.
 _PROCESS_CHOICES: tuple[tuple[str, str], ...] = (
-    (str(ProcessMode.C41), "Color Negative (C-41)"),
-    (str(ProcessMode.E6), "Transparency (E-6)"),
+    (str(ProcessMode.C41), tr("Color Negative (C-41)")),
+    (str(ProcessMode.E6), tr("Transparency (E-6)")),
 )
 
 
@@ -95,7 +96,7 @@ class CrosstalkEditorDialog(QDialog):
         # What a new profile is for: the process being worked in, not a fixed default.
         self._default_process = str(process_mode or ProcessMode.C41)
 
-        self.setWindowTitle("Crosstalk Matrices")
+        self.setWindowTitle(tr("Crosstalk Matrices"))
         float_over_app(self)
         self.resize(760, 640)
         self.setMinimumSize(520, 560)
@@ -123,7 +124,7 @@ class CrosstalkEditorDialog(QDialog):
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(6)
 
-        header = QLabel("PROFILES")
+        header = QLabel(tr("PROFILES"))
         header.setStyleSheet(pane_header_qss())
         left_layout.addWidget(header)
 
@@ -134,9 +135,9 @@ class CrosstalkEditorDialog(QDialog):
         left_layout.addWidget(self.profile_list)
 
         btns = QHBoxLayout()
-        self.new_btn = icon_button("fa5s.plus", "New matrix, starting from identity")
-        self.copy_btn = icon_button("fa5s.copy", "Make an editable copy of the selected profile")
-        self.delete_btn = icon_button("fa5s.trash-alt", "Delete the selected profile")
+        self.new_btn = icon_button("fa5s.plus", tr("New matrix, starting from identity"))
+        self.copy_btn = icon_button("fa5s.copy", tr("Make an editable copy of the selected profile"))
+        self.delete_btn = icon_button("fa5s.trash-alt", tr("Delete the selected profile"))
         self.new_btn.clicked.connect(self._on_new)
         self.copy_btn.clicked.connect(self._on_copy)
         self.delete_btn.clicked.connect(self._on_delete)
@@ -155,59 +156,65 @@ class CrosstalkEditorDialog(QDialog):
         rl.setSpacing(12)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Profile name")
-        self.name_edit.setToolTip("The profile's name in the Matrix dropdown. Name the film and the rig.")
+        self.name_edit.setPlaceholderText(tr("Profile name"))
+        self.name_edit.setToolTip(tr("The profile's name in the Matrix dropdown. Name the film and the rig."))
         self.name_edit.textChanged.connect(self._on_name_changed)
-        rl.addLayout(field_row("Name", self.name_edit))
+        rl.addLayout(field_row(tr("Name"), self.name_edit))
 
         self.type_combo = StepCombo()
         for value, label in _TYPE_CHOICES:
             self.type_combo.addItem(label, value)
         self.type_combo.setToolTip(
-            "<table width='300'><tr><td>"
-            "Where these numbers came from — it groups the profile in the Matrix dropdown and tells "
-            "the next person how far to trust it.<br><br>"
-            "<b>Measured</b>: fitted against real scans of a known reference.<br>"
-            "<b>Tuned on a rig</b>: dialed in by eye on real frames. The default for anything you "
-            "edit here, and an honest claim.<br>"
-            "<b>From spec sheets</b>: read off published dye-density curves — describes the film's "
-            "dyes only, not your light or sensor. Every bundled profile is this."
-            "</td></tr></table>"
+            tr(
+                "<table width='300'><tr><td>"
+                "Where these numbers came from — it groups the profile in the Matrix dropdown and tells "
+                "the next person how far to trust it.<br><br>"
+                "<b>Measured</b>: fitted against real scans of a known reference.<br>"
+                "<b>Tuned on a rig</b>: dialed in by eye on real frames. The default for anything you "
+                "edit here, and an honest claim.<br>"
+                "<b>From spec sheets</b>: read off published dye-density curves — describes the film's "
+                "dyes only, not your light or sensor. Every bundled profile is this."
+                "</td></tr></table>"
+            )
         )
-        rl.addLayout(field_row("Type", self.type_combo))
+        rl.addLayout(field_row(tr("Type"), self.type_combo))
 
         self.process_combo = StepCombo()
         for value, label in _PROCESS_CHOICES:
             self.process_combo.addItem(label, value)
         self.process_combo.setToolTip(
-            "<table width='300'><tr><td>"
-            "The film process these numbers describe. A matrix only reaches the render — and only "
-            "appears in the sidebar's Matrix dropdown — while NegPy is in this mode.<br><br>"
-            "Dye sets do not carry across: a color negative matrix does not describe a slide's dyes, so applying "
-            "one to a slide corrects a leak that is not there. Note also that on a positive an unmix "
-            "moves the render <i>away</i> from the slide's own color — use it as a separation "
-            "control, not for fidelity."
-            "</td></tr></table>"
+            tr(
+                "<table width='300'><tr><td>"
+                "The film process these numbers describe. A matrix only reaches the render — and only "
+                "appears in the sidebar's Matrix dropdown — while NegPy is in this mode.<br><br>"
+                "Dye sets do not carry across: a color negative matrix does not describe a slide's dyes, so applying "
+                "one to a slide corrects a leak that is not there. Note also that on a positive an unmix "
+                "moves the render <i>away</i> from the slide's own color — use it as a separation "
+                "control, not for fidelity."
+                "</td></tr></table>"
+            )
         )
         self.process_combo.currentIndexChanged.connect(lambda _i: self._emit_preview())
-        rl.addLayout(field_row("Process", self.process_combo))
+        rl.addLayout(field_row(tr("Process"), self.process_combo))
 
         info = hint_label(
-            "Each channel's density takes in a share of the other two. A negative value removes "
-            "that channel's leak. Every channel keeps its own density, because each row is "
-            "normalized to sum to 1. Strength in the sidebar applies the matrix."
+            tr(
+                "Each channel's density takes in a share of the other two. A negative value removes "
+                "that channel's leak. Every channel keeps its own density, because each row is "
+                "normalized to sum to 1. Strength in the sidebar applies the matrix."
+            )
         )
         info.setWordWrap(True)
         rl.addWidget(info)
 
-        self.readonly_hint = hint_label("Bundled matrix — read-only. Make an editable copy to change it.")
+        self.readonly_hint = hint_label(tr("Bundled matrix — read-only. Make an editable copy to change it."))
         rl.addWidget(self.readonly_hint)
 
         rl.addWidget(self._build_matrix_rows())
 
-        self.preview_strength_slider = CompactSlider("Preview Strength", 0.0, 1.0, 1.0, has_neutral=False)
+        self.preview_strength_slider = CompactSlider(tr("Preview Strength"), 0.0, 1.0, 1.0, has_neutral=False)
         self.preview_strength_slider.setToolTip(
-            "How strongly the matrix previews here (view-only — set Crosstalk Strength in the sidebar to apply)"
+            tr("How strongly the matrix previews here (view-only — set Crosstalk Strength in the sidebar to apply)")
         )
         self.preview_strength_slider.valueChanged.connect(lambda _v: self._emit_preview())
         rl.addWidget(self.preview_strength_slider)
@@ -217,16 +224,16 @@ class CrosstalkEditorDialog(QDialog):
         save_row = QHBoxLayout()
         save_row.addStretch()
         self.save_btn = labeled_action(
-            "fa5s.save", "Save to Disk", "Write this profile as a .toml in the NegPy/crosstalk folder, so it is reusable"
+            "fa5s.save", tr("Save to Disk"), tr("Write this profile as a .toml in the NegPy/crosstalk folder, so it is reusable")
         )
         self.save_btn.clicked.connect(self._on_save)
         save_row.addWidget(self.save_btn)
         rl.addLayout(save_row)
 
         close_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
-        apply_btn = QPushButton("Apply")
+        apply_btn = QPushButton(tr("Apply"))
         apply_btn.clicked.connect(self.accept)
         close_row.addStretch()
         close_row.addWidget(cancel_btn)
@@ -256,17 +263,29 @@ class CrosstalkEditorDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_sm)
         for r, out in enumerate(_CHANNELS):
-            col.addWidget(section_subheader(out.upper()))
+            col.addWidget(section_subheader(out))
             for c, src in enumerate(_CHANNELS):
                 if r == c:
                     continue
                 sld = CompactSlider(
-                    f"From {src}", -_TERM_RANGE, _TERM_RANGE, 0.0, step=0.001, precision=1000, color=_CH_COLORS[c], has_neutral=True
+                    tr("From {value}", value=tr(src)),
+                    -_TERM_RANGE,
+                    _TERM_RANGE,
+                    0.0,
+                    step=0.001,
+                    precision=1000,
+                    color=_CH_COLORS[c],
+                    has_neutral=True,
                 )
                 sld.spin.setDecimals(3)
                 sld.setToolTip(
-                    f"How much of the {src.lower()} density goes into {out.lower()}. "
-                    f"A negative value removes {src.lower()}'s leak into {out.lower()}."
+                    tr(
+                        "How much of the {value} density goes into {value1}. A negative value removes {value2}'s leak into {value3}.",
+                        value=tr(src).lower(),
+                        value1=tr(out).lower(),
+                        value2=tr(src).lower(),
+                        value3=tr(out).lower(),
+                    )
                 )
                 sld.valueChanged.connect(lambda _v: self._emit_preview())
                 col.addWidget(sld)
@@ -388,7 +407,7 @@ class CrosstalkEditorDialog(QDialog):
 
     def _on_new(self) -> None:
         existing = set(self._all_names())
-        name, i = "New Matrix", 2
+        name, i = tr("New Matrix"), 2
         while name in existing:
             name = f"New Matrix {i}"
             i += 1

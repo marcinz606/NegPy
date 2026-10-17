@@ -1,5 +1,7 @@
 """The output folder and roll that both scanners share."""
 
+from negpy.kernel.system.i18n import tr
+
 import os
 from dataclasses import asdict, dataclass, fields, replace
 from typing import Optional
@@ -13,9 +15,9 @@ from negpy.services.assets.rolls import next_roll_name, roll_folder_name
 
 SETTINGS_KEY = "scan_output_settings"
 
-_AS_ROLL_TIP = "Open the folder the frames go to as a Library roll, so Half Frame, roll defaults and Roll Analysis apply as you scan."
-_NEW_ROLL_TIP = "Start the next roll: step the Roll name to the next one with no subfolder yet"
-_FOLDER_ROLL_TIP = "Scan into the output folder itself and name the roll after it. Off scans into a Roll subfolder."
+_AS_ROLL_TIP = tr("Open the folder the frames go to as a Library roll, so Half Frame, roll defaults and Roll Analysis apply as you scan.")
+_NEW_ROLL_TIP = tr("Start the next roll: step the Roll name to the next one with no subfolder yet")
+_FOLDER_ROLL_TIP = tr("Scan into the output folder itself and name the roll after it. Off scans into a Roll subfolder.")
 
 
 @dataclass(frozen=True)
@@ -56,22 +58,24 @@ class ScanOutputPanel(QWidget):
         layout.setSpacing(THEME.space_md)
 
         self.folder_edit = QLineEdit(self._settings.output_folder)
-        self.folder_edit.setPlaceholderText("Output folder…")
-        self.folder_edit.setToolTip(wrap_tooltip("Where scanned frames are written"))
-        self.browse_btn = icon_button("fa5s.folder-open", "Choose the output folder")
-        layout.addLayout(field_row("Folder", self.folder_edit, self.browse_btn))
+        self.folder_edit.setPlaceholderText(tr("Output folder…"))
+        self.folder_edit.setToolTip(wrap_tooltip(tr("Where scanned frames are written")))
+        self.browse_btn = icon_button("fa5s.folder-open", tr("Choose the output folder"))
+        layout.addLayout(field_row(tr("Folder"), self.folder_edit, self.browse_btn))
 
-        self.as_roll_btn = labeled_toggle("fa5s.film", " Scan as Roll", self._settings.scan_as_roll, _AS_ROLL_TIP)
-        self.folder_roll_btn = labeled_toggle("fa5s.folder", " Folder as Roll", self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
+        self.as_roll_btn = labeled_toggle("fa5s.film", tr(" Scan as Roll"), self._settings.scan_as_roll, _AS_ROLL_TIP)
+        self.folder_roll_btn = labeled_toggle("fa5s.folder", tr(" Folder as Roll"), self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
         toggles = QHBoxLayout()
         toggles.addWidget(self.as_roll_btn, 1)
         toggles.addWidget(self.folder_roll_btn, 1)
         layout.addLayout(toggles)
 
         self.roll_edit = QLineEdit(self._settings.roll_name)
-        self.roll_edit.setToolTip(wrap_tooltip("Roll subfolder of the output folder; the name also starts each camera frame's file name"))
+        self.roll_edit.setToolTip(
+            wrap_tooltip(tr("Roll subfolder of the output folder; the name also starts each camera frame's file name"))
+        )
         self.new_roll_btn = icon_button("fa5s.plus", _NEW_ROLL_TIP)
-        layout.addLayout(field_row("Roll", self.roll_edit, self.new_roll_btn))
+        layout.addLayout(field_row(tr("Roll"), self.roll_edit, self.new_roll_btn))
         self._sync_roll_edit()
 
         self.browse_btn.clicked.connect(self.browse)
@@ -117,7 +121,7 @@ class ScanOutputPanel(QWidget):
         self.set_roll_text(next_roll_name(current, lambda name: os.path.exists(os.path.join(folder, name))))
 
     def browse(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.folder())
+        folder = QFileDialog.getExistingDirectory(self, tr("Select Output Folder"), self.folder())
         if folder:
             self.folder_edit.setText(folder)
             self._save()

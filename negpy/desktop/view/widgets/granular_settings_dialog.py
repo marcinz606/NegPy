@@ -1,3 +1,5 @@
+from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.text import count_of
 import os
 from functools import partial
 
@@ -50,12 +52,12 @@ def build_scope_row(parent: QWidget, sel_count: int, roll_count: int, show_curre
     group = QButtonGroup(parent)
     current: QRadioButton | None = None
     if show_current:
-        current = QRadioButton("Current frame")
+        current = QRadioButton(tr("Current frame"))
         group.addButton(current)
         row.addWidget(current)
-    sel = QRadioButton(f"Selected frames ({sel_count})")
+    sel = QRadioButton(tr("Selected frames ({sel_count})", sel_count=sel_count))
     sel.setEnabled(sel_count > 0)
-    roll = QRadioButton(f"Whole roll ({roll_count})")
+    roll = QRadioButton(tr("Whole roll ({roll_count})", roll_count=roll_count))
     roll.setEnabled(roll_count > 0)
     group.addButton(sel)
     group.addButton(roll)
@@ -112,11 +114,11 @@ class GranularSettingsDialog(QDialog):
             self._scope = "selection" if sel_count > 0 else "roll"
 
         if preselect_ids is not None:
-            self.setWindowTitle("Persistent Settings")
+            self.setWindowTitle(tr("Persistent Settings"))
         elif ask_name:
-            self.setWindowTitle("Save Preset")
+            self.setWindowTitle(tr("Save Preset"))
         else:
-            self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
+            self.setWindowTitle(tr("Paste Settings") if not show_scope else tr("Apply Settings"))
         self.resize(420, 620)
 
         root = QVBoxLayout(self)
@@ -124,16 +126,16 @@ class GranularSettingsDialog(QDialog):
         root.setSpacing(THEME.space_xl)
 
         if preselect_ids is not None:
-            header = QLabel("Settings that carry onto the next file you open")
-            header.setToolTip("A file you have already edited keeps its own look; only export and metadata settings reach it.")
+            header = QLabel(tr("Settings that carry onto the next file you open"))
+            header.setToolTip(tr("A file you have already edited keeps its own look; only export and metadata settings reach it."))
         else:
-            header = QLabel(f'From "{source_name}"' if source_name else "Nothing to apply")
+            header = QLabel(tr('From "{source_name}"', source_name=source_name) if source_name else tr("Nothing to apply"))
         header.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold;")
         root.addWidget(header)
 
         if ask_name:
             self._name_edit = QLineEdit()
-            self._name_edit.setPlaceholderText("Preset Name")
+            self._name_edit.setPlaceholderText(tr("Preset Name"))
             self._name_edit.textChanged.connect(self._update_apply_enabled)
             root.addWidget(self._name_edit)
         if show_scope:
@@ -156,10 +158,10 @@ class GranularSettingsDialog(QDialog):
     def _build_mode_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         self.mode_group = QButtonGroup(self)
-        self.overlay_radio = QRadioButton("Apply on top")
-        self.overlay_radio.setToolTip("Only the ticked settings change; the rest of each frame's edit stays")
-        self.replace_radio = QRadioButton("Replace look")
-        self.replace_radio.setToolTip("Reset look settings to defaults first — crop, rotation, metadata, export and retouch marks stay")
+        self.overlay_radio = QRadioButton(tr("Apply on top"))
+        self.overlay_radio.setToolTip(tr("Only the ticked settings change; the rest of each frame's edit stays"))
+        self.replace_radio = QRadioButton(tr("Replace look"))
+        self.replace_radio.setToolTip(tr("Reset look settings to defaults first — crop, rotation, metadata, export and retouch marks stay"))
         self.mode_group.addButton(self.overlay_radio)
         self.mode_group.addButton(self.replace_radio)
         self.overlay_radio.setChecked(True)
@@ -170,12 +172,12 @@ class GranularSettingsDialog(QDialog):
 
     def _build_checks_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        check_all = QPushButton("Check All")
+        check_all = QPushButton(tr("Check All"))
         check_all.clicked.connect(lambda: self._set_all_checked(True))
-        check_none = QPushButton("Check None")
+        check_none = QPushButton(tr("Check None"))
         check_none.clicked.connect(lambda: self._set_all_checked(False))
-        self._show_unchanged = QCheckBox("Show unchanged settings")
-        self._show_unchanged.setToolTip("List settings still at their default, so they can be applied too")
+        self._show_unchanged = QCheckBox(tr("Show unchanged settings"))
+        self._show_unchanged.setToolTip(tr("List settings still at their default, so they can be applied too"))
         self._show_unchanged.toggled.connect(self._apply_visibility)
         self._show_unchanged.setVisible(self._preselect_ids is None)
         row.addWidget(check_all)
@@ -198,7 +200,7 @@ class GranularSettingsDialog(QDialog):
             if title in exclude_sections:
                 continue
             edited_count = sum(1 for _r, _v, edited in rows if edited)
-            section = CollapsibleSection(title, expanded=not pick_mode, select=pick_mode)
+            section = CollapsibleSection(tr(title), expanded=not pick_mode, select=pick_mode)
             if pick_mode:
                 boxes = self._build_rows(rows)
                 section.set_content(boxes)
@@ -212,11 +214,11 @@ class GranularSettingsDialog(QDialog):
             self._section_ids.append(tuple(r.id for r, _v, _e in rows))
 
         if bounds_mode == "axes":
-            section = CollapsibleSection("Roll baseline", expanded=True)
+            section = CollapsibleSection(tr("Roll baseline"), expanded=True)
             section.set_content(self._build_bounds_rows())
             col.addWidget(section)
         elif bounds_mode == "local":
-            section = CollapsibleSection("Normalization bounds", expanded=True)
+            section = CollapsibleSection(tr("Normalization bounds"), expanded=True)
             section.set_content(self._build_local_bounds_row(source_cfg.process))
             col.addWidget(section)
 
@@ -234,7 +236,7 @@ class GranularSettingsDialog(QDialog):
             line = QWidget()
             line_layout = QHBoxLayout(line)
             line_layout.setContentsMargins(0, 0, 0, 0)
-            box = QCheckBox(row.label)
+            box = QCheckBox(tr(row.label))
             box.setChecked(row.id in self._preselect_ids if self._preselect_ids is not None else edited)
             box.stateChanged.connect(self._update_apply_enabled)
             box.stateChanged.connect(self._refresh_section_states)
@@ -252,8 +254,8 @@ class GranularSettingsDialog(QDialog):
         body = QWidget()
         col = QVBoxLayout(body)
         col.setContentsMargins(0, 0, 0, 0)
-        self._bounds_luma = QCheckBox("Tonal span")
-        self._bounds_color = QCheckBox("Color balance")
+        self._bounds_luma = QCheckBox(tr("Tonal span"))
+        self._bounds_color = QCheckBox(tr("Color balance"))
         for box in (self._bounds_luma, self._bounds_color):
             box.stateChanged.connect(self._update_apply_enabled)
             col.addWidget(box)
@@ -265,11 +267,11 @@ class GranularSettingsDialog(QDialog):
         body = QWidget()
         row = QHBoxLayout(body)
         row.setContentsMargins(0, 0, 0, 0)
-        label = "Copied frame's bounds" + (" (locked)" if process.lock_bounds else "")
+        label = tr("Copied frame's bounds") + (tr(" (locked)") if process.lock_bounds else "")
         self._bounds_local = QCheckBox(label)
         self._bounds_local.setChecked(True)
         self._bounds_local.stateChanged.connect(self._update_apply_enabled)
-        val = QLabel(f"{_triplet(process.local_floors)} → {_triplet(process.local_ceils)}")
+        val = QLabel(tr("{value} → {value1}", value=_triplet(process.local_floors), value1=_triplet(process.local_ceils)))
         val.setStyleSheet(f"color: {THEME.text_hint};")
         row.addWidget(self._bounds_local)
         row.addStretch()
@@ -279,9 +281,9 @@ class GranularSettingsDialog(QDialog):
     def _build_footer(self, ask_name: bool = False) -> QHBoxLayout:
         row = QHBoxLayout()
         row.addStretch()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
-        self.apply_btn = QPushButton("Save" if ask_name else "Apply")
+        self.apply_btn = QPushButton(tr("Save") if ask_name else tr("Apply"))
         self.apply_btn.clicked.connect(self._on_apply)
         row.addWidget(cancel_btn)
         row.addWidget(self.apply_btn)
@@ -420,27 +422,27 @@ class SyncBoundsDialog(QDialog):
 
     def __init__(self, parent, floors, ceils, source_name: str, sel_count: int, roll_count: int, *, repo=None):
         super().__init__(parent)
-        self.setWindowTitle("Sync Bounds")
-        self.apply_btn = QPushButton("Apply")
+        self.setWindowTitle(tr("Sync Bounds"))
+        self.apply_btn = QPushButton(tr("Apply"))
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
         root.setSpacing(THEME.space_xl)
 
-        header = QLabel(f'From "{source_name}"' if source_name else "From this frame")
+        header = QLabel(tr('From "{source_name}"', source_name=source_name) if source_name else tr("From this frame"))
         header.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold;")
         root.addWidget(header)
-        value = QLabel(f"{_triplet(floors)} → {_triplet(ceils)}")
+        value = QLabel(tr("{value} → {value1}", value=_triplet(floors), value1=_triplet(ceils)))
         value.setStyleSheet(f"color: {THEME.text_hint};")
         root.addWidget(value)
 
         row, self._scope_radios = build_scope_row(self, sel_count, roll_count)
         root.addLayout(row)
 
-        self.luma_box = QCheckBox("Tonal span")
-        self.luma_box.setToolTip(wrap_tooltip("Take the black/white-point span from this frame"))
-        self.color_box = QCheckBox("Color balance")
-        self.color_box.setToolTip(wrap_tooltip("Take the per-channel color balance from this frame"))
+        self.luma_box = QCheckBox(tr("Tonal span"))
+        self.luma_box.setToolTip(wrap_tooltip(tr("Take the black/white-point span from this frame")))
+        self.color_box = QCheckBox(tr("Color balance"))
+        self.color_box.setToolTip(wrap_tooltip(tr("Take the per-channel color balance from this frame")))
         for box in (self.luma_box, self.color_box):
             box.setChecked(True)
             box.stateChanged.connect(self._update_apply_enabled)
@@ -448,7 +450,7 @@ class SyncBoundsDialog(QDialog):
 
         footer = QHBoxLayout()
         footer.addStretch()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
         self.apply_btn.clicked.connect(self.accept)
         footer.addWidget(cancel_btn)
@@ -482,7 +484,7 @@ def _apply_targets(session) -> tuple[int, int, int] | None:
     sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
     roll_targets = len([i for i in visible if i != src])
     if not sel_targets and not roll_targets:
-        session.settings_synced.emit("Only one frame here — nothing to apply to")
+        session.settings_synced.emit(tr("Only one frame here — nothing to apply to"))
         return None
     return src, sel_targets, roll_targets
 
@@ -499,7 +501,7 @@ def open_sync_bounds_dialog(parent, session) -> None:
 
     bounds = _source_effective_bounds(session.state.config.process)
     if bounds is None:
-        session.settings_synced.emit("Render this frame before syncing its bounds")
+        session.settings_synced.emit(tr("Render this frame before syncing its bounds"))
         return
     targets = _apply_targets(session)
     if targets is None:
@@ -562,13 +564,13 @@ class SequentialFrameDialog(QDialog):
         self, parent, sel_count: int, roll_count: int, start: int, sel_rejected: int = 0, roll_rejected: int = 0, *, repo=None
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Sequential Frame Numbers")
+        self.setWindowTitle(tr("Sequential Frame Numbers"))
         self._sel_count = sel_count
         self._roll_count = roll_count
         self._sel_rejected = sel_rejected
         self._roll_rejected = roll_rejected
         self._default_start = start
-        self.apply_btn = QPushButton("Apply")
+        self.apply_btn = QPushButton(tr("Apply"))
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
@@ -581,33 +583,33 @@ class SequentialFrameDialog(QDialog):
         fields.setSpacing(THEME.space_xl)
         start_col = QVBoxLayout()
         start_col.setSpacing(THEME.space_md)
-        start_col.addWidget(field_label("Start"))
+        start_col.addWidget(field_label(tr("Start")))
         self.start_edit = QLineEdit(str(start))
-        self.start_edit.setToolTip(wrap_tooltip("The frame number the first frame of the run is set to."))
+        self.start_edit.setToolTip(wrap_tooltip(tr("The frame number the first frame of the run is set to.")))
         start_col.addWidget(self.start_edit)
         fields.addLayout(start_col, 1)
         step_col = QVBoxLayout()
         step_col.setSpacing(THEME.space_md)
-        step_col.addWidget(field_label("Step"))
+        step_col.addWidget(field_label(tr("Step")))
         self.step_edit = QLineEdit("1")
-        self.step_edit.setToolTip(wrap_tooltip("The gap between successive frame numbers. 1 gives a plain 10, 11, 12 run."))
+        self.step_edit.setToolTip(wrap_tooltip(tr("The gap between successive frame numbers. 1 gives a plain 10, 11, 12 run.")))
         step_col.addWidget(self.step_edit)
         fields.addLayout(step_col, 1)
         root.addLayout(fields)
 
         dir_row = QHBoxLayout()
         dir_row.setSpacing(THEME.space_xl)
-        self.asc_radio = QRadioButton("Ascending")
+        self.asc_radio = QRadioButton(tr("Ascending"))
         self.asc_radio.setChecked(True)
-        self.desc_radio = QRadioButton("Descending")
+        self.desc_radio = QRadioButton(tr("Descending"))
         dir_row.addWidget(self.asc_radio)
         dir_row.addWidget(self.desc_radio)
         dir_row.addStretch()
         root.addLayout(dir_row)
 
-        self.skip_reject_box = QCheckBox("Skip Rejected Frames")
+        self.skip_reject_box = QCheckBox(tr("Skip Rejected Frames"))
         self.skip_reject_box.setToolTip(
-            wrap_tooltip("Leave frames in the rejected state out of the run; the numbers fill the frames that remain.")
+            wrap_tooltip(tr("Leave frames in the rejected state out of the run; the numbers fill the frames that remain."))
         )
         self.skip_reject_box.toggled.connect(self._refresh_preview)
         root.addWidget(self.skip_reject_box)
@@ -618,7 +620,7 @@ class SequentialFrameDialog(QDialog):
 
         footer = QHBoxLayout()
         footer.addStretch()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
         self.apply_btn.clicked.connect(self.accept)
         footer.addWidget(cancel_btn)
@@ -666,7 +668,7 @@ class SequentialFrameDialog(QDialog):
         values = [start - i * step if self._direction() == "desc" else start + i * step for i in range(n)]
         shown = ", ".join(str(v) for v in values[:3])
         tail = " …" if n > 3 else ""
-        self.preview.setText(f"{shown}{tail}    ({n} frame{'s' if n != 1 else ''})")
+        self.preview.setText(f"{shown}{tail}    ({count_of(n, 'frame')})")
 
     def result(self) -> tuple[int, int, str, str, bool]:
         return (self._start(), self._step(), self._direction(), self._scope_radios.value(), self.skip_reject_box.isChecked())
@@ -707,7 +709,7 @@ def open_paste_dialog(parent, controller) -> None:
     if not state.current_file_hash:
         return
     if state.clipboard is None:
-        controller.set_status("Nothing to paste", 2000)
+        controller.set_status(tr("Nothing to paste"), 2000)
         return
     card_rows = state.clipboard_rows
     bounds_mode = "local" if card_rows is None and state.clipboard.process.is_local_initialized else ""
