@@ -37,6 +37,7 @@
    "highlight_grade_trim_red": "0.0",
    "highlight_magenta": "0.0",
    "highlight_yellow": "0.0",
+   "hold_black": "false",
    "mask_spacer": "4.0",
    "midtone_gamma": "0.0",
    "midtone_gamma_trim_blue": "0.0",
@@ -206,5 +207,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 12
+ "render_version": 13
 }

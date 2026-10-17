@@ -12,11 +12,12 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import per_channel_dye_separation, separation_damping_gain
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.papers import (
+    PaperProfile,
     compose_density_matrices,
-    resolve_dye_matrix,
-    resolve_paper,
+    resolve_print_color,
     resolve_saturation_matrix,
 )
+from negpy.features.exposure.print_lut import DyeMatrix
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.features.process.models import ProcessMode
 
@@ -54,13 +55,11 @@ class TestComposeDensityMatrices:
         np.testing.assert_allclose(result, sat)
 
     def test_composition_is_sat_outermost_dye_innermost(self):
-        """sat @ dye, not dye @ sat -- dye_matrix keeps acting on the print
-        curve's real density unchanged; saturation layers on top as a final
-        creative step. Uses a real (non-commuting) paper matrix so the two
-        orders actually produce different results, proving the order is
-        real and tested, not just documented."""
-        paper = resolve_paper("kodak_endura")
-        dye = resolve_dye_matrix(paper)
+        """sat @ dye, not dye @ sat: a matrix stock's coupling keeps acting on the print
+        curve's real density, and saturation layers on top. A non-commuting matrix makes
+        the two orders differ."""
+        rows = ((0.8363, 0.1960, -0.0322), (0.1469, 0.7744, 0.0787), (0.0272, 0.1056, 0.8671))
+        dye, _ = resolve_print_color(PaperProfile(label="d", print_color=DyeMatrix(rows)))
         sat = resolve_saturation_matrix((1.5, 0.8, 1.0))
         composed = compose_density_matrices(dye, sat)
         np.testing.assert_allclose(composed, sat @ dye)

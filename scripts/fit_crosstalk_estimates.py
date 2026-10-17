@@ -23,12 +23,30 @@ import json
 import pathlib
 
 import numpy as np
-from fit_print_dyes import levenberg_marquardt
 
 DATA = pathlib.Path(__file__).with_name("crosstalk_dyes")
 BANDS = (650, 550, 450)
 WL = np.arange(400, 701, 1.0)
 FIT = (WL >= 420) & (WL <= 680)
+
+
+def levenberg_marquardt(residual, x, iters=200):
+    damping = 1e-3
+    for _ in range(iters):
+        r0 = residual(x)
+        jac = np.stack([(residual(x + h) - r0) / 1e-6 for h in np.eye(len(x)) * 1e-6], 1)
+        a, g = jac.T @ jac, jac.T @ r0
+        while damping < 1e9:
+            step = np.linalg.solve(a + damping * np.diag(np.diag(a) + 1e-12), -g)
+            if (residual(x + step) ** 2).sum() < (r0**2).sum():
+                x, damping = x + step, max(damping / 3, 1e-8)
+                break
+            damping *= 4
+        else:
+            break
+        if np.abs(step).max() < 1e-9:
+            break
+    return x
 
 
 def table(name):

@@ -19,13 +19,15 @@ from negpy.features.exposure.papers import (
     effective_paper_profile,
     profiles_for_mode,
     resolve_paper,
+    resolve_print_color,
 )
+from negpy.features.exposure.print_lut import DyeLut
 from negpy.features.process.chart import delta_e2000
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.kernel.image.logic import rgb_to_lab_working
 
-# Stocks fitted to an ICC by scripts/fit_icc_dyes.py, each with its profile in tests/fixtures/.
+# Stocks baked from an ICC look by scripts/build_print_luts.py, each with its profile in tests/fixtures/.
 ICC_STOCKS = {"pakon": "RGBScan.icc"}
 
 
@@ -37,9 +39,9 @@ class TestPaperProfiles(unittest.TestCase):
         x = np.linspace(0.0, 1.0, 32, dtype=np.float32)
         return np.stack([x, x, x], axis=-1)[None, :, :]
 
-    def _render(self, profile_key: str, img: np.ndarray | None = None) -> np.ndarray:
+    def _render(self, profile_key: str, img: np.ndarray | None = None, paper_white: bool = True, bpc: bool = False) -> np.ndarray:
         paper = resolve_paper(profile_key)
-        d_min = paper.d_min  # paper_dmin on
+        d_min = paper.d_min if paper_white else 0.0
         slopes, pivots, _ = per_channel_curve_params(
             grade=115.0,
             density=1.0,
@@ -58,6 +60,7 @@ class TestPaperProfiles(unittest.TestCase):
             (pivots[2], slopes[2]),
             d_min=d_min,
             paper=paper,
+            bpc=bpc,
         )
 
     def test_registry_well_formed(self):
@@ -65,11 +68,6 @@ class TestPaperProfiles(unittest.TestCase):
         self.assertEqual(PAPER_PROFILES[DEFAULT_PROFILE_KEY].kind, "default")
         kinds = {p.kind for p in PAPER_PROFILES.values()}
         self.assertTrue({"bw", "ra4"} <= kinds)
-
-    def test_dye_matrices_keep_neutrals(self):
-        # resolve_dye_matrix renormalizes rows, so a mistyped fitted coefficient would pass unseen.
-        for key, p in PAPER_PROFILES.items():
-            np.testing.assert_allclose(np.array(p.dye_matrix).sum(axis=1), 1.0, atol=2e-4, err_msg=key)
 
     def test_midtone_gamma_leaves_snap_headroom(self):
         # Snap and its per-layer trims add to the profile's gamma below the kernel's |gamma| < 1.
@@ -116,20 +114,41 @@ class TestPaperProfiles(unittest.TestCase):
             self.assertGreater(float(np.max(np.abs(out - default))), 1e-3, f"{key} did not change the curve")
 
     def test_icc_stocks_are_digital_with_their_profile_colors(self):
-        # Each color target is the profile applied to a Digital print, as the export applies an input ICC.
+        # The target is the profile applied to a Digital print at the defaults (Paper White off, BPC on),
+        # as the export applies an input ICC.
         rng = np.random.default_rng(0)
-        img = (rng.uniform(0.2, 0.8, (1, 2000, 1)) + rng.uniform(-0.1, 0.1, (1, 2000, 3))).astype(np.float32)
-        digital = self._render(DEFAULT_PROFILE_KEY, img)[0]
+        img = rng.uniform(0.0, 1.0, (1, 2000, 3)).astype(np.float32)
+        digital = self._render(DEFAULT_PROFILE_KEY, img, paper_white=False, bpc=True)[0]
         adobe = open(ColorSpaceRegistry.get_icc_path(WORKING_COLOR_SPACE), "rb").read()
         enc = np.round(np.clip(digital, 0, 1) ** (256 / 563) * 65535).astype(np.uint16)[:, None, :]
         for key, fixture in ICC_STOCKS.items():
             with self.subTest(key):
-                np.testing.assert_allclose(self._render(key), self._render(DEFAULT_PROFILE_KEY), atol=1e-6)
                 icc = open(os.path.join(os.path.dirname(__file__), "fixtures", fixture), "rb").read()
                 out = imagecodecs.cms_transform(enc, icc, adobe, colorspace="RGB", outcolorspace="RGB", intent=1, flags=0x2000)
                 target = rgb_to_lab_working((out[:, 0, :] / 65535.0) ** (563 / 256))
-                miss = delta_e2000(rgb_to_lab_working(self._render(key, img)[0]), target).mean()
-                self.assertLess(miss, 0.5 * delta_e2000(rgb_to_lab_working(digital), target).mean())
+                miss = delta_e2000(rgb_to_lab_working(self._render(key, img, paper_white=False, bpc=True)[0]), target).mean()
+                self.assertLess(miss, 0.1)
+
+    def test_color_stocks_are_luts(self):
+        for key, p in PAPER_PROFILES.items():
+            with self.subTest(key):
+                if p.kind == "ra4":
+                    self.assertIsInstance(p.print_color, DyeLut)
+                else:
+                    self.assertEqual(resolve_print_color(p), (None, None))
+
+    def test_lut_stock_falls_back_off_mode(self):
+        for mode in (ProcessMode.BW, ProcessMode.E6):
+            self.assertEqual(resolve_print_color(effective_paper_profile("kodak_endura", mode)), (None, None))
+
+    def test_crystal_archive_tones_from_frontier(self):
+        ca, pearl = PAPER_PROFILES["fuji_crystal"], PAPER_PROFILES["fuji_crystal_pearl"]
+        self.assertGreater(ca.d_max, 2.3)
+        self.assertEqual((pearl.d_min, pearl.base_tint_cmy), (ca.d_min, ca.base_tint_cmy))
+        self.assertIsInstance(PAPER_PROFILES["fuji_crystal_hd"].print_color, DyeLut)
+        keys = list(PAPER_PROFILES)
+        i = keys.index("fuji_crystal")
+        self.assertEqual(keys[i + 1 : i + 3], ["fuji_crystal_hd", "fuji_crystal_pearl"])
 
     def test_ra4_introduces_color_divergence(self):
         # Per-channel gamma + tint must make a neutral ramp non-grey on RA4 papers.

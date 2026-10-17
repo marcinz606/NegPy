@@ -15,7 +15,8 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.normalization import LogNegativeBounds
-from negpy.features.exposure.papers import PaperProfile, resolve_dye_matrix
+from negpy.features.exposure.papers import PaperProfile, resolve_print_color
+from negpy.features.exposure.print_lut import DyeMatrix
 
 
 def _ramp() -> np.ndarray:
@@ -86,24 +87,24 @@ class TestDyeCoupling(unittest.TestCase):
     _M = ((0.9, 0.08, 0.02), (0.1, 0.85, 0.05), (0.05, 0.15, 0.8))
 
     def test_identity_resolves_to_none(self):
-        self.assertIsNone(resolve_dye_matrix(PaperProfile(label="n")))
-        self.assertIsNone(resolve_dye_matrix(None))
+        self.assertEqual(resolve_print_color(PaperProfile(label="n")), (None, None))
+        self.assertEqual(resolve_print_color(None), (None, None))
 
     def test_rows_normalized(self):
-        m = resolve_dye_matrix(PaperProfile(label="d", dye_matrix=self._M))
+        m, _ = resolve_print_color(PaperProfile(label="d", print_color=DyeMatrix(self._M)))
         assert m is not None
         np.testing.assert_allclose(m.sum(axis=1), 1.0, atol=1e-9)
 
     def test_neutral_ramp_preserved(self):
         # Row normalization: equal channel densities stay equal after mixing.
-        dyed = np.asarray(_curve(_ramp(), paper=PaperProfile(label="d", dye_matrix=self._M)))
+        dyed = np.asarray(_curve(_ramp(), paper=PaperProfile(label="d", print_color=DyeMatrix(self._M))))
         plain = np.asarray(_curve(_ramp()))
         np.testing.assert_allclose(dyed, plain, atol=1e-5)
 
     def test_colored_input_coupled(self):
         x = np.linspace(0.0, 1.0, 32, dtype=np.float32)
         img = np.stack([x, np.flip(x), np.full_like(x, 0.5)], axis=-1)[None, :, :]
-        dyed = np.asarray(_curve(img, paper=PaperProfile(label="d", dye_matrix=self._M)))
+        dyed = np.asarray(_curve(img, paper=PaperProfile(label="d", print_color=DyeMatrix(self._M))))
         plain = np.asarray(_curve(img))
         self.assertGreater(float(np.max(np.abs(dyed - plain))), 1e-3)
 

@@ -99,6 +99,7 @@ params = [
     "--collect-all=onnxruntime",
     # Data files
     "--add-data=negpy/features/exposure/shaders:negpy/features/exposure/shaders",
+    "--add-data=negpy/features/exposure/print_luts:negpy/features/exposure/print_luts",
     "--add-data=negpy/features/geometry/shaders:negpy/features/geometry/shaders",
     "--add-data=negpy/features/toning/shaders:negpy/features/toning/shaders",
     "--add-data=negpy/features/lab/shaders:negpy/features/lab/shaders",

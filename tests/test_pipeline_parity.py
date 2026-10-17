@@ -18,7 +18,10 @@ import numpy as np
 from dataclasses import replace
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure import print_lut
 from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.papers import PAPER_PROFILES, PaperProfile
+from negpy.features.exposure.print_lut import DyeLut, load_print_lut, save_print_lut
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.features.retouch.models import RetouchConfig
@@ -171,6 +174,49 @@ class TestExposureParity:
 
     def test_default_config(self):
         self._run_and_compare(_make_base_settings())
+
+    def _lut_stock(self, tmp_path, monkeypatch, key, tilt):
+        g = np.linspace(0.0, 3.0, 17)
+        c, m, y = np.meshgrid(g, g, g, indexing="ij")
+        d = np.stack([c + tilt * m, m + 0.10 * y + 0.05 * c, y + 0.08 * m], -1)
+        save_print_lut(tmp_path / f"{key}.npz", (10.0**-d).astype(np.float32), np.full(3, 3.0, np.float32), key)
+        monkeypatch.setattr(print_lut, "LUT_DIR", tmp_path)
+        load_print_lut.cache_clear()
+        monkeypatch.setitem(PAPER_PROFILES, key, PaperProfile(label=key, print_color=DyeLut(key)))
+        return replace(_make_base_settings(), exposure=replace(ExposureConfig(), paper_profile=key))
+
+    def _render_both(self, settings, img=None):
+        img = self.img if img is None else img
+        scale = max(img.shape[:2]) / 1024.0
+        cpu = self.cpu.process(img, settings, f"parity_lut_{settings.exposure.paper_profile}")
+        tex, _ = self.gpu.process_to_texture(img, settings, scale_factor=scale, apply_layout=False, readback_metrics=False)
+        return cpu, self.gpu._readback_downsampled(tex)
+
+    def test_lut_stock_parity(self, tmp_path, monkeypatch):
+        s = self._lut_stock(tmp_path, monkeypatch, "lut_a", 0.10)
+        cpu, gpu = self._render_both(s)
+        _assert_mostly_close(cpu, gpu, atol=1e-2, rtol=0.0, max_violation_frac=0.01)
+        digital = self.cpu.process(self.img, _make_base_settings(), "parity_lut_digital")
+        assert np.mean(np.abs(cpu - digital).max(axis=-1) > 0.01) > 0.01
+
+    def test_lut_stock_parity_paper_black(self, tmp_path, monkeypatch):
+        s = self._lut_stock(tmp_path, monkeypatch, "lut_a", 0.10)
+        s = replace(s, exposure=replace(s.exposure, paper_black=True))
+        _assert_mostly_close(*self._render_both(s), atol=1e-2, rtol=0.0, max_violation_frac=0.01)
+
+    def test_lut_stock_parity_deep_toe(self, tmp_path, monkeypatch):
+        s = self._lut_stock(tmp_path, monkeypatch, "lut_a", 0.10)
+        s = replace(s, exposure=replace(s.exposure, toe=-1.0, shadow_density=0.5))
+        _assert_mostly_close(*self._render_both(s), atol=1e-2, rtol=0.0, max_violation_frac=0.01)
+
+    def test_lut_stock_switch(self, tmp_path, monkeypatch):
+        a = self._lut_stock(tmp_path, monkeypatch, "lut_a", 0.10)
+        b = self._lut_stock(tmp_path, monkeypatch, "lut_b", 0.40)
+        first = self._render_both(a)[1]
+        other = self._render_both(b)[1]
+        again = self._render_both(a)[1]
+        np.testing.assert_allclose(again, first, atol=1e-6)
+        assert np.abs(other - first).max() > 0.01
 
     def test_cast_removal_quadratic(self):
         # Curved neutral axis -> 3-point Cast Removal emits a quadratic core; CPU and GPU

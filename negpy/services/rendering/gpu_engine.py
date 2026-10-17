@@ -65,7 +65,8 @@ from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.sabattier.logic import SABATTIER_CONSTANTS, line_sigma_px
-from negpy.features.exposure.logic import diffusion_mix
+from negpy.features.exposure.logic import black_density_rgb, diffusion_mix
+from negpy.features.exposure.print_lut import PrintLut, lut_black_luminance
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
@@ -343,6 +344,9 @@ class GPUEngine:
         self._buffers: Dict[str, GPUBuffer] = {}
         self._sampler: Optional[Any] = None
         self._tex_cache: Dict[Tuple[int, int, int, str], GPUTexture] = {}
+        # Print-stock LUTs by key, outside the pool: a stock's LUT outlives the frames that use it.
+        self._lut_textures: Dict[str, Tuple[Any, GPUTexture]] = {}
+        self._exposure_lut: Optional[PrintLut] = None
         self._tex_gen: Dict[Tuple[int, int, int, str], int] = {}
         self._render_gen: int = 0
 
@@ -362,11 +366,11 @@ class GPUEngine:
             "density_hist",
         ]
         # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
-        # alignment (exposure, 416B) occupies multiple aligned slots.
+        # alignment (exposure) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 432,
+            "exposure": 448,
             "transfer": 224,
             "clahe_u": 32,
             "lab": 96,
@@ -1304,6 +1308,7 @@ class GPUEngine:
                         (3, tex_local_ev.view),
                         (4, tex_mask.view),
                         (5, tex_local_key.view),
+                        (6, self._lut_texture(self._exposure_lut).view),
                     ],
                     w_rot,
                     h_rot,
@@ -2002,7 +2007,7 @@ class GPUEngine:
             compose_density_matrices,
             effective_constants,
             effective_paper_profile,
-            resolve_dye_matrix,
+            resolve_print_color,
             resolve_saturation_matrix,
         )
 
@@ -2082,7 +2087,14 @@ class GPUEngine:
             LogNegativeBounds(adj_floors, adj_ceils),
         )
         dmin_rgb = paper_dmin_rgb(d_min, paper)
-        dye = resolve_dye_matrix(paper)
+        dye, lut = resolve_print_color(paper)
+        self._exposure_lut = lut
+        lut_row = (0.0, 0.0, 0.0, 0.0)
+        if lut is not None:
+            lut_black = 0.0
+            if not exp.paper_black:
+                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), _toe3, float(pc["toe_height"])))
+            lut_row = (*(float(v) for v in lut.e_max), lut_black)
         # Density-space Dye Separation, composed into the same dye_mix slot as the paper's
         # real crosstalk. Mirrors apply_characteristic_curve exactly.
         if settings.process.process_mode == ProcessMode.BW:
@@ -2214,6 +2226,8 @@ class GPUEngine:
             # Diffusion: each channel's log range, one normalized unit of val in density; w = the
             # Hold Black taper span (0 = off).
             + struct.pack("ffff", *channel_density_ranges(LogNegativeBounds(adj_floors, adj_ceils)), black_hold_taper(exp, paper))
+            # Print-stock LUT: xyz = e_max (0 = no LUT), w = the black that BPC maps to 0.
+            + struct.pack("ffff", *lut_row)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -3110,9 +3124,30 @@ class GPUEngine:
             gc.collect()
         logger.info("GPUEngine: VRAM resources released")
 
+    def _lut_texture(self, lut: Optional[PrintLut]) -> GPUTexture:
+        """The LUT unrolled to 2D, node (i, j, k) at texel (i + N*j, k); a 1x1 dummy without one."""
+        key = "" if lut is None else lut.key
+        cached = self._lut_textures.get(key)
+        if cached is None or cached[0] is not lut:
+            if cached is not None:
+                cached[1].destroy()
+            usage = wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST
+            if lut is None:
+                tex = GPUTexture(1, 1, usage=usage)
+                tex.upload(np.ones((1, 1, 4), dtype=np.float32))
+            else:
+                n = lut.table.shape[0]
+                tex = GPUTexture(n * n, n, usage=usage)
+                tex.upload(np.ascontiguousarray(lut.table.transpose(2, 1, 0, 3).reshape(n, n * n, 3)))
+            self._lut_textures[key] = (lut, tex)
+        return self._lut_textures[key][1]
+
     def destroy_all(self) -> None:
         """Full resource teardown."""
         self.cleanup()
+        for _, tex in self._lut_textures.values():
+            tex.destroy()
+        self._lut_textures.clear()
         if self._metrics_staging is not None:
             self._metrics_staging.destroy()
             self._metrics_staging = None

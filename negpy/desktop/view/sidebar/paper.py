@@ -66,7 +66,8 @@ class PaperSidebar(BaseSidebar):
         self.paper_combo = StepCombo()
         self.paper_combo.setToolTip(
             "Print stock: the paper or print film the negative is printed on. It sets the H&D curve and, "
-            "on color stock, the colors its dyes make, from the datasheet; Grade, Density, Toe and "
+            "on color stock, the colors its dyes make, from the datasheet or the paper's measured "
+            "Frontier profile; Grade, Density, Toe and "
             "Shoulder still trim on top. Digital (Adobe RGB) is an idealized print: NegPy's own curve "
             "and perfect dyes. Digital (Pakon Minilab) is that curve with a Pakon minilab's colors."
         )
@@ -78,7 +79,7 @@ class PaperSidebar(BaseSidebar):
         self.paper_label = paper_row.itemAt(0).widget()
         self.layout.addLayout(paper_row)
 
-        # Density-domain saturation in the same dye_mix slot as the paper's real dye crosstalk, not a Lab a*/b* step.
+        # Density-domain saturation on the dye amounts, before the stock's dyes, not a Lab a*/b* step.
         self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
         self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(
