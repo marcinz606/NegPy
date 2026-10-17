@@ -159,7 +159,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
-from negpy.features.altprocess.models import AltProcess
+from negpy.features.altprocess.models import AltProcess, AltProcessConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
@@ -389,6 +389,7 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
         exposure=mode_aware_exposure_reset(config.process.process_mode, DEFAULT_WORKSPACE_CONFIG.exposure),
         lab=LabConfig(),
         local=LocalAdjustmentsConfig(),
+        altproc=AltProcessConfig(),
         toning=ToningConfig(),
         finish=FinishConfig(),
         retouch=RetouchConfig(),
