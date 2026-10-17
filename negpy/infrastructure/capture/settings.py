@@ -47,6 +47,7 @@ class ScanlightSettings:
     white_process_mode: WhiteCaptureMode = WhiteCaptureMode.AUTO
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
     keep_light_on: bool = False  # re-light the framing light after each scan without Live View
+    capture_delay_s: float = 0.0  # seconds Scan and Retake hold the first exposure
 
     def __post_init__(self) -> None:
         # A dict saved before the process-mode rename still carries the old names.

@@ -65,6 +65,7 @@ from negpy.services.capture.calibration import (
 from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
+_CAPTURE_BAR = "Capturing… %p%"  # the status strip's bar while a scan runs
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text, "W": THEME.text_secondary}
 
 # One source for the over/under advice, shown on both surfaces of an aborted calibration:
@@ -317,6 +318,12 @@ class ScanlightSidebar(QWidget):
         self._rgb_hint = hint_label("You can also connect the Scanlight to scan in RGB.")
         self._rgb_hint.setVisible(False)
         cam.addWidget(self._rgb_hint)
+        self.capture_delay_slider = CompactSlider("Capture Delay", 0, 8, 0, step=1, precision=1, unit=" s")
+        self.capture_delay_slider.setValue(self._settings.capture_delay_s)
+        self.capture_delay_slider.setToolTip(
+            "Wait this long after Scan or Retake before the shot, so a table that shakes when you let go can settle. Stop ends the wait."
+        )
+        cam.addWidget(self.capture_delay_slider)
         layout.addWidget(self.camera_body)
 
         # Scanlight only: _set_rgb_mode hides it for white-light scanning.
@@ -440,9 +447,11 @@ class ScanlightSidebar(QWidget):
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
         self.output.changed.connect(self._apply_gating)
         self.inter_exposure_delay_slider.valueChanged.connect(self._update_settings_from_ui)
+        self.capture_delay_slider.valueChanged.connect(self._update_settings_from_ui)
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
+        self.controller.capture_countdown.connect(self._on_countdown)
         self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
         self.controller.capture_live_view_failed.connect(self._on_live_view_failed)
@@ -1575,6 +1584,7 @@ class ScanlightSidebar(QWidget):
             as_roll=self.output.as_roll(),
             single_capture=single,
             sensor_profile=preset.sensor_profile if preset is not None else "",
+            capture_delay_s=s.capture_delay_s,
         )
         self.set_scanning(True)
         if rgb and not req.white_mode and not single:
@@ -1585,8 +1595,18 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(float)
     def _on_progress(self, progress: float) -> None:
-        self.status_strip.set_progress("Capturing… %p%", progress)
+        self.status_strip.set_progress(_CAPTURE_BAR, progress)
         self.lv_window.set_progress(progress)
+
+    @pyqtSlot(int)
+    def _on_countdown(self, seconds: int) -> None:
+        # The strip shows its bar, not messages, while a scan runs, so the countdown is a bar too.
+        text = f"Capturing in {seconds} s…" if seconds > 0 else "Capturing…"
+        self.lv_window.set_status(text)
+        if seconds > 0:
+            self.status_strip.set_progress_indeterminate(text)
+        else:
+            self.status_strip.start_progress(_CAPTURE_BAR)
 
     @pyqtSlot(str)
     def _on_channel(self, letter: str) -> None:
@@ -1893,7 +1913,7 @@ class ScanlightSidebar(QWidget):
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
         if active:
-            self.status_strip.start_progress("Capturing… %p%")
+            self.status_strip.start_progress(_CAPTURE_BAR)
         else:
             self.status_strip.stop_progress()
         self.scan_btn.setText(" Stop" if active else " Scan")
@@ -1925,6 +1945,7 @@ class ScanlightSidebar(QWidget):
             b_level=int(self.b_slider.value()),
             w_level=int(self.w_slider.value()),
             inter_exposure_delay_ms=int(self.inter_exposure_delay_slider.value()),
+            capture_delay_s=float(self.capture_delay_slider.value()),
             single_capture=self.capture_btn.currentIndex() == 1,
             shutter_r=shutter,
             shutter_g=shutter,

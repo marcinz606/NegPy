@@ -1105,6 +1105,7 @@ Copy-stand capture with a camera in **PC Remote** mode over USB (macOS/Linux): w
 *   **Histogram** and **Zebras**: the frame's RGB histogram, and hatching on pixels at the top (red) and bottom (blue) of the preview range. The preview clips before the RAW does, so a zebra is an early warning.
 *   **Meter** (white-light and camera-only scanning): one RAW probe sets the shutter so the region that must not clip (a negative's clear base, a slide's brightest highlights) lands just under clipping. The white-light preset's film type decides which. A clipped reading steps down two stops; meter again.
 *   **Scan** and **Retake**: **Scan** shoots the next frame, auto-numbered, and imports it; **Retake** (the redo arrow beside **Live View**) shoots the last frame again. In the Live View window, `Space` or `S` scans and `R` retakes.
+*   **Capture Delay** (0 to 8 s, default 0): **Scan** and **Retake** wait this long before the first exposure, so a table that shakes when you let go can settle. The panel counts down; **Stop** ends the wait.
 *   **Keep Light On** (the bulb beside **Retake**, off by default): the Scanlight goes dark after each scan; this lights it again with the framing light, so you can frame the next shot on the camera's screen. Live View lights it again without this toggle.
 *   **Narrowband**: RGB-lit scans render more saturated than white light; a **Print stock** other than *Digital* prints them through real dyes.
 
