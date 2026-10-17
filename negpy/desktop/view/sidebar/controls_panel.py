@@ -14,6 +14,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
+from negpy.features.leak.models import LeakConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode, invalidate_local_bounds
@@ -43,6 +44,7 @@ from negpy.desktop.view.sidebar.half_frame import HalfFrameSidebar
 from negpy.desktop.view.sidebar.lens import LensSidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
 from negpy.desktop.view.sidebar.altprocess import AltProcessSidebar
+from negpy.desktop.view.sidebar.leak import LeakSidebar
 from negpy.desktop.view.sidebar.toning import ToningSidebar
 from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
@@ -111,6 +113,7 @@ _DEFAULT_EXPOSURE = DEFAULT_WORKSPACE_CONFIG.exposure
 _DEFAULT_LAB = LabConfig()
 _DEFAULT_TONING = ToningConfig()
 _DEFAULT_ALTPROC = AltProcessConfig()
+_DEFAULT_LEAK = LeakConfig()
 _DEFAULT_GEOMETRY = DEFAULT_WORKSPACE_CONFIG.geometry
 _DEFAULT_PROCESS = DEFAULT_WORKSPACE_CONFIG.process
 _DEFAULT_FINISH = FinishConfig()
@@ -341,6 +344,14 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.tint",
         )
 
+        self.leak_sidebar = LeakSidebar(self.controller)
+        self.leak_section = self._make_section(
+            "Light Leak",
+            "leak",
+            self.leak_sidebar,
+            icon_name="fa5s.sun",
+        )
+
         self.retouch_sidebar = RetouchSidebar(self.controller)
         self.retouch_section = self._make_section(
             "Retouch",
@@ -393,10 +404,10 @@ class ControlsPanel(QWidget):
             ),
             (
                 "finish",
-                "Finish — Retouch, Finishing",
+                "Finish — Light Leak, Retouch, Finishing",
                 "Finish",
-                [self.retouch_section, self.finish_section],
-                ["retouch_section", "finish_section"],
+                [self.leak_section, self.retouch_section, self.finish_section],
+                ["leak_section", "retouch_section", "finish_section"],
             ),
         ]
 
@@ -520,6 +531,7 @@ class ControlsPanel(QWidget):
         self.optics_section.reset_requested.connect(self._reset_optics)
         self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS))
         self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS))
+        self.leak_section.reset_requested.connect(lambda: self.controller.session.reset_section("leak"))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
@@ -560,6 +572,14 @@ class ControlsPanel(QWidget):
             (self.retouch_sidebar.auto_dust_btn, "toggle_optical_removal"),
             (self.retouch_sidebar.right_click_btn, "toggle_right_click_excludes"),
             (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
+            (self.leak_sidebar.leak_btn, "toggle_light_leak"),
+            (self.leak_sidebar.band_btn, "tool_leak_band"),
+            (self.leak_sidebar.edge_btn, "tool_leak_edge"),
+            (self.leak_sidebar.spot_btn, "tool_leak_spot"),
+            (self.leak_sidebar.paint_btn, "tool_leak_paint"),
+            (self.leak_sidebar.auto_btn, "leak_auto"),
+            (self.leak_sidebar.roll_btn, "leak_from_roll"),
+            (self.leak_sidebar.burned_btn, "toggle_leak_burned"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
             (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),
@@ -1017,6 +1037,7 @@ class ControlsPanel(QWidget):
         self.lab_sidebar.sync_ui()
         self.altproc_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
+        self.leak_sidebar.sync_ui()
         self.retouch_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
         self.finish_sidebar.sync_ui()
@@ -1329,6 +1350,11 @@ class ControlsPanel(QWidget):
         # manual_dust_spots is the legacy list, so count them or the Finish tab's edited dot
         # never lights for healed images.
         retouch_count = int(ret.dust_remove) + len(ret.manual_dust_spots) + len(ret.manual_heal_strokes)
+        leak = cfg.leak
+        _leak = _DEFAULT_LEAK
+        leak_count = len(leak.leak_shapes) + sum(
+            getattr(leak, f) != getattr(_leak, f) for f in ("leak_remove", "leak_dmax", "leak_recover", "leak_grain", "leak_contrast")
+        )
 
         _fin = _DEFAULT_FINISH
         fin = cfg.finish
@@ -1363,6 +1389,7 @@ class ControlsPanel(QWidget):
         self.baseline_section.set_modified(
             sum(getattr(proc, f) != getattr(_proc, f) for f in _BASELINE_FIELDS) + (proc.roll_name is not None)
         )
+        self.leak_section.set_modified(leak_count)
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)
@@ -1382,4 +1409,5 @@ class ControlsPanel(QWidget):
         # left the other highlighted as if both were live. The color sidebar's WB picker had the
         # same latent stale-check bug.
         self.retouch_sidebar.sync_ui()
+        self.leak_sidebar.sync_ui()
         self.color_sidebar.sync_ui()

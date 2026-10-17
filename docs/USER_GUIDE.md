@@ -15,7 +15,7 @@ If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\
 ### Screen layout
 
 *   **Left, the film strip**: your frames as a contact sheet, with import, sorting and triage tools.
-*   **Center, the canvas**: the live preview. Scroll or pinch to zoom, drag to pan, double-click to switch between fit and 100% at that spot. Zoomed in, a navigator in the lower right shows the visible part and the zoom; click or drag it to move the view. The bottom toolbar holds navigation, zoom (**Fit to Window**, 25–400%, **HQ Preview**), rotate/flip (on every selected frame), **Tools** (arms any canvas tool: crop, straighten, the pickers, masks, retouching), undo/redo, the **Print** menu (Before / After and the peeks below) and **Overlays** (Zone Overlay, Clipping Overlay, Printing Notes, Grain Focuser, Probe at Cursor, Frame Info). An armed canvas tool shows its use, its slider and **Done** on the toolbar; its name opens the same menu to switch tools. The **⋯** menu holds every action, including **Preferences…** (§15). Right-click the toolbar for **Edit Toolbar…**. Right-click the image for **Reset View**, **Sticky Zoom**, the pickers, copy/paste settings, **Reset Settings**, **Reset to Roll Settings** and **Unload** (drop the frame from the session; its edit stays).
+*   **Center, the canvas**: the live preview. Scroll or pinch to zoom, drag to pan, double-click to switch between fit and 100% at that spot. Zoomed in, a navigator in the lower right shows the visible part and the zoom; click or drag it to move the view. The bottom toolbar holds navigation, zoom (**Fit to Window**, 25–400%, **HQ Preview**), rotate/flip (on every selected frame), **Tools** (arms any canvas tool: crop, straighten, the pickers, masks, light leaks, retouching), undo/redo, the **Print** menu (Before / After and the peeks below) and **Overlays** (Zone Overlay, Clipping Overlay, Printing Notes, Grain Focuser, Probe at Cursor, Frame Info). An armed canvas tool shows its use, its slider and **Done** on the toolbar; its name opens the same menu to switch tools. The **⋯** menu holds every action, including **Preferences…** (§15). Right-click the toolbar for **Edit Toolbar…**. Right-click the image for **Reset View**, **Sticky Zoom**, the pickers, copy/paste settings, **Reset Settings**, **Reset to Roll Settings** and **Unload** (drop the frame from the session; its edit stays).
 *   **Frame Info**: `I` cycles the corner pills. **Off**; **Basic**: file name, scan size, film mode; **Full**: adds the frame's place in the strip, film, camera and lens, the soft-proof profile, the export size and the zoom.
 *   **Right, the controls**: tabs **Roll** / **Frame** / **Metadata** / **Gear** / **Export** / **Scan**. **Roll** and **Frame** have a pinned **Analysis** readout; **Frame** has its own row of tabs. Only Roll and Frame change the render.
 
@@ -563,8 +563,26 @@ Chemical toners (B&W Negative only) and a split tint (any mode). On a lith print
 
 ## 7. Finish tab
 
+<!-- panel:leak -->
+### 7.1 Light Leak
+
+Reduces the glow a light leak adds to a negative or a slide, before any dust repair. On a slide a leak thins the film toward clear, and the correction puts density back. It acts only under the leaks you place and, for an edge, in the lit gap along its side; film elsewhere is never touched. Burned-out film stays: heal or clone it. Grayed out on Positive frames and composites.
+
+*   **Reduce Light Leak**, with **Auto** (magic) beside it: Auto places a shape on each leak the film supports, ready to adjust: a band along a straight leak that lights the rebate it crosses up to the frame line, or that stands far above everything else on the frame, and an edge where a leak lights the rebate and carries on across the frame line into the picture, from either side of the film. Glow that stops at the frame line is edge fog or edge print, and Auto leaves it; draw a faint leak that never reaches the rebate by hand.
+*   **From Roll** (film icon): a camera throws its leak at the same place on every frame it exposes. With other frames selected, it carries this frame's leaks to each, placed by that frame's picture, and each frame reads the leak's strength and color itself. With no other frame selected, it selects the frames Auto finds a leak on, to draw the leak on one and carry it.
+*   **Film Dmax** (Off, or 0.05 to 4.0 D): the film's maximum density over its base, for a film whose dense end is saturated; Off treats its curve as a straight line, and a value under the frame's densest film acts as that film's density. On a slide it is the density from its black to clear film.
+*   **Recover Layers** (on by default): a leak through the base often drives the red layer to its densest while green and blue keep the picture; this rebuilds such a layer from the others, by the scene's own color in the film around the leak.
+*   **Grain** (0 to 100%, default 50%) and **Contrast** (0 to 100%, default 25%) act only where leak came off: Grain calms the grain the correction stretches, Contrast lifts the local contrast the leak flattened, which the correction alone cannot bring back.
+*   The **Band**, **Edge**, **Spot** and **Paint** tools sit under the LEAKS header, which shows the count; **Undo Last** / **Clear All** there remove leaks. Each leak is a row in the list: click it to select it, its shape icon to turn its removal off or on, the trash to delete it. Drawing a leak turns removal on, and shapes over one leak remove it once.
+*   **Band**: a line along a leak's strongest part with a dashed edge on each side where it fades out. Drag the line along the leak; drag either end or either edge to adjust. An end past the window shows its handle at the window's edge. The film sets how strong the leak is and how it falls off on each side.
+*   **Edge**: a leak in from a side of the picture, as a gap in a back or a loading leak throws, with a dashed line where it fades out. Drag along the side; the line snaps to it. The film sets how strong the leak is and how far in it reaches along the side, so tongues of light come off whole; lit rebate outside the edge sets its shape along the side, so a stretch over smooth sky follows it. With no lit rebate, an edge over smooth sky takes nothing off. Glow that climbs steeply through the rebate, as near the film's cut end, comes off tongue by tongue; where it is many times brighter than the picture, heal or clone what stays. Rebate glow the picture does not carry across the frame line is fog, and with Color on Auto the edge takes nothing off beside it; set Color to Front for a leak from the lens side there. Where the crop takes in the lit gap between frames, the edge reads from the frame line and clears the gap along the whole side to the unexposed border's density; Auto places an edge there even where no leak crosses, as at the start of a roll.
+*   **Spot**: a round leak, as a pinhole, a cracked body or a frame-number window throws. Drag out an oval; its center moves it and its two axis handles stretch and tilt it. The film sets how strong it is, and its color comes from the shadows in its core.
+*   **Paint**: brush over a leak with no line or center, as a toy camera's blotches or a haze; paint wider than the leak. Strokes grow the selected painted leak, or start one. The film sets how strong the leak is across the region and its color where it is strongest. It uses the Retouch card's **Brush Size**; Alt+wheel over the photo sizes it.
+*   **Selected leak**: **Strength** (0 to 400%, default 100%): how much of the leak the film reads under it comes off, never more than the frame's thinnest film nearby allows; under 100% an edge also clears less of a lit gap. **Falloff** (0 to 100%, default 50%): how a band, a spot or a painted region fades toward its edge, from a held shoulder to an early soft tail; an edge fades as its leak does. **Color**: *Auto* reads it off the film; *Back* is light through the base, as a worn seal lets in, which prints red to orange; *Front* is light on the emulsion side, through the lens or a gap at the gate, which reaches the blue-sensitive layer first and prints near neutral. **Color Trim** (-50 to 50%, default 0): removes more or less of the leak's leading color, blue for light from the front and red for light through the base, where a removed leak leaves its own tint in the dark parts of the picture. Color and Color Trim are hidden on B&W film, whose one layer takes any light alike.
+*   **Show Burned** (flame on the LEAKS header): washes amber over film the leak burned out in every layer, which holds no picture to rebuild. When a leak burns part of the frame, a hint under the controls says so; heal or clone those areas.
+
 <!-- panel:retouch -->
-### 7.1 Retouch: dust, hairs, scratches
+### 7.2 Retouch: dust, hairs, scratches
 
 Spotting, as with a brush on a finished print. Marks are found by local contrast, by the scanner's IR channel or by hand, and the three stack. Each mark is rebuilt from the clean film around it, grain included.
 
@@ -607,7 +625,7 @@ Right-click a stroke, scratch or line on the canvas to delete it.
 *   **Undo Last** / **Clear All** on the CLONE header remove the last or all strokes. Each stroke keeps the settings it was painted with.
 
 <!-- panel:finish -->
-### 7.2 Finishing: vignette, carrier, border
+### 7.3 Finishing: vignette, carrier, border
 
 How the print is presented, at the end of the pipeline.
 
@@ -949,7 +967,7 @@ A gear library for Metadata (§11), Roll Settings and every gear picker. **My Ge
 ### Output intent
 
 *   **Print** (default): the look you see on screen.
-*   **Flat**: a neutral, low-contrast master for editing elsewhere. It skips the print look, effects, toning and vignette, and writes a 16-bit TIFF, or lossless JPEG XL when JXL is selected with sRGB, P3, Rec 2020 or Grayscale.
+*   **Flat**: a neutral, low-contrast master for editing elsewhere. It skips the print look, effects, toning and vignette but keeps light leak reduction, and writes a 16-bit TIFF, or lossless JPEG XL when JXL is selected with sRGB, P3, Rec 2020 or Grayscale.
     *   **Preview Flat**: shows the flat master on the canvas.
     *   Run **Roll Analysis** (Roll tab) before a flat batch so the masters match.
 *   **Linear**: writes the decoded buffer as linear 16-bit, with rotation, flip and only the corrections turned on below. **TIFF** (default, untagged) or **JPEG XL** (lossless; tagged with sRGB primaries, which is wrong for native primaries). **Effort** (1 to 9, default 7) trades JPEG XL speed for size.

@@ -9,6 +9,7 @@ from negpy.desktop.controller import baseline_compare_config
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.lab.models import LabConfig
+from negpy.features.leak.models import LeakConfig
 from negpy.features.process.models import ProcessMode
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
@@ -34,6 +35,7 @@ def _edited_config() -> WorkspaceConfig:
         lab=replace(cfg.lab, saturation=1.6),
         toning=replace(cfg.toning, selenium_strength=0.5),
         finish=replace(cfg.finish, vignette_stops=0.4),
+        leak=LeakConfig(leak_remove=True),
     )
 
 
@@ -44,6 +46,7 @@ def test_baseline_resets_creative_sections() -> None:
     assert base.toning == ToningConfig()
     assert base.finish == FinishConfig()
     assert base.retouch == RetouchConfig()
+    assert base.leak == LeakConfig()
 
 
 def test_baseline_preserves_process_and_geometry() -> None:

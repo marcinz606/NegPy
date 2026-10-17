@@ -233,8 +233,9 @@ class RetouchSidebar(BaseSidebar):
 
     def _brush_size_enabled(self, heal: bool, scratch: bool) -> bool:
         """The brush is sized from the canvas while an exclusion is painted, which happens
-        with no tool active, so Optical Removal enables the value too."""
-        return heal or scratch or self.state.active_tool == ToolMode.CLONE or self.state.config.retouch.dust_remove
+        with no tool active, so Optical Removal enables the value too. The Light Leak card's Paint
+        brush uses it as well."""
+        return heal or scratch or self.state.active_tool in (ToolMode.CLONE, ToolMode.LEAK_PAINT) or self.state.config.retouch.dust_remove
 
     def _on_pick_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.DUST_PICK if checked else ToolMode.NONE)

@@ -62,6 +62,10 @@ class ToolMode(Enum):
     LOCAL_DRAW = auto()
     LOCAL_OVAL = auto()
     LOCAL_GRADIENT = auto()
+    LEAK_BAND = auto()
+    LEAK_EDGE = auto()
+    LEAK_SPOT = auto()
+    LEAK_PAINT = auto()
     ANALYSIS_DRAW = auto()
     STRAIGHTEN = auto()
     KEYSTONE_LINES = auto()
@@ -233,6 +237,9 @@ class AppState:
     # Dust-detection overlay mode ("off"|"spots"|"marked"|"ir"): a display-only, session-only
     # diagnostic. Never persisted.
     dust_overlay_mode: str = "off"
+    # Light leak: the canvas washes the film the leak burned out; the last render found some.
+    leak_show_burned: bool = False
+    leak_burned: bool = False
 
     # Adams-zone overlay on the canvas: display-only and session-only, never persisted.
     zones_overlay: bool = False
@@ -293,6 +300,8 @@ class AppState:
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
+    # The light leak shape the Light Leak card edits; -1 is none.
+    leak_selected: int = -1
     # Per-file sets of mask indices whose outline is hidden on the canvas, keyed by content
     # hash. Empty or absent means all shown. Persisted as the "hidden_masks_by_hash" global
     # setting, written through on every toggle. Read the current file's set through the
@@ -2053,6 +2062,7 @@ class DesktopSessionManager(QObject):
         """
         from negpy.features.finish.models import FinishConfig
         from negpy.features.lab.models import LabConfig
+        from negpy.features.leak.models import LeakConfig
         from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.retouch.models import RetouchConfig
         from negpy.features.altprocess.models import AltProcessConfig
@@ -2066,6 +2076,7 @@ class DesktopSessionManager(QObject):
             "toning": ToningConfig(),
             "geometry": DEFAULT_WORKSPACE_CONFIG.geometry,
             "process": DEFAULT_WORKSPACE_CONFIG.process,
+            "leak": LeakConfig(),
             "retouch": RetouchConfig(),
             "finish": FinishConfig(),
         }
@@ -2076,6 +2087,8 @@ class DesktopSessionManager(QObject):
             new_config = replace(new_config, exposure=mode_aware_exposure_reset(new_config.process.process_mode, new_config.exposure))
         if section == "local":
             self.state.local_selected_mask = -1
+        if section == "leak":
+            self.state.leak_selected = -1
         self.update_config(new_config, persist=True)
 
     def copy_settings(self, include_bounds: bool = False) -> None:

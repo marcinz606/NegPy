@@ -204,6 +204,10 @@ _TOOL_ROWS: dict[ToolMode, tuple[str, str, str]] = {
         "controls_panel.geometry_sidebar.converge_v_slider",
     ),
     ToolMode.ZONE_PLACE: ("Zone Placement", "Click the photo to pin a spot; drag a pin to move it", ""),
+    ToolMode.LEAK_BAND: ("Leak Band", "Drag along the leak's strongest line, then drag a dashed edge to where it fades out", ""),
+    ToolMode.LEAK_EDGE: ("Leak Edge", "Drag along the side the leak comes in from; the line snaps to it", ""),
+    ToolMode.LEAK_SPOT: ("Leak Spot", "Drag out an oval over a round leak", ""),
+    ToolMode.LEAK_PAINT: ("Leak Paint", "Brush over a leak with no line or center, wider than the leak", _BRUSH_SIZE),
 }
 _CLONE_SOURCE_HINT = "Click the photo to pick the area to copy from"
 
@@ -223,6 +227,11 @@ _CANVAS_TOOLS: tuple[tuple[ToolMode, str, str] | str, ...] = (
     (ToolMode.LOCAL_DRAW, "local_draw", "controls_panel.local_sidebar.draw_btn"),
     (ToolMode.LOCAL_OVAL, "local_oval", "controls_panel.local_sidebar.oval_btn"),
     (ToolMode.LOCAL_GRADIENT, "local_gradient", "controls_panel.local_sidebar.gradient_btn"),
+    "Light Leak",
+    (ToolMode.LEAK_BAND, "tool_leak_band", "controls_panel.leak_sidebar.band_btn"),
+    (ToolMode.LEAK_EDGE, "tool_leak_edge", "controls_panel.leak_sidebar.edge_btn"),
+    (ToolMode.LEAK_SPOT, "tool_leak_spot", "controls_panel.leak_sidebar.spot_btn"),
+    (ToolMode.LEAK_PAINT, "tool_leak_paint", "controls_panel.leak_sidebar.paint_btn"),
     "Retouch",
     (ToolMode.DUST_PICK, "pick_dust", "controls_panel.retouch_sidebar.pick_dust_btn"),
     (ToolMode.SCRATCH_PICK, "pick_scratch", "controls_panel.retouch_sidebar.pick_scratch_btn"),

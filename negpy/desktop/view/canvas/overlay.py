@@ -56,6 +56,8 @@ from negpy.features.exposure.placement import key_edges
 from negpy.features.local.logic import limited_indices, min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.process.path import RenderPath, render_path
+from negpy.features.leak.models import LeakKind, LeakShape
+from negpy.features.leak.shapes import NEW_BAND_WIDTH, band_outline, band_with_handle, handle_count, spot_outline, spot_with_handle
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
 from negpy.services.view.coordinate_mapping import CoordinateMapping
@@ -90,6 +92,10 @@ _SHAPE_FOR_TOOL = {
     ToolMode.LOCAL_GRADIENT: MaskShape.GRADIENT,
 }
 _LOCAL_TOOLS = (ToolMode.NONE, *_SHAPE_FOR_TOOL)
+# Tools drawn as a two-point drag: an oval or a card edge.
+_DRAG_SHAPE_TOOLS = (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT, ToolMode.LEAK_BAND, ToolMode.LEAK_EDGE, ToolMode.LEAK_SPOT)
+_LEAK_TOOLS = (ToolMode.LEAK_BAND, ToolMode.LEAK_EDGE, ToolMode.LEAK_SPOT)
+_LEAK_KIND_FOR_TOOL = {ToolMode.LEAK_BAND: LeakKind.BAND, ToolMode.LEAK_EDGE: LeakKind.EDGE, ToolMode.LEAK_SPOT: LeakKind.SPOT}
 
 _IR_CORRECTED_ALPHA = 55  # dim wash over repaired regions
 _CLIP_WASH_ALPHA = 200  # clipped pixels must read as marks over any print
@@ -144,6 +150,8 @@ _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
 _PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
 _SPLIT_GRAB_PX = 12.0  # before/after divider grab half-width
 _SPLIT_HANDLE_PX = 11.0  # drawn knob radius
+# A leak line's end handle past the canvas is held this far inside its edge, on the line.
+_LEAK_HANDLE_INSET_PX = 12.0
 
 _PROBE_OFFSET_PX = 18.0  # chip corner from the pointer
 _PROBE_TOOLS = (ToolMode.NONE, ToolMode.WB_PICK, ToolMode.ZONE_PLACE)
@@ -248,7 +256,7 @@ def zone_pin_caption(index: int, pin: Any) -> str:
 
 
 # Tools that paint with the round brush and commit the stroke on release.
-_BRUSH_TOOLS = (ToolMode.DUST_PICK, ToolMode.CLONE)
+_BRUSH_TOOLS = (ToolMode.DUST_PICK, ToolMode.CLONE, ToolMode.LEAK_PAINT)
 
 
 def _overlay_label_font(painter: QPainter):
@@ -357,6 +365,9 @@ class CanvasOverlay(QWidget):
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
     local_mask_created = pyqtSignal(str, list)  # (shape value, viewport-normalised points)
+    leak_shape_created = pyqtSignal(str, list)  # (LeakKind, viewport-normalised ends of the drawn line)
+    leak_shape_edited = pyqtSignal(int, object)  # (shape index, the LeakShape as dragged)
+    leak_paint_completed = pyqtSignal(list)  # viewport-normalized points of a painted leak stroke
     scratch_completed = pyqtSignal(list)
     clone_stroke_completed = pyqtSignal(list)  # viewport-normalized points
     clone_source_picked = pyqtSignal(float, float)  # viewport-normalized x, y
@@ -418,6 +429,8 @@ class CanvasOverlay(QWidget):
 
         # The oval and card-edge tools drag out a shape. They do not click each point.
         self._shape_draw_p1: Optional[QPointF] = None
+        # A light leak shape handle under drag: (shape index, handle, the shape as dragged).
+        self._leak_edit: Optional[Tuple[int, int, LeakShape]] = None
         self._shape_draw_p2: Optional[QPointF] = None
 
         # Scratch heal (open polyline) interaction state
@@ -653,7 +666,8 @@ class CanvasOverlay(QWidget):
             self._lasso_pts = []
             self._lasso_drawing = False
         self._end_local_edit()
-        if mode not in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+        self._leak_edit = None
+        if mode not in _DRAG_SHAPE_TOOLS:
             self._shape_draw_p1 = None
             self._shape_draw_p2 = None
         if mode != ToolMode.SCRATCH_PICK:
@@ -1151,7 +1165,7 @@ class CanvasOverlay(QWidget):
             self._draw_brush(painter, THEME.warn_amber)
 
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
-            if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK) or (
+            if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.LEAK_PAINT) or (
                 self._tool_mode == ToolMode.CLONE and not self.state.clone_picking
             ):
                 self._draw_brush(painter)
@@ -1170,7 +1184,9 @@ class CanvasOverlay(QWidget):
             self._local_mask_screen_ctrl = []
         if self._tool_mode == ToolMode.LOCAL_DRAW:
             self._draw_lasso_in_progress(painter)
-        if self._tool_mode in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+        if self._tool_mode in _LEAK_TOOLS or self._tool_mode == ToolMode.LEAK_PAINT:
+            self._draw_leak_bands(painter)
+        if self._tool_mode in _DRAG_SHAPE_TOOLS:
             self._draw_shape_in_progress(painter)
         if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE, ToolMode.CLONE):
             self._draw_placed_heals(painter)
@@ -1196,6 +1212,12 @@ class CanvasOverlay(QWidget):
 
         if self.state.dust_overlay_mode != "off":
             self._draw_dust_overlay(painter)
+        if self.state.leak_show_burned:
+            with self.state.metrics_lock:
+                burned = self.state.last_metrics.get("leak_burned_mask")
+            wash = self._mask_wash_qimage(burned, QColor(THEME.warn_amber)) if burned is not None else None
+            if wash is not None:
+                painter.drawImage(self._content_view_rect(), wash)
 
         # UNCROPPED_PREVIEW_TOOLS show the uncropped frame, where the boxes would not line up. The tool test hides
         # them as the tool opens; crop_preview_full keeps them hidden while that frame is still on screen after it closes.
@@ -2770,6 +2792,123 @@ class CanvasOverlay(QWidget):
         self._tone_luma_cache = (serial, lum)
         return lum
 
+    def _raw_shape(self) -> Optional[Tuple[int, int]]:
+        raw = self.state.preview_raw
+        return None if raw is None else (int(raw.shape[0]), int(raw.shape[1]))
+
+    def _leak_bands_shown(self) -> List[Tuple[int, LeakShape]]:
+        """(index in leak_shapes, shape) for the frame's light leaks, the one under a handle drag at
+        its dragged place."""
+        shapes = list(self.state.config.leak.leak_shapes)
+        if self._leak_edit is not None and self._leak_edit[0] < len(shapes):
+            shapes[self._leak_edit[0]] = self._leak_edit[2]
+        return list(enumerate(shapes))
+
+    def _leak_band_screen(self, band: LeakShape, uv_grid: np.ndarray, shape: Tuple[int, int]) -> List[QPointF]:
+        """A band's or an edge's outline on screen: line ends, left edge ends, right edge ends."""
+        return [self._raw_to_screen(x, y, uv_grid) for x, y in band_outline(band, shape)]
+
+    def _leak_band_handles(self, leak: LeakShape, uv_grid: np.ndarray, shape: Tuple[int, int]) -> List[QPointF]:
+        """A band's line ends and each edge's middle; an edge leak's ends and its reach; a spot's
+        center and axis ends."""
+        if leak.kind is LeakKind.PAINT:
+            return []
+        if leak.kind is LeakKind.SPOT:
+            return [self._raw_to_screen(x, y, uv_grid) for x, y in leak.points[:3]]
+        pts = self._leak_band_screen(leak, uv_grid, shape)
+        mid = lambda p, q: QPointF((p.x() + q.x()) / 2.0, (p.y() + q.y()) / 2.0)  # noqa: E731
+        center = mid(pts[0], pts[1])
+        ends = [self._leak_end_in_view(center, pts[0]), self._leak_end_in_view(center, pts[1])]
+        return [*ends, mid(pts[2], pts[3]), mid(pts[4], pts[5])][: handle_count(leak)]
+
+    def _leak_end_in_view(self, center: QPointF, end: QPointF) -> QPointF:
+        """*end*, or where the line from *center* leaves the canvas when *end* lies past it: an Auto
+        band runs through the rebate past the crop, and its ends must stay in reach. Dragging the
+        handle sets the end there."""
+        view = QRectF(self.rect()).adjusted(_LEAK_HANDLE_INSET_PX, _LEAK_HANDLE_INSET_PX, -_LEAK_HANDLE_INSET_PX, -_LEAK_HANDLE_INSET_PX)
+        if view.contains(end) or not view.contains(center):
+            return end
+        dx, dy = end.x() - center.x(), end.y() - center.y()
+        t = 1.0
+        if dx > 0.0:
+            t = min(t, (view.right() - center.x()) / dx)
+        elif dx < 0.0:
+            t = min(t, (view.left() - center.x()) / dx)
+        if dy > 0.0:
+            t = min(t, (view.bottom() - center.y()) / dy)
+        elif dy < 0.0:
+            t = min(t, (view.top() - center.y()) / dy)
+        return QPointF(center.x() + t * dx, center.y() + t * dy)
+
+    def _draw_leak_bands(self, painter: QPainter) -> None:
+        """The frame's light leaks: a band's line solid and each side's edge dashed, an edge leak's
+        edge solid and its reach dashed, a spot's oval; the selected one in the accent, and the
+        handles."""
+        leaks = self._leak_bands_shown()
+        shape = self._raw_shape()
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or shape is None or not leaks:
+            return
+        accent = QColor(THEME.accent_primary)
+        for index, leak in leaks:
+            color = accent if index == self.state.leak_selected else QColor(255, 255, 255, 200)
+            if leak.kind is LeakKind.PAINT:
+                fill = QColor(color)
+                fill.setAlpha(60)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                for points, size in leak.strokes:
+                    screen = [self._raw_to_screen(x, y, uv_grid) for x, y in points]
+                    self._fill_brush_band(painter, screen, max(1.5, self._brush_screen_radius(size)))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                continue
+            if leak.kind is LeakKind.SPOT:
+                pen = QPen(color, 1.5, Qt.PenStyle.SolidLine)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPolygon(QPolygonF([self._raw_to_screen(x, y, uv_grid) for x, y in spot_outline(leak)]))
+            else:
+                pts = self._leak_band_screen(leak, uv_grid, shape)
+                lines = [((pts[0], pts[1]), Qt.PenStyle.SolidLine), ((pts[2], pts[3]), Qt.PenStyle.DashLine)]
+                if leak.kind is LeakKind.BAND:
+                    lines.append(((pts[4], pts[5]), Qt.PenStyle.DashLine))
+                for (p, q), style in lines:
+                    pen = QPen(color, 1.5, style)
+                    pen.setCosmetic(True)
+                    painter.setPen(pen)
+                    painter.drawLine(p, q)
+            self._draw_local_handles(painter, MaskShape.GRADIENT, self._leak_band_handles(leak, uv_grid, shape), accent)
+
+    def _try_start_leak_edit(self, pos: QPointF) -> bool:
+        """Grab a leak shape's handle under *pos*; True when one was grabbed."""
+        shape = self._raw_shape()
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or shape is None:
+            return False
+        for index, leak in self._leak_bands_shown():
+            handle = self._hit_local_vertex(pos, self._leak_band_handles(leak, uv_grid, shape))
+            if handle is not None:
+                self._leak_edit = (index, handle, leak)
+                return True
+        return False
+
+    def _drag_leak_edit(self, pos: QPointF) -> None:
+        shape = self._raw_shape()
+        view = self._map_to_image_coords_unbounded(pos)
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if self._leak_edit is None or shape is None or view is None or uv_grid is None:
+            return
+        index, handle, leak = self._leak_edit
+        rx, ry = CoordinateMapping.map_click_to_raw(view[0], view[1], uv_grid)
+        raw = (float(rx), float(ry))
+        moved = spot_with_handle(leak, handle, raw) if leak.kind is LeakKind.SPOT else band_with_handle(leak, handle, raw, shape)
+        self._leak_edit = (index, handle, moved)
+        self.update()
+
     def _draw_gradient_axis(self, painter: QPainter, a: QPointF, b: QPointF) -> None:
         """Draw the card edge. A solid line shows full exposure, a dashed line shows
         zero exposure, and a third line joins them."""
@@ -2899,6 +3038,25 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.LOCAL_GRADIENT:
             self._draw_gradient_axis(painter, self._shape_draw_p1, self._shape_draw_p2)
             return
+        if self._tool_mode == ToolMode.LEAK_EDGE:
+            # The line snaps to the nearest picture side, which sets its inward side.
+            painter.drawLine(self._shape_draw_p1, self._shape_draw_p2)
+            return
+        if self._tool_mode == ToolMode.LEAK_BAND:
+            a, b = self._shape_draw_p1, self._shape_draw_p2
+            painter.drawLine(a, b)
+            dx, dy = b.x() - a.x(), b.y() - a.y()
+            length = math.hypot(dx, dy)
+            if length >= 1e-3:
+                span = self._content_view_rect()
+                reach = NEW_BAND_WIDTH * max(span.width(), span.height())
+                nx, ny = -dy / length * reach, dx / length * reach
+                edge = QPen(painter.pen())
+                edge.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(edge)
+                for sign in (1.0, -1.0):
+                    painter.drawLine(QPointF(a.x() + sign * nx, a.y() + sign * ny), QPointF(b.x() + sign * nx, b.y() + sign * ny))
+            return
         ctrl = self._oval_ctrl_from_drag(self._shape_draw_p1, self._shape_draw_p2)
         curve = outline_points(MaskShape.OVAL, [(p.x(), p.y()) for p in ctrl])
         painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in curve]))
@@ -2995,7 +3153,7 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        if self._tool_mode in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+        if self._tool_mode in _DRAG_SHAPE_TOOLS:
             self._handle_shape_press(event.position())
             event.accept()
             return
@@ -3232,7 +3390,7 @@ class CanvasOverlay(QWidget):
         # Placement tools carry special cursors (blank brush, pen nib, WB picker) that read as
         # broken over the empty canvas around the image. Fall back to the normal arrow there and
         # restore the tool cursor over the image.
-        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.WB_PICK, ToolMode.CLONE):
+        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.WB_PICK, ToolMode.CLONE, ToolMode.LEAK_PAINT):
             if coords is None:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
             else:
@@ -3280,6 +3438,11 @@ class CanvasOverlay(QWidget):
             else:
                 self._local_edit_verts[self._local_drag_vertex] = pos
             self.update()
+            event.accept()
+            return
+
+        if self._leak_edit is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self._drag_leak_edit(event.position())
             event.accept()
             return
 
@@ -3474,7 +3637,9 @@ class CanvasOverlay(QWidget):
         selects that mask, as the lasso tool does. The drag can start off the frame."""
         if self._content_view_rect().isEmpty():
             return
-        if self._try_start_vertex_edit(pos) or self._try_select_mask_at(pos):
+        if self._tool_mode in _SHAPE_FOR_TOOL and (self._try_start_vertex_edit(pos) or self._try_select_mask_at(pos)):
+            return
+        if self._tool_mode in _LEAK_TOOLS and self._try_start_leak_edit(pos):
             return
         self._shape_draw_p1 = pos
         self._shape_draw_p2 = pos
@@ -3489,7 +3654,13 @@ class CanvasOverlay(QWidget):
         if (p2 - p1).manhattanLength() < 8.0:
             self.update()
             return
-        if self._tool_mode == ToolMode.LOCAL_GRADIENT:
+        if self._tool_mode in _LEAK_TOOLS:
+            ends = self._oval_ctrl_from_drag(p1, p2) if self._tool_mode == ToolMode.LEAK_SPOT else [p1, p2]
+            vertices = [self._map_to_image_coords_unbounded(pt) for pt in ends]
+            if all(v is not None for v in vertices):
+                self.leak_shape_created.emit(str(_LEAK_KIND_FOR_TOOL[self._tool_mode]), vertices)
+            self.update()
+        elif self._tool_mode == ToolMode.LOCAL_GRADIENT:
             self._emit_mask(MaskShape.GRADIENT, [p1, p2])
         else:
             self._emit_mask(MaskShape.OVAL, self._oval_ctrl_from_drag(p1, p2))
@@ -3695,7 +3866,9 @@ class CanvasOverlay(QWidget):
             if (end - pts[-1]).manhattanLength() > 2.0:
                 pts.append(end)
             vertices = [c for c in (self._map_to_image_coords(p) for p in pts) if c is not None]
-            if len(vertices) == 1:
+            if vertices and self._tool_mode == ToolMode.LEAK_PAINT:
+                self.leak_paint_completed.emit(vertices)
+            elif len(vertices) == 1:
                 # Plain click: the classic single-spot heal.
                 self.clicked.emit(*vertices[0])
             elif len(vertices) > 1 and self._tool_mode == ToolMode.CLONE:
@@ -3703,6 +3876,14 @@ class CanvasOverlay(QWidget):
             elif len(vertices) > 1:
                 # Drag: the painted path becomes one multi-point heal stroke.
                 self.scratch_completed.emit(vertices)
+            self.update()
+            event.accept()
+            return
+
+        if self._leak_edit is not None and event.button() == Qt.MouseButton.LeftButton:
+            index, _handle, band = self._leak_edit
+            self._leak_edit = None
+            self.leak_shape_edited.emit(index, band)
             self.update()
             event.accept()
             return
