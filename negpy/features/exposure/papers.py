@@ -82,10 +82,12 @@ class PaperProfile:
     density floor (base tint, shows in highlights). dye_matrix — dye coupling
     D_rgb = M · D_dye above base, row-normalized at use.
     lith_path — the paper's lith color path, read by the Lith stage.
-    kind picks the process mode the paper shows in; medium is its group in the dropdown.
+    kind picks the process mode the paper shows in; medium is its group in the dropdown;
+    short names it on a paper test strip band.
     """
 
     label: str
+    short: str = ""
     kind: str = "ra4"  # "default" | "bw" | "ra4"
     medium: str = "paper"  # "digital" | "paper" | "film"
     d_max: float = EXPOSURE_CONSTANTS["d_max"]
@@ -103,11 +105,12 @@ class PaperProfile:
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
-    DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", kind="default", medium="digital"),
+    DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", short="Digital", kind="default", medium="digital"),
     # Digital's curve with a Pakon minilab's colors: the coupling is fitted by
     # scripts/fit_icc_dyes.py to RGBScan.icc read on Adobe RGB, which keeps neutrals.
     "pakon": PaperProfile(
         label="Digital (Pakon Minilab)",
+        short="Pakon",
         kind="ra4",
         medium="digital",
         dye_matrix=(
@@ -119,6 +122,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
         label="Ilford Multigrade RC",
+        short="MG RC",
         toe_sharpness_base=4.0,
         kind="bw",
         # Neutral VC workhorse; Dmax ~2.1, normal contrast.
@@ -131,6 +135,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "ilford_fb_classic": PaperProfile(
         label="Ilford Multigrade FB Classic",
+        short="MG FB",
         kind="bw",
         # Baryta, deeper blacks + crisper shadow knee than RC.
         d_max=2.15,
@@ -140,6 +145,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "foma_fomatone": PaperProfile(
         label="Foma Fomatone MG Classic",
+        short="Fomatone",
         kind="bw",
         # Warm chlorobromide; gentler rendering, Dmax ~2.0.
         d_max=2.0,
@@ -152,6 +158,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "foma_fomabrom": PaperProfile(
         label="Foma Fomabrom Variant",
+        short="Fomabrom",
         toe_sharpness_base=4.0,
         kind="bw",
         # Neutral baryta, Dmax 2.0.
@@ -164,6 +171,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # Fitted to Kodak G-26 (seven filter grades, F surface, Dektol 1:2).
     "kodak_polymax_ii": PaperProfile(
         label="Kodak Polymax II RC",
+        short="Polymax II",
         kind="bw",
         d_max=2.13,
         d_min=0.062,
@@ -175,6 +183,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # Fitted to Kodak G-4037 (four filter grades, E surface, Dektol 1:2).
     "kodak_polycontrast_iv": PaperProfile(
         label="Kodak Polycontrast IV RC",
+        short="Polycontrast IV",
         kind="bw",
         d_max=2.15,
         d_min=0.062,
@@ -186,6 +195,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # ── RA4 color ───────────────────────────────────────────────────────────
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
+        short="Endura Premier",
         kind="ra4",
         # Neutral, with deep blacks and a punchy midtone S. The datasheet R/G/B diverge only at
         # Dmax, red densest, which cools the deep shadows. Approximated with a small
@@ -202,6 +212,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # target. One neutral curve, so no layer crossover or tint.
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
+        short="Crystal Archive",
         kind="ra4",
         d_max=2.00,
         d_min=0.120,
@@ -219,6 +230,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # Fitted to Kodak E-4021 (Status A R/G/B, shared with Supra Endura).
     "kodak_portra_endura": PaperProfile(
         label="Kodak Portra Endura",
+        short="Portra Endura",
         kind="ra4",
         d_max=2.65,
         d_min=0.093,
@@ -232,6 +244,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "kodak_supra_endura": PaperProfile(
         label="Kodak Supra Endura",
+        short="Supra Endura",
         kind="ra4",
         d_max=2.60,
         d_min=0.095,
@@ -246,6 +259,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # Fitted to Kodak E-4020 (Status A R/G/B).
     "kodak_ultra_endura": PaperProfile(
         label="Kodak Ultra Endura",
+        short="Ultra Endura",
         kind="ra4",
         d_max=2.61,
         d_min=0.096,
@@ -263,6 +277,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # no tint. Dyes from its spectral dye density curves, viewed under a xenon projector.
     "kodak_2383": PaperProfile(
         label="Kodak Vision 2383",
+        short="2383",
         kind="ra4",
         medium="film",
         d_max=2.29,
@@ -282,6 +297,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # that sheet (CC BY-SA 4.0, NOTICE.md). The base tint is within the trace's noise.
     "kodak_2393": PaperProfile(
         label="Kodak Vision Premier 2393",
+        short="2393",
         kind="ra4",
         medium="film",
         d_max=2.25,

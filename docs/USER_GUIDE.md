@@ -457,6 +457,7 @@ The paper's characteristic curve. Its own **Global / R / G / B** selector applie
     *   **Separation Damping** (0 to 1): higher keeps the push on muted color and eases it on saturated color. Grayed out at Dye Separation 1.0.
 *   **Paper White**: simulates paper base density, so whites print at about 0.93.
 *   **Paper Black**: shows the paper's slightly milky Dmax. Off (default) applies black-point compensation.
+*   **Paper Test Strip** (click the card's scroll icon; a plain icon on a slide): prints the frame on every print stock, in the list's order: as one band per stock (**Strip**) or as a grid of small whole frames (**Grid**), chosen in the toolbar. Click a paper to see it on the whole frame; **‹** and **›** in the toolbar, or the arrow keys, step to the neighbor paper. **Keep** (or Enter) makes the paper shown the Print stock; the back button (or Esc) returns to every paper.
 *   **Snap** (-0.5 to 0.5): midtone gamma; paper white and black stay put.
 *   **Toe** (-1 to 1) + **Toe Width** (0.1 to 5): shadow roll-off. Positive lifts shadows; negative deepens them and, with Paper Black off, reaches exact black. Width sets how far the knee reaches.
 *   **Shoulder** (-1 to 1) + **Shoulder Width** (0.1 to 5): highlight roll-off. Positive compresses highlights; negative extends them and can clip.

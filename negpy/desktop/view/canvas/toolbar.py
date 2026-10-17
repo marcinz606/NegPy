@@ -35,6 +35,8 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.features.exposure.papers import resolve_paper
 
 CANVAS_COLORS = [
     (THEME.canvas_bg_black, (0.02, 0.02, 0.02), "Black"),
@@ -785,6 +787,7 @@ class ActionToolbar(QWidget):
         self._rebuild_row()
 
         self._build_tool_row(v_layout, icon_color, icon_size, btn_height)
+        self._build_paper_row(v_layout, btn_height)
         self._build_zone_row(v_layout)
 
         # Size the pill to its controls; don't stretch it across the canvas.
@@ -800,7 +803,7 @@ class ActionToolbar(QWidget):
         layout.setSpacing(6)
         self._tool_layout = layout
         self._shown_tool = ToolMode.NONE
-        self._shown_rows = (False, False)  # (tool row, zone row); neither means the view row
+        self._shown_rows = (False, False, False)  # (tool row, paper row, zone row); none means the view row
         self._tool_slider = None
         self._tool_slider_source = None
 
@@ -838,6 +841,80 @@ class ActionToolbar(QWidget):
         layout.addWidget(self.btn_tool_redo)
         layout.addWidget(self.btn_tool_done)
         v_layout.addWidget(self._tool_row)
+
+    def _build_paper_row(self, v_layout: QVBoxLayout, btn_height: int) -> None:
+        """While the paper test strip is up the pill names it; once a band is shown full frame it
+        steps between papers and keeps one."""
+        self._paper_row = QWidget()
+        self._paper_row.hide()
+        layout = QHBoxLayout(self._paper_row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.paper_layout = SegmentedChoice(
+            (("mdi.view-column-outline", "Strip"), ("mdi.view-grid-outline", "Grid")),
+            "Strip cuts one frame into a band per paper, like a darkroom test strip; Grid shows every paper on the whole frame, small",
+            data=("bands", "grid"),
+        )
+        self.paper_layout.currentChanged.connect(lambda _i: self.controller.set_paper_strip_layout(self.paper_layout.currentData()))
+        self.paper_strip_hint = hint_label("Click a paper to see it on the whole frame")
+        self.paper_strip_hint.setWordWrap(False)
+        self.paper_strip_combo = StepCombo()
+        self._tip(
+            self.paper_strip_combo,
+            "The paper shown full frame: the arrows step to the neighbor paper, the name opens the list",
+            ("prev_file", "next_file"),
+        )
+        self.paper_strip_combo.currentIndexChanged.connect(self.controller.show_paper_strip)
+        self._paper_separator = self._create_separator()
+        self.btn_paper_back = labeled_action("fa5s.arrow-left", "Strip", "")
+        self._tip(self.btn_paper_back, "Back to every paper", "cancel_tool")
+        self.btn_paper_back.clicked.connect(lambda: self.controller.show_paper_strip(None))
+        self.btn_paper_keep = labeled_action("fa5s.check", "Keep", "Print on this paper: make it the Print stock (Enter)", primary=True)
+        self.btn_paper_keep.clicked.connect(lambda: self.controller.keep_paper_strip())
+        for btn in (self.btn_paper_back, self.btn_paper_keep):
+            btn.setFixedHeight(btn_height)
+            # The pill lays out at minimum widths, which would cut the label down to the icon.
+            btn.setMinimumWidth(btn.sizeHint().width())
+        self.btn_paper_close = icon_button("fa5s.times", "Close the Paper Test Strip")
+        self.btn_paper_close.clicked.connect(lambda: self.controller.toggle_paper_strip(force=False))
+        layout.addWidget(field_label("Paper test strip"))
+        for widget in (
+            self.paper_layout,
+            self.paper_strip_hint,
+            self.paper_strip_combo,
+            self._paper_separator,
+            self.btn_paper_back,
+            self.btn_paper_keep,
+            self.btn_paper_close,
+        ):
+            layout.addWidget(widget)
+        v_layout.addWidget(self._paper_row)
+
+    def _sync_paper_row(self) -> None:
+        combo = self.paper_strip_combo
+        labels = [resolve_paper(key).label for key in self.controller.paper_strip_keys()]
+        state = self.session.state
+        shown = state.test_strip_expanded
+        self.paper_layout.blockSignals(True)
+        self.paper_layout.setCurrentIndex(max(0, self.paper_layout.findData(state.test_strip_layout)))
+        self.paper_layout.blockSignals(False)
+        self.btn_paper_back.setText("Grid" if state.test_strip_layout == "grid" else "Strip")
+        self.btn_paper_back.setMinimumWidth(self.btn_paper_back.sizeHint().width())
+        combo.blockSignals(True)
+        if [combo.itemText(i) for i in range(combo.count())] != labels:
+            combo.clear()
+            combo.addItems(labels)
+            combo.setMinimumWidth(combo.sizeHint().width())
+        if shown is not None:
+            combo.setCurrentIndex(shown)
+        combo.blockSignals(False)
+        self.paper_layout.setVisible(shown is None)
+        self.paper_strip_hint.setVisible(shown is None)
+        for widget in (combo, self._paper_separator, self.btn_paper_back, self.btn_paper_keep):
+            widget.setVisible(shown is not None)
+        canvas = self.parentWidget()
+        if hasattr(canvas, "relayout_floating_widgets"):
+            canvas.relayout_floating_widgets()
 
     def _build_zone_row(self, v_layout: QVBoxLayout) -> None:
         """While the Zone Overlay is up the pill shows its look, its legend and a close button."""
@@ -895,14 +972,19 @@ class ActionToolbar(QWidget):
         if mode != self._shown_tool:
             self._shown_tool = mode
             self._swap_tool_slider(spec[2] if spec else "")
-        # An armed tool outranks the Zone Overlay, which outranks the view row.
-        rows = (spec is not None, spec is None and bool(state.zones_overlay))
+        # An armed tool outranks the paper strip, which outranks the Zone Overlay, which outranks
+        # the view row.
+        paper = spec is None and state.test_strip_kind == "paper" and bool(state.test_strip)
+        rows = (spec is not None, paper, spec is None and not paper and bool(state.zones_overlay))
+        if paper:
+            self._sync_paper_row()
         if rows != self._shown_rows:
             self._shown_rows = rows
-            if rows[1]:
+            if rows[2]:
                 self._sync_zone_row()
             self._tool_row.setVisible(rows[0])
-            self._zone_row.setVisible(rows[1])
+            self._paper_row.setVisible(rows[1])
+            self._zone_row.setVisible(rows[2])
             self._view_row.setVisible(not any(rows))
             canvas = self.parentWidget()
             if hasattr(canvas, "relayout_floating_widgets"):
@@ -1082,6 +1164,7 @@ class ActionToolbar(QWidget):
         self.session.asset_model.layoutChanged.connect(self._update_ui_state)
         controller.tool_sync_requested.connect(self._sync_tool_row)
         controller.zones_overlay_changed.connect(lambda _on: self._sync_tool_row())
+        controller.test_strip_changed.connect(lambda _up: self._sync_tool_row())
         controller.zones_style_changed.connect(lambda _style: self._sync_zone_row())
         self.session.color_vision_changed.connect(self._sync_zone_row)
 

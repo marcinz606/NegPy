@@ -254,6 +254,15 @@ class CollapsibleSection(QWidget):
         if self.collapsible:
             self.toggle_button.setChecked(expanded)
 
+    def add_lead_toggle(self, icon: QIcon, tooltip: str) -> QPushButton:
+        """A tool that works across the whole card or tab, in place of its icon."""
+        assert self.icon_label is not None
+        btn = header_button(icon, tooltip)
+        btn.setCheckable(True)
+        self._header_row.insertWidget(self._header_row.indexOf(self.icon_label), btn)
+        self.icon_label.hide()
+        return btn
+
     def add_header_toggle(self, icon_name: str, tooltip: str) -> QPushButton:
         btn = header_button(qta.icon(icon_name, color=THEME.text_muted, color_on=THEME.text_on_accent), tooltip)
         btn.setCheckable(True)
