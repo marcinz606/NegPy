@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.confirm import confirm_assembly_mode, confirm_undiptych
@@ -5,7 +6,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import SliderGroup
 
-_NO_ROLL_HINT = "Half Frame is a roll-wide setting, and this isn't one roll. Open the roll itself to split its scans."
+_NO_ROLL_HINT = tr("Half Frame is a roll-wide setting, and this isn't one roll. Open the roll itself to split its scans.")
 
 
 class HalfFrameSidebar(BaseSidebar):
@@ -18,7 +19,7 @@ class HalfFrameSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.enable_btn = self._small_toggle(
             "mdi.view-split-vertical",
-            "Half Frame Mode",
+            tr("Half Frame Mode"),
             self.controller.half_frame_mode_for_roll(self.state.active_roll_id),
             "",
             align_left=True,
@@ -27,18 +28,18 @@ class HalfFrameSidebar(BaseSidebar):
 
         self.adjust_btn = self._labeled_action(
             "mdi.tune-variant",
-            " Adjust…",
-            wrap_tooltip("Set this scan's crop and the gutter it splits at; its Apply picks what the result saves to"),
+            tr(" Adjust…"),
+            wrap_tooltip(tr("Set this scan's crop and the gutter it splits at; its Apply picks what the result saves to")),
         )
         self.auto_btn = self._labeled_action(
             "fa5s.layer-group",
-            " Detect All",
-            wrap_tooltip("Re-find the crop and the gutter on every loaded scan"),
+            tr(" Detect All"),
+            wrap_tooltip(tr("Re-find the crop and the gutter on every loaded scan")),
         )
         self.unsplit_btn = self._labeled_action(
             "fa5s.object-ungroup",
-            " Unsplit",
-            wrap_tooltip("Turn this diptych back into one plain scan, deleting both halves' edits"),
+            tr(" Unsplit"),
+            wrap_tooltip(tr("Turn this diptych back into one plain scan, deleting both halves' edits")),
         )
         btn_row = QHBoxLayout()
         for btn in (self.adjust_btn, self.auto_btn, self.unsplit_btn):
@@ -60,7 +61,7 @@ class HalfFrameSidebar(BaseSidebar):
         fixed afterward with Adjust. With nothing loaded there is nothing to split and
         nothing to confirm."""
         loaded = len(self.state.uploaded_files)
-        if checked and loaded and not confirm_assembly_mode(self, "Half Frame", loaded):
+        if checked and loaded and not confirm_assembly_mode(self, tr("Half Frame"), loaded):
             self._follow_mode(False)
             return
         self.controller.set_half_frame_mode(checked)
@@ -102,7 +103,9 @@ class HalfFrameSidebar(BaseSidebar):
             self.enable_btn.setChecked(self.controller.half_frame_mode_for_roll(self.state.active_roll_id))
             self.enable_btn.setEnabled(has_roll)
             self.enable_btn.setToolTip(
-                wrap_tooltip("Split each scan into two frames, edited and measured separately") if has_roll else wrap_tooltip(_NO_ROLL_HINT)
+                wrap_tooltip(tr("Split each scan into two frames, edited and measured separately"))
+                if has_roll
+                else wrap_tooltip(_NO_ROLL_HINT)
             )
             self.adjust_btn.setEnabled(has_roll and has_files)
             self.auto_btn.setEnabled(has_roll and has_files)

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import QMenu, QToolButton, QWidget
@@ -41,7 +42,7 @@ class OverflowBar(QWidget):
         self.overflow_btn = QToolButton(self)
         self.overflow_btn.setIcon(qta.icon("fa5s.angle-double-right", color=THEME.text_secondary))
         self.overflow_btn.setIconSize(QSize(16, 16))
-        self.overflow_btn.setToolTip("More")
+        self.overflow_btn.setToolTip(tr("More"))
         self.overflow_btn.setFixedHeight(height)
         self.overflow_btn.clicked.connect(self._show_overflow_menu)
         self.overflow_btn.hide()

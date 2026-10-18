@@ -299,11 +299,15 @@ def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfi
     return config
 
 
-def scan_setup_values(capture: str, light: str) -> bool:
-    """linear_raw for a scanning rig — capture is "camera"/"scanner", light is
+# The print stocks the scanning-setup wizard picks between; a frame on any other stock keeps it.
+SCAN_SETUP_PAPERS = ("neutral", "pakon")
+
+
+def scan_setup_values(capture: str, light: str) -> tuple[bool, str]:
+    """(linear_raw, paper_profile) for a scanning rig — capture is "camera"/"scanner", light is
     "white"/"narrowband". A camera under white light is the only combination that wants the
-    as-shot-WB decode."""
-    return not (capture == "camera" and light == "white")
+    as-shot-WB decode. Narrowband light prints on the Pakon minilab stock, white light on Digital."""
+    return not (capture == "camera" and light == "white"), "pakon" if light == "narrowband" else "neutral"
 
 
 def per_channel_point_offsets(process: ProcessConfig) -> tuple[tuple[float, float, float], tuple[float, float, float]]:

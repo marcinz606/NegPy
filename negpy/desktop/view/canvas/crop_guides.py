@@ -3,6 +3,8 @@
 Qt-free; all shapes are polylines in pixel space (0,0)-(w,h) so angles stay aspect-true.
 """
 
+from negpy.kernel.system.i18n import tr
+
 import math
 from enum import StrEnum
 from typing import List, Tuple
@@ -30,12 +32,12 @@ class CropGuide(StrEnum):
 
 GUIDE_LABELS: dict[CropGuide, str] = {
     CropGuide.THIRDS: "Thirds",
-    CropGuide.PHI: "Phi Grid",
-    CropGuide.DIAGONALS: "Diagonals",
-    CropGuide.TRIANGLES: "Golden Triangles",
-    CropGuide.SPIRAL: "Golden Spiral",
-    CropGuide.ARMATURE: "Armature",
-    CropGuide.DIAGONAL_METHOD: "Diagonal Method",
+    CropGuide.PHI: tr("Phi Grid"),
+    CropGuide.DIAGONALS: tr("Diagonals"),
+    CropGuide.TRIANGLES: tr("Golden Triangles"),
+    CropGuide.SPIRAL: tr("Golden Spiral"),
+    CropGuide.ARMATURE: tr("Armature"),
+    CropGuide.DIAGONAL_METHOD: tr("Diagonal Method"),
     CropGuide.GRID: "Grid",
     CropGuide.OFF: "Off",
 }

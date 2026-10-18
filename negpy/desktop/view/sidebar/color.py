@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.session import ToolMode
@@ -16,15 +17,17 @@ class ColorSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.region_btn = SegmentedChoice(
-            (("fa5s.globe", "Global"), ("fa5s.moon", "Shadows"), ("fa5s.sun", "Highlights")),
-            "Region for Temperature, CMY and Pick WB: Global applies to the entire tonal range; "
-            "Shadows and Highlights bias toward shadow (low-density) or highlight (high-density) areas",
+            (("fa5s.globe", tr("Global")), ("fa5s.moon", tr("Shadows")), ("fa5s.sun", tr("Highlights"))),
+            tr(
+                "Region for Temperature, CMY and Pick WB: Global applies to the entire tonal range; "
+                "Shadows and Highlights bias toward shadow (low-density) or highlight (high-density) areas"
+            ),
         )
         self.pick_wb_btn = self._tool_toggle(
             "fa5s.eye-dropper",
             "",
             tooltip_with_shortcut(
-                "Pick a neutral gray from the canvas — solves the selected region's CMY so the patch prints neutral",
+                tr("Pick a neutral gray from the canvas — solves the selected region's CMY so the patch prints neutral"),
                 "pick_wb",
             ),
         )
@@ -40,16 +43,16 @@ class ColorSidebar(BaseSidebar):
         self.layout.addLayout(region_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
-        self.temp_slider = KelvinSlider("Temperature")
+        self.temp_slider = KelvinSlider(tr("Temperature"))
         self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
         self._temp_anchor = None
         self.layout.addWidget(self.temp_slider)
 
-        self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, has_neutral=True)
+        self.cyan_slider = CompactSlider(tr("Cyan"), -1.0, 1.0, conf.wb_cyan, has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
-        self.magenta_slider = CompactSlider("Magenta", -1.0, 1.0, conf.wb_magenta, has_neutral=True)
+        self.magenta_slider = CompactSlider(tr("Magenta"), -1.0, 1.0, conf.wb_magenta, has_neutral=True)
         self.magenta_slider.slider.setObjectName("magenta_slider")
-        self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, has_neutral=True)
+        self.yellow_slider = CompactSlider(tr("Yellow"), -1.0, 1.0, conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
         for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
             self.layout.addWidget(slider)
@@ -97,13 +100,15 @@ class ColorSidebar(BaseSidebar):
     @staticmethod
     def _ring_tooltip(printing: bool = False) -> str:
         if printing:
-            return "Printing the color ring-around…"
+            return tr("Printing the color ring-around…")
         return tooltip_with_shortcut(
-            "Color Ring-Around: print the frame as a 5×5 mosaic — the center patch neutral, the "
-            "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
-            "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
-            "it is up. With Cast Removal on the patches separate less, since it corrects toward "
-            "neutral underneath.",
+            tr(
+                "Color Ring-Around: print the frame as a 5×5 mosaic — the center patch neutral, the "
+                "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
+                "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
+                "it is up. With Cast Removal on the patches separate less, since it corrects toward "
+                "neutral underneath."
+            ),
             "toggle_ring_around",
         )
 

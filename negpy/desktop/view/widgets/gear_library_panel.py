@@ -8,6 +8,10 @@ Catalog toggle that a preset has no equivalent for -- so each gets its own widge
 
 from __future__ import annotations
 
+from negpy.desktop.view.styles.templates import add_choice_items
+
+from negpy.kernel.system.i18n import tr
+
 from dataclasses import replace
 from typing import Callable, Optional
 
@@ -73,9 +77,9 @@ from negpy.services.assets.gear import GearProfiles
 from negpy.services.assets.presets import MetadataPresets, is_valid_preset_name, preset_fields, preset_notes, with_preset_notes
 
 _CATEGORIES = [
-    ("cameras", "Cameras"),
+    ("cameras", tr("Cameras")),
     ("lenses", "Lenses"),
-    ("film_stocks", "Film Stocks"),
+    ("film_stocks", tr("Film Stocks")),
     ("processes", "Process"),
     ("scan_setups", "Scanning"),
 ]
@@ -109,9 +113,9 @@ _CATEGORY_SINGULAR = CATEGORY_SINGULAR
 _CATEGORY_PLURAL_NOUN = {
     "cameras": "cameras",
     "lenses": "lenses",
-    "film_stocks": "film stocks",
+    "film_stocks": tr("film stocks"),
     "processes": "processes",
-    "scan_setups": "scan setups",
+    "scan_setups": tr("scan setups"),
 }
 
 _ADD_TOOLTIPS = {
@@ -120,7 +124,7 @@ _ADD_TOOLTIPS = {
 }
 
 _DELETE_TOOLTIPS = {key: f"Remove this {singular.lower()} from your gear" for key, singular in _CATEGORY_SINGULAR.items()}
-_DELETE_BUNDLED_TOOLTIP = "Built-in gear can't be removed — duplicate it to make your own copy"
+_DELETE_BUNDLED_TOOLTIP = tr("Built-in gear can't be removed — duplicate it to make your own copy")
 
 
 _PRESET_ROW_WIDGETS: dict[str, tuple[str, ...]] = {
@@ -171,19 +175,19 @@ class GearItemsPanel(QWidget):
         root.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 5)
         root.setSpacing(THEME.space_lg)
 
-        root.addWidget(section_subheader("MY GEAR"))
-        root.addWidget(hint_label("Cameras, lenses, film stocks and processes you own. Catalog shows the full shipped list."))
+        root.addWidget(section_subheader(tr("MY GEAR")))
+        root.addWidget(hint_label(tr("Cameras, lenses, film stocks and processes you own. Catalog shows the full shipped list.")))
 
-        root.addWidget(field_label("Category"))
+        root.addWidget(field_label(tr("Category")))
         self.category_list = StepCombo()
-        self.category_list.setToolTip(wrap_tooltip("Which kind of gear this pane lists"))
+        self.category_list.setToolTip(wrap_tooltip(tr("Which kind of gear this pane lists")))
         for key, label in _CATEGORIES:
             self.category_list.addItem(qta.icon(_CATEGORY_ICONS[key], color=THEME.text_primary), label, key)
         root.addWidget(self.category_list)
 
         self.item_search = QLineEdit()
-        self.item_search.setPlaceholderText("Search cameras…")
-        self.item_search.setToolTip(wrap_tooltip("Filter the list below by name"))
+        self.item_search.setPlaceholderText(tr("Search cameras…"))
+        self.item_search.setToolTip(wrap_tooltip(tr("Filter the list below by name")))
         self.item_search.textChanged.connect(self._on_item_search_changed)
         root.addWidget(self.item_search)
 
@@ -198,22 +202,22 @@ class GearItemsPanel(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(THEME.space_sm)
-        self.add_btn = icon_button("fa5s.plus", "Add item")
+        self.add_btn = icon_button("fa5s.plus", tr("Add item"))
         self.add_btn.clicked.connect(self._add_item)
-        self.dup_btn = icon_button("fa5s.copy", "Duplicate")
+        self.dup_btn = icon_button("fa5s.copy", tr("Duplicate"))
         self.dup_btn.clicked.connect(self._duplicate_item)
-        self.del_btn = icon_button("fa5s.trash-alt", "Delete")
+        self.del_btn = icon_button("fa5s.trash-alt", tr("Delete"))
         self.del_btn.clicked.connect(self._delete_item)
         for b in (self.add_btn, self.dup_btn, self.del_btn):
             btn_row.addWidget(b)
         btn_row.addStretch()
-        self.show_catalog_btn = tool_toggle("fa5s.list-ul", "Catalog", "Show the built-in catalog alongside your own gear")
+        self.show_catalog_btn = tool_toggle("fa5s.list-ul", tr("Catalog"), tr("Show the built-in catalog alongside your own gear"))
         self.show_catalog_btn.toggled.connect(self._on_show_catalog_toggled)
         btn_row.addWidget(self.show_catalog_btn)
         root.addLayout(btn_row)
 
         # Form: a single layout, with rows shown and hidden per category, never removed.
-        root.addWidget(section_subheader("DETAILS"))
+        root.addWidget(section_subheader(tr("DETAILS")))
 
         self.display_name_edit = QLineEdit()
         self.make_edit = QLineEdit()
@@ -231,21 +235,21 @@ class GearItemsPanel(QWidget):
         self.iso_spin = QSpinBox()
         self.iso_spin.setRange(1, 12800)
         self.format_combo = StepCombo()
-        self.format_combo.addItems([e.value for e in FilmFormat])
+        add_choice_items(self.format_combo, [e.value for e in FilmFormat])
         self.color_combo = StepCombo()
-        self.color_combo.addItems([e.value for e in FilmColorType])
+        add_choice_items(self.color_combo, [e.value for e in FilmColorType])
         self.developer_edit = QLineEdit()
-        self.developer_edit.setPlaceholderText("e.g. D-76")
+        self.developer_edit.setPlaceholderText(tr("e.g. D-76"))
         self.push_pull_combo = StepCombo()
-        self.push_pull_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
+        add_choice_items(self.push_pull_combo, [PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.dilution_edit = QLineEdit()
-        self.dilution_edit.setPlaceholderText("e.g. 1+50, stock")
+        self.dilution_edit.setPlaceholderText(tr("e.g. 1+50, stock"))
         self.dev_time_edit = QLineEdit()
         self.dev_time_edit.setPlaceholderText(DEV_TIME_HINT)
         self.dev_temp_edit = QLineEdit()
-        self.dev_temp_edit.setPlaceholderText("e.g. 20")
+        self.dev_temp_edit.setPlaceholderText(tr("e.g. 20"))
         self.scanning_edit = QLineEdit()
-        self.scanning_edit.setPlaceholderText("e.g. DSLR copy-stand scan")
+        self.scanning_edit.setPlaceholderText(tr("e.g. DSLR copy-stand scan"))
         self.notes_edit = QLineEdit()
 
         for w in (
@@ -275,24 +279,24 @@ class GearItemsPanel(QWidget):
         self.form_layout.setContentsMargins(0, 0, 0, 0)
         self.form_layout.setSpacing(THEME.space_md)
         self._form_rows: dict[str, tuple[QLabel, QWidget]] = {}
-        self._register_form_row("display_name", "Display name", self.display_name_edit)
-        self._register_form_row("make", "Make", self.make_edit)
-        self._register_form_row("model", "Model", self.model_edit)
-        self._register_form_row("lens_model", "Lens model", self.lens_model_edit)
-        self._register_form_row("focal", "Focal length", self.focal_spin)
-        self._register_form_row("aperture", "Max aperture", self.aperture_spin)
-        self._register_form_row("manufacturer", "Manufacturer", self.manufacturer_edit)
-        self._register_form_row("stock_name", "Stock name", self.stock_name_edit)
-        self._register_form_row("iso", "ISO", self.iso_spin)
-        self._register_form_row("format", "Format", self.format_combo)
-        self._register_form_row("color_type", "Color type", self.color_combo)
-        self._register_form_row("developer", "Developer", self.developer_edit)
-        self._register_form_row("dilution", "Dilution", self.dilution_edit)
-        self._register_form_row("push_pull", "Push / Pull", self.push_pull_combo)
-        self._register_form_row("dev_time", "Time", self.dev_time_edit)
-        self._register_form_row("dev_temp", "Temperature (°C)", self.dev_temp_edit)
-        self._register_form_row("scanning", "Scanning", self.scanning_edit)
-        self._register_form_row("notes", "Notes", self.notes_edit)
+        self._register_form_row("display_name", tr("Display name"), self.display_name_edit)
+        self._register_form_row("make", tr("Make"), self.make_edit)
+        self._register_form_row("model", tr("Model"), self.model_edit)
+        self._register_form_row("lens_model", tr("Lens model"), self.lens_model_edit)
+        self._register_form_row("focal", tr("Focal length"), self.focal_spin)
+        self._register_form_row("aperture", tr("Max aperture"), self.aperture_spin)
+        self._register_form_row("manufacturer", tr("Manufacturer"), self.manufacturer_edit)
+        self._register_form_row("stock_name", tr("Stock name"), self.stock_name_edit)
+        self._register_form_row("iso", tr("ISO"), self.iso_spin)
+        self._register_form_row("format", tr("Format"), self.format_combo)
+        self._register_form_row("color_type", tr("Color type"), self.color_combo)
+        self._register_form_row("developer", tr("Developer"), self.developer_edit)
+        self._register_form_row("dilution", tr("Dilution"), self.dilution_edit)
+        self._register_form_row("push_pull", tr("Push / Pull"), self.push_pull_combo)
+        self._register_form_row("dev_time", tr("Time"), self.dev_time_edit)
+        self._register_form_row("dev_temp", tr("Temperature (°C)"), self.dev_temp_edit)
+        self._register_form_row("scanning", tr("Scanning"), self.scanning_edit)
+        self._register_form_row("notes", tr("Notes"), self.notes_edit)
 
         root.addWidget(self.form_panel)
         root.addStretch()
@@ -337,7 +341,7 @@ class GearItemsPanel(QWidget):
         self.show_catalog_btn.blockSignals(False)
         self.item_search.blockSignals(True)
         self.item_search.clear()
-        self.item_search.setPlaceholderText(_CATEGORY_SEARCH_PLACEHOLDER.get(self._category, "Search…"))
+        self.item_search.setPlaceholderText(_CATEGORY_SEARCH_PLACEHOLDER.get(self._category, tr("Search…")))
         self.item_search.blockSignals(False)
         self._rebuild_item_list()
         self._show_form_for_category(self._category)
@@ -387,7 +391,7 @@ class GearItemsPanel(QWidget):
         no_personal_gear = not candidates and not query
         self.empty_hint.setVisible(no_personal_gear)
         if no_personal_gear:
-            self.empty_hint.setText(f"You haven't added any {_CATEGORY_PLURAL_NOUN.get(self._category, 'items')} yet.")
+            self.empty_hint.setText(tr("You haven't added any {value} yet.", value=_CATEGORY_PLURAL_NOUN.get(self._category, "items")))
         self.item_list.setVisible(not no_personal_gear)
 
         if not visible and not query:
@@ -473,10 +477,10 @@ class GearItemsPanel(QWidget):
                 self.manufacturer_edit.setText(item.manufacturer)
                 self.stock_name_edit.setText(item.stock_name)
                 self.iso_spin.setValue(item.iso)
-                idx = self.format_combo.findText(item.format.value)
+                idx = self.format_combo.findData(item.format.value)
                 if idx >= 0:
                     self.format_combo.setCurrentIndex(idx)
-                idx = self.color_combo.findText(item.color_type.value)
+                idx = self.color_combo.findData(item.color_type.value)
                 if idx >= 0:
                     self.color_combo.setCurrentIndex(idx)
                 self.notes_edit.setText(item.notes)
@@ -542,8 +546,8 @@ class GearItemsPanel(QWidget):
             item.manufacturer = self.manufacturer_edit.text().strip()
             item.stock_name = self.stock_name_edit.text().strip()
             item.iso = self.iso_spin.value()
-            item.format = FilmFormat(self.format_combo.currentText())
-            item.color_type = FilmColorType(self.color_combo.currentText())
+            item.format = FilmFormat(self.format_combo.currentData())
+            item.color_type = FilmColorType(self.color_combo.currentData())
             item.notes = self.notes_edit.text().strip()
 
         items[self._selected_idx] = item
@@ -612,7 +616,9 @@ class GearItemsPanel(QWidget):
         item = items[self._selected_idx]
         if item.is_bundled:
             return
-        kind = {"film_stocks": "Film Stock", "scan_setups": "Scan Setup"}.get(self._category, dict(_CATEGORIES)[self._category].rstrip("s"))
+        kind = {"film_stocks": tr("Film Stock"), "scan_setups": tr("Scan Setup")}.get(
+            self._category, dict(_CATEGORIES)[self._category].rstrip("s")
+        )
         if not confirm_delete_named(self, kind, item.resolved_display_name):
             return
         items = list(self._current_items())
@@ -661,12 +667,12 @@ class GearPresetsPanel(QWidget):
         root.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 5)
         root.setSpacing(THEME.space_lg)
 
-        root.addWidget(section_subheader("PRESETS"))
-        root.addWidget(hint_label("Saved metadata field sets, applied to any frame from the Metadata tab."))
+        root.addWidget(section_subheader(tr("PRESETS")))
+        root.addWidget(hint_label(tr("Saved metadata field sets, applied to any frame from the Metadata tab.")))
 
         self.item_search = QLineEdit()
-        self.item_search.setPlaceholderText("Search presets…")
-        self.item_search.setToolTip(wrap_tooltip("Filter the list below by name"))
+        self.item_search.setPlaceholderText(tr("Search presets…"))
+        self.item_search.setToolTip(wrap_tooltip(tr("Filter the list below by name")))
         self.item_search.textChanged.connect(self._on_item_search_changed)
         root.addWidget(self.item_search)
 
@@ -681,20 +687,20 @@ class GearPresetsPanel(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(THEME.space_sm)
-        self.add_btn = icon_button("fa5s.plus", "Store the current frame's metadata as a preset")
+        self.add_btn = icon_button("fa5s.plus", tr("Store the current frame's metadata as a preset"))
         self.add_btn.clicked.connect(self._add_item)
-        self.dup_btn = icon_button("fa5s.copy", "Duplicate")
+        self.dup_btn = icon_button("fa5s.copy", tr("Duplicate"))
         self.dup_btn.clicked.connect(self._duplicate_item)
-        self.edit_btn = icon_button("fa5s.pen", "Rename the preset, or change which fields it stores")
+        self.edit_btn = icon_button("fa5s.pen", tr("Rename the preset, or change which fields it stores"))
         self.edit_btn.clicked.connect(self._edit_preset)
-        self.del_btn = icon_button("fa5s.trash-alt", "Delete this preset")
+        self.del_btn = icon_button("fa5s.trash-alt", tr("Delete this preset"))
         self.del_btn.clicked.connect(self._delete_item)
         for b in (self.add_btn, self.dup_btn, self.edit_btn, self.del_btn):
             btn_row.addWidget(b)
         btn_row.addStretch()
         root.addLayout(btn_row)
 
-        root.addWidget(section_subheader("DETAILS"))
+        root.addWidget(section_subheader(tr("DETAILS")))
 
         self.preset_panel = QWidget()
         preset_layout = QVBoxLayout(self.preset_panel)
@@ -708,56 +714,56 @@ class GearPresetsPanel(QWidget):
         self._build_preset_form()
         self.preset_fields_layout = QVBoxLayout()
         self.preset_fields_layout.setSpacing(THEME.space_md)
-        self.preset_empty_label = QLabel("This preset stores nothing.")
+        self.preset_empty_label = QLabel(tr("This preset stores nothing."))
         self.preset_empty_label.setStyleSheet(f"color: {THEME.text_secondary};")
         preset_layout.addWidget(self.preset_name_label)
         preset_layout.addLayout(self.preset_form_layout)
         preset_layout.addLayout(self.preset_fields_layout)
         preset_layout.addWidget(self.preset_empty_label)
-        preset_layout.addWidget(field_label("Notes"))
+        preset_layout.addWidget(field_label(tr("Notes")))
         self.preset_notes_edit = QLineEdit()
-        self.preset_notes_edit.setPlaceholderText("Notes for this preset")
+        self.preset_notes_edit.setPlaceholderText(tr("Notes for this preset"))
         self.preset_notes_edit.textChanged.connect(self._on_preset_notes_changed)
         preset_layout.addWidget(self.preset_notes_edit)
-        preset_layout.addWidget(hint_label("The pen chooses which fields a preset stores; these edit their values."))
+        preset_layout.addWidget(hint_label(tr("The pen chooses which fields a preset stores; these edit their values.")))
         root.addWidget(self.preset_panel)
         root.addStretch()
 
         self.add_btn.setEnabled(self._current_config_fn() is not None)
 
     def _build_preset_form(self) -> None:
-        self.preset_camera_combo = SearchableGearCombo(placeholder="Search cameras…")
-        self.preset_lens_combo = SearchableGearCombo(placeholder="Search lenses…")
-        self.preset_film_combo = SearchableGearCombo(placeholder="Search film stocks…")
-        self.preset_process_combo = SearchableGearCombo(placeholder="Search processes…")
-        self.preset_scan_combo = SearchableGearCombo(placeholder="Search scan setups…")
+        self.preset_camera_combo = SearchableGearCombo(placeholder=tr("Search cameras…"))
+        self.preset_lens_combo = SearchableGearCombo(placeholder=tr("Search lenses…"))
+        self.preset_film_combo = SearchableGearCombo(placeholder=tr("Search film stocks…"))
+        self.preset_process_combo = SearchableGearCombo(placeholder=tr("Search processes…"))
+        self.preset_scan_combo = SearchableGearCombo(placeholder=tr("Search scan setups…"))
         self.preset_format_combo = StepCombo()
-        self.preset_format_combo.addItems(FORMAT_OPTIONS)
+        add_choice_items(self.preset_format_combo, FORMAT_OPTIONS)
         self.preset_format_other_edit = QLineEdit()
-        self.preset_format_other_edit.setPlaceholderText("e.g. 6×7")
+        self.preset_format_other_edit.setPlaceholderText(tr("e.g. 6×7"))
         self.preset_developer_edit = QLineEdit()
-        self.preset_developer_edit.setPlaceholderText("e.g. D-76")
+        self.preset_developer_edit.setPlaceholderText(tr("e.g. D-76"))
         self.preset_dilution_edit = QLineEdit()
-        self.preset_dilution_edit.setPlaceholderText("e.g. 1+50")
+        self.preset_dilution_edit.setPlaceholderText(tr("e.g. 1+50"))
         self.preset_push_combo = StepCombo()
-        self.preset_push_combo.addItems([PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
+        add_choice_items(self.preset_push_combo, [PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES])
         self.preset_time_edit = QLineEdit()
         self.preset_time_edit.setPlaceholderText(DEV_TIME_HINT)
         self.preset_temp_edit = QLineEdit()
-        self.preset_temp_edit.setPlaceholderText("e.g. 20")
+        self.preset_temp_edit.setPlaceholderText(tr("e.g. 20"))
         self.preset_scanning_edit = QLineEdit()
-        self.preset_scanning_edit.setPlaceholderText("e.g. DSLR copy-stand scan")
+        self.preset_scanning_edit.setPlaceholderText(tr("e.g. DSLR copy-stand scan"))
         self.preset_roll_edit = QLineEdit()
-        self.preset_roll_edit.setPlaceholderText("e.g. Roll001")
+        self.preset_roll_edit.setPlaceholderText(tr("e.g. Roll001"))
         self.preset_exposure_edit = QLineEdit()
-        self.preset_exposure_edit.setPlaceholderText("e.g. 1/125s f/2.8 ISO 400")
+        self.preset_exposure_edit.setPlaceholderText(tr("e.g. 1/125s f/2.8 ISO 400"))
 
         for key, label, widget in (
             ("camera", "Camera", self.preset_camera_combo),
             ("lens", "Lens", self.preset_lens_combo),
             ("film_stock", "Film stock", self.preset_film_combo),
             ("format", "Format", self.preset_format_combo),
-            ("format_other", "Other format", self.preset_format_other_edit),
+            ("format_other", tr("Other format"), self.preset_format_other_edit),
             ("process", "Saved process", self.preset_process_combo),
             ("developer", "Developer", self.preset_developer_edit),
             ("dilution", "Dilution", self.preset_dilution_edit),
@@ -860,7 +866,7 @@ class GearPresetsPanel(QWidget):
         no_presets = not all_items and not query
         self.empty_hint.setVisible(no_presets)
         if no_presets:
-            self.empty_hint.setText("You haven't added any presets yet.")
+            self.empty_hint.setText(tr("You haven't added any presets yet."))
         self.item_list.setVisible(not no_presets)
 
         if not visible and not query:
@@ -910,7 +916,7 @@ class GearPresetsPanel(QWidget):
             self._set_own_gear_items(self.preset_film_combo, self._library.film_stocks, meta.film_stock_id)
             self._set_own_gear_items(self.preset_process_combo, self._library.processes, meta.process_id)
             self._set_own_gear_items(self.preset_scan_combo, self._library.scan_setups, meta.scanning_id)
-            self.preset_format_combo.setCurrentText(format_label(meta.format))
+            self.preset_format_combo.setCurrentIndex(max(0, self.preset_format_combo.findData(format_label(meta.format))))
             self.preset_format_other_edit.setText(meta.format_other)
             self.preset_developer_edit.setText(meta.developer)
             self.preset_dilution_edit.setText(meta.process_dilution)
@@ -921,7 +927,7 @@ class GearPresetsPanel(QWidget):
             self.preset_roll_edit.setText(meta.capture_roll)
             self.preset_exposure_edit.setText(meta.exposure_override)
             for key, (row_label, widget) in self._preset_rows.items():
-                show = key in editable and (key != "format_other" or self.preset_format_combo.currentText() == "Other")
+                show = key in editable and (key != "format_other" or self.preset_format_combo.currentData() == "Other")
                 row_label.setVisible(show)
                 widget.setVisible(show)
             self._mark_invalid(self.preset_time_edit, False)
@@ -1044,7 +1050,7 @@ class GearPresetsPanel(QWidget):
         meta = None if self._updating else self._preset_meta()
         if meta is None:
             return
-        fmt = format_value(self.preset_format_combo.currentText())
+        fmt = format_value(self.preset_format_combo.currentData())
         if "format_other" in self._preset_rows and self._preset_rows["format"][1].isVisibleTo(self.preset_panel):
             other_label, other_widget = self._preset_rows["format_other"]
             other_label.setVisible(fmt == "Other")
@@ -1093,7 +1099,7 @@ class GearPresetsPanel(QWidget):
         self.presets_changed.emit()
 
     def _clear_form(self) -> None:
-        self.preset_name_label.setText("No preset selected")
+        self.preset_name_label.setText(tr("No preset selected"))
         self._updating = True
         try:
             self.preset_notes_edit.clear()
@@ -1107,14 +1113,14 @@ class GearPresetsPanel(QWidget):
         if not is_valid_preset_name(name):
             QMessageBox.warning(
                 self,
-                "Preset Name",
-                'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.',
+                tr("Preset Name"),
+                tr('A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.'),
             )
             return False
         if name.casefold() == replacing.casefold() or not MetadataPresets.exists(name):
             return True
         return (
-            QMessageBox.question(self, "Replace Preset", f"A preset named '{name}' already exists. Replace it?")
+            QMessageBox.question(self, tr("Replace Preset"), tr("A preset named '{name}' already exists. Replace it?", name=name))
             == QMessageBox.StandardButton.Yes
         )
 
@@ -1124,9 +1130,9 @@ class GearPresetsPanel(QWidget):
         if current_config is None:
             return
         dlg = GranularSettingsDialog(
-            self, current_config, "current metadata", ask_name=True, exclude_sections=NON_METADATA_SECTIONS, repo=self._repo
+            self, current_config, tr("current metadata"), ask_name=True, exclude_sections=NON_METADATA_SECTIONS, repo=self._repo
         )
-        dlg.setWindowTitle("New Metadata Preset")
+        dlg.setWindowTitle(tr("New Metadata Preset"))
         # As when editing: which fields to store is the choice, so every row is on offer.
         dlg.show_unchanged_settings()
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1145,7 +1151,7 @@ class GearPresetsPanel(QWidget):
             return
         cfg = preset_config(data)
         dlg = GranularSettingsDialog(self, cfg, name, ask_name=True, exclude_sections=NON_METADATA_SECTIONS, repo=self._repo)
-        dlg.setWindowTitle("Edit Metadata Preset")
+        dlg.setWindowTitle(tr("Edit Metadata Preset"))
         dlg.set_name(name)
         # Editing is about which fields the preset holds, so show every row, default-valued
         # ones included, rather than making the user reveal them to add one.
@@ -1230,7 +1236,7 @@ class GearLibraryPanel(QWidget):
 
         # (key, title, icon_name, content_widget)
         specs = [
-            ("items", "My Gear", "fa5s.toolbox", self.items),
+            ("items", tr("My Gear"), "fa5s.toolbox", self.items),
             ("presets", "Presets", "fa5s.magic", self.presets),
         ]
 

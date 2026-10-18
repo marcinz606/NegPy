@@ -1,7 +1,23 @@
 from unittest.mock import MagicMock
+import pytest
 
 from negpy.desktop.session import DesktopSessionManager
 from negpy.infrastructure.storage.repository import StorageRepository
+
+
+@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임")])
+@pytest.mark.parametrize("count", [1, 2])
+def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: str, count: int) -> None:
+    from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
+    from negpy.kernel.system import i18n
+
+    previous = i18n.language()
+    try:
+        i18n.configure(locale)
+        dialog = SequentialFrameDialog(None, count, count, 10)
+        assert dialog.preview.text().endswith(f"({count} {noun})")
+    finally:
+        i18n.configure(previous)
 
 
 def _session() -> DesktopSessionManager:
@@ -106,3 +122,14 @@ def test_assign_sequential_skips_rejected_active_frame(qapp):
     saved = _saved(mgr)
     assert saved["h1"].metadata.capture_frame == 20
     assert saved["h2"].metadata.capture_frame == 21
+
+
+def test_dialog_reads_its_direction_and_scope_choices(qapp):
+    from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
+
+    dlg = SequentialFrameDialog(None, sel_count=3, roll_count=5, start=10)
+    assert dlg.result() == (10, 1, "asc", "selection", False)
+    dlg.direction_choice.setCurrentIndex(1)
+    dlg._scope_choice.setCurrentIndex(1)
+    assert dlg.result() == (10, 1, "desc", "roll", False)
+    assert dlg.preview.text().startswith("10, 9, 8 …")

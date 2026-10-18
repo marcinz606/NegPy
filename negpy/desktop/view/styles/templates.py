@@ -1,3 +1,5 @@
+from negpy.kernel.system.i18n import mark, tr
+from collections.abc import Iterable
 import dataclasses
 import html
 import math
@@ -6,6 +8,7 @@ import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QLinearGradient, QPainter, QPixmap
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
@@ -21,6 +24,41 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
+
+_CHOICE_LABELS = {
+    "Other": mark("Other"),
+    "ColorNegative": mark("Color Negative"),
+    "ColorSlide": mark("Color Slide"),
+    "B&W Negative": mark("B&W Negative"),
+    "B&W Slide": mark("B&W Slide"),
+    "Normal": mark("Normal"),
+    "Push +1": mark("Push +1"),
+    "Push +2": mark("Push +2"),
+    "Push +3": mark("Push +3"),
+    "Pull -1": mark("Pull -1"),
+    "Pull -2": mark("Pull -2"),
+    "Pull -3": mark("Pull -3"),
+    "Original": mark("Original"),
+    "Same as Source": mark("Same as Source"),
+    "Free": mark("Free"),
+}
+
+
+def choice_label(value: str) -> str:
+    """Translate static enum labels; exclude file names and user gear names."""
+    return tr(_CHOICE_LABELS.get(value, value))
+
+
+def add_choice_items(combo: QComboBox, values: Iterable[str]) -> None:
+    """Show translated labels and store the original enum values in itemData."""
+    for value in values:
+        combo.addItem(choice_label(value), value)
+
+
+def select_choice(combo: QComboBox, value: str) -> None:
+    """Normalize StrEnum values to strings for Qt's QVariant lookup."""
+    combo.setCurrentIndex(max(0, combo.findData(str(value))))
+
 
 # One width for every icon-only button, so mixed rows keep a common right edge.
 ICON_BUTTON_WIDTH = 36
@@ -67,7 +105,7 @@ def default_button_height() -> int:
     mixed button rows stair-step)."""
     global _default_btn_height
     if _default_btn_height is None:
-        ref = QPushButton(" Ref")
+        ref = QPushButton(tr(" Ref"))
         ref.setIcon(qta.icon("fa5s.circle"))
         _default_btn_height = ref.sizeHint().height()
     return _default_btn_height
@@ -327,7 +365,7 @@ def wrap_tooltip(text: str, footer: str = "") -> str:
     a boilerplate line don't have to re-implement the escape/passthrough rule."""
     if not text.startswith("<qt>"):
         body = text if ("<" in text and ">" in text) else html.escape(text).replace("\n", "<br>")
-        text = f"<qt>{body}</qt>"
+        text = tr("<qt>{body}</qt>", body=body)
     if footer:
         text = text.removesuffix("</qt>") + footer + "</qt>"
     return text
@@ -517,7 +555,7 @@ def header_row(header: QLabel, *buttons: QWidget) -> QHBoxLayout:
 
 def section_subheader(text: str) -> QLabel:
     """Small all-caps label for section grouping in sidebars; wraps in a panel too narrow for it."""
-    lbl = QLabel(text.upper())
+    lbl = QLabel(tr(text).upper())
     lbl.setWordWrap(True)
     lbl.setStyleSheet(
         f"font-size: {THEME.font_size_small}px; "
@@ -539,7 +577,7 @@ class FieldLabel(QLabel):
 
 def field_label(text: str, width: int | None = None) -> QLabel:
     """Muted semibold label for a combo/entry field."""
-    lbl = FieldLabel(text)
+    lbl = FieldLabel(tr(text))
     lbl.setStyleSheet(field_label_qss())
     if width is not None:
         lbl.setFixedWidth(width)

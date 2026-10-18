@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 from typing import List, Optional
 
@@ -850,59 +851,61 @@ class FileBrowser(QWidget):
         # (put pictures in this session), not two different actions worth their own icons.
         self.add_btn = QToolButton()
         self.add_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
-        self.add_btn.setToolTip("Add pictures or a folder to this session")
+        self.add_btn.setToolTip(tr("Add pictures or a folder to this session"))
         self.add_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         add_menu = QMenu(self.add_btn)
-        add_menu.addAction("Add Files…").triggered.connect(self.prompt_add_files)
-        add_menu.addAction("Add Folder…").triggered.connect(self.prompt_add_folder)
+        add_menu.addAction(tr("Add Files…")).triggered.connect(self.prompt_add_files)
+        add_menu.addAction(tr("Add Folder…")).triggered.connect(self.prompt_add_folder)
         self.add_btn.setMenu(add_menu)
         self.unload_btn = QToolButton()
         self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
-        self.unload_btn.setToolTip("Unload…")
+        self.unload_btn.setToolTip(tr("Unload…"))
 
         self.hot_folder_btn = QToolButton()
         self.hot_folder_btn.setCheckable(True)
         self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_primary))
-        self.hot_folder_btn.setToolTip("Hot Folder — automatically load new images from the current folder")
+        self.hot_folder_btn.setToolTip(tr("Hot Folder — automatically load new images from the current folder"))
         self._update_hot_folder_style(False)
 
         self.apply_btn = QToolButton()
         self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
-        self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
+        self.apply_btn.setToolTip(tr("Apply settings from the current frame to selected frames or the whole roll"))
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
         self.roll_settings_btn = QToolButton()
         self.roll_settings_btn.setIcon(qta.icon("fa5s.tags", color=THEME.text_primary))
         self.roll_settings_btn.setToolTip(
-            wrap_tooltip("Roll Settings — tag gear, capture and process metadata across the current frame, a selection or the whole roll")
+            wrap_tooltip(
+                tr("Roll Settings — tag gear, capture and process metadata across the current frame, a selection or the whole roll")
+            )
         )
         self.roll_settings_btn.clicked.connect(self._open_roll_settings_dialog)
 
         self.save_roll_btn = QToolButton()
         self.save_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
-        self.save_roll_btn.setToolTip(wrap_tooltip("Save these frames as a roll — a named, reopenable group, not tied to a folder"))
+        self.save_roll_btn.setToolTip(wrap_tooltip(tr("Save these frames as a roll — a named, reopenable group, not tied to a folder")))
         self.save_roll_btn.clicked.connect(self._on_save_roll_clicked)
         self.update_thumbnails_btn = QToolButton()
         self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-        self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+        self.update_thumbnails_btn.setToolTip(tr("Update Thumbnails — re-render every stale thumbnail in the roll"))
         self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
 
         self.scenes_btn = QToolButton()
         self.scenes_btn.setCheckable(True)
-        self.scenes_btn.setToolTip(wrap_tooltip("Show Scenes — frame each picture in its scene's color"))
+        self.scenes_btn.setToolTip(wrap_tooltip(tr("Show Scenes — frame each picture in its scene's color")))
         self.scenes_btn.toggled.connect(self._apply_show_scenes)
 
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
-        self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
+        self.sheet_btn.setToolTip(tr("Sheet — filter the contact sheet by triage mark"))
         self.sheet_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         sheet_menu = QMenu(self.sheet_btn)
         self._sheet_group = QActionGroup(self)
         self._sheet_group.setExclusive(True)
-        self.act_sheet_all = sheet_menu.addAction("All Frames")
-        self.act_sheet_keepers = sheet_menu.addAction("Keepers Only")
-        self.act_sheet_unrejected = sheet_menu.addAction("Hide Rejected")
-        self.act_sheet_unmarked = sheet_menu.addAction("Unmarked Only")
+        self.act_sheet_all = sheet_menu.addAction(tr("All Frames"))
+        self.act_sheet_keepers = sheet_menu.addAction(tr("Keepers Only"))
+        self.act_sheet_unrejected = sheet_menu.addAction(tr("Hide Rejected"))
+        self.act_sheet_unmarked = sheet_menu.addAction(tr("Unmarked Only"))
         for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected, self.act_sheet_unmarked):
             act.setCheckable(True)
             self._sheet_group.addAction(act)
@@ -911,16 +914,16 @@ class FileBrowser(QWidget):
         self.act_sheet_unrejected.triggered.connect(lambda: self._apply_sheet_filter("unrejected"))
         self.act_sheet_unmarked.triggered.connect(lambda: self._apply_sheet_filter("unmarked"))
         sheet_menu.addSeparator()
-        self.act_advance_after_mark = sheet_menu.addAction("Advance After Marking")
+        self.act_advance_after_mark = sheet_menu.addAction(tr("Advance After Marking"))
         self.act_advance_after_mark.setCheckable(True)
         self.act_advance_after_mark.setChecked(bool(self.session.repo.get_global_setting("advance_after_mark", False)))
-        self.act_advance_after_mark.setToolTip("Marking a frame Keeper or Reject moves on to the next frame")
+        self.act_advance_after_mark.setToolTip(tr("Marking a frame Keeper or Reject moves on to the next frame"))
         self.act_advance_after_mark.toggled.connect(lambda on: self.session.repo.save_global_setting("advance_after_mark", on))
         sheet_menu.setToolTipsVisible(True)
         self.sheet_btn.setMenu(sheet_menu)
 
         # The frames' own order; the Library's roll list has a Sort of its own.
-        self.sort_btn = SortButton((("name", "Name"), ("date", "Date"), ("scene", "Scene")), "Sort the frames in the Film Strip")
+        self.sort_btn = SortButton((("name", "Name"), ("date", "Date"), ("scene", "Scene")), tr("Sort the frames in the Film Strip"))
         self.act_sort_name, self.act_sort_date, self.act_sort_scene = (self.sort_btn.order_action(k) for k in ("name", "date", "scene"))
         self.act_sort_asc, self.act_sort_desc = self.sort_btn.ascending_action, self.sort_btn.descending_action
         self.act_sort_scene.setVisible(False)
@@ -944,20 +947,20 @@ class FileBrowser(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         for widget, label in (
-            (self.save_roll_btn, "Save as Roll…"),
+            (self.save_roll_btn, tr("Save as Roll…")),
             (None, None),
             (self.add_btn, "Add"),
             (None, None),
-            (self.hot_folder_btn, "Hot Folder"),
+            (self.hot_folder_btn, tr("Hot Folder")),
             (None, None),
-            (self.apply_btn, "Apply settings"),
+            (self.apply_btn, tr("Apply settings")),
             (self.roll_settings_btn, "Roll Settings"),
-            (self.update_thumbnails_btn, "Update thumbnails"),
+            (self.update_thumbnails_btn, tr("Update thumbnails")),
             (None, None),
             (self.unload_btn, "Unload…"),
-            (self.scenes_btn, "Show Scenes"),
+            (self.scenes_btn, tr("Show Scenes")),
             (self.sort_btn, "Sort"),
-            (self.sheet_btn, "Sheet filter"),
+            (self.sheet_btn, tr("Sheet filter")),
         ):
             if widget is None:
                 self.film_strip_toolbar.add_separator(self._create_separator())
@@ -969,12 +972,14 @@ class FileBrowser(QWidget):
 
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Filter — name, film:portra, iso:>=400…")
+        self.search_input.setPlaceholderText(tr("Filter — name, film:portra, iso:>=400…"))
         self.search_input.setToolTip(
-            "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
-            "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
-            "shot, place, scene, name, path, ext, date, keeper, rejected, edited.\n"
-            'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   shot:>=1998-07   ·   place:tokyo'
+            tr(
+                "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
+                "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
+                "shot, place, scene, name, path, ext, date, keeper, rejected, edited.\n"
+                'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   shot:>=1998-07   ·   place:tokyo'
+            )
         )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(
@@ -984,19 +989,19 @@ class FileBrowser(QWidget):
         # The elastic item in this row. Its natural minimum is what keeps the panel from narrowing
         # further, and the other two here are fixed-width by design.
         self.search_input.setMinimumWidth(40)
-        self.regex_btn = tool_toggle("", ".*", "Regex mode")
+        self.regex_btn = tool_toggle("", ".*", tr("Regex mode"))
         self.regex_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         # Same query text, wider net: the box above filters what is loaded, and this runs it
         # against every library folder and opens what it finds.
         self.library_search_btn = icon_button(
-            "mdi.folder-search-outline", "Search the whole library — runs this search across your library folders and loads the matches"
+            "mdi.folder-search-outline", tr("Search the whole library — runs this search across your library folders and loads the matches")
         )
 
         # Opt-in (Preferences); hidden until then. Mutually exclusive with regex/the
         # structured query language -- ranks this session's frames by meaning instead.
         self.semantic_btn = tool_toggle(
-            "mdi.image-search-outline", "", "Search by meaning — describe what you're looking for instead of using field:value terms"
+            "mdi.image-search-outline", "", tr("Search by meaning — describe what you're looking for instead of using field:value terms")
         )
         self.semantic_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.semantic_btn.setVisible(False)
@@ -1013,7 +1018,7 @@ class FileBrowser(QWidget):
         self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)
         self.thumb_size_slider.setValue(ThumbnailGridView._clamp_target(int(saved_cell)))
         self.thumb_size_slider.setFixedWidth(72)
-        self.thumb_size_slider.setToolTip("Thumbnail size — smaller fits more columns in the panel")
+        self.thumb_size_slider.setToolTip(tr("Thumbnail size — smaller fits more columns in the panel"))
         # Above both sections: one box that filters the frames and searches the library, so it
         # belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
@@ -1042,7 +1047,7 @@ class FileBrowser(QWidget):
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 
         self.library_tree = LibraryTree(self.controller)
-        self.library_section = self._make_section("Library", "library", "fa5s.folder-open", self.library_tree)
+        self.library_section = self._make_section(tr("Library"), "library", "fa5s.folder-open", self.library_tree)
 
         frames = QWidget()
         frames_layout = QVBoxLayout(frames)
@@ -1055,23 +1060,23 @@ class FileBrowser(QWidget):
         frames_layout.addLayout(tally_row)
         frames_layout.addWidget(self.list_view, 1)
         frames_layout.addWidget(self.empty_label, 1)
-        self.frames_section = self._make_section("Film Strip", "frames", "fa5s.film", frames)
+        self.frames_section = self._make_section(tr("Film Strip"), "frames", "fa5s.film", frames)
         self.light_table_btn = self.frames_section.add_header_toggle(
-            "fa5s.th-large", tooltip_with_shortcut("Light Table — the roll as a grid in place of the canvas", "toggle_light_table")
+            "fa5s.th-large", tooltip_with_shortcut(tr("Light Table — the roll as a grid in place of the canvas"), "toggle_light_table")
         )
 
         # Clearing the strip is how you start a roll you will build entirely by drag-drop,
         # so it lives on the section header rather than its own toolbar button -- the
         # header has room a wrapping toolbar row does not.
         frames_menu = QMenu(self.frames_section)
-        frames_menu.addAction("New Roll…").triggered.connect(self._on_clear_all)
-        self.close_roll_action = frames_menu.addAction(label_with_shortcut("Close Roll…", "close_roll"))
+        frames_menu.addAction(tr("New Roll…")).triggered.connect(self._on_clear_all)
+        self.close_roll_action = frames_menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll"))
         self.close_roll_action.triggered.connect(lambda: _close_roll(self, self.controller))
         frames_menu.aboutToShow.connect(self._sync_close_roll_action)
-        frames_menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(self._on_reset_roll)
+        frames_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
         self.frames_section.set_actions_menu(
             frames_menu,
-            "Start, close or reset the roll",
+            tr("Start, close or reset the roll"),
         )
 
         # A splitter, like the right panel's Analysis/Tabs one, so the boundary can be
@@ -1309,7 +1314,7 @@ class FileBrowser(QWidget):
     def _on_save_roll_clicked(self) -> None:
         """Save whatever the Film Strip currently holds as a named, reopenable roll --
         a library search's results, a hand-picked selection, or a folder roll's extras."""
-        name, ok = QInputDialog.getText(self, "Save as Roll", "Name:")
+        name, ok = QInputDialog.getText(self, tr("Save as Roll"), tr("Name:"))
         name = name.strip()
         if not ok or not name:
             return
@@ -1322,7 +1327,7 @@ class FileBrowser(QWidget):
 
     def _update_unload_button(self) -> None:
         multi = len(self.session.state.selected_indices) > 1
-        self.unload_btn.setToolTip("Unload Selected…" if multi else "Unload…")
+        self.unload_btn.setToolTip(tr("Unload Selected…") if multi else tr("Unload…"))
 
     def sync_ui(self) -> None:
         """Updates list selection to match session state."""
@@ -1408,7 +1413,9 @@ class FileBrowser(QWidget):
 
     def _on_semantic_toggled(self, checked: bool) -> None:
         self.regex_btn.setEnabled(not checked)
-        self.search_input.setPlaceholderText("Describe what you're looking for…" if checked else "Filter — name, film:portra, iso:>=400…")
+        self.search_input.setPlaceholderText(
+            tr("Describe what you're looking for…") if checked else tr("Filter — name, film:portra, iso:>=400…")
+        )
         self.filter_timer.start()
 
     def _set_search_error(self, error: bool) -> None:
@@ -1486,7 +1493,7 @@ class FileBrowser(QWidget):
         if model.filter_text:
             names.append("search")
         if model.sheet_filter == "keepers":
-            names.append("Keepers")
+            names.append(tr("Keepers"))
         elif model.sheet_filter == "unrejected":
             names.append("Hide Rejected")
         elif model.sheet_filter == "unmarked":
@@ -1508,7 +1515,7 @@ class FileBrowser(QWidget):
         # The strip shows the model, the tally counts the session, so a filter that hides
         # every frame reads as an empty panel under a full count unless it is named here.
         visible = self.session.asset_model.rowCount()
-        text = f"{visible} of {n} frames" if visible != n else count_of(n, "frame")
+        text = tr("{visible} of {n} frames", visible=visible, n=n) if visible != n else count_of(n, "frame")
         for name in self._active_frame_filters():
             text += f" · {name} filter"
         if keepers:
@@ -1519,7 +1526,7 @@ class FileBrowser(QWidget):
         # The prefix slot holds the roll's name. Frames that are not one roll get named
         # as what they are instead: an edit here reaches the roll each frame came from,
         # which a strip that looks identical either way gives no sign of.
-        text = f"{roll_name or 'No roll'} — {text}"
+        text = f"{roll_name or tr('No roll')} — {text}"
         # First, so a narrow panel elides the roll name rather than the progress.
         if self._refresh_progress:
             text = f"{self._refresh_progress} · {text}"
@@ -1528,7 +1535,7 @@ class FileBrowser(QWidget):
             ""
             if roll_name
             else wrap_tooltip(
-                "These frames are not one roll. An edit changes the photo itself, so it also shows in the roll the frame came from."
+                tr("These frames are not one roll. An edit changes the photo itself, so it also shows in the roll the frame came from.")
             )
         )
         self.tally_label.setVisible(True)
@@ -1550,7 +1557,11 @@ class FileBrowser(QWidget):
         if empty:
             named = " and ".join(filters)
             self.empty_label.setText(
-                f'No frames match the {named} filter.<br><a href="#clear" style="color: {THEME.accent_primary};">Show all frames</a>'
+                tr(
+                    'No frames match the {named} filter.<br><a href="#clear" style="color: {accent_primary};">Show all frames</a>',
+                    named=named,
+                    accent_primary=THEME.accent_primary,
+                )
             )
         self.empty_label.setVisible(empty)
         self.list_view.setVisible(not empty)
@@ -1614,9 +1625,9 @@ class FileBrowser(QWidget):
         start_dir = last_open_folder(self.session.repo)
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Images",
+            tr("Select Images"),
             start_dir,
-            f"Supported Images ({wildcards})",
+            tr("Supported Images ({wildcards})", wildcards=wildcards),
         )
         if files:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(files[0]))
@@ -1625,7 +1636,7 @@ class FileBrowser(QWidget):
     def prompt_add_folder(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
         start_dir = last_open_folder(self.session.repo)
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
+        folder = QFileDialog.getExistingDirectory(self, tr("Select Folder"), start_dir)
         if folder:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
             self.open_or_browse(folder)
@@ -1771,10 +1782,10 @@ class FileBrowser(QWidget):
         way out that isn't waiting for it to finish."""
         if running:
             self.update_thumbnails_btn.setIcon(qta.icon("fa5s.stop-circle", color=THEME.text_primary))
-            self.update_thumbnails_btn.setToolTip("Cancel Thumbnail Update — stop the background refresh in progress")
+            self.update_thumbnails_btn.setToolTip(tr("Cancel Thumbnail Update — stop the background refresh in progress"))
         else:
             self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-            self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+            self.update_thumbnails_btn.setToolTip(tr("Update Thumbnails — re-render every stale thumbnail in the roll"))
 
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
@@ -1794,83 +1805,85 @@ class FileBrowser(QWidget):
 
         menu = QMenu(self)
         if multi:
-            menu.addAction("Export Selected Frames").triggered.connect(lambda: self.controller.request_export_selected())
+            menu.addAction(tr("Export Selected Frames")).triggered.connect(lambda: self.controller.request_export_selected())
         else:
-            menu.addAction("Export Current Frame").triggered.connect(lambda: self.controller.request_export())
+            menu.addAction(tr("Export Current Frame")).triggered.connect(lambda: self.controller.request_export())
         menu.addSeparator()
-        menu.addAction(label_with_shortcut("Copy Settings", "copy")).triggered.connect(self.session.copy_settings)
-        menu.addAction(label_with_shortcut("Copy Settings + Bounds", "copy_with_bounds")).triggered.connect(
+        menu.addAction(label_with_shortcut(tr("Copy Settings"), "copy")).triggered.connect(self.session.copy_settings)
+        menu.addAction(label_with_shortcut(tr("Copy Settings + Bounds"), "copy_with_bounds")).triggered.connect(
             self.session.copy_settings_with_bounds
         )
-        act_paste = menu.addAction(label_with_shortcut("Paste Settings", "paste"))
+        act_paste = menu.addAction(label_with_shortcut(tr("Paste Settings"), "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self.controller))
         act_paste.setEnabled(state.clipboard is not None)
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
         if multi:
-            menu.addAction(f"Reset {count_of(n, 'frame').title()}…").triggered.connect(lambda: _reset_selected(self, self.controller))
+            menu.addAction(tr("Reset {value}…", value=count_of(n, "frame").title())).triggered.connect(
+                lambda: _reset_selected(self, self.controller)
+            )
         else:
-            menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
-            act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
+            menu.addAction(tr("Reset Settings")).triggered.connect(self.session.reset_settings)
+            act_roll = menu.addAction(label_with_shortcut(tr("Reset to Roll Settings"), "reset_to_roll"))
             act_roll.triggered.connect(self.controller.revert_frame_to_roll)
             act_roll.setEnabled(self.controller.can_revert_frame_to_roll())
             menu.addAction(label_with_shortcut(SIDECAR_LABEL, "load_sidecar")).triggered.connect(
                 lambda: load_edit_from_sidecar(self, self.controller)
             )
         menu.addSeparator()
-        act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
+        act_keep = menu.addAction(tr("Keep {value}", value=count_of(n, "frame")) if multi else tr("Keep"))
         act_keep.setCheckable(True)
         act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
         act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
-        act_reject = menu.addAction(f"Reject {count_of(n, 'frame')}" if multi else "Reject")
+        act_reject = menu.addAction(tr("Reject {value}", value=count_of(n, "frame")) if multi else tr("Reject"))
         act_reject.setCheckable(True)
         act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
-        menu.addAction("Apply Settings…").triggered.connect(self._open_apply_dialog)
-        menu.addAction(label_with_shortcut("Sync Bounds…", "sync_bounds")).triggered.connect(
+        menu.addAction(tr("Apply Settings…")).triggered.connect(self._open_apply_dialog)
+        menu.addAction(label_with_shortcut(tr("Sync Bounds…"), "sync_bounds")).triggered.connect(
             lambda: open_sync_bounds_dialog(self, self.session)
         )
         if self.controller.thumbnail_refresh_running:
-            menu.addAction("Cancel Thumbnail Update").triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
+            menu.addAction(tr("Cancel Thumbnail Update")).triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
         else:
-            menu.addAction(f"Update {count_of(n, 'thumbnail')}" if multi else "Update Thumbnail").triggered.connect(
+            menu.addAction(tr("Update {value}", value=count_of(n, "thumbnail")) if multi else tr("Update Thumbnail")).triggered.connect(
                 lambda: self.controller.request_thumbnail_refresh("selection")
             )
-        menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(
+        menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(
             lambda: _reset_roll(self, self.controller)
         )
         if multi:
             menu.addSeparator()
-            menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())
+            menu.addAction(tr("Stitch Selected Frames")).triggered.connect(lambda: self.controller.request_stitch_selected())
             self._add_hdr_merge_action(menu, state)
             self._add_merge_to_tiff_action(menu, state, SCOPE_SELECTION)
         else:
             menu.addSeparator()
-            menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
+            menu.addAction(tr("Edit RGB Triplet…")).triggered.connect(self._on_edit_triplet)
             self._add_merge_to_tiff_action(menu, state, SCOPE_FRAME)
             active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
             if active.get("stitch_paths"):
-                menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
+                menu.addAction(tr("Unstitch")).triggered.connect(lambda: self.controller.request_unstitch())
             if active.get("hdr_paths"):
                 self._add_hdr_anchor_menu(menu, active)
-                menu.addAction("Unmerge Exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
+                menu.addAction(tr("Unmerge Exposures")).triggered.connect(lambda: self.controller.request_unmerge_hdr())
             if active.get("diptych"):
-                menu.addAction("Unsplit Diptych…").triggered.connect(self.prompt_undiptych)
+                menu.addAction(tr("Unsplit Diptych…")).triggered.connect(self.prompt_undiptych)
             if active.get("half"):
                 from negpy.services.assets.half_frame import base_hash
 
                 base = base_hash(active.get("hash"))
-                menu.addAction("Adjust Split for This Frame…").triggered.connect(
+                menu.addAction(tr("Adjust Split for This Frame…")).triggered.connect(
                     lambda: self._on_adjust_half_frame_split(active["path"], base)
                 )
                 if base and self.controller.half_frame_override(base) is not None:
-                    menu.addAction("Reset Split to Roll Default").triggered.connect(lambda: self._on_reset_half_frame_split(base))
+                    menu.addAction(tr("Reset Split to Roll Default")).triggered.connect(lambda: self._on_reset_half_frame_split(base))
             if state.active_roll_id and active.get("path"):
                 if rolls.is_forked(self.session.repo, state.active_roll_id, rolls.unforked_hash(active.get("hash") or "")):
-                    menu.addAction("Use the Shared Edit Again…").triggered.connect(self.prompt_unfork_edit)
+                    menu.addAction(tr("Use the Shared Edit Again…")).triggered.connect(self.prompt_unfork_edit)
                 elif len(rolls.rolls_containing_path(self.session.repo, active["path"])) >= 2:
-                    menu.addAction("Edit Independently in This Roll").triggered.connect(
+                    menu.addAction(tr("Edit Independently in This Roll")).triggered.connect(
                         lambda: self.controller.request_fork_edit_for_roll()
                     )
         if state.active_roll_id:
@@ -1887,7 +1900,7 @@ class FileBrowser(QWidget):
         unload_label = "Unload Selected…" if multi else "Unload…"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         if state.active_roll_id:
-            menu.addAction(label_with_shortcut("Remove from Roll…", "remove_from_roll")).triggered.connect(
+            menu.addAction(label_with_shortcut(tr("Remove from Roll…"), "remove_from_roll")).triggered.connect(
                 lambda: remove_from_roll(self, self.controller)
             )
         return menu
@@ -1896,33 +1909,33 @@ class FileBrowser(QWidget):
         scenes = rolls.roll_scenes(self.session.repo, self.session.state.active_roll_id)
         # Scene id per frame, None for a frame outside every scene.
         of_frames = {(f.get("scene") or (0, None))[1] for f in frames}
-        scene_menu = menu.addMenu("Scene")
+        scene_menu = menu.addMenu(tr("Scene"))
         if multi:
-            scene_menu.addAction("Group as Scene…").triggered.connect(self._on_group_as_scene)
+            scene_menu.addAction(tr("Group as Scene…")).triggered.connect(self._on_group_as_scene)
         for scene_id, entry in scenes:
             if of_frames != {scene_id}:
-                scene_menu.addAction(f"Add to {entry['name']}").triggered.connect(
+                scene_menu.addAction(tr("Add to {value}", value=entry["name"])).triggered.connect(
                     lambda _=False, sid=scene_id: self.controller.request_add_to_scene(sid)
                 )
         if of_frames - {None}:
-            scene_menu.addAction("Remove from Scene").triggered.connect(lambda: self.controller.request_remove_from_scene())
+            scene_menu.addAction(tr("Remove from Scene")).triggered.connect(lambda: self.controller.request_remove_from_scene())
         if len(of_frames) == 1 and None not in of_frames:
             (sid,) = of_frames
             scene_menu.addSeparator()
-            scene_menu.addAction("Analyze Scene…").triggered.connect(lambda: self.controller.request_scene_analysis(sid))
-            scene_menu.addAction("Rename Scene…").triggered.connect(lambda: self._on_rename_scene(sid))
-            scene_menu.addAction("Delete Scene…").triggered.connect(lambda: prompt_delete_scene(self, self.controller, sid))
+            scene_menu.addAction(tr("Analyze Scene…")).triggered.connect(lambda: self.controller.request_scene_analysis(sid))
+            scene_menu.addAction(tr("Rename Scene…")).triggered.connect(lambda: self._on_rename_scene(sid))
+            scene_menu.addAction(tr("Delete Scene…")).triggered.connect(lambda: prompt_delete_scene(self, self.controller, sid))
         scene_menu.setEnabled(not scene_menu.isEmpty())
 
     def _on_group_as_scene(self) -> None:
         default = rolls.next_scene_name(self.session.repo, self.session.state.active_roll_id)
-        name, ok = QInputDialog.getText(self, "Group as Scene", "Name:", text=default)
+        name, ok = QInputDialog.getText(self, tr("Group as Scene"), tr("Name:"), text=default)
         if ok and name.strip():
             self.controller.request_group_as_scene(name.strip())
 
     def _on_rename_scene(self, scene_id: str) -> None:
         current = dict(rolls.roll_scenes(self.session.repo, self.session.state.active_roll_id)).get(scene_id, {}).get("name", "")
-        name, ok = QInputDialog.getText(self, "Rename Scene", "Name:", text=current)
+        name, ok = QInputDialog.getText(self, tr("Rename Scene"), tr("Name:"), text=current)
         if ok and name.strip():
             self.controller.request_rename_scene(scene_id, name.strip())
 
@@ -1956,10 +1969,10 @@ class FileBrowser(QWidget):
             mode = ProcessMode(assets[idx].get("process_mode") or mode)
         if mode == ProcessMode.C41:
             return
-        act = menu.addAction("Merge Exposures (HDR)")
+        act = menu.addAction(tr("Merge Exposures (HDR)"))
         if mode == ProcessMode.BW:
             act.setEnabled(False)
-            act.setToolTip("Merging is for transparencies; black-and-white reversal film is not supported yet")
+            act.setToolTip(tr("Merging is for transparencies; black-and-white reversal film is not supported yet"))
             return
         act.triggered.connect(lambda: self.controller.request_hdr_merge_selected())
 
@@ -1990,16 +2003,16 @@ class FileBrowser(QWidget):
         if len(choices) < 2:
             return  # only the reference is reachable: every entry would be the same picture
         current = str(asset.get("hdr_anchor", "") or "")
-        sub = menu.addMenu("Render exposure")
-        auto = sub.addAction("Bracket Middle (Auto)")
+        sub = menu.addMenu(tr("Render exposure"))
+        auto = sub.addAction(tr("Bracket Middle (Auto)"))
         auto.setCheckable(True)
         auto.setChecked(not current)
         auto.triggered.connect(lambda: self.controller.set_hdr_anchor(""))
         sub.addSeparator()
         for path, stops in choices:
-            label = f"{os.path.basename(path)}   {stops:+.1f} EV"
+            label = tr("{value}   {stops:+.1f} EV", value=os.path.basename(path), stops=stops)
             if stops == 0.0:
-                label += "  (as captured)"
+                label += tr("  (as captured)")
             act = sub.addAction(label)
             act.setCheckable(True)
             act.setChecked(path == current)

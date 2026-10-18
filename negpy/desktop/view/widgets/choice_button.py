@@ -230,6 +230,7 @@ class SegmentedChoice(QWidget):
         self.setMouseTracking(True)
         # Tab focus only: a click must not leave the accent focus ring on the track.
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self._tab_focus = False
         self.setToolTip(wrap_tooltip(tooltip))
         self.plain_tooltip = tooltip
 
@@ -359,6 +360,13 @@ class SegmentedChoice(QWidget):
     def wheelEvent(self, e) -> None:  # noqa: N802
         e.ignore()
 
+    def focusInEvent(self, e) -> None:  # noqa: N802
+        # A dialog focuses its first widget when it opens; only Tab earns the ring, and
+        # a window regaining focus keeps the one it had.
+        if e.reason() != Qt.FocusReason.ActiveWindowFocusReason:
+            self._tab_focus = e.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason)
+        super().focusInEvent(e)
+
     def paintEvent(self, e) -> None:  # noqa: N802
         if not self._choices:
             return
@@ -367,7 +375,7 @@ class SegmentedChoice(QWidget):
         segments = self._segments()
         live = self.isEnabled()
 
-        border = THEME.accent_secondary if self.hasFocus() else THEME.border_primary
+        border = THEME.accent_secondary if self.hasFocus() and self._tab_focus else THEME.border_primary
         p.setPen(QPen(QColor(border), 1))
         p.setBrush(QColor(THEME.bg_input))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_lg, THEME.radius_lg)

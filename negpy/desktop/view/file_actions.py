@@ -1,11 +1,13 @@
 """Move to Trash and Show in Folder, the one action behind every surface that offers each."""
 
+from negpy.kernel.system.i18n import tr
+
 from negpy.desktop.file_manager import show_in_folder
 from negpy.desktop.session import composite_kind
 from negpy.desktop.view.confirm import confirm_move_to_trash, warn_trash_composite
 
-TRASH_LABEL = "Move to Trash…"
-SHOW_LABEL = "Show in Folder"
+TRASH_LABEL = tr("Move to Trash…")
+SHOW_LABEL = tr("Show in Folder")
 
 
 def _targets(state) -> list[int]:
@@ -32,4 +34,4 @@ def show_current_in_folder(controller) -> None:
     if not 0 <= idx < len(state.uploaded_files):
         return
     if not show_in_folder(state.uploaded_files[idx]["path"]):
-        controller.set_status("The frame's folder is gone", 4000, kind="warning")
+        controller.set_status(tr("The frame's folder is gone"), 4000, kind="warning")

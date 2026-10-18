@@ -61,7 +61,7 @@ class _ChoiceDelegate(QStyledItemDelegate):
 
 class StepCombo(QComboBox):
     """A dropdown drawn as one outlined button split into ‹ | choice | ›. The arrows step to the
-    neighbor choice, past headers, separators and grayed rows, and stop at the ends; the face
+    neighbor choice, past headers, separators and grayed rows, and wrap past the ends; the face
     opens the list. The QComboBox API is unchanged."""
 
     _ARROW_W = HEADER_BUTTON_SIZE
@@ -88,11 +88,14 @@ class StepCombo(QComboBox):
         self.blockSignals(blocked)
 
     def _step_target(self, step: int) -> int:
-        model = self.model()
-        i = self.currentIndex() + step
-        while 0 <= i < self.count() and not model.flags(model.index(i, 0)) & Qt.ItemFlag.ItemIsEnabled:
-            i += step
-        return i if 0 <= i < self.count() else -1
+        """The neighbor enabled choice, wrapping past the ends; -1 when there is no other choice."""
+        model, n, cur = self.model(), self.count(), self.currentIndex()
+        start = cur if cur >= 0 else (-1 if step > 0 else n)
+        for k in range(1, n + 1):
+            i = (start + k * step) % n
+            if i != cur and model.flags(model.index(i, 0)) & Qt.ItemFlag.ItemIsEnabled:
+                return i
+        return -1
 
     def _cells(self) -> dict[str, QRectF]:
         w, h, a = float(self.width()), float(self.height()), float(self._ARROW_W)

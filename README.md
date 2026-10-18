@@ -14,9 +14,13 @@
 
 NegPy turns scans of film negatives and slides into finished pictures. I wrote it because I wanted a tool made for film scans that does more than invert them. It models film and photographic paper, and adds the conveniences of a lab scanner. It is written in Python and runs on Linux, macOS and Windows.
 
-![NegPy main window](docs/media/0640.png)
+![NegPy main window](docs/media/0650.webp)
 
 The [User Guide](docs/USER_GUIDE.md) covers every panel and control (the ⓘ on each panel opens it in the app). [PIPELINE.md](docs/PIPELINE.md) explains the math.
+
+## Languages
+
+The desktop interface and panel guides support English, Simplified Chinese (简体中文), Japanese (日本語) and Korean (한국어). Choose a language in **Preferences → Interface → Language**, then restart NegPy. **System Default** follows your system language and uses English for unsupported languages. Missing panel translations fall back to English. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) to update or add a translation.
 
 ## Features
 

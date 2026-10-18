@@ -5,6 +5,8 @@ code around it.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -48,7 +50,7 @@ class ClipDownloadWorker(QThread):
             self.failed.emit(str(exc))
         except Exception as exc:
             logger.exception("CLIP model download failed")
-            self.failed.emit(f"Download failed: {exc}")
+            self.failed.emit(tr("Download failed: {exc}", exc=exc))
         else:
             self.ready.emit()
 
@@ -61,7 +63,7 @@ class ClipDownloadDialog(QDialog):
         super().__init__(parent)
         self._worker: Optional[ClipDownloadWorker] = None
 
-        self.setWindowTitle("Search by Meaning")
+        self.setWindowTitle(tr("Search by Meaning"))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self.setModal(True)
         self.resize(420, 180)
@@ -70,11 +72,16 @@ class ClipDownloadDialog(QDialog):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(THEME.space_xl)
 
-        heading = QLabel("Download the Model")
+        heading = QLabel(tr("Download the Model"))
         heading.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: bold;")
         root.addWidget(heading)
 
-        self.subtitle = QLabel(f"A one-time download ({MODEL_DOWNLOAD_SIZE}) lets the Film Strip search by plain-language description.")
+        self.subtitle = QLabel(
+            tr(
+                "A one-time download ({MODEL_DOWNLOAD_SIZE}) lets the Film Strip search by plain-language description.",
+                MODEL_DOWNLOAD_SIZE=MODEL_DOWNLOAD_SIZE,
+            )
+        )
         self.subtitle.setWordWrap(True)
         self.subtitle.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px;")
         root.addWidget(self.subtitle)
@@ -98,12 +105,12 @@ class ClipDownloadDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.addStretch()
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setToolTip(wrap_tooltip("Stop the download and close. Search by meaning stays off."))
+        self.cancel_button = QPushButton(tr("Cancel"))
+        self.cancel_button.setToolTip(wrap_tooltip(tr("Stop the download and close. Search by meaning stays off.")))
         self.cancel_button.clicked.connect(self.reject)
         actions.addWidget(self.cancel_button)
-        self.download_button = QPushButton("Download")
-        self.download_button.setToolTip(wrap_tooltip("Fetch the model once; it is cached for every later search"))
+        self.download_button = QPushButton(tr("Download"))
+        self.download_button.setToolTip(wrap_tooltip(tr("Fetch the model once; it is cached for every later search")))
         self.download_button.clicked.connect(self._on_download)
         actions.addWidget(self.download_button)
         pin_dialog_default(self.download_button, self.cancel_button)
@@ -113,7 +120,7 @@ class ClipDownloadDialog(QDialog):
     def _on_download(self) -> None:
         self.download_button.setEnabled(False)
         self.bar.setVisible(True)
-        self._set_status("Downloading…")
+        self._set_status(tr("Downloading…"))
 
         self._worker = ClipDownloadWorker()
         self._worker.progress.connect(self._on_progress)
@@ -131,7 +138,7 @@ class ClipDownloadDialog(QDialog):
             if self.bar.maximum() != total:
                 self.bar.setRange(0, total)
             self.bar.setValue(done)
-            self._set_status(f"Downloading — {_mb(done)} of {_mb(total)}")
+            self._set_status(tr("Downloading — {value} of {value1}", value=_mb(done), value1=_mb(total)))
 
     def _on_ready(self) -> None:
         self.accept()

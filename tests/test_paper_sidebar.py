@@ -239,6 +239,7 @@ def test_paper_strip_button_sits_beside_print_stock_and_goes_with_it(qapp):
     rows = (sidebar.layout.itemAt(i).layout() for i in range(sidebar.layout.count()))
     row = next(r for r in rows if r is not None and r.indexOf(sidebar.paper_combo) >= 0)
     assert row.indexOf(sidebar.paper_strip_btn) == row.indexOf(sidebar.paper_combo) + 1
+    assert sidebar.paper_strip_btn.maximumHeight() == sidebar.paper_combo.maximumHeight()
 
     sidebar.ch_btn.setCurrentIndex(1)
     assert not sidebar.paper_strip_btn.isEnabled()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 import math
 import threading
 from typing import Optional
@@ -77,8 +79,8 @@ class SlippyMapWidget(QWidget):
         self._wheel_accum = 0.0
         self._pinch_accum = 0.0
 
-        self._zoom_in_btn = self._zoom_button("fa5s.plus", "Zoom in", 1)
-        self._zoom_out_btn = self._zoom_button("fa5s.minus", "Zoom out", -1)
+        self._zoom_in_btn = self._zoom_button("fa5s.plus", tr("Zoom in"), 1)
+        self._zoom_out_btn = self._zoom_button("fa5s.minus", tr("Zoom out"), -1)
 
     def _zoom_button(self, icon: str, tip: str, step: int) -> QToolButton:
         button = QToolButton(self)

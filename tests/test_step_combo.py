@@ -1,5 +1,6 @@
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
+import pytest
 
 from negpy.desktop.view.widgets.step_combo import StepCombo
 
@@ -54,17 +55,31 @@ def test_the_arrows_skip_headers_separators_and_grayed_choices(qapp):
     assert combo.currentText() == "Digital (Adobe RGB)"
 
 
-def test_the_arrows_stop_at_the_ends(qapp):
-    combo = _combo("Free", "1:1")
+def test_the_arrows_wrap_past_the_ends(qapp):
+    combo = StepCombo()
+    combo.resize(240, combo.height())
+    combo.add_header("Ratio")
+    combo.addItems(["Free", "1:1", "3:2"])
+    combo.setCurrentIndex(1)
     changed, activated = _record(combo)
 
     _click(combo, "prev")
-    assert combo.currentIndex() == 0
-    combo.setCurrentIndex(1)
+    assert combo.currentText() == "3:2"
     _click(combo, "next")
-    assert combo.currentIndex() == 1
-    assert changed == [1]
-    assert activated == []
+    assert combo.currentText() == "Free"
+    assert changed == [3, 1]
+    assert activated == [3, 1]
+
+
+def test_the_arrows_do_nothing_with_one_choice(qapp):
+    combo = _combo("Free")
+    changed, activated = _record(combo)
+
+    _click(combo, "prev")
+    _click(combo, "next")
+
+    assert combo.currentIndex() == 0
+    assert changed == activated == []
 
 
 def test_a_click_on_the_face_opens_the_list(qapp):
@@ -87,3 +102,30 @@ def test_a_header_never_becomes_current(qapp):
 
     assert combo.currentIndex() == -1
     assert changed == []
+
+
+@pytest.mark.parametrize("locale", ["zh_CN", "ja", "ko"])
+def test_export_ratio_arrows_keep_stored_values_in_translated_ui(qapp, locale: str) -> None:
+    from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
+    from negpy.kernel.system import i18n
+
+    previous = i18n.language()
+    try:
+        i18n.configure(locale)
+        form = ExportSettingsForm()
+        combo = form.ratio_combo
+        assert form.values()["paper_aspect_ratio"] == "Original"
+
+        _click(combo, "next")
+        assert combo.currentText() != "Free"
+        assert form.values()["paper_aspect_ratio"] == "Free"
+
+        _click(combo, "next")
+        assert form.values()["paper_aspect_ratio"] == "1:1"
+
+        _click(combo, "prev")
+        _click(combo, "prev")
+        assert combo.currentText() != "Original"
+        assert form.values()["paper_aspect_ratio"] == "Original"
+    finally:
+        i18n.configure(previous)

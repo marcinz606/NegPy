@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 
 import qtawesome as qta
@@ -88,17 +89,17 @@ class LibraryTree(QWidget):
 
         self.import_btn = QToolButton()
         self.import_btn.setIcon(qta.icon("fa5s.plus", color=THEME.text_primary))
-        self.import_btn.setToolTip(wrap_tooltip("Import — a folder as a roll, or its subfolders as one roll each"))
+        self.import_btn.setToolTip(wrap_tooltip(tr("Import — a folder as a roll, or its subfolders as one roll each")))
         self.import_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         import_menu = QMenu(self.import_btn)
-        import_menu.addAction("Import Folder as a Roll…").triggered.connect(self.prompt_import_folder)
-        import_menu.addAction("Import Subfolders as Rolls…").triggered.connect(self.prompt_import_subfolders)
+        import_menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
+        import_menu.addAction(tr("Import Subfolders as Rolls…")).triggered.connect(self.prompt_import_subfolders)
         self.import_btn.setMenu(import_menu)
 
         self.refresh_btn = QToolButton()
         self.refresh_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
         self.refresh_btn.setToolTip(
-            wrap_tooltip("Find new rolls in folders imported as subfolders, and re-read every roll's frame count from disk")
+            wrap_tooltip(tr("Find new rolls in folders imported as subfolders, and re-read every roll's frame count from disk"))
         )
         self.refresh_btn.clicked.connect(self.refresh)
 
@@ -107,17 +108,17 @@ class LibraryTree(QWidget):
         # not just the open roll -- an explicit action, never automatic.
         self.index_btn = QToolButton()
         self.index_btn.setIcon(qta.icon("fa5s.database", color=THEME.text_primary))
-        self.index_btn.setToolTip(wrap_tooltip("Index the library so search by meaning can rank every roll, not just the loaded one"))
+        self.index_btn.setToolTip(wrap_tooltip(tr("Index the library so search by meaning can rank every roll, not just the loaded one")))
         self.index_btn.clicked.connect(self.controller.index_library)
 
-        self.sort_btn = SortButton((("name", "Name"), ("date", "Date")), "Sort the roll list")
+        self.sort_btn = SortButton((("name", "Name"), ("date", "Date")), tr("Sort the roll list"))
         self.sort_btn.show_order(self._sort_order, self._sort_descending)
         self.sort_btn.order_selected.connect(lambda order: self.set_sort(order, self._sort_descending, save=True))
         self.sort_btn.direction_selected.connect(lambda descending: self.set_sort(self._sort_order, descending, save=True))
 
         self.filters_btn = QToolButton()
         self.filters_btn.setIcon(qta.icon("fa5s.filter", color=THEME.text_primary))
-        self.filters_btn.setToolTip(wrap_tooltip("Discovery Filters — folder names that importing subfolders and Refresh skip"))
+        self.filters_btn.setToolTip(wrap_tooltip(tr("Discovery Filters — folder names that importing subfolders and Refresh skip")))
         self.filters_btn.clicked.connect(self.edit_discovery_filters)
 
         for btn in (self.import_btn, self.refresh_btn, self.index_btn, self.filters_btn, self.sort_btn):
@@ -127,9 +128,9 @@ class LibraryTree(QWidget):
 
         for widget, label in (
             (self.import_btn, "Import"),
-            (self.refresh_btn, "Refresh"),
-            (self.index_btn, "Index Library"),
-            (self.filters_btn, "Discovery Filters…"),
+            (self.refresh_btn, tr("Refresh")),
+            (self.index_btn, tr("Index Library")),
+            (self.filters_btn, tr("Discovery Filters…")),
             (self.sort_btn, "Sort"),
         ):
             self.toolbar.add_button(widget, label)
@@ -161,7 +162,7 @@ class LibraryTree(QWidget):
             shortcut.activated.connect(self.open_selection)
         layout.addWidget(self.tree, 1)
 
-        self.empty_label = hint_label("Import a folder to build your library")
+        self.empty_label = hint_label(tr("Import a folder to build your library"))
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.empty_label)
 
@@ -174,7 +175,7 @@ class LibraryTree(QWidget):
         button with nothing in the library yet) knows whether it can proceed.
         """
         start = self.repo.get_global_setting("last_open_folder", "") or ""
-        path = QFileDialog.getExistingDirectory(self, "Import Folder as a Roll", start)
+        path = QFileDialog.getExistingDirectory(self, tr("Import Folder as a Roll"), start)
         if not path:
             return False
         self.repo.save_global_setting("last_open_folder", path)
@@ -195,7 +196,7 @@ class LibraryTree(QWidget):
         """Import Subfolders as Rolls: every folder with images under a chosen parent,
         at any depth, becomes its own roll without opening any of them."""
         start = self.repo.get_global_setting("last_open_folder", "") or ""
-        parent = QFileDialog.getExistingDirectory(self, "Import Subfolders as Rolls", start)
+        parent = QFileDialog.getExistingDirectory(self, tr("Import Subfolders as Rolls"), start)
         if not parent:
             return False
         self.repo.save_global_setting("last_open_folder", parent)
@@ -205,9 +206,11 @@ class LibraryTree(QWidget):
         """Recognize every roll folder under *parent*, without opening any of them."""
         roll_ids = self.controller.import_subfolders_as_rolls(parent)
         if not roll_ids:
-            self.controller.set_status(f"No folders with images found in “{folder_label(parent)}”", 4000)
+            self.controller.set_status(tr("No folders with images found in “{value}”", value=folder_label(parent)), 4000)
             return False
-        self.controller.set_status(f"Imported {count_of(len(roll_ids), 'roll')} from “{folder_label(parent)}”", 3000)
+        self.controller.set_status(
+            tr("Imported {value} from “{value1}”", value=count_of(len(roll_ids), "roll"), value1=folder_label(parent)), 3000
+        )
         self.reload()
         self.rolls_changed.emit()
         return True
@@ -216,10 +219,12 @@ class LibraryTree(QWidget):
         """Edit the folder-name filters discovery skips, one per line."""
         text, ok = QInputDialog.getMultiLineText(
             self,
-            "Discovery Filters",
-            "One filter per line. A folder that matches is skipped, with everything in it.\n"
-            "Text matches any part of the name, ignoring case: export skips old_exports.\n"
-            "* is a wildcard, and the filter must match the whole name: raw_* skips raw_01.",
+            tr("Discovery Filters"),
+            tr(
+                "One filter per line. A folder that matches is skipped, with everything in it.\n"
+                "Text matches any part of the name, ignoring case: export skips old_exports.\n"
+                "* is a wildcard, and the filter must match the whole name: raw_* skips raw_01."
+            ),
             "\n".join(rolls.discovery_filters(self.repo)),
         )
         if ok:
@@ -270,8 +275,8 @@ class LibraryTree(QWidget):
         found, dropped = self.controller.rediscover_rolls()
         self.reload()
         if found or dropped:
-            parts = [f"Found {count_of(found, 'new roll')}"] if found else []
-            parts += [f"removed {count_of(dropped, 'filtered roll')}"] if dropped else []
+            parts = [f"Found {count_of(found, tr('new roll'))}"] if found else []
+            parts += [f"removed {count_of(dropped, tr('filtered roll'))}"] if dropped else []
             self.controller.set_status(" · ".join(parts).capitalize(), 3000)
             self.rolls_changed.emit()
 
@@ -338,7 +343,7 @@ class LibraryTree(QWidget):
         is_folder = entry.get("kind") == "folder"
         folder_path = entry.get("folder_path", "")
         missing = is_folder and not os.path.isdir(folder_path)
-        item = QTreeWidgetItem([label, "folder missing" if missing else self._count_text(roll_id, entry)])
+        item = QTreeWidgetItem([label, tr("folder missing") if missing else self._count_text(roll_id, entry)])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
         item.setData(0, _MISSING_ROLE, missing)
@@ -348,9 +353,9 @@ class LibraryTree(QWidget):
         item.setForeground(1, QColor(self._count_color(item)))
         if missing:
             item.setToolTip(0, f"Folder not found on disk: {folder_path}")
-            item.setToolTip(1, "Folder not found on disk — move it back, or delete the roll")
+            item.setToolTip(1, tr("Folder not found on disk — move it back, or delete the roll"))
         else:
-            item.setToolTip(0, folder_path if is_folder else "Built from a search or a hand-picked set of frames")
+            item.setToolTip(0, folder_path if is_folder else tr("Built from a search or a hand-picked set of frames"))
         return item
 
     @staticmethod
@@ -423,30 +428,30 @@ class LibraryTree(QWidget):
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
         if item is not None and item.data(0, _FOLDER_ROLE):
-            menu.addAction("Delete…").triggered.connect(lambda: self._delete_folder(item.data(0, _FOLDER_ROLE), item.text(0)))
+            menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_folder(item.data(0, _FOLDER_ROLE), item.text(0)))
             menu.addSeparator()
         elif item is not None and item.data(0, _ROLL_ID_ROLE) is not None:
             roll_id = item.data(0, _ROLL_ID_ROLE)
             selection = self._selected_roll_items()
             if len(selection) > 1 and roll_id in dict(selection):
-                menu.addAction(f"Delete {len(selection)} Rolls…").triggered.connect(lambda: self._delete_rolls(selection))
+                menu.addAction(tr("Delete {value} Rolls…", value=len(selection))).triggered.connect(lambda: self._delete_rolls(selection))
             else:
                 name = item.data(0, _NAME_ROLE)
-                menu.addAction("Open").triggered.connect(lambda: self.controller.open_roll(roll_id))
+                menu.addAction(tr("Open")).triggered.connect(lambda: self.controller.open_roll(roll_id))
                 is_active = roll_id == self.controller.state.active_roll_id
                 if is_active:
-                    menu.addAction(label_with_shortcut("Close Roll…", "close_roll")).triggered.connect(
+                    menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll")).triggered.connect(
                         lambda: _close_roll(self, self.controller)
                     )
-                analyze_action = menu.addAction("Roll Analysis")
+                analyze_action = menu.addAction(tr("Roll Analysis"))
                 analyze_action.setEnabled(is_active)
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
-                menu.addAction("Rename…").triggered.connect(lambda: self._rename_roll(roll_id, name))
-                menu.addAction("Delete…").triggered.connect(lambda: self._delete_roll(roll_id, name))
+                menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
+                menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_roll(roll_id, name))
             menu.addSeparator()
-        menu.addAction("Import Folder as a Roll…").triggered.connect(self.prompt_import_folder)
-        menu.addAction("Import Subfolders as Rolls…").triggered.connect(self.prompt_import_subfolders)
+        menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
+        menu.addAction(tr("Import Subfolders as Rolls…")).triggered.connect(self.prompt_import_subfolders)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _rename_roll(self, roll_id: str, current_name: str) -> None:
@@ -472,9 +477,11 @@ class LibraryTree(QWidget):
             if not self.controller.request_rename_roll(roll_id, name, True):
                 QMessageBox.warning(
                     self,
-                    "Rename Roll",
-                    "Could not rename the folder on disk — check that no other folder already has that name, "
-                    "and that you have permission to rename it here.",
+                    tr("Rename Roll"),
+                    tr(
+                        "Could not rename the folder on disk — check that no other folder already has that name, "
+                        "and that you have permission to rename it here."
+                    ),
                 )
                 return
         rolls.rename_roll(self.repo, roll_id, f"{prefix}{rolls.ROLL_PATH_SEP}{name}" if prefix else name)
@@ -483,20 +490,20 @@ class LibraryTree(QWidget):
         self.rolls_changed.emit()
 
     def _delete_roll(self, roll_id: str, name: str) -> None:
-        if confirm_delete_named(self, "Roll", name, informative="This only forgets the roll — nothing on disk is touched."):
+        if confirm_delete_named(self, "Roll", name, informative=tr("This only forgets the roll — nothing on disk is touched.")):
             rolls.delete_roll(self.repo, roll_id)
             self.reload()
             self.rolls_changed.emit()
 
     def _delete_folder(self, folder_path: str, name: str) -> None:
-        if confirm_delete_named(self, "Folder", name, informative="This forgets every roll in it — nothing on disk is touched."):
+        if confirm_delete_named(self, "Folder", name, informative=tr("This forgets every roll in it — nothing on disk is touched.")):
             rolls.delete_folder_rolls(self.repo, folder_path)
             self.reload()
             self.rolls_changed.emit()
 
     def _delete_rolls(self, selection: list[tuple]) -> None:
         names = [name for _roll_id, name in selection]
-        if confirm_delete_several(self, "Roll", names, informative="This only forgets the roll records — nothing on disk is touched."):
+        if confirm_delete_several(self, "Roll", names, informative=tr("This only forgets the roll records — nothing on disk is touched.")):
             for roll_id, _name in selection:
                 rolls.delete_roll(self.repo, roll_id)
             self.reload()

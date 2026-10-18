@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import QEvent, QModelIndex, Qt, QTimer
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
@@ -75,7 +76,7 @@ class ShortcutsOverlay(QDialog):
         self._highlight_timer = QTimer(self)
         self._highlight_timer.setSingleShot(True)
         self._highlight_timer.timeout.connect(self._clear_highlight)
-        self.setWindowTitle("Keyboard Shortcuts")
+        self.setWindowTitle(tr("Keyboard Shortcuts"))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self.setModal(True)
         self.resize(820, 720)
@@ -88,15 +89,17 @@ class ShortcutsOverlay(QDialog):
         root.setSpacing(12)
 
         intro = QLabel(
-            "Current keyboard shortcuts and slider step sizes. "
-            "Search by name or press a shortcut to filter results, then choose or press Enter. "
-            "Open Customize to change bindings."
+            tr(
+                "Current keyboard shortcuts and slider step sizes. "
+                "Search by name or press a shortcut to filter results, then choose or press Enter. "
+                "Open Customize to change bindings."
+            )
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
 
         self._search_edit = ShortcutSearchLineEdit(self._known_bindings)
-        self._search_edit.setPlaceholderText("Search actions, press a shortcut, then choose or Enter…")
+        self._search_edit.setPlaceholderText(tr("Search actions, press a shortcut, then choose or Enter…"))
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textEdited.connect(self._on_search_edited)
         self._search_edit.installEventFilter(self)
@@ -129,12 +132,12 @@ class ShortcutsOverlay(QDialog):
         root.addWidget(self._scroll, stretch=1)
 
         actions = QHBoxLayout()
-        customize_btn = QPushButton("Customize")
+        customize_btn = QPushButton(tr("Customize"))
         customize_btn.clicked.connect(self._customize)
         actions.addWidget(customize_btn)
         actions.addStretch()
 
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton(tr("Close"))
         close_btn.clicked.connect(self.accept)
         actions.addWidget(close_btn)
         root.addLayout(actions)
@@ -258,7 +261,7 @@ class ShortcutsOverlay(QDialog):
         grid.setVerticalSpacing(8)
 
         header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
-        for col, label in enumerate(("Action", "Default", "Shortcut", "Step")):
+        for col, label in enumerate((tr("Action"), tr("Default"), tr("Shortcut"), tr("Step"))):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)
             grid.addWidget(hdr, 0, col)

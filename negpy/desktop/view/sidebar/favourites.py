@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.controller import AppController
@@ -36,13 +37,15 @@ class FavouritesSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         row = QHBoxLayout()
-        self.edit_btn = self._labeled_action("fa5s.sliders-h", " Edit Favorites", "Choose which sliders appear here, and in what order")
+        self.edit_btn = self._labeled_action(
+            "fa5s.sliders-h", tr(" Edit Favorites"), tr("Choose which sliders appear here, and in what order")
+        )
         self.edit_btn.clicked.connect(self._open_editor)
         row.addWidget(self.edit_btn)
         row.addStretch()
         self.layout.addLayout(row)
 
-        self.empty_hint = hint_label("No favorites yet — use Edit Favorites to pick the sliders you reach for most.")
+        self.empty_hint = hint_label(tr("No favorites yet — use Edit Favorites to pick the sliders you reach for most."))
         self.empty_hint.setWordWrap(True)
         self.layout.addWidget(self.empty_hint)
 

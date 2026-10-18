@@ -1,3 +1,5 @@
+from PyQt6.QtWidgets import QApplication
+
 from negpy.desktop.view.widgets.choice_button import ChoiceButton
 
 _CHOICES = (("fa5s.globe", "Global"), ("fa5s.moon", "Shadows"), ("fa5s.sun", "Highlights"))
@@ -203,6 +205,25 @@ def test_segmented_arrow_keys_step_over_a_disabled_choice(qapp):
     assert seg.currentIndex() == 2
     QTest.keyClick(seg, Qt.Key.Key_Left)
     assert seg.currentIndex() == 0
+
+
+def test_segmented_focus_ring_only_follows_tab(qapp):
+    """A dialog focuses its first widget when it opens: that focus draws no accent ring."""
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QFocusEvent
+
+    seg = _segmented()
+
+    def focus_in(reason):
+        QApplication.sendEvent(seg, QFocusEvent(QEvent.Type.FocusIn, reason))
+        return seg._tab_focus
+
+    assert not focus_in(Qt.FocusReason.OtherFocusReason)
+    assert not focus_in(Qt.FocusReason.ActiveWindowFocusReason)
+    assert focus_in(Qt.FocusReason.TabFocusReason)
+    assert focus_in(Qt.FocusReason.ActiveWindowFocusReason)  # regaining the window keeps it
+    assert focus_in(Qt.FocusReason.BacktabFocusReason)
+    assert not focus_in(Qt.FocusReason.MouseFocusReason)
 
 
 def test_segmented_edited_marks_each_choice(qapp):

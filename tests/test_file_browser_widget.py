@@ -303,17 +303,16 @@ def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, se
 
 def test_apply_dialog_shows_header_scope_and_counts(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=2, roll_count=3)
-    assert dlg._scope_radios.sel.text() == "Selected frames (2)"
-    assert dlg._scope_radios.sel.isEnabled()
-    assert dlg._scope_radios.sel.isChecked()  # selection preferred when it has targets
-    assert dlg._scope_radios.roll.text() == "Whole roll (3)"
-    assert dlg._scope_radios.roll.isEnabled()
+    scope = dlg._scope_choice
+    assert [label for _icon, label in scope._choices] == ["Selected Frames (2)", "Whole Roll (3)"]
+    assert scope.is_choice_enabled(0) and scope.is_choice_enabled(1)
+    assert scope.currentData() == "selection"  # selection preferred when it has targets
 
 
 def test_apply_dialog_defaults_to_roll_when_selection_empty(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=0, roll_count=3)
-    assert not dlg._scope_radios.sel.isEnabled()
-    assert dlg._scope_radios.roll.isChecked()
+    assert not dlg._scope_choice.is_choice_enabled(0)
+    assert dlg._scope_choice.currentData() == "roll"
 
 
 def test_apply_dialog_check_all_and_none(qapp):
@@ -330,7 +329,7 @@ def test_apply_dialog_check_all_and_none(qapp):
 
 def test_apply_dialog_apply_collects_checked_rows_and_scope(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
-    dlg._scope_radios.roll.setChecked(True)
+    dlg._scope_choice.setCurrentIndex(dlg._scope_choice.findData("roll"))
     dlg._on_apply()
     labels = {r.label for r in dlg.selected()}
     assert "Print Density" in labels  # the edited exposure setting

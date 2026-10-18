@@ -18,6 +18,7 @@ make test         # pytest only
 make lint         # ruff check
 make type         # ty check (not mypy)
 make format       # ruff format + autofix
+make translations # Extract translation sources and preserve existing translations
 
 # Single test
 uv run pytest tests/test_exposure_logic.py::test_name -v
@@ -85,6 +86,8 @@ Every feature lives in `negpy/features/<name>/`:
 
 ### Desktop (MVC)
 
+- **Internationalization** (`kernel/system/i18n.py`): load the saved `ui_language` before importing desktop modules. Language changes require a restart. Wrap display strings in `tr`, interpolate named values after translation, and use `mark` for labels also used as lookup keys. Keep enum values, settings keys, paths and user text untranslated. Register English, Simplified Chinese, Japanese and Korean in `LANGUAGES`; `make translations` updates each registered catalog under `negpy/translations/` and `sources.json`. `make translations-check` checks coverage and placeholders across all catalogs. Localized panel guides live beside the catalogs and fall back to `docs/USER_GUIDE.md` per panel. Ship the catalogs and guides in `build.py` and package data.
+
 - `AppState` (`negpy/desktop/session.py`): mutable session state
 - `AppController` (`negpy/desktop/controller.py`): the single controller; all UI interactions call it; emits `config_updated` / `image_updated`
 - Workers (`negpy/desktop/workers/`): heavy work in QThread-backed objects, with Qt-signal communication
@@ -121,9 +124,9 @@ Every feature lives in `negpy/features/<name>/`:
   - `CollapsibleSection`: a panel section, and the only reset affordance.
   - `CompactSlider`: one row of label, track, value. `CollapsibleSection.set_content` aligns a card's label and value columns, so one slider per row, never two side by side.
   - `SliderGroup`: a rail under the control its members depend on: a main slider's modifiers (Toe Width under Toe), or the settings of the feature that a toggle or dropdown above turns on. The main control stays outside the rail, and peers of equal rank get no rail.
-  - `SegmentedChoice` and `ChoiceButton` (`widgets/choice_button.py`, one API) for every mutually exclusive choice in a panel, never a row of exclusive toggles. `SegmentedChoice` keeps two to four short, fixed choices in view: a recessed track with a neutral raised chip, never the red toggle look; `icon_only=` for color-coded choices such as R/G/B. `ChoiceButton` is a button with a chevron that opens a menu, for a longer list, a list a device decides (`set_choices(choices, data)`) or a setting that need not stay in view (Border color).
+  - `SegmentedChoice` and `ChoiceButton` (`widgets/choice_button.py`, one API) for every mutually exclusive choice in a panel or a dialog, never a row of exclusive toggles. `SegmentedChoice` keeps two to four short, fixed choices in view: a recessed track with a neutral raised chip, never the red toggle look; `icon_only=` for color-coded choices such as R/G/B. `ChoiceButton` is a button with a chevron that opens a menu, for a longer list, a list a device decides (`set_choices(choices, data)`) or a setting that need not stay in view (Border color).
   - `StepCombo` (`widgets/step_combo.py`) for every dropdown, never a bare `QComboBox`: a `QComboBox` drawn as ‹ | choice | ›, whose arrows step past headers, separators and grayed rows. `add_header(text)` puts a caption row in its list. An editable combo (Scan DPI) stays a `QComboBox`.
-  - Radio buttons stay in dialog forms. Booleans in a panel are toggle buttons; `QCheckBox` is for a list of options in a form.
+  - No radio buttons (`tests/test_no_radio_buttons.py`): a dialog's choice is a `SegmentedChoice` too, and a wizard page puts a line under it that describes the current choice (Scanning Setup). Booleans in a panel are toggle buttons; `QCheckBox` is for a list of options in a form.
   - Dropdowns and number boxes ignore the scroll wheel app-wide (`AppEventFilter` in `desktop/main.py`), so the wheel always scrolls the panel; no widget takes it back.
 - **Type**: four size tokens in `styles/theme.py`: `font_size_small` (12, caption/hint), `font_size_base` (13, body and the QSS global), `font_size_header` (14, section), `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark and `font_size_micro` (9) for chart axes only. All in px; the sheet reads them as `@font_size_basepx`. Never a literal size in a stylesheet string or a `setPixelSize`.
 - **Color**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions and hints, `warn_amber` advisories, `error` errors and invalid input (not the accent, which means selected/armed), `status_success` a good state. `text_muted` is the **disabled** gray, 2.6:1 on the panel, so never on text a user has to read. Channel colors have a fill tier (`channel_red`) and a text tier (`channel_red_text`). Every other color is a token too, read from QSS as `@name`; `tests/test_theme_tokens.py` fails on a literal hex outside a painter alpha wash. A view that tells marks apart by hue alone reads them by role from `styles/color_vision.py` (`palette_for(state.color_vision)`, the Preferences Color vision choice) and repaints on `session.color_vision_changed`.

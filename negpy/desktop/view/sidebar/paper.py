@@ -1,10 +1,11 @@
+from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_selector
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, PAPER_STRIP_SWEEP, field_row, gradient_icon, header_button, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, PAPER_STRIP_SWEEP, field_row, gradient_icon, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
@@ -12,7 +13,11 @@ from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, profiles_for_mode
 
 # Each PaperProfile.medium's (icon, header) in the Print stock list.
-_MEDIA = {"digital": ("mdi6.monitor", "Digital"), "paper": ("mdi6.file-image-outline", "Paper"), "film": ("mdi6.filmstrip", "Print film")}
+_MEDIA = {
+    "digital": ("mdi6.monitor", tr("Digital")),
+    "paper": ("mdi6.file-image-outline", tr("Paper")),
+    "film": ("mdi6.filmstrip", tr("Print film")),
+}
 
 
 class PaperSidebar(BaseSidebar):
@@ -24,8 +29,10 @@ class PaperSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.ch_btn = channel_selector(
-            "Global edits the paper's shared H&D curve (all layers). Red, Green and Blue edit per-layer "
-            "Snap/Toe/Shoulder/Width/Dye Separation trims for the cyan-, magenta- and yellow-dye emulsions"
+            tr(
+                "Global edits the paper's shared H&D curve (all layers). Red, Green and Blue edit per-layer "
+                "Snap/Toe/Shoulder/Width/Dye Separation trims for the cyan-, magenta- and yellow-dye emulsions"
+            )
         )
         self._channel_fields = tuple(
             (
@@ -42,16 +49,18 @@ class PaperSidebar(BaseSidebar):
             "fa5s.circle",
             "",
             conf.paper_black,
-            "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
-            "compensating it to pure display black. Off (default) applies black point compensation, "
-            "like an ICC relative-colorimetric soft-proof, so the adapted eye reads paper black as "
-            "black; on preserves the paper's true maximum density.",
+            tr(
+                "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
+                "compensating it to pure display black. Off (default) applies black point compensation, "
+                "like an ICC relative-colorimetric soft-proof, so the adapted eye reads paper black as "
+                "black; on preserves the paper's true maximum density."
+            ),
         )
         self.paper_dmin_btn = self._small_toggle(
             "fa5s.file",
             "",
             conf.paper_dmin,
-            "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
+            tr("Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print"),
         )
         self.paper_black_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
@@ -66,60 +75,69 @@ class PaperSidebar(BaseSidebar):
 
         self.paper_combo = StepCombo()
         self.paper_combo.setToolTip(
-            "Print stock: the paper or print film the negative is printed on. It sets the H&D curve and, "
-            "on color stock, the colors its dyes make, from the datasheet or the paper's measured "
-            "Frontier profile; Grade, Density, Toe and "
-            "Shoulder still trim on top. Digital (Adobe RGB) is an idealized print: NegPy's own curve "
-            "and perfect dyes. Digital (Pakon Minilab) is that curve with a Pakon minilab's colors."
+            tr(
+                "Print stock: the paper or print film the negative is printed on. It sets the H&D curve and, "
+                "on color stock, the colors its dyes make, from the datasheet or the paper's measured "
+                "Frontier profile; Grade, Density, Toe and "
+                "Shoulder still trim on top. Digital (Adobe RGB) is an idealized print: NegPy's own curve "
+                "and perfect dyes. Digital (Pakon Minilab) is that curve with a Pakon minilab's colors."
+            )
         )
         self._populate_paper_combo(self.state.config.process.process_mode)
         idx = self.paper_combo.findData(conf.paper_profile)
         if idx >= 0:
             self.paper_combo.setCurrentIndex(idx)
-        self.paper_strip_btn = header_button(gradient_icon("mdi.view-column-outline", PAPER_STRIP_SWEEP), self._paper_strip_tooltip())
-        self.paper_strip_btn.setCheckable(True)
+        self.paper_strip_btn = self._tool_toggle("mdi.view-column-outline", "", self._paper_strip_tooltip())
+        self.paper_strip_btn.setIcon(gradient_icon("mdi.view-column-outline", PAPER_STRIP_SWEEP))
+        self.paper_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.paper_strip_btn.setProperty("value_column", True)
         self.paper_strip_btn.clicked.connect(lambda checked: self.controller.toggle_paper_strip(force=checked))
-        paper_row = field_row("Print stock", self.paper_combo, self.paper_strip_btn)
+        paper_row = field_row(tr("Print stock"), self.paper_combo, self.paper_strip_btn)
         self.paper_label = paper_row.itemAt(0).widget()
         self.layout.addLayout(paper_row)
 
         # Density-domain saturation on the dye amounts, before the stock's dyes, not a Lab a*/b* step.
-        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
-        self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
+        self.dye_separation_slider = CompactSlider(tr("Dye Separation"), 0.5, 1.5, conf.dye_separation, has_neutral=True)
+        self.dye_separation_trim_slider = CompactSlider(tr("Dye Separation"), -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(
-            "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
-            "channel's density separation independently. Neutrals stay flat at any trim value."
+            tr(
+                "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
+                "channel's density separation independently. Neutrals stay flat at any trim value."
+            )
         )
         self.dye_separation_trim_slider.setVisible(False)
         # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
         # it is disabled there rather than reading as broken.
-        self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
+        self.separation_damping_slider = CompactSlider(tr("Separation Damping"), 0.0, 1.0, conf.separation_damping)
         self.layout.addWidget(self.dye_separation_slider)
         self.layout.addWidget(self.dye_separation_trim_slider)
         self.separation_damping_rail = SliderGroup(self.separation_damping_slider)
         self.layout.addWidget(self.separation_damping_rail)
 
-        self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
+        self.midtone_gamma_slider = CompactSlider(tr("Snap"), -0.5, 0.5, conf.midtone_gamma)
         self.layout.addWidget(self.midtone_gamma_slider)
 
-        self.toe_w_slider = CompactSlider("Toe Width", 0.1, 5.0, conf.toe_width)
-        self.toe_w_trim_slider = CompactSlider("Toe Width", -2.0, 2.0, 0.0)
+        self.toe_w_slider = CompactSlider(tr("Toe Width"), 0.1, 5.0, conf.toe_width)
+        self.toe_w_trim_slider = CompactSlider(tr("Toe Width"), -2.0, 2.0, 0.0)
         self.toe_w_trim_slider.setToolTip(
-            "This layer's toe width trim on top of the global Toe Width — per-layer roll-off extent "
-            "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
+            tr(
+                "This layer's toe width trim on top of the global Toe Width — per-layer roll-off extent "
+                "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
+            )
         )
         self.toe_w_trim_slider.setVisible(False)
-        self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
+        self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, conf.toe)
         self.layout.addWidget(self.toe_slider)
         self.layout.addWidget(SliderGroup(self.toe_w_slider, self.toe_w_trim_slider))
 
-        self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
-        self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
-        self.sh_w_trim_slider = CompactSlider("Shoulder Width", -2.0, 2.0, 0.0)
+        self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, conf.shoulder)
+        self.sh_w_slider = CompactSlider(tr("Shoulder Width"), 0.1, 5.0, conf.shoulder_width)
+        self.sh_w_trim_slider = CompactSlider(tr("Shoulder Width"), -2.0, 2.0, 0.0)
         self.sh_w_trim_slider.setToolTip(
-            "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
-            "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
+            tr(
+                "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
+                "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
+            )
         )
         self.sh_w_trim_slider.setVisible(False)
         self.layout.addWidget(self.sh_slider)
@@ -137,11 +155,13 @@ class PaperSidebar(BaseSidebar):
     @staticmethod
     def _paper_strip_tooltip(printing: bool = False) -> str:
         if printing:
-            return "Printing the paper test strip…"
+            return tr("Printing the paper test strip…")
         return tooltip_with_shortcut(
-            "Paper Test Strip: print the frame on every print stock, as a band each or as a grid of "
-            "small frames. Click a paper to see it on the whole frame, step to the next paper, and keep "
-            "the one you like. The 90° rotate controls turn the bands while the strip is up.",
+            tr(
+                "Paper Test Strip: print the frame on every print stock, as a band each or as a grid of "
+                "small frames. Click a paper to see it on the whole frame, step to the next paper, and keep "
+                "the one you like. The 90° rotate controls turn the bands while the strip is up."
+            ),
             "toggle_paper_strip",
         )
 
@@ -285,9 +305,9 @@ class PaperSidebar(BaseSidebar):
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
             self.separation_damping_slider.setVisible(global_mode and not is_bw)
             self.separation_damping_rail.setVisible(global_mode and not is_bw)
-            self.toe_slider.label.setText("Toe" + suffix)
-            self.sh_slider.label.setText("Shoulder" + suffix)
-            self.midtone_gamma_slider.label.setText("Snap" + suffix)
+            self.toe_slider.label.setText(tr("Toe") + suffix)
+            self.sh_slider.label.setText(tr("Shoulder") + suffix)
+            self.midtone_gamma_slider.label.setText(tr("Snap") + suffix)
             if global_mode:
                 self.toe_slider.setValue(conf.toe)
                 self.sh_slider.setValue(conf.shoulder)
@@ -297,11 +317,11 @@ class PaperSidebar(BaseSidebar):
                 self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
                 self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
                 self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
-                self.toe_w_trim_slider.label.setText("Toe Width" + suffix)
+                self.toe_w_trim_slider.label.setText(tr("Toe Width") + suffix)
                 self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
-                self.sh_w_trim_slider.label.setText("Shoulder Width" + suffix)
+                self.sh_w_trim_slider.label.setText(tr("Shoulder Width") + suffix)
                 self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
-                self.dye_separation_trim_slider.label.setText("Dye Separation" + suffix)
+                self.dye_separation_trim_slider.label.setText(tr("Dye Separation") + suffix)
                 self.dye_separation_trim_slider.setValue(getattr(conf, f"dye_separation_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)

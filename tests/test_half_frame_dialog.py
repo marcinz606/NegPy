@@ -144,8 +144,8 @@ class TestSplitAxis:
     def test_initial_axis_round_trips(self):
         d = _dialog(initial_axis="y")
         assert d.split_axis() == "y"
-        assert d._axis_horizontal.isChecked()
-        d._axis_vertical.setChecked(True)
+        assert d._axis_choice.currentData() == "y"
+        d._axis_choice.setCurrentIndex(0)
         assert d.split_axis() == "x"
 
     def test_auto_detect_sets_the_axis(self, monkeypatch):
@@ -154,4 +154,4 @@ class TestSplitAxis:
         d = _dialog()
         d._on_auto()
         assert d.split_axis() == "y"
-        assert d._axis_horizontal.isChecked()
+        assert d._axis_choice.currentData() == "y"

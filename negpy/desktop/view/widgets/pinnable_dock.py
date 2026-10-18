@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QToolButton, QWidget
@@ -12,7 +13,7 @@ class _DockGrip(QWidget):
         super().__init__()
         self.setFixedHeight(THEME.space_lg)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setToolTip("Drag to float this panel")
+        self.setToolTip(tr("Drag to float this panel"))
 
 
 class PinnableDockWidget(QDockWidget):

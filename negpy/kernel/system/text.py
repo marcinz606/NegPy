@@ -1,11 +1,16 @@
 """Wording helpers for text the user reads."""
 
+from negpy.kernel.system.i18n import language, tr
+
 
 def plural(count: int, singular: str, plural_form: str = "") -> str:
     """The right noun for `count`, without the number.
 
     `plural_form` for nouns an -s does not cover ("copies", "indices").
     """
+    # These languages use one noun form for all counts, without an English plural suffix.
+    if language() in {"zh_CN", "ja", "ko"}:
+        return tr(singular)
     return singular if abs(count) == 1 else (plural_form or f"{singular}s")
 
 

@@ -1,5 +1,7 @@
 """Native Windows folder controls that do not initialize Qt."""
 
+from negpy.kernel.system.i18n import tr
+
 import ctypes as ct
 from ctypes import wintypes as wt
 from pathlib import Path
@@ -85,7 +87,7 @@ def _browse_directory(owner, initial: Path) -> Path | None:
 
         display = ct.create_unicode_buffer(260)
         config = _BrowseInfo(
-            owner=owner, display=ct.cast(display, wt.LPWSTR), title="Select the folder for NegPy data", flags=0x51, callback=initialized
+            owner=owner, display=ct.cast(display, wt.LPWSTR), title=tr("Select the folder for NegPy data"), flags=0x51, callback=initialized
         )
         shell.SHBrowseForFolderW.argtypes = (ct.POINTER(_BrowseInfo),)
         shell.SHBrowseForFolderW.restype = ct.c_void_p
@@ -159,7 +161,7 @@ def choose_directory(source: Path, suggested: Path) -> Path | None:
         size=ct.sizeof(_TaskConfig),
         flags=0x9,
         common_buttons=0x8,
-        title="NegPy data folder",
+        title=tr("NegPy data folder"),
         instruction="Choose a writable data folder",
         content=_content(source, selected),
         button_count=1,

@@ -7,6 +7,8 @@ base-sampling patch (or a drag draws a box); in the scan pop-up a click just
 emits its fractional position to aim the hardware focus magnifier.
 """
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Optional
 
 import numpy as np
@@ -246,7 +248,7 @@ class RoiImageLabel(QLabel):
                 self._paint_spinner(painter)
             elif self.roi_mode:  # calibration window: guide the user to pick the film base
                 painter.setPen(QColor(THEME.text_hint))
-                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Live View → click the clear film base")
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("Live View → click the clear film base"))
         painter.end()
 
     def _paint_spinner(self, painter: QPainter) -> None:
@@ -260,7 +262,7 @@ class RoiImageLabel(QLabel):
         # drawArc angles are 1/16°; sweep a 90° arc rotating with _spin_angle.
         painter.drawArc(QRectF(cx - r, cy - r, 2 * r, 2 * r), -self._spin_angle * 16, 90 * 16)
         painter.setPen(QColor(THEME.text_hint))
-        painter.drawText(QRect(0, int(cy + r + 6), self.width(), 22), Qt.AlignmentFlag.AlignHCenter, "Loading live view…")
+        painter.drawText(QRect(0, int(cy + r + 6), self.width(), 22), Qt.AlignmentFlag.AlignHCenter, tr("Loading live view…"))
 
     @staticmethod
     def _roi_in_widget(roi, draw_rect: QRect) -> QRect:

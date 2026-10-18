@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QVBoxLayout
 
 from negpy.desktop.view.styles.templates import hint_label, pin_button_box
@@ -14,11 +15,11 @@ class DescriptionFieldsDialog(QDialog):
 
     def __init__(self, selected: object, parent=None, *, repo=None):
         super().__init__(parent)
-        self.setWindowTitle("Description Fields")
+        self.setWindowTitle(tr("Description Fields"))
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)
-        root.addWidget(hint_label("Checked fields are joined with • into the export ImageDescription. Empty values are skipped."))
+        root.addWidget(hint_label(tr("Checked fields are joined with • into the export ImageDescription. Empty values are skipped.")))
 
         enabled = set(normalize_description_fields(selected))
         self._checks: dict[str, QCheckBox] = {}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 import threading
 from typing import Optional
 
@@ -23,8 +25,8 @@ from negpy.desktop.view.widgets.slippy_map import SlippyMapWidget
 from negpy.features.metadata.capture import format_coords, parse_coords
 from negpy.services.maps import place_fields, result_coords, reverse_place, search_places
 
-_OFFLINE_HINT = "Map unavailable — enter coordinates manually."
-_NO_MATCH_HINT = "No place matched, or the lookup is unreachable."
+_OFFLINE_HINT = tr("Map unavailable — enter coordinates manually.")
+_NO_MATCH_HINT = tr("No place matched, or the lookup is unreachable.")
 # Lookups run on daemon threads that nothing joins: one stalled in DNS can outlive the dialog.
 _LOOKUP_SLOTS = threading.Semaphore(2)
 # Nominatim asks for at most one request a second, so a keystroke must not be a request.
@@ -69,7 +71,7 @@ class LocationPickerDialog(QDialog):
         repo=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Capture Location")
+        self.setWindowTitle(tr("Capture Location"))
         self.setMinimumSize(560, 560)
 
         self._signals = _LookupSignals()
@@ -83,11 +85,11 @@ class LocationPickerDialog(QDialog):
         root.setSpacing(THEME.space_lg)
 
         root.addWidget(
-            hint_label("Search a place, click the map, or paste coordinates or a map link. Opening this dialog contacts OpenStreetMap.")
+            hint_label(tr("Search a place, click the map, or paste coordinates or a map link. Opening this dialog contacts OpenStreetMap."))
         )
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("e.g. Tokyo, Japan")
+        self.search_edit.setPlaceholderText(tr("e.g. Tokyo, Japan"))
         self.search_edit.addAction(
             qta.icon("fa5s.search", color=THEME.text_secondary),
             QLineEdit.ActionPosition.LeadingPosition,
@@ -131,10 +133,10 @@ class LocationPickerDialog(QDialog):
 
         for column, (label, widget) in enumerate(
             (
-                ("Coordinates", self.coords_edit),
+                (tr("Coordinates"), self.coords_edit),
                 ("City", self.city_edit),
                 ("State", self.state_edit),
-                ("Country", self.country_edit),
+                (tr("Country"), self.country_edit),
             )
         ):
             fields.addWidget(field_label(label), (column // 2) * 2, column % 2)
@@ -159,7 +161,7 @@ class LocationPickerDialog(QDialog):
             # place would claim the frame was shot where it was digitized.
             self.map_view.set_center(*center)
             self.map_view.set_zoom(8)
-            self.status_label.setText("Centered on the scan file's coordinates.")
+            self.status_label.setText(tr("Centered on the scan file's coordinates."))
         remember_dialog_geometry(self, repo, "location_picker")
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
@@ -199,7 +201,7 @@ class LocationPickerDialog(QDialog):
         query = self.search_edit.text().strip()
         if len(query) < _MIN_QUERY_CHARS:
             return
-        self.status_label.setText("Searching…")
+        self.status_label.setText(tr("Searching…"))
         _run_lookup(self._signals, lambda: search_places(query), self._signals.search_done.emit)
 
     def _on_search_done(self, results: object) -> None:
@@ -241,7 +243,7 @@ class LocationPickerDialog(QDialog):
     def _on_coords_edited(self) -> None:
         coords = parse_coords(self.coords_edit.text())
         if coords is None:
-            self.status_label.setText("Coordinates not recognized")
+            self.status_label.setText(tr("Coordinates not recognized"))
             return
         self.coords_edit.setText(format_coords(*coords))
         self.map_view.set_pin(*coords)
@@ -249,7 +251,7 @@ class LocationPickerDialog(QDialog):
 
     def _start_reverse(self, lat: float, lon: float) -> None:
         self._reverse_token += 1
-        self.status_label.setText("Looking up place…")
+        self.status_label.setText(tr("Looking up place…"))
         token, signals = self._reverse_token, self._signals
         _run_lookup(signals, lambda: reverse_place(lat, lon), lambda r: signals.reverse_done.emit(token, r))
 

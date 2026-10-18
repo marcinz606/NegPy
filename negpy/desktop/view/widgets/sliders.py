@@ -15,11 +15,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QRectF, QEvent, QLocale
 from negpy.desktop.view.styles.theme import THEME
+from negpy.kernel.system.i18n import tr
 from negpy.desktop.view.styles.templates import EditedDot, FieldLabel, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
 
 
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
-_RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
+_RESET_HINT = f'<div style="color:{THEME.text_secondary};">{tr("Double-click to reset")}</div>'
 
 # Quiet period after the last slider step before a render is asked for.
 _EMIT_INTERVAL_MS = 33
@@ -340,7 +341,7 @@ class CompactSlider(BaseSlider):
         layout.setContentsMargins(2, 0, 2, 0)
         layout.setSpacing(THEME.space_md)
 
-        self.label = QLabel(label)
+        self.label = QLabel(tr(label))
         self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setToolTip(label)

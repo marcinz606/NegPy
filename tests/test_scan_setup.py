@@ -1,5 +1,6 @@
 import sys
 import unittest
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtWidgets import QApplication, QDialog
@@ -8,7 +9,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.view.widgets.scan_setup_dialog import ScanSetupDialog
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.process.models import scan_setup_values
+from negpy.features.process.models import ProcessMode, scan_setup_values, with_process_mode
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -17,16 +18,16 @@ if not QApplication.instance():
 
 class TestScanSetupValues(unittest.TestCase):
     def test_camera_white_light_is_the_only_as_shot_wb_decode(self):
-        self.assertFalse(scan_setup_values("camera", "white"))
+        self.assertEqual(scan_setup_values("camera", "white"), (False, "neutral"))
 
     def test_camera_narrowband(self):
-        self.assertTrue(scan_setup_values("camera", "narrowband"))
+        self.assertEqual(scan_setup_values("camera", "narrowband"), (True, "pakon"))
 
     def test_scanner_white_light(self):
-        self.assertTrue(scan_setup_values("scanner", "white"))
+        self.assertEqual(scan_setup_values("scanner", "white"), (True, "neutral"))
 
     def test_scanner_narrowband(self):
-        self.assertTrue(scan_setup_values("scanner", "narrowband"))
+        self.assertEqual(scan_setup_values("scanner", "narrowband"), (True, "pakon"))
 
 
 class TestScanSetupDialog(unittest.TestCase):
@@ -46,21 +47,20 @@ class TestScanSetupDialog(unittest.TestCase):
         dlg.back_btn.click()
         self.assertEqual(dlg.pages.currentIndex(), 0)
 
-    def test_a_scanner_skips_the_light_page(self):
-        """Every scanner decodes Linear RAW, so its light source is not asked."""
+    def test_a_scanner_is_asked_its_light_with_scanner_examples(self):
         dlg = ScanSetupDialog(None)
-        dlg.capture_group.button(1).setChecked(True)  # film scanner
-        self.assertEqual(dlg.next_btn.text(), "Apply")
-        self.assertEqual("Sets Linear RAW", dlg.summary.text())
+        dlg.capture_btn.setCurrentIndex(1)  # film scanner
         dlg.next_btn.click()
-        self.assertEqual(dlg.pages.currentIndex(), 0)
-        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
-        self.assertEqual(dlg.choice()["capture"], "scanner")
+        self.assertEqual(dlg.pages.currentIndex(), 1)
+        dlg.light_btn.setCurrentIndex(1)
+        self.assertIn("Coolscan", dlg.light_hint.text())
+        self.assertEqual(dlg.choice(), {"capture": "scanner", "light": "narrowband"})
+        self.assertEqual("Sets Linear RAW · Print stock Digital (Pakon Minilab)", dlg.summary.text())
 
     def test_choice_round_trips_through_the_pages(self):
         dlg = ScanSetupDialog(None)
         dlg.next_btn.click()
-        dlg.light_buttons[1].setChecked(True)
+        dlg.light_btn.setCurrentIndex(1)
         self.assertEqual(dlg.choice(), {"capture": "camera", "light": "narrowband"})
 
     def test_apply_accepts(self):
@@ -71,17 +71,26 @@ class TestScanSetupDialog(unittest.TestCase):
 
     def test_preselects_the_saved_choice(self):
         dlg = ScanSetupDialog(None, {"capture": "camera", "light": "narrowband"})
-        self.assertTrue(dlg.capture_group.button(0).isChecked())
-        self.assertTrue(dlg.light_buttons[1].isChecked())
+        self.assertEqual(dlg.capture_btn.currentIndex(), 0)
+        self.assertEqual(dlg.light_btn.currentIndex(), 1)
         self.assertEqual(dlg.choice(), {"capture": "camera", "light": "narrowband"})
-        self.assertTrue(ScanSetupDialog(None, {"capture": "scanner"}).capture_group.button(1).isChecked())
+        self.assertEqual(ScanSetupDialog(None, {"capture": "scanner"}).capture_btn.currentIndex(), 1)
 
     def test_summary_reports_what_apply_will_set(self):
         dlg = ScanSetupDialog(None)
         dlg.next_btn.click()
-        self.assertEqual("Sets Camera WB", dlg.summary.text())
-        dlg.light_buttons[1].setChecked(True)
-        self.assertEqual("Sets Linear RAW", dlg.summary.text())
+        self.assertEqual("Sets Camera WB · Print stock Digital (Adobe RGB)", dlg.summary.text())
+        dlg.light_btn.setCurrentIndex(1)
+        self.assertEqual("Sets Linear RAW · Print stock Digital (Pakon Minilab)", dlg.summary.text())
+
+    def test_the_light_page_suggests_other_print_stocks(self):
+        dlg = ScanSetupDialog(None)
+        self.assertFalse(dlg.stock_hint.isVisibleTo(dlg))
+        dlg.next_btn.click()
+        self.assertTrue(dlg.stock_hint.isVisibleTo(dlg))
+        self.assertIn("Print stock", dlg.stock_hint.text())
+        dlg.light_btn.setCurrentIndex(1)
+        self.assertIn("Kodak Supra Endura", dlg.stock_hint.text())
 
 
 class TestApplyScanSetup(unittest.TestCase):
@@ -141,6 +150,34 @@ class TestApplyScanSetup(unittest.TestCase):
         config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertFalse(config.process.linear_raw)
 
+    def _open_frame_paper(self, light, paper="neutral", mode=ProcessMode.C41):
+        state = self.mock_session_manager.state
+        state.config = with_process_mode(replace(state.config, exposure=replace(state.config.exposure, paper_profile=paper)), mode)
+        self.controller.apply_scan_setup("camera", light)
+        return self.mock_session_manager.update_config.call_args.args[0].exposure.paper_profile
+
+    def test_narrowband_prints_the_open_frame_on_pakon_and_white_light_on_digital(self):
+        self.assertEqual(self._open_frame_paper("narrowband"), "pakon")
+        self.assertEqual(self._open_frame_paper("white", paper="pakon"), "neutral")
+
+    def test_another_stock_or_film_mode_keeps_its_paper(self):
+        self.assertEqual(self._open_frame_paper("narrowband", paper="kodak_supra_endura"), "kodak_supra_endura")
+        self.assertEqual(self._open_frame_paper("narrowband", mode=ProcessMode.BW), "neutral")
+
+    def test_new_files_default_to_the_lights_stock(self):
+        self.repo.get_global_setting.side_effect = (
+            lambda key, default=None: {"paper_profile": "neutral", "toe": 0.2} if key == "sticky_config" else default
+        )
+        self.controller.apply_scan_setup("camera", "narrowband")
+        self.repo.save_global_setting.assert_any_call("sticky_config", {"paper_profile": "pakon", "toe": 0.2})
+
+    def test_new_files_keep_a_carried_stock_the_wizard_does_not_own(self):
+        self.repo.get_global_setting.side_effect = (
+            lambda key, default=None: {"paper_profile": "fuji_crystal"} if key == "sticky_config" else default
+        )
+        self.controller.apply_scan_setup("camera", "narrowband")
+        self.assertNotIn("sticky_config", [c.args[0] for c in self.repo.save_global_setting.call_args_list])
+
     def test_linear_raw_flip_reloads_the_open_frame(self):
         self.controller.apply_scan_setup("scanner", "white")
         self.controller.load_file.assert_called_once_with("/a.dng")
@@ -157,6 +194,7 @@ class TestApplyScanSetup(unittest.TestCase):
         args, kwargs = self.repo.save_file_settings.call_args
         self.assertEqual(args[0], "h2")
         self.assertTrue(args[1].process.linear_raw)
+        self.assertEqual(args[1].exposure.paper_profile, "pakon")
         self.assertEqual(kwargs["file_path"], "/b.dng")
 
     def test_untouched_frames_are_left_to_the_sticky_defaults(self):

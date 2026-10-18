@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from dataclasses import replace
 
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
@@ -25,7 +26,7 @@ _CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_bl
 def channel_selector(tooltip: str) -> SegmentedChoice:
     """[Global/R/G/B]: Global edits the shared curve, a channel its per-layer trims."""
     return SegmentedChoice(
-        (("fa5s.globe", "Global"), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
+        (("fa5s.globe", tr("Global")), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
         tooltip,
         icon_only=(1, 2, 3),
     )
@@ -39,21 +40,25 @@ class ToneSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
 
-        self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
+        self.density_slider = CompactSlider(tr("Print Density"), 0.0, 2.0, conf.density)
         # Travel matches the kernel's grade clamp, so the slider never offers a grade it would clip.
-        self.grade_slider = CompactSlider("ISO-R Grade", _ISO_R_MIN, _ISO_R_MAX, conf.grade, step=1.0, inverted=True, unit=" R")
-        self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True, unit=" R")
+        self.grade_slider = CompactSlider(tr("ISO-R Grade"), _ISO_R_MIN, _ISO_R_MAX, conf.grade, step=1.0, inverted=True, unit=" R")
+        self.grade_trim_slider = CompactSlider(tr("Grade"), -30.0, 30.0, 0.0, step=1.0, inverted=True, unit=" R")
         self.grade_trim_slider.setToolTip(
-            "Crossover correction — this layer's contrast trim in ISO-R points on top of the Grade: "
-            "filtration can only shift a dye layer's curve, this rotates its slope, fixing casts that "
-            "differ between shadows and highlights. Midtone neutrality is preserved."
+            tr(
+                "Crossover correction — this layer's contrast trim in ISO-R points on top of the Grade: "
+                "filtration can only shift a dye layer's curve, this rotates its slope, fixing casts that "
+                "differ between shadows and highlights. Midtone neutrality is preserved."
+            )
         )
         self.grade_trim_slider.setVisible(False)
 
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
         self.ch_btn = channel_selector(
-            "Global edits the shared grade (all layers). Red, Green and Blue edit per-layer "
-            "Grade and split Grade trims for the cyan-, magenta- and yellow-dye emulsions"
+            tr(
+                "Global edits the shared grade (all layers). Red, Green and Blue edit per-layer "
+                "Grade and split Grade trims for the cyan-, magenta- and yellow-dye emulsions"
+            )
         )
         # Each channel's trim fields, for the edited dot.
         self._channel_fields = tuple(
@@ -65,42 +70,50 @@ class ToneSidebar(BaseSidebar):
             for ch in _CH_SUFFIX
         )
         self.auto_btn = ToggleMenuButton(
-            "fa5s.magic", "", "Auto: automatic print density and grade, the targets they aim for, and Hold Black"
+            "fa5s.magic", "", tr("Auto: automatic print density and grade, the targets they aim for, and Hold Black")
         )
         self.auto_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.auto_density_action = self.auto_btn.add_toggle(
-            "Auto Density",
-            "Meter each frame's midtone and anchor the print exposure there, so dense and flat "
-            "negatives land at a consistent brightness instead of needing per-frame trimming",
+            tr("Auto Density"),
+            tr(
+                "Meter each frame's midtone and anchor the print exposure there, so dense and flat "
+                "negatives land at a consistent brightness instead of needing per-frame trimming"
+            ),
         )
         self.auto_grade_action = self.auto_btn.add_toggle(
-            "Auto Grade",
-            "Aim each frame at a contrast target instead of printing the negative's own density "
-            "range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
+            tr("Auto Grade"),
+            tr(
+                "Aim each frame at a contrast target instead of printing the negative's own density "
+                "range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy"
+            ),
         )
         # Not an add_toggle option: the button's checked look follows the two real ones.
-        self.auto_both_action = self.auto_btn.choice_menu.addAction("Auto Density and Grade")
+        self.auto_both_action = self.auto_btn.choice_menu.addAction(tr("Auto Density and Grade"))
         self.auto_both_action.setCheckable(True)
-        self.auto_both_action.plain_tooltip = "Turn Auto Density and Auto Grade on or off together"
+        self.auto_both_action.plain_tooltip = tr("Turn Auto Density and Auto Grade on or off together")
         self.auto_btn.choice_menu.addSeparator()
         # Not an add_toggle option either: it meters nothing, so the button's look ignores it.
-        self.hold_black_action = self.auto_btn.choice_menu.addAction("Hold Black")
+        self.hold_black_action = self.auto_btn.choice_menu.addAction(tr("Hold Black"))
         self.hold_black_action.setCheckable(True)
         self.hold_black_action.setChecked(conf.hold_black)
-        self.hold_black_action.plain_tooltip = (
+        self.hold_black_action.plain_tooltip = tr(
             "Hold Black: a negative Shadows Density fades out toward paper black, so the shadows open and the black point barely moves."
         )
         self.auto_btn.choice_menu.addSeparator()
-        targets_action = self.auto_btn.choice_menu.addAction("Set Targets…")
+        targets_action = self.auto_btn.choice_menu.addAction(tr("Set Targets…"))
         targets_action.setToolTip(
-            "Tune the brightness and contrast Auto Density and Auto Grade aim for. "
-            "Applies to every frame and is remembered between sessions."
+            tr(
+                "Tune the brightness and contrast Auto Density and Auto Grade aim for. "
+                "Applies to every frame and is remembered between sessions."
+            )
         )
         targets_action.triggered.connect(self._open_targets_dialog)
-        self.auto_bake_action = self.auto_btn.choice_menu.addAction("Bake Auto Density/Grade")
+        self.auto_bake_action = self.auto_btn.choice_menu.addAction(tr("Bake Auto Density/Grade"))
         self.auto_bake_action.setToolTip(
-            "Write this frame's metered Auto Density and Auto Grade into its settings and turn both "
-            "off, so it keeps the look the autos chose without them and is not shifted by a later target change."
+            tr(
+                "Write this frame's metered Auto Density and Auto Grade into its settings and turn both "
+                "off, so it keeps the look the autos chose without them and is not shifted by a later target change."
+            )
         )
         self.auto_bake_action.triggered.connect(self._bake_auto_density_grade)
         self.auto_density_action.setChecked(conf.auto_exposure)
@@ -118,20 +131,22 @@ class ToneSidebar(BaseSidebar):
         ch_row.addWidget(self.test_strip_btn)
         self.layout.addLayout(ch_row)
         # Disabled widgets get no hover, so the reason hangs off the hint under them.
-        self.auto_merged_hint = hint_label("Not applied to a merged bracket.")
+        self.auto_merged_hint = hint_label(tr("Not applied to a merged bracket."))
         self.auto_merged_hint.setToolTip(
             wrap_tooltip(
-                "A merge already places the tones: Render exposure picks which exposure it prints "
-                "at, and metering the merged frame would divide that choice straight back out. "
-                "Unmerge the frame to meter it."
+                tr(
+                    "A merge already places the tones: Render exposure picks which exposure it prints "
+                    "at, and metering the merged frame would divide that choice straight back out. "
+                    "Unmerge the frame to meter it."
+                )
             )
         )
         self.auto_merged_hint.setVisible(False)
         self.layout.addWidget(self.auto_merged_hint)
         self.layout.addWidget(self.density_slider)
 
-        self.shadow_density_slider = CompactSlider("Shadows Density", -1.0, 1.0, conf.shadow_density)
-        self.highlight_density_slider = CompactSlider("Highlights Density", -1.0, 1.0, conf.highlight_density)
+        self.shadow_density_slider = CompactSlider(tr("Shadows Density"), -1.0, 1.0, conf.shadow_density)
+        self.highlight_density_slider = CompactSlider(tr("Highlights Density"), -1.0, 1.0, conf.highlight_density)
         self.layout.addWidget(SliderGroup(self.shadow_density_slider, self.highlight_density_slider))
 
         grade_row = QVBoxLayout()
@@ -139,39 +154,45 @@ class ToneSidebar(BaseSidebar):
         grade_row.addWidget(self.grade_trim_slider)
         self.layout.addLayout(grade_row)
 
-        self.shadow_grade_slider = CompactSlider("Shadows Grade", -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True, unit=" R")
+        self.shadow_grade_slider = CompactSlider(tr("Shadows Grade"), -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True, unit=" R")
         self.highlight_grade_slider = CompactSlider(
-            "Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
+            tr("Highlights Grade"), -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
         )
         self.split_grade_rail = SliderGroup(self.shadow_grade_slider, self.highlight_grade_slider)
         self.layout.addWidget(self.split_grade_rail)
 
         # Inverted like ISO-R Grade, so dragging right hardens on both controls.
-        self.contrast_mask_slider = CompactSlider("Contrast Mask", -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
+        self.contrast_mask_slider = CompactSlider(tr("Contrast Mask"), -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
         self.contrast_mask_slider.setToolTip(
-            "Contrast Mask: sandwich the negative with a blurred, low-contrast film mask, as in "
-            "the darkroom. Densities add, so the mask's polarity sets the direction and its gamma "
-            "sets the amount. Positive is a blurred positive and squeezes the negative's range, so "
-            "a harder grade then fits the paper. Negative matches the negative's own polarity and "
-            "stretches the range instead, adding snap to the broad tones while grain and texture "
-            "stay put. It still works on a flat negative where Grade has run out."
+            tr(
+                "Contrast Mask: sandwich the negative with a blurred, low-contrast film mask, as in "
+                "the darkroom. Densities add, so the mask's polarity sets the direction and its gamma "
+                "sets the amount. Positive is a blurred positive and squeezes the negative's range, so "
+                "a harder grade then fits the paper. Negative matches the negative's own polarity and "
+                "stretches the range instead, adding snap to the broad tones while grain and texture "
+                "stay put. It still works on a flat negative where Grade has run out."
+            )
         )
-        self.mask_spacer_slider = CompactSlider("Mask Spacer", 2.0, 6.0, conf.mask_spacer, unit="%")
+        self.mask_spacer_slider = CompactSlider(tr("Mask Spacer"), 2.0, 6.0, conf.mask_spacer, unit="%")
         self.mask_spacer_slider.setToolTip(
-            "Mask Spacer: what holds the mask off the negative, as a per-cent of the frame. It "
-            "sets the scale above which tones are masked, so it reads backwards from a blur "
-            "radius: a thick spacer works on the broad masses only and leaves detail alone, a "
-            "thin one reaches down into the detail and so bites harder. Thin also lifts shadows "
-            "that sit next to something bright, which is the mask line on the sheet. "
-            "Inert with no mask."
+            tr(
+                "Mask Spacer: what holds the mask off the negative, as a per-cent of the frame. It "
+                "sets the scale above which tones are masked, so it reads backwards from a blur "
+                "radius: a thick spacer works on the broad masses only and leaves detail alone, a "
+                "thin one reaches down into the detail and so bites harder. Thin also lifts shadows "
+                "that sit next to something bright, which is the mask line on the sheet. "
+                "Inert with no mask."
+            )
         )
         # Light given to the paper, not the shape of its curve, so it sits with the exposure controls.
-        self.preflash_slider = CompactSlider("Preflash", 0.0, 1.0, conf.preflash)
-        self.diffusion_slider = CompactSlider("Diffusion", 0.0, 1.0, conf.diffusion)
+        self.preflash_slider = CompactSlider(tr("Preflash"), 0.0, 1.0, conf.preflash)
+        self.diffusion_slider = CompactSlider(tr("Diffusion"), 0.0, 1.0, conf.diffusion)
         self.diffusion_slider.setToolTip(
-            "Diffusion: a diffuser under the enlarger lens, a Softar or a stocking. The value is how much "
-            "light it scatters. Shadows bleed into highlights and edges soften; flat areas print as before. "
-            "0 is off."
+            tr(
+                "Diffusion: a diffuser under the enlarger lens, a Softar or a stocking. The value is how much "
+                "light it scatters. Shadows bleed into highlights and edges soften; flat areas print as before. "
+                "0 is off."
+            )
         )
         self.layout.addWidget(self.preflash_slider)
         self.layout.addWidget(self.diffusion_slider)
@@ -239,11 +260,13 @@ class ToneSidebar(BaseSidebar):
     @staticmethod
     def _test_strip_tooltip(printing: bool = False) -> str:
         if printing:
-            return "Printing the test strip…"
+            return tr("Printing the test strip…")
         return tooltip_with_shortcut(
-            "Test Strip: print the frame as a 5×5 grid — Print Density increasing left to right, "
-            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings. "
-            "The 90° rotate controls turn the ladder while it is up.",
+            tr(
+                "Test Strip: print the frame as a 5×5 grid — Print Density increasing left to right, "
+                "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings. "
+                "The 90° rotate controls turn the ladder while it is up."
+            ),
             "toggle_test_strip",
         )
 
@@ -411,14 +434,14 @@ class ToneSidebar(BaseSidebar):
             suffix = _CH_LABEL[idx]
             self.grade_slider.setVisible(global_mode)
             self.grade_trim_slider.setVisible(not global_mode)
-            self.shadow_grade_slider.label.setText("Shadows Grade" + suffix)
-            self.highlight_grade_slider.label.setText("Highlights Grade" + suffix)
+            self.shadow_grade_slider.label.setText(tr("Shadows Grade") + suffix)
+            self.highlight_grade_slider.label.setText(tr("Highlights Grade") + suffix)
             if global_mode:
                 self.shadow_grade_slider.setValue(conf.shadow_grade)
                 self.highlight_grade_slider.setValue(conf.highlight_grade)
             else:
                 ch = _CH_SUFFIX[idx - 1]
-                self.grade_trim_slider.label.setText("Grade" + suffix)
+                self.grade_trim_slider.label.setText(tr("Grade") + suffix)
                 self.grade_trim_slider.setValue(getattr(conf, f"grade_trim_{ch}"))
                 self.shadow_grade_slider.setValue(getattr(conf, f"shadow_grade_trim_{ch}"))
                 self.highlight_grade_slider.setValue(getattr(conf, f"highlight_grade_trim_{ch}"))

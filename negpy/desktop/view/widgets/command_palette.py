@@ -1,5 +1,7 @@
 """Find: one box that reaches every slider, card and action by name."""
 
+from negpy.kernel.system.i18n import tr
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -18,13 +20,31 @@ from negpy.desktop.view.widgets.tab_header import TabHeader
 
 # Another editor's word for a job, and the NegPy names that do it, closest first.
 SYNONYMS: dict[str, tuple[str, ...]] = {
+    "对比度": ("ISO-R Grade", "Contrast Mask"),
+    "亮度": ("Print Density",),
+    "饱和度": ("Chroma", "Dye Separation"),
+    "白平衡": ("Filtration", "Temperature"),
+    "透视": ("Tilt", "Swing"),
+    "除尘": ("Retouch",),
+    "コントラスト": ("ISO-R Grade", "Contrast Mask"),
+    "明るさ": ("Print Density",),
+    "彩度": ("Chroma", "Dye Separation"),
+    "ホワイトバランス": ("Filtration", "Temperature"),
+    "パース": ("Tilt", "Swing"),
+    "ほこり除去": ("Retouch",),
+    "대비": ("ISO-R Grade", "Contrast Mask"),
+    "밝기": ("Print Density",),
+    "채도": ("Chroma", "Dye Separation"),
+    "화이트 밸런스": ("Filtration", "Temperature"),
+    "원근": ("Tilt", "Swing"),
+    "먼지 제거": ("Retouch",),
     "exposure": ("Print Density",),
     "brightness": ("Print Density",),
     "contrast": ("ISO-R Grade", "Contrast Mask"),
-    "white balance": ("Filtration", "Temperature"),
-    "wb": ("Filtration", "Temperature"),
+    "white balance": ("Filtration", tr("Temperature")),
+    "wb": ("Filtration", tr("Temperature")),
     "tint": ("Magenta",),
-    "kelvin": ("Temperature",),
+    "kelvin": (tr("Temperature"),),
     "blacks": ("Black Point", "Toe"),
     "whites": ("White Point", "Shoulder"),
     "highlights": ("Highlights Density", "Shoulder"),
@@ -68,8 +88,9 @@ class Entry:
 
 
 def make_entry(kind: str, name: str, where: str, target: object) -> Entry:
-    aliases = [word for word, names in SYNONYMS.items() if name in names]
-    return Entry(kind, name, where, target, " ".join([name, where, *aliases]).casefold())
+    aliases = [word for word, names in SYNONYMS.items() if any(name == tr(label) for label in names)]
+    originals = {label for names in SYNONYMS.values() for label in names if tr(label) == name}
+    return Entry(kind, name, where, target, " ".join([name, where, *aliases, *sorted(originals)]).casefold())
 
 
 def rank(entries: list[Entry], query: str) -> list[Entry]:
@@ -81,6 +102,7 @@ def rank(entries: list[Entry], query: str) -> list[Entry]:
     for word, names in SYNONYMS.items():
         if word == q or (len(q) >= 3 and word.startswith(q)):
             for i, name in enumerate(names):
+                name = tr(name)
                 synonym_rank[name] = min(i, synonym_rank.get(name, i))
     scored = []
     for entry in entries:
@@ -189,7 +211,7 @@ class FindField(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self.box.setPlaceholderText(label_with_shortcut("Find a control, card or action…", "command_palette"))
+        self.box.setPlaceholderText(label_with_shortcut(tr("Find a control, card or action…"), "command_palette"))
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.box and event.type() == QEvent.Type.MouseButtonPress:
@@ -210,7 +232,7 @@ class CommandPalette(QDialog):
         root.setSpacing(THEME.space_md)
 
         self.query = QLineEdit()
-        self.query.setPlaceholderText("Find a control, card or action…")
+        self.query.setPlaceholderText(tr("Find a control, card or action…"))
         self.query.setClearButtonEnabled(True)
         self.query.textChanged.connect(self._refresh)
         self.query.installEventFilter(self)
@@ -222,7 +244,7 @@ class CommandPalette(QDialog):
         self.results.itemClicked.connect(self._activate)
         root.addWidget(self.results, 1)
 
-        self.empty = hint_label("Type a slider, card or action, or another editor's word for it: contrast, white balance.")
+        self.empty = hint_label(tr("Type a slider, card or action, or another editor's word for it: contrast, white balance."))
         root.addWidget(self.empty)
 
         self.setFixedWidth(560)

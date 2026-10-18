@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -17,20 +18,26 @@ from negpy.services.assets.sensor import SensorProfiles
 _UNMIX_CHOICES = (
     (
         SensorUnmix.LINEAR,
-        "Subtracts the measured leak from the linear capture. Exact while the calibration holds. "
-        "Where the film passes almost none of a band's light, the result reaches zero and prints "
-        "as speckled, fully saturated color.",
+        tr(
+            "Subtracts the measured leak from the linear capture. Exact while the calibration holds. "
+            "Where the film passes almost none of a band's light, the result reaches zero and prints "
+            "as speckled, fully saturated color."
+        ),
     ),
     (
         SensorUnmix.TWO_SCALE,
-        "Linear wherever the calibration holds. Where a color is mostly leak, as in neon, it takes "
-        "the color from a slightly blurred copy. It adds the fine detail back without extra gain, "
-        "so the color never reaches zero and the grain stays at the film's own level.",
+        tr(
+            "Linear wherever the calibration holds. Where a color is mostly leak, as in neon, it takes "
+            "the color from a slightly blurred copy. It adds the fine detail back without extra gain, "
+            "so the color never reaches zero and the grain stays at the film's own level."
+        ),
     ),
     (
         SensorUnmix.DENSITY,
-        "Applies the calibration to densities, linearized at the film base read from the frame. "
-        "Never reaches zero and gives less grain in saturated colors, which come out slightly less vivid.",
+        tr(
+            "Applies the calibration to densities, linearized at the film base read from the frame. "
+            "Never reaches zero and gives less grain in saturated colors, which come out slightly less vivid."
+        ),
     ),
 )
 _DEFAULT_UNMIX = ProcessConfig().sensor_unmix
@@ -46,19 +53,21 @@ class SensorSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.process
 
-        self.capture_header = section_subheader("CAPTURE")
+        self.capture_header = section_subheader(tr("CAPTURE"))
 
         self.linear_raw_btn = SegmentedChoice(
-            (("fa5s.palette", "Camera WB"), ("fa5s.sliders-h", "Linear RAW")),
-            "How a RAW file decodes. Camera WB applies the camera's as-shot white balance. Linear RAW "
-            "decodes with neutral multipliers (1,1,1,1), a clean starting point for narrowband light, "
-            "and the one Single-Shot Narrowband Calibration needs",
+            (("fa5s.palette", tr("Camera WB")), ("fa5s.sliders-h", tr("Linear RAW"))),
+            tr(
+                "How a RAW file decodes. Camera WB applies the camera's as-shot white balance. Linear RAW "
+                "decodes with neutral multipliers (1,1,1,1), a clean starting point for narrowband light, "
+                "and the one Single-Shot Narrowband Calibration needs"
+            ),
             data=(False, True),
         )
         self.linear_raw_btn.setCurrentIndex(self.linear_raw_btn.findData(conf.linear_raw))
         self.scan_setup_btn = self._icon_action(
             "mdi6.lightbulb-on-outline",
-            "Scanning setup — set Camera WB or Linear RAW from your camera/scanner and its light source",
+            tr("Scanning setup — set Camera WB or Linear RAW and the print stock from your camera/scanner and its light source"),
         )
         self.layout.addLayout(header_row(self.capture_header, self.scan_setup_btn))
         self.layout.addWidget(self.linear_raw_btn)
@@ -70,34 +79,38 @@ class SensorSidebar(BaseSidebar):
         self.layout.addWidget(self.capture_hint)
 
         row = QHBoxLayout()
-        self.sensor_label = field_label("Profile")
+        self.sensor_label = field_label(tr("Profile"))
         self.sensor_combo = StepCombo()
         self.sensor_combo.addItems(SensorProfiles.list_profiles())
         self.sensor_combo.setToolTip(
-            "<table width='280'><tr><td>"
-            "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
-            "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
-            "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
-            "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
-            "scanned with narrowband light. Re-run Roll Analysis after changing this."
-            "</td></tr></table>"
+            tr(
+                "<table width='280'><tr><td>"
+                "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
+                "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
+                "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
+                "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
+                "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
+                "scanned with narrowband light. Re-run Roll Analysis after changing this."
+                "</td></tr></table>"
+            )
         )
         self.calibrate_sensor_btn = self._icon_action(
-            "fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures: files, or the tethered camera"
+            "fa5s.vials", tr("Calibrate the sensor from three bare-light R/G/B exposures: files, or the tethered camera")
         )
-        self.layout.addLayout(header_row(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"), self.calibrate_sensor_btn))
+        self.layout.addLayout(header_row(section_subheader(tr("SINGLE-SHOT NARROWBAND CALIBRATION")), self.calibrate_sensor_btn))
         row.addWidget(self.sensor_label)
         row.addWidget(self.sensor_combo, 1)
         self.layout.addLayout(row)
 
         unmix_row = QHBoxLayout()
-        self.unmix_label = field_label("Method")
+        self.unmix_label = field_label(tr("Method"))
         self.unmix_btn = ChoiceButton(
             tuple(("", mode.label) for mode, _tip in _UNMIX_CHOICES),
-            "How the calibration is applied.<br><br>"
-            + "".join(f"<b>{mode.label}</b>{' (default)' if mode == _DEFAULT_UNMIX else ''}: {tip}<br><br>" for mode, tip in _UNMIX_CHOICES)
-            + "Re-run Roll Analysis after changing this.",
+            tr("How the calibration is applied.<br><br>")
+            + "".join(
+                f"<b>{mode.label}</b>{tr(' (default)') if mode == _DEFAULT_UNMIX else ''}: {tip}<br><br>" for mode, tip in _UNMIX_CHOICES
+            )
+            + tr("Re-run Roll Analysis after changing this."),
             data=tuple(mode for mode, _tip in _UNMIX_CHOICES),
         )
         for i, (_mode, tip) in enumerate(_UNMIX_CHOICES):
@@ -110,46 +123,48 @@ class SensorSidebar(BaseSidebar):
         # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
         # explains the greyed controls rather than flagging a problem. Text and tooltip are set
         # per reason in _apply_gate.
-        self.sensor_hint = hint_label("Requires Linear RAW.")
+        self.sensor_hint = hint_label(tr("Requires Linear RAW."))
         self.layout.addWidget(self.sensor_hint)
 
-        self.crosstalk_header = section_subheader("CROSSTALK")
+        self.crosstalk_header = section_subheader(tr("CROSSTALK"))
 
         matrix_row = QHBoxLayout()
-        self.crosstalk_label = field_label("Matrix")
+        self.crosstalk_label = field_label(tr("Matrix"))
         self.crosstalk_combo = StepCombo()
         self._fill_crosstalk_combo()
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
         # Wrap the long tooltip in a fixed-width table, so Qt word-wraps it to the panel width
         # instead of rendering one line that runs off the screen. Qt auto-wraps rich text only.
         self.crosstalk_combo.setToolTip(
-            "<table width='280'><tr><td>"
-            "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
-            "where every cause of channel mixing is linear. The film's dyes absorb outside their own "
-            "band, but so do your light's spectrum and your sensor's color filters, and here they all "
-            "arrive as the same kind of error. So read a profile as <b>your whole scanning setup</b>, "
-            "not just the stock.<br><br>"
-            "<b>The bundled film matrices are read off published spec sheets, not measured</b> — they "
-            "are marked (approx) for that reason. They describe the film's dyes alone, so they are only "
-            "the whole story where the capture reads each dye cleanly: a Narrowband Scanner (a Coolscan's mono "
-            "sensor reads one LED at a time, fully clean; a Pakon's trilinear array comes close, with slight "
-            "residual bleed) or a Trichrome capture, or a Single-Shot Narrowband rig with Single-Shot Narrowband "
-            "Calibration applied. Under a broadband light "
-            "and a Bayer sensor your capture adds its own mixing on top, and a dyes-only matrix will not "
-            "describe it.<br><br>"
-            "So treat them as starting points and expect to tune: raise Strength until colors separate "
-            "without going garish, and if a stock or a light gives you trouble, open the editor, nudge "
-            "the six off-diagonal terms and save your own profile — name it after the combination "
-            "('Gold 200 + Spectracolor'). A profile measured on your own rig beats any datasheet. "
-            "Custom .toml matrices live in the NegPy/crosstalk folder (see docs/CROSSTALK.md).<br><br>"
-            "Re-run Roll Analysis after changing this."
-            "</td></tr></table>"
+            tr(
+                "<table width='280'><tr><td>"
+                "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
+                "where every cause of channel mixing is linear. The film's dyes absorb outside their own "
+                "band, but so do your light's spectrum and your sensor's color filters, and here they all "
+                "arrive as the same kind of error. So read a profile as <b>your whole scanning setup</b>, "
+                "not just the stock.<br><br>"
+                "<b>The bundled film matrices are read off published spec sheets, not measured</b> — they "
+                "are marked (approx) for that reason. They describe the film's dyes alone, so they are only "
+                "the whole story where the capture reads each dye cleanly: a Narrowband Scanner (a Coolscan's mono "
+                "sensor reads one LED at a time, fully clean; a Pakon's trilinear array comes close, with slight "
+                "residual bleed) or a Trichrome capture, or a Single-Shot Narrowband rig with Single-Shot Narrowband "
+                "Calibration applied. Under a broadband light "
+                "and a Bayer sensor your capture adds its own mixing on top, and a dyes-only matrix will not "
+                "describe it.<br><br>"
+                "So treat them as starting points and expect to tune: raise Strength until colors separate "
+                "without going garish, and if a stock or a light gives you trouble, open the editor, nudge "
+                "the six off-diagonal terms and save your own profile — name it after the combination "
+                "('Gold 200 + Spectracolor'). A profile measured on your own rig beats any datasheet. "
+                "Custom .toml matrices live in the NegPy/crosstalk folder (see docs/CROSSTALK.md).<br><br>"
+                "Re-run Roll Analysis after changing this."
+                "</td></tr></table>"
+            )
         )
         self.manage_crosstalk_btn = self._icon_action(
-            "fa5s.sliders-h", "Open the crosstalk matrix editor — view, copy and edit density-unmix profiles"
+            "fa5s.sliders-h", tr("Open the crosstalk matrix editor — view, copy and edit density-unmix profiles")
         )
         self.measure_chart_btn = self._icon_action(
-            "mdi6.palette-swatch-outline", "Measure a matrix from a color chart shot on this film and scanned on this rig…"
+            "mdi6.palette-swatch-outline", tr("Measure a matrix from a color chart shot on this film and scanned on this rig…")
         )
         self.layout.addLayout(header_row(self.crosstalk_header, self.measure_chart_btn, self.manage_crosstalk_btn))
         matrix_row.addWidget(self.crosstalk_label)
@@ -158,46 +173,52 @@ class SensorSidebar(BaseSidebar):
 
         # Shown when the film process has no matrices yet. Muted, not a warning: it is the normal
         # state for any process NegPy ships nothing for.
-        self.crosstalk_hint = hint_label("No matrices for this film process — build one in the editor.")
+        self.crosstalk_hint = hint_label(tr("No matrices for this film process — build one in the editor."))
         self.crosstalk_hint.setToolTip(
             wrap_tooltip(
-                "A matrix describes one film's dye set, so it only appears here in the process it was "
-                "saved for. Open the editor to start one from identity, set its Process, and save it."
+                tr(
+                    "A matrix describes one film's dye set, so it only appears here in the process it was "
+                    "saved for. Open the editor to start one from identity, set its Process, and save it."
+                )
             )
         )
         self.layout.addWidget(self.crosstalk_hint)
 
-        self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
+        self.crosstalk_strength_slider = CompactSlider(tr("Strength"), 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
         self.crosstalk_strength_rail = SliderGroup(self.crosstalk_strength_slider)
         self.layout.addWidget(self.crosstalk_strength_rail)
 
         # Balances each dye layer against the frame's own grays: a fact of the stock, so it is a
         # roll default like the crosstalk above (the "cast_removal" card).
-        self.cast_removal_header = section_subheader("DYE BALANCE")
+        self.cast_removal_header = section_subheader(tr("DYE BALANCE"))
         self.layout.addWidget(self.cast_removal_header)
-        self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, self.state.config.exposure.cast_removal_strength)
+        self.cast_removal_slider = CompactSlider(tr("Cast Removal"), 0.0, 1.0, self.state.config.exposure.cast_removal_strength)
         self.cast_removal_slider.setToolTip(
-            "Cast Removal: removes an overall color cast by balancing each color layer against the "
-            "frame's own grays, so neutrals stay neutral from deep shadows through highlights. "
-            "0 = off, 1 = full."
-            "<br><br>On a color negative it starts at 1, and leaves, sky and water never count as "
-            "gray. On a slide it starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
-            "photograph, so ask for it rather than getting it. Hidden for B&W Negative, which "
-            "collapses to one density and has no layers to balance."
+            tr(
+                "Cast Removal: removes an overall color cast by balancing each color layer against the "
+                "frame's own grays, so neutrals stay neutral from deep shadows through highlights. "
+                "0 = off, 1 = full."
+                "<br><br>On a color negative it starts at 1, and leaves, sky and water never count as "
+                "gray. On a slide it starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
+                "photograph, so ask for it rather than getting it. Hidden for B&W Negative, which "
+                "collapses to one density and has no layers to balance."
+            )
         )
         self.layout.addWidget(self.cast_removal_slider)
 
-        self.layout.addWidget(section_subheader("LIGHT SOURCE"))
+        self.layout.addWidget(section_subheader(tr("LIGHT SOURCE")))
 
-        self.hue_trim_slider = CompactSlider("Hue Trim", -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
+        self.hue_trim_slider = CompactSlider(tr("Hue Trim"), -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
         self.hue_trim_slider.setToolTip(
-            "<table width='280'><tr><td>"
-            "Hue Trim — rotates every hue by a fixed angle (degrees) to undo the rotation an unusual "
-            "scanning light imposes. Narrowband LED and odd-phosphor sources shift hues by a near-constant "
-            "angle (yellows reading orange, greens olive) that white balance cannot fix, because it is a "
-            "rotation rather than a cast. Neutrals are unaffected, so it does not disturb cast removal. "
-            "Leave at 0 for a standard broadband light."
-            "</td></tr></table>"
+            tr(
+                "<table width='280'><tr><td>"
+                "Hue Trim — rotates every hue by a fixed angle (degrees) to undo the rotation an unusual "
+                "scanning light imposes. Narrowband LED and odd-phosphor sources shift hues by a near-constant "
+                "angle (yellows reading orange, greens olive) that white balance cannot fix, because it is a "
+                "rotation rather than a cast. Neutrals are unaffected, so it does not disturb cast removal. "
+                "Leave at 0 for a standard broadband light."
+                "</td></tr></table>"
+            )
         )
         self.layout.addWidget(self.hue_trim_slider)
 
@@ -244,23 +265,29 @@ class SensorSidebar(BaseSidebar):
     # the hint label rather than the combo it describes.
     _SENSOR_BLOCKED = {
         "linear_raw": (
-            "Requires Linear RAW.",
-            "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
-            "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
-            "the matrix — so it is skipped. Your selection is remembered.",
+            tr("Requires Linear RAW."),
+            tr(
+                "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
+                "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
+                "the matrix — so it is skipped. Your selection is remembered."
+            ),
         ),
         "triplet": (
-            "Not used for a Trichrome triplet.",
-            "A triplet takes each channel from its own single-light exposure, so it holds no "
-            "sensor crosstalk to remove and the profile is skipped. Your selection is remembered.",
+            tr("Not used for a Trichrome triplet."),
+            tr(
+                "A triplet takes each channel from its own single-light exposure, so it holds no "
+                "sensor crosstalk to remove and the profile is skipped. Your selection is remembered."
+            ),
         ),
         "transparency": (
-            "Not applied to a transparency.",
-            "The unmix corrects a narrowband light and your sensor's filters against each other, "
-            "so it only means anything for a capture made under narrowband light — and narrowband "
-            "is not used for slides. A profile carried over from your negative rig would correct "
-            "for a light this frame was not shot under. Your selection is remembered, and applies "
-            "again on a negative.",
+            tr("Not applied to a transparency."),
+            tr(
+                "The unmix corrects a narrowband light and your sensor's filters against each other, "
+                "so it only means anything for a capture made under narrowband light — and narrowband "
+                "is not used for slides. A profile carried over from your negative rig would correct "
+                "for a light this frame was not shot under. Your selection is remembered, and applies "
+                "again on a negative."
+            ),
         ),
     }
 
@@ -394,7 +421,7 @@ class SensorSidebar(BaseSidebar):
 
         source = self.controller.chart_fit_source()
         if source is None:
-            self.controller.set_status("Open a whole frame of the chart to measure it.", 4000, "warning")
+            self.controller.set_status(tr("Open a whole frame of the chart to measure it."), 4000, "warning")
             return
         dlg = ChartCalibrationDialog(source, self.state.workspace_color_space, parent=self, repo=self.controller.session.repo)
         dlg.profile_saved.connect(self._on_chart_profile_saved)
@@ -475,31 +502,39 @@ class SensorSidebar(BaseSidebar):
             self.capture_hint.setVisible(e6 or triplet)
             if e6:
                 self.capture_hint.setText(
-                    "Scanning setup is not used for slides." if conf.positive_source else "Not applied to an as-captured transparency."
+                    tr("Scanning setup is not used for slides.")
+                    if conf.positive_source
+                    else tr("Not applied to an as-captured transparency.")
                 )
                 self.capture_hint.setToolTip(
                     wrap_tooltip(
-                        "Scanning setup describes a negative rig."
+                        tr("Scanning setup describes a negative rig.")
                         + (
-                            " Linear RAW is live here: with Positive on, it decides the decode once more, so "
-                            "Linear RAW reads the file as literal linear data and defeats Positive's own read of it."
+                            tr(
+                                " Linear RAW is live here: with Positive on, it decides the decode once more, so "
+                                "Linear RAW reads the file as literal linear data and defeats Positive's own read of it."
+                            )
                             if conf.positive_source
-                            else " Linear RAW is inert here: the camera matrix folds the as-shot multipliers back in, "
-                            "so the render is the same either way."
+                            else tr(
+                                " Linear RAW is inert here: the camera matrix folds the as-shot multipliers back in, "
+                                "so the render is the same either way."
+                            )
                         )
-                        + (" A triplet locks Linear RAW as well, for the same reason as on a plain frame." if triplet else "")
-                        + " The setting is remembered, and applies again on a negative."
+                        + (tr(" A triplet locks Linear RAW as well, for the same reason as on a plain frame.") if triplet else "")
+                        + tr(" The setting is remembered, and applies again on a negative.")
                     )
                 )
             elif triplet:
-                self.capture_hint.setText("Linear RAW is locked for a Trichrome triplet.")
+                self.capture_hint.setText(tr("Linear RAW is locked for a Trichrome triplet."))
                 self.capture_hint.setToolTip(
                     wrap_tooltip(
-                        "A triplet exposure is a single narrowband channel: only one raw channel carries "
-                        "real signal, so a white-balance gain corrects nothing — there is no full-spectrum "
-                        "scene for it to describe. Every exposure decodes neutral regardless of this "
-                        "toggle, so it is locked rather than left live with no effect. Remembered, and "
-                        "applies again once the frame is no longer a triplet."
+                        tr(
+                            "A triplet exposure is a single narrowband channel: only one raw channel carries "
+                            "real signal, so a white-balance gain corrects nothing — there is no full-spectrum "
+                            "scene for it to describe. Every exposure decodes neutral regardless of this "
+                            "toggle, so it is locked rather than left live with no effect. Remembered, and "
+                            "applies again once the frame is no longer a triplet."
+                        )
                     )
                 )
 

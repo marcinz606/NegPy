@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 import sys
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -169,7 +171,7 @@ class TutorialOverlay(QWidget):
         extras.setSpacing(6)
         self._offer_btn = labeled_action("fa5s.play-circle", "", "")
         self._offer_btn.clicked.connect(self._run_offer)
-        self._more_btn = labeled_action("fa5s.book-open", " Read More…", "Open the full guide for this panel")
+        self._more_btn = labeled_action("fa5s.book-open", tr(" Read More…"), tr("Open the full guide for this panel"))
         self._more_btn.clicked.connect(self._read_more)
         extras.addWidget(self._offer_btn)
         extras.addWidget(self._more_btn)
@@ -178,11 +180,11 @@ class TutorialOverlay(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
-        self._prev_btn = labeled_action("fa5s.arrow-left", "", "Back (←)")
+        self._prev_btn = labeled_action("fa5s.arrow-left", "", tr("Back (←)"))
         self._prev_btn.clicked.connect(self._prev)
-        self._skip_btn = labeled_action("", "Skip Chapter", "Go to the next chapter of the tour")
+        self._skip_btn = labeled_action("", tr("Skip Chapter"), tr("Go to the next chapter of the tour, or to its last step"))
         self._skip_btn.clicked.connect(self._skip_chapter)
-        self._next_btn = labeled_action("", "Next", "Next (→ or Enter). Esc ends the tour", primary=True)
+        self._next_btn = labeled_action("", tr("Next"), tr("Next (→ or Enter). Esc ends the tour"), primary=True)
         self._next_btn.clicked.connect(self._next)
         btn_row.addWidget(self._prev_btn)
         btn_row.addWidget(self._skip_btn)
@@ -198,7 +200,7 @@ class TutorialOverlay(QWidget):
         if self._chapter_btn is not None:
             self._header.removeWidget(self._chapter_btn)
             self._chapter_btn.deleteLater()
-        self._chapter_btn = ChoiceButton(tuple(("", c) for c in self._chapters), "Jump to a chapter of the tour")
+        self._chapter_btn = ChoiceButton(tuple(("", c) for c in self._chapters), tr("Jump to a chapter of the tour"))
         self._chapter_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._chapter_btn.currentChanged.connect(self._jump_chapter)
         self._header.insertWidget(0, self._chapter_btn)
@@ -258,6 +260,8 @@ class TutorialOverlay(QWidget):
         pos = self._chapters.index(self._steps[self._idx].chapter)
         if pos + 1 < len(self._chapters):
             self.goto(self._chapter_start(self._chapters[pos + 1]))
+        else:
+            self.goto(len(self._steps) - 1)
 
     def _jump_chapter(self, pos: int) -> None:
         self.goto(self._chapter_start(self._chapters[pos]))
@@ -287,7 +291,7 @@ class TutorialOverlay(QWidget):
             self._chapter_btn.setCurrentIndex(pos)
             self._chapter_btn.blockSignals(False)
         in_chapter = [i for i, s in enumerate(self._steps) if s.chapter == step.chapter]
-        self._counter.setText(f"{in_chapter.index(idx) + 1} of {len(in_chapter)}")
+        self._counter.setText(tr("{value} of {value1}", value=in_chapter.index(idx) + 1, value1=len(in_chapter)))
         self._title_lbl.setText(step.title)
         self._set_body(step.body)
 
@@ -297,7 +301,7 @@ class TutorialOverlay(QWidget):
         self._task_lbl.setText(step.task)
         self._more_btn.setVisible(bool(step.guide[0]) and has_guide(step.guide[0]))
         self._prev_btn.setVisible(idx > 0)
-        self._skip_btn.setVisible(pos < len(self._chapters) - 1)
+        self._skip_btn.setVisible(idx < len(self._steps) - 1)
         self._sync_task()
         self._sync_offer()
 
@@ -332,7 +336,7 @@ class TutorialOverlay(QWidget):
         )
         set_hint_kind(self._task_lbl, "success" if done else "muted")
         last = self._idx == len(self._steps) - 1
-        self._next_btn.setText("Done" if last else ("Skip Step" if step.watch and not done else "Next"))
+        self._next_btn.setText(tr("Done") if last else (tr("Skip Step") if step.watch and not done else tr("Next")))
 
     def _sync_offer(self) -> None:
         offer = self._steps[self._idx].offer

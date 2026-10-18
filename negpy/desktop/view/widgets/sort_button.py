@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
@@ -32,8 +33,8 @@ class SortButton(QToolButton):
         menu.addSeparator()
         direction_group = QActionGroup(self)
         direction_group.setExclusive(True)
-        self.ascending_action = menu.addAction("Ascending")
-        self.descending_action = menu.addAction("Descending")
+        self.ascending_action = menu.addAction(tr("Ascending"))
+        self.descending_action = menu.addAction(tr("Descending"))
         for action, descending in ((self.ascending_action, False), (self.descending_action, True)):
             action.setCheckable(True)
             direction_group.addAction(action)

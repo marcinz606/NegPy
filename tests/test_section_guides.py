@@ -1,6 +1,6 @@
 """Every sidebar section has a guide slice, and every guide marker names a live section."""
 
-import re
+import ast
 from pathlib import Path
 
 from negpy.desktop.view.widgets.section_help_dialog import _guides
@@ -25,12 +25,16 @@ DYNAMIC_KEYS = {
 
 def _section_keys() -> set[str]:
     keys: set[str] = set()
-    pattern = re.compile(r'make_section\(\s*(?:self\.controller\.session\.repo|self\.session\.repo|repo)?,?\s*"[^"]+",\s*"([a-z_]+)"', re.S)
     for path in DESKTOP.rglob("*.py"):
-        keys.update(pattern.findall(path.read_text(encoding="utf-8")))
-    # controls_panel goes through its own thin wrapper; a comment may sit before the title.
-    wrapper = re.compile(r'self\._make_section\(\s*(?:#[^\n]*\n\s*)*"[^"]+",\s*"([a-z_]+)"', re.S)
-    keys.update(wrapper.findall((DESKTOP / "sidebar" / "controls_panel.py").read_text(encoding="utf-8")))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            index = {"make_section": 2, "_make_section": 1}.get(name)
+            if index is not None and len(node.args) > index:
+                key = node.args[index]
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    keys.add(key.value)
     return keys | DYNAMIC_KEYS
 
 

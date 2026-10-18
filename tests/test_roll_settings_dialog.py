@@ -25,12 +25,12 @@ def test_groups_with_data_start_checked_others_do_not(qapp):
     assert not dlg._checks["Capture Date"].isChecked()
 
 
-def test_scope_defaults_to_whole_roll_and_reads_the_radios(qapp):
+def test_scope_defaults_to_whole_roll_and_reads_the_choice(qapp):
     dlg = _dialog(_cfg(), sel_count=3, roll_count=8)
     assert dlg.scope() == "roll"
-    dlg._scope_radios.sel.setChecked(True)
+    dlg._scope_choice.setCurrentIndex(dlg._scope_choice.findData("selection"))
     assert dlg.scope() == "selection"
-    dlg._scope_radios.current.setChecked(True)
+    dlg._scope_choice.setCurrentIndex(dlg._scope_choice.findData("current"))
     assert dlg.scope() == "current"
 
 

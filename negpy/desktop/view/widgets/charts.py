@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Any
 
 import numpy as np
@@ -1239,12 +1240,12 @@ class ZoneStripWidget(QWidget):
         if self._occ is not None and self.width() > 0:
             cell = self._cell_at(event.position().x())
             self._set_hovered(cell)
-            text = f"Zone {self._LABELS[cell]} — {float(self._occ[cell]) * 100:.1f}%"
+            text = tr("Zone {value} — {value1:.1f}%", value=self._LABELS[cell], value1=float(self._occ[cell]) * 100)
             if self._placement_enabled:
-                text += " · click to place a tone here"
+                text += tr(" · click to place a tone here")
                 self.setCursor(Qt.CursorShape.PointingHandCursor)
             else:
-                text = f"<b>Disabled for Slides/Reversal Film</b><br>{text}"
+                text = tr("<b>Disabled for Slides/Reversal Film</b><br>{text}", text=text)
             if self._overlay_hint:
                 text += f"<br>{self._overlay_hint}"
             self.setToolTip(wrap_tooltip(text))
@@ -1333,7 +1334,7 @@ class StepWedgeWidget(QWidget):
         if self._enc is not None and self.width() > 0:
             n = len(self._enc)
             step = int(min(max(event.position().x() / self.width() * n, 0), n - 1))
-            self.setToolTip(f"Step {step} — density {step * self._step_d:.2f}")
+            self.setToolTip(tr("Step {step} — density {value:.2f}", step=step, value=step * self._step_d))
         super().mouseMoveEvent(event)
 
     def _patch_bounds(self) -> list:

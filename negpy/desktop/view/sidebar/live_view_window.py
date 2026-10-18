@@ -4,6 +4,8 @@ A click aims the camera focus magnifier at that spot, a double-click returns to 
 The buttons emit signals; `ScanlightSidebar` wires them and mirrors scanning state and status.
 """
 
+from negpy.kernel.system.i18n import tr
+
 import time
 from typing import Optional
 
@@ -68,10 +70,10 @@ class SettingStepper(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(2)
         self._prev = QToolButton()
-        self._prev.setText("‹")
+        self._prev.setText(tr("‹"))
         self._next = QToolButton()
-        self._next.setText("›")
-        self._value = QLabel("—")
+        self._next.setText(tr("›"))
+        self._value = QLabel(tr("—"))
         self._value.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._value.setMinimumWidth(64)
         self._value.setStyleSheet(f"color: {THEME.text_primary};")
@@ -95,7 +97,7 @@ class SettingStepper(QWidget):
 
     def _sync(self) -> None:
         on = self.isEnabled()
-        self._value.setText(self._items[self._index][0] if 0 <= self._index < len(self._items) else "—")
+        self._value.setText(self._items[self._index][0] if 0 <= self._index < len(self._items) else tr("—"))
         self._prev.setEnabled(on and self._index > 0)
         self._next.setEnabled(on and self._index < len(self._items) - 1)
 
@@ -153,7 +155,7 @@ class LiveViewWindow(QDialog):
 
     def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Scanlight — Live View")
+        self.setWindowTitle(tr("Scanlight — Live View"))
         self.setModal(False)
         float_over_app(self)
         self.resize(900, 720)
@@ -161,21 +163,23 @@ class LiveViewWindow(QDialog):
 
         # ── capture toolbar (mirrors the panel so you needn't switch tabs) ──
         bar = QHBoxLayout()
-        self.scan_btn = labeled_action("fa5s.camera-retro", " Scan", "Capture this frame, or stop the capture")
+        self.scan_btn = labeled_action("fa5s.camera-retro", tr(" Scan"), tr("Capture this frame, or stop the capture"))
         self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
-        self.retake_btn = labeled_action("fa5s.redo", " Retake", "Re-capture the current frame without advancing the counter")
+        self.retake_btn = labeled_action("fa5s.redo", tr(" Retake"), tr("Re-capture the current frame without advancing the counter"))
         bar.addWidget(self.scan_btn, 2)
         bar.addWidget(self.retake_btn, 1)
         # One RAW probe sets the shutter for the light as lit. Hidden with the exposure steppers.
         self.meter_btn = labeled_action(
             "fa5s.tachometer-alt",
-            " Meter",
-            "Set the shutter from one RAW probe: a negative's base or a slide's highlights, just under clipping",
+            tr(" Meter"),
+            tr("Set the shutter from one RAW probe: a negative's base or a slide's highlights, just under clipping"),
         )
         bar.addWidget(self.meter_btn, 1)
         # Exposure readouts of the preview frame.
-        self.histogram_btn = tool_toggle("fa5s.chart-area", "", "Show the frame's R, G and B histogram under the image")
-        self.zebra_btn = tool_toggle("fa5s.grip-lines", "", "Hatch clipped pixels: red at the top of the preview range, blue at the bottom")
+        self.histogram_btn = tool_toggle("fa5s.chart-area", "", tr("Show the frame's R, G and B histogram under the image"))
+        self.zebra_btn = tool_toggle(
+            "fa5s.grip-lines", "", tr("Hatch clipped pixels: red at the top of the preview range, blue at the bottom")
+        )
         bar.addWidget(self.histogram_btn)
         bar.addWidget(self.zebra_btn)
         layout.addLayout(bar)
@@ -201,8 +205,10 @@ class LiveViewWindow(QDialog):
         self.focus_label = hint_label("")
         self.focus_label.setToolTip(
             wrap_tooltip(
-                "Sharpness as a share of the best seen. Turn the focus ring past the peak and back to it; "
-                "click the image to reset the peak."
+                tr(
+                    "Sharpness as a share of the best seen. Turn the focus ring past the peak and back to it; "
+                    "click the image to reset the peak."
+                )
             )
         )
         self._focus_kind = "muted"
@@ -234,9 +240,9 @@ class LiveViewWindow(QDialog):
         # No white-balance control: the scan decodes RAW with a fixed neutral WB, so the camera's
         # WB only tints the preview, never the result.
         for tag_text, stepper, tip in (
-            ("ISO", self.iso_stepper, "ISO sensitivity"),
-            ("Shutter", self.shutter_stepper, "Shutter speed"),
-            ("Aperture", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
+            ("ISO", self.iso_stepper, tr("ISO sensitivity")),
+            (tr("Shutter"), self.shutter_stepper, tr("Shutter speed")),
+            (tr("Aperture"), self.aperture_stepper, tr("Aperture (needs an electronically controlled lens)")),
         ):
             tag = hint_label(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)  # label sits centred above its value
@@ -253,7 +259,7 @@ class LiveViewWindow(QDialog):
         # be advanced. Below the view, mirroring the calibration window's bar placement.
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setFormat("Capturing… %p%")
+        self.progress.setFormat(tr("Capturing… %p%"))
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
         # Invalidates a pending post-capture flash when a new capture starts underneath it.
@@ -342,16 +348,18 @@ class LiveViewWindow(QDialog):
         self.zebra_btn.setEnabled(available)
         self.no_preview.setVisible(not available)
         if not available:
-            self.no_preview.setText(f"{reason}\n\nFraming and focus have to be set on the camera itself. Scanning works as usual.")
-        self.setWindowTitle("Scanlight — Live View" if available else "Scanlight — Scan (no live view)")
+            self.no_preview.setText(
+                tr("{reason}\n\nFraming and focus have to be set on the camera itself. Scanning works as usual.", reason=reason)
+            )
+        self.setWindowTitle(tr("Scanlight — Live View") if available else tr("Scanlight — Scan (no live view)"))
 
     def set_focus(self, fraction: Optional[float]) -> None:
         """Show the focus meter reading: 0..1 of the peak, or None while there is none."""
         if fraction is None:
-            text, kind = "Focus meter: no reading", "muted"
+            text, kind = tr("Focus meter: no reading"), "muted"
         else:
             at_peak = fraction >= _FOCUS_AT_PEAK
-            text = "Focus meter: at peak" if at_peak else f"Focus meter: {round(fraction * 100)}% of peak"
+            text = tr("Focus meter: at peak") if at_peak else tr("Focus meter: {value}% of peak", value=round(fraction * 100))
             kind = "success" if at_peak else "muted"
         self.focus_label.setText(text)
         if kind != self._focus_kind:
@@ -377,7 +385,7 @@ class LiveViewWindow(QDialog):
         self._flash_token += 1
         token = self._flash_token
         self.progress.setStyleSheet(f"QProgressBar::chunk {{ background-color: {_DONE_COLOR}; }}")
-        self.progress.setFormat(f"✓ Frame {frame} captured" if frame else "✓ Captured")
+        self.progress.setFormat(f"✓ Frame {frame} captured" if frame else tr("✓ Captured"))
         self.progress.setValue(100)
         self.progress.setVisible(True)
         QTimer.singleShot(_FLASH_MS, lambda: self._end_flash(token))
@@ -390,15 +398,15 @@ class LiveViewWindow(QDialog):
         self._flash_token += 1
         self.progress.setVisible(False)
         self.progress.setStyleSheet("")
-        self.progress.setFormat("Capturing… %p%")
+        self.progress.setFormat(tr("Capturing… %p%"))
 
     def set_scanning(self, active: bool) -> None:
         """Mirror the panel's Scan/Stop toggle on the pop-up button."""
         if active:
-            self.scan_btn.setText(" Stop")
+            self.scan_btn.setText(tr(" Stop"))
             self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.text_primary))
         else:
-            self.scan_btn.setText(" Scan")
+            self.scan_btn.setText(tr(" Scan"))
             self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
 
     def set_status(self, text: str) -> None:

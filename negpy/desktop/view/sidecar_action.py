@@ -1,12 +1,14 @@
 """Load Edit from Sidecar, the one action behind every surface that offers it."""
 
+from negpy.kernel.system.i18n import tr
+
 import os
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from negpy.services.assets.sidecar import sidecar_path_for
 
-LABEL = "Load Edit from Sidecar…"
+LABEL = tr("Load Edit from Sidecar…")
 
 
 def load_edit_from_sidecar(parent, controller) -> None:
@@ -19,10 +21,10 @@ def load_edit_from_sidecar(parent, controller) -> None:
     start = sidecar_path_for(asset["path"], int(asset.get("half") or 0))
     if not os.path.exists(start):
         start = os.path.dirname(start)
-    path, _ = QFileDialog.getOpenFileName(parent, "Load Edit from Sidecar", start, "NegPy Sidecars (*.negpy)")
+    path, _ = QFileDialog.getOpenFileName(parent, tr("Load Edit from Sidecar"), start, tr("NegPy Sidecars (*.negpy)"))
     if not path:
         return
     if controller.session.load_edit_from_sidecar(path):
-        controller.set_status(f"Loaded edit from {os.path.basename(path)}", 4000)
+        controller.set_status(tr("Loaded edit from {value}", value=os.path.basename(path)), 4000)
     else:
-        QMessageBox.warning(parent, "Sidecar", f"{os.path.basename(path)} is not a readable NegPy sidecar.")
+        QMessageBox.warning(parent, tr("Sidecar"), tr("{value} is not a readable NegPy sidecar.", value=os.path.basename(path)))

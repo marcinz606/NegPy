@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from dataclasses import replace
 from typing import Callable, Optional, Protocol, Sequence
 
@@ -59,7 +60,7 @@ _GUIDE_KEY = "contact_sheet"
 _FORMATS: tuple[SheetFormat, ...] = (SheetFormat.FULL_FRAME, SheetFormat.HALF_FRAME, SheetFormat.MEDIUM)
 _FRAME_SIZES: tuple[str, ...] = tuple(FRAME_SIZES_120)
 _CUSTOM_PAPER = len(ILFORD_PAPERS)
-_PRINTS = ("As Edited", "Straight Proof")
+_PRINTS = (tr("As Edited"), tr("Straight Proof"))
 _AS_EDITED, _STRAIGHT_PROOF = 0, 1
 _ORDERS = ("Date", "Scene")
 _BY_DATE, _BY_SCENE = 0, 1
@@ -274,7 +275,7 @@ class ContactSheetDialog(QDialog):
         repo: Optional[IRepository] = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Contact Sheet")
+        self.setWindowTitle(tr("Contact Sheet"))
         self.setModal(True)
         self.resize(1080, 760)
 
@@ -330,10 +331,10 @@ class ContactSheetDialog(QDialog):
         left.addWidget(self.canvas, 1)
         nav = QHBoxLayout()
         nav.addStretch()
-        self.prev_btn = icon_button("fa5s.chevron-left", "Previous sheet")
+        self.prev_btn = icon_button("fa5s.chevron-left", tr("Previous sheet"))
         self.prev_btn.clicked.connect(lambda: self._set_page(self._page - 1))
         self.page_label = hint_label()
-        self.next_btn = icon_button("fa5s.chevron-right", "Next sheet")
+        self.next_btn = icon_button("fa5s.chevron-right", tr("Next sheet"))
         self.next_btn.clicked.connect(lambda: self._set_page(self._page + 1))
         for widget in (self.prev_btn, self.page_label, self.next_btn):
             # Keeps its height when hidden, so a drag into a second sheet does not resize the preview.
@@ -365,36 +366,36 @@ class ContactSheetDialog(QDialog):
 
         self.format_btn = ChoiceButton(
             tuple(("", fmt.value) for fmt in _FORMATS),
-            "Film format, read from the frames' Format metadata and the roll's Half Frame mode",
+            tr("Film format, read from the frames' Format metadata and the roll's Half Frame mode"),
         )
         self.format_btn.setCurrentIndex(_FORMATS.index(self._format))
         self.format_btn.currentChanged.connect(self._on_format_changed)
-        col.addLayout(self._row("Format", self.format_btn))
+        col.addLayout(self._row(tr("Format"), self.format_btn))
 
-        self.frame_size_btn = ChoiceButton(tuple(("", size) for size in _FRAME_SIZES), "The 120 camera's frame size")
+        self.frame_size_btn = ChoiceButton(tuple(("", size) for size in _FRAME_SIZES), tr("The 120 camera's frame size"))
         self.frame_size_btn.setCurrentIndex(_FRAME_SIZES.index(self._frame_size))
         self.frame_size_btn.currentChanged.connect(self._on_frame_size_changed)
-        self.frame_size_rail = SliderGroup(self._row("Frame size", self.frame_size_btn))
+        self.frame_size_rail = SliderGroup(self._row(tr("Frame size"), self.frame_size_btn))
         col.addWidget(self.frame_size_rail)
 
         paper_row = QHBoxLayout()
-        label = field_label("Paper", FIELD_LABEL_WIDTH)
+        label = field_label(tr("Paper"), FIELD_LABEL_WIDTH)
         paper_row.addWidget(label)
         self.paper_btn = ChoiceButton(
             tuple(("", paper.label) for paper in ILFORD_PAPERS) + (("", "Custom"),),
-            "Ilford sheet size, or Custom for a size dragged or typed",
+            tr("Ilford sheet size, or Custom for a size dragged or typed"),
         )
         self.paper_btn.currentChanged.connect(self._on_paper_choice)
         paper_row.addWidget(self.paper_btn, 1)
-        self.turn_btn = icon_button("fa5s.sync-alt", "Turn the paper (swap width and height)")
+        self.turn_btn = icon_button("fa5s.sync-alt", tr("Turn the paper (swap width and height)"))
         self.turn_btn.clicked.connect(lambda: self._set_paper(self._paper[1], self._paper[0], snap=False))
         paper_row.addWidget(self.turn_btn)
         col.addLayout(paper_row)
 
-        self.width_slider = CompactSlider("Width", PAPER_MIN, PAPER_MAX, DEFAULT_PAPER.width, step=0.1, precision=10, unit=" mm")
-        self.width_slider.setToolTip("Paper width; drag the sheet's left or right edge to change it")
-        self.height_slider = CompactSlider("Height", PAPER_MIN, PAPER_MAX, DEFAULT_PAPER.height, step=0.1, precision=10, unit=" mm")
-        self.height_slider.setToolTip("Paper height; drag the sheet's top or bottom edge to change it")
+        self.width_slider = CompactSlider(tr("Width"), PAPER_MIN, PAPER_MAX, DEFAULT_PAPER.width, step=0.1, precision=10, unit=" mm")
+        self.width_slider.setToolTip(tr("Paper width; drag the sheet's left or right edge to change it"))
+        self.height_slider = CompactSlider(tr("Height"), PAPER_MIN, PAPER_MAX, DEFAULT_PAPER.height, step=0.1, precision=10, unit=" mm")
+        self.height_slider.setToolTip(tr("Paper height; drag the sheet's top or bottom edge to change it"))
         for slider in (self.width_slider, self.height_slider):
             slider.valueChanged.connect(self._on_size_slider)
             # Return commits the size box instead of pressing Export.
@@ -402,38 +403,39 @@ class ContactSheetDialog(QDialog):
         col.addWidget(SliderGroup(self.width_slider, self.height_slider))
 
         self.dpi_btn = ChoiceButton(
-            tuple(("", str(dpi)) for dpi in DPI_CHOICES), "Resolution of the exported sheet; the file prints at its true size at this DPI"
+            tuple(("", str(dpi)) for dpi in DPI_CHOICES),
+            tr("Resolution of the exported sheet; the file prints at its true size at this DPI"),
         )
         self.dpi_btn.setCurrentIndex(DPI_CHOICES.index(self._dpi) if self._dpi in DPI_CHOICES else 1)
         self.dpi_btn.currentChanged.connect(self._on_dpi_changed)
-        col.addLayout(self._row("DPI", self.dpi_btn))
+        col.addLayout(self._row(tr("DPI"), self.dpi_btn))
 
         self.order_btn = ChoiceButton(
             tuple(("", order) for order in _ORDERS),
-            "Date: the order the frames were made. Scene: a new strip for each scene, metered on its own in a straight proof",
+            tr("Date: the order the frames were made. Scene: a new strip for each scene, metered on its own in a straight proof"),
         )
         scene_action = self.order_btn.choice_menu.actions()[_BY_SCENE]
         scene_action.setEnabled(self._has_scenes)
         if not self._has_scenes:
-            scene_action.setToolTip("No frame of this roll is in a scene")
+            scene_action.setToolTip(tr("No frame of this roll is in a scene"))
         self.order_btn.setCurrentIndex(_BY_SCENE if self._by_scene else _BY_DATE)
         self.order_btn.currentChanged.connect(self._on_order_changed)
-        col.addLayout(self._row("Order", self.order_btn))
+        col.addLayout(self._row(tr("Order"), self.order_btn))
 
         self.print_btn = ChoiceButton(
             tuple(("", name) for name in _PRINTS),
-            "As Edited prints each frame with its own edit. Straight Proof prints the roll at one exposure and grade",
+            tr("As Edited prints each frame with its own edit. Straight Proof prints the roll at one exposure and grade"),
         )
         self.print_btn.currentChanged.connect(lambda _index: self._apply_variant())
-        col.addLayout(self._row("Print", self.print_btn))
+        col.addLayout(self._row(tr("Print"), self.print_btn))
         self.proof_label = hint_label()
         self.proof_label.setWordWrap(True)
         col.addWidget(self.proof_label)
 
         self.pick_btn = tool_toggle(
             "fa5s.times-circle",
-            "Pick Frames",
-            "Show every frame; click one to leave it out or put it back. Rejected frames start left out",
+            tr("Pick Frames"),
+            tr("Show every frame; click one to leave it out or put it back. Rejected frames start left out"),
         )
         self.pick_btn.toggled.connect(lambda _checked: self._schedule_render())
         col.addWidget(self.pick_btn)
@@ -442,29 +444,34 @@ class ContactSheetDialog(QDialog):
         toggles.setSpacing(THEME.space_md)
         self.edge_btn = labeled_toggle(
             "fa5s.barcode",
-            " Edge Print",
+            tr(" Edge Print"),
             settings.edge_print,
-            "Print the maker's edge markings: stock name, frame numbers and the DX barcode",
+            tr("Print the maker's edge markings: stock name, frame numbers and the DX barcode"),
         )
         self.edge_btn.toggled.connect(lambda _checked: self._restyle())
         toggles.addWidget(self.edge_btn, 1)
         self.label_btn = labeled_toggle(
-            "fa5s.tag", " Roll Label", settings.roll_label, "Print the roll name, film, developer, camera and date above the strips"
+            "fa5s.tag", tr(" Roll Label"), settings.roll_label, tr("Print the roll name, film, developer, camera and date above the strips")
         )
         self.label_btn.toggled.connect(self._on_label_toggled)
         toggles.addWidget(self.label_btn, 1)
         col.addLayout(toggles)
         self.white_btn = labeled_toggle(
-            "fa5s.print", " White Paper", settings.white_paper, "Print on white paper with dark labels, to save ink on a home printer"
+            "fa5s.print",
+            tr(" White Paper"),
+            settings.white_paper,
+            tr("Print on white paper with dark labels, to save ink on a home printer"),
         )
         self.white_btn.toggled.connect(lambda _checked: self._schedule_render())
         self.film_base_btn = labeled_toggle(
             "fa5s.film",
-            " Film Base",
+            tr(" Film Base"),
             settings.film_base,
-            "Print the film base black, as a darkroom contact print. Off prints it as paper, with the strip outlined, the "
-            "edge print and frame numbers in dark ink and the perforations as rings, so a home printer inks the frames, "
-            "the markings, the outline and the rings alone",
+            tr(
+                "Print the film base black, as a darkroom contact print. Off prints it as paper, with the strip outlined, the "
+                "edge print and frame numbers in dark ink and the perforations as rings, so a home printer inks the frames, "
+                "the markings, the outline and the rings alone"
+            ),
         )
         self.film_base_btn.setEnabled(self.white_btn.isChecked())
         self.white_btn.toggled.connect(self.film_base_btn.setEnabled)
@@ -478,20 +485,20 @@ class ContactSheetDialog(QDialog):
         self.summary_label = hint_label()
         self.summary_label.setWordWrap(True)
         col.addWidget(self.summary_label)
-        self.folder_label = hint_label(f"Saves to {self._out_dir}" if self._out_dir else "")
+        self.folder_label = hint_label(tr("Saves to {_out_dir}", _out_dir=self._out_dir) if self._out_dir else "")
         self.folder_label.setWordWrap(True)
         col.addWidget(self.folder_label)
         col.addStretch()
 
         footer = QHBoxLayout()
-        self.info_btn = icon_button("fa5s.info-circle", "How the contact sheet is laid out")
+        self.info_btn = icon_button("fa5s.info-circle", tr("How the contact sheet is laid out"))
         self.info_btn.setVisible(has_guide(_GUIDE_KEY))
         self.info_btn.clicked.connect(lambda: SectionHelpDialog(_GUIDE_KEY, "Contact Sheet", self, repo=self._repo).exec())
         footer.addWidget(self.info_btn)
         footer.addStretch()
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self.reject)
-        self.export_btn = QPushButton("Export")
+        self.export_btn = QPushButton(tr("Export"))
         self.export_btn.clicked.connect(self._on_export)
         footer.addWidget(self.cancel_btn)
         footer.addWidget(self.export_btn)
@@ -711,7 +718,7 @@ class ContactSheetDialog(QDialog):
         self.page_label.setVisible(pages > 1)
         self.prev_btn.setEnabled(self._page > 0)
         self.next_btn.setEnabled(self._page < pages - 1)
-        self.page_label.setText(f"Sheet {self._page + 1} of {pages}")
+        self.page_label.setText(tr("Sheet {value} of {pages}", value=self._page + 1, pages=pages))
         final = plan if not self.pick_btn.isChecked() else self.plan()
         self.export_btn.setEnabled(bool(final.pages))
         if not final.pages:
@@ -724,7 +731,16 @@ class ContactSheetDialog(QDialog):
         frames = "frame" if count == 1 else "frames"
         strip_word = "strip" if strips == 1 else "strips"
         sheets = "sheet" if len(final.pages) == 1 else "sheets"
-        text = f"{count} {frames} · {strips} {strip_word} of {min(final.frames_per_strip, count)} · {len(final.pages)} {sheets}"
+        text = tr(
+            "{count} {frames} · {strips} {strip_word} of {value} · {value1} {sheets}",
+            count=count,
+            frames=frames,
+            strips=strips,
+            strip_word=strip_word,
+            value=min(final.frames_per_strip, count),
+            value1=len(final.pages),
+            sheets=sheets,
+        )
         if self._left_out:
             text += f" · {len(self._left_out)} left out"
         done = self._tiles_done[self._variant]

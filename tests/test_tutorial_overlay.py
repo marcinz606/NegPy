@@ -51,7 +51,7 @@ def test_built_steps_are_consistent() -> None:
 
 def test_tour_keys_come_from_the_registry() -> None:
     source = open("negpy/desktop/view/widgets/tutorial_steps.py", encoding="utf-8").read()
-    ids = set(re.findall(r"_k\('([a-z_]+)'\)", source))
+    ids = set(re.findall(r"_k\(['\"]([a-z_]+)['\"]\)", source))
     assert ids and ids <= set(shortcut_registry.REGISTRY)
     assert "show_tour" in shortcut_registry.REGISTRY
 
@@ -75,6 +75,9 @@ def test_chapters_skip_and_jump() -> None:
     assert overlay._chapter_btn is not None
     overlay._chapter_btn.setCurrentIndex(2)
     assert overlay.index == 4
+    # The last chapter skips to the final step.
+    _click(overlay._skip_btn)
+    assert overlay.index == 5
     assert not overlay._skip_btn.isVisible()
 
 

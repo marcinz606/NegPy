@@ -14,41 +14,42 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.leak.bake import leak_active
 from negpy.features.leak.models import LeakColor, LeakKind
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.i18n import tr
 
-_LEAK_TIP = (
+_LEAK_TIP = tr(
     "Reduce light leaks on the negative, under the leaks you draw or Auto places, before any dust repair. "
     "Burned-out areas stay; heal or clone them."
 )
-_BAND_TIP = (
+_BAND_TIP = tr(
     "Band: mark a leak along its strongest line. Drag the line along the leak, then drag a dashed edge "
     "to where the leak fades out on that side. The film sets how strong it is and how it falls off; "
     "Strength trims it."
 )
-_EDGE_TIP = (
+_EDGE_TIP = tr(
     "Edge: mark a leak that comes in from a side of the picture. Drag along that side; the line snaps to it. "
     "Drag the dashed line to where the leak fades out. The film sets how strong it is and how far in it "
     "reaches along the side, so tongues of light come off whole."
 )
-_SPOT_TIP = (
+_SPOT_TIP = tr(
     "Spot: mark a round leak, as a pinhole, a cracked body or a frame-number window throws. Drag out an oval; "
     "its center moves it and its two axis handles stretch and tilt it. The film sets how strong it is."
 )
-_PAINT_TIP = (
+_PAINT_TIP = tr(
     "Paint: brush over a leak with no line or center, as a toy camera's blotches or a haze. Strokes grow the "
     "selected painted leak; with none selected, they start one. The film sets how strong it is across the "
     "region. Uses the Retouch card's Brush Size; Alt+wheel over the photo sizes it"
 )
-_AUTO_TIP = (
+_AUTO_TIP = tr(
     "Auto: find the frame's light leaks and place a shape over each, ready to adjust: an edge where lit "
     "rebate carries on into the picture, a band along a straight leak"
 )
-_ROLL_TIP = (
-    "From Roll: a camera throws its leak at the same place on every frame. With other frames selected, carries this "
+_ROLL_TIP = tr(
+    "From Roll: a leak at the gate or the door falls at about the same place on every frame. With other frames selected, carries this "
     "frame's leaks to each, placed by its picture; each frame reads the leak's strength and color itself. With none, "
     "selects the frames Auto finds a leak on"
 )
-_BURNED_TIP = "Show Burned: wash the film the leak burned out in every layer, where no picture is left to bring back"
-_RECOVER_TIP = (
+_BURNED_TIP = tr("Show Burned: wash the film the leak burned out in every layer, where no picture is left to bring back")
+_RECOVER_TIP = tr(
     "Rebuild a color layer the leak drove to its densest from the layers that still hold picture, by the scene's "
     "own color around the leak. A leak through the base often burns out red while green and blue keep the picture"
 )
@@ -58,14 +59,14 @@ _KIND_ICONS = {
     LeakKind.SPOT: "fa5s.circle",
     LeakKind.PAINT: "fa5s.paint-roller",
 }
-_KIND_LABELS = {LeakKind.BAND: "Band", LeakKind.EDGE: "Edge", LeakKind.SPOT: "Spot", LeakKind.PAINT: "Paint"}
+_KIND_LABELS = {LeakKind.BAND: tr("Band"), LeakKind.EDGE: tr("Edge"), LeakKind.SPOT: tr("Spot"), LeakKind.PAINT: tr("Paint")}
 # Order matches the Color choice.
 _COLORS = (LeakColor.AUTO, LeakColor.BACK, LeakColor.FRONT)
-_COLOR_LABELS = ("Auto", "Back", "Front")
+_COLOR_LABELS = (tr("Auto"), tr("Back"), tr("Front"))
 _COLOR_TIPS = (
-    "Read the leak's color off the film: lit rebate it crosses, else the film under it",
-    "Light through the base, as a worn door seal lets in: it reaches the red-sensitive layer first and prints red to orange",
-    "Light on the emulsion side, through the lens or a gap at the gate: it reaches the blue-sensitive layer first",
+    tr("Read the leak's color off the film: lit rebate it crosses, else the film under it"),
+    tr("Light through the base, as a worn door seal lets in: it reaches the red-sensitive layer first and prints red to orange"),
+    tr("Light on the emulsion side, through the lens or a gap at the gate: it reaches the blue-sensitive layer first"),
 )
 
 
@@ -75,7 +76,7 @@ class LeakSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.leak
 
-        self.leak_btn = self._small_toggle("fa5s.sun", "Reduce Light Leak", conf.leak_remove, _LEAK_TIP, align_left=True)
+        self.leak_btn = self._small_toggle("fa5s.sun", tr("Reduce Light Leak"), conf.leak_remove, _LEAK_TIP, align_left=True)
         self.auto_btn = self._icon_action("fa5s.magic", _AUTO_TIP)
         self.auto_btn.plain_tooltip = _AUTO_TIP
         self.roll_btn = self._icon_action("fa5s.film", _ROLL_TIP)
@@ -86,29 +87,33 @@ class LeakSidebar(BaseSidebar):
         top_row.addWidget(self.roll_btn)
         self.layout.addLayout(top_row)
 
-        self.dmax_slider = CompactSlider("Film Dmax", 0.0, 4.0, conf.leak_dmax, step=0.05, precision=100)
-        self.dmax_slider.spin.setSpecialValueText("Off")
+        self.dmax_slider = CompactSlider(tr("Film Dmax"), 0.0, 4.0, conf.leak_dmax, step=0.05, precision=100)
+        self.dmax_slider.spin.setSpecialValueText(tr("Off"))
         self.dmax_slider.setToolTip(
             wrap_tooltip(
-                "The film's maximum density over its base, where its curve flattens. Off treats the curve as a straight line; "
-                "set it for a film whose dense end is saturated. On a slide it is the density from its black to clear film"
+                tr(
+                    "The film's maximum density over its base, where its curve flattens. Off treats the curve as a straight line; "
+                    "set it for a film whose dense end is saturated. On a slide it is the density from its black to clear film"
+                )
             )
         )
-        self.grain_slider = CompactSlider("Grain", 0.0, 100.0, conf.leak_grain * 100.0, step=1.0, precision=1, unit="%")
-        self.grain_slider.setToolTip(wrap_tooltip("Calms the grain removal stretches, only where leak came off"))
-        self.contrast_slider = CompactSlider("Contrast", 0.0, 100.0, conf.leak_contrast * 100.0, step=1.0, precision=1, unit="%")
+        self.grain_slider = CompactSlider(tr("Grain"), 0.0, 100.0, conf.leak_grain * 100.0, step=1.0, precision=1, unit="%")
+        self.grain_slider.setToolTip(wrap_tooltip(tr("Calms the grain the correction stretches, only where leak came off")))
+        self.contrast_slider = CompactSlider(tr("Contrast"), 0.0, 100.0, conf.leak_contrast * 100.0, step=1.0, precision=1, unit="%")
         self.contrast_slider.setToolTip(
-            wrap_tooltip("Lifts the local contrast the leak flattened, only where leak came off. Subtraction cannot bring it back")
+            wrap_tooltip(
+                tr("Lifts the local contrast the leak flattened, only where leak came off. The correction alone cannot bring it back")
+            )
         )
         self.layout.addWidget(SliderGroup(self.dmax_slider, self.grain_slider, self.contrast_slider))
-        self.recover_btn = self._small_toggle("fa5s.layer-group", "Recover Layers", conf.leak_recover, _RECOVER_TIP, align_left=True)
+        self.recover_btn = self._small_toggle("fa5s.layer-group", tr("Recover Layers"), conf.leak_recover, _RECOVER_TIP, align_left=True)
         self.layout.addWidget(self.recover_btn)
 
-        self.leaks_subheader = section_subheader("LEAKS · 0")
+        self.leaks_subheader = section_subheader(tr("LEAKS · {n}", n=0))
         self.burned_btn = self._tool_toggle("fa5s.fire-alt", "", _BURNED_TIP)
         self.burned_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.undo_btn = self._icon_action("fa5s.undo", "Undo Last: remove the most recent leak")
-        self.clear_btn = self._icon_action("fa5s.trash-alt", "Clear All: remove all leaks")
+        self.undo_btn = self._icon_action("fa5s.undo", tr("Undo Last: remove the most recent leak"))
+        self.clear_btn = self._icon_action("fa5s.trash-alt", tr("Clear All: remove all leaks"))
         self.layout.addLayout(header_row(self.leaks_subheader, self.burned_btn, self.undo_btn, self.clear_btn))
         self.band_btn = self._tool_toggle(_KIND_ICONS[LeakKind.BAND], "", _BAND_TIP)
         self.edge_btn = self._tool_toggle(_KIND_ICONS[LeakKind.EDGE], "", _EDGE_TIP)
@@ -121,50 +126,58 @@ class LeakSidebar(BaseSidebar):
         tools_row.addStretch(1)
         self.layout.addLayout(tools_row)
 
-        self.leak_list = ShapeList("Click a leak to select it. Click its shape icon to turn it off or on, and the trash icon to delete it.")
+        self.leak_list = ShapeList(
+            tr("Click a leak to select it. Click its shape icon to turn it off or on, and the trash icon to delete it.")
+        )
         self.layout.addWidget(self.leak_list)
 
-        self.layout.addWidget(section_subheader("SELECTED LEAK"))
-        self.strength_slider = CompactSlider("Strength", 0.0, 400.0, 100.0, step=1.0, precision=1, unit="%")
+        self.layout.addWidget(section_subheader(tr("SELECTED LEAK")))
+        self.strength_slider = CompactSlider(tr("Strength"), 0.0, 400.0, 100.0, step=1.0, precision=1, unit="%")
         self.strength_slider.setToolTip(
             wrap_tooltip(
-                "How much of the leak the film reads under the selected shape comes off. Above 100% for a leak the film "
-                "under-reads; the frame's thinnest film nearby limits it"
+                tr(
+                    "How much of the leak the film reads under the selected shape comes off. Above 100% for a leak the film "
+                    "under-reads; the frame's thinnest film nearby limits it"
+                )
             )
         )
-        self.falloff_slider = CompactSlider("Falloff", 0.0, 100.0, 50.0, step=1.0, precision=1, unit="%")
+        self.falloff_slider = CompactSlider(tr("Falloff"), 0.0, 100.0, 50.0, step=1.0, precision=1, unit="%")
         self.falloff_slider.setToolTip(
             wrap_tooltip(
-                "How the selected band or spot fades toward its edge. Lower holds a shoulder and drops late; higher fades early "
-                "and softly. An edge leak fades as light spreading in the base does"
+                tr(
+                    "How the selected band or spot fades toward its edge. Lower holds a shoulder and drops late; higher fades early "
+                    "and softly. An edge leak fades as light spreading in the base does"
+                )
             )
         )
         self.layout.addWidget(self.strength_slider)
         self.layout.addWidget(self.falloff_slider)
-        self.color_btn = SegmentedChoice(tuple(("", label) for label in _COLOR_LABELS), "Where the selected leak's color comes from")
+        self.color_btn = SegmentedChoice(tuple(("", label) for label in _COLOR_LABELS), tr("Where the selected leak's color comes from"))
         for i, tip in enumerate(_COLOR_TIPS):
             self.color_btn.set_choice_tooltip(i, tip)
-        color_row = field_row("Color", self.color_btn)
+        color_row = field_row(tr("Color"), self.color_btn)
         color_row.setContentsMargins(0, 0, 0, 0)
         self.color_row = QWidget()
         self.color_row.setLayout(color_row)
         self.layout.addWidget(self.color_row)
-        self.trim_slider = CompactSlider("Color Trim", -50.0, 50.0, 0.0, step=1.0, precision=1, has_neutral=True, unit="%")
+        self.trim_slider = CompactSlider(tr("Color Trim"), -50.0, 50.0, 0.0, step=1.0, precision=1, has_neutral=True, unit="%")
         self.trim_slider.setToolTip(
             wrap_tooltip(
-                "Takes out more or less of the selected leak's leading color: blue for light from the front, red for light "
-                "through the base. Raise it where a corrected leak leaves its own tint in dark parts of the picture"
+                tr(
+                    "Takes out more or less of the selected leak's leading color: blue for light from the front, red for light "
+                    "through the base. Raise it where a corrected leak leaves its own tint in dark parts of the picture"
+                )
             )
         )
         self.trim_group = SliderGroup(self.trim_slider)
         self.layout.addWidget(self.trim_group)
 
         self.unsupported_hint = hint_label(
-            "Light leak reduction works on a single negative or slide, not on a Positive frame or a composite."
+            tr("Light leak reduction works on a single negative or slide, not on a Positive frame or a composite.")
         )
         self.layout.addWidget(self.unsupported_hint)
         self.burned_hint = hint_label(
-            "Part of the leak burned out every layer, with no picture left to rebuild: Heal or Clone it.", kind="warning"
+            tr("Part of the leak burned out every layer, with no picture left to rebuild: Heal or Clone it."), kind="warning"
         )
         self.layout.addWidget(self.burned_hint)
         self.layout.addStretch()
@@ -212,17 +225,17 @@ class LeakSidebar(BaseSidebar):
         kind_btn.setIcon(qta.icon(_KIND_ICONS[shape.kind], color=color))
         kind_btn.setFixedSize(20, 22)
         kind_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        kind_btn.setToolTip("Click to turn this leak's correction off or on")
+        kind_btn.setToolTip(tr("Click to turn this leak's correction off or on"))
         values = [] if shape.strength == 1.0 else [f"{shape.strength * 100.0:.0f}%"]
         if shape.color is not LeakColor.AUTO and self._color_film():
             values.append(_COLOR_LABELS[_COLORS.index(shape.color)])
         if shape.trim and self._color_film():
-            values.append(f"Trim {shape.trim * 100.0:+.0f}%")
+            values.append(tr("Trim {value}", value=f"{shape.trim * 100.0:+.0f}%"))
         label = QLabel(f"{i + 1}.  {_KIND_LABELS[shape.kind]}   " + " · ".join(values))
         label.setStyleSheet(f"color: {color};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         delete = row_icon_button("fa5s.trash-alt", checkable=False)
-        delete.setToolTip("Delete this leak")
+        delete.setToolTip(tr("Delete this leak"))
         lay.addWidget(kind_btn)
         lay.addWidget(label)
         lay.addStretch()
@@ -257,7 +270,7 @@ class LeakSidebar(BaseSidebar):
             self.burned_btn.setChecked(self.state.leak_show_burned)
             self._sync_burned()
             count = len(conf.leak_shapes)
-            self.leaks_subheader.setText(f"LEAKS · {count}")
+            self.leaks_subheader.setText(tr("LEAKS · {n}", n=count))
             self.undo_btn.setEnabled(count > 0)
             self.clear_btn.setEnabled(count > 0)
             self.dmax_slider.setValue(conf.leak_dmax)

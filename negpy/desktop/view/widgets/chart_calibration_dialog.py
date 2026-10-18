@@ -1,5 +1,6 @@
 """Measure a Crosstalk matrix from a color chart photographed on the roll, and save it as a profile."""
 
+from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 import numpy as np
@@ -17,7 +18,7 @@ from negpy.features.process.chart import CHARTS, ChartFit, grid_corners, patch_c
 from negpy.features.process.models import ProcessMode
 from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
 
-_MEASURE_LABEL = "Measure and Save"
+_MEASURE_LABEL = tr("Measure and Save")
 _HANDLE_R = 6
 _GRAB_PX = 14
 _START_CORNERS = ((0.2, 0.25), (0.8, 0.25), (0.8, 0.75), (0.2, 0.75))
@@ -102,7 +103,7 @@ class _ChartCornersLabel(QLabel):
         if r is None or self._pixmap is None:
             painter.fillRect(self.rect(), QColor(THEME.bg_dark))
             painter.setPen(QColor(THEME.text_hint))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Rendering the frame…")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("Rendering the frame…"))
             painter.end()
             return
         painter.drawPixmap(r, self._pixmap, QRectF(self._pixmap.rect()))
@@ -153,7 +154,7 @@ class ChartCalibrationDialog(QDialog):
 
     def __init__(self, source: ChartSource, color_space: str, parent=None, *, repo=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Measure from Chart")
+        self.setWindowTitle(tr("Measure from Chart"))
         self.resize(760, 640)
         self._color_space = color_space
         self._render_shape: Optional[tuple[int, int]] = None
@@ -171,11 +172,13 @@ class ChartCalibrationDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(THEME.space_md)
         intro = hint_label(
-            "Use a frame of a SpyderCheckr 24 or a ColorChecker 24 shot on this film and scanned on this rig. "
-            "Drag the four green dots onto the centers of the chart's corner patches, in any order. The chart "
-            "can sit any way up, sideways or mirrored. NegPy reads its orientation from the colors, then "
-            "finds the Crosstalk matrix that brings the patches nearest the chart's published colors, through "
-            "the frame's own render."
+            tr(
+                "Use a frame of a SpyderCheckr 24 or a ColorChecker 24 shot on this film and scanned on this rig. "
+                "Drag the four green dots onto the centers of the chart's corner patches, in any order. The chart "
+                "can sit any way up, sideways or mirrored. NegPy reads its orientation from the colors, then "
+                "finds the Crosstalk matrix that brings the patches nearest the chart's published colors, through "
+                "the frame's own render."
+            )
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
@@ -185,15 +188,15 @@ class ChartCalibrationDialog(QDialog):
 
         self.chart_choice = SegmentedChoice(
             tuple(("", c.name) for c in CHARTS),
-            "The chart in the frame. Each has its own published patch colors.",
+            tr("The chart in the frame. Each has its own published patch colors."),
         )
-        root.addLayout(field_row("Chart", self.chart_choice))
+        root.addLayout(field_row(tr("Chart"), self.chart_choice))
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g. Portra 400 + CS-Lite")
-        self.name_edit.setToolTip("The profile's name in the Matrix dropdown. Name the film and the rig.")
+        self.name_edit.setPlaceholderText(tr("e.g. Portra 400 + CS-Lite"))
+        self.name_edit.setToolTip(tr("The profile's name in the Matrix dropdown. Name the film and the rig."))
         self.name_edit.textChanged.connect(self._refresh)
-        root.addLayout(field_row("Name", self.name_edit))
+        root.addLayout(field_row(tr("Name"), self.name_edit))
 
         self.result_label = hint_label()
         self.result_label.setWordWrap(True)
@@ -202,10 +205,10 @@ class ChartCalibrationDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self.reject)
         self.measure_btn = QPushButton(_MEASURE_LABEL)
-        self.measure_btn.setToolTip("Fit the matrix to the marked chart and save it as a Measured profile.")
+        self.measure_btn.setToolTip(tr("Fit the matrix to the marked chart and save it as a Measured profile."))
         self.measure_btn.clicked.connect(self._measure)
         btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.measure_btn)
@@ -230,13 +233,13 @@ class ChartCalibrationDialog(QDialog):
             return
         h, w = self._render_shape
         self._fitting = True
-        self.measure_btn.setText("Measuring…")
-        self._show_result("Rendering the frame with each trial matrix…")
+        self.measure_btn.setText(tr("Measuring…"))
+        self._show_result(tr("Rendering the frame with each trial matrix…"))
         self._refresh()
         self._worker.start_fit(self.view.corners() * np.array([w, h]), CHARTS[self.chart_choice.currentIndex()])
 
     def _on_progress(self, frac: float) -> None:
-        self.measure_btn.setText(f"Measuring… {frac * 100:.0f}%")
+        self.measure_btn.setText(tr("Measuring… {value:.0f}%", value=frac * 100))
 
     def _on_fitted(self, fit: ChartFit) -> None:
         self._fitting = False
@@ -252,13 +255,21 @@ class ChartCalibrationDialog(QDialog):
         close = int((shown <= _DE_CLOSE).sum())
         far = int((shown > _DE_NOTICEABLE).sum())
         self._show_result(
-            f"<b>Saved “{name}”</b>. Mean color ΔE00 (hue and chroma) over the 24 patches: "
-            f"{fit.before_color.mean():.1f} without the matrix, {fit.after_color.mean():.1f} with it; "
-            f"{fit.before.mean():.1f} and {fit.after.mean():.1f} with lightness. Per patch, on the frame: "
-            f"{close} within {_DE_CLOSE:g}, {shown.size - close - far} within {_DE_NOTICEABLE:g}, {far} beyond. "
-            f"Farthest patch: {chart.patch_names[worst]}, {fit.after_color[worst]:.1f}. "
-            "Re-run Roll Analysis on the roll's other frames. The matrix holds over the frame's current sensor "
-            "profile: measure again if you change it."
+            tr(
+                "<b>Saved “{value}”</b>. Mean color ΔE00 (hue and chroma) over the 24 patches: {value1:.1f} without the matrix, {value2:.1f} with it; {value3:.1f} and {value4:.1f} with lightness. Per patch, on the frame: {value5} within {value6:g}, {value7} within {value8:g}, {value9} beyond. Farthest patch: {value10}, {value11:.1f}. Re-run Roll Analysis on the roll's other frames. The matrix holds over the frame's current sensor profile: measure again if you change it.",
+                value=name,
+                value1=fit.before_color.mean(),
+                value2=fit.after_color.mean(),
+                value3=fit.before.mean(),
+                value4=fit.after.mean(),
+                value5=close,
+                value6=_DE_CLOSE,
+                value7=shown.size - close - far,
+                value8=_DE_NOTICEABLE,
+                value9=far,
+                value10=chart.patch_names[worst],
+                value11=fit.after_color[worst],
+            )
         )
         self._pin_close()
         self._refresh()
@@ -267,11 +278,11 @@ class ChartCalibrationDialog(QDialog):
     def _on_failed(self, msg: str) -> None:
         self._fitting = False
         self.measure_btn.setText(_MEASURE_LABEL)
-        self._show_result(f"Could not measure the chart: {msg}")
+        self._show_result(tr("Could not measure the chart: {value}", value=msg))
         self._refresh()
 
     def _pin_close(self) -> None:
-        self.cancel_btn.setText("Close")
+        self.cancel_btn.setText(tr("Close"))
         self.measure_btn.setDefault(False)
         self.measure_btn.setProperty("primary", False)
         pin_dialog_default(self.cancel_btn, self.measure_btn)

@@ -55,7 +55,7 @@ Drag a panel by its top edge to float it; its pin button docks it. **Shift+H** h
 
 | Tab | Panels | What it is for |
 |-----|--------|---------------|
-| **Roll** | Film Mode · Frame Assembly · Calibration · Crop · Roll Analysis · Metering · Raw Decode · Optics | Film type, capture color, crop shape, roll baselines, metering, the scanning rig |
+| **Roll** | Film Mode · Frame Assembly · Calibration · Metering · Crop · Roll Analysis · Raw Decode · Optics | Film type, capture color, crop shape, roll baselines, metering, the scanning rig |
 
 **Frame** tabs follow the pipeline order:
 
@@ -85,7 +85,7 @@ An unedited frame gets the rig and roll settings: film process, crop ratio, flip
 
 **Preferences → Session & Storage → Persistent Settings…** sets which settings carry. **Carry settings between frames** is the master switch; off, new frames get bare defaults.
 
-An edited frame keeps its look; only export and metadata settings reach it. **Reset Settings** returns bare defaults and, in a roll, sets every Roll-tab card back to **Roll**. No reset changes the scanning setup (Linear RAW, Narrowband, demosaic); **Scanning setup** sets those.
+An edited frame keeps its look; only export and metadata settings reach it. **Reset Settings** returns bare defaults and, in a roll, sets every Roll-tab card back to **Roll**. No reset changes the scanning setup (Linear RAW, demosaic); **Scanning setup** sets those.
 
 ### Frame or roll: the scope pair
 
@@ -150,7 +150,7 @@ Right-click a roll for:
 *   **Close Roll…** (loaded roll only): empties the Film Strip. Edits stay saved.
 *   **Rename…**: renames the roll. A folder roll also offers **Also rename the folder on disk** (off by default). A cloud-sync folder (Dropbox, iCloud, OneDrive) can treat that rename as a delete and upload again.
 *   **Delete…**: forgets the roll only; folder, images and edits stay. **Clear Library** in *Manage Database* forgets all rolls.
-*   **Roll Analysis** (loaded roll only): runs Roll Analysis ([§10.5](#105-roll-analysis)).
+*   **Roll Analysis** (loaded roll only): runs Roll Analysis ([§10.6](#106-roll-analysis)).
 
 #### Rolls that are not folders
 
@@ -380,7 +380,7 @@ Rows that measure the scan, not your edit; hover for details.
 
 **Crop:**
 
-*   **Auto** (magic wand on the CROP header): the Crop card's Auto Crop ([§10.4](#104-crop)), for this frame.
+*   **Auto** (magic wand on the CROP header): the Crop card's Auto Crop ([§10.5](#105-crop)), for this frame.
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card. **1:1.4142** is the ISO A paper shape (A4, A6).
 *   **Crop** tool: draw a crop rectangle; with **Ratio** at **Free**, an edge midpoint resizes one axis. A manual crop turns **Auto Crop** off for this frame. **Reset** clears the crop and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates the guide.
@@ -434,7 +434,7 @@ Color timing, like enlarger dichroic filters. The **Global / Shadows / Highlight
 
 **Test strip** (`Shift+T`): a 5×5 grid, Print Density rising left to right, ISO-R Grade softening top to bottom. Click a patch to keep it; `Escape` clears it. While a proof shows, the 90° **rotate** buttons and `[` / `]` turn the ladder, not the image.
 
-**White Point** and **Black Point** are on the **Metering** card ([§10.6](#106-metering-negative--positive)).
+**White Point** and **Black Point** are on the **Metering** card ([§10.4](#104-metering-negative--positive)).
 
 **Exposure:**
 
@@ -741,18 +741,19 @@ These controls correct the capture, not the look.
 
 **Capture**:
 
-*   **Scanning setup**: a wizard (*how do you scan?*, and for a camera *what light source?*) that sets Camera WB or Linear RAW. It runs once after the first-launch tour; open it again when your rig changes.
+*   **Scanning setup**: a wizard (*how do you scan?*, *what light source?*) that sets Camera WB or Linear RAW and the print stock. It runs once after the first-launch tour; open it again when your rig changes.
 *   **Camera WB / Linear RAW** (default Camera WB): how a RAW file decodes. *Camera WB* applies the camera's as-shot white balance; *Linear RAW* decodes with neutral multipliers. Locked for a Trichrome triplet.
 
 What the wizard sets:
 
-| Capture | Light source | Decode |
-| --- | --- | --- |
-| Digital camera | White light (lightbox, CRI LED panel) | Camera WB |
-| Digital camera | Narrowband RGB (Scanlight, RGB LED) | Linear RAW |
-| Film scanner | any | Linear RAW |
+| Capture | Light source | Decode | Print stock |
+| --- | --- | --- | --- |
+| Digital camera | White light (lightbox, CRI LED panel) | Camera WB | Digital (Adobe RGB) |
+| Digital camera | Narrowband RGB (Scanlight, RGB LED) | Linear RAW | Digital (Pakon Minilab) |
+| Film scanner | White light (Plustek, Epson) | Linear RAW | Digital (Adobe RGB) |
+| Film scanner | Narrowband RGB (Coolscan, Pakon) | Linear RAW | Digital (Pakon Minilab) |
 
-Applying it sets the defaults for new files and rewrites every edited frame in the session (Ctrl+Z per frame).
+Applying it sets the defaults for new files and rewrites every edited frame in the session (Ctrl+Z per frame). The print stock changes only on a Color Negative frame on one of the two Digital stocks; a frame on another stock keeps it. The light page suggests other stocks to try in **Paper Response**.
 
 **Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where each color leaks into the others through the sensor's filters. Needs **Linear RAW**; grayed out on a Trichrome triplet. **Re-run Roll Analysis** after changing it.
 
@@ -784,43 +785,8 @@ To tune a matrix, adjust its six off-diagonal terms in the editor and save it as
 
 Single-Shot Narrowband Calibration does not apply to Transparency; it stays grayed out with its values for the next negative. For slides on a narrowband rig, use **Hue Trim**.
 
-<!-- panel:autocrop -->
-### 10.4 Crop
-
-The roll-wide crop shape, and what the frame detector looks for. Each frame's rectangle is its own, drawn or found in **Geometry** ([§4.1](#41-geometry-crop-and-straighten)).
-
-*   **Ratio** (default `Free`): `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`, each auto-oriented. On `Free` auto-crop uses the detected format; a ratio forces every frame to it.
-*   **Detect**: snaps the ratio to the closest standard.
-
-**Auto Crop**:
-
-*   **Mode**: *Image only* (exposed area) or *Film edge* (full film, with rebate and sprockets).
-*   **Crop Offset** (-5 to 100 px): insets the detected edge; negative bleeds slightly outside.
-*   **Rebate Trim** (0 to 150%, *Image only*): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border.
-*   **Auto Crop** (magic wand): detects the frame edge and crops to it; off clears the crop. New frames start with the last value set. A hand-drawn crop turns it off for that frame alone. **Roll** asks before it changes the roll's Auto Crop for frames that follow the roll.
-*   **Square Before Crop** (default off): Auto Crop first squares the frame (Fine Rotation, Tilt and Swing, as **Auto Skew**), then crops. It squares once when Auto Crop is set or Square Before Crop is turned on; a frame with its own Fine Rotation, Tilt or Swing keeps them. **Auto-crop all frames** straightens rotation either way; this adds Tilt and Swing.
-*   **Auto-crop all frames** (*Image only*): crops every frame in the Film Strip together, calibrating weak detections from confident ones, and straightens each as **Auto Skew** does. Hand-drawn, Film-edge and ambiguous frames, and frames with their own Auto Crop off, are left alone.
-*   **Mixing scans**: allowed. A frame that reads its own edge keeps its crop; a frame with no edge takes the roll's width and tilt. Frames from one camera, holder and format pool best.
-*   **When auto-crop leaves a frame alone**: the scanner bed must be the brightest thing in the scan. A slide with highlights as bright as the bed, sprocket-exposed film, or a neighbor frame filling more than a tenth of one side stays uncropped. Crop by hand, or use *Film edge* and trim in.
-
-A change re-detects every following frame cropped by **Auto**. Hand-drawn crops stay, but **Ratio** reshapes them around their center.
-
-<!-- panel:baseline -->
-### 10.5 Roll Analysis
-
-Meters the roll once and shares the result, so frames of one film match.
-
-*   **Use average: Luma**: takes the picked roll's tonal range; color stays per frame. Disables Luma Range Clip.
-*   **Use average: Color**: takes the picked roll's color balance; tonal range stays per frame. Disables Color Clip. Luma and Color on gives a consistent roll; both off gives per-image auto-exposure.
-*   **Use average: Cast** (Color Negative only): takes Cast Removal's gray balance from the roll or scene analysis, so frames under one light render alike. An analysis turns it on, except on frames far from the rest.
-*   **Baseline**: names the roll, scene or frame the baseline came from, and warns when there is none or when an older version of the analysis measured it.
-*   **Rolls** (picker): every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. A baseline from an older analysis shows an amber hint until you run **Reanalyze**.
-*   **Reanalyze** (also in the Library, [§2](#2-film-strip-left-panel)): averages density and color balance over the loaded roll, without scene and locked frames, and saves the roll's baseline. Frames far from the rest keep their own. Run **Auto-crop all frames** ([§10.4](#104-crop)) first for consistent crops.
-*   **Use This Frame**: saves this frame's bounds as the roll's baseline.
-*   **Scenes**: the loaded roll's [scenes](#scenes). **Analyze** runs Scene Analysis (Reanalyze over the scene only), **Select** selects its frames, and **Delete** forgets it. An amber ✓ marks a scene baseline from an older analysis.
-
 <!-- panel:process -->
-### 10.6 Metering: negative → positive
+### 10.4 Metering: negative → positive
 
 How this frame is measured into a positive's tonal bounds.
 
@@ -844,6 +810,41 @@ How this frame is measured into a positive's tonal bounds.
 *   **Color Clip** (-100 to 100): the per-channel color-balance clip (orange-mask removal). Positive tightens; negative samples nearer the extremes.
 
 **White / Black Point** (-0.25 to 0.25), with a **Global** / **R** / **G** / **B** selector: offsets on the detected bounds; a positive white point brightens, a positive black point lifts blacks. In R/G/B they trim each layer's Dmin and Dmax. On a slide they offset its fixed window; elsewhere **Lock Bounds** disables them.
+
+<!-- panel:autocrop -->
+### 10.5 Crop
+
+The roll-wide crop shape, and what the frame detector looks for. Each frame's rectangle is its own, drawn or found in **Geometry** ([§4.1](#41-geometry-crop-and-straighten)).
+
+*   **Ratio** (default `Free`): `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`, each auto-oriented. On `Free` auto-crop uses the detected format; a ratio forces every frame to it.
+*   **Detect**: snaps the ratio to the closest standard.
+
+**Auto Crop**:
+
+*   **Mode**: *Image only* (exposed area) or *Film edge* (full film, with rebate and sprockets).
+*   **Crop Offset** (-5 to 100 px): insets the detected edge; negative bleeds slightly outside.
+*   **Rebate Trim** (0 to 150%, *Image only*): 0% stops at the film edge, 100% at the detected image edge, above 100% cuts into the picture to clear a white border.
+*   **Auto Crop** (magic wand): detects the frame edge and crops to it; off clears the crop. New frames start with the last value set. A hand-drawn crop turns it off for that frame alone. **Roll** asks before it changes the roll's Auto Crop for frames that follow the roll.
+*   **Square Before Crop** (default off): Auto Crop first squares the frame (Fine Rotation, Tilt and Swing, as **Auto Skew**), then crops. It squares once when Auto Crop is set or Square Before Crop is turned on; a frame with its own Fine Rotation, Tilt or Swing keeps them. **Auto-crop all frames** straightens rotation either way; this adds Tilt and Swing.
+*   **Auto-crop all frames** (*Image only*): crops every frame in the Film Strip together, calibrating weak detections from confident ones, and straightens each as **Auto Skew** does. Hand-drawn, Film-edge and ambiguous frames, and frames with their own Auto Crop off, are left alone.
+*   **Mixing scans**: allowed. A frame that reads its own edge keeps its crop; a frame with no edge takes the roll's width and tilt. Frames from one camera, holder and format pool best.
+*   **When auto-crop leaves a frame alone**: the scanner bed must be the brightest thing in the scan. A slide with highlights as bright as the bed, sprocket-exposed film, or a neighbor frame filling more than a tenth of one side stays uncropped. Crop by hand, or use *Film edge* and trim in.
+
+A change re-detects every following frame cropped by **Auto**. Hand-drawn crops stay, but **Ratio** reshapes them around their center.
+
+<!-- panel:baseline -->
+### 10.6 Roll Analysis
+
+Meters the roll once and shares the result, so frames of one film match.
+
+*   **Use average: Luma**: takes the picked roll's tonal range; color stays per frame. Disables Luma Range Clip.
+*   **Use average: Color**: takes the picked roll's color balance; tonal range stays per frame. Disables Color Clip. Luma and Color on gives a consistent roll; both off gives per-image auto-exposure.
+*   **Use average: Cast** (Color Negative only): takes Cast Removal's gray balance from the roll or scene analysis, so frames under one light render alike. An analysis turns it on, except on frames far from the rest.
+*   **Baseline**: names the roll, scene or frame the baseline came from, and warns when there is none or when an older version of the analysis measured it.
+*   **Rolls** (picker): every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. A baseline from an older analysis shows an amber hint until you run **Reanalyze**.
+*   **Reanalyze** (also in the Library, [§2](#2-film-strip-left-panel)): averages density and color balance over the loaded roll, without scene and locked frames, and saves the roll's baseline. Frames far from the rest keep their own. Run **Auto-crop all frames** ([§10.5](#105-crop)) first for consistent crops.
+*   **Use This Frame**: saves this frame's bounds as the roll's baseline.
+*   **Scenes**: the loaded roll's [scenes](#scenes). **Analyze** runs Scene Analysis (Reanalyze over the scene only), **Select** selects its frames, and **Delete** forgets it. An amber ✓ marks a scene baseline from an older analysis.
 
 <!-- panel:demosaic -->
 ### 10.7 Raw Decode: turning the sensor mosaic into pixels
@@ -1173,6 +1174,7 @@ Application-wide settings: **⋯** menu → **Preferences…** or `Ctrl + ,`. Ch
 
 ### Interface
 
+*   **Language** (default System Default): English, Simplified Chinese, Japanese or Korean; restart to apply. Other system languages use English. Panel guides use the selected language and fall back to English when a translation is missing.
 *   **UI scale** (80% to 120%): after a restart.
 *   **Canvas background**: black, dark gray, mid gray (neutral for judging) or white (a print on a light table).
 *   **Immersive canvas**: the toolbar floats over the image.

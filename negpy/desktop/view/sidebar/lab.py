@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -16,43 +17,43 @@ class LabSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.lab
 
-        self.color_header = section_subheader("COLOR")
+        self.color_header = section_subheader(tr("COLOR"))
         self.layout.addWidget(self.color_header)
 
-        self.saturation_slider = CompactSlider("Chroma", 0.0, 2.0, conf.saturation, has_neutral=True)
+        self.saturation_slider = CompactSlider(tr("Chroma"), 0.0, 2.0, conf.saturation, has_neutral=True)
         self.layout.addWidget(self.saturation_slider)
 
         row1 = QVBoxLayout()
-        self.skin_protection_slider = CompactSlider("Skin Protection", 0.0, 1.0, conf.skin_protection)
-        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
+        self.skin_protection_slider = CompactSlider(tr("Skin Protection"), 0.0, 1.0, conf.skin_protection)
+        self.chroma_denoise_slider = CompactSlider(tr("Chroma Denoise"), 0.0, 5.0, conf.chroma_denoise)
         row1.addWidget(self.skin_protection_slider)
         row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)
 
-        self.layout.addWidget(section_subheader("DETAIL"))
+        self.layout.addWidget(section_subheader(tr("DETAIL")))
 
-        self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
+        self.sharpen_slider = CompactSlider(tr("Sharpening"), 0.0, 1.0, conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
 
         method_row = QHBoxLayout()
-        method_row.addWidget(field_label("Method"))
+        method_row.addWidget(field_label(tr("Method")))
         self.sharpen_method_combo = StepCombo()
-        self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
-        self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
+        self.sharpen_method_combo.addItem(tr("Unsharp Mask"), SharpenMethod.USM.value)
+        self.sharpen_method_combo.addItem(tr("Deconvolution"), SharpenMethod.RL.value)
         self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
         method_row.addWidget(self.sharpen_method_combo, 1)
-        self.sharpen_radius_slider = CompactSlider("Radius", 0.5, 3.0, conf.sharpen_radius, unit=" px")
-        self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
+        self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, conf.sharpen_radius, unit=" px")
+        self.sharpen_masking_slider = CompactSlider(tr("Masking"), 0.0, 1.0, conf.sharpen_masking)
         self.layout.addWidget(SliderGroup(method_row, self.sharpen_radius_slider, self.sharpen_masking_slider))
 
-        self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
+        self.clahe_slider = CompactSlider(tr("CLAHE"), 0.0, 1.0, conf.clahe_strength)
         self.layout.addWidget(self.clahe_slider)
 
-        self.layout.addWidget(section_subheader("EFFECTS"))
+        self.layout.addWidget(section_subheader(tr("EFFECTS")))
 
         row4 = QVBoxLayout()
-        self.glow_slider = CompactSlider("Glow", 0.0, 1.0, conf.glow_amount)
-        self.halation_slider = CompactSlider("Halation", 0.0, 1.0, conf.halation_strength)
+        self.glow_slider = CompactSlider(tr("Glow"), 0.0, 1.0, conf.glow_amount)
+        self.halation_slider = CompactSlider(tr("Halation"), 0.0, 1.0, conf.halation_strength)
         row4.addWidget(self.glow_slider)
         row4.addWidget(self.halation_slider)
         self.layout.addLayout(row4)

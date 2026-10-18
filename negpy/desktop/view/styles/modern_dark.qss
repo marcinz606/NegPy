@@ -704,48 +704,6 @@ QCheckBox::indicator:disabled {
     background-color: @bg_indicator_disabled;
 }
 
-/* Radio buttons — Fusion's indicator is as faint on this background as the checkbox one,
-   and the scan-setup pages are built entirely from radios. Same box as QCheckBox, round. */
-QRadioButton {
-    spacing: 6px;
-}
-
-QRadioButton::indicator {
-    width: 15px;
-    height: 15px;
-    border-radius: 8px;
-    border: 1px solid @border_indicator;
-    background-color: @bg_indicator;
-}
-
-QRadioButton::indicator:hover {
-    border: 1px solid @border_indicator_hover;
-    background-color: @bg_indicator_hover;
-}
-
-/* A dot inside the ring, not a filled box: a border thick enough to read as a dot eats the
-   corner radius and the indicator turns square. */
-QRadioButton::indicator:checked {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 @accent_primary, stop:0.5 @accent_primary, stop:0.55 @bg_indicator, stop:1 @bg_indicator);
-    border: 1px solid @accent_primary;
-}
-
-QRadioButton::indicator:checked:hover {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 @accent_secondary, stop:0.5 @accent_secondary, stop:0.55 @bg_indicator_hover, stop:1 @bg_indicator_hover);
-    border: 1px solid @accent_secondary;
-}
-
-QRadioButton::indicator:disabled {
-    border: 1px solid @border_color;
-    background-color: @bg_indicator_disabled;
-}
-
-QRadioButton:disabled {
-    color: @text_muted;
-}
-
 /* Keyboard focus. A styled QPushButton loses Fusion's focus rect, so tabbing through a
    panel or a dialog footer moves an invisible cursor. Marked with the accent border the
    checked state uses, one step brighter. */
@@ -753,7 +711,7 @@ QPushButton:focus, QToolButton:focus {
     border: 1px solid @accent_secondary;
 }
 
-QCheckBox::indicator:focus, QRadioButton::indicator:focus {
+QCheckBox::indicator:focus {
     border-color: @accent_secondary;
 }
 

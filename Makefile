@@ -20,6 +20,13 @@ endif
 .PHONY: all
 all: format lint type test
 
+.PHONY: translations translations-check
+translations:
+	@$(UV) python scripts/extract_translations.py
+
+translations-check:
+	@$(UV) python scripts/extract_translations.py --check
+
 # Install dependencies
 .PHONY: install
 install:

@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -21,7 +22,7 @@ class RgbTripletDialog(QDialog):
     def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "", *, repo=None) -> None:
         super().__init__(parent)
         self._start_dir = start_dir
-        self.setWindowTitle("Edit RGB Triplet")
+        self.setWindowTitle(tr("Edit RGB Triplet"))
         layout = QVBoxLayout(self)
         self._edits: dict[str, QLineEdit] = {}
         for label, path in (("Red", red), ("Green", green), ("Blue", blue)):
@@ -29,15 +30,15 @@ class RgbTripletDialog(QDialog):
             row.addWidget(QLabel(label, minimumWidth=48))
             edit = QLineEdit(path)
             row.addWidget(edit, 1)
-            browse = labeled_action("", "Browse…", "Pick the file for this channel")
+            browse = labeled_action("", tr("Browse…"), tr("Pick the file for this channel"))
             browse.clicked.connect(lambda _=False, e=edit: self._browse(e))
             row.addWidget(browse)
             layout.addLayout(row)
             self._edits[label] = edit
 
-        self._align = QCheckBox("Align channels (sub-pixel)")
+        self._align = QCheckBox(tr("Align channels (sub-pixel)"))
         self._align.setChecked(align)
-        self._align.setToolTip("Register green/blue to the red exposure to remove fringing from capture drift.")
+        self._align.setToolTip(tr("Register green/blue to the red exposure to remove fringing from capture drift."))
         layout.addWidget(self._align)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -52,7 +53,9 @@ class RgbTripletDialog(QDialog):
         # are shot in one go and live together.
         siblings = [self._edits[label].text() for label in ("Red", "Green", "Blue")]
         start = pick_start_dir(edit.text(), *siblings, self._start_dir)
-        path, _ = QFileDialog.getOpenFileName(self, "Select Exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Select Exposure"), start, tr("Supported Images ({value})", value=get_supported_raw_wildcards())
+        )
         if path:
             edit.setText(path)
 

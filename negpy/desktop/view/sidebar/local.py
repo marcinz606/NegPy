@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel
 import qtawesome as qta
@@ -16,15 +17,19 @@ from negpy.services.view.printing_notes import tone_limit_label
 
 
 _TONE_TIPS = {
-    MaskKey.OFF: "The mask acts on every tone inside its shape.",
+    MaskKey.OFF: tr("The mask acts on every tone inside its shape."),
     MaskKey.HIGHLIGHTS: (
-        "The mask acts only on tones lighter than Tone Zone, read on the print before any mask, "
-        "like a lith mask made from the negative and registered with it. Burn a sky and the burn "
-        "stops at the skyline instead of darkening a band of it."
+        tr(
+            "The mask acts only on tones lighter than Tone Zone, read on the print before any mask, "
+            "like a lith mask made from the negative and registered with it. Burn a sky and the burn "
+            "stops at the skyline instead of darkening a band of it."
+        )
     ),
     MaskKey.SHADOWS: (
-        "The mask acts only on tones darker than Tone Zone, read on the print before any mask. "
-        "Dodge the ground under a sky without lightening the sky above it."
+        tr(
+            "The mask acts only on tones darker than Tone Zone, read on the print before any mask. "
+            "Dodge the ground under a sky without lightening the sky above it."
+        )
     ),
 }
 _TONE_FULL_TIP = f"{MAX_KEYED_MASKS} masks already carry a tone limit, the most one frame prints. Set one of them to All to limit this one."
@@ -45,93 +50,109 @@ class LocalSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.draw_btn = self._tool_toggle(
             "fa5s.draw-polygon",
-            "Draw",
-            "Draw Mask: draw a new mask: click to place vertices; double-click, Enter, or a click near "
-            "the start closes; Esc cancels. Select a mask from the list to edit it (no need to "
-            "re-enter this tool): drag a vertex to move it, click an edge '+' dot to add a point, "
-            "right-click a vertex to delete it.",
+            tr("Draw"),
+            tr(
+                "Draw Mask: draw a new mask: click to place vertices; double-click, Enter, or a click near "
+                "the start closes; Esc cancels. Select a mask from the list to edit it (no need to "
+                "re-enter this tool): drag a vertex to move it, click an edge '+' dot to add a point, "
+                "right-click a vertex to delete it."
+            ),
         )
         self.oval_btn = self._tool_toggle(
             "fa5s.circle",
-            "Oval",
-            "Oval: burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
-            "handles move it (center) and set each axis, so it can be stretched and tilted.",
+            tr("Oval"),
+            tr(
+                "Oval: burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
+                "handles move it (center) and set each axis, so it can be stretched and tilted."
+            ),
         )
         self.gradient_btn = self._tool_toggle(
             "fa5s.grip-lines",
-            "Card",
-            "Card Edge: the graduated burn a printer makes by moving a card across the paper: drag from the "
-            "full-exposure edge (solid line) to where it fades out (dashed). The distance between "
-            "the two handles is the softness, so Feather does nothing here.",
+            tr("Card"),
+            tr(
+                "Card Edge: the graduated burn a printer makes by moving a card across the paper: drag from the "
+                "full-exposure edge (solid line) to where it fades out (dashed). The distance between "
+                "the two handles is the softness, so Feather does nothing here."
+            ),
         )
-        self.masks_header = section_subheader("MASKS · 0")
+        self.masks_header = section_subheader(tr("MASKS · 0"))
         self.layout.addWidget(self.masks_header)
         tool_row = QHBoxLayout()
         for btn in (self.draw_btn, self.oval_btn, self.gradient_btn):
             tool_row.addWidget(btn, 1)
         self.layout.addLayout(tool_row)
-        self.slide_hint = hint_label("Not applied to slides.")
+        self.slide_hint = hint_label(tr("Not applied to slides."))
         self.slide_hint.setToolTip(
-            wrap_tooltip("A slide prints through its transfer curve, which takes no dodge/burn map. The frame keeps its masks.")
+            wrap_tooltip(tr("A slide prints through its transfer curve, which takes no dodge/burn map. The frame keeps its masks."))
         )
         self.slide_hint.setVisible(False)
         self.layout.addWidget(self.slide_hint)
 
         self.mask_list = ShapeList(
-            "Click a mask to select it. Click its shape icon to enable or disable its effect, "
-            "the eye to show/hide its outline, and the trash icon to delete it."
+            tr(
+                "Click a mask to select it. Click its shape icon to enable or disable its effect, "
+                "the eye to show/hide its outline, and the trash icon to delete it."
+            )
         )
         self.layout.addWidget(self.mask_list)
 
         # Exposure-signed like the frame's Print Density and the Finishing edge burn: positive is
         # more light on the paper, so darker.
-        self.burn_slider = CompactSlider("Burn", -2.0, 2.0, 0.0, step=0.05, precision=100, has_neutral=True, unit=" st")
+        self.burn_slider = CompactSlider(tr("Burn"), -2.0, 2.0, 0.0, step=0.05, precision=100, has_neutral=True, unit=" st")
         self.burn_slider.setToolTip(
-            "Print exposure for the selected mask, in stops — positive burns (longer exposure, "
-            "darker paper), negative dodges (held back, brighter paper)"
+            tr(
+                "Print exposure for the selected mask, in stops — positive burns (longer exposure, "
+                "darker paper), negative dodges (held back, brighter paper)"
+            )
         )
 
-        self.feather_slider = CompactSlider("Feather", 0.0, 0.15, 0.04, step=0.005, precision=1000)
-        self.feather_slider.setToolTip("Edge softness for the selected mask")
+        self.feather_slider = CompactSlider(tr("Feather"), 0.0, 0.15, 0.04, step=0.005, precision=1000)
+        self.feather_slider.setToolTip(tr("Edge softness for the selected mask"))
 
         # Inverted like every other grade slider (Tone's ISO-R Grade, split grade, layer trims):
         # dragging right is harder paper, even though R falls.
-        self.grade_slider = CompactSlider("Grade", -40.0, 40.0, 0.0, step=5.0, precision=1, has_neutral=True, unit=" R", inverted=True)
+        self.grade_slider = CompactSlider(tr("Grade"), -40.0, 40.0, 0.0, step=5.0, precision=1, has_neutral=True, unit=" R", inverted=True)
         self.grade_slider.setToolTip(
-            "Print the selected mask at its own grade, in ISO-R points off the frame's Grade — "
-            "negative is harder, the darkroom's burn-in through the hard filter. The region's own "
-            "midtone holds, so this changes its contrast without moving its overall density."
+            tr(
+                "Print the selected mask at its own grade, in ISO-R points off the frame's Grade — "
+                "negative is harder, the darkroom's burn-in through the hard filter. The region's own "
+                "midtone holds, so this changes its contrast without moving its overall density."
+            )
         )
 
-        self.flash_slider = CompactSlider("Flash", 0.0, 1.0, 0.0)
+        self.flash_slider = CompactSlider(tr("Flash"), 0.0, 1.0, 0.0)
         self.flash_slider.setToolTip(
-            "Pre-expose the paper under the selected mask, as a fraction of the threshold exposure like "
-            "the Tone card's Preflash. It compresses the region's highlights without the density a burn adds. "
-            "Off on a tone-limited mask."
+            tr(
+                "Pre-expose the paper under the selected mask, as a fraction of the threshold exposure like "
+                "the Tone card's Preflash. It compresses the region's highlights without the density a burn adds. "
+                "Off on a tone-limited mask."
+            )
         )
 
         self._tone_keys = (MaskKey.OFF, MaskKey.HIGHLIGHTS, MaskKey.SHADOWS)
         self.tone_btn = SegmentedChoice(
-            (("fa5s.adjust", "All"), ("fa5s.sun", "Highlights"), ("fa5s.moon", "Shadows")),
-            "Which tones inside the selected mask's shape it acts on",
+            (("fa5s.adjust", tr("All")), ("fa5s.sun", tr("Highlights")), ("fa5s.moon", tr("Shadows"))),
+            tr("Which tones inside the selected mask's shape it acts on"),
         )
 
         # Print zones in thirds, the zone strip's and zone placement's own step.
-        self.key_zone_slider = CompactSlider("Tone Zone", 0.0, 10.0, 6.0, step=1.0 / 3.0, precision=3)
+        self.key_zone_slider = CompactSlider(tr("Tone Zone"), 0.0, 10.0, 6.0, step=1.0 / 3.0, precision=3)
         self.key_zone_slider.setToolTip(
-            "The zone the tone limit starts at, on the print before any mask: 0 is paper black, V is 18% gray, X is paper white"
+            tr("The zone the tone limit starts at, on the print before any mask: 0 is paper black, V is 18% gray, X is paper white")
         )
-        self.key_softness_slider = CompactSlider("Tone Softness", 1.0 / 3.0, 3.0, 1.0, step=1.0 / 3.0, precision=3)
+        self.key_softness_slider = CompactSlider(tr("Tone Softness"), 1.0 / 3.0, 3.0, 1.0, step=1.0 / 3.0, precision=3)
         self.key_softness_slider.setToolTip(
-            "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
+            tr(
+                "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
+            )
         )
 
-        self.layout.addWidget(section_subheader("SELECTED MASK"))
+        self.layout.addWidget(section_subheader(tr("SELECTED MASK")))
         self.layout.addWidget(self.burn_slider)
         self.layout.addWidget(self.grade_slider)
         self.layout.addWidget(self.flash_slider)
         self.layout.addWidget(self.feather_slider)
-        self.layout.addWidget(section_subheader("Tone Limit"))
+        self.layout.addWidget(section_subheader(tr("Tone Limit")))
         self.layout.addWidget(self.tone_btn)
         self.layout.addWidget(SliderGroup(self.key_zone_slider, self.key_softness_slider))
 
@@ -200,7 +221,7 @@ class LocalSidebar(BaseSidebar):
         shape_btn.setIcon(qta.icon(_SHAPE_ICONS[mask.shape], color=color if mask.enabled else THEME.text_muted))
         shape_btn.setFixedSize(20, 22)
         shape_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        shape_btn.setToolTip("Click to enable or disable this mask's effect on the render")
+        shape_btn.setToolTip(tr("Click to enable or disable this mask's effect on the render"))
         label = QLabel(f"{i + 1}.  {kind}   " + "  ".join(values))
         label.setStyleSheet(f"color: {color if mask.enabled else THEME.text_muted};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -209,14 +230,16 @@ class LocalSidebar(BaseSidebar):
         invert = row_icon_button("fa5s.yin-yang", checkable=True)
         invert.setIcon(qta.icon("fa5s.yin-yang", color=THEME.accent_primary if mask.invert else THEME.text_primary))
         invert.setChecked(mask.invert)
-        invert.setToolTip(wrap_tooltip("Invert: act everywhere except inside this mask. Burn the surround and hold the face, in one mask"))
+        invert.setToolTip(
+            wrap_tooltip(tr("Invert: act everywhere except inside this mask. Burn the surround and hold the face, in one mask"))
+        )
 
         visible = i not in self.state.local_hidden_masks
         eye = row_icon_button("fa5s.eye" if visible else "fa5s.eye-slash", checkable=True)
         eye.setChecked(visible)
-        eye.setToolTip("Show or hide this mask's outline on the canvas")
+        eye.setToolTip(tr("Show or hide this mask's outline on the canvas"))
         delete = row_icon_button("fa5s.trash-alt", checkable=False)
-        delete.setToolTip("Delete this mask")
+        delete.setToolTip(tr("Delete this mask"))
 
         lay.addWidget(shape_btn)
         lay.addWidget(label)
@@ -251,7 +274,7 @@ class LocalSidebar(BaseSidebar):
             self.mask_list.setEnabled(not transfer)
 
             n = len(conf.masks)
-            self.masks_header.setText(f"MASKS · {n}")
+            self.masks_header.setText(tr("MASKS · {n}", n=n))
 
             idx = self.state.local_selected_mask
             has_selection = 0 <= idx < n

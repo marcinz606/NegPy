@@ -3,6 +3,8 @@ personal, or fall back to a custom entry."""
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Callable, Optional, Sequence
 
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
@@ -29,7 +31,7 @@ class GearCatalogDialog(QDialog):
     def __init__(self, parent, singular: str, catalog: Sequence, label_fn: Callable, placeholder: str, *, repo=None):
         super().__init__(parent)
         self._custom = False
-        self.setWindowTitle(f"Add {singular}")
+        self.setWindowTitle(tr("Add {singular}", singular=singular))
         self.setMinimumWidth(420)
 
         root = QVBoxLayout(self)
@@ -38,11 +40,11 @@ class GearCatalogDialog(QDialog):
 
         root.addWidget(field_label(singular))
         self.combo = SearchableGearCombo(placeholder=placeholder)
-        self.combo.setToolTip(wrap_tooltip(f"Search the built-in {singular.lower()} catalog. Click and type to search."))
+        self.combo.setToolTip(wrap_tooltip(tr("Search the built-in {value} catalog. Click and type to search.", value=singular.lower())))
         self.combo.set_gear_items(catalog, "", label_fn)
         self.combo.selection_changed.connect(self._update_add_enabled)
         root.addWidget(self.combo)
-        root.addWidget(hint_label(f"Pick the {singular.lower()} you own from the built-in list, or add a custom one."))
+        root.addWidget(hint_label(tr("Pick the {value} you own from the built-in list, or add a custom one.", value=singular.lower())))
 
         root.addLayout(self._build_footer())
         self._update_add_enabled()
@@ -50,16 +52,16 @@ class GearCatalogDialog(QDialog):
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        custom_btn = QPushButton("Add Custom")
-        custom_btn.setToolTip(wrap_tooltip("Add a blank entry to fill in by hand, for gear the catalog does not carry"))
+        custom_btn = QPushButton(tr("Add Custom"))
+        custom_btn.setToolTip(wrap_tooltip(tr("Add a blank entry to fill in by hand, for gear the catalog does not carry")))
         custom_btn.clicked.connect(self._pick_custom)
         row.addWidget(custom_btn)
         row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setToolTip(wrap_tooltip("Close without adding anything"))
+        cancel_btn = QPushButton(tr("Cancel"))
+        cancel_btn.setToolTip(wrap_tooltip(tr("Close without adding anything")))
         cancel_btn.clicked.connect(self.reject)
-        self.add_btn = QPushButton("Add")
-        self.add_btn.setToolTip(wrap_tooltip("Add the picked entry to your own gear"))
+        self.add_btn = QPushButton(tr("Add"))
+        self.add_btn.setToolTip(wrap_tooltip(tr("Add the picked entry to your own gear")))
         self.add_btn.clicked.connect(self.accept)
         row.addWidget(cancel_btn)
         row.addWidget(self.add_btn)

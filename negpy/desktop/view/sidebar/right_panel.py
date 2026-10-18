@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Any, Dict
 
 import numpy as np
@@ -37,7 +38,7 @@ from negpy.services.assets.rolls import card_fields
 from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
-_SCAN_BASE_TIP = (
+_SCAN_BASE_TIP = tr(
     "Base Relative: each channel's density above its clear film base (the Film Base set on the roll, "
     "else the base read from the rebate, else the stretch's thin end), so the mask's offset is gone "
     "and the channels compare at one height"
@@ -131,12 +132,12 @@ class RightPanel(QWidget):
 
         # (key, label, content_widget)
         group_specs = [
-            ("roll", "Roll", roll_page),
-            ("frame", "Frame", frame_page),
-            ("metadata", "Metadata", self.metadata_sidebar),
-            ("gear", "Gear", self.gear_panel),
-            ("export", "Export", self.export_sidebar),
-            ("scan", "Scan", self.scan_page),
+            ("roll", tr("Roll"), roll_page),
+            ("frame", tr("Frame"), frame_page),
+            ("metadata", tr("Metadata"), self.metadata_sidebar),
+            ("gear", tr("Gear"), self.gear_panel),
+            ("export", tr("Export"), self.export_sidebar),
+            ("scan", tr("Scan"), self.scan_page),
         ]
 
         # Spills into a » menu when the panel is narrowed
@@ -234,10 +235,12 @@ class RightPanel(QWidget):
 
         repo = self.controller.session.repo
         self.scale_btn = SegmentedChoice(
-            (("", "Lin"), ("", "Log")),
-            "Histogram, waveform and parade count scale: Log lifts small counts so thin tails and clipped ends "
-            "read. The scan parade in Peek Negative keeps its own, Log at first. On the Vectorscope it is the "
-            "chroma scale, kept apart for B&W and color frames: Log opens up the near-neutral center, where a toner lives.",
+            (("", tr("Lin")), ("", tr("Log"))),
+            tr(
+                "Histogram, waveform and parade count scale: Log lifts small counts so thin tails and clipped ends "
+                "read. The scan parade in Peek Negative keeps its own, Log at first. On the Vectorscope it is the "
+                "chroma scale, kept apart for B&W and color frames: Log opens up the near-neutral center, where a toner lives."
+            ),
         )
         self.scale_btn.setCurrentIndex(1 if repo.get_global_setting("histogram_log_scale") else 0)
         self.curve_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
@@ -253,18 +256,20 @@ class RightPanel(QWidget):
         self.chart_stack.addWidget(self.parade_widget)
         self.chart_stack.addWidget(self.vectorscope_widget)
         self.view_btn = SegmentedChoice(
-            (("", "Curve"), ("", "Waveform"), ("", "Parade"), ("", "Vectorscope")),
-            "Analysis chart",
+            (("", tr("Curve")), ("", tr("Waveform")), ("", tr("Parade")), ("", tr("Vectorscope"))),
+            tr("Analysis chart"),
             data=("curve", "waveform", "parade", "vectorscope"),
         )
-        self.view_btn.set_choice_tooltip(0, "The paper curve over the scan's and the print's histograms")
-        self.view_btn.set_choice_tooltip(1, "The print's tones across the frame, column by column, on the zone scale")
+        self.view_btn.set_choice_tooltip(0, tr("The paper curve over the scan's and the print's histograms"))
+        self.view_btn.set_choice_tooltip(1, tr("The print's tones across the frame, column by column, on the zone scale"))
         self.view_btn.set_choice_tooltip(
             2,
-            "The print's R, G and B side by side across the frame: a neutral sits at one height in all three, and a "
-            "channel that drifts across the frame is uneven light or Flat Field. In Peek Negative, the scan's density per channel",
+            tr(
+                "The print's R, G and B side by side across the frame: a neutral sits at one height in all three, and a "
+                "channel that drifts across the frame is uneven light or Flat Field. In Peek Negative, the scan's density per channel"
+            ),
         )
-        self.view_btn.set_choice_tooltip(3, "The print's colors on the a*b* plane: a cast, a toner, a split tone")
+        self.view_btn.set_choice_tooltip(3, tr("The print's colors on the a*b* plane: a cast, a toner, a split tone"))
         # Restored before the handler connects: it reaches widgets built further down.
         saved_view = self.view_btn.findData(repo.get_global_setting("analysis_view", "curve"))
         self.view_btn.setCurrentIndex(max(0, saved_view))
@@ -272,7 +277,7 @@ class RightPanel(QWidget):
         self.chart_stack.setCurrentIndex(self.view_btn.currentIndex())
         self._sync_scale_btn()
 
-        self.parade_overlay_btn = tool_toggle("fa5s.layer-group", "", "Parade Overlay: R, G and B on one plot, white where they agree")
+        self.parade_overlay_btn = tool_toggle("fa5s.layer-group", "", tr("Parade Overlay: R, G and B on one plot, white where they agree"))
         self.parade_overlay_btn.setChecked(bool(repo.get_global_setting("parade_overlay", False)))
         self.parade_overlay_btn.toggled.connect(self._on_parade_overlay)
         self.scan_base_btn = tool_toggle("fa5s.ruler-vertical", "", _SCAN_BASE_TIP)
@@ -301,13 +306,13 @@ class RightPanel(QWidget):
 
         repo = self.controller.session.repo
         # Roll and Frame each keep their own expanded state; _switch_group restores it.
-        self.analysis_section = make_section(repo, "Analysis", "analysis", analysis_content, "fa5s.chart-bar", persist=False)
+        self.analysis_section = make_section(repo, tr("Analysis"), "analysis", analysis_content, "fa5s.chart-bar", persist=False)
         self.analysis_section.expanded_changed.connect(lambda checked: repo.save_global_setting(self._analysis_expanded_setting(), checked))
         self.clipping_btn = self.analysis_section.add_header_toggle("fa5s.adjust", "Clipping Overlay")
         self.clipping_btn.setIcon(gradient_icon("fa5s.adjust", CLIPPING_SWEEP))
         self.clipping_btn.setChecked(self.controller.state.clipping_overlay)
         self.clipping_btn.toggled.connect(self.controller.toggle_clipping_overlay)
-        self.zone_highlight_btn = self.analysis_section.add_header_toggle("fa5s.highlighter", "Zone Highlight")
+        self.zone_highlight_btn = self.analysis_section.add_header_toggle("fa5s.highlighter", tr("Zone Highlight"))
         self.zone_highlight_btn.setChecked(self.controller.state.zone_hover_highlight)
         self.zone_highlight_btn.toggled.connect(self.controller.toggle_zone_hover_highlight)
         self._refresh_zone_strip_hint()
@@ -330,8 +335,8 @@ class RightPanel(QWidget):
         tab_specs = [(page["key"], page["label"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages]
         self._frame_tab_headers = {page["key"]: page["header"] for page in self.controls_panel.pages if page["header"]}
         tab_specs += [
-            ("favourites", "Favorites", "Favorites", favourites_page, ["presets_section"]),
-            ("history", "History", "History", self.history_panel, []),
+            ("favourites", tr("Favorites"), tr("Favorites"), favourites_page, ["presets_section"]),
+            ("history", tr("History"), tr("History"), self.history_panel, []),
         ]
 
         # Spills into a » menu when the panel is narrowed
@@ -379,9 +384,9 @@ class RightPanel(QWidget):
     def _build_roll_page(self) -> QWidget:
         """Facts the whole roll shares, not one frame's own edit: what film it is (Film
         Mode), how its files become frames (Frame Assembly), what the rig does to it
-        (Calibration) and the frame's shape (Crop), its shared exposure baseline (Roll
-        Analysis) and each frame's own (Metering), and how it decodes and the scanning
-        optics (Raw Decode, Optics). Film Mode leads, since it decides which of the others
+        (Calibration), each frame's own exposure baseline (Metering), the frame's shape
+        (Crop) and the roll's shared baseline (Roll Analysis), and how it decodes and the
+        scanning optics (Raw Decode, Optics). Film Mode leads, since it decides which of the others
         even apply."""
         cp = self.controls_panel
         page = QWidget()
@@ -389,14 +394,14 @@ class RightPanel(QWidget):
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(THEME.space_lg)
 
-        self.roll_tab_header = TabHeader("Roll")
+        self.roll_tab_header = TabHeader(tr("Roll"))
         self.roll_tab_header.bind(
             (
                 cp.film_section,
                 cp.sensor_section,
+                cp.process_section,
                 cp.autocrop_section,
                 cp.baseline_section,
-                cp.process_section,
                 cp.demosaic_section,
                 cp.optics_section,
             )
@@ -411,9 +416,9 @@ class RightPanel(QWidget):
             cp.film_section,
             cp.assembly_section,
             cp.sensor_section,
+            cp.process_section,
             cp.autocrop_section,
             cp.baseline_section,
-            cp.process_section,
             cp.demosaic_section,
             cp.optics_section,
         ):
@@ -446,26 +451,26 @@ class RightPanel(QWidget):
         scan, cam = self.scan_sidebar, self.scanlight_sidebar
 
         self.scan_source_btn = SegmentedChoice(
-            (("fa5s.camera-retro", "Film Scanner"), ("fa5s.camera", "Camera")),
-            "Scan with a film scanner or a camera on a copy stand",
+            (("fa5s.camera-retro", tr("Film Scanner")), ("fa5s.camera", tr("Camera"))),
+            tr("Scan with a film scanner or a camera on a copy stand"),
             data=("film", "camera"),
         )
         self.scan_source_btn.setCurrentIndex(max(self.scan_source_btn.findData(repo.get_global_setting("scan_source", "camera")), 0))
         self.scan_source_section = make_section(
-            repo, "Scanner", "scan_source", self.scan_source_btn, "fa5s.exchange-alt", collapsible=False
+            repo, tr("Scanner"), "scan_source", self.scan_source_btn, "fa5s.exchange-alt", collapsible=False
         )
-        self.scan_device_section = make_section(repo, "Device", "scan_device", scan.device_body, "fa5s.plug", True)
-        self.scan_quality_section = make_section(repo, "Film & Quality", "scan_quality", scan.quality_body, "fa5s.sliders-h", True)
-        self.scan_framing_section = make_section(repo, "Framing", "scan_framing", scan.framing_body, "fa5s.crop-alt", True)
-        self.scan_camera_section = make_section(repo, "Camera", "scan_camera", cam.camera_body, "fa5s.camera", True)
-        self.scan_light_section = make_section(repo, "Preset & Light", "scan_light", cam.light_body, "fa5s.lightbulb", True)
+        self.scan_device_section = make_section(repo, tr("Device"), "scan_device", scan.device_body, "fa5s.plug", True)
+        self.scan_quality_section = make_section(repo, tr("Film & Quality"), "scan_quality", scan.quality_body, "fa5s.sliders-h", True)
+        self.scan_framing_section = make_section(repo, tr("Framing"), "scan_framing", scan.framing_body, "fa5s.crop-alt", True)
+        self.scan_camera_section = make_section(repo, tr("Camera"), "scan_camera", cam.camera_body, "fa5s.camera", True)
+        self.scan_light_section = make_section(repo, tr("Preset & Light"), "scan_light", cam.light_body, "fa5s.lightbulb", True)
         output_body = QWidget()
         output_layout = QVBoxLayout(output_body)
         output_layout.setContentsMargins(0, 0, 0, 0)
         output_layout.setSpacing(THEME.space_md)
         output_layout.addWidget(self.scan_output)
         output_layout.addWidget(scan.output_body)
-        self.scan_output_section = make_section(repo, "Output", "scan_output", output_body, "fa5s.folder-open", True)
+        self.scan_output_section = make_section(repo, tr("Output"), "scan_output", output_body, "fa5s.folder-open", True)
 
         cards = QWidget()
         cards_layout = QVBoxLayout(cards)
@@ -640,11 +645,11 @@ class RightPanel(QWidget):
         standard = self.controller.state.color_vision == "standard"
         apart = bool(self.controller.state.negative_peek) and not self.scan_base_btn.isChecked()
         self.parade_overlay_btn.setEnabled(standard and not apart)
-        tip = "Parade Overlay: R, G and B on one plot, white where they agree"
+        tip = tr("Parade Overlay: R, G and B on one plot, white where they agree")
         if not standard:
-            tip += ". Off under this Color vision: its fringes tell the channels apart by hue alone"
+            tip = tr("{tip}. Off under this Color vision: its fringes tell the channels apart by hue alone", tip=tip)
         elif apart:
-            tip += ". On the scan, turn on Base Relative first: the film's mask keeps the channels apart"
+            tip = tr("{tip}. On the scan, turn on Base Relative first: the film's mask keeps the channels apart", tip=tip)
         self.parade_overlay_btn.setToolTip(tooltip_with_shortcut(tip, "toggle_parade_overlay"))
         self.parade_widget.set_overlay(standard and self.parade_overlay_btn.isChecked())
 
@@ -704,16 +709,16 @@ class RightPanel(QWidget):
         self.curve_widget.set_zone_colors(*palette_for(self.controller.state.color_vision).dodge_burn)
 
     def _refresh_zone_strip_hint(self) -> None:
-        self.zone_strip.set_overlay_hint(tooltip_with_shortcut("Double-click: Zone Overlay on or off", "toggle_zones"))
+        self.zone_strip.set_overlay_hint(tooltip_with_shortcut(tr("Double-click: Zone Overlay on or off"), "toggle_zones"))
         self.clipping_btn.setToolTip(
             tooltip_with_shortcut(
-                "Clipping Overlay: mark the pixels that print as paper black or paper white, in the Color vision pair (Preferences)",
+                tr("Clipping Overlay: mark the pixels that print as paper black or paper white, in the Color vision pair (Preferences)"),
                 "toggle_clipping_overlay",
             )
         )
         self.zone_highlight_btn.setToolTip(
             tooltip_with_shortcut(
-                "Zone Highlight: hover a zone strip cell to show that zone alone on the frame", "toggle_zone_hover_highlight"
+                tr("Zone Highlight: hover a zone strip cell to show that zone alone on the frame"), "toggle_zone_hover_highlight"
             )
         )
 
@@ -893,14 +898,14 @@ class RightPanel(QWidget):
 
         config = self.controller.state.config
         unmixed = effective_crosstalk_matrix(config.process, config.process.process_mode) is not None
-        caption = "Scan density"
+        caption = tr("Scan density")
         if self.scan_base_btn.isChecked():
             if self._scan_base_density is None:
-                caption += " above thin end"
+                caption = tr("Scan density above thin end")
             else:
-                caption += " above film base" if self._scan_base_source == "picked" else " above rebate base"
+                caption = tr("Scan density above film base") if self._scan_base_source == "picked" else tr("Scan density above rebate base")
         if unmixed:
-            caption += ", unmixed"
+            caption = tr("{caption}, unmixed", caption=caption)
         bounds = self._scan_bounds
         if bounds is None:
             return None, caption

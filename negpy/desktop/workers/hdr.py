@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import gc
 import threading
 from dataclasses import dataclass, replace
@@ -105,7 +106,7 @@ class HdrWorker(QObject):
 
             shapes = {f.shape for f in frames}
             if len(shapes) > 1:
-                self.error.emit("Bracket frames differ in size — they must be the same capture setup")
+                self.error.emit(tr("Bracket frames differ in size — they must be the same capture setup"))
                 return
 
             self.progress.emit(len(task.files), total, "Solving exposures")
@@ -121,7 +122,7 @@ class HdrWorker(QObject):
                 }
             )
         except Exception as e:
-            self.error.emit(f"HDR merge failed: {e}")
+            self.error.emit(tr("HDR merge failed: {e}", e=e))
         finally:
             frames.clear()
             self._processor.cleanup(release_source_cache=True, collect=False)

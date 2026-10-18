@@ -7,6 +7,8 @@ order, and the order set here is used only when Randomize is off, so turning it 
 Apply commits the route and the Randomize choice; Cancel discards both.
 """
 
+from negpy.kernel.system.i18n import tr
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -58,7 +60,7 @@ class CustomRoutingDialog(QDialog):
         repo=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Custom Routing")
+        self.setWindowTitle(tr("Custom Routing"))
         self.resize(420, 520)
 
         root = QVBoxLayout(self)
@@ -67,10 +69,10 @@ class CustomRoutingDialog(QDialog):
 
         root.addWidget(self._build_list())
         self._randomize_toggle = labeled_toggle(
-            "fa5s.random", "Randomize", randomize, "Shuffle the order on each run; the order set here is used only when this is off"
+            "fa5s.random", tr("Randomize"), randomize, tr("Shuffle the order on each run; the order set here is used only when this is off")
         )
         root.addWidget(self._randomize_toggle)
-        root.addWidget(hint_label("When on, each run shuffles this order; the order you set here is used only when Randomize is off."))
+        root.addWidget(hint_label(tr("When on, each run shuffles this order; the order you set here is used only when Randomize is off.")))
         root.addLayout(self._build_footer())
 
         self._fill_list(param_order)
@@ -90,9 +92,9 @@ class CustomRoutingDialog(QDialog):
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(tr("Cancel"))
         cancel.clicked.connect(self.reject)
-        self.apply_btn = QPushButton("Apply")
+        self.apply_btn = QPushButton(tr("Apply"))
         self.apply_btn.clicked.connect(self.accept)
         row.addWidget(cancel)
         row.addWidget(self.apply_btn)

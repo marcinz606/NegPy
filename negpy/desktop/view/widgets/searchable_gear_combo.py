@@ -25,6 +25,8 @@ Contract used by callers:
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
+
 from typing import Callable, Optional, Sequence
 
 from PyQt6.QtCore import QEvent, QModelIndex, QSortFilterProxyModel, Qt, QTimer, pyqtSignal
@@ -32,7 +34,7 @@ from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QToolButton, QWidget
 
 
-_NONE_LABEL = "— None —"
+_NONE_LABEL = tr("— None —")
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
 _SEARCH_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -72,7 +74,7 @@ class SearchableGearCombo(QWidget):
         self,
         *,
         none_label: str = _NONE_LABEL,
-        placeholder: str = "Search…",
+        placeholder: str = tr("Search…"),
         parent=None,
     ) -> None:
         super().__init__(parent)

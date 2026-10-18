@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
@@ -54,7 +55,7 @@ class CanvasNavigator(QWidget):
         self._idle_timer.setInterval(_IDLE_MS)
         self._idle_timer.timeout.connect(self._dim)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Navigator: click or drag to move the view")
+        self.setToolTip(tr("Navigator: click or drag to move the view"))
         self.hide()
 
     def sizeHint(self) -> QSize:  # noqa: N802

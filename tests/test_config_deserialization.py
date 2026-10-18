@@ -31,9 +31,17 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(config.exposure.grade, 90.0)
         self.assertEqual(config.export.export_fmt, "TIFF")
 
-    def test_retired_narrowband_scan_is_dropped(self):
+    def test_retired_narrowband_scan_becomes_the_pakon_stock(self):
         self.assertNotIn("narrowband_scan", WorkspaceConfig().to_dict())
-        self.assertEqual(WorkspaceConfig.from_flat_dict({"narrowband_scan": True}), WorkspaceConfig())
+        self.assertEqual(WorkspaceConfig.from_flat_dict({"narrowband_scan": False}), WorkspaceConfig())
+        self.assertEqual(WorkspaceConfig.from_flat_dict({"narrowband_scan": True}).exposure.paper_profile, "pakon")
+        for kept in (
+            {"paper_profile": "kodak_endura"},
+            {"process_mode": "B&W Negative"},
+            {"process_mode": "Transparency"},
+        ):
+            config = WorkspaceConfig.from_flat_dict({"narrowband_scan": True, **kept})
+            self.assertEqual(config.exposure.paper_profile, kept.get("paper_profile", "neutral"), kept)
 
     def test_unknown_keys_warning(self):
         data = {

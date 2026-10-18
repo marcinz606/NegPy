@@ -4,6 +4,8 @@ Red, green and blue captures with no film, at the scanning light and camera sett
 each band; the inverted mix is saved as a named sensor profile. Files, or a tethered capture.
 """
 
+from negpy.kernel.system.i18n import tr
+
 import numpy as np
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -27,11 +29,11 @@ from negpy.features.process.sensor import build_sensor_matrix, measure_capture
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.services.assets.sensor import SensorProfiles
 
-_BANDS = (("R", "Red exposure"), ("G", "Green exposure"), ("B", "Blue exposure"))
+_BANDS = (("R", tr("Red exposure")), ("G", tr("Green exposure")), ("B", tr("Blue exposure")))
 _CLIP_LEVEL = 0.98
 _CLIP_FRACTION = 0.02
-_CAPTURE_LABEL = "Capture from Camera…"
-_CAPTURE_TOOLTIP = (
+_CAPTURE_LABEL = tr("Capture from Camera…")
+_CAPTURE_TOOLTIP = tr(
     "Shoot the red, green and blue exposures with the tethered camera and the Scanlight, then save "
     "the profile under the name above. It asks before the first exposure."
 )
@@ -53,7 +55,7 @@ class SensorCalibrationDialog(QDialog):
         self._capture = None  # the running SensorResponseRequest
         self._presence = None  # (camera, Scanlight) from the last poll; None until one answers
         self._presence_pending = False
-        self.setWindowTitle("Calibrate Sensor")
+        self.setWindowTitle(tr("Calibrate Sensor"))
         self.resize(560, 320)
         self._init_ui()
         if controller is not None:
@@ -70,10 +72,12 @@ class SensorCalibrationDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(10)
         intro = QLabel(
-            "Pick three <b>bare-light</b> exposures — red-only, green-only and blue-only, with no film in the "
-            "holder and the same light and camera settings you scan with. NegPy measures the sensor's response "
-            "to each band and builds the correction. Expose just below clipping. With a tethered camera and a "
-            "Scanlight, <b>Capture from Camera…</b> shoots and measures the three exposures for you."
+            tr(
+                "Pick three <b>bare-light</b> exposures — red-only, green-only and blue-only, with no film in the "
+                "holder and the same light and camera settings you scan with. NegPy measures the sensor's response "
+                "to each band and builds the correction. Expose just below clipping. With a tethered camera and a "
+                "Scanlight, <b>Capture from Camera…</b> shoots and measures the three exposures for you."
+            )
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {THEME.text_secondary};")
@@ -85,8 +89,8 @@ class SensorCalibrationDialog(QDialog):
             grid.addWidget(QLabel(label), i, 0)
             edit = QLineEdit()
             edit.setReadOnly(True)
-            edit.setPlaceholderText("Choose a capture…")
-            browse = QPushButton("Browse…")
+            edit.setPlaceholderText(tr("Choose a capture…"))
+            browse = QPushButton(tr("Browse…"))
             browse.clicked.connect(lambda _c=False, b=band: self._browse(b))
             grid.addWidget(edit, i, 1)
             grid.addWidget(browse, i, 2)
@@ -95,9 +99,9 @@ class SensorCalibrationDialog(QDialog):
         root.addLayout(grid)
 
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Name"))
+        name_row.addWidget(QLabel(tr("Name")))
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g. X-T30 + Scanlight v4")
+        self.name_edit.setPlaceholderText(tr("e.g. X-T30 + Scanlight v4"))
         self.name_edit.textChanged.connect(self._refresh)
         name_row.addWidget(self.name_edit, 1)
         root.addLayout(name_row)
@@ -114,9 +118,9 @@ class SensorCalibrationDialog(QDialog):
         self.capture_btn.setVisible(self._controller is not None)
         btn_row.addWidget(self.capture_btn)
         btn_row.addStretch()
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self.reject)
-        self.compute_btn = QPushButton("Compute and Save")
+        self.compute_btn = QPushButton(tr("Compute and Save"))
         self.compute_btn.clicked.connect(self._compute_and_save)
         btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.compute_btn)
@@ -129,7 +133,10 @@ class SensorCalibrationDialog(QDialog):
         # where the bands already picked are.
         start = pick_start_dir(self._paths[band], *self._paths.values(), self._start_dir)
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Select the {band} bare-light exposure", start, f"Supported Images ({get_supported_raw_wildcards()})"
+            self,
+            tr("Select the {band} bare-light exposure", band=band),
+            start,
+            tr("Supported Images ({value})", value=get_supported_raw_wildcards()),
         )
         if path:
             self._paths[band] = path
@@ -144,7 +151,7 @@ class SensorCalibrationDialog(QDialog):
         missing = self._missing_hardware()
         self.capture_btn.setEnabled(nameable and not capturing and not missing)
         self.capture_btn.setToolTip(wrap_tooltip(f"{_CAPTURE_TOOLTIP} {missing}".strip()))
-        self.capture_btn.setText("Capturing…" if capturing else _CAPTURE_LABEL)
+        self.capture_btn.setText(tr("Capturing…") if capturing else _CAPTURE_LABEL)
         self.name_edit.setEnabled(not capturing)
 
     def _decode(self, path: str) -> np.ndarray:
@@ -162,7 +169,7 @@ class SensorCalibrationDialog(QDialog):
         # An override cursor set inside this modal dialog can crash Qt on macOS while it
         # builds the cursor image, so the button shows the busy state instead.
         self.compute_btn.setEnabled(False)
-        self.compute_btn.setText("Computing…")
+        self.compute_btn.setText(tr("Computing…"))
         self.compute_btn.repaint()
         try:
             measured = {}
@@ -174,10 +181,10 @@ class SensorCalibrationDialog(QDialog):
                     clipped.append(band)
             matrix = build_sensor_matrix(measured["R"], measured["G"], measured["B"])
         except Exception as exc:
-            self._show_result(f"Could not build the matrix: {exc}")
+            self._show_result(tr("Could not build the matrix: {exc}", exc=exc))
             return
         finally:
-            self.compute_btn.setText("Compute and Save")
+            self.compute_btn.setText(tr("Compute and Save"))
             self._refresh()
 
         SensorProfiles.save(name, list(matrix))
@@ -192,11 +199,13 @@ class SensorCalibrationDialog(QDialog):
     def _missing_hardware(self) -> str:
         """Why Capture from Camera cannot run, "" when it can."""
         if self._presence is None:
-            return "Looking for the camera and the Scanlight."
+            return tr("Looking for the camera and the Scanlight.")
         camera, light = self._presence
         if camera and light:
             return ""
-        return f"Connect {' and '.join(n for n, there in (('the camera', camera), ('the Scanlight', light)) if not there)} to use it."
+        return (
+            f"Connect {' and '.join(n for n, there in ((tr('the camera'), camera), (tr('the Scanlight'), light)) if not there)} to use it."
+        )
 
     def _poll_presence(self) -> None:
         # The worker runs one job at a time, so a poll sent during a capture only queues.
@@ -222,7 +231,7 @@ class SensorCalibrationDialog(QDialog):
             return
         self._capture = SensorResponseRequest(port=self._light_port(), settle_s=_LED_SETTLE_S)
         self._refresh()
-        self._show_result("Waiting for the camera…")
+        self._show_result(tr("Waiting for the camera…"))
         self._controller.start_sensor_response(self._capture)
 
     def _on_capture_progress(self, _frac: float, msg: str) -> None:
@@ -239,7 +248,7 @@ class SensorCalibrationDialog(QDialog):
         try:
             matrix = build_sensor_matrix(measured["R"], measured["G"], measured["B"])
         except ValueError as exc:
-            self._show_result(f"Could not build the matrix: {exc}")
+            self._show_result(tr("Could not build the matrix: {exc}", exc=exc))
             return
         SensorProfiles.save(name, list(matrix))
         self._show_result(self._summary(name, measured, []))
@@ -251,7 +260,7 @@ class SensorCalibrationDialog(QDialog):
             return
         self._capture = None
         self._refresh()
-        self._show_result(f"Could not capture: {msg}")
+        self._show_result(tr("Could not capture: {msg}", msg=msg))
 
     def done(self, result: int) -> None:
         # Esc and the close box reach here without a button click.
@@ -265,7 +274,7 @@ class SensorCalibrationDialog(QDialog):
     def _pin_close(self) -> None:
         # The dialog stays open to show the measured leakage; with the profile saved there
         # is nothing left to cancel.
-        self.cancel_btn.setText("Close")
+        self.cancel_btn.setText(tr("Close"))
         self.compute_btn.setDefault(False)
         self.compute_btn.setProperty("primary", False)
         pin_dialog_default(self.cancel_btn, self.compute_btn, self.capture_btn)
