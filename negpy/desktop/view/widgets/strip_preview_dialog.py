@@ -377,7 +377,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.ok_btn.setToolTip(tr("Keep this framing and selection, and return to the Scan panel"))
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
-        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan")
+        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), tr(" Scan"))
         self.scan_btn.setToolTip(tr("Scan the ticked frames now with the current settings"))
         self.scan_btn.setProperty("primary", True)
         self.scan_btn.clicked.connect(self._on_scan_clicked)

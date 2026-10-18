@@ -584,10 +584,10 @@ class ActionToolbar(QWidget):
         # entries whenever a side panel toggle gave the row enough width to show them directly.
         # A checkable item carries no icon: the stylesheet puts a menu icon in the check
         # column, which hides the checkmark that says the view is on.
-        find_action = overflow_menu.addAction(qta.icon("fa5s.search", color=icon_color), "Find Control or Action…", self._show_palette)
+        find_action = overflow_menu.addAction(qta.icon("fa5s.search", color=icon_color), tr("Find Control or Action…"), self._show_palette)
         self._label(find_action, tr("Find Control or Action…"), "command_palette")
         find_action.setToolTip(tr("Find any slider, card or action by name, and open it"))
-        self._fill_tools_menu(overflow_menu.addMenu(qta.icon("fa5s.tools", color=icon_color), "Tools"))
+        self._fill_tools_menu(overflow_menu.addMenu(qta.icon("fa5s.tools", color=icon_color), tr("Tools")))
         overflow_menu.addSeparator()
 
         self._ov_hq_action = overflow_menu.addAction(tr("HQ Preview"))
@@ -595,7 +595,7 @@ class ActionToolbar(QWidget):
         self._menu_tip(self._ov_hq_action, tr("Toggle high-quality (full-resolution) preview"), "toggle_hq")
         overflow_menu.addSeparator()
 
-        self._ov_fit_action = overflow_menu.addAction(qta.icon("fa5s.expand", color=icon_color), "Fit to Window")
+        self._ov_fit_action = overflow_menu.addAction(qta.icon("fa5s.expand", color=icon_color), tr("Fit to Window"))
         self._menu_tip(self._ov_fit_action, tr("Fit to Window"), "fit_view")
         self._ov_original_action = overflow_menu.addAction(tr("Original Size (1:1)"))
         self._ov_original_action.setCheckable(True)
@@ -659,15 +659,15 @@ class ActionToolbar(QWidget):
         self._ov_probe_action = overflow_menu.addAction(tr("Probe at Cursor"))
         self._ov_probe_action.setCheckable(True)
         self._menu_tip(self._ov_probe_action, tr("Zone, print density and ΔD of the pixel under the pointer"), "toggle_cursor_probe")
-        self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
+        self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), tr("Undo"))
         self._menu_tip(self._ov_undo_action, tr("Undo"), "undo")
-        self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
+        self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), tr("Redo"))
         self._menu_tip(self._ov_redo_action, tr("Redo"), "redo")
 
         overflow_menu.addSeparator()
-        self._ov_rot_l_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-left", color=icon_color), "Rotate CCW")
+        self._ov_rot_l_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-left", color=icon_color), tr("Rotate CCW"))
         self._menu_tip(self._ov_rot_l_action, tr("Rotate CCW"), "rotate_ccw")
-        self._ov_rot_r_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-right", color=icon_color), "Rotate CW")
+        self._ov_rot_r_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-right", color=icon_color), tr("Rotate CW"))
         self._menu_tip(self._ov_rot_r_action, tr("Rotate CW"), "rotate_cw")
         self._ov_flip_h_action = overflow_menu.addAction(tr("Flip Horizontal"))
         self._ov_flip_h_action.setCheckable(True)
@@ -677,47 +677,49 @@ class ActionToolbar(QWidget):
         self._menu_tip(self._ov_flip_v_action, tr("Flip Vertical"), "flip_v")
         overflow_menu.addSeparator()
 
-        self._action_copy = overflow_menu.addAction(qta.icon("fa5s.copy", color=icon_color), "Copy Settings", self.session.copy_settings)
+        self._action_copy = overflow_menu.addAction(
+            qta.icon("fa5s.copy", color=icon_color), tr("Copy Settings"), self.session.copy_settings
+        )
         self._label(self._action_copy, tr("Copy Settings"), "copy")
         self._action_copy.setToolTip(tr("Copy this image's settings to the clipboard"))
         self._action_copy_bounds = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color),
-            "Copy Settings + Bounds",
+            tr("Copy Settings + Bounds"),
             self.session.copy_settings_with_bounds,
         )
         self._label(self._action_copy_bounds, tr("Copy Settings + Bounds"), "copy_with_bounds")
         self._action_copy_bounds.setToolTip(tr("Copy settings plus the metering/normalization bounds"))
         self._action_paste = overflow_menu.addAction(
             qta.icon("fa5s.paste", color=icon_color),
-            "Paste Settings",
+            tr("Paste Settings"),
             lambda: open_paste_dialog(self, self.controller),
         )
         self._label(self._action_paste, tr("Paste Settings"), "paste")
         self._action_paste.setToolTip(tr("Paste the copied settings onto this frame, or every selected frame"))
         self._action_sync_bounds = overflow_menu.addAction(
             qta.icon("fa5s.crosshairs", color=icon_color),
-            "Sync Bounds…",
+            tr("Sync Bounds…"),
             lambda: open_sync_bounds_dialog(self, self.session),
         )
         self._label(self._action_sync_bounds, tr("Sync Bounds…"), "sync_bounds")
         self._action_sync_bounds.setToolTip(tr("Give other frames this image's metering bounds, and nothing else"))
         overflow_menu.addSeparator()
         reset_settings_action = overflow_menu.addAction(
-            qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings
+            qta.icon("fa5s.history", color=icon_color), tr("Reset Settings"), self.session.reset_settings
         )
         reset_settings_action.setToolTip(tr("Discard all edits and return this image to its default look"))
         self._action_reset_to_roll = overflow_menu.addAction(
-            roll_revert_icon(icon_color), "Reset to Roll Settings", self.controller.revert_frame_to_roll
+            roll_revert_icon(icon_color), tr("Reset to Roll Settings"), self.controller.revert_frame_to_roll
         )
         self._label(self._action_reset_to_roll, tr("Reset to Roll Settings"), "reset_to_roll")
         self._action_reset_to_roll.setToolTip(tr("Return every card that differs from the roll to the roll's settings"))
         overflow_menu.aboutToShow.connect(lambda: self._action_reset_to_roll.setEnabled(self.controller.can_revert_frame_to_roll()))
         overflow_menu.addSeparator()
-        unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload…", self._on_overflow_unload)
+        unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), tr("Unload…"), self._on_overflow_unload)
         unload_action.setToolTip(tr("Remove this image from the session (its saved edit is kept)"))
         overflow_menu.addSeparator()
 
-        prefs_action = overflow_menu.addAction(qta.icon("fa5s.sliders-h", color=icon_color), "Preferences…", self._show_preferences)
+        prefs_action = overflow_menu.addAction(qta.icon("fa5s.sliders-h", color=icon_color), tr("Preferences…"), self._show_preferences)
         self._label(prefs_action, tr("Preferences…"), "open_preferences")
         prefs_action.setToolTip(tr("Interface, performance and storage settings for the whole app"))
         overflow_menu.addSeparator()
@@ -727,10 +729,12 @@ class ActionToolbar(QWidget):
         )
         about_action = overflow_menu.addAction(qta.icon("fa5s.info-circle", color=icon_color), tr("About NegPy…"), self._show_about)
         about_action.setToolTip(tr("Version and project page"))
-        tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the Tour", self._show_tour)
+        tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), tr("Take the Tour"), self._show_tour)
         self._label(tour_action, tr("Take the Tour"), "show_tour")
         tour_action.setToolTip(tr("Replay the guided feature tour"))
-        shortcuts_action = overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts…", self._show_shortcuts)
+        shortcuts_action = overflow_menu.addAction(
+            qta.icon("fa5s.keyboard", color=icon_color), tr("Keyboard Shortcuts…"), self._show_shortcuts
+        )
         self._label(shortcuts_action, tr("Keyboard Shortcuts…"), "show_shortcuts")
         shortcuts_action.setToolTip(tr("Show the full keyboard shortcuts reference"))
         self.btn_overflow.setMenu(overflow_menu)

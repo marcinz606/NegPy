@@ -1,5 +1,7 @@
 """Language selection, format fallback and localized UI configuration boundaries."""
 
+import ast
+import hashlib
 import json
 import os
 import re
@@ -46,16 +48,93 @@ def test_language_resolution(choice: str, system: list[str], expected: str) -> N
     assert i18n.resolve_language(choice, system) == expected
 
 
+_FIX = "Run `make translations`, then fill every registered catalog (.claude/skills/update-translations/SKILL.md)."
+
+
 @pytest.mark.parametrize("locale", CATALOGS)
 def test_catalog_covers_every_marked_message_and_preserves_formats(locale: str) -> None:
     catalog = json.loads(CATALOGS[locale].read_text(encoding="utf-8"))
-    assert catalog.keys() == extract().keys()
+    missing, obsolete = sorted(extract() - catalog.keys()), sorted(catalog.keys() - extract())
+    assert not missing and not obsolete, f"{locale}.json misses {missing} and keeps obsolete {obsolete}. {_FIX}"
     for source, translated in catalog.items():
-        assert translated, source
-        assert i18n.fields(source) == i18n.fields(translated), source
-        assert re.findall(r"</?[A-Za-z][^>]*>", source) == re.findall(r"</?[A-Za-z][^>]*>", translated), source
+        assert translated, f"{locale}.json has no translation for {source!r}. {_FIX}"
+        assert i18n.fields(source) == i18n.fields(translated), f"{locale}.json changes the placeholders of {source!r}"
+        tags = r"</?[A-Za-z][^>]*>"
+        assert re.findall(tags, source) == re.findall(tags, translated), f"{locale}.json changes the HTML tags of {source!r}"
         assert not re.search(r"[ZX]XQ(?:MSG|PH).*QXZ", translated), source
-    assert ENGLISH_GUIDE.read_bytes() == (ROOT / "docs" / "USER_GUIDE.md").read_bytes()
+    assert ENGLISH_GUIDE.read_bytes() == (ROOT / "docs" / "USER_GUIDE.md").read_bytes(), (
+        "USER_GUIDE.en.md is stale. Run `make translations`."
+    )
+
+
+# Display-text arguments of Qt calls and the templates factories; None means every positional argument.
+_DISPLAY_ARGS: dict[str, tuple[int, ...] | None] = {
+    **dict.fromkeys(
+        (
+            "setText", "setToolTip", "setWindowTitle", "setPlaceholderText", "setStatusTip", "setTitle", "showMessage",
+            "setLabelText", "addAction", "addMenu", "QAction", "QMenu", "QLabel", "QPushButton", "QToolButton", "QCheckBox",
+            "QGroupBox",
+        ),
+        None,
+    ),
+    "addItem": (0,), "setTabText": (1,), "addTab": (1,), "setItemText": (1,),
+    "hint_label": (0,), "section_subheader": (0,), "field_label": (0,), "field_row": (0,), "make_section": (1,),
+    "tool_toggle": (1, 2), "clearable_tool_toggle": (1, 2, 3), "labeled_toggle": (1, 3), "labeled_action": (1, 2),
+    "icon_button": (1,), "header_button": (1,), "CompactSlider": (0,),
+    "information": (1, 2), "warning": (1, 2), "critical": (1, 2), "question": (1, 2),
+}  # fmt: skip
+_MESSAGE_BOX = {"information", "warning", "critical", "question"}
+
+
+def _untranslated(node: ast.AST) -> str | None:
+    """The English in a bare literal or f-string; None for tr(...), variables and text without words."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        text = node.value
+    elif isinstance(node, ast.JoinedStr):
+        text = "".join(str(part.value) for part in node.values if isinstance(part, ast.Constant))
+    else:
+        return None
+    return text if re.search(r"[A-Za-z]{2}", text) else None
+
+
+def test_display_text_is_marked_for_translation() -> None:
+    # ponytail: known calls only; text routed through a variable or a private helper passes unseen.
+    offenders = []
+    for path in sorted((ROOT / "negpy" / "desktop").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name not in _DISPLAY_ARGS:
+                continue
+            if name in _MESSAGE_BOX and not (isinstance(func, ast.Attribute) and getattr(func.value, "id", None) == "QMessageBox"):
+                continue
+            positions = _DISPLAY_ARGS[name]
+            args = [arg for i, arg in enumerate(node.args) if positions is None or i in positions]
+            args += [kw.value for kw in node.keywords if kw.arg in {"tooltip", "label", "title", "text"}]
+            offenders += [f"{path.relative_to(ROOT)}:{node.lineno} {text!r}" for arg in args if (text := _untranslated(arg))]
+    assert not offenders, f"Wrap this display text in tr(...). {_FIX}\n" + "\n".join(offenders)
+
+
+def _guide_source(english: str) -> str:
+    return hashlib.sha256(english.encode("utf-8")).hexdigest()[:8]
+
+
+@pytest.mark.parametrize("locale", CATALOGS)
+def test_localized_guides_record_their_current_english_source(locale: str) -> None:
+    from negpy.desktop.view.widgets.section_help_dialog import _localized_guides
+
+    path = CATALOGS[locale].with_name(f"USER_GUIDE.{locale}.md")
+    recorded = dict(re.findall(r"^<!--\s*panel:([a-z_]+)\s+src:([0-9a-f]{8})\s*-->$", path.read_text(encoding="utf-8"), re.M))
+    stale = [
+        f"<!-- panel:{key} src:{_guide_source(english)} -->"
+        for key, english in _localized_guides("en").items()
+        if recorded.get(key) != _guide_source(english)
+    ]
+    assert not stale, (
+        f"{path.name}: update these panels from their docs/USER_GUIDE.md sections, then replace their markers with:\n" + "\n".join(stale)
+    )
 
 
 def test_templates_do_not_translate_or_reformat_user_data(chinese: None) -> None:

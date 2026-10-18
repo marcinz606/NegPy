@@ -1061,7 +1061,7 @@ class ExportSidebar(BaseSidebar):
 
         content_layout.addLayout(btn_row)
 
-        self._bake_section = make_section(self.controller.session.repo, "Auto Density/Grade", "export_bake", content, "fa5s.fire")
+        self._bake_section = make_section(self.controller.session.repo, tr("Auto Density/Grade"), "export_bake", content, "fa5s.fire")
         self.layout.addWidget(self._bake_section)
 
     # --- Batch ---------------------------------------------------------------
@@ -1323,7 +1323,7 @@ class ExportSidebar(BaseSidebar):
 
         detected = self.state.monitor_icc_detected_bytes
         desc = profile_description(detected)
-        self.display_combo.setItemText(0, f"As detected ({desc})")
+        self.display_combo.setItemText(0, tr("As detected ({profile})", profile=desc))
         if detected is None:
             self.display_detected_label.setText(tr("Auto-detection failed — select your monitor's color space above."))
             set_hint_kind(self.display_detected_label, "error")

@@ -1791,8 +1791,8 @@ class FileBrowser(QWidget):
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
         icon_color = THEME.text_primary
         menu = QMenu(self)
-        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add Files…").triggered.connect(self.prompt_add_files)
-        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add Folder…").triggered.connect(self.prompt_add_folder)
+        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), tr("Add Files…")).triggered.connect(self.prompt_add_files)
+        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), tr("Add Folder…")).triggered.connect(self.prompt_add_folder)
         menu.addSeparator()
         clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), close_roll_label(self.session.state))
         clear.triggered.connect(lambda: _close_roll(self, self.controller))

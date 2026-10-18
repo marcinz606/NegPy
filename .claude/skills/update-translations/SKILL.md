@@ -13,12 +13,12 @@ sources. Paths below are relative to the repository root.
 - Read the Translations section in `CONTRIBUTING.md` and the current diff. Use the
   requested comparison ref, when provided, to find changed UI text and controls.
   For a clean release checkout, review changes since the last translation update
-  or previous release. `git log -- negpy/translations/sources.json` locates catalog
+  or previous release. `git log -- negpy/translations/zh_CN.json` locates catalog
   updates; an empty working-tree diff does not show which new controls lack marks.
 - Read `LANGUAGES` in `negpy/kernel/system/i18n.py` for the registered locales.
   Honor any locale limit in the request; report unfinished entries in other locales.
-- Use `negpy/translations/sources.json` to locate existing messages. Read the call
-  sites and the matching `docs/USER_GUIDE.md` panel before translating technical text.
+- Find a message's call sites with `git grep -F 'tr("<text>"'`. Read them and the
+  matching `docs/USER_GUIDE.md` panel before translating technical text.
   Existing catalogs and localized guides provide the terminology for each language.
 
 ## Mark display text
@@ -51,7 +51,7 @@ make translations
 ```
 
 This updates every registered JSON catalog, preserves exact-key translations,
-removes obsolete keys, regenerates `sources.json` and copies the English guide to
+removes obsolete keys and copies the English guide to
 `negpy/translations/USER_GUIDE.en.md`. Review the diff before and after extraction.
 A changed English key becomes a new entry: use its previous translation as context,
 but check the changed meaning before reusing it.
@@ -72,8 +72,10 @@ extractor's indentation and the final newline.
 ## Update panel guides
 
 Update affected sections in `negpy/translations/USER_GUIDE.<locale>.md` from
-`docs/USER_GUIDE.md`. Keep the same `<!-- panel:key -->` markers and a heading
-immediately after each marker. Add new panels, remove retired control descriptions
+`docs/USER_GUIDE.md`. Keep the same `<!-- panel:key src:hash -->` markers and a
+heading immediately after each marker. `src` is the hash of the English section
+the panel translates: `tests/test_i18n.py` lists each stale panel with its new
+marker, so set it once the panel matches the English text. Add new panels, remove retired control descriptions
 and preserve documented ranges, defaults and mode restrictions. The runtime falls
 back to English per panel; that fallback does not mean the panel was translated.
 
@@ -100,9 +102,9 @@ Before committing, `make all` provides the repository's required checks and
 includes those tests.
 
 The check command covers catalog keys and format signatures. The tests also check
-HTML tags, guide coverage, Qt translations and stored values in localized controls.
-If later formatting moves calls, regenerate `sources.json` with `make translations`.
-Review the final diff for changes to existing translations and generated references.
+HTML tags, display text outside `tr`, stale guide panels, guide coverage, Qt
+translations and stored values in localized controls.
+Review the final diff for changes to existing translations.
 
 Language is selected before desktop imports; module constants are translated on
 import, so changes require a restart. For visual review, use a fresh process for

@@ -13,9 +13,9 @@ CATALOGS = {locale: TRANSLATIONS / f"{locale}.json" for locale, _ in LANGUAGES i
 ENGLISH_GUIDE = TRANSLATIONS / "USER_GUIDE.en.md"
 
 
-def extract() -> dict[str, list[str]]:
-    """Group source references by text without importing UI modules."""
-    messages: dict[str, list[str]] = {}
+def extract() -> set[str]:
+    """Marked source texts, found without importing UI modules."""
+    messages: set[str] = set()
     for path in sorted((ROOT / "negpy").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -23,8 +23,8 @@ def extract() -> dict[str, list[str]]:
             indices = {"tr": (0,), "mark": (0,), "count_of": (1, 2), "plural": (1, 2)}.get(node.func.id, ())
             for index in indices:
                 if len(node.args) > index and isinstance(node.args[index], ast.Constant) and isinstance(node.args[index].value, str):
-                    messages.setdefault(node.args[index].value, []).append(f"{path.relative_to(ROOT)}:{node.lineno}")
-    return dict(sorted(messages.items()))
+                    messages.add(node.args[index].value)
+    return messages
 
 
 def main() -> None:
@@ -37,7 +37,7 @@ def main() -> None:
     errors = []
     for locale, path in CATALOGS.items():
         catalog = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        for source in messages:
+        for source in sorted(messages):
             translated = catalog.get(source, "")
             if not translated:
                 errors.append(f"{locale} Missing: {source!r}")
@@ -48,11 +48,12 @@ def main() -> None:
                 except ValueError:
                     errors.append(f"{locale} Invalid format: {source!r}")
         if args.check:
-            errors.extend(f"{locale} Obsolete: {source!r}" for source in catalog.keys() - messages.keys())
+            errors.extend(f"{locale} Obsolete: {source!r}" for source in sorted(catalog.keys() - messages))
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                json.dumps({source: catalog.get(source, "") for source in messages}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                json.dumps({source: catalog.get(source, "") for source in sorted(messages)}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
             )
     if args.check:
         if not ENGLISH_GUIDE.exists() or ENGLISH_GUIDE.read_bytes() != (ROOT / "docs" / "USER_GUIDE.md").read_bytes():
@@ -60,7 +61,6 @@ def main() -> None:
         if errors:
             raise SystemExit("\n".join(errors))
     else:
-        (TRANSLATIONS / "sources.json").write_text(json.dumps(messages, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         # Wheels lack the repository docs directory; generate the English copy from its source.
         ENGLISH_GUIDE.write_bytes((ROOT / "docs" / "USER_GUIDE.md").read_bytes())
     print(f"{len(CATALOGS)} catalogs; {len(messages)} messages each; {len(errors)} translation errors")

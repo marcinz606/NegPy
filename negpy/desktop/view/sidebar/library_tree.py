@@ -352,7 +352,7 @@ class LibraryTree(QWidget):
         item.setIcon(0, qta.icon("fa5s.folder" if is_folder else "fa5s.search", color=THEME.text_secondary))
         item.setForeground(1, QColor(self._count_color(item)))
         if missing:
-            item.setToolTip(0, f"Folder not found on disk: {folder_path}")
+            item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
             item.setToolTip(1, tr("Folder not found on disk — move it back, or delete the roll"))
         else:
             item.setToolTip(0, folder_path if is_folder else tr("Built from a search or a hand-picked set of frames"))

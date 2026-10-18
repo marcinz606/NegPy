@@ -19,7 +19,8 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.paths import get_resource_path
 
-_MARKER = re.compile(r"^<!--\s*panel:([a-z_]+)\s*-->\s*$")
+# A localized guide's marker also records its English source (src:<hash>), checked by tests/test_i18n.py.
+_MARKER = re.compile(r"^<!--\s*panel:([a-z_]+)(?:\s+src:[0-9a-f]+)?\s*-->\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s")
 # Cross-doc links ([CROSSTALK.md](CROSSTALK.md)) have nowhere to go from a modal, and Qt's
 # markdown importer paints anchors in the app palette's accent red, unreadable at body
