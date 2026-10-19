@@ -48,16 +48,17 @@ def encode_packet(header: int, data: bytes = b"") -> bytes:
     return bytes([START_BYTE, header, len(data)]) + bytes(data)
 
 
-def encode_set_color(r: int, g: int, b: int, w: int = 0, save: bool = False) -> bytes:
+def encode_set_color(r: int, g: int, b: int, w: int = 0, ir: int = 0, save: bool = False) -> bytes:
     """Build a PKT_H2D_SET_COLOR packet.
 
-    IR byte is always 0 (ignored by v4 firmware). `save` writes the values to
-    NVM as power-on defaults — finite write cycles, so it must be opt-in.
+    The Big Scanlight lights its infrared LEDs from the IR byte; the v4 firmware ignores it.
+    `save` writes the values to NVM as power-on defaults — finite write cycles, so it must
+    be opt-in.
     """
-    for name, value in (("r", r), ("g", g), ("b", b), ("w", w)):
+    for name, value in (("r", r), ("g", g), ("b", b), ("w", w), ("ir", ir)):
         if not 0 <= value <= 255:
             raise ProtocolError(f"{name} channel out of range 0-255: {value}")
-    payload = bytes([r, g, b, w, 0, 1 if save else 0])
+    payload = bytes([r, g, b, w, ir, 1 if save else 0])
     return encode_packet(H2D_SET_COLOR, payload)
 
 
@@ -96,6 +97,15 @@ def describe_hardware(hw_id: int) -> str:
     """Friendly device name for a reported hardware ID (from `decode_fw_version`),
     or 'hw<n>' for an id we don't have a name for."""
     return HARDWARE_NAMES.get(hw_id, f"hw{hw_id}")
+
+
+# Models with infrared LEDs: the Big Scanlight (0) only.
+_IR_CAPABLE_HW = frozenset({0})
+
+
+def has_ir_channel(hw_id: int) -> bool:
+    """Whether this Scanlight model has infrared LEDs, lit from the IR byte of SET_COLOR."""
+    return hw_id in _IR_CAPABLE_HW
 
 
 def has_white_channel(hw_id: int) -> bool:

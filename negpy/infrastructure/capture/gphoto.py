@@ -224,8 +224,10 @@ def default_jpeg_path() -> str:
 
 
 def default_settings_path() -> str:
-    """Where the live-view thread publishes current camera settings (JSON)."""
-    return os.path.join(tempfile.gettempdir(), "negpy_scanlight_settings.json")
+    """Where the live-view thread publishes current camera settings (JSON). The simulator writes
+    its own file, so a simulated run never feeds a real camera's panel."""
+    name = "negpy_scanlight_settings_sim.json" if simulated.enabled() else "negpy_scanlight_settings.json"
+    return os.path.join(tempfile.gettempdir(), name)
 
 
 def _safe_value(gp: Any, widget: Any) -> Optional[str]:
@@ -545,7 +547,9 @@ class GphotoCamera:
         self._names[key] = None
         return None
 
-    def _set_choice(self, key: str, index: int) -> None:
+    def _set_choice(self, key: str, index: int, label: Optional[str] = None) -> None:
+        """Write the choice at `index`; with `label`, only while the body still lists that label there,
+        so a panel seeded from another body's list cannot drive this one."""
         with self._lock:
             name = self._property(key)
             if name is None:
@@ -556,17 +560,20 @@ class GphotoCamera:
             if not 0 <= index < len(choices):
                 logger.warning("gphoto2: %s has no choice %d", name, index)
                 return
+            if label is not None and choices[index] != label:
+                logger.warning("gphoto2: %s choice %d is %r, not %r; the panel's list is stale", name, index, choices[index], label)
+                return
             self._set_verified(name, choices[index])
             self._publish_settings()  # the UI reads the body's state from the file, not from its own write
 
-    def set_iso(self, raw: int) -> None:
-        self._set_choice("iso", int(raw))
+    def set_iso(self, raw: int, label: Optional[str] = None) -> None:
+        self._set_choice("iso", int(raw), label)
 
-    def set_shutter(self, raw: int) -> None:
-        self._set_choice("shutter", int(raw))
+    def set_shutter(self, raw: int, label: Optional[str] = None) -> None:
+        self._set_choice("shutter", int(raw), label)
 
-    def set_aperture(self, raw: int) -> None:
-        self._set_choice("aperture", int(raw))
+    def set_aperture(self, raw: int, label: Optional[str] = None) -> None:
+        self._set_choice("aperture", int(raw), label)
 
     def read_settings(self) -> dict:
         """Current value + options for each settable property, in the UI's schema.
@@ -1002,6 +1009,11 @@ class GphotoCamera:
             handle.write(data)
         os.replace(tmp, self._jpeg_path)  # atomic: the UI only ever sees a whole frame
 
+    def publish_settings(self) -> None:
+        """Publish the body's settings while idle; the preview thread publishes while it streams."""
+        if self.is_open() and not self.is_running():
+            self._publish_settings()
+
     def _publish_settings(self) -> None:
         # The preview thread and the worker both publish. Read and write under the camera's lock,
         # so the newest read is the last written and one writer owns the temp file.
@@ -1011,6 +1023,7 @@ class GphotoCamera:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("gphoto2 settings: %s", exc)
                 return
+            payload["pid"] = os.getpid()  # the panel reads only a file its own session wrote
             tmp = f"{self._settings_path}.part"
             with open(tmp, "w") as handle:
                 json.dump(payload, handle)

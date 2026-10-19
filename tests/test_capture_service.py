@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from negpy.infrastructure.capture.base import CaptureSettings
+from negpy.infrastructure.capture.base import CaptureSettings, Channel
 from negpy.infrastructure.capture.settings import ScanlightSettings
 from negpy.services.capture.service import CaptureError, CaptureService
 
@@ -15,15 +15,18 @@ class FakeLight:
 
     def __init__(self):
         self.colors: list[tuple[int, int, int, int]] = []
+        self.ir_levels: list[int] = []
         self.off_called = False
         self.closed = False
 
-    def set_color(self, r=0, g=0, b=0, w=0, save=False):
+    def set_color(self, r=0, g=0, b=0, w=0, ir=0, save=False):
         self.colors.append((r, g, b, w))
+        self.ir_levels.append(ir)
 
     def off(self):
         self.off_called = True
         self.colors.append((0, 0, 0, 0))
+        self.ir_levels.append(0)
 
     def close(self):
         self.closed = True
@@ -101,10 +104,10 @@ def test_triplet_forces_the_preset_iso_and_aperture(tmp_path):
     cam = FakeCamera()
     svc = CaptureService(FakeLight(), cam, sleep=lambda _s: None)
     svc.capture_triplet(_settings(tmp_path, iso="100", aperture="f/8"))
-    # Every shot re-asserts the preset's exposure — a drifted body can't falsify the scan
-    # (the camera itself skips the write when it's already there).
-    assert cam.isos == ["100", "100", "100"]
-    assert cam.apertures == ["f/8", "f/8", "f/8"]
+    # The frame's first shot asserts the preset's exposure, so a drifted body can't falsify
+    # the scan; the body cannot drift between two shots of one frame.
+    assert cam.isos == ["100", None, None]
+    assert cam.apertures == ["f/8", None, None]
 
 
 def test_triplet_leaves_exposure_free_when_the_preset_bakes_none(tmp_path):
@@ -187,7 +190,7 @@ def test_per_channel_shutter_passed_through(tmp_path):
     svc = CaptureService(light, cam, sleep=lambda _s: None)
 
     svc.capture_triplet(_settings(tmp_path, shutters=("1/100", "1/100", "1/4")))
-    assert cam.shutters == ["1/100", "1/100", "1/4"]
+    assert cam.shutters == ["1/100", None, "1/4"]  # written when it changes between channels
 
 
 def test_single_rgb_capture_lights_all_three_leds_for_one_file(tmp_path):
@@ -207,3 +210,40 @@ def test_single_rgb_capture_turns_light_off_on_error(tmp_path):
         svc.capture_rgb_single(_settings(tmp_path))
     assert light.off_called
     assert os.listdir(tmp_path) == []
+
+
+def test_capture_channel_lights_one_led_and_names_the_file(tmp_path):
+    light, camera = FakeLight(), FakeCamera()
+    service = CaptureService(light, camera, sleep=lambda _s: None)
+    (tmp_path / "Roll001_Frame002_IR.ARW").write_bytes(b"old")
+
+    path = service.capture_channel(
+        roll_name="Roll001", frame_number=2, output_folder=str(tmp_path), channel=Channel.IR, level=200, shutter="1"
+    )
+
+    assert os.path.basename(path) == "Roll001_Frame002_IR.ARW"
+    assert os.listdir(tmp_path) == ["Roll001_Frame002_IR.ARW"]  # the old exposure is replaced, nothing kept beside it
+    assert light.ir_levels == [200, 0] and light.colors == [(0, 0, 0, 0), (0, 0, 0, 0)]  # infrared alone, then off
+    assert camera.shutters == ["1"]
+
+
+def test_a_retaken_triplet_replaces_its_files_and_keeps_nothing_beside_them(tmp_path):
+    for letter in "RGB":
+        (tmp_path / f"Roll001_Frame001_{letter}.ARW").write_bytes(b"old-" + letter.encode())
+    service = CaptureService(FakeLight(), FakeCamera(), sleep=lambda _s: None)
+
+    service.capture_triplet(_settings(tmp_path))
+
+    assert sorted(os.listdir(tmp_path)) == [f"Roll001_Frame001_{letter}.ARW" for letter in "BGR"]
+    for letter in "RGB":
+        assert (tmp_path / f"Roll001_Frame001_{letter}.ARW").stat().st_size == 21 * 1024 * 1024
+
+
+def test_a_triplet_writes_iso_and_aperture_once_and_the_shutter_when_it_changes(tmp_path):
+    camera = FakeCamera()
+    service = CaptureService(FakeLight(), camera, sleep=lambda _s: None)
+
+    service.capture_triplet(_settings(tmp_path, shutters=("1/4", "1/4", "1/8"), iso="100", aperture="f/8"))
+
+    assert camera.isos == ["100", None, None] and camera.apertures == ["f/8", None, None]
+    assert camera.shutters == ["1/4", None, "1/8"]  # the body cannot drift inside one frame

@@ -161,7 +161,7 @@ def test_the_negative_row_carries_the_densities_on_hover():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=(0.22, 0.71, 1.42), base_source="read")
 
     assert rows[0].name == "Negative"
-    assert rows[0].value == "1.26 · normal"
+    assert rows[0].value == "nrm · 0.22 · 0.71 · 1.42 · Δ1.26"
     assert rows[0].detail.startswith("Above the clear base read from the rebate: Dmax 1.42 · Dmed 0.71 · Dmin 0.22")
     assert "Film Base tool pins it" in rows[0].detail
 

@@ -55,6 +55,16 @@ def _user_sat(raw) -> Optional[int]:
     return max(1, limit - black)
 
 
+def as_shot_wb(path: str) -> Optional[list]:
+    """The RAW's as-shot white balance as [R, G, B] multipliers, None when it carries none."""
+    import rawpy
+
+    from negpy.infrastructure.loaders.helpers import camera_wb_multipliers
+
+    with rawpy.imread(path) as raw:
+        return camera_wb_multipliers(raw)
+
+
 def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
     """Decode one RAW to a sensor-native, linear, 16-bit HxWx3 array (R=0, G=1, B=2).
 

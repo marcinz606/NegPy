@@ -463,7 +463,7 @@ class RightPanel(QWidget):
         self.scan_quality_section = make_section(repo, tr("Film & Quality"), "scan_quality", scan.quality_body, "fa5s.sliders-h", True)
         self.scan_framing_section = make_section(repo, tr("Framing"), "scan_framing", scan.framing_body, "fa5s.crop-alt", True)
         self.scan_camera_section = make_section(repo, tr("Camera"), "scan_camera", cam.camera_body, "fa5s.camera", True)
-        self.scan_light_section = make_section(repo, tr("Preset & Light"), "scan_light", cam.light_body, "fa5s.lightbulb", True)
+        self.scan_light_section = make_section(repo, tr("Preset"), "scan_light", cam.light_body, "fa5s.lightbulb", True)
         output_body = QWidget()
         output_layout = QVBoxLayout(output_body)
         output_layout.setContentsMargins(0, 0, 0, 0)

@@ -15,7 +15,7 @@ class TestNegativeStatistics(unittest.TestCase):
         return negative_statistics(dr, anchor, lo, hi)
 
     def test_density_value_in_negative_row(self):
-        self.assertTrue(_by_name(self._rows(dr=1.82), "Negative").value.startswith("1.82 · "))
+        self.assertTrue(_by_name(self._rows(dr=1.82), "Negative").value.endswith(" · Δ1.82"))
 
     def test_exposure_ev_number(self):
         a = EXPOSURE_CONSTANTS["assumed_anchor"]
@@ -52,9 +52,11 @@ class TestNegativeStatistics(unittest.TestCase):
         from negpy.features.exposure.logic import default_grade_range
 
         nominal = default_grade_range()
-        self.assertTrue(_by_name(self._rows(dr=nominal), "Negative").value.endswith("normal"))
-        self.assertTrue(_by_name(self._rows(dr=nominal * 0.5), "Negative").value.endswith("flat (≈N−1)"))
-        self.assertTrue(_by_name(self._rows(dr=nominal * 1.5), "Negative").value.endswith("contrasty (≈N+1)"))
+        self.assertTrue(_by_name(self._rows(dr=nominal), "Negative").value.startswith("normal · "))
+        self.assertTrue(_by_name(self._rows(dr=nominal * 0.5), "Negative").value.startswith("flat · "))
+        self.assertTrue(_by_name(self._rows(dr=nominal * 1.5), "Negative").value.startswith("contrasty · "))
+        with_base = negative_statistics(1.82, None, None, None, density_above_base=(0.12, 0.85, 2.1), base_source="picked")
+        self.assertEqual(_by_name(with_base, "Negative").value, "hi · 0.12 · 0.85 · 2.10 · Δ1.82")
         self.assertEqual(_by_name(negative_statistics(None, None, None, None), "Negative").value, "—")
 
     def test_scan_clip_fraction_measurement(self):

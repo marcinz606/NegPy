@@ -323,6 +323,15 @@ def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
         assert visible == render_honours_it, mode
 
 
+def test_a_triplet_names_its_own_reason_even_under_camera_wb():
+    # The decode hint names a fix that cannot lift the gate on a triplet; the frame's reason wins.
+    w = _sidebar(linear_raw=False)
+    _to_rgbscan(w, enabled=True, green_path="/x/g.arw", blue_path="/x/b.arw")
+
+    assert not w.sensor_combo.isEnabled()
+    assert "triplet" in w.sensor_hint.text().lower()
+
+
 def test_profile_is_greyed_out_on_a_trichrome_triplet():
     """The render skips the unmix for a triplet, so a carried-over profile must not read as live."""
     w = _sidebar(linear_raw=True)

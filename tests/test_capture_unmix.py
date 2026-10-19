@@ -130,3 +130,15 @@ def test_renamed_crosstalk_profile_coerces_on_every_construction():
     overlaid = replace(ProcessConfig(), crosstalk_profile="Kodak Portra 400 (approx)")
     assert overlaid.crosstalk_profile == "Kodak Ektacolor Pro 400 / Portra 400 (approx)"
     assert ProcessConfig(crosstalk_profile="My Rig").crosstalk_profile == "My Rig"
+
+
+def test_a_blocked_profile_folder_reads_as_empty(monkeypatch, tmp_path):
+    import os
+
+    from negpy.services.assets.crosstalk import CrosstalkProfiles
+
+    blocked = tmp_path / "crosstalk"
+    blocked.mkdir()
+    real_listdir = os.listdir
+    monkeypatch.setattr(os, "listdir", lambda d: (_ for _ in ()).throw(PermissionError(d)) if d == str(blocked) else real_listdir(d))
+    assert CrosstalkProfiles._scan_dir(str(blocked)) == {}

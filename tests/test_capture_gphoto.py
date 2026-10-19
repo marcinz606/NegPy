@@ -474,6 +474,11 @@ def test_set_iso_writes_the_chosen_label(cam, fake):
     assert _settings_writes(fake) == [("iso", "200")]
 
 
+def test_set_choice_refuses_an_index_whose_label_moved(cam, fake):
+    cam.set_iso(1, "200")  # the body lists "100" at index 1: the panel's list is from another body
+    assert ("iso", "200") not in _settings_writes(fake) and _settings_writes(fake) == []
+
+
 def test_set_choice_ignores_an_out_of_range_index(cam, fake):
     cam.set_iso(99)
     assert _settings_writes(fake) == []
@@ -718,7 +723,7 @@ def test_live_view_publishes_frames_and_settings(fake, tmp_path):
     finally:
         camera.close()
     assert jpeg.read_bytes().startswith(b"\xff\xd8")
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
     assert not camera.is_running()
 
 
@@ -850,6 +855,21 @@ def test_preview_survives_a_still_that_leaves_late_events(fake, tmp_path):
     camera.close()
 
 
+def test_an_idle_session_publishes_on_request_and_a_streaming_one_leaves_it_to_the_preview(fake, tmp_path):
+    settings = tmp_path / "lv.json"
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(settings))
+    camera.publish_settings()
+    assert not settings.exists()  # closed: nothing to read
+    camera.open()
+    camera.publish_settings()
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
+    settings.unlink()
+    camera.is_running = lambda: True  # the preview thread owns the publish while it streams
+    camera.publish_settings()
+    assert not settings.exists()
+    camera.close()
+
+
 def test_refusing_live_view_still_publishes_the_camera_settings(tmp_path):
     """The preview loop is what normally writes them, so a body that never streams would leave
     the scan window's ISO/shutter steppers empty and its preset exposure unresolvable."""
@@ -860,7 +880,7 @@ def test_refusing_live_view_still_publishes_the_camera_settings(tmp_path):
     with pytest.raises(LiveViewUnsupported):
         camera.start()
 
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
     camera.close()
 
 

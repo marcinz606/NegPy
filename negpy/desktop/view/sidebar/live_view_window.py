@@ -4,7 +4,7 @@ A click aims the camera focus magnifier at that spot, a double-click returns to 
 The buttons emit signals; `ScanlightSidebar` wires them and mirrors scanning state and status.
 """
 
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
 
 import time
 from typing import Optional
@@ -13,15 +13,7 @@ import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeySequence
-from PyQt6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
@@ -119,6 +111,9 @@ class SettingStepper(QWidget):
     def findData(self, raw) -> int:
         return next((i for i, (_, r) in enumerate(self._items) if r == raw), -1)
 
+    def findText(self, label: str) -> int:
+        return next((i for i, (text, _) in enumerate(self._items) if text == label), -1)
+
     def currentData(self):
         return self._items[self._index][1] if 0 <= self._index < len(self._items) else None
 
@@ -152,6 +147,8 @@ class LiveViewWindow(QDialog):
     scanRequested = pyqtSignal()
     retakeRequested = pyqtSignal()
     meterRequested = pyqtSignal()
+    channelsChanged = pyqtSignal(str)  # the letter whose toggle moved: R, G, B or IR
+    captureDelayChanged = pyqtSignal(float)  # seconds, stepped on the toolbar's delay stepper
 
     def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
@@ -167,8 +164,44 @@ class LiveViewWindow(QDialog):
         self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
         self.retake_btn = labeled_action("fa5s.redo", tr(" Retake"), tr("Re-capture the current frame without advancing the counter"))
         bar.addWidget(self.scan_btn, 2)
+        # The card's Capture Delay, where Scan is pressed. Mirrored both ways by the panel.
+        self.delay_stepper = SettingStepper()
+        self.set_capture_delay(0.0)
+        self.delay_stepper.setToolTip(
+            tr(
+                "Capture Delay: wait this long after Scan or Retake before the shot, so a table that shakes when you let go can settle. "
+                "Stop ends the wait."
+            )
+        )
+        self.delay_stepper.activated.connect(lambda _i: self.captureDelayChanged.emit(float(self.delay_stepper.currentData())))
+        bar.addWidget(self.delay_stepper)
         bar.addWidget(self.retake_btn, 1)
-        # One RAW probe sets the shutter for the light as lit. Hidden with the exposure steppers.
+        # Which exposures Retake shoots, in the channel colors: R, G and B for a triplet preset.
+        # IR is the Infrared setting, which Scan shoots too.
+        self.channel_widget = QWidget()
+        channels = QHBoxLayout(self.channel_widget)
+        channels.setContentsMargins(0, 0, 0, 0)
+        self.channel_btns: dict[str, QPushButton] = {}
+        for letter, name, fill, text in (
+            ("R", mark("red"), THEME.channel_red, THEME.channel_red_text),
+            ("G", mark("green"), THEME.channel_green, THEME.channel_green_text),
+            ("B", mark("blue"), THEME.channel_blue, THEME.channel_blue_text),
+            ("IR", "infrared", "", ""),
+        ):
+            tip = (
+                tr("Shoot the infrared exposure with each frame")
+                if letter == "IR"
+                else tr("Retake shoots the {color} exposure again over this frame's. Scan always shoots all three.", color=tr(name))
+            )
+            btn = tool_toggle("", letter, tip)
+            if fill:
+                btn.setStyleSheet(btn.styleSheet() + f" QPushButton:checked {{ background-color: {fill}; color: {text}; }}")
+            btn.setChecked(letter != "IR")
+            btn.toggled.connect(lambda _on, letter=letter: self.channelsChanged.emit(letter))
+            self.channel_btns[letter] = btn
+            channels.addWidget(btn)
+        bar.addWidget(self.channel_widget)
+        # One RAW probe sets the shutter for the light as lit.
         self.meter_btn = labeled_action(
             "fa5s.tachometer-alt",
             tr(" Meter"),
@@ -285,6 +318,10 @@ class LiveViewWindow(QDialog):
             "live_view_meter": self.meter_btn,
             "live_view_histogram": self.histogram_btn,
             "live_view_zebra": self.zebra_btn,
+            "live_view_capture_red": self.channel_btns["R"],
+            "live_view_capture_green": self.channel_btns["G"],
+            "live_view_capture_blue": self.channel_btns["B"],
+            "live_view_capture_ir": self.channel_btns["IR"],
         }
         # A focused button takes Space for itself, so a click on Retake or a toggle would leave
         # Space working that control instead of its binding. The letters already reach the
@@ -304,6 +341,10 @@ class LiveViewWindow(QDialog):
     def set_histogram(self, bins: Optional[np.ndarray]) -> None:
         """Show one frame's `(4, 256)` R, G, B, luma counts, or clear the row with None."""
         self.histogram.update_data(bins)
+
+    def selected_rgb(self) -> tuple[str, ...]:
+        """The visible exposures Retake shoots, in capture order."""
+        return tuple(letter for letter in ("R", "G", "B") if self.channel_btns[letter].isChecked())
 
     def apply_shortcut_tooltips(self) -> None:
         for btn in dict.fromkeys(self._key_buttons.values()):
@@ -399,6 +440,18 @@ class LiveViewWindow(QDialog):
         self.progress.setVisible(False)
         self.progress.setStyleSheet("")
         self.progress.setFormat(tr("Capturing… %p%"))
+
+    #: The delay stepper's rungs; the card's slider sets any value, which joins the ladder in place.
+    DELAY_LADDER_S = (0.0, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+    def set_capture_delay(self, seconds: float) -> None:
+        seconds = round(float(seconds), 2)
+        self.delay_stepper.blockSignals(True)
+        self.delay_stepper.clear()
+        for rung in sorted(set(self.DELAY_LADDER_S) | {seconds}):
+            self.delay_stepper.addItem(tr("{seconds:g} s", seconds=rung), rung)
+        self.delay_stepper.setCurrentIndex(self.delay_stepper.findData(seconds))
+        self.delay_stepper.blockSignals(False)
 
     def set_scanning(self, active: bool) -> None:
         """Mirror the panel's Scan/Stop toggle on the pop-up button."""

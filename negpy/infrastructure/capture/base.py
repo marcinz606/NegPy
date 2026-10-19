@@ -8,18 +8,25 @@ from typing import Optional, Protocol, runtime_checkable
 
 
 class Channel(Enum):
-    """One narrowband exposure of a trichromatic capture."""
+    """One narrowband exposure of a trichromatic capture, or the infrared exposure beside it."""
 
     RED = "R"
     GREEN = "G"
     BLUE = "B"
+    IR = "IR"
 
     @property
     def letter(self) -> str:
         return self.value
 
+    def light(self, level: int) -> dict[str, int]:
+        """The `set_color` keywords that light *only* this channel at `level`."""
+        return {"ir": level} if self is Channel.IR else dict(zip(("r", "g", "b"), self.rgb(level)))
+
     def rgb(self, level: int) -> tuple[int, int, int]:
-        """The (r, g, b) Scanlight tuple that lights *only* this channel at `level`."""
+        """The (r, g, b) Scanlight tuple that lights *only* this channel at `level`. R, G and B only."""
+        if self is Channel.IR:
+            raise ValueError("infrared is not an RGB channel")
         return (
             level if self is Channel.RED else 0,
             level if self is Channel.GREEN else 0,
@@ -35,7 +42,7 @@ CAPTURE_ORDER: tuple[Channel, Channel, Channel] = (Channel.RED, Channel.GREEN, C
 class LightSource(Protocol):
     """Minimal Scanlight interface the capture service depends on."""
 
-    def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, save: bool = False) -> None: ...
+    def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, ir: int = 0, save: bool = False) -> None: ...
 
     def off(self) -> None: ...
 

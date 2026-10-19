@@ -149,3 +149,32 @@ class TestBatchStartedPopupSuppression(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScanSetupPicksScanSource(unittest.TestCase):
+    """The wizard's capture answer switches the Scan tab to the same scanner."""
+
+    def _run(self, capture: str, accepted: bool = True):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from PyQt6.QtWidgets import QDialog
+
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = SimpleNamespace(controller=MagicMock(), right_panel=MagicMock())
+        dlg = MagicMock()
+        dlg.exec.return_value = QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
+        dlg.choice.return_value = {"capture": capture, "light": "white"}
+        with patch("negpy.desktop.view.widgets.scan_setup_dialog.ScanSetupDialog", return_value=dlg):
+            MainWindow.show_scan_setup(stub)
+        return stub
+
+    def test_camera_answer_selects_camera(self):
+        self._run("camera").right_panel.show_scan_source.assert_called_once_with("camera")
+
+    def test_scanner_answer_selects_film_scanner(self):
+        self._run("scanner").right_panel.show_scan_source.assert_called_once_with("film")
+
+    def test_cancel_leaves_the_scan_tab_alone(self):
+        self._run("scanner", accepted=False).right_panel.show_scan_source.assert_not_called()

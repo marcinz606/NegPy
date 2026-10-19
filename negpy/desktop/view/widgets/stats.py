@@ -14,9 +14,10 @@ CLIPPING_TOOLTIP = tr("Share of pixels crushed to black (shadows) or blown to wh
 _TOOLTIPS = {
     "Negative": (
         tr(
-            "The negative itself: relative density range (luminance) and its development character vs a "
-            "nominal frame — flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a "
-            "roll; a heuristic from this scan's normalized bounds, not a calibrated densitometer reading."
+            "The negative itself: its development character vs a nominal frame (lo = flat, ≈N−1; nrm = normal; "
+            "hi = contrasty, ≈N+1), then Dmin · Dmed · Dmax above the clear base and Δ, the density range "
+            "of the normalization window (luminance). Relative scale, comparable across a roll; a heuristic "
+            "from this scan's normalized bounds, not a calibrated densitometer reading."
         )
     ),
     "Exposure": (

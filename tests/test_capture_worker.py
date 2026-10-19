@@ -221,6 +221,36 @@ def test_meter_probes_once_in_scratch_and_reports_the_reading(tmp_path, monkeypa
     assert reading.measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.01)
 
 
+def test_a_white_light_probe_meters_after_the_cameras_white_balance(tmp_path, monkeypatch):
+    import numpy as np
+
+    import negpy.infrastructure.capture.raw_demosaic as demosaic_module
+    from negpy.desktop.workers.capture_worker import ExposureProbeRequest
+    from negpy.services.capture.calibration import CLIP_CEILING
+
+    worker = CaptureWorker()
+
+    class Camera:
+        def capture(self, path, shutter=None, **_kwargs):
+            written = Path(path).with_suffix(".ARW")
+            written.write_bytes(b"probe")
+            return str(written)
+
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: Camera())
+    monkeypatch.setattr(
+        demosaic_module, "linear_demosaic", lambda _path, half_size=False: np.full((60, 90, 3), 0.3 * CLIP_CEILING, np.float32)
+    )
+    monkeypatch.setattr(demosaic_module, "as_shot_wb", lambda _path: [2.0, 1.0, 1.5])
+    readings = []
+    worker.exposure_probe_finished.connect(readings.append)
+
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", wb_decode=True))
+    worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30"))
+
+    assert readings[0][1].measured == pytest.approx(0.6 * CLIP_CEILING, rel=0.01)  # red, after its 2x gain
+    assert readings[1][1].measured == pytest.approx(0.3 * CLIP_CEILING, rel=0.01)  # a narrowband frame decodes linear
+
+
 def test_a_probe_that_cannot_be_metered_reports_without_dropping_the_session(tmp_path, monkeypatch):
     import numpy as np
 
@@ -350,6 +380,67 @@ def test_poll_self_heals_once_the_other_app_releases_the_camera(monkeypatch):
     assert worker._holds_camera()
 
 
+def test_a_setting_write_takes_the_session_when_live_view_has_released_it(monkeypatch):
+    # A closed Live View window releases the session; a card stepper write opens it again.
+    class Body:
+        def __init__(self) -> None:
+            self.writes: list[tuple] = []
+            self._open = False
+
+        def is_open(self) -> bool:
+            return self._open
+
+        def open(self) -> None:
+            self._open = True
+
+        def set_shutter(self, raw, label=None) -> None:
+            self.writes.append(("shutter", raw, label))
+
+        def set_iso(self, raw, label=None) -> None:
+            self.writes.append(("iso", raw, label))
+
+        set_aperture = set_iso
+
+    worker = CaptureWorker()
+    body = Body()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: (body.open(), body)[1])
+    applied: list[str] = []
+    worker.camera_setting_applied.connect(applied.append)
+
+    worker.set_camera_setting("shutter", 29, "1/20")
+
+    assert body.writes == [("shutter", 29, "1/20")]
+    assert applied == ["shutter"]  # the panel's Scan gate counts this report
+
+
+def test_a_setting_write_with_no_camera_reports_and_still_releases_the_scan_gate(monkeypatch):
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: (_ for _ in ()).throw(RuntimeError("unplugged")))
+    errors: list[str] = []
+    applied: list[str] = []
+    worker.error.connect(errors.append)
+    worker.camera_setting_applied.connect(applied.append)
+
+    worker.set_camera_setting("shutter", 29, "1/20")
+
+    assert applied == ["shutter"]
+    assert errors and "Reconnect" in errors[0]
+
+
+def test_a_setting_write_stays_quiet_while_another_app_holds_the_body(monkeypatch):
+    worker = CaptureWorker()
+    worker._claimed_elsewhere = True
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: (_ for _ in ()).throw(AssertionError("must not probe")))
+    errors: list[str] = []
+    applied: list[str] = []
+    worker.error.connect(errors.append)
+    worker.camera_setting_applied.connect(applied.append)
+
+    worker.set_camera_setting("shutter", 29, "1/20")
+
+    assert errors == [] and applied == ["shutter"]
+
+
 def test_poll_identifies_the_body_on_first_sight(monkeypatch):
     # libgphoto2's database labels post-database bodies "USB PTP Class Camera" (the a7C II is
     # not in it, #431); the real name lives on the device. The first poll after a body appears
@@ -387,6 +478,33 @@ def test_poll_identifies_the_body_on_first_sight(monkeypatch):
     assert worker._holds_camera()  # the probe keeps the claim it won
     worker.poll_connection("")
     assert cam.open_calls == 1  # identified once, not per tick
+
+
+def test_poll_publishes_the_held_bodys_settings_while_idle(monkeypatch):
+    # Only the preview thread publishes the settings file, so a preset picked before Live View
+    # opened showed every exposure stepper empty. The poll publishes from the session it holds.
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    class HeldCamera:
+        model = "ILCE-7RM5"
+
+        def __init__(self) -> None:
+            self.published = 0
+
+        def is_open(self) -> bool:
+            return True
+
+        def publish_settings(self) -> None:
+            self.published += 1
+
+    worker = CaptureWorker()
+    worker._camera = HeldCamera()
+    worker._identify_attempted = True
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
+    worker.poll_connection("")
+    worker.poll_connection("")
+    assert worker._camera.published == 2  # every idle tick, so a dial turn shows within one
 
 
 def test_poll_identify_is_one_shot_for_a_body_that_will_not_open(monkeypatch):
@@ -623,3 +741,141 @@ def test_a_probe_whose_capture_fails_reports_the_lost_camera_with_its_session(tm
     worker.run_exposure_probe(ExposureProbeRequest(shutter="1/30", session=3))
 
     assert failures == [(3, "could not set shutter", True)] and errors == []
+
+
+class _TripletCamera:
+    """Writes every exposure it is asked for; the `_IR` stem fails when `ir_fails` is set."""
+
+    def __init__(self, ir_fails: bool = False, cur: int = 7):
+        self.ir_fails = ir_fails
+        self.cur = cur
+        self.shots: list[tuple[str, object]] = []
+        self.restored: list[int] = []
+
+    def read_settings(self):
+        return {"shutter": {"cur": self.cur, "options": [{"label": "1/60", "raw": 7}]}}
+
+    def set_shutter(self, raw):
+        self.restored.append(raw)
+
+    def capture(self, out_path, shutter=None, iso=None, aperture=None):
+        path = os.path.splitext(out_path)[0] + ".ARW"
+        self.shots.append((os.path.basename(path), shutter))
+        if self.ir_fails and path.endswith("_IR.ARW"):
+            raise RuntimeError("the body refused the infrared shutter")
+        with open(path, "wb") as f:
+            f.write(b"\0" * (9 * 1024 * 1024))
+        return path
+
+    def close(self):
+        pass
+
+
+def _run(worker, **fields):
+    finished, errors, cancelled = [], [], []
+    worker.finished.connect(finished.append)
+    worker.error.connect(errors.append)
+    worker.cancelled.connect(lambda: cancelled.append(True))
+    worker.run_capture(CaptureRequest(**fields))
+    return finished, errors, cancelled
+
+
+def test_a_failed_infrared_exposure_keeps_the_finished_frame(tmp_path, monkeypatch):
+    # The visible exposures are promoted before the infrared one runs, so an infrared failure
+    # must not fail the frame: that path deletes every file of the frame as a partial capture.
+    camera = _TripletCamera(ir_fails=True)
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    statuses = []
+    worker.status.connect(statuses.append)
+
+    finished, errors, _ = _run(
+        worker, roll_name="Roll", frame_number=5, output_folder=str(tmp_path), levels=(255, 255, 255), infrared=True, shutter_ir="4"
+    )
+
+    assert [os.path.basename(p) for p in finished[0]] == ["Roll_Frame005_R.ARW", "Roll_Frame005_G.ARW", "Roll_Frame005_B.ARW"]
+    assert sorted(os.listdir(tmp_path)) == ["Roll_Frame005_B.ARW", "Roll_Frame005_G.ARW", "Roll_Frame005_R.ARW"]
+    assert errors == [] and any("Infrared exposure failed" in s for s in statuses)
+    assert camera.restored == [7]  # the body is back on its own shutter even so
+
+
+def test_a_subset_scan_shoots_each_selected_channel_at_its_own_level_and_shutter(tmp_path, monkeypatch):
+    camera = _TripletCamera()
+    light = FakeLight()
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: light)
+
+    finished, errors, _ = _run(
+        worker,
+        roll_name="Roll",
+        frame_number=2,
+        output_folder=str(tmp_path),
+        levels=(200, 150, 100),
+        shutters=("1/5", "1/10", "1/20"),
+        channels=("G", "B"),
+    )
+
+    assert [os.path.basename(p) for p in finished[0]] == ["Roll_Frame002_G.ARW", "Roll_Frame002_B.ARW"]
+    assert camera.shots == [("Roll_Frame002_G.ARW", "1/10"), ("Roll_Frame002_B.ARW", "1/20")]
+    assert errors == []
+
+
+def test_an_infrared_exposure_leaves_the_body_alone_when_its_shutter_is_unknown(tmp_path, monkeypatch):
+    camera = _TripletCamera(cur=-1)  # the body reports no current shutter
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+
+    finished, _, _ = _run(
+        worker, roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), infrared=True, shutter_ir="4"
+    )
+
+    assert len(finished[0]) == 4 and camera.restored == []
+
+
+def test_an_infrared_preset_ends_the_frame_with_an_ir_exposure(tmp_path, monkeypatch):
+    class WritingCamera:
+        def __init__(self):
+            self.shutters = []
+            self.restored = []
+
+        def read_settings(self):
+            return {"shutter": {"cur": 7, "options": [{"label": "1/60", "raw": 7}]}}
+
+        def set_shutter(self, raw):
+            self.restored.append(raw)
+
+        def capture(self, out_path, shutter=None, iso=None, aperture=None):
+            path = os.path.splitext(out_path)[0] + ".ARW"
+            self.shutters.append(shutter)
+            with open(path, "wb") as f:
+                f.write(b"\0" * (9 * 1024 * 1024))
+            return path
+
+        def close(self):
+            pass
+
+    camera = WritingCamera()
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    finished = []
+    worker.finished.connect(finished.append)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Slide01",
+            frame_number=3,
+            output_folder=str(tmp_path),
+            levels=(0, 0, 0),
+            white_mode=True,
+            w_level=255,
+            infrared=True,
+            shutter_ir="4",
+        )
+    )
+
+    assert [os.path.basename(p) for p in finished[0]] == ["Slide01_Frame003.ARW", "Slide01_Frame003_IR.ARW"]
+    assert camera.shutters == [None, "4"] and camera.restored == [7]  # the body is back on its own shutter

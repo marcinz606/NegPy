@@ -49,6 +49,8 @@ class ScanlightPreset:
     shutter_r: str = ""
     shutter_g: str = ""
     shutter_b: str = ""
+    shutter_ir: str = ""  # the infrared exposure's own shutter; "" = the body's current
+    infrared: bool = False  # end every frame with an infrared exposure
     iso: str = ""  # camera ISO label baked at calibration (e.g. "100"); "" = not captured
     aperture: str = ""  # aperture label (e.g. "f/8"); "" for a manual lens (no electronic aperture)
     single_capture: bool = False  # one exposure with R, G and B lit together, not a triplet

@@ -532,6 +532,39 @@ class PowerWarpSlider(CompactSlider):
         return self._warp_center + math.copysign(frac * half, s)
 
 
+class LogSlider(CompactSlider):
+    """
+    CompactSlider variant with logarithmic travel from `log_floor` to the maximum, and the
+    minimum as the one step below the floor (0 = off). Equal drags move the value by equal
+    ratios, so 0.15 is as easy to set as 2.5.
+    """
+
+    _LOG_STEPS = 1000
+
+    def __init__(self, label: str, min_val: float, max_val: float, default_val: float, *, log_floor: float, **kwargs):
+        self._log_floor = log_floor
+        self._log_span = math.log(max_val / log_floor)
+        super().__init__(label, min_val, max_val, default_val, **kwargs)
+
+    def _to_int(self, value: float) -> int:
+        if value < self._log_floor:
+            return 0
+        return 1 + round(math.log(value / self._log_floor) / self._log_span * (self._LOG_STEPS - 1))
+
+    def _from_int(self, i: int) -> float:
+        if i <= 0:
+            return self._min
+        return self._log_floor * math.exp((i - 1) / (self._LOG_STEPS - 1) * self._log_span)
+
+    def _on_spin_changed(self, value: float) -> None:
+        if 0.0 < value < self._log_floor:  # typed under the floor: the floor, since off is 0 alone
+            value = self._log_floor
+            self.spin.blockSignals(True)
+            self.spin.setValue(value)
+            self.spin.blockSignals(False)
+        super()._on_spin_changed(value)
+
+
 class HueSlider(CompactSlider):
     """
     CompactSlider variant for 0–360° hue selection.

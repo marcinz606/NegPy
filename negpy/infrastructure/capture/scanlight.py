@@ -130,11 +130,12 @@ class Scanlight:
         callers can drop this handle and reconnect a freshly-enumerated device."""
         return self._reader_thread.is_alive() and self._reader_error is None
 
-    def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, save: bool = False) -> None:
-        """Set R, G, B, W channels. `save=True` writes to NVM (use sparingly)."""
-        if w and (r or g or b):
-            raise ValueError("White channel cannot be on simultaneously with any RGB channel")
-        self._serial.write(proto.encode_set_color(r, g, b, w, save))
+    def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, ir: int = 0, save: bool = False) -> None:
+        """Set R, G, B, W and IR channels. White and infrared light alone: the firmware refuses
+        either beside an RGB channel. `save=True` writes to NVM (use sparingly)."""
+        if (w or ir) and (r or g or b):
+            raise ValueError("White and infrared cannot be on simultaneously with any RGB channel")
+        self._serial.write(proto.encode_set_color(r, g, b, w, ir, save=save))
 
     def off(self) -> None:
         self.set_color(0, 0, 0, 0)

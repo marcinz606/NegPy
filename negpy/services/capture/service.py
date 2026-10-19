@@ -205,7 +205,17 @@ class CaptureService:
                     f"{frame_name}_{ch.letter}",
                 )
                 shutter = settings.shutters[i] if settings.shutters is not None else None
-                out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter, iso=settings.iso, aperture=settings.aperture)
+                # ISO and aperture go once per frame, the shutter when it changes between channels:
+                # the body cannot drift between two shots of one frame, and each verified write
+                # costs a round trip.
+                first = i == 0
+                same_shutter = not first and settings.shutters is not None and settings.shutters[i] == settings.shutters[i - 1]
+                out_path = self._camera.capture(
+                    stem + _RAW_SUFFIX,
+                    shutter=None if same_shutter else shutter,
+                    iso=settings.iso if first else None,
+                    aperture=settings.aperture if first else None,
+                )
                 self._verify_size(out_path, settings)
                 staged_paths[ch] = out_path
                 # Per-channel timing, so the scan-speed bottleneck is visible in the log: settle is a
@@ -261,6 +271,46 @@ class CaptureService:
                 cancel=cancel,
                 iso=settings.iso,
                 aperture=settings.aperture,
+            )
+        finally:
+            try:
+                self._light.off()
+            except Exception:
+                logger.exception("failed to turn the Scanlight off after capture")
+
+    def capture_channel(
+        self,
+        *,
+        roll_name: str,
+        frame_number: int,
+        output_folder: str,
+        channel: Channel,
+        level: int,
+        shutter: Optional[str] = None,
+        iso: Optional[str] = None,
+        aperture: Optional[str] = None,
+        settle_s: float = 0.4,
+        min_raw_bytes: int = 8 * 1024 * 1024,
+        max_raw_bytes: int = 200 * 1024 * 1024,
+        cancel: Optional[threading.Event] = None,
+    ) -> str:
+        """One exposure under one LED, written as the frame's `_<letter>` file: one channel of
+        a triplet shot again, a set built by hand, or an infrared exposure beside the triplet."""
+        os.makedirs(output_folder, exist_ok=True)
+        try:
+            self._light.set_color(**channel.light(level))
+            self._sleep(settle_s)
+            stem = os.path.join(output_folder, f"{roll_name}_Frame{frame_number:03d}_{channel.letter}")
+            logger.info("capturing %s channel → %s", channel.letter, stem)
+            return _capture_validated_single(
+                self._camera,
+                final_stem=stem,
+                shutter=shutter,
+                min_raw_bytes=min_raw_bytes,
+                max_raw_bytes=max_raw_bytes,
+                cancel=cancel,
+                iso=iso,
+                aperture=aperture,
             )
         finally:
             try:

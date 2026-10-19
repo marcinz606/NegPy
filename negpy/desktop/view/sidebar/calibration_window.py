@@ -35,6 +35,13 @@ CAPTURE_MODE_TOOLTIP = tr(
 )
 
 
+# The patch is small, so any clear base serves; a holder that hides the rebate still shows the leader.
+_GUIDE = tr(
+    "Click a patch of clear film base: the gap between frames, the leader or a blank frame. Name the stock, then "
+    "Calibrate & Save. The shutter is solved here, so set the ISO and aperture you scan with."
+)
+_SENSOR_PROFILE_OFF_TOOLTIP = tr("Single Capture only: a triplet reads each LED alone and has no sensor mixing to unmix.")
+
 SENSOR_PROFILE_TOOLTIP = tr(
     "Also save a sensor profile under the preset's name, measured from the same exposures. "
     "A roll scanned with the preset takes the profile. Single Capture only."
@@ -121,7 +128,7 @@ class CalibrationWindow(QDialog):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
-        self.status = hint_label(tr("Click the clear film base (crosshair), name the stock, then Calibrate & Save"))
+        self.status = hint_label(_GUIDE)
         layout.addWidget(self.status)
 
         self._running = False
@@ -138,6 +145,7 @@ class CalibrationWindow(QDialog):
         single = self.capture_btn.currentIndex() == 1
         self.sensor_profile_btn.setChecked(single and self._sensor_profile_wanted)
         self.sensor_profile_btn.setEnabled(single and not self._running)
+        self.sensor_profile_btn.setToolTip(SENSOR_PROFILE_TOOLTIP if single else _SENSOR_PROFILE_OFF_TOOLTIP)
 
     def wants_sensor_profile(self) -> bool:
         """Whether a finished run saves a sensor profile with the preset."""
@@ -172,7 +180,7 @@ class CalibrationWindow(QDialog):
         self.image.clear_frame()
         self.image.set_loading(True)
         self.progress.setVisible(False)
-        self.set_status(tr("Click the clear film base (crosshair), name the stock, then Calibrate & Save"))
+        self.set_status(_GUIDE)
         self.show()
         self.raise_()
 

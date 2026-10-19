@@ -4,7 +4,7 @@ Owns the live Scanlight serial connection (so the RGB sliders stay responsive)
 and one libgphoto2 session, held open across captures and shared with live view.
 """
 
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
 
 import math
 import os
@@ -15,7 +15,7 @@ from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from negpy.infrastructure.capture.base import CaptureSettings
+from negpy.infrastructure.capture.base import CAPTURE_ORDER, CaptureSettings, Channel
 from negpy.infrastructure.capture.gphoto import (
     CameraCapabilities,
     CameraClaimedError,
@@ -24,7 +24,7 @@ from negpy.infrastructure.capture.gphoto import (
     LiveViewUnsupported,
     list_cameras,
 )
-from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
+from negpy.infrastructure.capture.protocol import describe_hardware, has_ir_channel, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.infrastructure.capture.settings import WhiteCaptureMode
 from negpy.kernel.system.logging import get_logger
@@ -63,6 +63,9 @@ class CaptureRequest:
     as_roll: bool = False
     single_capture: bool = False  # RGB preset shot as one exposure with all three LEDs lit
     sensor_profile: str = ""  # the single-capture preset's sensor profile, for the frame's roll
+    channels: tuple[str, ...] = ("R", "G", "B")  # the visible exposures to shoot; a subset shoots alone, into its own files
+    shutter_ir: str = ""  # the infrared exposure's own shutter; "" = the body's current
+    infrared: bool = False  # end the frame with an infrared exposure at shutter_ir
     capture_delay_s: float = 0.0  # seconds to hold the first exposure; Stop ends the wait
 
 
@@ -74,6 +77,7 @@ class ExposureProbeRequest:
     shutter_candidates: tuple[str, ...] = ()  # this body's writable ladder; empty = the built-in one
     medium: Optional[str] = None  # "negative" or "positive" from the preset; None lets the classifier decide
     session: int = 0  # the live-view session that asked, echoed back so a stopped one's report is dropped
+    wb_decode: bool = False  # the import applies the as-shot white balance, so the target must hold after its gain
 
 
 @dataclass(frozen=True)
@@ -313,6 +317,46 @@ class CaptureWorker(QObject):
             # RGB / white-preset captures drive the Scanlight, so it must be connected.
             light = self._ensure_light(req.port)
             service = CaptureService(light, camera)
+
+            def _capture_ir() -> str:
+                """The infrared exposure at its own shutter, with the body's shutter put back after,
+                so a frame shot at the body's shutter never inherits the infrared one."""
+                shutter = req.shutter_ir.strip() or None
+                readable = shutter is not None and hasattr(camera, "read_settings") and hasattr(camera, "set_shutter")
+                before = camera.read_settings().get("shutter", {}).get("cur", -1) if readable else -1
+                try:
+                    return service.capture_channel(
+                        roll_name=req.roll_name,
+                        frame_number=req.frame_number,
+                        output_folder=req.output_folder,
+                        channel=Channel.IR,
+                        level=255,
+                        shutter=shutter,
+                        iso=req.iso or None,
+                        aperture=req.aperture or None,
+                        settle_s=req.settle_s,
+                        cancel=self._cancel,
+                    )
+                finally:
+                    if isinstance(before, int) and before >= 0:
+                        camera.set_shutter(before)
+
+            def _with_ir(paths: list) -> list:
+                """Append the frame's infrared exposure when the preset asks for one. The visible
+                exposures are on disk by now, so a failed infrared one ends the frame without it
+                instead of failing the frame, which would delete them as a partial capture."""
+                if not req.infrared:
+                    return paths
+                self.channel.emit("IR")
+                self.status.emit(tr("Capturing IR channel…"))
+                try:
+                    paths.append(_capture_ir())
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("infrared exposure failed")
+                    self.status.emit(tr("Infrared exposure failed, frame kept without it: {error}", error=exc))
+                self.progress.emit(1.0)
+                return paths
+
             self._wait_before_capture(req.capture_delay_s)  # after the light check, so a dead light fails at once
             if req.white_mode:  # one broadband white exposure (slide / B&W), no RGB triplet
                 self.status.emit(tr("Capturing white frame…"))
@@ -325,7 +369,7 @@ class CaptureWorker(QObject):
                     settle_s=req.settle_s,
                     cancel=self._cancel,
                 )
-                self.finished.emit([path])
+                self.finished.emit(_with_ir([path]))
                 return
 
             settings = CaptureSettings(
@@ -341,24 +385,48 @@ class CaptureWorker(QObject):
             )
             if req.single_capture:  # one narrowband exposure, imported as an ordinary single RAW
                 self.status.emit(tr("Capturing…"))
-                self.finished.emit([service.capture_rgb_single(settings, cancel=self._cancel)])
+                self.finished.emit(_with_ir([service.capture_rgb_single(settings, cancel=self._cancel)]))
+                return
+
+            if tuple(req.channels) != ("R", "G", "B"):  # a subset of the visible exposures, each shot alone
+                paths = []
+                for i, ch in enumerate(CAPTURE_ORDER):
+                    if ch.letter not in req.channels:
+                        continue
+                    self.channel.emit(ch.letter)
+                    self.status.emit(tr("Capturing {channel} channel…", channel=ch.letter))
+                    paths.append(
+                        service.capture_channel(
+                            roll_name=req.roll_name,
+                            frame_number=req.frame_number,
+                            output_folder=req.output_folder,
+                            channel=ch,
+                            level=req.levels[i] or 255,
+                            shutter=req.shutters[i].strip() or None,
+                            iso=req.iso or None,
+                            aperture=req.aperture or None,
+                            settle_s=req.settle_s,
+                            cancel=self._cancel,
+                        )
+                    )
+                self.finished.emit(_with_ir(paths))
                 return
 
             self.status.emit(tr("Capturing R / G / B…"))
-            _names = {"R": "red", "G": "green", "B": "blue"}
+            _names = {"R": mark("red"), "G": mark("green"), "B": mark("blue")}
 
             def _on_channel(letter: str) -> None:
                 self.channel.emit(letter)
-                self.status.emit(tr("Capturing {value} channel…", value=_names.get(letter, letter)))
+                self.status.emit(tr("Capturing {value} channel…", value=tr(_names.get(letter, letter))))
 
             result = service.capture_triplet(
                 settings,
-                progress=self.progress.emit,
+                progress=lambda f: self.progress.emit(f * (0.75 if req.infrared else 1.0)),
                 cancel=self._cancel,
                 on_channel=_on_channel,
             )
 
-            self.finished.emit(result.paths)
+            self.finished.emit(_with_ir(result.paths))
         except Exception as e:
             self._cleanup_partial_frame(req)  # keep the folder a clean multiple of 3 for NegPy's grouper
             if self._cancel.is_set():
@@ -451,6 +519,7 @@ class CaptureWorker(QObject):
             "light_ok": False,
             "light_detail": "not connected",
             "light_has_white": True,
+            "light_has_ir": False,
             "usb_claimed_elsewhere": False,
             # Advertised abilities of the last body opened. Optimistic until a session has been
             # opened: never grey a control out on an uninspected body.
@@ -489,6 +558,11 @@ class CaptureWorker(QObject):
                 # claim, is not usable. Surface that instead of a healthy "connected" dot.
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
                 status["usb_claimed_elsewhere"] = self._claimed_elsewhere
+                # Nothing republishes the body's settings while no preview streams, so the poll
+                # does: the card's exposure steppers fill before Live View ever opens.
+                publish = getattr(self._camera, "publish_settings", None) if self._holds_camera() else None
+                if publish is not None:
+                    publish()
                 if self._caps is not None:
                     status["camera_preview"], status["camera_config"] = self._caps.preview, self._caps.config
             elif self._claimed_elsewhere:
@@ -515,6 +589,7 @@ class CaptureWorker(QObject):
             fw, hw = self._ensure_light(port).get_fw_version()
             status["light_ok"], status["light_detail"] = True, f"{describe_hardware(hw)} (fw{fw})"
             status["light_has_white"] = has_white_channel(hw)
+            status["light_has_ir"] = has_ir_channel(hw)
         except Exception:
             pass
         self.poll_status.emit(status)
@@ -578,17 +653,21 @@ class CaptureWorker(QObject):
         except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
             self._camera_control_failed("set_focus_magnifier_pos", exc)
 
-    @pyqtSlot(str, int)
-    def set_camera_setting(self, which: str, raw: int) -> None:
-        """Change a live camera setting (iso/shutter/wb/aperture); `raw` is a choice index."""
+    @pyqtSlot(str, int, str)
+    def set_camera_setting(self, which: str, raw: int, label: str = "") -> None:
+        """Change a live camera setting (iso/shutter/wb/aperture); `raw` is a choice index and
+        `label` the text the panel shows for it, which the body must still list there. Takes the
+        session like a scan does: the card's steppers write with no Live View window open, after
+        the window's close released it."""
         try:
-            if self._holds_camera():
-                cam = self._camera
-                {
-                    "iso": cam.set_iso,
-                    "shutter": cam.set_shutter,
-                    "aperture": cam.set_aperture,
-                }.get(which, lambda _r: None)(raw)
+            if self._claimed_elsewhere and not self._holds_camera():
+                return  # the camera dot already says another app holds it; the poll's retry clears that
+            cam = self._acquire_camera()
+            {
+                "iso": cam.set_iso,
+                "shutter": cam.set_shutter,
+                "aperture": cam.set_aperture,
+            }.get(which, lambda _r, _l=None: None)(*((raw, label) if label else (raw,)))
         except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
             self._camera_control_failed("set_camera_setting", exc)
         finally:
@@ -651,13 +730,13 @@ class CaptureWorker(QObject):
         # failure that kept the camera, or a capture failure that closed it.
         import tempfile
 
-        from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
+        from negpy.infrastructure.capture.raw_demosaic import as_shot_wb, linear_demosaic
         from negpy.services.capture.meter import meter_frame
 
         try:
             scratch = tempfile.TemporaryDirectory(prefix="negpy-meter-", ignore_cleanup_errors=True)
         except OSError as e:
-            self.exposure_probe_failed.emit((req.session, f"no scratch directory: {e}", False))
+            self.exposure_probe_failed.emit((req.session, tr("no scratch directory: {error}", error=e), False))
             return
         with scratch as scratch_dir:
             try:
@@ -676,7 +755,8 @@ class CaptureWorker(QObject):
                 return
             try:
                 img = linear_demosaic(written, half_size=True)
-                reading = meter_frame(img, req.shutter, req.shutter_candidates, medium=req.medium)
+                wb = as_shot_wb(written) if req.wb_decode else None
+                reading = meter_frame(img, req.shutter, req.shutter_candidates, medium=req.medium, wb=wb)
             except Exception as e:  # the camera session stands; only the decode or the maths failed
                 logger.exception("meter failed")
                 self.exposure_probe_failed.emit((req.session, str(e), False))

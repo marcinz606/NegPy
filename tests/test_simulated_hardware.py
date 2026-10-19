@@ -149,7 +149,7 @@ def test_scanlight_answers_and_reports_temperature(sim_env):
     light = Scanlight()
     try:
         assert light.port == "sim"
-        assert light.get_fw_version() == (7, 3)
+        assert light.get_fw_version() == (7, 0)  # the simulator is a Big Scanlight: white and infrared
         light.set_color(10, 20, 30)
         deadline = time.monotonic() + 2
         while light.last_temp_c is None and time.monotonic() < deadline:

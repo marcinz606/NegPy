@@ -23,6 +23,16 @@ def _record(asset: dict) -> list:
     return [asset["green_path"], asset["blue_path"], bool(asset.get("align", True)), hashes]
 
 
+def forget_triplets(repo: Any, red_paths: Any) -> None:
+    """Drop the records for these primaries: a re-shot channel changes a member's hash on purpose,
+    and the record's hashes would refuse the frame."""
+    store = saved_triplets(repo)
+    drop = set(red_paths)
+    updated = {red: rec for red, rec in store.items() if red not in drop}
+    if updated != store:
+        repo.save_global_setting(TRIPLETS_KEY, updated)
+
+
 def remember_triplets(repo: Any, assets: Any) -> None:
     """Upsert the triplets among ``assets``. A stored triplet that shares a file with a new
     one is dropped: one exposure belongs to one frame."""

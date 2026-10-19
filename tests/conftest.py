@@ -35,6 +35,19 @@ def qapp():
 
 
 @pytest.fixture(autouse=True)
+def _own_camera_files(monkeypatch, tmp_path):
+    """The camera driver publishes its live frame and settings into the system temp folder, where a
+    running NegPy session reads them; a test writes its own copies instead."""
+    import negpy.desktop.view.sidebar.scanlight as scanlight
+    import negpy.infrastructure.capture.gphoto as gphoto
+
+    settings, jpeg = str(tmp_path / "negpy_scanlight_settings.json"), str(tmp_path / "negpy_scanlight_live.jpg")
+    monkeypatch.setattr(gphoto, "default_settings_path", lambda: settings)
+    monkeypatch.setattr(gphoto, "default_jpeg_path", lambda: jpeg)
+    monkeypatch.setattr(scanlight, "default_settings_path", lambda: settings)
+
+
+@pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
     """A panel starts a GitHub release check on construction; a live socket thread outlives
     the test that built it and crashes Qt in a later one."""

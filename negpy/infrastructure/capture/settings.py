@@ -9,10 +9,11 @@ from negpy.features.process.models import ProcessMode
 
 
 class WhiteCaptureMode(StrEnum):
-    """What a white-light capture is: a slide, a B&W negative, or left to autodetect."""
+    """What a white-light capture is: a slide, a B&W or color negative, or left to autodetect."""
 
     AUTO = "auto"
     BW = ProcessMode.BW
+    C41 = ProcessMode.C41
     E6 = ProcessMode.E6
 
     @classmethod
@@ -40,6 +41,8 @@ class ScanlightSettings:
     white_mode: bool = False
     w_level: int = 0  # RGB scanning uses no white; a white-light preset raises it to 255
     shutter_w: str = ""
+    shutter_ir: str = ""  # the infrared exposure's own shutter, set by hand; "" = the body's current
+    infrared: bool = False  # end every frame with an infrared exposure at shutter_ir
     iso: str = ""  # RGB preset's calibrated ISO/aperture, forced on the body at scan time
     aperture: str = ""  # "" for a manual-aperture lens (set by hand on the ring)
     single_capture: bool = False  # the RGB preset lights R, G and B together for one exposure
@@ -48,10 +51,14 @@ class ScanlightSettings:
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
     keep_light_on: bool = False  # re-light the framing light after each scan without Live View
     capture_delay_s: float = 0.0  # seconds Scan and Retake hold the first exposure
+    adopted_presets: tuple[str, ...] = ()  # built-in presets added to the dropdown; the rest stay under +
 
     def __post_init__(self) -> None:
         # A dict saved before the process-mode rename still carries the old names.
         object.__setattr__(self, "white_process_mode", WhiteCaptureMode(self.white_process_mode))
+        # A saved list reads back as a list; anything else in the file is not a list of names.
+        adopted = self.adopted_presets if isinstance(self.adopted_presets, (list, tuple)) else ()
+        object.__setattr__(self, "adopted_presets", tuple(n for n in adopted if isinstance(n, str)))
 
     @classmethod
     def defaults(cls) -> "ScanlightSettings":

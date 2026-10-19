@@ -1357,7 +1357,7 @@ class DesktopSessionManager(QObject):
         asset = self.state.uploaded_files[idx]
         config = self._apply_sticky_settings(saved, only_global=True)
         self.update_config(resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), persist=True)
-        self._relock_diverged_cards()
+        self.relock_diverged_cards()
         return True
 
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
@@ -1612,7 +1612,7 @@ class DesktopSessionManager(QObject):
             if idx == self.state.selected_file_idx:
                 overlaid = apply_selected_fields(source, self.state.config, rows)
                 self.update_config(finish(overlaid) if finish else overlaid, persist=True, render=False)
-                self._relock_diverged_cards()
+                self.relock_diverged_cards()
                 count += 1
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
@@ -1894,7 +1894,7 @@ class DesktopSessionManager(QObject):
             # Written without a render; the filmstrip flags the cell until one lands.
             self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
 
-    def _relock_diverged_cards(self) -> None:
+    def relock_diverged_cards(self) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work
         print and a paste restore no locks, and an unlocked card takes the roll's values on load.
         Never unlocks, except Auto Crop on a hand-drawn frame (rolls.holds_own_crop)."""
@@ -1929,7 +1929,7 @@ class DesktopSessionManager(QObject):
             if prev_config:
                 self.state.config = prev_config
                 self._config_dirty = True
-                self._relock_diverged_cards()
+                self.relock_diverged_cards()
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -1940,7 +1940,7 @@ class DesktopSessionManager(QObject):
             if next_config:
                 self.state.config = next_config
                 self._config_dirty = True
-                self._relock_diverged_cards()
+                self.relock_diverged_cards()
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -1985,7 +1985,7 @@ class DesktopSessionManager(QObject):
             if not self.work_print_apply_metadata():
                 config = replace(config, metadata=self.state.config.metadata)
             self.update_config(config, persist=True)
-            self._relock_diverged_cards()
+            self.relock_diverged_cards()
 
     def rename_work_print(self, name: str, new_name: str, replace_existing: bool = False) -> None:
         if not (self.state.current_file_hash and new_name) or new_name == name:
@@ -2020,7 +2020,7 @@ class DesktopSessionManager(QObject):
         self.state.undo_index = index
         self.state.config = config
         self._config_dirty = True
-        self._relock_diverged_cards()
+        self.relock_diverged_cards()
         self.state_changed.emit()
         self.history_changed.emit()
 
@@ -2167,7 +2167,7 @@ class DesktopSessionManager(QObject):
         if bounds:
             merged = with_bounds(merged)
         self.update_config(merged, persist=True)
-        self._relock_diverged_cards()
+        self.relock_diverged_cards()
         self.settings_pasted.emit()
 
     def persist_hidden_masks(self) -> None:

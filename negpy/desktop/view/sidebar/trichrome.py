@@ -69,8 +69,8 @@ class TrichromeSidebar(BaseSidebar):
             self.enable_btn.setChecked(self.controller.rgb_scan_mode_for_roll(self.state.active_roll_id))
             self.edit_btn.setEnabled(bool(self.state.uploaded_files))
             if is_rgb_triplet(conf):
-                green, blue = os.path.basename(conf.green_path), os.path.basename(conf.blue_path)
-                self.hint.setText(tr("This frame is assembled with {green} and {blue}.", green=green, blue=blue))
+                parts = [os.path.basename(p) for p in (self.state.current_file_path or "", conf.green_path, conf.blue_path) if p]
+                self.hint.setText(tr("Assembled from {others} and {last}.", others=", ".join(parts[:-1]), last=parts[-1]))
             else:
                 self.hint.setText(tr("This frame is a single exposure."))
         finally:

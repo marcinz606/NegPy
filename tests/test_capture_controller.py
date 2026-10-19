@@ -118,6 +118,46 @@ def test_explicit_bw_applies_to_import_after_hydration_without_detection():
     assert task.detect_mode is False
 
 
+def test_a_capture_sets_the_frames_decode_for_its_light():
+    # A camera under white light wants the as-shot white balance; narrowband light decodes Linear RAW.
+    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
+    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.process.linear_raw is False
+
+    c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.process.linear_raw is True
+
+
+def test_a_capture_sets_the_frames_print_stock_by_the_wizards_rule():
+    # Narrowband light prints on Pakon, white light on neutral, only over a stock the wizard itself picks.
+    c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.exposure.paper_profile == "pakon"
+
+    c = _run(["neg.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.C41)
+    c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="pakon"))
+    _hydrate_and_load(c, "neg.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.exposure.paper_profile == "neutral"
+
+    c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
+    c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="ilford_mg"))
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.exposure.paper_profile == "ilford_mg"  # a hand-picked stock stays
+
+    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
+    c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="pakon"))
+    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    assert c.state.config.exposure.paper_profile == "pakon"  # the rule covers color negatives only
+
+
+def test_a_white_light_color_negative_imports_as_c41():
+    c = _run(["neg.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.C41)
+    task = _hydrate_and_load(c, "neg.ARW", ProcessMode.E6, autodetect=True)
+    assert c.state.config.process.process_mode == ProcessMode.C41
+    assert task.detect_mode is False
+
+
 def test_automatic_white_import_requests_detection_without_forcing_mode():
     c = _run(["auto.ARW"], rgb_mode=True, white_mode=True, white_process_mode="auto")
 
@@ -203,3 +243,34 @@ def test_single_capture_frame_outside_a_roll_takes_the_sensor_profile_itself(mon
 
     process = c.state.config.process
     assert (process.sensor_profile, process.sensor_matrix, process.linear_raw) == ("Portra", tuple(unmix), True)
+
+
+def test_an_infrared_shot_alone_keeps_the_rolls_modes_and_import_settings(tmp_path):
+    path = str(tmp_path / "Roll001_Frame001_IR.ARW")
+
+    controller = _run([path], channels=(), infrared=True, as_roll=False)
+
+    controller.request_asset_discovery.assert_called_once_with([path], restore_triplets=None)
+    assert not controller.session.repo.save_global_setting.called  # Trichrome Mode untouched
+    assert controller._pending_capture_imports == {}
+
+
+def test_a_re_shot_channel_re_enters_discovery_with_its_siblings_as_one_triplet(tmp_path):
+    paths = [str(tmp_path / f"Roll001_Frame001_{letter}.ARW") for letter in ("R", "G", "B")]
+    for p in paths:
+        open(p, "wb").close()
+
+    controller = _run([paths[1]], channels=("G",), as_roll=False)
+
+    controller.request_asset_discovery.assert_called_once_with(paths, restore_triplets={paths[0]: paths[1:]})
+    assert controller._pending_scanned_file == paths[0]
+
+
+def test_an_infrared_exposure_rides_beside_the_triplet(tmp_path):
+    paths = [str(tmp_path / f"Roll001_Frame001_{letter}.ARW") for letter in ("R", "G", "B", "IR")]
+
+    controller = _run(paths, as_roll=False)
+
+    controller.request_asset_discovery.assert_called_once_with(paths, restore_triplets={paths[0]: [paths[1], paths[2]]})
+    assert controller._pending_scanned_file == paths[0]
+    assert os.path.normcase(os.path.abspath(paths[0])) in controller._pending_capture_imports

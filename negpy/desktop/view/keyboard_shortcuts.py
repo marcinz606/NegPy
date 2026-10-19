@@ -477,6 +477,9 @@ class ShortcutManager:
             "scanlight_keep_light_on": lambda: (
                 right.scanlight_sidebar.keep_light_btn.toggle() if not right.scanlight_sidebar.keep_light_btn.isHidden() else None
             ),
+            "scanlight_infrared": lambda: (
+                right.scanlight_sidebar.ir_toggle.toggle() if not right.scanlight_sidebar._ir_exposure_widget.isHidden() else None
+            ),
             "mode_color_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(0),
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(1),
             "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),

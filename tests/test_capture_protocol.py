@@ -72,3 +72,20 @@ def test_big_scanlight_set_color_is_wire_identical_to_v4():
     # exactly what encode_set_color emits — so one encoder drives both devices.
     pkt = proto.encode_set_color(10, 20, 30, 40, save=False)
     assert pkt == bytes([0xFE, proto.H2D_SET_COLOR, 6, 10, 20, 30, 40, 0, 0])
+
+
+def test_encode_set_color_infrared_byte():
+    assert proto.encode_set_color(0, 0, 0, 0, 200)[7] == 200
+    assert proto.encode_set_color(0, 0, 0, 0, 200, save=True)[-1] == 1
+
+
+def test_has_ir_channel():
+    assert proto.has_ir_channel(0) is True
+    assert proto.has_ir_channel(3) is False
+
+
+def test_channel_light_keywords():
+    assert Channel.GREEN.light(120) == {"r": 0, "g": 120, "b": 0}
+    assert Channel.IR.light(255) == {"ir": 255}
+    with pytest.raises(ValueError):
+        Channel.IR.rgb(255)

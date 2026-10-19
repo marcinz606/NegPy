@@ -7,15 +7,19 @@ import time
 from negpy.infrastructure.capture import protocol as proto
 
 _FIRMWARE_ID = 7
-_HARDWARE_ID = 3  # Scanlight v4b: has the white channel
+_HARDWARE_ID = 0  # Big Scanlight: white and infrared channels
 _TELEMETRY_INTERVAL_S = 0.2
 
-_color = [0, 0, 0, 0]
+_color = [0, 0, 0, 0, 0]
 
 
 def current_color() -> tuple[int, int, int, int]:
-    r, g, b, w = _color
+    r, g, b, w = _color[:4]
     return r, g, b, w
+
+
+def current_ir() -> int:
+    return _color[4] if len(_color) > 4 else 0
 
 
 class SimSerial:
@@ -27,8 +31,8 @@ class SimSerial:
         self._next_telemetry = 0.0
 
     def write(self, data: bytes) -> None:
-        if len(data) >= 7 and data[0] == proto.START_BYTE and data[1] == proto.H2D_SET_COLOR:
-            _color[:] = data[3:7]
+        if len(data) >= 8 and data[0] == proto.START_BYTE and data[1] == proto.H2D_SET_COLOR:
+            _color[:] = data[3:8]
         elif len(data) >= 2 and data[0] == proto.START_BYTE and data[1] == proto.H2D_GET_FW_VERSION:
             word = (_HARDWARE_ID << 16) | _FIRMWARE_ID
             self._replies.put(proto.encode_packet(proto.D2H_FW_VERSION, word.to_bytes(4, "big")))

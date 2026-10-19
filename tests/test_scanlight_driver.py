@@ -69,6 +69,13 @@ def test_white_and_narrowband_cannot_be_lit_together(light):
         light.set_color(10, 0, 0, 255)
 
 
+def test_infrared_lights_alone(light):
+    with pytest.raises(ValueError):
+        light.set_color(10, 0, 0, 0, ir=255)
+    light.set_color(ir=255)
+    assert bytes(light.serial.written) == proto.encode_set_color(0, 0, 0, 0, 255)
+
+
 def test_off_turns_every_channel_down(light):
     light.off()
     assert bytes(light.serial.written) == proto.encode_set_color(0, 0, 0, 0)

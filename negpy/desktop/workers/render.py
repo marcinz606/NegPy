@@ -1148,9 +1148,12 @@ class AssetDiscoveryWorker(QObject):
         by_time = len(times) == len(ordered)
         ordered = capture_ordered(ordered, times)
 
-        probes = self._map_files(ordered, probe_frame, lambda p: f"RGB {os.path.basename(p)}", _DECODE_WORKERS)
-        items = [(p, classify_channel(pr.means)) for p, pr in zip(ordered, probes) if pr is not None]
-        signatures = {p: pr.signature for p, pr in zip(ordered, probes) if pr is not None}
+        # An infrared exposure shot beside a triplet (`_IR`) stays its own frame: gray, it would
+        # classify as a channel and shift every chunk after it.
+        candidates = [p for p in ordered if not os.path.splitext(os.path.basename(p))[0].lower().endswith("_ir")]
+        probes = self._map_files(candidates, probe_frame, lambda p: f"RGB {os.path.basename(p)}", _DECODE_WORKERS)
+        items = [(p, classify_channel(pr.means)) for p, pr in zip(candidates, probes) if pr is not None]
+        signatures = {p: pr.signature for p, pr in zip(candidates, probes) if pr is not None}
 
         result = list(assembled)
         grouped = set()
@@ -1180,7 +1183,7 @@ class AssetDiscoveryWorker(QObject):
             grouped.update({t.red, t.green, t.blue})
 
         result.extend(by_path[p] for p in ordered if p not in grouped)
-        loose = len(ordered) - len(grouped)
+        loose = len(candidates) - len(grouped)
         if loose:
             summary = {
                 "made": len(grouped) // 3,

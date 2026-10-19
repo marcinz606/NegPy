@@ -288,6 +288,28 @@ def test_field_row_in_a_slider_card_spans_the_track(qapp):
     assert combo.geometry().right() == slider.x() + slider.slider.geometry().right()
 
 
+def test_log_slider_round_trips_the_decades_and_keeps_zero_as_off(qapp):
+    from negpy.desktop.view.widgets.sliders import LogSlider
+
+    slider = LogSlider("Capture Delay", 0, 10, 0, log_floor=0.1, unit=" s")
+    for value in (0.0, 0.1, 0.15, 0.4, 1.0, 2.5, 10.0):
+        slider.setValue(value)
+        assert abs(slider.value() - value) < 0.005, value
+    assert slider.spin.decimals() == 2
+    assert slider._to_int(0.0) == 0 and slider._to_int(10.0) == slider._LOG_STEPS
+    assert abs((slider._to_int(1.0) - slider._to_int(0.1)) - (slider._to_int(10.0) - slider._to_int(1.0))) <= 1  # one decade per equal drag
+
+
+def test_log_slider_takes_a_typed_value_under_the_floor_as_the_floor(qapp):
+    from negpy.desktop.view.widgets.sliders import LogSlider
+
+    slider = LogSlider("Capture Delay", 0, 10, 0, log_floor=0.1, unit=" s")
+    slider.spin.setValue(0.05)  # as typing does: the spin box emits, the slider follows
+    assert slider.value() == 0.1
+    slider.spin.setValue(0.0)
+    assert slider.value() == 0.0
+
+
 def test_a_value_column_button_leaves_the_field_the_whole_track(qapp):
     from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
