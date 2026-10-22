@@ -67,6 +67,7 @@ class CaptureRequest:
     shutter_ir: str = ""  # the infrared exposure's own shutter; "" = the body's current
     infrared: bool = False  # end the frame with an infrared exposure at shutter_ir
     capture_delay_s: float = 0.0  # seconds to hold the first exposure; Stop ends the wait
+    end_light: tuple[int, int, int, int] = (0, 0, 0, 0)  # r, g, b, w left lit after a successful frame; zeros = off
 
 
 @dataclass(frozen=True)
@@ -317,6 +318,8 @@ class CaptureWorker(QObject):
             # RGB / white-preset captures drive the Scanlight, so it must be connected.
             light = self._ensure_light(req.port)
             service = CaptureService(light, camera)
+            # Only the frame's last exposure leaves the light lit; an earlier one hands straight to the next.
+            visible_end = None if req.infrared else req.end_light
 
             def _capture_ir() -> str:
                 """The infrared exposure at its own shutter, with the body's shutter put back after,
@@ -336,6 +339,7 @@ class CaptureWorker(QObject):
                         aperture=req.aperture or None,
                         settle_s=req.settle_s,
                         cancel=self._cancel,
+                        end_light=req.end_light,
                     )
                 finally:
                     if isinstance(before, int) and before >= 0:
@@ -368,6 +372,7 @@ class CaptureWorker(QObject):
                     shutter=req.shutter_w or None,
                     settle_s=req.settle_s,
                     cancel=self._cancel,
+                    end_light=visible_end,
                 )
                 self.finished.emit(_with_ir([path]))
                 return
@@ -385,11 +390,12 @@ class CaptureWorker(QObject):
             )
             if req.single_capture:  # one narrowband exposure, imported as an ordinary single RAW
                 self.status.emit(tr("Capturing…"))
-                self.finished.emit(_with_ir([service.capture_rgb_single(settings, cancel=self._cancel)]))
+                self.finished.emit(_with_ir([service.capture_rgb_single(settings, cancel=self._cancel, end_light=visible_end)]))
                 return
 
             if tuple(req.channels) != ("R", "G", "B"):  # a subset of the visible exposures, each shot alone
                 paths = []
+                last = [ch for ch in CAPTURE_ORDER if ch.letter in req.channels][-1:]
                 for i, ch in enumerate(CAPTURE_ORDER):
                     if ch.letter not in req.channels:
                         continue
@@ -407,6 +413,7 @@ class CaptureWorker(QObject):
                             aperture=req.aperture or None,
                             settle_s=req.settle_s,
                             cancel=self._cancel,
+                            end_light=visible_end if [ch] == last else None,
                         )
                     )
                 self.finished.emit(_with_ir(paths))
@@ -424,6 +431,7 @@ class CaptureWorker(QObject):
                 progress=lambda f: self.progress.emit(f * (0.75 if req.infrared else 1.0)),
                 cancel=self._cancel,
                 on_channel=_on_channel,
+                end_light=visible_end,
             )
 
             self.finished.emit(_with_ir(result.paths))

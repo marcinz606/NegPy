@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -466,3 +467,24 @@ def test_cache_get_still_reorders() -> None:
 
 def test_cache_peek_misses_an_absent_key() -> None:
     assert PreviewBufferCache(_small_cfg()).peek(PreviewCacheKey("none", False, "Adobe RGB", False)) is None
+
+
+def test_a_prefetch_reads_the_base_of_the_frame_it_warms() -> None:
+    from negpy.domain.models import WorkspaceConfig
+
+    service = MagicMock()
+    buffer = np.zeros((4, 6, 3), dtype=np.float32)
+    service.peek_linear_preview.return_value = (buffer, (6, 4), {"orientation": 6})
+    worker = PreviewLoadWorker(service)
+    worker._state.expect_generation(1)
+    cfg = WorkspaceConfig()
+    task = PreviewLoadTask(
+        file_path="/n.dng", workspace_color_space="Adobe RGB", use_camera_wb=False, generation=1, for_cache_warm=True, file_hash="hash"
+    )
+
+    with patch("negpy.desktop.workers.render.read_source_base") as read:
+        worker.process(task)
+        read.assert_not_called()
+        worker.process(replace(task, base_settings=cfg))
+
+    read.assert_called_once_with(buffer, cfg, "hash", 6)

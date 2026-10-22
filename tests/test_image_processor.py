@@ -150,6 +150,7 @@ def _fake_decode_recorder(calls, record=None):
         positive_source=False,
         highlight_mode=0,
         bake_camera_wb=False,
+        load_ir=True,
     ):
         calls.append(fast if record is None else record(fast, demosaic))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"orientation": 1, "color_space": "sRGB"}

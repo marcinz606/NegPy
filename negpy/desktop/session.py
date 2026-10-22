@@ -887,6 +887,7 @@ class DesktopSessionManager(QObject):
         super().__init__()
         self.repo = repo
         self.state = AppState()
+        self._preview_history: Optional[Tuple[str, WorkspaceConfig]] = None
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
         self.asset_model = AssetListModel(self.state, self.search_facts)
         # Both signals already fire from every mutation that can change a frame's
@@ -1354,6 +1355,18 @@ class DesktopSessionManager(QObject):
         config = rolls.resolve_roll_config(self.repo, roll_id, file_hash, config)
         return rolls.resolve_roll_baseline(self.repo, roll_id, file_hash, config)
 
+    def _keep_locked_flatfield_profile(self, saved: WorkspaceConfig, config: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+        """Put back the saved flat-field profile when that card is locked.
+
+        The rig-global profile replaces profile_id before the lock is read.
+        """
+        roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
+        if roll_id is None:
+            return config
+        if "flatfield" not in rolls.frame_override_cards(self.repo, roll_id, unforked_hash(asset["hash"])):
+            return config
+        return replace(config, flatfield=replace(config.flatfield, profile_id=saved.flatfield.profile_id))
+
     def load_edit_from_sidecar(self, path: str) -> bool:
         """Replace the active frame's edit with the sidecar at *path*, as an undoable
         history step. Like a work print, its own values beat the roll's, so diverged cards
@@ -1384,6 +1397,7 @@ class DesktopSessionManager(QObject):
             # A saved edit keeps its own process mode and shadow lift, which are the user's
             # now, so only the wiring overlays apply.
             config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True), asset)
+            config = self._keep_locked_flatfield_profile(saved_config, config, asset)
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
@@ -1431,6 +1445,7 @@ class DesktopSessionManager(QObject):
         if 0 <= index < len(self.state.uploaded_files):
             # Save current before switching, but only if user actually made explicit edits
             if self.state.current_file_hash:
+                self._commit_preview()
                 if self._config_dirty:
                     self.repo.save_file_settings(
                         self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or ""
@@ -1841,10 +1856,18 @@ class DesktopSessionManager(QObject):
         """
         Updates global config and optionally saves to disk.
         """
-        # A step identical to the live config renders as a dead row in the History panel and
-        # costs a redo branch. Reloading the same work print, resetting an already-default panel
-        # and pasting identical settings all land here.
-        if persist and record_history and config == self.state.config:
+        history_requested = record_history
+        before = self.state.config
+        if self._preview_history is not None:
+            if self._preview_history[0] == self.state.current_file_hash:
+                before = self._preview_history[1]
+            else:
+                self._preview_history = None
+
+        # Each edit keeps its undo baseline from before the first preview.
+        if not persist and record_history and self.state.current_file_hash:
+            self._preview_history = None if config == before else (self.state.current_file_hash, before)
+        if persist and record_history and config == before:
             record_history = False
 
         stepped = False
@@ -1852,7 +1875,7 @@ class DesktopSessionManager(QObject):
             # If editing after an undo, drop the now-orphaned future branch
             if self.state.undo_index < self.state.max_history_index:
                 self.repo.truncate_history_above(self.state.current_file_hash, self.state.undo_index)
-            self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
+            self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, before)
             self.state.undo_index += 1
             self.state.max_history_index = self.state.undo_index
 
@@ -1862,6 +1885,8 @@ class DesktopSessionManager(QObject):
             stepped = True
 
         self.state.config = config
+        if persist and history_requested:
+            self._preview_history = None
 
         # After the assignment: the step above is the *previous* config, and a handler that
         # reads state.config (the canvas HUD) must see the new one.
@@ -1877,6 +1902,10 @@ class DesktopSessionManager(QObject):
 
         if render:
             self.state_changed.emit()
+
+    def _commit_preview(self) -> None:
+        if self._preview_history is not None:
+            self.update_config(self.state.config, persist=True, render=False)
 
     def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
         """Persist the active frame's Auto-crop all frames result before it goes live in memory,
@@ -1931,6 +1960,7 @@ class DesktopSessionManager(QObject):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 
     def undo(self) -> None:
+        self._commit_preview()
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
                 self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
@@ -1945,6 +1975,7 @@ class DesktopSessionManager(QObject):
                 self.history_changed.emit()
 
     def redo(self) -> None:
+        self._commit_preview()
         if self.state.undo_index < self.state.max_history_index and self.state.current_file_hash:
             self.state.undo_index += 1
             next_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
@@ -2018,6 +2049,7 @@ class DesktopSessionManager(QObject):
         """Load an arbitrary history step (random-access undo/redo)."""
         if not self.state.current_file_hash:
             return
+        self._commit_preview()
         if index == self.state.undo_index or not (0 <= index <= self.state.max_history_index):
             return
 
@@ -2393,6 +2425,7 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = []
         self.state.current_file_path = None
         self.state.current_file_hash = None
+        self._preview_history = None
         self.state.preview_raw = None
         self.state.preview_ir = None
         self.state.preview_detect = None

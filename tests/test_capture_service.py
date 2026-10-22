@@ -247,3 +247,54 @@ def test_a_triplet_writes_iso_and_aperture_once_and_the_shutter_when_it_changes(
 
     assert camera.isos == ["100", None, None] and camera.apertures == ["f/8", None, None]
     assert camera.shutters == ["1/4", None, "1/8"]  # the body cannot drift inside one frame
+
+
+def test_capture_triplet_leaves_the_end_light_lit_with_no_off_step(tmp_path):
+    light = FakeLight()
+    svc = CaptureService(light, FakeCamera(), sleep=lambda _s: None)
+
+    svc.capture_triplet(_settings(tmp_path), end_light=(25, 12, 11, 0))
+
+    assert not light.off_called
+    assert light.colors == [(200, 0, 0, 0), (0, 180, 0, 0), (0, 0, 255, 0), (25, 12, 11, 0)]
+
+
+def test_capture_triplet_turns_the_light_off_on_error_despite_an_end_light(tmp_path):
+    light = FakeLight()
+    svc = CaptureService(light, FakeCamera(file_size=100), sleep=lambda _s: None)
+
+    with pytest.raises(CaptureError):
+        svc.capture_triplet(_settings(tmp_path), end_light=(25, 12, 11, 0))
+    assert light.colors[-1] == (0, 0, 0, 0)
+
+
+def test_capture_triplet_turns_the_light_off_on_cancel_despite_an_end_light(tmp_path):
+    light = FakeLight()
+    cancel = threading.Event()
+    cancel.set()
+    svc = CaptureService(light, FakeCamera(), sleep=lambda _s: None)
+
+    with pytest.raises(CaptureError):
+        svc.capture_triplet(_settings(tmp_path), cancel=cancel, end_light=(25, 12, 11, 0))
+    assert light.colors[-1] == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "shoot",
+    [
+        lambda svc, tmp, end: svc.capture_rgb_single(_settings(tmp), end_light=end),
+        lambda svc, tmp, end: svc.capture_white(roll_name="Roll001", frame_number=1, output_folder=str(tmp), w_level=200, end_light=end),
+        lambda svc, tmp, end: svc.capture_channel(
+            roll_name="Roll001", frame_number=1, output_folder=str(tmp), channel=Channel.IR, level=255, end_light=end
+        ),
+    ],
+    ids=["single", "white", "channel"],
+)
+def test_single_exposures_leave_the_end_light_lit(tmp_path, shoot):
+    light = FakeLight()
+    svc = CaptureService(light, FakeCamera(), sleep=lambda _s: None)
+
+    shoot(svc, tmp_path, (0, 0, 0, 120))
+
+    assert not light.off_called
+    assert light.colors[-1] == (0, 0, 0, 120)

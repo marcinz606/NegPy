@@ -181,6 +181,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "scan_as_roll": ShortcutEntry("", tr("Toggle Scan as Roll"), tr("Process")),
     "scan_folder_as_roll": ShortcutEntry("", tr("Toggle Folder as Roll"), tr("Process")),
     "scan_new_roll": ShortcutEntry("", tr("Start the next scan roll"), tr("Process")),
+    "scanlight_light": ShortcutEntry("", tr("Turn the Scanlight on or off"), tr("Process")),
     "scanlight_keep_light_on": ShortcutEntry("", tr("Toggle Keep Light On (Scanlight)"), tr("Process")),
     "scanlight_infrared": ShortcutEntry("", tr("Toggle Infrared: an infrared exposure after every frame (Scanlight)"), tr("Process")),
     "mode_color_negative": ShortcutEntry("", tr("Mode: Color Negative"), tr("Process")),

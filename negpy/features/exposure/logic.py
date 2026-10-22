@@ -39,6 +39,10 @@ def _fast_sigmoid(x: float) -> float:
         return float(z / (1.0 + z))
 
 
+# Plain Python calls this twin: an inline kernel has no cache, so it would compile on every launch.
+_fast_sigmoid_cached = njit(cache=True)(_fast_sigmoid.py_func)
+
+
 @njit(inline="always")
 def _black_hold(v: float, d_max_eff: float, taper: float) -> float:
     """Hold Black's weight on a shadow lift: 1 below `taper` under paper black, smoothstep to 0 at it.
@@ -139,7 +143,7 @@ def tone_key_weight_np(lum: Any, e0: float, e1: float) -> Any:
     return t * t * (np.float32(3.0) - np.float32(2.0) * t)
 
 
-@parallel_njit(cache=True, fastmath=True)
+@parallel_njit(cache=True, nogil=True, fastmath=True)
 def _apply_print_curve_kernel(
     img: np.ndarray,
     pivots: np.ndarray,
@@ -892,16 +896,19 @@ def apply_flat_curve(
     gain: float,
     lift: float,
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    stock_matrix: Optional[np.ndarray] = None,
 ) -> ImageBuffer:
     """
     True log master: emit the normalized log signal directly as the code value
     (positive-oriented 1 - val), linearly remapped with headroom. No 10^-D decode
     and no sRGB OETF — the flat, log-video look, fully invertible for downstream
-    editing. WB rides as an additive per-channel shift in log space.
+    editing. WB rides as an additive per-channel shift in log space; the print
+    stock's density matrix (rows sum 1) mixes after it, as in the print kernel.
     """
-    arr = np.asarray(image, dtype=np.float32)
-    off = np.asarray(cmy_offsets, dtype=np.float32)
-    code = lift + gain * (1.0 - (arr + off))
+    val = np.asarray(image, dtype=np.float32) + np.asarray(cmy_offsets, dtype=np.float32)
+    if stock_matrix is not None:
+        val = val @ np.asarray(stock_matrix, dtype=np.float32).T
+    code = lift + gain * (1.0 - val)
     return ensure_image(np.clip(code, 0.0, 1.0).astype(np.float32))
 
 
@@ -1173,7 +1180,7 @@ def highlight_hold_offset(
     if v >= v_hold:
         return 0.0
     z_hi = float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"])
-    w = 1.0 - _fast_sigmoid(float(c["zone_density_sharpness"]) * (v - z_hi))
+    w = 1.0 - _fast_sigmoid_cached(float(c["zone_density_sharpness"]) * (v - z_hi))
     return float(min((v_hold - v) / max(w, 1e-6), float(c["highlight_hold_max"])))
 
 

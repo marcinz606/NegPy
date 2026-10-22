@@ -132,12 +132,12 @@ def test_a_process_change_reuses_the_base(monkeypatch):
     """The base depends on the source and its geometry only, so a Crosstalk drag pays nothing."""
     from dataclasses import replace
 
-    from negpy.services.rendering import engine as engine_module
+    from negpy.services.rendering import base_read
     from negpy.services.rendering.engine import DarkroomEngine
 
     calls: list[int] = []
-    real = engine_module.measure_base_log
-    monkeypatch.setattr(engine_module, "measure_base_log", lambda image: calls.append(1) or real(image))
+    real = base_read.measure_base_log
+    monkeypatch.setattr(base_read, "measure_base_log", lambda image: calls.append(1) or real(image))
     img, cfg = _negative(), WorkspaceConfig()
     engine = DarkroomEngine()
     first = PipelineContext(scale_factor=1.0, original_size=(900, 600), process_mode=ProcessMode.C41)

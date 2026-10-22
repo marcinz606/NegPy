@@ -11,12 +11,6 @@ HEAL_SIZE_REF = 1600
 HEAL_SIZE_MIN = 2.0
 HEAL_SIZE_MAX = 64.0
 
-# IR reconstruction methods: the ratio/score/fill chain in logic.py, and the Digital ICE
-# port in openice.py. Two implementations of one stage, side by side until scans decide.
-IR_METHOD_NEGPY = "negpy"
-IR_METHOD_OPENICE = "openice"
-IR_METHODS = (IR_METHOD_NEGPY, IR_METHOD_OPENICE)
-
 
 @dataclass(frozen=True)
 class RetouchConfig:
@@ -53,12 +47,9 @@ class RetouchConfig:
     clone_feather: float = 0.5
     clone_match_tone: bool = True
     ir_dust_remove: bool = False
-    # Which reconstruction runs (IR_METHODS). ir_attenuation belongs to the NegPy method
-    # alone: OpenICE folds that tier into its own base term.
-    ir_method: str = IR_METHOD_NEGPY
     # Sensitivity on the normalized IR ratio, where higher is conservative. The default gives
     # a cutoff of 0.59 with attenuation on: division fixes shallow dust and the fill rebuilds
-    # cores. OpenICE reads it as a bias on its per-frame weight ramp.
+    # cores.
     ir_threshold: float = 0.66
     # IR-division tier: recover the image under semi-transparent dust, with no cloning.
     # Tracks ir_dust_remove from the single "IR Removal" control. B&W and Kodachrome frames

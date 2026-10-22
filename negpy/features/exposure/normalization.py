@@ -9,6 +9,7 @@ from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ROI, ImageBuffer
 from negpy.features.geometry.logic import AUTOCROP_DETECT_RES, _normalize_detection_input, film_and_picture
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.image.logic import percentile_from_sorted
 from negpy.kernel.image.validation import ensure_image
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ MASK_SPACER_MAX = 6.0
 DIFFUSION_SPREAD = 2.0
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray) -> np.ndarray:
     """
     Log -> ~0.0-1.0 (Linear stretch, unclamped: out-of-bounds densities are
@@ -255,27 +256,6 @@ def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:
     index into it, so a clip drag re-reads one sort instead of re-partitioning the grid.
     """
     return np.sort(img_log.reshape(-1, 3), axis=0)
-
-
-def percentile_from_sorted(sorted_grid: np.ndarray, q: float) -> np.ndarray:
-    """
-    The three channels' `np.percentile(grid[:, :, ch], q)`, read off `sorted_channel_grid`.
-
-    Bit-exact needs numpy's arithmetic, not its definition: virtual index `(n-1)*(q/100)`
-    in float64, the far half interpolated back from the upper sample, and a weight that
-    keeps `q`'s own type -- numpy interpolates in float32 for a Python `q` and float64 for
-    an `np.float64` one, and both kinds of caller exist here.
-    """
-    n = sorted_grid.shape[0]
-    virtual = (n - 1) * np.true_divide(q, 100)
-    lo = min(max(int(np.floor(virtual)), 0), n - 1)
-    hi = min(lo + 1, n - 1)
-    t = virtual - lo
-    if type(q) in (int, float):
-        t = float(t)
-    a, b = sorted_grid[lo], sorted_grid[hi]
-    diff = b - a
-    return b - diff * (1 - t) if t >= 0.5 else a + diff * t
 
 
 def to_log_density(image: ImageBuffer) -> ImageBuffer:

@@ -39,7 +39,7 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
-    _fast_sigmoid,
+    _fast_sigmoid_cached,
     effective_grade_range,
     grade_to_slope,
     per_channel_dye_separation,
@@ -285,7 +285,7 @@ def transfer_auto_terms(
         d_highlight = pivot + (float(highlight_point) * R - offset - pivot) * contrast
         if d_highlight < target:
             _sh_c, hi_c, k_zone = zone_geometry()
-            w_hi = 1.0 - _fast_sigmoid(k_zone * (d_highlight - hi_c))
+            w_hi = 1.0 - _fast_sigmoid_cached(k_zone * (d_highlight - hi_c))
             highlight_auto = min((target - d_highlight) / max(w_hi, 1e-6), float(EXPOSURE_CONSTANTS["highlight_hold_max"]))
 
     # Shadow Hold: a partial shadow-zone lift on the same tail as Shadow Reach. Never burns.

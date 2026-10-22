@@ -3124,6 +3124,13 @@ class AppController(QObject):
             integrated_gpu = bool(self.state.gpu_enabled and GPUDevice.get().is_integrated)
         except Exception:
             integrated_gpu = False
+        half_slice = self._half_slice_for_asset(asset["path"], file_hash)
+        # The render reads the base only for a whole negative frame on a roll with no picked base.
+        base_settings = None
+        if half_slice is None and self.roll_film_base() is None:
+            config = self.session.config_for_asset(asset)
+            if render_path(config.process) is RenderPath.PRINT:
+                base_settings = config
         return PreviewLoadTask(
             file_path=asset["path"],
             workspace_color_space=self.state.workspace_color_space,
@@ -3138,10 +3145,11 @@ class AppController(QObject):
             for_cache_warm=True,
             integrated_gpu=integrated_gpu,
             protected_file_hashes=protected_file_hashes,
-            half_slice=self._half_slice_for_asset(asset["path"], file_hash),
+            half_slice=half_slice,
             demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
             lens_corrections=metadata_lens_corrections(saved or self.state.config),
             lens_flatfield=(saved or self.state.config).flatfield,
+            base_settings=base_settings,
         )
 
     def _start_next_neighbor_prefetch(self) -> None:
@@ -3233,7 +3241,7 @@ class AppController(QObject):
             # Recompute bounds once now the final crop is committed.
             before = self.state.config
             new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
-            self.session.update_config(replace(self.state.config, process=new_proc), render=False)
+            self.session.update_config(replace(self.state.config, process=new_proc), render=False, record_history=False)
             self._crop_bounds_dirty = False
             self._carry_peek(before)
         if preview_mode_changed:
@@ -6314,7 +6322,7 @@ class AppController(QObject):
             self.state.config.process,
             **invalidate_local_bounds(self.state.config.process),
         )
-        self.session.update_config(replace(self.state.config, process=new_process))
+        self.session.update_config(replace(self.state.config, process=new_process), record_history=False)
         self.request_render()
 
     def set_active_flatfield_profile(self, profile_id: str) -> None:

@@ -100,10 +100,10 @@ class LeakAutoWorker(QObject):
     @pyqtSlot(object)
     def run(self, task: LeakAutoTask) -> None:
         from negpy.features.leak.auto import find_leaks
-        from negpy.services.rendering.image_processor import precorrect_preview
+        from negpy.services.rendering.image_processor import precorrect_source
 
         try:
-            img = precorrect_preview(task.img, task.config, task.gain_slices, task.orientation)
+            img = precorrect_source(task.img, task.config, task.gain_slices, task.orientation)
             found = find_leaks(np.asarray(img, dtype=np.float32), task.config)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))

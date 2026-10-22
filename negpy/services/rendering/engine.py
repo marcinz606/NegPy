@@ -25,7 +25,6 @@ from negpy.features.exposure.normalization import (
     base_scan_density,
     effective_crosstalk_matrix,
     geometry_kwargs,
-    measure_base_log,
     normalized_roi,
 )
 from negpy.features.process.hue import apply_hue_trim
@@ -42,6 +41,8 @@ from negpy.features.lab.processor import PhotoLabProcessor
 from negpy.features.finish.processor import FinishProcessor, rebate_tone
 from negpy.kernel.system.config import APP_CONFIG, render_scale_factor
 from negpy.services.view.coordinate_mapping import CoordinateMapping
+from negpy.kernel.system import timing
+from negpy.services.rendering.base_read import base_log_for
 
 logger = get_logger(__name__)
 
@@ -123,14 +124,13 @@ class DarkroomEngine:
 
     def _source_base_log(self, img_in: ImageBuffer, ctx: PipelineContext) -> Optional[tuple]:
         """The clear base in raw log: the roll's picked one (the Film Base tool) wins, else the
-        rebate read, measured once per source before geometry."""
+        source's rebate read, which `run_pipeline` takes before the defect repairs."""
         picked = ctx.metrics.get("film_base")
         if picked is not None:
             return tuple(picked)
-        if not self.cache.base_measured:
-            self.cache.base_log = measure_base_log(img_in)
-            self.cache.base_measured = True
-        return self.cache.base_log
+        if "source_base_log" in ctx.metrics:
+            return ctx.metrics["source_base_log"]
+        return base_log_for(self.cache.source_hash, img_in)
 
     def process(
         self,
@@ -244,6 +244,7 @@ class DarkroomEngine:
             exposure_models.TARGETS_REVISION,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
+        timing.lap("geometry/normalize")
         # Outside the cached stage: a drag renders without readback, so a cache entry it made holds no base.
         if context.cache_stages and context.readback_metrics:
             context.metrics["film_base_density"] = (
@@ -278,6 +279,8 @@ class DarkroomEngine:
                 context.metrics["contrast_mask_centre"] = self._mask_plane[2]
                 context.metrics["contrast_mask_roi"] = None
 
+        timing.lap("contrast mask")
+
         # Same recipe as the mask plane, in the print's own normalization, so the kernel mixes it with the pixel as light.
         # Print curve only: the transfer curve and the Flat master take no plane.
         diff_bounds = context.metrics.get("final_bounds")
@@ -311,6 +314,7 @@ class DarkroomEngine:
             if cached[1] is not None:
                 context.metrics["diffusion_plane"] = cached[1]
                 context.metrics["diffusion_roi"] = diff_roi
+        timing.lap("diffusion")
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = exposure_processor(settings).process(img_in, ctx)
@@ -327,6 +331,7 @@ class DarkroomEngine:
             context,
             pipeline_changed,
         )
+        timing.lap("exposure")
 
         # Flat (digital-intermediate) master: keep only geometry and the mask-neutralized
         # inversion, then crop. The creative stages (lab, local, toning, finish) are bypassed, so
@@ -348,16 +353,20 @@ class DarkroomEngine:
                 context,
                 pipeline_changed,
             )
+            timing.lap("CLAHE")
 
             def run_lab(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
                 return PhotoLabProcessor(settings.lab).process(img_in, ctx)
 
             current_img, pipeline_changed = self._run_stage(current_img, settings.lab, "lab", run_lab, context, pipeline_changed)
+            timing.lap("lab")
 
             current_img = print_stages(settings, current_img, context)
+            timing.lap("alt process/toning")
 
         if not context.crop_preview_full:
             current_img = CropProcessor(settings.geometry).process(current_img, context)
+        timing.lap("crop")
 
         if not flat_intent:
             from negpy.services.export.print import PrintService
@@ -368,6 +377,7 @@ class DarkroomEngine:
             current_img = FinishProcessor(settings.finish, settings.export.export_print_size, paper, tone).process(current_img, context)
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
+        timing.lap("finish/output encode")
 
         # No paper layout runs here, so the whole buffer is the picture. Reported rather
         # than left out: the controller merges each render's metrics into last_metrics, so
@@ -392,5 +402,6 @@ class DarkroomEngine:
                 context.metrics["uv_grid"] = uv_grid
             except Exception as e:
                 logger.error(f"Failed to generate UV grid: {e}")
+        timing.lap("UV grid")
 
         return current_img

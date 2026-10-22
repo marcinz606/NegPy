@@ -48,6 +48,16 @@ def _own_camera_files(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_base_reads():
+    """The base-read cache is process-wide and keyed by source hash, which tests reuse across images."""
+    from negpy.services.rendering import base_read
+
+    base_read.clear()
+    yield
+    base_read.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
     """A panel starts a GitHub release check on construction; a live socket thread outlives
     the test that built it and crashes Qt in a later one."""

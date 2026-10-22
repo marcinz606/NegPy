@@ -45,7 +45,7 @@ def build_3d_lut(
     return np.ascontiguousarray(lut)
 
 
-@parallel_njit(cache=True, fastmath=True)
+@parallel_njit(cache=True, nogil=True, fastmath=True)
 def _apply_lut_u16_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     h = img.shape[0]
     w = img.shape[1]
@@ -110,7 +110,7 @@ def apply_lut_u16(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     return _apply_lut_u16_jit(img_c, lut_c)
 
 
-@parallel_njit(cache=True, fastmath=True)
+@parallel_njit(cache=True, nogil=True, fastmath=True)
 def _apply_lut_f32_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     h = img.shape[0]
     w = img.shape[1]
@@ -199,7 +199,7 @@ def apply_icc_u16_greyscale(
     return full_lut[img_u16]
 
 
-@parallel_njit(cache=True, fastmath=True)
+@parallel_njit(cache=True, nogil=True, fastmath=True)
 def _matrix_trc_u8_jit(img: np.ndarray, dec_lut: np.ndarray, m: np.ndarray, enc_lut: np.ndarray) -> np.ndarray:
     h = img.shape[0]
     w = img.shape[1]

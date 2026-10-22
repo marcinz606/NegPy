@@ -2634,3 +2634,78 @@ def test_a_missed_poll_keeps_the_white_presets_offered():
     w._on_poll_status(_poll(usb_ok=True, usb_model="Canon") | {"light_has_white": True})
     w._on_poll_status(_poll(usb_ok=True, usb_model="Canon", light_ok=False) | {"light_has_white": True})
     assert not any(_white_rows_hidden(w))
+
+
+def test_the_light_toggle_turns_the_framing_light_on_and_shows_the_echo():
+    w = _sidebar()
+    w.controller.set_scanlight_color.reset_mock()
+
+    w.light_btn.click()
+
+    assert w.controller.set_scanlight_color.call_args[0][:4] != (0, 0, 0, 0)
+    assert not w.light_btn.isChecked()  # only the light's echo marks it lit
+    w._on_light_set(25, 12, 11, 0)
+    assert w.light_btn.isChecked()
+
+
+def test_the_light_toggle_turns_a_lit_light_off():
+    w = _sidebar()
+    w._on_light_set(25, 12, 11, 0)
+    w.controller.set_scanlight_color.reset_mock()
+
+    w.light_btn.click()
+
+    assert w.controller.set_scanlight_color.call_args[0][:4] == (0, 0, 0, 0)
+    w._on_light_set(0, 0, 0, 0)
+    assert not w.light_btn.isChecked()
+
+
+@pytest.mark.parametrize("lit", [False, True])
+def test_closing_live_view_puts_the_light_back_as_it_was(lit):
+    w = _sidebar()
+    w._on_light_set(*((25, 12, 11, 0) if lit else (0, 0, 0, 0)))
+    w.lv_btn.setChecked(True)
+    w._on_light_set(25, 12, 11, 0)  # Live View lights the framing light
+    w.controller.set_scanlight_color.reset_mock()
+
+    w.lv_btn.setChecked(False)
+
+    assert (w.controller.set_scanlight_color.call_args[0][:4] != (0, 0, 0, 0)) is lit
+
+
+def test_the_light_turned_off_in_live_view_stays_off_after_it():
+    w = _sidebar()
+    w._on_light_set(25, 12, 11, 0)
+    w.lv_btn.setChecked(True)
+    w.light_btn.click()  # off, by hand
+    w.controller.set_scanlight_color.reset_mock()
+
+    w.lv_btn.setChecked(False)
+
+    assert w.controller.set_scanlight_color.call_args[0][:4] == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(("live_view", "keep_light", "lit"), [(False, False, False), (True, False, True), (False, True, True)])
+def test_a_scan_asks_to_end_at_the_framing_light_only_while_it_frames(tmp_path, monkeypatch, live_view, keep_light, lit):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset())
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w.keep_light_btn.setChecked(keep_light)
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(live_view)
+    w.lv_btn.blockSignals(False)
+
+    w._start_capture(retake=False)
+
+    end = w.controller.start_capture.call_args[0][0].end_light
+    assert any(end) is lit
+    if lit:
+        assert end == w._framing_light()
+
+
+def test_a_scan_that_ends_dark_shows_the_light_off():
+    w = _sidebar()
+    w._on_light_set(25, 12, 11, 0)
+    _finish_scan(w)
+    assert not w.light_btn.isChecked()

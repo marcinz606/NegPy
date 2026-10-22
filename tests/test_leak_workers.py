@@ -66,7 +66,7 @@ def test_auto_reads_the_preview_flat_fielded_and_unmixed_as_the_bake_does(monkey
         seen.append((gain_slices, orientation))
         return img
 
-    monkeypatch.setattr(image_processor, "precorrect_preview", precorrect)
+    monkeypatch.setattr(image_processor, "precorrect_source", precorrect)
     worker = LeakAutoWorker()
     out = []
     worker.finished.connect(out.append)

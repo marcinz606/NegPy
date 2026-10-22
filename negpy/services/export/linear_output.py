@@ -14,7 +14,7 @@ import rawpy
 import tifffile as _tifffile
 
 from negpy.features.flatfield.logic import apply_flatfield as _apply_flatfield_correction
-from negpy.features.retouch.models import IR_METHOD_OPENICE, RetouchConfig
+from negpy.features.retouch.models import RetouchConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
@@ -295,12 +295,6 @@ def wb_bake_block_reason(rgbscan: Optional[RgbScanConfig], process: Optional[Pro
 
 def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.ndarray:
     """Apply IR dust correction to a linear RGB buffer using the IR channel."""
-    if retouch.ir_method == IR_METHOD_OPENICE:
-        from negpy.features.retouch import openice
-
-        corrected, _, _, _ = openice.run(rgb, ir, float(retouch.ir_threshold), None)
-        return corrected
-
     from negpy.features.retouch.logic import (
         apply_ir_attenuation,
         apply_score_repair,

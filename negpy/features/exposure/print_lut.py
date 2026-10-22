@@ -8,7 +8,7 @@ import functools
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 from numba import njit  # type: ignore
@@ -40,16 +40,19 @@ PrintColor = DyeMatrix | DyeLut
 
 @dataclass(frozen=True, eq=False)
 class PrintLut:
-    """table: (N, N, N, 3) over C, M, Y dye density above base, 0..e_max per axis."""
+    """table: (N, N, N, 3) over C, M, Y dye density above base, 0..e_max per axis.
+    flat_rows: the density 3×3 the Flat master uses in its place (see flat_matrix)."""
 
     key: str
     table: np.ndarray
     e_max: np.ndarray
     source: str
+    flat_rows: Optional[np.ndarray] = None
 
 
-def save_print_lut(path: pathlib.Path, table: np.ndarray, e_max: np.ndarray, source: str) -> None:
-    np.savez_compressed(path, lut=np.asarray(table, np.float32), e_max=np.asarray(e_max, np.float32), source=np.array(source))
+def save_print_lut(path: pathlib.Path, table: np.ndarray, e_max: np.ndarray, source: str, flat_rows: Optional[np.ndarray] = None) -> None:
+    extra = {} if flat_rows is None else {"flat": np.asarray(flat_rows, np.float64)}
+    np.savez_compressed(path, lut=np.asarray(table, np.float32), e_max=np.asarray(e_max, np.float32), source=np.array(source), **extra)
 
 
 @functools.lru_cache(maxsize=None)
@@ -58,7 +61,12 @@ def load_print_lut(key: str) -> PrintLut:
     if not path.exists():
         raise FileNotFoundError(f"print LUT '{key}' not found at {path}")
     with np.load(path) as f:
-        return PrintLut(key, np.ascontiguousarray(f["lut"], np.float32), np.ascontiguousarray(f["e_max"], np.float32), str(f["source"]))
+        flat = np.array(f["flat"], np.float64) if "flat" in f.files else None
+        if flat is not None:
+            flat.flags.writeable = False
+        return PrintLut(
+            key, np.ascontiguousarray(f["lut"], np.float32), np.ascontiguousarray(f["e_max"], np.float32), str(f["source"]), flat
+        )
 
 
 @njit(inline="always")
@@ -107,7 +115,19 @@ def tetra_lookup(table: np.ndarray, e_max: np.ndarray, e0: float, e1: float, e2:
     return out[0], out[1], out[2]
 
 
+# Plain Python calls this twin: an inline kernel has no cache, so it would compile on every launch.
+_tetra_lookup_cached = njit(cache=True)(tetra_lookup.py_func)
+
+
 def lut_black_luminance(lut: PrintLut, d_min_rgb: Tuple[float, float, float], black_rgb: Tuple[float, float, float]) -> float:
     """Luminance of the print's black (density black_rgb), which black point compensation maps to 0."""
-    rgb = tetra_lookup(lut.table, lut.e_max, *(b - d for b, d in zip(black_rgb, d_min_rgb)))
+    rgb = _tetra_lookup_cached(lut.table, lut.e_max, *(b - d for b, d in zip(black_rgb, d_min_rgb)))
     return float(sum(w * 10.0**-d * v for w, d, v in zip((LUM_R, LUM_G, LUM_B), d_min_rgb, rgb)))
+
+
+def flat_matrix(key: str) -> Optional[np.ndarray]:
+    """The stock's color as a density 3×3 for the Flat master, which has no dye amounts: the rows
+    build_print_luts.py fits to the LUT in CIEDE2000 and stores beside it. Rows sum to 1, so
+    neutrals hold. None for a LUT baked without them."""
+    rows = load_print_lut(key).flat_rows
+    return None if rows is None else rows.astype(np.float64)

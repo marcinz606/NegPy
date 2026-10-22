@@ -218,3 +218,25 @@ def test_a_cmyk_jpeg_loads_its_colors(tmp_path) -> None:
     wrapper, _ = JpegLoader().load(str(path))
     r, g, b = wrapper.data[4, 4]
     assert r > 0.5 and g < 0.1 and b < 0.1
+
+
+def test_load_ir_false_skips_the_sidecar(tmp_path) -> None:
+    rgb_path = _write_rgb_ir_pair(tmp_path, ir=np.full((6, 8), 32768, dtype=np.uint16))
+
+    assert TiffLoader().load(rgb_path)[1].get("ir") is not None
+    assert TiffLoader().load(rgb_path, load_ir=False)[1].get("ir") is None
+
+
+def test_export_source_cache_keys_on_ir_toggle(tmp_path) -> None:
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    rgb_path = _write_rgb_ir_pair(tmp_path, ir=np.full((6, 8), 32768, dtype=np.uint16))
+    off = WorkspaceConfig()
+    on = replace(off, retouch=replace(off.retouch, ir_dust_remove=True))
+    proc = ImageProcessor(use_gpu=False)
+
+    assert proc._load_source_f32(rgb_path, off)[1] is None
+    assert proc._load_source_f32(rgb_path, on)[1] is not None

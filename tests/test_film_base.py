@@ -87,10 +87,10 @@ def test_a_pick_after_a_cached_render_reads_above_it(monkeypatch):
 
 
 def test_the_cpu_engine_prefers_the_picked_base(monkeypatch):
-    from negpy.services.rendering import engine as engine_module
+    from negpy.services.rendering import base_read
     from negpy.services.rendering.engine import DarkroomEngine
 
-    monkeypatch.setattr(engine_module, "measure_base_log", lambda image: (_ for _ in ()).throw(AssertionError("the reader must not run")))
+    monkeypatch.setattr(base_read, "measure_base_log", lambda image: (_ for _ in ()).throw(AssertionError("the reader must not run")))
     picked = (-0.33, -0.32, -0.31)
     context = PipelineContext(scale_factor=1.0, original_size=(900, 600), process_mode=ProcessMode.C41)
     context.metrics["film_base"] = picked

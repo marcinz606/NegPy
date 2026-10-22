@@ -184,21 +184,3 @@ def test_brush_and_clone_sliders_persist_once_per_drag(qapp):
         assert update.call_args.kwargs["persist"] is False
         slider.valueCommitted.emit(30.0)
         assert update.call_args.kwargs["persist"] is True
-
-
-def test_ir_method_is_a_step_combo_that_stores_the_method_key(qapp):
-    from negpy.desktop.view.widgets.step_combo import StepCombo
-    from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
-
-    controller, sb = _sidebar()
-    assert isinstance(sb.ir_method_btn, StepCombo)
-
-    controller.state.config = replace(
-        controller.state.config, retouch=replace(controller.state.config.retouch, ir_method=IR_METHOD_OPENICE)
-    )
-    sb.sync_ui()
-    assert sb.ir_method_btn.currentData() == IR_METHOD_OPENICE
-
-    controller.apply_config.reset_mock()
-    sb.ir_method_btn.setCurrentIndex(sb.ir_method_btn.findData(IR_METHOD_NEGPY))
-    assert controller.apply_config.call_args.args[0].retouch.ir_method == IR_METHOD_NEGPY

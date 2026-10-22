@@ -179,7 +179,9 @@ class TiffLoader(IImageLoader):
     (either as a 4th sample with ExtraSamples=UNSPECIFIED, or via a `_IR.tif` sidecar).
     """
 
-    def load(self, file_path: str, linear_raw: bool = False, positive_source: bool = False) -> Tuple[ContextManager[Any], dict]:
+    def load(
+        self, file_path: str, linear_raw: bool = False, positive_source: bool = False, load_ir: bool = True
+    ) -> Tuple[ContextManager[Any], dict]:
         img = planar_to_chunky(iio.imread(file_path), _planarconfig(file_path))
         img = decode_photometric(img, *_photometric(file_path))
         ir: Optional[np.ndarray] = None
@@ -195,10 +197,10 @@ class TiffLoader(IImageLoader):
         elif img.ndim == 3 and img.shape[2] > 4:
             img = img[:, :, :3]
 
-        if ir is None:
+        if ir is None and load_ir:
             ir, ir_valid_mask = _read_sidecar_ir(file_path)
 
-        if ir is None:
+        if ir is None and load_ir:
             ir = _read_ir_from_extra_page(file_path, img.shape[0], img.shape[1])
 
         if img.dtype == np.uint8:

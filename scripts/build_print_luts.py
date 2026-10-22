@@ -22,7 +22,9 @@ The CIE tables and the xenon spectrum are downloaded once into --cie-dir.
 
 Usage:
     uv run python scripts/build_print_luts.py [--key KEY ...] [--icc PATH --as KEY] [--against KEY] [--profiles DIR]
-        [--cie-dir DIR] [--check-only]
+        [--cie-dir DIR] [--check-only] [--flat-only]
+
+Every LUT carries the Flat master's density 3x3 (fit_flat_matrix); --flat-only refits it on the bundled tables.
 """
 
 import argparse
@@ -35,7 +37,7 @@ import imagecodecs
 import numpy as np
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-from negpy.features.exposure.print_lut import LUT_DIR, save_print_lut, tetra_lookup
+from negpy.features.exposure.print_lut import LUT_DIR, load_print_lut, save_print_lut, tetra_lookup
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.infrastructure.display.icc_profile import extract_primaries_matrix, is_matrix_trc_profile
 from negpy.kernel.image.logic import apply_primaries_transform
@@ -343,6 +345,68 @@ def report(key, table, e_max, model):
     print(f"   gray luminance error, max |log10 Y + D|: {np.abs(np.log10(np.maximum(y, 1e-9)) + g).max():.4f}")
 
 
+# The Flat master's stand-in for a LUT: a density 3×3 with unit row sums, fitted in CIEDE2000 on dye
+# amounts around the gray axis (levels 15-75% of e_max, off-axis radius up to FLAT_RADIUS D).
+FLAT_SAMPLES = 3000
+FLAT_RADIUS = 0.9
+_OFF = ((0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1))
+
+
+def flat_samples(e_max, seed):
+    rng = np.random.default_rng(seed)
+    level = rng.uniform(0.15, 0.75, (FLAT_SAMPLES, 1)) * float(e_max.min())
+    d = rng.normal(size=(FLAT_SAMPLES, 3))
+    d -= d.mean(1, keepdims=True)
+    d /= np.linalg.norm(d, axis=1, keepdims=True)
+    return np.clip(level + rng.uniform(0.0, FLAT_RADIUS, (FLAT_SAMPLES, 1)) * d, 0, e_max)
+
+
+def rows_from(p):
+    m = np.zeros((3, 3))
+    for v, (i, j) in zip(p, _OFF):
+        m[i, j] = v
+    m[np.diag_indices(3)] = 1 - m.sum(1)
+    return m
+
+
+def flat_error(table, e_max, m, e):
+    looked = np.array([tetra_lookup(table, e_max, *p) for p in e])
+    return de2000(to_lab(np.clip(looked, 0, 1)), to_lab(np.clip(10.0 ** -(e @ m.T), 0, 1)))
+
+
+def fit_flat_matrix(table, e_max):
+    """Levenberg-Marquardt on the six off-diagonals, from the identity; the LUT's gray axis is 10^-e,
+    so the model is 10^-(M e) with no offset."""
+    e = flat_samples(e_max, 1)
+    ref = to_lab(np.clip(np.array([tetra_lookup(table, e_max, *p) for p in e]), 0, 1))
+
+    def res(p):
+        return de2000(ref, to_lab(np.clip(10.0 ** -(e @ rows_from(p).T), 0, 1)))
+
+    p, lam = np.zeros(6), 1e-3
+    r = res(p)
+    for _ in range(100):
+        jac = np.stack([(res(p + h) - r) / 1e-6 for h in np.eye(6) * 1e-6], 1)
+        a, g = jac.T @ jac, jac.T @ r
+        step = np.linalg.solve(a + lam * np.diag(np.diag(a)), -g)
+        r_new = res(p + step)
+        if r_new @ r_new < r @ r:
+            p, r, lam = p + step, r_new, lam / 3
+            if np.abs(step).max() < 1e-7:
+                break
+        else:
+            lam *= 4
+    return rows_from(p)
+
+
+def flat_report(key, table, e_max, m):
+    e = flat_samples(e_max, 2)
+    d = flat_error(table, e_max, m, e)
+    sat = np.ptp(e, axis=1) > 0.6
+    print(f"   flat 3x3 dE00 p50 {np.median(d):.2f} / p95 {np.percentile(d, 95):.2f}; saturated p50 {np.median(d[sat]):.2f}")
+    print("   rows " + " ".join("(" + ", ".join(f"{v:+.4f}" for v in row) + ")" for row in m))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Bake NegPy print-stock LUTs.")
     ap.add_argument("--key", nargs="+", default=list(SHIPPED), help="LUT keys to build (default: every shipped one)")
@@ -352,7 +416,18 @@ def main():
     ap.add_argument("--profiles", type=pathlib.Path, default=pathlib.Path.home() / "Pobrane" / "papers", help="the Frontier profiles")
     ap.add_argument("--cie-dir", type=pathlib.Path, default=pathlib.Path.home() / ".cache" / "negpy" / "cie")
     ap.add_argument("--check-only", action="store_true", help="report, write nothing")
+    ap.add_argument("--flat-only", action="store_true", help="refit the Flat master 3x3 of the bundled LUTs, keep their tables")
     args = ap.parse_args()
+
+    if args.flat_only:
+        for key in args.key:
+            lut = load_print_lut(key)
+            m = fit_flat_matrix(lut.table, lut.e_max)
+            print(key)
+            flat_report(key, lut.table, lut.e_max, m)
+            if not args.check_only:
+                save_print_lut(LUT_DIR / f"{key}.npz", lut.table, lut.e_max, lut.source, m)
+        return
 
     jobs = []
     if args.icc:
@@ -382,12 +457,14 @@ def main():
             else:
                 table, e_max, source, model = icc_look_lut(icc, desc or icc_path.name)
         report(key, table, e_max, model)
+        flat = fit_flat_matrix(table, e_max)
+        flat_report(key, table, e_max, flat)
         if args.against:
             cross_check(args.against, model, spectral_lut(*SPECTRAL[args.against][:2], args.cie_dir)[3], float(e_max.min()))
         if args.check_only or key not in SHIPPED and not args.icc:
             continue
         LUT_DIR.mkdir(exist_ok=True)
-        save_print_lut(LUT_DIR / f"{key}.npz", table, e_max, source)
+        save_print_lut(LUT_DIR / f"{key}.npz", table, e_max, source, flat)
         print(f"   wrote {LUT_DIR / f'{key}.npz'}")
 
 

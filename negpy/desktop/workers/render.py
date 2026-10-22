@@ -40,7 +40,8 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
-from negpy.services.rendering.image_processor import ImageProcessor, preview_takes_unmix
+from negpy.kernel.system import timing
+from negpy.services.rendering.image_processor import ImageProcessor, preview_takes_unmix, read_source_base
 
 logger = get_logger(__name__)
 
@@ -324,6 +325,8 @@ class PreviewLoadTask:
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = (
         None  # (half, split_x, crop_rect, gutter_thickness, split_axis)
     )
+    # A cache warm also reads the frame's clear base with this config; None skips the read.
+    base_settings: Optional[WorkspaceConfig] = None
 
 
 class RenderWorker(QObject):
@@ -428,45 +431,52 @@ class RenderWorker(QObject):
         try:
             # The splash shares the file's source_hash but is the embedded JPEG, not the linear
             # decode, so isolate its cache identity and it cannot leak into the real render.
-            pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
-            if task.diptych is not None:
-                result, metrics = self._render_diptych(task, pipeline_source_hash)
-            else:
-                result, metrics = self._processor.run_pipeline(
-                    task.buffer,
-                    task.config,
-                    pipeline_source_hash,
-                    render_size_ref=task.preview_size,
-                    prefer_gpu=task.gpu_enabled,
-                    readback_metrics=task.readback_metrics,
-                    ir_buffer=task.ir_buffer,
-                    detect_buffer=task.detect_buffer,
-                    crop_preview_full=task.crop_preview_full,
-                    cam_xyz=task.cam_xyz,
-                    camera_wb=task.camera_wb,
-                    gain_slices=task.gain_slices,
-                    source_orientation=task.source_orientation,
-                    film_base=task.film_base,
+            with timing.collect() as times:
+                pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
+                if task.diptych is not None:
+                    result, metrics = self._render_diptych(task, pipeline_source_hash)
+                else:
+                    result, metrics = self._processor.run_pipeline(
+                        task.buffer,
+                        task.config,
+                        pipeline_source_hash,
+                        render_size_ref=task.preview_size,
+                        prefer_gpu=task.gpu_enabled,
+                        readback_metrics=task.readback_metrics,
+                        ir_buffer=task.ir_buffer,
+                        detect_buffer=task.detect_buffer,
+                        crop_preview_full=task.crop_preview_full,
+                        cam_xyz=task.cam_xyz,
+                        camera_wb=task.camera_wb,
+                        gain_slices=task.gain_slices,
+                        source_orientation=task.source_orientation,
+                        film_base=task.film_base,
+                    )
+
+                # CPU renders have no in-shader histogram; bin the float output here.
+                if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
+                    metrics["histogram_raw"] = output_histogram(result)
+                    metrics["histogram_color"] = color_histogram(result)
+                    metrics["waveform"] = waveform(result)
+                    metrics["waveform_color"] = waveform_color(result)
+                    metrics["waveform_parade"] = waveform_parade(result)
+                    metrics["vectorscope"] = vectorscope_histogram(result)
+                timing.lap("histograms")
+
+                # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
+                # the canvas shader without a readback.
+
+                # Taken here because the engine recycles its stage textures next frame. Always
+                # assigned: the controller merges metrics into a running dict, so a stale entry
+                # would be filed under this asset's key.
+                metrics["thumbnail_source"] = (
+                    np.ascontiguousarray(result.readback()[:, :, :3]) if task.wants_thumbnail and isinstance(result, GPUTexture) else None
                 )
-
-            # CPU renders have no in-shader histogram; bin the float output here.
-            if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
-                metrics["histogram_raw"] = output_histogram(result)
-                metrics["histogram_color"] = color_histogram(result)
-                metrics["waveform"] = waveform(result)
-                metrics["waveform_color"] = waveform_color(result)
-                metrics["waveform_parade"] = waveform_parade(result)
-                metrics["vectorscope"] = vectorscope_histogram(result)
-
-            # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
-            # the canvas shader without a readback.
-
-            # Taken here because the engine recycles its stage textures next frame. Always
-            # assigned: the controller merges metrics into a running dict, so a stale entry
-            # would be filed under this asset's key.
-            metrics["thumbnail_source"] = (
-                np.ascontiguousarray(result.readback()[:, :, :3]) if task.wants_thumbnail and isinstance(result, GPUTexture) else None
-            )
+                timing.lap("thumbnail readback")
+            h, w = task.buffer.shape[:2] if isinstance(task.buffer, np.ndarray) else (0, 0)
+            # A drag renders many frames a second, so only a settled render logs at info.
+            log = logger.info if task.readback_metrics and not task.interactive else logger.debug
+            log("render-timing %s | %dx%d %s", timing.summary(times), w, h, task.source_hash[:8])
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
@@ -1293,6 +1303,24 @@ class PreviewLoadWorker(QObject):
                     lens_corrections=task.lens_corrections,
                     lens_flatfield=task.lens_flatfield,
                 )
+            # Outside the memory gate: the read holds no decode memory, and a foreground decode
+            # of this file must not wait on it.
+            if task.base_settings is not None and self._prefetch_is_current(task):
+                cached = self._preview_service.peek_linear_preview(
+                    task.file_path,
+                    task.workspace_color_space,
+                    use_camera_wb=task.use_camera_wb,
+                    file_hash=task.file_hash,
+                    demosaic=task.demosaic,
+                    positive_source=task.positive_source,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
+                    lens_corrections=task.lens_corrections,
+                    lens_flatfield=task.lens_flatfield,
+                )
+                if cached is not None:
+                    buffer, _dims, metadata = cached
+                    read_source_base(buffer, task.base_settings, task.file_hash, metadata.get("orientation", 1))
         except InterruptedError:
             pass
         except Exception as error:

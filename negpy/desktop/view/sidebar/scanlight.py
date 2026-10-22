@@ -12,6 +12,7 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass, fields, replace
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -41,7 +42,6 @@ from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
     icon_button,
     icon_text,
-    labeled_action,
     labeled_toggle,
     SCAN_BUTTON_HEIGHT,
     section_subheader,
@@ -198,6 +198,8 @@ class ScanlightSidebar(QWidget):
         self._manual_populate_pending = False  # seed the sidebar exposure steppers from the body once, then let the user drive
         self._calibrating_preset = ""  # non-empty while the "+" calibration flow is saving a new preset
         self._status_pinned = False  # a pinned status (calibration outcome) outranks the light echo
+        self._light_lit = False  # the light as its last echo reported it, shown on light_btn
+        self._light_before_lv = False  # the light when Live View opened, put back when it closes
         self._exposure_popup = None  # the over/under pop-up (kept referenced; replaced per calibration)
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._magnifier_seen = False  # the state the stream last published, or a click's own
@@ -416,8 +418,10 @@ class ScanlightSidebar(QWidget):
         self.w_slider.setToolTip(tr("White LED, used only by white-light presets: it cannot light together with red, green and blue."))
         for slider in (self.r_slider, self.g_slider, self.b_slider, self.w_slider):
             recipe.addWidget(slider)
-        self.off_btn = labeled_action("fa5s.power-off", tr("Light Off"), tr("Turn all Scanlight channels off"))
-        recipe.addWidget(self.off_btn)
+        self.light_btn = labeled_toggle(
+            "fa5s.power-off", tr("Light On"), False, tr("Turn the Scanlight on at the framing light, or turn it off.")
+        )
+        recipe.addWidget(self.light_btn)
 
         # ISO / shutter / aperture: the preset's exposure, wrapped so it hides as a unit for a
         # white-light preset, whose exposure is set in the live view. Each is a stepper, read-only
@@ -522,7 +526,7 @@ class ScanlightSidebar(QWidget):
         layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.off_btn.clicked.connect(self._on_light_off)
+        self.light_btn.clicked.connect(self._on_light_clicked)
         self.lv_btn.toggled.connect(self._on_live_view_toggled)
         self.keep_light_btn.toggled.connect(self._on_keep_light_toggled)
         self.scan_btn.clicked.connect(self._on_scan)
@@ -586,29 +590,50 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()  # refresh the "what's still missing to scan" hint
         self._poll_connection_tick()
 
-    def _push_light(self) -> None:
+    def _framing_light(self) -> Optional[tuple[int, int, int, int]]:
+        """The (r, g, b, w) the light frames by, or None with no Scanlight to control."""
         if not self._rgb_mode:
-            return  # normal white-light scanning has no Scanlight to control
+            return None  # normal white-light scanning has no Scanlight to control
         if self._settings.white_mode and self._light_has_white:
             # A white-light preset: the W slider is the scan light itself.
-            self.controller.set_scanlight_color(0, 0, 0, int(self.w_slider.value()), self._settings.port)
-        else:
-            # Any RGB state (a selected preset, manual building, or framing in live view) lights
-            # the R/G/B mix from the sliders, so it works on every Scanlight and never assumes a
-            # white LED an RGB-only body lacks. White stays off: the Scanlight cannot mix both.
-            r, g, b = (int(slider.value()) for slider in (self.r_slider, self.g_slider, self.b_slider))
-            if not self._manual_mode and self._preset_selected() and not self._settings.single_capture:
-                # A triplet preset frames by its own mix through framing_levels: all three channels
-                # burn at once against a single-channel exposure. The scan takes the preset's levels.
-                r, g, b = framing_levels(r, g, b, rgb_only=not self._light_has_white)
-            self.controller.set_scanlight_color(r, g, b, 0, self._settings.port)
+            return (0, 0, 0, int(self.w_slider.value()))
+        # Any RGB state (a selected preset, manual building, or framing in live view) lights
+        # the R/G/B mix from the sliders, so it works on every Scanlight and never assumes a
+        # white LED an RGB-only body lacks. White stays off: the Scanlight cannot mix both.
+        r, g, b = (int(slider.value()) for slider in (self.r_slider, self.g_slider, self.b_slider))
+        if not self._manual_mode and self._preset_selected() and not self._settings.single_capture:
+            # A triplet preset frames by its own mix through framing_levels: all three channels
+            # burn at once against a single-channel exposure. The scan takes the preset's levels.
+            r, g, b = framing_levels(r, g, b, rgb_only=not self._light_has_white)
+        return (r, g, b, 0)
+
+    def _push_light(self) -> None:
+        light = self._framing_light()
+        if light is None:
+            return
+        self.controller.set_scanlight_color(*light, self._settings.port)
         self._update_settings_from_ui()
 
     def _on_light_off(self) -> None:
         self.controller.set_scanlight_color(0, 0, 0, 0, self._settings.port)
 
+    def _on_light_clicked(self, on: bool) -> None:
+        # The toggle shows the light's state, which only the light's echo changes: a write to an
+        # unplugged light leaves it as it was.
+        self._show_light(self._light_lit)
+        if self.lv_btn.isChecked():
+            self._light_before_lv = on  # the operator's choice outlasts Live View
+        self._push_light() if on else self._on_light_off()
+
+    def _show_light(self, lit: bool) -> None:
+        self._light_lit = lit
+        self.light_btn.blockSignals(True)
+        self.light_btn.setChecked(lit)
+        self.light_btn.blockSignals(False)
+
     @pyqtSlot(int, int, int, int)
     def _on_light_set(self, r: int, g: int, b: int, w: int) -> None:
+        self._show_light(bool(r or g or b or w))
         # Ambient echo, not a user action. _on_calibration_finished sets the R/G/B sliders, each
         # starts the light debounce, and this slot fires just after the calibration outcome was
         # written. Refusing to replace a pinned outcome keeps that advice on screen.
@@ -1122,6 +1147,7 @@ class ScanlightSidebar(QWidget):
             self._settings_loaded = False  # repopulate the camera-setting dropdowns
             self._update_settings_from_ui()
             self._start_live_view_worker()
+            self._light_before_lv = self._light_lit
             self._push_light()  # white light on for focusing under Live View
             self.lv_window.show()
             self.lv_window.raise_()
@@ -1134,7 +1160,8 @@ class ScanlightSidebar(QWidget):
             self._metering = False
             self._lv_session += 1  # a probe still in flight reports to a stopped stream: dropped
             self.lv_window.hide()
-            self._push_light()  # back to the capture light (RGB unless white mode)
+            # Back to the state Live View found: on at the capture light, or off.
+            self._push_light() if self._light_before_lv else self._on_light_off()
             self._set_status("")  # clear the "Live view running" line once the stream stops
 
     def _start_live_view_worker(self) -> None:
@@ -1466,6 +1493,8 @@ class ScanlightSidebar(QWidget):
         Keep Light On asks for it to frame the next shot on the camera's screen."""
         if self.lv_btn.isChecked() or self._settings.keep_light_on:
             self._push_light()
+        else:
+            self._show_light(False)
 
     def _on_keep_light_toggled(self, on: bool) -> None:
         self._settings = replace(self._settings, keep_light_on=on)
@@ -1946,6 +1975,7 @@ class ScanlightSidebar(QWidget):
             shutter_ir=shutter_ir,
             infrared=s.infrared and rgb and self._light_has_ir,
             capture_delay_s=s.capture_delay_s,
+            end_light=(self._framing_light() or (0, 0, 0, 0)) if self.lv_btn.isChecked() or s.keep_light_on else (0, 0, 0, 0),
         )
         self._capturing = tuple(channels) + (("IR",) if req.infrared else ()) if triplet else ()
         self.set_scanning(True)
@@ -2032,6 +2062,8 @@ class ScanlightSidebar(QWidget):
             self._set_status(tr("Error: {msg}", msg=msg))
             if was_scanning and self._settings.keep_light_on:
                 self._push_light()
+            elif was_scanning:
+                self._show_light(False)
 
     @pyqtSlot(str)
     def _on_status(self, msg: str) -> None:

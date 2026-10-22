@@ -1,4 +1,6 @@
 from negpy.kernel.system.i18n import tr
+from negpy.kernel.system import timing
+from negpy.kernel.system.logging import get_logger
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import List, Optional, Any, Union
@@ -35,6 +37,8 @@ from negpy.services.export.contact_sheet_layout import MM_PER_INCH, ContactSheet
 from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import SheetFrame, SheetLook, tile_params, turns_for
 from negpy.services.export.encoders import encode_jpeg
+
+logger = get_logger(__name__)
 
 
 def _protects_metadata(task: "ExportTask") -> bool:
@@ -423,6 +427,12 @@ class ExportWorker(QObject):
     def _finish_task(self, task: ExportTask, buffer: np.ndarray, color_space: str, embed_plan: Optional[tuple]) -> Optional[str]:
         """Encode + metadata + atomic write for one rendered frame, on the finisher
         thread. Returns an error message, or None on success."""
+        with timing.collect() as times:
+            error = self._encode_and_write(task, buffer, color_space, embed_plan)
+        logger.info("export-timing encode %s | %s", timing.summary(times), task.file_info["name"])
+        return error
+
+    def _encode_and_write(self, task: ExportTask, buffer: np.ndarray, color_space: str, embed_plan: Optional[tuple]) -> Optional[str]:
         resolution = _export_resolution(task)
         bits, status = self._processor.encode_export(
             buffer,
@@ -432,6 +442,7 @@ class ExportWorker(QObject):
             embed_plan=embed_plan,
             resolution=resolution,
         )
+        timing.lap("encode")
         if not bits:
             return status
 
@@ -445,6 +456,7 @@ class ExportWorker(QObject):
                 )
             else:
                 bits = embed_metadata(bits, task.metadata_config, task.source_exif, resolution=resolution)
+        timing.lap("metadata")
 
         out_dir, filename, ext = resolve_export_naming(task)
         os.makedirs(out_dir, exist_ok=True)
@@ -469,6 +481,7 @@ class ExportWorker(QObject):
             # The write above stamps the filesystem dates with the export time; the EXIF
             # dates are already right. Tools that sort by file date read the former.
             sync_export_filesystem_dates(path, task.file_info["path"])
+            timing.lap("write")
         except Exception as write_err:
             if tmp_path is not None and os.path.exists(tmp_path):
                 os.unlink(tmp_path)

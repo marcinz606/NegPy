@@ -383,3 +383,12 @@ def test_lock_bounds_keeps_them_in_a_sidecar_from_an_older_analysis(tmp_path):
     _unstamp(write_sidecar(src, _measured(lock_bounds=True)))
 
     assert load_sidecar(src).process.local_floors == _BOUNDS["local_floors"]
+
+
+def test_ir_method_is_dropped_on_load(caplog):
+    flat = WorkspaceConfig().to_dict()
+    flat["ir_method"] = "openice"
+    with caplog.at_level("WARNING", logger="negpy"):
+        cfg = WorkspaceConfig.from_flat_dict(flat)
+    assert not hasattr(cfg.retouch, "ir_method")
+    assert not [r for r in caplog.records if "Dropping" in r.getMessage()]

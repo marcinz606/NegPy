@@ -8,7 +8,7 @@ from numba import prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.logic import smooth_polyline
-from negpy.features.retouch.models import HEAL_SIZE_REF, IR_METHOD_NEGPY
+from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.kernel.system.parallel import parallel_njit
 from negpy.kernel.image.logic import get_luminance
 from negpy.kernel.image.validation import ensure_image
@@ -1315,9 +1315,7 @@ def ir_bake_token(retouch, has_ir: bool) -> str:
     source_hash so a toggle or threshold drag invalidates the engine cache."""
     if not (retouch.ir_dust_remove and has_ir):
         return ""
-    method = getattr(retouch, "ir_method", IR_METHOD_NEGPY)
-    tail = "" if method == IR_METHOD_NEGPY else f"|{method}"
-    return f"|ir{int(retouch.ir_attenuation)}r{round(float(retouch.ir_threshold), 3)}{tail}"
+    return f"|ir{int(retouch.ir_attenuation)}r{round(float(retouch.ir_threshold), 3)}"
 
 
 @parallel_njit(cache=True)

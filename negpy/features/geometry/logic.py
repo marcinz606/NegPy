@@ -14,7 +14,7 @@ from negpy.features.geometry.models import (
     AutocropMode,
     GeometryConfig,
 )
-from negpy.kernel.image.logic import get_luminance
+from negpy.kernel.image.logic import get_luminance, percentiles
 from negpy.kernel.image.validation import ensure_image
 
 AUTOCROP_DETECT_RES = 1800
@@ -133,8 +133,7 @@ def _normalize_to_uint8(image: np.ndarray) -> np.ndarray:
         return np.zeros(image.shape, dtype=np.uint8)
 
     valid = image_float[finite_mask]
-    low = float(np.percentile(valid, 1))
-    high = float(np.percentile(valid, 99))
+    low, high = (float(v) for v in percentiles(valid, (1, 99)))
     if high <= low:
         high = low + 1.0
 
@@ -1325,20 +1324,22 @@ def _trim_film_edges(lum: np.ndarray, film_roi: ROI) -> ROI:
     return roi
 
 
-def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, float]]:
+def _find_rebate_level(lum: np.ndarray, film_roi: ROI, bed: Optional[float] = None) -> Optional[Tuple[float, float]]:
     """
     Searches the four border strips inside the film box for a rebate plateau:
     a uniform strip (low spread, sprocket holes excluded) clearly present on at
     least one side. The rebate can exist on some sides only (cut film strips,
     full-bleed edges), so sides are evaluated independently and the brightest
-    qualifying plateau wins. Returns (rebate_level, spread) or None.
+    qualifying plateau wins. Returns (rebate_level, spread) or None. `bed` is the 99th
+    percentile of `lum`, for a caller that already has it.
     """
     y1, y2, x1, x2 = film_roi
     box = lum[y1:y2, x1:x2]
     bh, bw = box.shape[:2]
     if bh < 16 or bw < 16:
         return None
-    bed = float(np.percentile(lum, 99))
+    if bed is None:
+        bed = float(np.percentile(lum, 99))
     box_median = float(np.percentile(box, 50))
     ring_w = max(3, round(0.04 * min(bh, bw)))
     sides = {
@@ -1353,10 +1354,11 @@ def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, 
         vals = strip[strip < bed - 0.05]  # exclude sprocket holes / bed slop in the box
         if vals.size < 0.25 * strip.size:
             continue
-        spread = float(np.percentile(vals, 80) - np.percentile(vals, 20))
+        p80, p20, p60 = percentiles(vals, (80, 20, 60))
+        spread = float(p80 - p20)
         if spread > 0.10:
             continue  # textured strip = image content reaches this film edge
-        p60 = float(np.percentile(vals, 60))
+        p60 = float(p60)
         if p60 < box_median + 0.10:
             continue  # rebate is the lowest-density tier: must sit clearly above the
             # image interior; a plateau near the median is bright image content
@@ -1380,11 +1382,11 @@ def _estimate_tier_levels(lum: np.ndarray, film_roi: ROI) -> Optional[_TierLevel
     y1, y2, x1, x2 = film_roi
     box = lum[y1:y2, x1:x2]
 
-    found = _find_rebate_level(lum, film_roi)
+    bed = float(np.percentile(lum, 99))
+    found = _find_rebate_level(lum, film_roi, bed)
     if found is None:
         return None
     rebate, ring_spread = found
-    bed = float(np.percentile(lum, 99))
 
     dark = box[box < rebate - 0.02]
     if dark.size < 0.05 * box.size:

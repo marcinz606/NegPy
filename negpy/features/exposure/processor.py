@@ -24,7 +24,7 @@ from negpy.features.exposure.logic import (
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
-from negpy.features.exposure.papers import effective_paper_profile
+from negpy.features.exposure.papers import effective_paper_profile, resolve_flat_matrix
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
@@ -411,7 +411,7 @@ class PhotometricProcessor:
 
         Manual global white balance (the WB picker / CMY global) is still honoured
         because it is an explicit, per-roll-consistent user choice, not automatic
-        grading.
+        grading. So is a color print stock, as its density 3×3 (resolve_flat_matrix).
         """
         gain, lift = flat_curve_params()
 
@@ -426,7 +426,8 @@ class PhotometricProcessor:
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
-        img_pos = apply_flat_curve(image, gain, lift, cmy_offsets=cmy_offsets)
+        stock_matrix = None if is_bw else resolve_flat_matrix(effective_paper_profile(self.config.paper_profile, context.process_mode))
+        img_pos = apply_flat_curve(image, gain, lift, cmy_offsets=cmy_offsets, stock_matrix=stock_matrix)
 
         if is_bw:
             res = get_luminance(img_pos)

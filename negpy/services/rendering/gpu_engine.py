@@ -34,7 +34,6 @@ from negpy.features.exposure.normalization import (
     base_scan_density,
     density_above_base,
     luminance_density_range,
-    measure_base_log,
     measure_anchor_from_log,
     measure_clip_fractions,
     measure_neutral_axis_from_log,
@@ -94,6 +93,8 @@ from negpy.kernel.image.logic import rgba_to_rgb_into, working_oetf_decode
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
+from negpy.kernel.system import timing
+from negpy.services.rendering.base_read import NOT_READ, base_log_for, cached_base_log
 from negpy.services.export.print import PrintService
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
@@ -393,8 +394,6 @@ class GPUEngine:
         self._clip_cache: Optional[tuple] = None
         # (key, prefiltered grid, clip fractions), keyed without the clip sliders.
         self._prefilter_cache: Optional[tuple] = None
-        # The clear base, read off the raw source once per source; every edit reuses it.
-        self._base_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
@@ -669,6 +668,7 @@ class GPUEngine:
         camera_wb: Optional[list] = None,
         contrast_mask_override: Optional[Tuple[np.ndarray, float, Tuple[int, int, int, int]]] = None,
         film_base: Optional[tuple] = None,
+        source_base_log: Any = NOT_READ,
         sabattier_sigma_override: Optional[float] = None,
         diffusion_override: Optional[Tuple[np.ndarray, Tuple[int, int, int, int]]] = None,
         # Crop tool preview: toning and finish span the whole rotated frame, with no border or
@@ -779,6 +779,7 @@ class GPUEngine:
                 None,
             )
 
+        timing.lap("upload source")
         analysis_t0 = time.perf_counter()
         cast_on = settings.exposure.cast_removal_strength > 0.0 and not tiling_mode
         # The neutral axis runs on both colour processes; B&W has no channels to balance.
@@ -807,7 +808,9 @@ class GPUEngine:
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
-        base_known_empty = self._base_cache is not None and self._base_cache[0] == analysis_source_hash and self._base_cache[1] is None
+        if source_base_log is NOT_READ:
+            source_base_log = cached_base_log(analysis_source_hash)
+        base_known_empty = source_base_log is None
         needs_density = readback_metrics and not tiling_mode and not transfer and density_above_base_value is None and not base_known_empty
         if needs_bounds_analysis or needs_axis or needs_anchor or needs_textural or needs_shadow or needs_highlight or needs_density:
             # Keyed without the clip sliders: a clip drag reuses the grid and
@@ -900,22 +903,16 @@ class GPUEngine:
         else:
             bounds, base_bounds = resolve_bounds_detailed(settings.process, _analyze_bounds)
             anchor_bounds = luma_source_bounds(settings.process, base_bounds)
-        pass_base_log = None  # a rebate read with no source identity to cache it under (the tiled reference pass)
         if prefiltered is not None and readback_metrics and not transfer and (density_above_base_value is None or needs_bounds_analysis):
             # Only a preview reads the densities, like the anchor's readback_metrics gate. A base
-            # the user set on the roll wins; else the rebate reader's, a property of the source
-            # read off the raw frame once per source, or per render on a pass with no source
-            # identity (the tiled reference pass).
+            # the user set on the roll wins; else the source's rebate read, which run_pipeline
+            # passes in, read here only for a caller that did not.
             if film_base is not None:
                 density_above_base_value = density_above_base(tuple(film_base), bounds, prefiltered, unmix_m)
             else:
-                if analysis_source_hash is None:
-                    base_log = pass_base_log = measure_base_log(img)
-                else:
-                    if self._base_cache is None or self._base_cache[0] != analysis_source_hash:
-                        self._base_cache = (analysis_source_hash, measure_base_log(img))
-                    base_log = self._base_cache[1]
-                density_above_base_value = density_above_base(base_log, bounds, prefiltered, unmix_m)
+                if source_base_log is NOT_READ:
+                    source_base_log = base_log_for(analysis_source_hash, img)
+                density_above_base_value = density_above_base(source_base_log, bounds, prefiltered, unmix_m)
 
         # Neutral axis for the two-point Cast Removal; normalized at consumption. The
         # transparency curve renders through the fixed window, so the axis is measured
@@ -1074,6 +1071,8 @@ class GPUEngine:
         plane_rect = mask_rect if mask_plane is not None else diff_rect
         plane_tex_key = (mask_key if mask_plane is not None else None, diff_key if diff_plane is not None else None)
 
+        timing.lap("meter/mask planes")
+
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
         if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
             self._analysis_timing_hash = analysis_source_hash
@@ -1120,6 +1119,7 @@ class GPUEngine:
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
 
+        timing.lap("uniforms")
         # Texture chain
         tex_geom = self._get_intermediate_texture(
             w_rot,
@@ -1659,6 +1659,7 @@ class GPUEngine:
         tex_final = tex_output
 
         device.queue.submit([enc.finish()])
+        timing.lap("record/submit passes")
         # The exact stretch the shader normalized with (mirrors the CPU "final_bounds").
         # The transfer path renders through the fixed window, not the measured one.
         _base_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
@@ -1672,10 +1673,8 @@ class GPUEngine:
         if not transfer:
             if film_base is not None:
                 read_base_log = tuple(film_base)
-            elif self._base_cache is not None and self._base_cache[0] == analysis_source_hash:
-                read_base_log = self._base_cache[1]
-            else:
-                read_base_log = pass_base_log
+            elif source_base_log is not NOT_READ:
+                read_base_log = source_base_log
         metrics: Dict[str, Any] = {
             "active_roi": roi,
             "base_positive": tex_final,
@@ -1697,9 +1696,13 @@ class GPUEngine:
             # Raw cast refs so the chart can re-solve the exact render curves.
             "neutral_axis_refs": neutral_axis_refs,
         }
+        # A drag with no read leaves the base out, so the merged metrics keep the last frame's.
+        if not transfer and film_base is None and source_base_log is NOT_READ:
+            del metrics["film_base_density"]
 
         if not tiling_mode and readback_metrics:
             raw_metrics = self._readback_metrics()
+            timing.lap("GPU wait/metrics readback")
             metrics["histogram_raw"] = raw_metrics[:_METRICS_HIST_WORDS].reshape((4, HISTOGRAM_BINS))
             metrics["histogram_density"] = (
                 raw_metrics[_METRICS_DENSITY_BASE : _METRICS_DENSITY_BASE + _METRICS_DENSITY_WORDS]
@@ -1783,6 +1786,7 @@ class GPUEngine:
         self._last_scale_factor = scale_factor
         self._last_render_size_ref = render_size_ref
         self._last_full_frame = full_frame
+        timing.lap("metrics")
         return tex_final, metrics
 
     def _upload_unified_uniforms(
@@ -2717,6 +2721,7 @@ class GPUEngine:
         memory_bounded: bool = False,
         render_size_ref: Optional[float] = None,
         film_base: Optional[tuple] = None,
+        source_base_log: Any = NOT_READ,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
@@ -2733,6 +2738,7 @@ class GPUEngine:
                 memory_bounded=memory_bounded,
                 render_size_ref=render_size_ref,
                 film_base=film_base,
+                source_base_log=source_base_log,
             )
         tex_final, metrics = self.process_to_texture(
             img,
@@ -2746,8 +2752,11 @@ class GPUEngine:
             analysis_source_hash=analysis_source_hash,
             render_size_ref=render_size_ref,
             film_base=film_base,
+            source_base_log=source_base_log,
         )
-        return self._readback_downsampled(tex_final), metrics
+        out = self._readback_downsampled(tex_final)
+        timing.lap("GPU wait/readback")
+        return out, metrics
 
     def _process_tiled(
         self,
@@ -2761,6 +2770,7 @@ class GPUEngine:
         readback_metrics: bool = True,
         memory_bounded: bool = False,
         render_size_ref: Optional[float] = None,
+        source_base_log: Any = NOT_READ,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
@@ -2815,16 +2825,18 @@ class GPUEngine:
         # This render meters the whole frame for the tiles; the CLAHE CDF it leaves behind
         # is the one they share. Taken from here rather than from the last preview, which
         # may belong to another image or to settings the export has since moved past.
-        _, metrics_ref = self.process_to_texture(
-            img_small,
-            settings,
-            scale_factor=scale_factor,
-            cam_xyz=cam_xyz,
-            camera_wb=camera_wb,
-            readback_metrics=readback_metrics,
-            apply_layout=False,
-            film_base=film_base,
-        )
+        with timing.step("reference pass"):
+            _, metrics_ref = self.process_to_texture(
+                img_small,
+                settings,
+                scale_factor=scale_factor,
+                cam_xyz=cam_xyz,
+                camera_wb=camera_wb,
+                readback_metrics=readback_metrics,
+                apply_layout=False,
+                film_base=film_base,
+                source_base_log=source_base_log,
+            )
 
         global_cdfs = self._readback_clahe_cdf()
 
@@ -3032,56 +3044,58 @@ class GPUEngine:
         pending: Optional[tuple] = None
         tile_index = 0
         pooled_shape: Optional[tuple] = None  # low VRAM: the one tile input shape the pool holds
-        for ty in range(0, crop_h, tile_size):
-            for tx in range(0, crop_w, tile_size):
-                tw, th = min(tile_size, crop_w - tx), min(tile_size, crop_h - ty)
-                ix1, iy1 = max(0, x1 + tx - halo), max(0, y1 + ty - halo)
-                ix2, iy2 = (
-                    min(w_rot, x1 + tx + tw + halo),
-                    min(h_rot, y1 + ty + th + halo),
-                )
-                maps_tile = np.ascontiguousarray(local_maps_rot[iy1:iy2, ix1:ix2]) if local_maps_rot is not None else None
-                ox, oy = x1 + tx - ix1, y1 + ty - iy1
-                if low_vram and pooled_shape not in (None, (iy2 - iy1, ix2 - ix1)):
-                    self._release_texture_pool()
-                pooled_shape = (iy2 - iy1, ix2 - ix1)
-                tile_res, _ = self.process_to_texture(
-                    img_rot[iy1:iy2, ix1:ix2],
-                    settings,
-                    scale_factor=scale_factor,
-                    tiling_mode=True,
-                    bounds_override=global_bounds,
-                    metered_anchor_override=global_metered_anchor,
-                    textural_range_override=global_textural_range,
-                    neutral_axis_override=global_neutral_axis,
-                    shadow_point_override=global_shadow_point,
-                    highlight_point_override=global_highlight_point,
-                    global_offset=(ix1, iy1),
-                    full_dims=(w_rot, h_rot),
-                    clahe_cdf_override=global_cdfs,
-                    apply_layout=False,
-                    vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
-                    local_maps=maps_tile,
-                    cam_xyz=cam_xyz,
-                    camera_wb=camera_wb,
-                    contrast_mask_override=global_mask,
-                    sabattier_sigma_override=sabattier_sigma,
-                    diffusion_override=global_diffusion,
-                )
-                handle = self._submit_readback(tile_res, slot=0 if low_vram else tile_index % 2)
-                if low_vram:
-                    self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
-                else:
-                    if pending is not None:
-                        p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
-                        self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
-                    pending = (handle, ty, tx, th, tw, oy, ox)
-                tile_index += 1
-        if pending is not None:
-            p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
-            self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
-        if low_vram:
-            self._release_texture_pool()
+        timing.lap("global bounds/setup")
+        with timing.step("tiles"):
+            for ty in range(0, crop_h, tile_size):
+                for tx in range(0, crop_w, tile_size):
+                    tw, th = min(tile_size, crop_w - tx), min(tile_size, crop_h - ty)
+                    ix1, iy1 = max(0, x1 + tx - halo), max(0, y1 + ty - halo)
+                    ix2, iy2 = (
+                        min(w_rot, x1 + tx + tw + halo),
+                        min(h_rot, y1 + ty + th + halo),
+                    )
+                    maps_tile = np.ascontiguousarray(local_maps_rot[iy1:iy2, ix1:ix2]) if local_maps_rot is not None else None
+                    ox, oy = x1 + tx - ix1, y1 + ty - iy1
+                    if low_vram and pooled_shape not in (None, (iy2 - iy1, ix2 - ix1)):
+                        self._release_texture_pool()
+                    pooled_shape = (iy2 - iy1, ix2 - ix1)
+                    tile_res, _ = self.process_to_texture(
+                        img_rot[iy1:iy2, ix1:ix2],
+                        settings,
+                        scale_factor=scale_factor,
+                        tiling_mode=True,
+                        bounds_override=global_bounds,
+                        metered_anchor_override=global_metered_anchor,
+                        textural_range_override=global_textural_range,
+                        neutral_axis_override=global_neutral_axis,
+                        shadow_point_override=global_shadow_point,
+                        highlight_point_override=global_highlight_point,
+                        global_offset=(ix1, iy1),
+                        full_dims=(w_rot, h_rot),
+                        clahe_cdf_override=global_cdfs,
+                        apply_layout=False,
+                        vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
+                        local_maps=maps_tile,
+                        cam_xyz=cam_xyz,
+                        camera_wb=camera_wb,
+                        contrast_mask_override=global_mask,
+                        sabattier_sigma_override=sabattier_sigma,
+                        diffusion_override=global_diffusion,
+                    )
+                    handle = self._submit_readback(tile_res, slot=0 if low_vram else tile_index % 2)
+                    if low_vram:
+                        self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
+                    else:
+                        if pending is not None:
+                            p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
+                            self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
+                        pending = (handle, ty, tx, th, tw, oy, ox)
+                    tile_index += 1
+            if pending is not None:
+                p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
+                self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
+            if low_vram:
+                self._release_texture_pool()
 
         # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
         shrinking = content_w < crop_w or content_h < crop_h

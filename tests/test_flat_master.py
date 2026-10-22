@@ -96,6 +96,89 @@ class TestFlatPhotometric(unittest.TestCase):
         )
         np.testing.assert_allclose(base, varied, atol=1e-6)
 
+    def _colored(self) -> np.ndarray:
+        rng = np.random.default_rng(1)
+        return rng.uniform(0.1, 0.9, (1, 64, 3)).astype(np.float32)
+
+    def test_digital_stock_is_byte_exact(self):
+        img = self._colored()
+        np.testing.assert_array_equal(self._render(image=img), self._render({"paper_profile": "neutral"}, image=img))
+        gain, lift = flat_curve_params()
+        np.testing.assert_array_equal(self._render(image=img), np.clip(lift + gain * (1.0 - img), 0.0, 1.0))
+
+    def test_color_stock_keeps_neutrals(self):
+        val = np.linspace(0.05, 0.95, 40, dtype=np.float32)
+        img = np.stack([val, val, val], axis=-1)[None, :, :]
+        np.testing.assert_allclose(self._render({"paper_profile": "pakon"}, image=img), self._render(image=img), atol=1e-5)
+
+    def test_color_stock_lowers_flat_chroma(self):
+        img = self._colored()
+
+        def spread(out: np.ndarray) -> float:
+            return float(np.std(out - out.mean(axis=-1, keepdims=True)))
+
+        self.assertLess(spread(self._render({"paper_profile": "pakon"}, image=img)), spread(self._render(image=img)))
+
+    def test_bw_ignores_the_stock_matrix(self):
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.exposure.models import ExposureConfig
+        from negpy.features.exposure.processor import PhotometricProcessor
+        from negpy.features.process.models import ProcessMode
+
+        img = self._colored()
+        ctx = PipelineContext(scale_factor=1.0, original_size=(1, img.shape[1]), process_mode=ProcessMode.BW)
+        cfg = ExposureConfig(render_intent=RenderIntent.FLAT)
+        a = PhotometricProcessor(cfg).process(img, ctx)
+        b = PhotometricProcessor(replace(cfg, paper_profile="pakon")).process(img, ctx)
+        np.testing.assert_array_equal(a, b)
+
+
+class TestFlatStockMatrix(unittest.TestCase):
+    # build_print_luts.py --flat-only refits a LUT's matrix; these bound what a 3×3 can do on the
+    # ICC-derived LUTs, so a rebuilt LUT with a stale matrix fails here.
+    MEDIAN_DE00 = 1.5
+    P95_DE00 = 4.0
+
+    def test_every_bundled_lut_carries_a_matrix_with_unit_rows(self):
+        from negpy.features.exposure.print_lut import LUT_DIR, flat_matrix
+
+        keys = sorted(p.stem for p in LUT_DIR.glob("*.npz"))
+        self.assertTrue(keys)
+        for key in keys:
+            m = flat_matrix(key)
+            self.assertIsNotNone(m, key)
+            np.testing.assert_allclose(m.sum(axis=1), 1.0, atol=1e-9, err_msg=key)
+
+    def test_matrix_reproduces_its_lut(self):
+        from negpy.features.exposure.print_lut import LUT_DIR, flat_matrix, load_print_lut, tetra_lookup
+        from negpy.features.process.chart import delta_e2000
+        from negpy.kernel.image.logic import rgb_to_lab_working
+
+        rng = np.random.default_rng(7)
+        for path in sorted(LUT_DIR.glob("*.npz")):
+            lut, m = load_print_lut(path.stem), flat_matrix(path.stem)
+            level = rng.uniform(0.15, 0.75, (800, 1)) * float(lut.e_max.min())
+            d = rng.normal(size=(800, 3))
+            d -= d.mean(axis=1, keepdims=True)
+            d /= np.linalg.norm(d, axis=1, keepdims=True)
+            e = np.clip(level + rng.uniform(0.0, 0.9, (800, 1)) * d, 0.0, lut.e_max)
+            looked = np.array([tetra_lookup(lut.table, lut.e_max, *p) for p in e])
+            de = delta_e2000(rgb_to_lab_working(np.clip(looked, 0, 1)), rgb_to_lab_working(np.clip(10.0 ** -(e @ m.T), 0, 1)))
+            self.assertLess(float(np.median(de)), self.MEDIAN_DE00, path.stem)
+            self.assertLess(float(np.percentile(de, 95)), self.P95_DE00, path.stem)
+
+    def test_stocks_without_a_lut_mix_their_own_rows(self):
+        from negpy.features.exposure.papers import PAPER_PROFILES, resolve_flat_matrix, resolve_print_color
+        from negpy.features.exposure.print_lut import DyeLut
+
+        for key, paper in PAPER_PROFILES.items():
+            m = resolve_flat_matrix(paper)
+            if isinstance(paper.print_color, DyeLut):
+                self.assertIsNotNone(m, key)
+            else:
+                dye, _ = resolve_print_color(paper)
+                self.assertTrue(m is dye or np.array_equal(m, dye), key)
+
 
 class TestFlatEngineSkipsStages(unittest.TestCase):
     def test_creative_stages_bypassed(self):

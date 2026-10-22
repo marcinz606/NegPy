@@ -1,6 +1,6 @@
 import hashlib
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 import numpy as np
 from numba import njit, prange  # type: ignore
 from negpy.kernel.system.parallel import parallel_njit
@@ -11,7 +11,7 @@ from negpy.kernel.system.logging import get_logger
 logger = get_logger(__name__)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     """
     Rec. 709 luminance.
@@ -24,7 +24,7 @@ def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     """
     Scale to uint16 (rounds to nearest, clips & handles NaNs).
@@ -53,7 +53,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     """
     Scale to uint8 (rounds to nearest, clips & handles NaNs). See _to_uint16_jit.
@@ -78,7 +78,7 @@ def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT conversion from uint8 to float32 [0.0, 1.0].
@@ -93,7 +93,7 @@ def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def rgb_to_rgba_into(src: np.ndarray, dst: np.ndarray) -> None:
     """Copies the three colour planes of ``src`` into the RGBA ``dst``; alpha is left as is.
     numpy cannot vectorise a 3-of-4 strided copy, so a texture upload spent longer here than
@@ -106,7 +106,7 @@ def rgb_to_rgba_into(src: np.ndarray, dst: np.ndarray) -> None:
             dst[y, x, 2] = src[y, x, 2]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None:
     """Writes the RGB of ``src[oy:oy+h, ox:ox+w]`` into the (h, w, 3) ``dst``."""
     h, w = dst.shape[0], dst.shape[1]
@@ -117,7 +117,7 @@ def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None
             dst[y, x, 2] = src[oy + y, ox + x, 2]
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT conversion from uint16 to float32 [0.0, 1.0].
@@ -498,7 +498,7 @@ def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
     return out.reshape(arr.shape)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     """
     Luminance -> uint8.
@@ -533,7 +533,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
         return res
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
     """
     Luminance -> uint16.
@@ -699,3 +699,38 @@ def prepare_thumbnail(img: Any, size: int) -> Any:
     from PIL import Image, ImageOps
 
     return ImageOps.contain(img, (size, size), Image.Resampling.LANCZOS)
+
+
+def percentile_from_sorted(sorted_grid: np.ndarray, q: float) -> np.ndarray:
+    """
+    The three channels' `np.percentile(grid[:, :, ch], q)`, read off `sorted_channel_grid`.
+
+    Bit-exact needs numpy's arithmetic, not its definition: virtual index `(n-1)*(q/100)`
+    in float64, the far half interpolated back from the upper sample, and a weight that
+    keeps `q`'s own type -- numpy interpolates in float32 for a Python `q` and float64 for
+    an `np.float64` one, and both kinds of caller exist here.
+    """
+    n = sorted_grid.shape[0]
+    virtual = (n - 1) * np.true_divide(q, 100)
+    lo = min(max(int(np.floor(virtual)), 0), n - 1)
+    hi = min(lo + 1, n - 1)
+    t = virtual - lo
+    if type(q) in (int, float):
+        t = float(t)
+    a, b = sorted_grid[lo], sorted_grid[hi]
+    diff = b - a
+    return b - diff * (1 - t) if t >= 0.5 else a + diff * t
+
+
+def percentiles(values: np.ndarray, qs: Sequence[float]) -> tuple:
+    """`np.percentile(values, q)` for each q, bit for bit, from one partition instead of one per q."""
+    flat = values.ravel()
+    n = flat.size
+    if n == 0:
+        raise IndexError("percentiles of an empty array")
+    ranks = []
+    for q in qs:
+        lo = min(max(int(np.floor((n - 1) * np.true_divide(q, 100))), 0), n - 1)
+        ranks += [lo, min(lo + 1, n - 1)]
+    part = np.partition(flat, sorted(set(ranks)))
+    return tuple(percentile_from_sorted(part, q) for q in qs)

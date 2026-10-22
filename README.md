@@ -49,7 +49,7 @@ The desktop interface and panel guides support English, Simplified Chinese (ç®€ä
 ### Editing
 
 * Dodge and burn with polygon, oval and card-edge masks, each with its own strength, feather, contrast grade and tone limit.
-* Dust, hair and scratch removal: automatic, from the IR channel (NegPy or OpenICE method), or painted, keeping the film grain.
+* Dust, hair and scratch removal: automatic, from the IR channel or painted, keeping the film grain.
 * Darkroom tools: test strips, ring-around, step wedge, zone overlay, spot densitometer and zone placement.
 * Contrast mask, tilt and swing, edge burn, filed carrier and print mats.
 * Lith, cyanotype and toners for B&W.

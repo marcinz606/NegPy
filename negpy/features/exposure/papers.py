@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, load_print_lut
+from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, flat_matrix, load_print_lut
 from negpy.features.process.models import ProcessMode
 
 DEFAULT_PROFILE_KEY = "neutral"
@@ -311,6 +311,16 @@ def resolve_print_color(paper: PaperProfile | None) -> Tuple[Optional[np.ndarray
         return None, None
     m = np.array(color.rows, dtype=np.float64)
     return m / np.maximum(m.sum(axis=1, keepdims=True), 1e-6), None
+
+
+def resolve_flat_matrix(paper: PaperProfile | None) -> Optional[np.ndarray]:
+    """The stock's color as the Flat master's density 3×3: a matrix stock's own rows, a LUT stock's
+    stand-in (`flat_matrix`). None for identity, so the Digital flat master stays byte-exact."""
+    color = None if paper is None else paper.print_color
+    if isinstance(color, DyeLut):
+        return flat_matrix(color.key)
+    dye, _ = resolve_print_color(paper)
+    return dye
 
 
 # Achromatic projection in density space (all rows 1/3) -- see resolve_saturation_matrix.

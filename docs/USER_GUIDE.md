@@ -415,7 +415,7 @@ Removes dust, hairs and scratches. Each repair is rebuilt from the clean film ar
 
 *   **Overlay**: **Marked** shows what dust removal found, **IR** the scan's infrared channel.
 *   **Optical Removal**: finds dust and hairs by itself. **Spot Threshold** and **Hair Threshold**: lower finds more but can remove real detail; 1 is off. **Size**: the largest dust to remove. To protect an area, right-drag over it or right-click a mark; the cursor button skips the right-click menu.
-*   **IR Removal** (scans with an infrared channel): finds dust in infrared, where the picture does not show. **IR Threshold**: lower finds more. **Method**: **OpenICE** keeps more fine detail than **NegPy** but is less tested. B&W and Kodachrome are skipped: their picture shows in infrared too. The channel comes from 4-channel TIFF and DNG scans or an `_IR.tif` file beside the scan.
+*   **IR Removal** (scans with an infrared channel): finds dust in infrared, where the picture does not show. **IR Threshold**: lower finds more. B&W and Kodachrome are skipped: their picture shows in infrared too. The channel comes from 4-channel TIFF and DNG scans or an `_IR.tif` file beside the scan.
 *   **Heal**: click or paint over dust. Only marks that stand out are repaired, so paint generously.
 *   **Scratch**: click points along a scratch or hair, then press Enter.
 *   **Line**: click once on a long straight scratch, and NegPy finds and repairs the whole line. **Line Sensitivity**: lower finds fainter lines.
@@ -677,7 +677,7 @@ The **Export** button is at the bottom of the tab. Above it, **File** holds the 
 ### Output intent
 
 *   **Print** (default): the picture as you see it.
-*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects but keeps light leak reduction, and writes a 16-bit file. **Preview Flat** shows it on the canvas. Run **Roll Analysis** first so the masters of a roll match.
+*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps light leak reduction and a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. Run **Roll Analysis** first so the masters of a roll match.
 *   **Linear**: the raw scan data before NegPy's processing, as a 16-bit TIFF or JPEG XL, for a raw workflow in another app. It reads camera RAW, LinearRaw DNG, Coolscan NEF, Flextight, Noritsu and Pakon files and TIFF scans. Options for infrared, white balance, flat field, sensor and lens correction are off at first. File names get `_linear`, so a source is never overwritten.
 
 ### File settings
@@ -788,7 +788,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 Scans with a camera on a copy stand, connected over USB in **PC Remote** mode (macOS and Linux; it needs `python-gphoto2`). With a NegPy **Scanlight**, NegPy also controls the light. CAMERA_SCANNING.md explains the setup.
 
 *   **Camera** / **Light**: the connection status. The light turns amber when it runs warm. On Linux, the Scanlight needs your user in the `dialout` group.
-*   **Live View**: a live picture from the camera. Click to place the focus magnifier, and focus until the **Focus meter** reads **at peak**. Set ISO, shutter and aperture here or on the camera.
+*   **Live View**: a live picture from the camera. Click to place the focus magnifier, and focus until the **Focus meter** reads **at peak**. Set ISO, shutter and aperture here or on the camera. When it closes, the Scanlight goes back to how it was before.
 *   **Histogram** and **Zebras**: the frame's histogram, and stripes on parts that are about to clip, in the clipping colors that Color vision sets.
 *   **Meter**: sets the shutter so the brightest part that must not clip (a negative's clear film, a slide's highlights) lands just under clipping.
 *   **Scan** shoots the next frame and imports it; **Retake** (the redo arrow) shoots the last frame again. In the Live View window, `Space` or `S` scans and `R` retakes. With a Scanlight, **R**, **G**, **B** and **IR** pick which exposures Retake repeats.
@@ -804,7 +804,7 @@ Shown while a Scanlight is connected. A preset holds the light levels and the ca
     *   **Built-in Presets**: ready to use, with no calibration: **White Light**, **White Light + IR**, **Trichrome** and **Trichrome + IR**. They use the camera's exposure, which the meter sets. White Light needs a Scanlight with a white LED (v4, Big Scanlight).
     *   **Calibrate on the Film Base…**: place the rectangle on clear film and run it. NegPy finds the light levels and the shutter.
     *   **Set by Hand**: set the sliders yourself, then save them as a preset.
-*   **Red**, **Green**, **Blue**, **White**: the light levels (0 to 255). **Light Off** turns the light off.
+*   **Red**, **Green**, **Blue**, **White**: the light levels (0 to 255). **Light On** turns the light on to frame the film, or off.
 *   **Capture mode**: **Triplet** takes one exposure per color and joins them; **Single Capture** takes one exposure with all three colors on.
 *   **Create Sensor Profile** (Single Capture): also saves a sensor profile for this preset (see Calibration, §10.3).
 *   **ISO**, **Shutter**, **Aperture**: the preset's exposure. A change holds until you pick the preset again. The gauge button meters.

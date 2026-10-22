@@ -65,11 +65,12 @@ class LoaderFactory:
         positive_source: bool = False,
         preview_max_edge: Optional[int] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
+        load_ir: bool = True,
     ) -> Tuple[ContextManager[Any], dict]:
         loader = self._select_loader(file_path)
 
         if loader is self._tiff:
-            return loader.load(file_path, linear_raw=linear_raw, positive_source=positive_source)
+            return loader.load(file_path, linear_raw=linear_raw, positive_source=positive_source, load_ir=load_ir)
         if loader is self._nef or loader is self._fff:
             return loader.load(file_path, linear_raw=linear_raw)
         if loader is self._rawpy:

@@ -111,7 +111,7 @@ def test_triplet_with_linear_raw_off_still_decodes_neutral_at_the_rawpy_call(tmp
 
     spies = {path: _SpyRaw() for path in (red, green, blue)}
 
-    def fake_get_loader(path, linear_raw=False, positive_source=False):
+    def fake_get_loader(path, linear_raw=False, positive_source=False, load_ir=True):
         return spies[path], {}
 
     processor = ImageProcessor()

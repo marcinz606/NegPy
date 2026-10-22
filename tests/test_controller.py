@@ -1038,6 +1038,28 @@ class TestAppController(unittest.TestCase):
         self.assertIsNotNone(task)
         self.assertEqual(task.protected_file_hashes, ("selected",))
 
+    def test_neighbor_prefetch_carries_the_config_for_its_base_read(self):
+        from negpy.domain.models import WorkspaceConfig
+
+        cfg = WorkspaceConfig()
+        self.controller.session.repo.load_file_settings.return_value = None
+        self.controller.session.config_for_asset = MagicMock(return_value=cfg)
+        self.controller.roll_film_base = MagicMock(return_value=None)
+        self.controller._half_slice_for_asset = MagicMock(return_value=None)
+        asset = {"path": "/tmp/neighbor.dng", "hash": "neighbor"}
+
+        task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
+        self.assertIs(task.base_settings, cfg)
+
+        self.controller.roll_film_base.return_value = (-0.3, -0.3, -0.3)
+        task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
+        self.assertIsNone(task.base_settings)
+
+        self.controller.roll_film_base.return_value = None
+        self.controller._half_slice_for_asset.return_value = (1, 0.5, None, 0.0, "x")
+        task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
+        self.assertIsNone(task.base_settings)
+
     def test_second_neighbor_prefetch_protects_the_first_neighbor(self):
         state = self.controller.state
         state.uploaded_files = [

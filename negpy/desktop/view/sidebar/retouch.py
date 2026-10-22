@@ -1,22 +1,17 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
-from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_row, header_row, hint_label, section_subheader, wrap_tooltip
-from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN, IR_METHOD_NEGPY, IR_METHOD_OPENICE
+from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
 
 _IR_REMOVAL_TIP = tr("IR Removal: remove dust and scratches with the scanner's infrared channel.")
 _IR_THRESH_TIP = tr("Lower finds more dust; higher removes less.")
-# Order matches _IR_METHOD_KEYS.
-_IR_METHOD_LABELS = ("NegPy", tr("OpenICE"))
-_IR_METHOD_KEYS = (IR_METHOD_NEGPY, IR_METHOD_OPENICE)
 # Order matches _OVERLAY_MODES.
 _OVERLAY_LABELS = (tr("Off"), tr("Marked"), tr("IR"))
 _OVERLAY_MODES = ("off", "marked", "ir")
-_IR_METHOD_TIP = wrap_tooltip(tr("How the film under a defect is rebuilt: OpenICE keeps more fine detail but is less tested."))
 _OPTICAL_TIP = tr("Optical Removal: find and remove dust without an infrared channel, and right-drag on the picture to protect an area.")
 _RIGHT_CLICK_TIP = tr("When on, a right-click on the picture brings back the mark under it, without a menu.")
 
@@ -57,13 +52,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addWidget(self.optical_rail)
 
         self.ir_dust_btn = self._small_toggle("fa5s.broom", tr("IR Removal"), conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
-        self.ir_method_btn = StepCombo()
-        for label, key in zip(_IR_METHOD_LABELS, _IR_METHOD_KEYS):
-            self.ir_method_btn.addItem(label, key)
-        ir_row = QHBoxLayout()
-        ir_row.addWidget(self.ir_dust_btn, 1)
-        ir_row.addWidget(self.ir_method_btn)
-        self.layout.addLayout(ir_row)
+        self.layout.addWidget(self.ir_dust_btn)
         self.ir_threshold_slider = CompactSlider(tr("IR Threshold"), 0.05, 0.95, float(conf.ir_threshold))
         self.ir_rail = SliderGroup(self.ir_threshold_slider)
         self.layout.addWidget(self.ir_rail)
@@ -72,7 +61,6 @@ class RetouchSidebar(BaseSidebar):
         self._ir_tooltips = {
             self.ir_dust_btn: _IR_REMOVAL_TIP,
             self.ir_threshold_slider: _IR_THRESH_TIP,
-            self.ir_method_btn: _IR_METHOD_TIP,
         }
 
         self.heals_subheader = section_subheader(tr("MANUAL HEAL · 0"))
@@ -200,9 +188,6 @@ class RetouchSidebar(BaseSidebar):
             lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c, ir_attenuation=c)
         )
         self.ir_dust_btn.toggled.connect(lambda _c: self._sync_rails())
-        self.ir_method_btn.currentIndexChanged.connect(
-            lambda _i: self.update_config_section("retouch", persist=True, render=True, ir_method=self.ir_method_btn.currentData())
-        )
 
     def _sync_overlay(self) -> None:
         mode = self.state.dust_overlay_mode
@@ -217,7 +202,6 @@ class RetouchSidebar(BaseSidebar):
         self.optical_rail.setVisible(self.auto_dust_btn.isChecked())
         has_ir = self.state.has_ir
         self.ir_dust_btn.setVisible(has_ir)
-        self.ir_method_btn.setVisible(has_ir)
         self.ir_rail.setVisible(has_ir and self.ir_dust_btn.isChecked())
         # The brush is sized from the canvas while an exclusion is painted, which happens with
         # no tool active, so Optical Removal shows the value too. Sensitivity stands in for brush
@@ -288,8 +272,6 @@ class RetouchSidebar(BaseSidebar):
             # checked but greyed button reads as stuck on.
             self.ir_dust_btn.setChecked(conf.ir_dust_remove and self.state.has_ir)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
-            method = conf.ir_method if conf.ir_method in _IR_METHOD_KEYS else IR_METHOD_NEGPY
-            self.ir_method_btn.setCurrentIndex(self.ir_method_btn.findData(method))
             self._set_ir_controls_enabled(self.state.has_ir)
             if self.state.has_ir and self.state.ir_degenerate:
                 self.ir_dust_btn.setToolTip(tr("This film shows the picture in infrared too (B&W, Kodachrome), so IR Removal is off."))
@@ -317,7 +299,6 @@ class RetouchSidebar(BaseSidebar):
             self.clone_feather_slider,
             self.ir_dust_btn,
             self.ir_threshold_slider,
-            self.ir_method_btn,
             self.overlay_btn,
         ]
         for w in widgets:

@@ -676,7 +676,7 @@ def test_positive_source_and_lens_mode_have_independent_preview_cache_entries(tm
     image = np.repeat(ramp[..., None], 3, axis=2)
     lens = LensMetadata("Sony", (SonyWarp((-1000,) * 16, (32768,) * 16, (-16384,) * 16),))
 
-    def get_loader(file_path, *, linear_raw=False, positive_source=False, preview_max_edge=None, should_cancel=None):
+    def get_loader(file_path, *, linear_raw=False, positive_source=False, preview_max_edge=None, should_cancel=None, load_ir=True):
         pixels = image * (0.5 if positive_source else 1.0)
         return NonStandardFileWrapper(pixels), {"orientation": 1, "color_space": "Adobe RGB", "lens_correction": lens}
 

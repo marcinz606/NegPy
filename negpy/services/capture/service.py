@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 _RAW_SUFFIX = ".raw"
 
 ProgressCb = Callable[[float], None]
+LightLevels = tuple[int, int, int, int]  # r, g, b, w
 
 
 class CaptureError(RuntimeError):
@@ -173,11 +174,12 @@ class CaptureService:
         progress: Optional[ProgressCb] = None,
         cancel: Optional[threading.Event] = None,
         on_channel: Optional[Callable[[str], None]] = None,
+        end_light: Optional[LightLevels] = None,
     ) -> CaptureResult:
         """Capture red, green, blue exposures of the current frame.
 
         Each channel: light that channel only → settle → capture → size-check.
-        The light is always turned off when done (even on error). Raises
+        The light ends at `end_light` after a success, else off (see `_release_light`). Raises
         `CaptureError` on cancel or an implausibly sized file.
         """
         os.makedirs(settings.output_folder, exist_ok=True)
@@ -186,6 +188,7 @@ class CaptureService:
         level = {Channel.RED: settings.levels[0], Channel.GREEN: settings.levels[1], Channel.BLUE: settings.levels[2]}
         staged_paths: dict[Channel, str] = {}
         paths: dict[Channel, str] = {}
+        ok = False
 
         try:
             for i, ch in enumerate(CAPTURE_ORDER):
@@ -237,11 +240,9 @@ class CaptureService:
             if cancel is not None and cancel.is_set():
                 raise CaptureError("capture cancelled")
             paths = _promote_triplet(staged_paths, settings.output_folder)
+            ok = True
         finally:
-            try:
-                self._light.off()
-            except Exception:
-                logger.exception("failed to turn the Scanlight off after capture")
+            self._release_light(ok, end_light)
             shutil.rmtree(staging_dir, ignore_errors=True)
 
         return CaptureResult(
@@ -251,18 +252,21 @@ class CaptureService:
             blue_path=paths[Channel.BLUE],
         )
 
-    def capture_rgb_single(self, settings: CaptureSettings, cancel: Optional[threading.Event] = None) -> str:
+    def capture_rgb_single(
+        self, settings: CaptureSettings, cancel: Optional[threading.Event] = None, end_light: Optional[LightLevels] = None
+    ) -> str:
         """One exposure with R, G and B lit together at the preset's levels (one file, no
         R/G/B split). The shared shutter and the preset's ISO and aperture are forced, as for
         a triplet."""
         os.makedirs(settings.output_folder, exist_ok=True)
         r, g, b = settings.levels
+        ok = False
         try:
             self._light.set_color(r=r, g=g, b=b)
             self._sleep(settings.settle_s)
             stem = os.path.join(settings.output_folder, f"{settings.roll_name}_Frame{settings.frame_number:03d}")
             logger.info("capturing single RGB frame → %s", stem)
-            return _capture_validated_single(
+            path = _capture_validated_single(
                 self._camera,
                 final_stem=stem,
                 shutter=settings.shutters[0] if settings.shutters is not None else None,
@@ -272,11 +276,10 @@ class CaptureService:
                 iso=settings.iso,
                 aperture=settings.aperture,
             )
+            ok = True
+            return path
         finally:
-            try:
-                self._light.off()
-            except Exception:
-                logger.exception("failed to turn the Scanlight off after capture")
+            self._release_light(ok, end_light)
 
     def capture_channel(
         self,
@@ -293,16 +296,18 @@ class CaptureService:
         min_raw_bytes: int = 8 * 1024 * 1024,
         max_raw_bytes: int = 200 * 1024 * 1024,
         cancel: Optional[threading.Event] = None,
+        end_light: Optional[LightLevels] = None,
     ) -> str:
         """One exposure under one LED, written as the frame's `_<letter>` file: one channel of
         a triplet shot again, a set built by hand, or an infrared exposure beside the triplet."""
         os.makedirs(output_folder, exist_ok=True)
+        ok = False
         try:
             self._light.set_color(**channel.light(level))
             self._sleep(settle_s)
             stem = os.path.join(output_folder, f"{roll_name}_Frame{frame_number:03d}_{channel.letter}")
             logger.info("capturing %s channel → %s", channel.letter, stem)
-            return _capture_validated_single(
+            path = _capture_validated_single(
                 self._camera,
                 final_stem=stem,
                 shutter=shutter,
@@ -312,11 +317,10 @@ class CaptureService:
                 iso=iso,
                 aperture=aperture,
             )
+            ok = True
+            return path
         finally:
-            try:
-                self._light.off()
-            except Exception:
-                logger.exception("failed to turn the Scanlight off after capture")
+            self._release_light(ok, end_light)
 
     def capture_white(
         self,
@@ -330,15 +334,17 @@ class CaptureService:
         min_raw_bytes: int = 8 * 1024 * 1024,
         max_raw_bytes: int = 200 * 1024 * 1024,
         cancel: Optional[threading.Event] = None,
+        end_light: Optional[LightLevels] = None,
     ) -> str:
         """Single white-light exposure for slide / E-6 film (one file, no R/G/B split)."""
         os.makedirs(output_folder, exist_ok=True)
+        ok = False
         try:
             self._light.set_color(w=w_level)
             self._sleep(settle_s)
             stem = os.path.join(output_folder, f"{roll_name}_Frame{frame_number:03d}")
             logger.info("capturing white frame → %s", stem)
-            return _capture_validated_single(
+            path = _capture_validated_single(
                 self._camera,
                 final_stem=stem,
                 shutter=shutter,
@@ -346,11 +352,22 @@ class CaptureService:
                 max_raw_bytes=max_raw_bytes,
                 cancel=cancel,
             )
+            ok = True
+            return path
         finally:
-            try:
+            self._release_light(ok, end_light)
+
+    def _release_light(self, ok: bool, end_light: Optional[LightLevels]) -> None:
+        """Leave the light at `end_light` (r, g, b, w) after a capture that succeeded, with no off
+        step between, so a framing light does not blink. A failed or cancelled capture turns it off."""
+        try:
+            if ok and end_light is not None and any(end_light):
+                r, g, b, w = end_light
+                self._light.set_color(r=r, g=g, b=b, w=w)
+            else:
                 self._light.off()
-            except Exception:
-                logger.exception("failed to turn the Scanlight off after capture")
+        except Exception:
+            logger.exception("failed to set the Scanlight after capture")
 
     def _verify_size(self, path: str, settings: CaptureSettings) -> None:
         verify_raw_size(path, settings.min_raw_bytes, settings.max_raw_bytes)

@@ -879,3 +879,47 @@ def test_an_infrared_preset_ends_the_frame_with_an_ir_exposure(tmp_path, monkeyp
 
     assert [os.path.basename(p) for p in finished[0]] == ["Slide01_Frame003.ARW", "Slide01_Frame003_IR.ARW"]
     assert camera.shutters == [None, "4"] and camera.restored == [7]  # the body is back on its own shutter
+
+
+class RecordingLight:
+    def __init__(self) -> None:
+        self.colors: list[tuple] = []
+
+    def set_color(self, r=0, g=0, b=0, w=0, ir=0, save=False) -> None:
+        self.colors.append((r, g, b, w, ir))
+
+    def off(self) -> None:
+        self.colors.append((0, 0, 0, 0, 0))
+
+
+class RawCamera:
+    def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
+        path = os.path.splitext(out_path)[0] + ".ARW"
+        with open(path, "wb") as raw:
+            raw.truncate(8 * 1024 * 1024)
+        return path
+
+
+@pytest.mark.parametrize("infrared", [False, True])
+def test_only_the_frames_last_exposure_leaves_the_end_light_lit(tmp_path, monkeypatch, infrared):
+    worker = CaptureWorker()
+    light = RecordingLight()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: RawCamera())
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: light)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll01",
+            frame_number=1,
+            output_folder=str(tmp_path),
+            levels=(200, 180, 255),
+            settle_s=0,
+            infrared=infrared,
+            end_light=(25, 12, 11, 0),
+        )
+    )
+
+    assert light.colors[-1] == (25, 12, 11, 0, 0)
+    assert light.colors.count((25, 12, 11, 0, 0)) == 1
+    # The visible exposures hand to the infrared one through off; with no infrared, nothing turns it off.
+    assert ((0, 0, 0, 0, 0) in light.colors) is infrared

@@ -277,6 +277,44 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertFalse(config.process.linear_raw)
 
+    def test_config_for_asset_keeps_a_locked_frames_own_flatfield_profile(self):
+        """Frame 2 pinned Profile A. Frame 3 then made Profile B the roll and the rig
+        default. Opening frame 2 again must still show Profile A."""
+        saved_a = replace(
+            WorkspaceConfig(),
+            flatfield=replace(WorkspaceConfig().flatfield, apply=True, profile_id="profile-a"),
+        )
+        saved_following = replace(
+            WorkspaceConfig(),
+            flatfield=replace(WorkspaceConfig().flatfield, apply=True, profile_id="profile-a"),
+        )
+        rolls_store = {
+            "r1": {
+                "kind": "virtual",
+                "name": "Portra",
+                "defaults": {"profile_id": "profile-b", "apply": True},
+                "frame_overrides": {"frame-2": ["flatfield"]},
+            }
+        }
+        globals_ = {"rolls_by_id": rolls_store, "flatfield_active_profile": "profile-b"}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        pinned = {"name": "frame2.dng", "path": "/roll/frame2.dng", "hash": "frame-2"}
+        following = {"name": "frame3.dng", "path": "/roll/frame3.dng", "hash": "frame-3"}
+        prof = SimpleNamespace(id="profile-b", k1=0.0)
+
+        with (
+            patch("negpy.desktop.session.load_or_promote", side_effect=[saved_a, saved_following]),
+            patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=prof),
+        ):
+            pinned_config = self.session.config_for_asset(pinned)
+            following_config = self.session.config_for_asset(following)
+
+        self.assertEqual(pinned_config.flatfield.profile_id, "profile-a")
+        self.assertTrue(pinned_config.flatfield.apply)
+        self.assertEqual(following_config.flatfield.profile_id, "profile-b")
+        self.assertTrue(following_config.flatfield.apply)
+
     def test_config_for_asset_reads_roll_state_by_the_unforked_hash(self):
         """A lock (or a roll default's frame_overrides entry) is about this physical
         frame, not its current edit identity -- a forked asset's suffixed hash must

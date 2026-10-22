@@ -266,7 +266,6 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Optical Size"), "retouch", "dust_size"),
         _row(mark("IR Removal"), "retouch", "ir_dust_remove"),
         _row(mark("IR Threshold"), "retouch", "ir_threshold"),
-        _row(mark("IR Method"), "retouch", "ir_method"),
         _row(mark("IR Attenuation"), "retouch", "ir_attenuation"),
     )),
     (mark("Metadata"), (
