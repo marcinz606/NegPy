@@ -25,8 +25,12 @@ def test_an_icon_only_button_is_named_after_its_tooltip(qapp):
     guard = _installed(qapp)
     try:
         icon_btn = QPushButton()
-        icon_btn.setToolTip("Hot Folder — automatically load new images")
+        icon_btn.setToolTip("Hot Folder: load new images as they appear")
         assert icon_btn.accessibleName() == "Hot Folder"
+
+        dash_btn = QPushButton()
+        dash_btn.setToolTip("Hot Folder — load new images as they appear")
+        assert dash_btn.accessibleName() == "Hot Folder"
 
         chip_btn = QPushButton()
         chip_btn.setToolTip(wrap_tooltip(tooltip_with_shortcut("Undo", "undo")))

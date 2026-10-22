@@ -36,14 +36,12 @@ def _run(paths, **req_kw):
     return controller
 
 
-def _hydrate_and_load(controller, path, process_mode, *, autodetect=True):
+def _hydrate_and_load(controller, path, process_mode):
     """Model the session selection step, then enter the controller's public load seam."""
     controller.state.config = replace(
         controller.state.config,
         process=replace(controller.state.config.process, process_mode=process_mode),
     )
-    controller.state.current_file_is_new = True
-    controller.state.autodetect_enabled = autodetect
     controller.state.hq_preview = False
     controller.state.workspace_color_space = WORKING_COLOR_SPACE
     controller.state.current_file_path = path
@@ -66,7 +64,7 @@ def test_rgb_triplet_enables_merge_and_discovers():
 def test_rgb_triplet_import_defaults_to_c41_without_autodetect():
     c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
 
-    task = _hydrate_and_load(c, "r.ARW", ProcessMode.E6, autodetect=True)
+    task = _hydrate_and_load(c, "r.ARW", ProcessMode.E6)
 
     assert c.state.config.process.process_mode == ProcessMode.C41
     assert task.detect_mode is False
@@ -77,7 +75,7 @@ def test_single_capture_rgb_frame_is_an_ordinary_c41_raw():
     c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", False)  # one file → no merge
     c.request_asset_discovery.assert_called_once_with(["frame.ARW"], restore_triplets=None)
 
-    task = _hydrate_and_load(c, "frame.ARW", ProcessMode.E6, autodetect=True)
+    task = _hydrate_and_load(c, "frame.ARW", ProcessMode.E6)
 
     assert c.state.config.process.process_mode == ProcessMode.C41
     assert task.detect_mode is False
@@ -101,7 +99,7 @@ def test_explicit_e6_applies_to_import_after_hydration_without_detection():
     # Capture completion must not mutate whichever asset happened to be open before import.
     assert c.state.config.process.process_mode == ProcessMode.C41
 
-    task = _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    task = _hydrate_and_load(c, "slide.ARW", ProcessMode.C41)
 
     assert c.state.config.process.process_mode == ProcessMode.E6
     assert task.detect_mode is False
@@ -112,7 +110,7 @@ def test_explicit_bw_applies_to_import_after_hydration_without_detection():
 
     assert c.state.config.process.process_mode == ProcessMode.C41
 
-    task = _hydrate_and_load(c, "mono.ARW", ProcessMode.E6, autodetect=True)
+    task = _hydrate_and_load(c, "mono.ARW", ProcessMode.E6)
 
     assert c.state.config.process.process_mode == ProcessMode.BW
     assert task.detect_mode is False
@@ -121,39 +119,39 @@ def test_explicit_bw_applies_to_import_after_hydration_without_detection():
 def test_a_capture_sets_the_frames_decode_for_its_light():
     # A camera under white light wants the as-shot white balance; narrowband light decodes Linear RAW.
     c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
-    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41)
     assert c.state.config.process.linear_raw is False
 
     c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
-    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41)
     assert c.state.config.process.linear_raw is True
 
 
-def test_a_capture_sets_the_frames_print_stock_by_the_wizards_rule():
-    # Narrowband light prints on Pakon, white light on neutral, only over a stock the wizard itself picks.
+def test_a_capture_sets_the_frames_print_stock_by_the_setup_rule():
+    # Narrowband light prints on Pakon, white light on neutral, only over a stock the Setup rule itself picks.
     c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
-    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41)
     assert c.state.config.exposure.paper_profile == "pakon"
 
     c = _run(["neg.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.C41)
     c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="pakon"))
-    _hydrate_and_load(c, "neg.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "neg.ARW", ProcessMode.C41)
     assert c.state.config.exposure.paper_profile == "neutral"
 
     c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
     c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="ilford_mg"))
-    _hydrate_and_load(c, "r.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.C41)
     assert c.state.config.exposure.paper_profile == "ilford_mg"  # a hand-picked stock stays
 
     c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
     c.state.config = replace(c.state.config, exposure=replace(c.state.config.exposure, paper_profile="pakon"))
-    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "slide.ARW", ProcessMode.C41)
     assert c.state.config.exposure.paper_profile == "pakon"  # the rule covers color negatives only
 
 
 def test_a_white_light_color_negative_imports_as_c41():
     c = _run(["neg.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.C41)
-    task = _hydrate_and_load(c, "neg.ARW", ProcessMode.E6, autodetect=True)
+    task = _hydrate_and_load(c, "neg.ARW", ProcessMode.E6)
     assert c.state.config.process.process_mode == ProcessMode.C41
     assert task.detect_mode is False
 
@@ -161,7 +159,7 @@ def test_a_white_light_color_negative_imports_as_c41():
 def test_automatic_white_import_requests_detection_without_forcing_mode():
     c = _run(["auto.ARW"], rgb_mode=True, white_mode=True, white_process_mode="auto")
 
-    task = _hydrate_and_load(c, "auto.ARW", ProcessMode.E6, autodetect=False)
+    task = _hydrate_and_load(c, "auto.ARW", ProcessMode.E6)
 
     assert c.state.config.process.process_mode == ProcessMode.E6
     assert task.detect_mode is True
@@ -183,13 +181,13 @@ def test_failed_discovery_discards_capture_intent():
 def test_capture_intent_is_scoped_to_captured_primary_path():
     c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
 
-    unrelated_task = _hydrate_and_load(c, "other.ARW", ProcessMode.BW, autodetect=True)
+    unrelated_task = _hydrate_and_load(c, "other.ARW", ProcessMode.BW)
 
     assert c.state.config.process.process_mode == ProcessMode.BW
-    assert unrelated_task.detect_mode is True
+    assert unrelated_task.detect_mode is False
     assert len(c._pending_capture_imports) == 1
 
-    captured_task = _hydrate_and_load(c, "slide.ARW", ProcessMode.C41, autodetect=True)
+    captured_task = _hydrate_and_load(c, "slide.ARW", ProcessMode.C41)
     assert c.state.config.process.process_mode == ProcessMode.E6
     assert captured_task.detect_mode is False
     assert c._pending_capture_imports == {}
@@ -212,7 +210,7 @@ def test_capture_stamps_roll_and_frame_on_import():
     assert pending.capture_roll == "Summer24"
     assert pending.capture_frame == 12
 
-    _hydrate_and_load(c, "r.ARW", ProcessMode.E6, autodetect=True)
+    _hydrate_and_load(c, "r.ARW", ProcessMode.E6)
 
     assert c.state.config.metadata.capture_roll == "Summer24"
     assert c.state.config.metadata.capture_frame == 12
@@ -225,7 +223,7 @@ def test_normal_scan_stamps_roll_without_process_override():
     assert pending.capture_roll == "Roll001"
     assert pending.capture_frame == 3
 
-    _hydrate_and_load(c, "frame.ARW", ProcessMode.C41, autodetect=True)
+    _hydrate_and_load(c, "frame.ARW", ProcessMode.C41)
 
     assert c.state.config.process.process_mode == ProcessMode.C41
     assert c.state.config.metadata.capture_roll == "Roll001"

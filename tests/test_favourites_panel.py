@@ -6,7 +6,7 @@ from negpy.desktop.view.sidebar.favourites import FavouritesSidebar, load_favour
 from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ID
 from negpy.desktop.view.slider_targets import SLIDER_ATTRS, slider_widget_map
 from negpy.desktop.view.widgets.favourites_dialog import FavouritesDialog
-from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider, KelvinSlider, PowerWarpSlider, clone_slider
+from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider, KelvinSlider, LogSlider, PowerWarpSlider, clone_slider
 
 
 @pytest.fixture(scope="module")
@@ -47,6 +47,23 @@ def test_clone_round_trips_hue_and_kelvin(qapp):
     kelvin = clone_slider(KelvinSlider("Temperature"))
     assert isinstance(kelvin, KelvinSlider)
     assert (kelvin._min, kelvin._max) == (3000.0, 12000.0)
+
+
+def test_clone_keeps_log_travel(qapp):
+    src = LogSlider("Capture Delay", 0, 10, 0, log_floor=0.1, unit=" s")
+    clone = clone_slider(src)
+    assert isinstance(clone, LogSlider)
+    assert clone._log_floor == 0.1
+    assert clone._to_int(2.5) == src._to_int(2.5)
+
+
+def test_every_right_panel_slider_is_clonable(qapp):
+    """The Find box clones every slider in the right panel, the Scan tab's included."""
+    from negpy.desktop.view.sidebar.right_panel import RightPanel
+
+    panel = RightPanel(_Controller(_Repo()))
+    for src in panel.findChildren(CompactSlider):
+        assert type(clone_slider(src)) is type(src)
 
 
 def test_clone_refuses_unhandled_class(qapp):
@@ -163,13 +180,10 @@ def test_dialog_ticking_appends_and_unticking_removes(qapp):
     dlg = _dialog(qapp, ["grade"])
     assert dlg.selected_ids() == ["grade"]
 
-    items = {dlg.available_list.item(i).data(256): dlg.available_list.item(i) for i in range(dlg.available_list.count())}
-    from PyQt6.QtCore import Qt
-
-    items["density"].setCheckState(Qt.CheckState.Checked)
+    dlg.available_toggles["density"].setChecked(True)
     assert dlg.selected_ids() == ["grade", "density"]
 
-    items["grade"].setCheckState(Qt.CheckState.Unchecked)
+    dlg.available_toggles["grade"].setChecked(False)
     assert dlg.selected_ids() == ["density"]
 
 
@@ -188,17 +202,11 @@ def test_dialog_without_defaults_has_no_restore_button(qapp):
 def test_dialog_restore_defaults_resets_the_chosen_list_and_the_ticks(qapp):
     """The toolbar editor passes defaults so the stock row is one click away."""
     choices = [("density", "Exposure", "Density"), ("grade", "Exposure", "Grade"), ("saturation", "Lab", "Chroma")]
-    from PyQt6.QtCore import Qt
 
     dlg = FavouritesDialog(None, choices, ["saturation"], defaults=["grade", "density"])
 
     dlg._restore_defaults()
 
     assert dlg.selected_ids() == ["grade", "density"]
-    states = {
-        dlg.available_list.item(i).data(Qt.ItemDataRole.UserRole): dlg.available_list.item(i).checkState()
-        for i in range(dlg.available_list.count())
-    }
-    assert states["grade"] == Qt.CheckState.Checked
-    assert states["density"] == Qt.CheckState.Checked
-    assert states["saturation"] == Qt.CheckState.Unchecked
+    states = {slider_id: toggle.isChecked() for slider_id, toggle in dlg.available_toggles.items()}
+    assert states == {"density": True, "grade": True, "saturation": False}

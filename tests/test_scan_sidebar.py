@@ -21,7 +21,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QValidator
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -272,7 +272,7 @@ def test_minimal_device_hides_passes_control() -> None:
 
 def test_only_single_pass_enabled_when_device_has_neither_capability() -> None:
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    enabled = {mode: sidebar.mode_btn.is_choice_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
+    enabled = {mode: sidebar.mode_btn.is_item_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
     assert enabled[ScanCaptureMode.SINGLE_PASS] is True
     assert enabled[ScanCaptureMode.MULTI_PASS] is False
     assert enabled[ScanCaptureMode.ADAPTIVE_ME] is False
@@ -281,8 +281,8 @@ def test_only_single_pass_enabled_when_device_has_neither_capability() -> None:
 
 def test_mode_combo_tooltips_present() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
-    for action in sidebar.mode_btn.choice_menu.actions():
-        assert action.toolTip().strip()
+    for i in range(sidebar.mode_btn.count()):
+        assert str(sidebar.mode_btn.itemData(i, Qt.ItemDataRole.ToolTipRole)).strip()
 
 
 def test_selecting_multi_pass_reveals_passes_slider_and_unchecks_ir() -> None:
@@ -325,7 +325,7 @@ def test_full_capability_device_gets_the_strip_preview_window_control(monkeypatc
     monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
     sidebar._update_device_caps()
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == " Preview strip…"
+    assert sidebar.scan_window_btn.text() == " Preview Strip…"
     assert sidebar.scan_window_row_label.text() == "Batch"
 
 
@@ -645,7 +645,8 @@ def test_indeterminate_scan_phase_uses_busy_progress_bar() -> None:
 
 def test_a_measured_strip_device_shows_the_nkscan_controls() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert sidebar.clean_btn.isVisibleTo(sidebar) is True
+    assert sidebar.dust_btn.isVisibleTo(sidebar) is True
+    assert sidebar.ir_btn.isVisibleTo(sidebar) is False
     assert sidebar.superfine_btn.isVisibleTo(sidebar) is True
     assert sidebar.samples_btn.isVisibleTo(sidebar) is True
     assert sidebar.format_combo.isVisibleTo(sidebar) is True
@@ -656,7 +657,7 @@ def test_a_measured_strip_device_shows_the_nkscan_controls() -> None:
 
 def test_a_sane_device_shows_none_of_them() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    assert sidebar.clean_btn.isVisibleTo(sidebar) is False
+    assert sidebar.dust_btn.isVisibleTo(sidebar) is False
     assert sidebar.superfine_btn.isVisibleTo(sidebar) is False
     assert sidebar.samples_btn.isVisibleTo(sidebar) is False
     assert sidebar.format_combo.isVisibleTo(sidebar) is False
@@ -665,7 +666,7 @@ def test_a_sane_device_shows_none_of_them() -> None:
 def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings={"backend": "nkscan"})
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == " Preview strip…"
+    assert sidebar.scan_window_btn.text() == " Preview Strip…"
 
 
 def test_a_measured_strip_scans_as_a_batch() -> None:
@@ -678,7 +679,7 @@ def test_a_measured_strip_scans_as_a_batch() -> None:
 def test_the_nkscan_options_reach_the_request() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE)
     sidebar.output.folder_edit.setText(_OUT)
-    sidebar.clean_btn.setChecked(True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ice"))
     sidebar.superfine_btn.setChecked(True)
     sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(4))
     sidebar.format_combo.setCurrentIndex(sidebar.format_combo.findData("66"))
@@ -700,7 +701,7 @@ def test_a_saved_clean_never_reaches_a_device_that_cannot_do_it() -> None:
 
 def test_the_nkscan_options_persist() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.clean_btn.setChecked(True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ice"))
     sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(2))
     assert (sidebar.settings.clean, sidebar.settings.samples) == (True, 2)
 
@@ -762,7 +763,7 @@ def test_selecting_a_device_keeps_the_saved_capability_gated_settings() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
 
     assert (sidebar.settings.clean, sidebar.settings.superfine, sidebar.settings.samples) == (True, True, 8)
-    assert sidebar.clean_btn.isChecked() and sidebar.superfine_btn.isChecked()
+    assert sidebar.dust_btn.currentData() == "ice" and sidebar.superfine_btn.isChecked()
     assert sidebar.samples_btn.currentData() == 8
 
 
@@ -777,7 +778,7 @@ def test_selecting_a_device_keeps_a_saved_auto_exposure() -> None:
 
 def test_the_film_types_the_transport_takes_are_offered() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    labels = [action.text() for action in sidebar.film_type_btn.choice_menu.actions()]
+    labels = [sidebar.film_type_btn.itemText(i) for i in range(sidebar.film_type_btn.count())]
     assert labels == ["Color negative", "B&W negative", "Slide", "Kodachrome"]
     assert sidebar.film_type_btn.currentData() == "negative"
 
@@ -790,40 +791,38 @@ def test_a_device_that_is_told_nothing_about_the_film_hides_the_control() -> Non
 def test_a_film_that_blocks_infrared_disables_ir_and_ice() -> None:
     """Silver grain stops infrared as it stops light, so the mask is the picture again."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.ir_btn.setChecked(True)
-    sidebar.clean_btn.setChecked(True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ice"))
 
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
 
-    assert sidebar.ir_btn.isEnabled() is False and sidebar.ir_btn.isChecked() is False
-    assert sidebar.clean_btn.isEnabled() is False and sidebar.clean_btn.isChecked() is False
-    assert "blocks infrared" in sidebar.ir_btn.toolTip()
+    assert sidebar.dust_btn.isEnabled() is False and sidebar.dust_btn.currentData() == "off"
+    assert "blocks infrared" in sidebar.dust_btn.toolTip()
 
 
-def test_ir_and_ice_untick_each_other() -> None:
+def test_ir_and_ice_are_one_choice() -> None:
     """Both read the same pass, and ICE bakes its repair in, so only one can be asked for."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
 
-    sidebar.ir_btn.setChecked(True)
-    sidebar.clean_btn.setChecked(True)
-    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (False, True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ir"))
+    assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (True, False)
+
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ice"))
     assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (False, True)
 
-    sidebar.ir_btn.setChecked(True)
-    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (True, False)
-    assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (True, False)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("off"))
+    assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (False, False)
 
 
 def test_a_saved_ir_and_ice_pair_comes_back_as_ice_alone() -> None:
     saved = {"backend": "nkscan", "capture_ir": True, "clean": True}
     sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
-    assert (sidebar.ir_btn.isChecked(), sidebar.clean_btn.isChecked()) == (False, True)
+    assert sidebar.dust_btn.currentData() == "ice"
 
 
 def test_kodachrome_blocks_infrared_too() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("kodachrome"))
-    assert sidebar.clean_btn.isEnabled() is False
+    assert sidebar.dust_btn.isEnabled() is False
 
 
 def test_a_saved_bw_film_greys_ir_and_ice_out_on_the_device_it_is_switched_to() -> None:
@@ -833,8 +832,7 @@ def test_a_saved_bw_film_greys_ir_and_ice_out_on_the_device_it_is_switched_to() 
     sidebar.device_combo.setCurrentIndex(1)
 
     assert sidebar.film_type_btn.currentData() == "mono"
-    assert sidebar.ir_btn.isEnabled() is False and sidebar.ir_btn.isChecked() is False
-    assert sidebar.clean_btn.isEnabled() is False and sidebar.clean_btn.isChecked() is False
+    assert sidebar.dust_btn.isEnabled() is False and sidebar.dust_btn.currentData() == "off"
 
 
 def test_colour_negative_leaves_ice_usable_on_the_device_it_is_switched_to() -> None:
@@ -842,8 +840,7 @@ def test_colour_negative_leaves_ice_usable_on_the_device_it_is_switched_to() -> 
     sidebar._on_devices_ready([SE_DEVICE, NKSCAN_DEVICE])
     sidebar.device_combo.setCurrentIndex(1)
 
-    assert sidebar.ir_btn.isEnabled() is True
-    assert sidebar.clean_btn.isEnabled() is True
+    assert sidebar.dust_btn.isEnabled() is True
 
 
 def test_going_back_to_colour_negative_restores_them() -> None:
@@ -851,7 +848,7 @@ def test_going_back_to_colour_negative_restores_them() -> None:
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("negative"))
 
-    assert sidebar.ir_btn.isEnabled() is True and sidebar.clean_btn.isEnabled() is True
+    assert sidebar.dust_btn.isEnabled() is True
 
 
 def test_the_film_type_reaches_the_request_and_the_settings() -> None:
@@ -969,12 +966,12 @@ def test_the_summary_quotes_a_per_frame_size_for_an_unmeasured_strip() -> None:
 
 def test_the_summary_names_the_extra_passes() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    sidebar.ir_btn.setChecked(True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ir"))
     sidebar.samples_btn.setCurrentIndex(sidebar.samples_btn.findData(4))
 
     assert "IR" in _summary(sidebar) and "4× sampled" in _summary(sidebar)
 
-    sidebar.clean_btn.setChecked(True)
+    sidebar.dust_btn.setCurrentIndex(sidebar.dust_btn.findData("ice"))
 
     assert "ICE" in _summary(sidebar) and "IR" not in _summary(sidebar)
 
@@ -1029,7 +1026,7 @@ def test_ejecting_drops_the_frame_selection_of_the_film_that_left() -> None:
 
     assert sidebar.settings.selected_frames == ()
     assert sidebar.settings.frame_windows == {}
-    assert "frame selection cleared" in sidebar.status_strip.message()
+    assert "Frame selection cleared" in sidebar.status_strip.message()
 
 
 def test_ejecting_drops_the_per_frame_corrections_of_the_film_that_left() -> None:
@@ -1080,7 +1077,7 @@ def test_the_unit_returning_the_strip_clears_what_an_eject_clears() -> None:
 
     assert (sidebar.settings.selected_frames, sidebar.settings.frame_windows, sidebar.settings.frame_offsets) == ((), {}, {})
     assert (sidebar.settings.frame_offset_mm, sidebar.settings.frame_offset_modifier_mm) == (1.5, 0.2)
-    assert sidebar.status_strip.message() == "The scanner sat idle long enough to return the strip — frame selection cleared"
+    assert sidebar.status_strip.message() == "The scanner sat idle long enough to return the strip. Frame selection cleared."
 
 
 def test_a_returned_strip_not_back_in_asks_for_it_again() -> None:
@@ -1089,7 +1086,7 @@ def test_a_returned_strip_not_back_in_asks_for_it_again() -> None:
     controller.scan_strip_returned.emit(False)
 
     assert sidebar.settings.selected_frames == ()
-    assert sidebar.status_strip.message() == "The scanner returned the strip while idle — insert it again"
+    assert sidebar.status_strip.message() == "The scanner returned the strip while idle. Insert it again."
 
 
 def test_film_removed_outside_negpy_drops_the_frame_selection() -> None:
@@ -1193,13 +1190,13 @@ def test_a_film_that_blocks_infrared_leaves_the_control_visible_to_explain_itsel
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
     sidebar.film_type_btn.setCurrentIndex(sidebar.film_type_btn.findData("mono"))
 
-    assert sidebar.ir_btn.isVisibleTo(sidebar) is True
-    assert sidebar.ir_btn.isEnabled() is False
+    assert sidebar.dust_btn.isVisibleTo(sidebar) is True
+    assert sidebar.dust_btn.isEnabled() is False
 
 
 def test_the_format_combo_offers_the_mono_tiff() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
-    offered = [action.text() for action in sidebar.fmt_btn.choice_menu.actions()]
+    offered = [sidebar.fmt_btn.itemText(i) for i in range(sidebar.fmt_btn.count())]
     assert offered == ["TIFF", "TIFF (mono)"]
 
 

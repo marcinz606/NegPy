@@ -3,13 +3,14 @@ from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from dataclasses import asdict, replace
 from typing import Optional
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
-    QToolButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -17,18 +18,26 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.settings_catalog import (
     apply_selected_fields,
     preset_config,
-    preset_values,
     rows_for_keys,
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    field_label,
+    hint_label,
+    section_subheader,
+    set_hint_kind,
+    tool_toggle,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
+from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, fit_pane, make_section
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
+from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
 from negpy.desktop.view.widgets.tab_header import TabHeader
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_sequential_frame_dialog
 from negpy.desktop.settings_catalog import rows_for_fields
@@ -73,7 +82,15 @@ from negpy.services.assets.gear_match import folder_name_for_active_context, mat
 from negpy.services.assets.presets import MetadataPresets
 
 PUSH_PULL_OPTIONS = [PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES]
-_LOAD_TOOLTIP = "Write the selected preset's fields onto this frame"
+_TAB_ICONS = {
+    "shot": "mdi6.camera-outline",
+    "process": "mdi6.flask-outline",
+    "presets": "mdi6.tag-multiple-outline",
+    "gear": "mdi6.toolbox-outline",
+}
+_PREVIEW_HEIGHT = 240
+# The tab strip and a card header stay in view under a preview dragged tall.
+_TABS_MIN_HEIGHT = 160
 _SEQUENCE_TOOLTIP = tr("Assign sequential capture frame numbers to the selected frames or the whole roll")
 
 _CLEAR_TOOLTIPS = {
@@ -89,7 +106,7 @@ _CLEAR_TOOLTIPS = {
 class MetadataSidebar(BaseSidebar):
     """Panel for analog gear metadata written to exported files."""
 
-    SIDE_MARGIN = THEME.space_xl
+    gear_library_saved = pyqtSignal()
 
     def _init_ui(self) -> None:
         conf = self.state.config.metadata
@@ -109,62 +126,22 @@ class MetadataSidebar(BaseSidebar):
         self._exif_locked = {"exposure": True}
         self._description_fields: tuple[str, ...] = conf.description_fields or DEFAULT_DESCRIPTION_FIELDS
 
-        self.tab_header = TabHeader(tr("Metadata"))
-        self.tab_header.apply_requested.connect(self._apply_metadata_tab)
-        self.tab_header.roll_revert_requested.connect(lambda: self.controller.revert_to_roll([key for key, _ in self._scope_sections()]))
-        self.layout.addWidget(self.tab_header)
-        # One line naming every card this frame has taken off the roll, the same answer
-        # roll_override_summary gives on the Roll tab.
-        self.metadata_scope_hint = hint_label("", "muted")
-        self.layout.addWidget(self.metadata_scope_hint)
-        # An export decision, not a roll fact, so it stays per frame and outside the cards it disables.
-        self.protect_btn = self._small_toggle(
-            "fa5s.shield-alt",
-            tr("Protect Original Metadata"),
-            conf.protect_original_metadata,
-            tr(
-                "Copy EXIF and XMP from the source file onto exports without adding or changing metadata. "
-                "The cards below are ignored while this is on."
-            ),
-        )
-        self.layout.addWidget(self.protect_btn)
-
-        self._metadata_controls = QWidget()
-        controls = QVBoxLayout(self._metadata_controls)
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(THEME.space_lg)
-
-        # ── METADATA PRESETS ─────────────────────────────────────────────
-        preset_body, presets = self._card_body()
-        load_row = QHBoxLayout()
-        load_row.setSpacing(THEME.space_sm)
-        self.metadata_preset_combo = SearchableGearCombo(placeholder=tr("Search metadata presets…"))
-        self.metadata_preset_combo.setToolTip(tr("A saved set of metadata values. Click and type to search."))
-        load_row.addWidget(self.metadata_preset_combo, 1)
-        self.metadata_preset_load_btn = self._labeled_action("", tr("Load"), tr("Write the selected preset's fields onto this frame"))
-        load_row.addWidget(self.metadata_preset_load_btn)
-        presets.addLayout(load_row)
-
-        self._refresh_metadata_presets()
-        controls.addWidget(self._card(tr("Metadata Presets"), "presets", preset_body, "fa5s.magic"))
-
-        # ── ANALOG GEAR ──────────────────────────────────────────────────
         gear_body, gear = self._card_body()
-        gear.addWidget(hint_label(tr("Searches the gear you've declared as your own. Pick Other… for the full catalog.")))
+        gear.addWidget(hint_label(tr("Searches the gear that you declared as your own. Pick Other… for the full catalog.")))
 
         gear.addWidget(field_label(tr("Camera")))
         self.camera_combo = SearchableGearCombo(placeholder=tr("Search cameras…"))
-        self.camera_combo.setToolTip(tr("Original film camera body. Click and type to search."))
+        self.camera_combo.setToolTip(tr("Click and type to search for the original film camera body."))
         gear.addWidget(self.camera_combo)
 
         gear.addWidget(field_label(tr("Lens")))
         self.lens_combo = SearchableGearCombo(placeholder=tr("Search lenses…"))
-        self.lens_combo.setToolTip(tr("Original lens used on the film camera. Click and type to search."))
+        self.lens_combo.setToolTip(tr("Click and type to search for the lens used on the film camera."))
         gear.addWidget(self.lens_combo)
 
         gear.addWidget(field_label(tr("Film stock")))
         self.film_stock_combo = SearchableGearCombo(placeholder=tr("Search film stocks…"))
-        self.film_stock_combo.setToolTip(tr("Film stock used for the original capture. Click and type to search."))
+        self.film_stock_combo.setToolTip(tr("Click and type to search for the film stock of the original capture."))
         gear.addWidget(self.film_stock_combo)
 
         gear_actions_row = QHBoxLayout()
@@ -173,26 +150,19 @@ class MetadataSidebar(BaseSidebar):
         gear_actions_row.addWidget(self.gear_clear_btn)
         self.gear_infer_btn = self._labeled_action(
             "fa5s.magic",
-            tr(" Infer from Folder Name"),
+            tr("Infer from Folder Name"),
             tr("Fill camera, film stock, ISO and capture date from this roll's folder name"),
         )
         gear_actions_row.addWidget(self.gear_infer_btn)
         gear.addLayout(gear_actions_row)
         self.gear_section = self._card(tr("Analog Gear"), "gear", gear_body, "fa5s.camera-retro")
-        controls.addWidget(self.gear_section)
 
-        # ── CAPTURE ──────────────────────────────────────────────────────
         cap_body, cap = self._card_body()
         cap.addWidget(field_label(tr("Date")))
         self.capture_date_edit = QLineEdit()
         self.capture_date_edit.setPlaceholderText(CAPTURE_DATE_HINT)
         self.capture_date_edit.setText(conf.capture_date)
-        self.capture_date_edit.setToolTip(
-            tr(
-                "When the frame was shot. Give only what you know: a year, a year and month, "
-                "a date, or a date and time. An offset like +02:00 may follow a time."
-            )
-        )
+        self.capture_date_edit.setToolTip(tr("When the picture was taken: a year, a month, a date, or a date and time."))
         cap.addWidget(self.capture_date_edit)
 
         cap.addWidget(field_label(tr("Place")))
@@ -200,7 +170,7 @@ class MetadataSidebar(BaseSidebar):
         place_row.setSpacing(THEME.space_sm)
         self.place_edit = QLineEdit()
         self.place_edit.setPlaceholderText(tr("Pick on a map, or paste coordinates"))
-        self.place_edit.setToolTip(tr("Capture place. Paste a coordinate pair or a map link here, or use Map… to pick one."))
+        self.place_edit.setToolTip(tr("Where the picture was taken: paste coordinates or a map link, or pick a place on the map."))
         place_row.addWidget(self.place_edit, 1)
         self.place_map_btn = self._icon_action("fa5s.map-marked-alt", tr("Pick the capture place on a map (contacts OpenStreetMap)"))
         place_row.addWidget(self.place_map_btn)
@@ -208,16 +178,14 @@ class MetadataSidebar(BaseSidebar):
         place_row.addWidget(self.place_clear_btn)
         cap.addLayout(place_row)
         self.capture_section = self._card(tr("Capture"), "capture", cap_body, "fa5s.clock")
-        controls.addWidget(self.capture_section)
 
-        # ── PROCESS ──────────────────────────────────────────────────────
         proc_body, proc = self._card_body()
         proc.addWidget(field_label(tr("Saved process")))
         self.process_combo = SearchableGearCombo(placeholder=tr("Search processes…"))
-        self.process_combo.setToolTip(tr("A saved development recipe. Picking one fills Developer and Push / Pull."))
+        self.process_combo.setToolTip(tr("A saved development recipe, which fills Developer and Push / Pull."))
         proc.addWidget(self.process_combo)
 
-        proc.addWidget(field_label(tr("Format")))
+        proc.addWidget(field_label(tr("Film format")))
         self.format_combo = StepCombo()
         self.format_combo.setToolTip(wrap_tooltip(tr("Film format written to the frame's metadata")))
         add_choice_items(self.format_combo, FORMAT_OPTIONS)
@@ -227,6 +195,7 @@ class MetadataSidebar(BaseSidebar):
         self.format_other_edit = QLineEdit()
         self.format_other_edit.setPlaceholderText(tr("e.g. 6×7"))
         self.format_other_edit.setText(conf.format_other)
+        self.format_other_edit.setToolTip(tr("The film format, when the list does not have it."))
         self.format_other_edit.setVisible(conf.format == "Other")
         proc.addWidget(self.format_other_edit)
 
@@ -238,6 +207,7 @@ class MetadataSidebar(BaseSidebar):
         self.developer_edit = QLineEdit()
         self.developer_edit.setPlaceholderText(tr("e.g. D-76"))
         self.developer_edit.setText(conf.developer)
+        self.developer_edit.setToolTip(tr("The developer that the film was processed in."))
         developer_col.addWidget(self.developer_edit)
         dilution_col = QVBoxLayout()
         dilution_col.setSpacing(THEME.space_md)
@@ -256,6 +226,7 @@ class MetadataSidebar(BaseSidebar):
         add_choice_items(self.push_pull_combo, PUSH_PULL_OPTIONS)
         idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
         self.push_pull_combo.setCurrentIndex(idx)
+        self.push_pull_combo.setToolTip(tr("How many stops the film was pushed or pulled in development."))
         proc.addWidget(self.push_pull_combo)
 
         dev_row = QHBoxLayout()
@@ -274,6 +245,7 @@ class MetadataSidebar(BaseSidebar):
         self.dev_temp_edit = QLineEdit()
         self.dev_temp_edit.setPlaceholderText(tr("e.g. 20"))
         self.dev_temp_edit.setText(format_temperature(conf.process_temperature_c))
+        self.dev_temp_edit.setToolTip(tr("The developer temperature, in degrees Celsius."))
         temp_col.addWidget(self.dev_temp_edit)
         dev_row.addLayout(time_col, 1)
         dev_row.addLayout(temp_col, 1)
@@ -282,19 +254,18 @@ class MetadataSidebar(BaseSidebar):
         self.process_clear_btn = self._labeled_action("", tr("Clear"), tr("Empty the saved process and everything it fills; Format stays"))
         proc.addWidget(self.process_clear_btn)
         self.process_section = self._card(tr("Process"), "process", proc_body, "fa5s.flask")
-        controls.addWidget(self.process_section)
 
-        # ── SCANNING ─────────────────────────────────────────────────────
         scan_body, scan = self._card_body()
         scan.addWidget(field_label(tr("Saved setup")))
         self.scan_setup_combo = SearchableGearCombo(placeholder=tr("Search scan setups…"))
-        self.scan_setup_combo.setToolTip(tr("A saved digitizing setup. Picking one fills Scanning."))
+        self.scan_setup_combo.setToolTip(tr("A saved digitizing setup, which fills Scanning."))
         scan.addWidget(self.scan_setup_combo)
 
         scan.addWidget(field_label(tr("Scanning")))
         self.scanning_edit = QLineEdit()
         self.scanning_edit.setPlaceholderText(tr("e.g. DSLR copy-stand scan"))
         self.scanning_edit.setText(conf.scanning)
+        self.scanning_edit.setToolTip(tr("A note on how the film was digitized."))
         scan.addWidget(self.scanning_edit)
 
         roll_row = QHBoxLayout()
@@ -305,7 +276,7 @@ class MetadataSidebar(BaseSidebar):
         self.capture_roll_edit = QLineEdit()
         self.capture_roll_edit.setPlaceholderText(tr("e.g. Roll001"))
         self.capture_roll_edit.setText(conf.capture_roll)
-        self.capture_roll_edit.setToolTip(tr("Scan capture roll name (Scanlight). Used in export filename templates as {{ roll }}."))
+        self.capture_roll_edit.setToolTip(tr("The scan capture roll name, used in export filename templates as {{ roll }}."))
         roll_col.addWidget(self.capture_roll_edit)
         # The Frame column holds a third row (the Sequence… button) and is taller, so a
         # trailing stretch keeps Roll's label and field at the top, aligned with Frame.
@@ -317,9 +288,9 @@ class MetadataSidebar(BaseSidebar):
         self.capture_frame_edit.setPlaceholderText(tr("e.g. 12"))
         if conf.capture_frame is not None:
             self.capture_frame_edit.setText(str(conf.capture_frame))
-        self.capture_frame_edit.setToolTip(tr("Scan capture frame number. Used in export filename templates as {{ frame }}."))
+        self.capture_frame_edit.setToolTip(tr("The scan capture frame number, used in export filename templates as {{ frame }}."))
         frame_col.addWidget(self.capture_frame_edit)
-        self.frame_sequence_btn = self._labeled_action("", "Sequence…", _SEQUENCE_TOOLTIP)
+        self.frame_sequence_btn = self._labeled_action("", tr("Sequence…"), _SEQUENCE_TOOLTIP)
         frame_col.addWidget(self.frame_sequence_btn)
         roll_row.addLayout(roll_col, 2)
         roll_row.addLayout(frame_col, 1)
@@ -328,17 +299,14 @@ class MetadataSidebar(BaseSidebar):
         self.scan_clear_btn = self._labeled_action("", tr("Clear"), tr("Empty the saved setup and the scanning note; Roll and Frame stay"))
         scan.addWidget(self.scan_clear_btn)
         self.scanning_section = self._card(tr("Scanning"), "scanning", scan_body, "mdi6.scanner")
-        controls.addWidget(self.scanning_section)
 
-        # ── EXPOSURE ─────────────────────────────────────────────────────
         exp_body, exp = self._card_body()
-        exp.addWidget(hint_label(tr("Optional original capture exposure — click the lock to edit")))
+        exp.addWidget(hint_label(tr("The exposure of the original shot, if you know it. Click the lock to edit.")))
 
         self.exposure_label = field_label(tr("Exposure"))
         exp.addWidget(self.exposure_label)
         self.exposure_edit = self._make_exif_field("exposure", exp)
         self.exposure_section = self._card(tr("Exposure"), "exposure", exp_body, "fa5s.stopwatch")
-        controls.addWidget(self.exposure_section)
 
         self._gear_combo_category = {
             id(self.camera_combo): "cameras",
@@ -348,13 +316,11 @@ class MetadataSidebar(BaseSidebar):
             id(self.scan_setup_combo): "scan_setups",
         }
         self._refresh_gear_combos()
-        controls.addStretch()
 
-        # ── METADATA PREVIEW ─────────────────────────────────────────────
         self.preview_content = QWidget()
         preview_layout = QVBoxLayout(self.preview_content)
         preview_layout.setContentsMargins(0, 0, 0, 0)
-        preview_layout.setSpacing(4)
+        preview_layout.setSpacing(THEME.space_sm)
 
         preview_top = QHBoxLayout()
         preview_top.setContentsMargins(0, 0, 0, 0)
@@ -367,23 +333,77 @@ class MetadataSidebar(BaseSidebar):
         preview_top.addWidget(self.description_fields_btn)
         preview_layout.addLayout(preview_top)
 
+        rows_body = QWidget()
+        rows_layout = QVBoxLayout(rows_body)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.setSpacing(THEME.space_xs)
         self.preview_rows = QVBoxLayout()
-        self.preview_rows.setSpacing(2)
-        preview_layout.addLayout(self.preview_rows)
-
+        self.preview_rows.setSpacing(THEME.space_xs)
+        rows_layout.addLayout(self.preview_rows)
         self.preview_empty = hint_label(tr("Select gear or enter process metadata to see a preview."))
-        preview_layout.addWidget(self.preview_empty)
+        rows_layout.addWidget(self.preview_empty)
+        rows_layout.addStretch()
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_scroll.setWidget(rows_body)
+        preview_layout.addWidget(self.preview_scroll, 1)
 
-        # Preview pinned above the per-frame cards, which scroll in their own area below it --
-        # same pattern as Edit's Analysis section pinned above its tabs.
         self.preview_section = self._card(tr("Metadata Preview"), "preview", self.preview_content, "fa5s.eye")
-        self.layout.addWidget(self.preview_section)
-        self._metadata_scroll_area = QScrollArea()
-        self._metadata_scroll_area.setWidgetResizable(True)
-        self._metadata_scroll_area.setWidget(self._metadata_controls)
-        self.layout.addWidget(self._metadata_scroll_area, 1)
+        # An export decision, not a roll fact, so it stays per frame and outside the cards it disables.
+        self.protect_btn = self.preview_section.add_header_toggle("fa5s.shield-alt", tr("Protect Original Metadata"))
+        self.protect_btn.setToolTip(
+            wrap_tooltip(
+                tr("Protect Original Metadata: export the source file's own metadata unchanged, without the Shot and Process cards.")
+            )
+        )
+        self.protect_btn.setChecked(conf.protect_original_metadata)
 
-        self.tab_header.bind([section for _key, section in self._scope_sections()])
+        self.tab_headers: dict[str, TabHeader] = {}
+        self._tab_sections = {
+            "shot": (self.gear_section, self.capture_section, self.exposure_section),
+            "process": (self.process_section, self.scanning_section),
+        }
+        pages = []
+        for key, title in (("shot", tr("Shot")), ("process", tr("Process"))):
+            sections = self._tab_sections[key]
+            header = TabHeader(title)
+            header.bind(sections)
+            card_keys = [k for k, section in self._scope_sections() if section in sections]
+            header.apply_requested.connect(lambda keys=card_keys: self._apply_cards(keys))
+            header.roll_revert_requested.connect(lambda keys=card_keys: self.controller.revert_to_roll(keys))
+            self.tab_headers[key] = header
+            pages.append((key, title, _TAB_ICONS[key], tab_page(header, *sections)))
+        self._gear_pages: dict[str, QVBoxLayout] = {}
+        for key, title in (("presets", tr("Presets")), ("gear", tr("My Gear"))):
+            page = tab_page()
+            self._gear_pages[key] = page.layout()
+            pages.append((key, title, _TAB_ICONS[key], page))
+        self._gear_panel = None
+        repo = self.controller.session.repo
+        self.tabs = SubTabs(repo, "metadata_tab", pages, icon_only=("presets", "gear"))
+        self.tabs.current_changed.connect(self._on_tab_changed)
+        # One line naming every card this frame has taken off the roll, the same answer
+        # roll_override_summary gives on the Roll tab.
+        self.metadata_scope_hint = hint_label("", "muted")
+        self.metadata_scope_hint.setVisible(False)
+        self.tabs.layout().insertWidget(1, self.metadata_scope_hint)
+
+        # The preview is pinned over the tabs like Analysis over the Frame tab: folded, it keeps
+        # only its header, and the height dragged while it is open is kept.
+        saved_height = repo.get_global_setting("metadata_preview_height")
+        self._preview_height = saved_height if isinstance(saved_height, int) else _PREVIEW_HEIGHT
+        self._preview_split_shown = False
+        self.preview_split = QSplitter(Qt.Orientation.Vertical)
+        self.preview_split.addWidget(self.preview_section)
+        self.preview_split.addWidget(self.tabs)
+        self.preview_split.setCollapsible(0, False)
+        self.preview_split.setCollapsible(1, False)
+        self.preview_split.setStretchFactor(0, 0)
+        self.preview_split.setStretchFactor(1, 1)
+        self.preview_split.splitterMoved.connect(self._on_preview_split_moved)
+        self.preview_section.expanded_changed.connect(self._fit_preview)
+        self.layout.addWidget(self.preview_split, 1)
+
         for key, section in self._scope_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.reset_requested.connect(lambda k=key: self._reset_card(k))
@@ -393,9 +413,35 @@ class MetadataSidebar(BaseSidebar):
         self.apply_shortcut_tooltips()
         self._set_metadata_controls_enabled(not conf.protect_original_metadata)
 
+    def _on_tab_changed(self, key: str) -> None:
+        if key == "presets" and self._gear_panel is not None:
+            self._gear_panel.presets.on_activated()
+
+    def show_tab(self, key: str) -> None:
+        self.tabs.show_tab(key)
+
+    def active_tab_header(self) -> Optional[TabHeader]:
+        return self.tab_headers.get(self.tabs.current_key())
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        # Before the first show the splitter has no real height, so a split set then is rescaled.
+        if not self._preview_split_shown:
+            self._preview_split_shown = True
+            QTimer.singleShot(0, lambda: self._fit_preview(self.preview_section.toggle_button.isChecked()))
+
+    def _on_preview_split_moved(self, *_) -> None:
+        if self.preview_section.toggle_button.isChecked():
+            self._preview_height = self.preview_split.sizes()[0]
+            self.controller.session.repo.save_global_setting("metadata_preview_height", self._preview_height)
+
+    def _fit_preview(self, expanded: bool) -> None:
+        header = self.preview_section.sizeHint().height()
+        fit_pane(self.preview_split, 0, expanded, self._preview_height, header, _TABS_MIN_HEIGHT, resize=self._preview_split_shown)
+
     def _scope_sections(self) -> tuple:
         """Every card whose fields are a roll fact, paired with its ROLL_DEFAULT_FIELDS
-        key. Presets and Preview own no metadata of their own and are absent."""
+        key. Preview owns no metadata of its own and is absent."""
         return (
             ("metadata_gear", self.gear_section),
             ("metadata_capture", self.capture_section),
@@ -404,9 +450,9 @@ class MetadataSidebar(BaseSidebar):
             ("metadata_exposure", self.exposure_section),
         )
 
-    def _apply_metadata_tab(self) -> None:
-        """Every metadata card in one picker, the tab-wide twin of a card's Roll button."""
-        fields = tuple(f for key, _section in self._scope_sections() for f in ROLL_DEFAULT_FIELDS[key][1])
+    def _apply_cards(self, card_keys) -> None:
+        """A tab's metadata cards in one picker, the tab-wide twin of a card's Roll button."""
+        fields = tuple(f for key in card_keys for f in ROLL_DEFAULT_FIELDS[key][1])
         open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
 
     def _on_scope_selected(self, card_key: str, scope: str) -> None:
@@ -447,20 +493,28 @@ class MetadataSidebar(BaseSidebar):
             section.set_scope_buttons(
                 True,
                 "frame" if locked or not has_roll else "roll",
-                roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
-                frame_tooltip=f"{label} is this frame's own",
+                roll_tooltip=(
+                    tr("{value} follows the roll: click to give the roll this frame's value", value=label)
+                    if has_roll
+                    else NO_ROLL_SCOPE_HINT
+                ),
+                frame_tooltip=tr("{value} is this frame's own", value=label),
                 roll_enabled=has_roll,
             )
             section.set_roll_revert(card_key in revertible)
             if locked:
                 overridden.append(label)
 
-        self.tab_header.refresh()
+        for header in self.tab_headers.values():
+            header.refresh()
+        for btn, key in zip(self.tabs.buttons, self.tabs.keys):
+            btn.set_marked(any(section.modified_count for section in self._tab_sections.get(key, ())))
         if overridden:
             set_hint_kind(self.metadata_scope_hint, "warning")
             self.metadata_scope_hint.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
         else:
             self.metadata_scope_hint.setText("")
+        self.metadata_scope_hint.setVisible(bool(overridden))
 
     def _card_body(self) -> tuple[QWidget, QVBoxLayout]:
         body = QWidget()
@@ -486,11 +540,11 @@ class MetadataSidebar(BaseSidebar):
         edit = QLineEdit()
         edit.setReadOnly(True)
         edit.setPlaceholderText(tr("—"))
+        edit.setToolTip(tr("The exposure of the original shot."))
         self._apply_lock_style(edit, locked=True)
 
-        lock_btn = QToolButton()
-        lock_btn.setCheckable(True)
-        lock_btn.setToolTip(tr("Unlock to edit"))
+        lock_btn = tool_toggle("fa5s.lock", "", tr("Unlock to edit"))
+        lock_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self._update_lock_icon(lock_btn, locked=True)
         lock_btn.toggled.connect(lambda checked, k=key, e=edit, b=lock_btn: self._toggle_exif_lock(k, e, b, checked))
 
@@ -501,8 +555,11 @@ class MetadataSidebar(BaseSidebar):
         return edit
 
     def _set_metadata_controls_enabled(self, enabled: bool) -> None:
-        self._metadata_controls.setEnabled(enabled)
+        for _key, section in self._scope_sections():
+            section.setEnabled(enabled)
         self.description_fields_btn.setEnabled(enabled)
+        if self._gear_panel is not None:
+            self._gear_panel.presets.set_apply_allowed(enabled)
 
     def _apply_lock_style(self, edit: QLineEdit, locked: bool) -> None:
         if locked:
@@ -512,12 +569,12 @@ class MetadataSidebar(BaseSidebar):
             edit.setStyleSheet(f"color: {THEME.text_primary};")
             edit.setReadOnly(False)
 
-    def _update_lock_icon(self, btn: QToolButton, locked: bool) -> None:
+    def _update_lock_icon(self, btn: QPushButton, locked: bool) -> None:
         icon_name = "fa5s.lock" if locked else "fa5s.lock-open"
-        color = THEME.text_muted if locked else THEME.text_primary
+        color = THEME.text_hint if locked else THEME.text_primary
         btn.setIcon(qta.icon(icon_name, color=color))
 
-    def _toggle_exif_lock(self, key: str, edit: QLineEdit, btn: QToolButton, checked: bool) -> None:
+    def _toggle_exif_lock(self, key: str, edit: QLineEdit, btn: QPushButton, checked: bool) -> None:
         locked = not checked
         self._exif_locked[key] = locked
         self._apply_lock_style(edit, locked=locked)
@@ -544,9 +601,6 @@ class MetadataSidebar(BaseSidebar):
         self.camera_combo.selection_changed.connect(self._on_gear_changed)
         self.lens_combo.selection_changed.connect(self._on_gear_changed)
         self.film_stock_combo.selection_changed.connect(self._on_gear_changed)
-
-        self.metadata_preset_combo.selection_changed.connect(self._update_metadata_preset_tooltip)
-        self.metadata_preset_load_btn.clicked.connect(self._on_metadata_preset_load)
 
         self.capture_date_edit.textChanged.connect(self._on_capture_date_changed)
         self.place_edit.editingFinished.connect(self._on_place_edited)
@@ -665,6 +719,7 @@ class MetadataSidebar(BaseSidebar):
             return
         setattr(library, category, [*getattr(library, category), new_item])
         GearProfiles.save_library(library)
+        self.gear_library_saved.emit()
         self._refresh_gear_combos(force=True)
         combo.set_selected_id(new_item.id)
 
@@ -811,27 +866,14 @@ class MetadataSidebar(BaseSidebar):
     def apply_shortcut_tooltips(self) -> None:
         """Re-read the binding: tooltips are built before saved overrides load, and again
         whenever the shortcut editor writes a new one."""
-        self.metadata_preset_load_btn.setToolTip(tooltip_with_shortcut(_LOAD_TOOLTIP, "metadata_preset_load"))
+        for btn, key in zip(self.tabs.buttons, self.tabs.keys):
+            tab_action = {"presets": "tab_gear_presets", "gear": "tab_gear_items"}.get(key, "")
+            btn.setToolTip(tooltip_with_shortcut(btn.text(), tab_action) if tab_action else btn.text())
         self.frame_sequence_btn.setToolTip(tooltip_with_shortcut(_SEQUENCE_TOOLTIP, "assign_sequential_frame"))
         for attr, (text, action_id) in _CLEAR_TOOLTIPS.items():
             getattr(self, attr).setToolTip(tooltip_with_shortcut(text, action_id))
 
-    def _refresh_metadata_presets(self) -> None:
-        selected = self.metadata_preset_combo.selected_id()
-        names = sorted(MetadataPresets.list_presets())
-        self.metadata_preset_combo.set_labeled_items([(n, n) for n in names], selected if selected in names else "")
-        self._update_metadata_preset_tooltip()
-
-    def _update_metadata_preset_tooltip(self, *_args) -> None:
-        name = self.metadata_preset_combo.selected_id()
-        data = MetadataPresets.load_preset(name) if name else None
-        lines = "\n".join(f"{label}: {value}" for label, value in preset_values(data, "metadata")) if data else ""
-        self.metadata_preset_combo.setToolTip(
-            wrap_tooltip(lines) if lines else tr("A saved set of metadata values. Click and type to search.")
-        )
-
-    def _on_metadata_preset_load(self) -> None:
-        name = self.metadata_preset_combo.selected_id()
+    def _apply_preset(self, name: str) -> None:
         data = MetadataPresets.load_preset(name) if name else None
         if not data:
             return
@@ -1113,27 +1155,40 @@ class MetadataSidebar(BaseSidebar):
         self.preview_empty.setVisible(not sections)
         mono = f"font-family: {mono_font_family()}; font-size: {THEME.font_size_small}px;"
 
+        labels: list[QLabel] = []
         for title, rows in sections:
-            header = QLabel(title)
-            header.setStyleSheet(
-                f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
-            )
-            self.preview_rows.addWidget(header)
+            self.preview_rows.addWidget(section_subheader(title))
             for label, value in rows:
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
-                row_layout.setSpacing(6)
-                lbl = QLabel(label)
+                row_layout.setSpacing(THEME.space_md)
+                lbl = QLabel(tr(label))
                 lbl.setStyleSheet(f"color: {THEME.text_hint}; {mono}")
-                lbl.setFixedWidth(110)
+                lbl.ensurePolished()
+                labels.append(lbl)
                 val = QLabel(value)
                 val.setWordWrap(True)
                 val.setStyleSheet(f"color: {THEME.text_primary}; {mono}")
                 row_layout.addWidget(lbl)
                 row_layout.addWidget(val, 1)
                 self.preview_rows.addWidget(row)
+        width = max((lbl.sizeHint().width() for lbl in labels), default=0)
+        for lbl in labels:
+            lbl.setFixedWidth(width)
+
+    def attach_gear_panel(self, panel) -> None:
+        """My Gear and Presets as the last two tabs, and their library and preset signals."""
+        self._gear_panel = panel
+        for key, section_key in (("presets", "presets"), ("gear", "items")):
+            self._gear_pages[key].insertWidget(0, panel.sections[section_key])
+        panel.library_changed.connect(self._on_library_changed)
+        panel.presets.apply_requested.connect(self._apply_preset)
+        self.gear_library_saved.connect(panel.reload_library)
+        panel.presets.set_apply_allowed(not self.state.config.metadata.protect_original_metadata)
 
     def block_signals(self, blocked: bool) -> None:
+        gear = tuple(self._gear_panel.sections.values()) if self._gear_panel is not None else ()
         for w in self.findChildren(QWidget):
-            w.blockSignals(blocked)
+            if not any(w is section or section.isAncestorOf(w) for section in gear):
+                w.blockSignals(blocked)

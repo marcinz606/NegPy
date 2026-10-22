@@ -1,7 +1,7 @@
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QColor, QIcon
 
-from negpy.desktop.view.styles.templates import Sweep, gradient_icon
+from negpy.desktop.view.styles.templates import Sweep, gradient_icon, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -35,8 +35,15 @@ def test_a_sweep_at_90_degrees_runs_top_to_bottom():
     assert bottom.blue() > bottom.red()
 
 
-def test_a_checked_glyph_is_flat_on_accent():
-    """A checked tool toggle sits on the accent fill, where a red stop would vanish."""
+def test_a_checked_glyph_is_flat():
+    """A checked gradient toggle shows the flat glyph every other checked toggle shows."""
     image = gradient_icon("fa5s.square").pixmap(QSize(32, 32), QIcon.Mode.Normal, QIcon.State.On).toImage()
 
-    assert {c.name() for c in _opaque(image)} == {QColor(THEME.text_on_accent).name()}
+    assert {c.name() for c in _opaque(image)} == {QColor(THEME.text_primary).name()}
+
+
+def test_a_toggle_icon_is_gray_while_off_and_brightens_when_checked(qapp):
+    icon = tool_toggle("fa5s.square", "Square", "").icon()
+    colors = {state: {c.name() for c in _opaque(icon.pixmap(QSize(32, 32), QIcon.Mode.Normal, state).toImage())} for state in QIcon.State}
+
+    assert colors == {QIcon.State.Off: {QColor(THEME.text_hint).name()}, QIcon.State.On: {QColor(THEME.text_primary).name()}}

@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import QDialog
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig
-from negpy.services.export.contact_sheet_layout import ContactSheetSettings, SheetFormat
+from negpy.services.export.contact_sheet_layout import ContactSheetSettings
+from negpy.services.film_edge.geometry import SheetFormat
 from negpy.services.export.contact_sheet_roll import FrameFacts, SheetLook
 from negpy.services.rendering.preview_manager import PreviewManager
 

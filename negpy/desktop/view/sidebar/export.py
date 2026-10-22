@@ -17,14 +17,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
-    default_button_height,
     field_label,
     FIELD_LABEL_WIDTH,
     hint_label,
     icon_button,
+    icon_text,
     labeled_action,
     section_subheader,
     set_hint_kind,
@@ -37,6 +37,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
 from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
@@ -50,21 +51,18 @@ class ExportSidebar(BaseSidebar):
     Panel for export settings, presets and batch processing.
     """
 
-    SIDE_MARGIN = THEME.space_xl
-
     def _init_ui(self) -> None:
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
-        # Task-flow order: the output intent reframes the whole form, so it comes first; the
-        # Export action follows the form it reads, and the occasional tools sit collapsed below.
+        # The output intent reframes the whole form, so it comes first.
         body = QWidget()
         self._body = QVBoxLayout(body)
-        self._body.setContentsMargins(0, 0, 0, 0)
+        # No card on this tab, so the body takes the inset a card gives its content.
+        self._body.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 0)
         self._body.setSpacing(THEME.space_lg)
-        self.layout.addWidget(body)
         self._add_flat_master_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
@@ -72,19 +70,28 @@ class ExportSidebar(BaseSidebar):
         self.form.load(self._config_to_form_values())
         self._body.addWidget(self.form)
         self._add_proof_controls()
-        self._add_export_section()
+        self._body.addStretch()
 
-        # Nearest the export first: another way to export, then the export's proof, then
-        # other outputs, and last the edits rather than the images.
         self._add_presets_section()
         self._add_soft_proof_section()
         self._add_contact_sheet_section()
-        self._add_printing_notes_section()
-        self._add_bake_section()
-        self._add_sidecars_section()
+        self._add_alongside_section()
+        self.tabs = SubTabs(
+            self.controller.session.repo,
+            "export_tab",
+            (
+                ("file", tr("File"), "mdi6.file-image-outline", body),
+                ("proof", tr("Proof"), "mdi6.printer-outline", tab_page(self._soft_proof_section)),
+                ("presets", tr("Presets"), "mdi6.layers-triple-outline", tab_page(self._presets_section)),
+                ("alongside", tr("Alongside Exports"), "mdi6.puzzle-outline", tab_page(self.contact_sheet_section, self.alongside_section)),
+            ),
+            icon_only=("presets", "alongside"),
+        )
+        self.layout.addWidget(self.tabs, 1)
+        # Pinned under every sub-tab, so the action never moves with the form above it.
+        self._add_export_section()
         self._sync_flat_enabled()
-
-        self.layout.addStretch()
+        self._sync_proof_mark()
 
         self._rebuild_preset_rows()
         self._refresh_export_enabled()
@@ -154,33 +161,30 @@ class ExportSidebar(BaseSidebar):
         finally:
             QApplication.restoreOverrideCursor()
 
-    # --- Presets -------------------------------------------------------------
-
     def _add_presets_section(self) -> None:
-        """Collapsible PRESETS section pinned to the top of the panel."""
+        """The presets to export with, their manager, and their own Export Presets action."""
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
+        content_layout.setSpacing(THEME.space_md)
 
         self._presets_inner = QVBoxLayout()
         self._presets_inner.setContentsMargins(0, 0, 0, 0)
         self._presets_inner.setSpacing(THEME.space_xs)
         content_layout.addLayout(self._presets_inner)
 
-        self._no_presets_label = hint_label(tr("No presets — click Manage to add some."))
+        self._no_presets_label = hint_label(tr("No presets yet. Click Manage to add one."))
         content_layout.addWidget(self._no_presets_label)
         self._preset_toggles: list[QPushButton] = []
 
         preset_btn_row = QHBoxLayout()
-        self.manage_presets_btn = labeled_action("fa5s.sliders-h", tr(" Manage"), tr("Add, edit and remove export presets"))
-        self.manage_presets_btn.setObjectName("manage_presets_btn")
+        self.manage_presets_btn = labeled_action("fa5s.sliders-h", tr("Manage"), tr("Add, edit and remove export presets"))
         self.manage_presets_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         preset_menu, self._preset_scope_actions = self._build_scope_menu(self._PRESET_SCOPES, self._set_preset_scope)
         self._export_presets_menu = preset_menu
 
         self.export_presets_group, self.export_presets_btn, self.export_presets_menu_btn = make_split_button(
-            tr(" Export Presets"), "fa5s.layer-group", preset_menu
+            tr("Export Presets"), "fa5s.layer-group", preset_menu
         )
         self.export_presets_menu_btn.setToolTip(tr("Choose what the Export Presets button does"))
 
@@ -189,50 +193,65 @@ class ExportSidebar(BaseSidebar):
         preset_btn_row.addWidget(self.manage_presets_btn, 0)
         preset_btn_row.addWidget(self.export_presets_group, 1)
         content_layout.addLayout(preset_btn_row)
+        self.presets_linear_hint = hint_label(tr("Presets are off while the output intent is Linear."))
+        content_layout.addWidget(self.presets_linear_hint)
 
-        self._presets_section = make_section(self.controller.session.repo, tr("Presets"), "export_presets", content, "fa5s.layer-group")
-        self.layout.addWidget(self._presets_section)
+        self._presets_section = make_section(
+            self.controller.session.repo, tr("Presets"), "export_presets", content, "fa5s.layer-group", collapsible=False
+        )
 
-    # --- Printing notes ------------------------------------------------------
-
-    def _add_printing_notes_section(self) -> None:
-        """Collapsible PRINTING NOTES section: the canvas preview toggle + the export."""
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
-
+    def _add_printing_notes_row(self) -> QHBoxLayout:
+        """The canvas preview toggle + the export."""
         self.printing_notes_preview_btn = self._tool_toggle(
             "fa5s.eye",
             tr("Preview"),
-            tr(
-                "Show the marked-up work print over the frame: burns hatched, dodges open, each mask "
-                "labeled with its value in stops, plus a card with the print recipe. Display only."
-            ),
+            tr("Show the printing notes over the frame: the masks with their values, and the print settings."),
         )
         self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
-        self.printing_notes_preview_btn.setFixedHeight(default_button_height())
 
         self.printing_notes_btn = labeled_action(
             "mdi.playlist-edit",
-            tr(" Export"),
-            tr(
-                "Save this frame as a marked-up work print — the map plus the print recipe below it — as its "
-                "own JPEG in the export folder. The print itself is untouched. Resolution follows the "
-                "preview, so turn HQ on for a full-resolution sheet."
-            ),
+            tr("Export Notes"),
+            tr("Save the printing notes as a JPEG in the export folder, at full resolution when HQ is on."),
         )
-        self.printing_notes_btn.setObjectName("printing_notes_btn")
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.printing_notes_preview_btn, 1)
         btn_row.addWidget(self.printing_notes_btn, 1)
-        content_layout.addLayout(btn_row)
+        return btn_row
 
-        self.printing_notes_section = make_section(
-            self.controller.session.repo, tr("Printing Notes"), "printing_notes", content, "mdi.playlist-edit"
+    def _add_alongside_section(self) -> None:
+        """Printing notes, the Auto Density/Grade bake and edit sidecars in one card: each a
+        toggle on the left and a one-shot action on the right."""
+        content = QWidget()
+        col = QVBoxLayout(content)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(THEME.space_md)
+        col.addWidget(section_subheader(tr("PRINTING NOTES")))
+        col.addLayout(self._add_printing_notes_row())
+        bake_header = section_subheader(tr("AUTO DENSITY / GRADE"))
+        col.addWidget(bake_header)
+        col.addLayout(self._add_bake_row())
+        sidecars_header = section_subheader(tr("EDIT SIDECARS"))
+        col.addWidget(sidecars_header)
+        col.addLayout(self._add_sidecars_row())
+        # Linear writes neither a print to bake nor an edit to keep beside it.
+        self._not_linear = (
+            bake_header,
+            self.bake_on_export_btn,
+            self.bake_to_roll_btn,
+            sidecars_header,
+            self.sidecars_enabled_btn,
+            self.export_sidecars_btn,
         )
-        self.layout.addWidget(self.printing_notes_section)
+        self.alongside_section = make_section(
+            self.controller.session.repo,
+            tr("Alongside Exports"),
+            "export_alongside",
+            content,
+            "mdi6.puzzle-outline",
+            collapsible=False,
+        )
 
     def _on_printing_notes_changed(self, active: bool) -> None:
         self.printing_notes_preview_btn.blockSignals(True)
@@ -244,26 +263,20 @@ class ExportSidebar(BaseSidebar):
         self.bake_on_export_btn.setChecked(active)
         self.bake_on_export_btn.blockSignals(False)
 
-    # --- Contact sheet -------------------------------------------------------
-
     def _add_contact_sheet_section(self) -> None:
         conf = self.state.config.export
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
+        content_layout.setSpacing(THEME.space_md)
 
         cs_path_row = QHBoxLayout()
         cs_path_label = field_label(tr("Path"), FIELD_LABEL_WIDTH)
         cs_path_row.addWidget(cs_path_label)
         self.cs_output_path_edit = QLineEdit(conf.contact_sheet_output_path)
         self.cs_output_path_edit.setPlaceholderText(tr("Uses export destination"))
-        self.cs_output_path_edit.setToolTip(
-            wrap_tooltip(
-                tr("Folder for contact sheet JPEGs. Leave empty to follow the export destination (same as source or absolute export path).")
-            )
-        )
+        self.cs_output_path_edit.setToolTip(wrap_tooltip(tr("The folder for contact sheets, or the export folder when this is empty.")))
         self.cs_output_path_edit.textChanged.connect(lambda _: self.update_timer.start())
         self.cs_output_path_browse_btn = icon_button("fa5s.folder-open", tr("Choose contact sheet output folder"))
         self.cs_output_path_browse_btn.clicked.connect(self._browse_contact_sheet_output_path)
@@ -273,14 +286,14 @@ class ExportSidebar(BaseSidebar):
 
         self.contact_sheet_btn = labeled_action(
             "fa5s.th",
-            tr(" Contact Sheet…"),
+            tr("Contact Sheet…"),
             tr("Lay every visible frame out as film strips on photographic paper, then export the sheet"),
         )
-        self.contact_sheet_btn.setObjectName("contact_sheet_btn")
         content_layout.addWidget(self.contact_sheet_btn)
 
-        self.contact_sheet_section = make_section(self.controller.session.repo, tr("Contact Sheet"), "contact_sheet", content, "fa5s.th")
-        self.layout.addWidget(self.contact_sheet_section)
+        self.contact_sheet_section = make_section(
+            self.controller.session.repo, tr("Contact Sheet"), "contact_sheet", content, "fa5s.th", collapsible=False
+        )
 
     def _browse_contact_sheet_output_path(self) -> None:
         start = self.cs_output_path_edit.text().strip() or self.state.config.export.export_path
@@ -304,44 +317,27 @@ class ExportSidebar(BaseSidebar):
 
         self.intent_btn = SegmentedChoice(
             (("fa5s.image", tr("Print")), ("mdi6.math-log", tr("Flat")), ("mdi6.filmstrip", tr("Linear"))),
-            tr(
-                "Print: export the print as you see it, with the full NegPy look applied.<br><br>"
-                "Flat: export a flat, neutral, low-contrast master that keeps maximum tonal and color "
-                "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
-                "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
-                "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.<br><br>"
-                "Linear: export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
-                "NegPy processing (no normalization, exposure, lab, toning, color management). "
-                "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files."
-            ),
+            tr("Export the picture as you see it, a flat master for editing in another app, or the raw scan data."),
         )
         self.intent_btn.setCurrentIndex(self._state_intent())
         self._body.addWidget(self.intent_btn)
 
         peek_bake_row = QHBoxLayout()
-        peek_bake_row.setSpacing(4)
+        peek_bake_row.setSpacing(THEME.space_sm)
         self.flat_peek_btn = self._tool_toggle(
             "fa5s.eye", tr("Preview Flat"), tr("Temporarily show the flat master in the canvas (does not change your edit)")
         )
         self.flat_peek_btn.setChecked(self.state.flat_peek)
         self.flat_bake_btn = labeled_action(
             "fa5s.search",
-            tr(" Roll Analysis"),
-            tr(
-                "Measure every visible frame's exposure bounds and apply their shared average, so flat "
-                "masters render consistently across the roll."
-            ),
+            tr("Roll Analysis"),
+            tr("Measure all visible frames and use their average, so the flat masters of a roll match."),
         )
         peek_bake_row.addWidget(self.flat_peek_btn)
         peek_bake_row.addWidget(self.flat_bake_btn)
         box.addLayout(peek_bake_row)
 
-        self.flat_hint_label = hint_label(
-            tr(
-                "Exports a flat 16-bit TIFF master in the selected color space at full resolution by default. "
-                "Choose Print or Pixels below to downscale."
-            )
-        )
+        self.flat_hint_label = hint_label(tr("Exports a flat 16-bit master at full size. Pick Print or Pixels below to make it smaller."))
         box.addWidget(self.flat_hint_label)
 
         # Roll-consistency nudge: a flat master is identical across frames only once the roll
@@ -351,11 +347,7 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.flat_roll_warning)
 
         self.linear_hint_label = hint_label(
-            tr(
-                "Exports the loader's decoded buffer as an untagged 16-bit file. "
-                "No pipeline processing, no color management, no scaling. "
-                "Pakon RAW, LinearRaw DNG (SilverFast/VueScan), and camera RAW."
-            )
+            tr("Exports the raw scan data as a 16-bit file, before NegPy's processing and color management.")
         )
         box.addWidget(self.linear_hint_label)
 
@@ -363,6 +355,7 @@ class ExportSidebar(BaseSidebar):
         fmt_row.setContentsMargins(0, 0, 0, 0)
         fmt_row.addWidget(field_label(tr("Format"), FIELD_LABEL_WIDTH))
         self.linear_format_combo = StepCombo()
+        self.linear_format_combo.setToolTip(tr("The file type of the linear export."))
         self.linear_format_combo.addItem(tr("TIFF"), "tiff")
         self.linear_format_combo.addItem(tr("JPEG XL (lossless)"), "jxl")
         idx = self.linear_format_combo.findData(self.state.linear_format)
@@ -388,6 +381,7 @@ class ExportSidebar(BaseSidebar):
         self.linear_expansion_label = field_label(tr("Expansion"), FIELD_LABEL_WIDTH)
         expansion_row.addWidget(self.linear_expansion_label)
         self.linear_expansion_combo = StepCombo()
+        self.linear_expansion_combo.setToolTip(tr("Multiply the scan values so that they fill more of the file's 16-bit range."))
         self.linear_expansion_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         expansion_row.addWidget(self.linear_expansion_combo)
         self.linear_expansion_row = QWidget()
@@ -455,6 +449,7 @@ class ExportSidebar(BaseSidebar):
         self.linear_gamma_label = field_label(tr("Input gamma"), FIELD_LABEL_WIDTH)
         gamma_row.addWidget(self.linear_gamma_label)
         self.linear_gamma_combo = StepCombo()
+        self.linear_gamma_combo.setToolTip(tr("The tone curve that the input TIFF was saved with, so that the export can undo it."))
         self.linear_gamma_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         gamma_row.addWidget(self.linear_gamma_combo)
         self.linear_gamma_row = QWidget()
@@ -467,9 +462,7 @@ class ExportSidebar(BaseSidebar):
         self.linear_gamma_combo.currentIndexChanged.connect(self._on_linear_gamma_changed)
 
         self.linear_corrections_hint = hint_label(
-            tr(
-                "Corrections are baked in and cannot be undone from the exported file. Re-export from the original RAW to get uncorrected data."
-            )
+            tr("These corrections become part of the exported file. Export again from the original to get the data without them.")
         )
         self.linear_corrections_hint.setVisible(False)
         box.addWidget(self.linear_corrections_hint)
@@ -510,11 +503,12 @@ class ExportSidebar(BaseSidebar):
             self.linear_ice_btn.setVisible(False)
             self.linear_corrections_hint.setVisible(False)
         if hasattr(self, "_presets_section"):
-            self._presets_section.setVisible(not linear_on)
-        if hasattr(self, "_sidecars_section"):
-            self._sidecars_section.setVisible(not linear_on)
-        if hasattr(self, "_bake_section"):
-            self._bake_section.setVisible(not linear_on)
+            for widget in (self.manage_presets_btn, self.export_presets_group, *self._preset_toggles):
+                widget.setEnabled(not linear_on)
+            self.presets_linear_hint.setVisible(linear_on)
+        if hasattr(self, "alongside_section"):
+            for widget in self._not_linear:
+                widget.setVisible(not linear_on)
         self._sync_flat_roll_warning()
         if hasattr(self, "form"):
             self._refresh_export_enabled()
@@ -551,12 +545,12 @@ class ExportSidebar(BaseSidebar):
     _on_linear_output_changed = _on_flat_output_changed
 
     _EXPANSION_OPTIONS: dict[str, list[tuple[str, float | None]]] = {
-        "pakon": [(tr("4× (default)"), None), ("2×", 2.0), ("Off", 1.0)],
+        "pakon": [(tr("4× (default)"), None), ("2×", 2.0), (tr("Off"), 1.0)],
         "pakon_f335": [(tr("Off (default)"), None), ("2×", 2.0), ("4×", 4.0)],
         "dng": [(tr("Off (default)"), None), ("2×", 2.0), ("4×", 4.0)],
         "nef": [],
         "fff": [],
-        "noritsu": [(tr("16× (default)"), None), ("8×", 8.0), ("Off", 1.0)],
+        "noritsu": [(tr("16× (default)"), None), ("8×", 8.0), (tr("Off"), 1.0)],
         "camera": [],
         "tiff": [(tr("Off (default)"), None), ("2×", 2.0), ("4×", 4.0)],
         "unsupported": [],
@@ -730,8 +724,6 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.setChecked(active)
         self.flat_peek_btn.blockSignals(False)
 
-    # --- Soft Proof (preview only) -------------------------------------------
-
     def _add_proof_controls(self) -> None:
         """The proof mismatch warning, beside the Export profile it describes.
 
@@ -739,7 +731,7 @@ class ExportSidebar(BaseSidebar):
         preview that does not match the export, and a collapsed hint cannot.
         """
         self.proof_mismatch_label = hint_label(
-            tr("Soft proof is off, so the preview won't show the export's color clipping"), kind="warning"
+            tr("Soft proof is off, so the preview does not show the export's color clipping"), kind="warning"
         )
         self.form.add_color_widget(self.proof_mismatch_label)
 
@@ -749,17 +741,13 @@ class ExportSidebar(BaseSidebar):
         content = QWidget()
         col = QVBoxLayout(content)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(6)
+        col.setSpacing(THEME.space_md)
 
         self.soft_proof_btn = self._small_toggle(
             "fa5s.print",
             tr("Proof on Screen"),
             self.state.soft_proof_enabled,
-            tr(
-                "Simulate the proof profile and Input ICC in the preview, so what you see matches "
-                "what you'll get. Preview only — the export is unaffected either way. Turn off to "
-                "preview at full gamut."
-            ),
+            tr("Show on screen how the picture will print, without a change to the export."),
             align_left=True,
         )
         col.addWidget(self.soft_proof_btn)
@@ -768,10 +756,7 @@ class ExportSidebar(BaseSidebar):
         self.proof_condition_combo = StepCombo()
         constrain_combo(self.proof_condition_combo)
         self.proof_condition_combo.setToolTip(
-            tr(
-                "A saved printer and paper set-up: profile, intent and simulation toggles in one pick. "
-                "None proofs the export target and simulates no paper."
-            )
+            tr("A saved printer and paper setup, where None shows the export target without paper simulation.")
         )
         self.proof_save_btn = icon_button("fa5s.save", tr("Save the current proof set-up as a named preset"))
         self.proof_delete_btn = icon_button("fa5s.trash", tr("Delete the selected preset"))
@@ -784,10 +769,7 @@ class ExportSidebar(BaseSidebar):
         self.proof_profile_combo = StepCombo()
         constrain_combo(self.proof_profile_combo)
         self.proof_profile_combo.setToolTip(
-            tr(
-                "What the preview is proofed through. Follows the Export profile unless you name a "
-                "printer or paper here. Set one to proof a print while exporting something else."
-            )
+            tr("The printer or paper profile to preview, which follows the Export profile until you pick one.")
         )
 
         self.proof_intent_combo = StepCombo()
@@ -796,47 +778,32 @@ class ExportSidebar(BaseSidebar):
             self.proof_intent_combo.addItem(label, value)
         self.proof_intent_combo.setToolTip(
             tr(
-                "How colors the paper cannot make are fitted into what it can. Relative Colorimetric "
-                "keeps in-gamut colors exact and clips the rest to the edge; Perceptual squeezes the "
-                "whole picture inward so the relationships between colors survive, which a printer "
-                "profile carries its own table for. Saturation favours vividness over accuracy."
+                "How to handle colors the paper cannot print: Relative Colorimetric clips them, and Perceptual compresses all colors to keep their relations."
             )
         )
 
         self.proof_bpc_btn = self._tool_toggle(
             "fa5s.adjust",
             tr("Black Point Compensation"),
-            tr(
-                "Scale the darkest tone in the picture onto the darkest the paper can make, instead of "
-                "clipping everything below it. Off is only useful for judging what falls off the bottom."
-            ),
+            tr("Map the darkest tone to the paper's darkest black, in place of clipping."),
             align_left=True,
         )
         self.proof_paper_white_btn = self._tool_toggle(
             "fa5s.file",
             tr("Simulate Paper White"),
-            tr(
-                "Show the paper's own white instead of the screen's. The picture goes dimmer and takes "
-                "the paper's tint, which is the print you will hold. Give your eyes a moment to adapt."
-            ),
+            tr("Show the paper's own white and tint, so the picture gets dimmer, as the print will be."),
             align_left=True,
         )
         self.proof_ink_black_btn = self._tool_toggle(
             "fa5s.tint",
             tr("Simulate Ink Black"),
-            tr(
-                "Show the paper's real deepest black rather than mapping it onto the screen's. Shadows "
-                "lift and lose separation, which is what the print does."
-            ),
+            tr("Show the paper's real black, so shadows look lighter, as on the print."),
             align_left=True,
         )
         self.proof_gamut_btn = self._tool_toggle(
             "fa5s.exclamation-triangle",
             tr("Gamut Warning"),
-            tr(
-                "Flatten every color the profile cannot print to gray, so the unprintable areas are "
-                "visible rather than merely counted. The Analysis panel's Gamut row counts them."
-            ),
+            tr("Show colors the printer cannot print as gray."),
             align_left=True,
         )
         col.addWidget(
@@ -873,8 +840,9 @@ class ExportSidebar(BaseSidebar):
         col.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
-        self._soft_proof_section = make_section(self.controller.session.repo, tr("Soft Proof"), "soft_proof", content, "fa5s.print")
-        self.layout.addWidget(self._soft_proof_section)
+        self._soft_proof_section = make_section(
+            self.controller.session.repo, tr("Soft Proof"), "soft_proof", content, "fa5s.print", collapsible=False
+        )
 
         self._reload_proof_profiles()
         self._reload_proof_conditions()
@@ -965,6 +933,11 @@ class ExportSidebar(BaseSidebar):
             w.setEnabled(st.soft_proof_enabled)
         self._select_matching_preset()
         self._refresh_proof_mismatch_warning()
+        self._sync_proof_mark()
+
+    def _sync_proof_mark(self) -> None:
+        if hasattr(self, "tabs"):
+            self.tabs.button("proof").set_marked(self.state.soft_proof_enabled)
 
     def _on_proof_profile_changed(self) -> None:
         self.controller.set_proof_field("proof_icc_path", self.proof_profile_combo.currentData())
@@ -998,56 +971,32 @@ class ExportSidebar(BaseSidebar):
         self._reload_proof_profiles()
         self._sync_proof_controls()
 
-    # --- Edit sidecars -------------------------------------------------------
-
-    def _add_sidecars_section(self) -> None:
-        """Collapsible EXPORT EDITS SIDECARS section: on-export toggle + manual export, side by side."""
+    def _add_sidecars_row(self) -> QHBoxLayout:
+        """The on-export toggle + the manual export, side by side."""
         conf = self.state.config.export
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
-
         btn_row = QHBoxLayout()
-
         self.sidecars_enabled_btn = self._small_toggle(
             "fa5s.file-export",
             tr("Save on Export"),
             conf.export_sidecars_enabled,
-            tr("When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too."),
+            tr("Also write a .negpy edit file beside each source on export."),
         )
         btn_row.addWidget(self.sidecars_enabled_btn)
 
         self.export_sidecars_btn = labeled_action(
-            "fa5s.file-code", tr(" Export Sidecars"), tr("Write edit sidecars for all visible frames now")
+            "fa5s.file-code", tr("Export Sidecars"), tr("Write edit sidecars for all visible frames now")
         )
-        self.export_sidecars_btn.setObjectName("export_sidecars_btn")
         btn_row.addWidget(self.export_sidecars_btn)
+        return btn_row
 
-        content_layout.addLayout(btn_row)
-
-        self._sidecars_section = make_section(self.controller.session.repo, tr("Sidecars"), "export_sidecars", content, "fa5s.file-export")
-        self.layout.addWidget(self._sidecars_section)
-
-    def _add_bake_section(self) -> None:
-        """Collapsible BAKE AUTO DENSITY/GRADE section: on-export toggle + manual bake, side by side."""
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
-
+    def _add_bake_row(self) -> QHBoxLayout:
+        """The on-export toggle + the manual bake, side by side."""
         btn_row = QHBoxLayout()
-
         self.bake_on_export_btn = self._small_toggle(
             "fa5s.fire",
             tr("Bake on Export"),
             self.state.bake_on_export,
-            tr(
-                "When on, every export freezes Auto Density and Auto Grade into fixed values for each "
-                "frame it has metered, so the exported result does not re-run the meters."
-            ),
+            tr("Fix Auto Density and Auto Grade of each exported frame, so they do not change later."),
         )
         btn_row.addWidget(self.bake_on_export_btn)
 
@@ -1056,32 +1005,25 @@ class ExportSidebar(BaseSidebar):
             tr("Bake to Roll"),
             tr("Freeze Auto Density and Auto Grade into fixed values for every visible frame now"),
         )
-        self.bake_to_roll_btn.setObjectName("bake_to_roll_btn")
         btn_row.addWidget(self.bake_to_roll_btn)
-
-        content_layout.addLayout(btn_row)
-
-        self._bake_section = make_section(self.controller.session.repo, tr("Auto Density/Grade"), "export_bake", content, "fa5s.fire")
-        self.layout.addWidget(self._bake_section)
-
-    # --- Batch ---------------------------------------------------------------
+        return btn_row
 
     # Sticky scopes: the chevron menu picks what a split button does, and only the button
     # itself triggers an export. key -> (menu label, button label, tooltip)
     _EXPORT_SCOPES = {
         "current": (
-            "Export Current Frame",
-            tr(" Export Current Frame"),
+            tr("Export Current Frame"),
+            tr("Export Current Frame"),
             tr("Export the current frame with the settings below"),
         ),
         "selected": (
-            "Export Selected Frames",
-            tr(" Export Selected"),
+            tr("Export Selected Frames"),
+            tr("Export Selected"),
             tr("Export the selected filmstrip frames using the settings below"),
         ),
         "all": (
-            tr("Export all visible frames"),
-            tr(" Export All"),
+            tr("Export All Visible Frames"),
+            tr("Export All"),
             tr("Export every visible frame using the settings below"),
         ),
     }
@@ -1095,18 +1037,18 @@ class ExportSidebar(BaseSidebar):
 
     _PRESET_SCOPES = {
         "current": (
-            "Export Current Frame",
-            " Export Presets",
+            tr("Export Current Frame"),
+            tr("Export Presets"),
             tr("Export the current frame with every enabled preset"),
         ),
         "selected": (
-            "Export Selected Frames",
-            tr(" Export Presets (selected)"),
+            tr("Export Selected Frames"),
+            tr("Export Presets (Selected)"),
             tr("Export the selected filmstrip frames with every enabled preset"),
         ),
         "all": (
-            tr("Export all visible frames"),
-            tr(" Export Presets (all)"),
+            tr("Export All Visible Frames"),
+            tr("Export Presets (All)"),
             tr("Export every visible frame with every enabled preset"),
         ),
     }
@@ -1131,9 +1073,10 @@ class ExportSidebar(BaseSidebar):
         menu, self._export_scope_actions = self._build_scope_menu(self._EXPORT_SCOPES, self._set_export_scope)
         self._export_menu = menu
 
-        container, self.export_main_btn, self.export_menu_btn = make_split_button(tr(" Export"), "fa5s.check-circle", menu, primary=True)
+        container, self.export_main_btn, self.export_menu_btn = make_split_button(tr("Export"), "fa5s.check-circle", menu, primary=True)
+        container.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 0)
         self.export_menu_btn.setToolTip(tr("Choose what the Export button does"))
-        self._body.addWidget(container)
+        self.layout.addWidget(container)
 
         saved = self.controller.session.repo.get_global_setting("export_scope", "current")
         saved = self._RETIRED_EXPORT_SCOPES.get(saved, saved)
@@ -1143,7 +1086,7 @@ class ExportSidebar(BaseSidebar):
         self._export_scope = key
         _label, btn_label, tooltip = self._EXPORT_SCOPES[key]
         self._export_scope_actions[key].setChecked(True)
-        self.export_main_btn.setText(btn_label)
+        self.export_main_btn.setText(icon_text(btn_label))
         self.export_main_btn.setToolTip(tooltip_with_shortcut(tooltip, self._EXPORT_SCOPE_SHORTCUTS.get(key)))
         if persist:
             self.controller.session.repo.save_global_setting("export_scope", key)
@@ -1186,7 +1129,7 @@ class ExportSidebar(BaseSidebar):
         self._preset_scope = key
         _label, btn_label, tooltip = self._PRESET_SCOPES[key]
         self._preset_scope_actions[key].setChecked(True)
-        self.export_presets_btn.setText(btn_label)
+        self.export_presets_btn.setText(icon_text(btn_label))
         self.export_presets_btn.setToolTip(tooltip)
         if persist:
             self.controller.session.repo.save_global_setting("preset_export_scope", key)
@@ -1215,6 +1158,7 @@ class ExportSidebar(BaseSidebar):
                 "fa5s.layer-group", preset_display_name(preset), preset.enabled, tr("Export with this preset"), align_left=True
             )
             btn.toggled.connect(lambda checked, idx=i: self._on_preset_toggled(idx, checked))
+            btn.setEnabled(not self.state.linear_output)
             self._presets_inner.addWidget(btn)
             self._preset_toggles.append(btn)
 
@@ -1235,8 +1179,6 @@ class ExportSidebar(BaseSidebar):
         self.state.export_presets = presets
         self.controller.session.save_export_presets()
         self._rebuild_preset_rows()
-
-    # --- Current export settings ---------------------------------------------
 
     def _config_to_form_values(self) -> dict:
         """Build the form's value dict from the export config + ICC AppState."""
@@ -1325,7 +1267,7 @@ class ExportSidebar(BaseSidebar):
         desc = profile_description(detected)
         self.display_combo.setItemText(0, tr("As detected ({profile})", profile=desc))
         if detected is None:
-            self.display_detected_label.setText(tr("Auto-detection failed — select your monitor's color space above."))
+            self.display_detected_label.setText(tr("Auto-detection failed. Select your monitor's color space above."))
             set_hint_kind(self.display_detected_label, "error")
         else:
             self.display_detected_label.setText(tr("Detected: {desc}", desc=desc))
@@ -1341,7 +1283,7 @@ class ExportSidebar(BaseSidebar):
         export_cs = vals["export_color_space"]
         retargets = bool(vals["icc_output_path"]) or export_cs not in (ColorSpace.SAME_AS_SOURCE.value, WORKING_COLOR_SPACE)
         if not self.soft_proof_btn.isChecked():
-            self.proof_mismatch_label.setText(tr("Soft proof is off, so the preview won't show the export's color clipping"))
+            self.proof_mismatch_label.setText(tr("Soft proof is off, so the preview does not show the export's color clipping"))
             self.proof_mismatch_label.setVisible(retargets)
             return
         detached = bool(self.state.proof_icc_path)

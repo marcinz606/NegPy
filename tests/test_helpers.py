@@ -64,17 +64,13 @@ def test_float_to_uint_luma() -> None:
     assert res16[0, 0] == 65535
 
 
-def test_prepare_thumbnail() -> None:
+def test_a_thumbnail_is_the_picture_with_its_long_edge_at_the_size() -> None:
     from PIL import Image
     from negpy.kernel.image.logic import prepare_thumbnail
 
-    img = Image.new("RGB", (200, 100), (255, 0, 0))
-    thumb = prepare_thumbnail(img, 50)
-    assert thumb.size == (50, 50)
-    # Background should be (14, 17, 23)
-    assert thumb.getpixel((0, 0)) == (14, 17, 23)
-    # Center should be red
-    assert thumb.getpixel((25, 25)) == (255, 0, 0)
+    assert prepare_thumbnail(Image.new("RGB", (200, 100), (255, 0, 0)), 50).size == (50, 25)
+    assert prepare_thumbnail(Image.new("RGB", (20, 30), (255, 0, 0)), 60).size == (40, 60)
+    assert prepare_thumbnail(Image.new("RGB", (200, 100), (255, 0, 0)), 50).getpixel((0, 0)) == (255, 0, 0)
 
 
 def test_ensure_image_valid() -> None:

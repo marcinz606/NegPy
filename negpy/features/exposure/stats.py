@@ -33,6 +33,7 @@ class StatRow:
     value: str
     warn: bool = False
     detail: str = ""  # lines the row's hover adds under its fixed explanation
+    per_channel: bool = False  # the value is R · G · B, which the read-out colors per channel
 
 
 _LOG10_2 = 0.30103  # one stop in log10-density
@@ -71,12 +72,9 @@ def _negative_row(
     from negpy.features.exposure.logic import default_grade_range
 
     ratio = float(norm_density_range) / default_grade_range()
-    short, word = ("lo", "flat") if ratio < _DIAG_FLAT else ("hi", "contrasty") if ratio > _DIAG_CONTRASTY else ("nrm", "normal")
-    window = f"Δ{float(norm_density_range):.2f}"
-    if density_above_base is None:
-        return StatRow("Negative", f"{word} · {window}", detail=detail)
-    dmin, dmed, dmax = (float(v) for v in density_above_base)
-    return StatRow("Negative", f"{short} · {dmin:.2f} · {dmed:.2f} · {dmax:.2f} · {window}", detail=detail)
+    word = "Flat" if ratio < _DIAG_FLAT else "Contrasty" if ratio > _DIAG_CONTRASTY else "Normal"
+    # The value is only the range, so the read-out fits a narrow panel; the hover names it.
+    return StatRow("Negative", f"Δ{float(norm_density_range):.2f}", detail=f"{word} negative. {detail}")
 
 
 def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[float]) -> StatRow:
@@ -89,12 +87,17 @@ def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[
     return StatRow("Exposure", f"{ev:+.1f} EV")
 
 
-def clipping_row(clip_low: Optional[float], clip_high: Optional[float]) -> StatRow:
-    """The Clipping row: worst-channel shares at the black and white ends, warning above 1%."""
+def clipping_row(clip_low: Optional[float], clip_high: Optional[float], compact: bool = False) -> StatRow:
+    """The Clipping row: worst-channel shares at the black and white ends, warning above 1%.
+    `compact` drops the Sh and Hi names into the hover, for the Analysis read-out."""
     if clip_low is None or clip_high is None:
         return StatRow("Clipping", _EMPTY)
     lo, hi = float(clip_low), float(clip_high)
     warn = lo > _CLIP_WARN or hi > _CLIP_WARN
+    if compact:
+        return StatRow(
+            "Clipping", f"{lo * 100:.1f} · {hi * 100:.1f}%", warn=warn, detail=f"Shadows {lo * 100:.1f}% · highlights {hi * 100:.1f}%"
+        )
     return StatRow("Clipping", f"Sh {lo * 100:.1f}% · Hi {hi * 100:.1f}%", warn=warn)
 
 
@@ -103,7 +106,13 @@ def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> StatRow:
         return StatRow("Scan clip", _EMPTY)
     r, g, b = (float(v) for v in scan_clip)
     warn = max(r, g, b) > float(EXPOSURE_CONSTANTS["scan_clip_warn"])
-    return StatRow("Scan clip", f"R {r * 100:.1f}% · G {g * 100:.1f}% · B {b * 100:.1f}%", warn=warn)
+    return StatRow(
+        "Scan clip",
+        f"{r * 100:.1f} · {g * 100:.1f} · {b * 100:.1f}%",
+        warn=warn,
+        detail=f"Red {r * 100:.1f}% · green {g * 100:.1f}% · blue {b * 100:.1f}%",
+        per_channel=True,
+    )
 
 
 def _repair_row(repair: Optional[Tuple[float, float, float]]) -> StatRow:
@@ -120,7 +129,7 @@ def _gamut_row(gamut: Optional[float]) -> StatRow:
     outside of."""
     if gamut is None:
         return StatRow("Gamut", _EMPTY)
-    return StatRow("Gamut", f"{gamut * 100:.1f}% unprintable", warn=gamut > _GAMUT_WARN)
+    return StatRow("Gamut", f"{gamut * 100:.1f}%", warn=gamut > _GAMUT_WARN)
 
 
 def negative_statistics(
@@ -145,7 +154,7 @@ def negative_statistics(
     return [
         _negative_row(norm_density_range, density_above_base, base_source),
         _exposure_row(metered_anchor, norm_density_range),
-        clipping_row(clip_low, clip_high),
+        clipping_row(clip_low, clip_high, compact=True),
         _scan_clip_row(scan_clip),
         _repair_row(repair),
         _gamut_row(gamut),

@@ -13,13 +13,15 @@ from unittest.mock import patch
 
 import piexif
 import pytest
-from PyQt6.QtWidgets import QApplication, QLabel, QScrollArea
+from PyQt6.QtWidgets import QWIDGETSIZE_MAX, QApplication, QLabel
 
 from conftest import FakeController
 from negpy.desktop.view.sidebar import metadata as metadata_module
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.features.metadata.gear_models import Camera, FilmStock, GearLibrary
+from negpy.kernel.system.config import APP_CONFIG
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -236,45 +238,87 @@ class TestSourceGpsPrefill:
         assert seen["center"] is None
 
 
-class TestTabIdentity:
-    def test_header_and_scope_hint_lead_the_panel(self, sidebar: MetadataSidebar) -> None:
-        order = [sidebar.layout.indexOf(w) for w in (sidebar.tab_header, sidebar.metadata_scope_hint)]
-        assert -1 not in order
-        assert order[0] < order[1]
+def _cards_enabled(sidebar: MetadataSidebar) -> list[bool]:
+    return [section.isEnabled() for _key, section in sidebar._scope_sections()]
+
+
+def _page(sidebar: MetadataSidebar, key: str):
+    return sidebar.tabs.stack.widget(sidebar.tabs.keys.index(key))
+
+
+class TestTabs:
+    def test_two_field_tabs_then_the_two_library_tabs_as_icons(self, sidebar: MetadataSidebar) -> None:
+        assert [btn.text() for btn in sidebar.tabs.buttons] == ["Shot", "Process", "Presets", "My Gear"]
+        assert [btn._icon_only for btn in sidebar.tabs.buttons] == [False, False, True, True]
+
+    def test_each_card_sits_on_its_tab_under_that_tabs_header(self, sidebar: MetadataSidebar) -> None:
+        for key, sections in (
+            ("shot", (sidebar.gear_section, sidebar.capture_section, sidebar.exposure_section)),
+            ("process", (sidebar.process_section, sidebar.scanning_section)),
+        ):
+            page = _page(sidebar, key)
+            assert all(page.isAncestorOf(section) for section in (sidebar.tab_headers[key], *sections))
+
+    def test_the_header_in_front_follows_the_tab(self, sidebar: MetadataSidebar) -> None:
+        sidebar.show_tab("process")
+        assert sidebar.active_tab_header() is sidebar.tab_headers["process"]
+        sidebar.show_tab("gear")
+        assert sidebar.active_tab_header() is None
+
+    def test_the_tab_is_kept(self, sidebar: MetadataSidebar) -> None:
+        sidebar.show_tab("presets")
+        assert sidebar.controller.session.repo.get_global_setting("metadata_tab") == "presets"
+
+    def test_a_tab_is_marked_while_a_card_on_it_is_edited(self, sidebar: MetadataSidebar) -> None:
+        _set_metadata(sidebar, developer="D-76")
+        sidebar.sync_ui()
+        assert [btn.is_marked() for btn in sidebar.tabs.buttons] == [False, True, False, False]
+
+    def test_library_tab_tooltips_carry_their_bound_shortcut(self, sidebar: MetadataSidebar, monkeypatch) -> None:
+        import negpy.desktop.view.shortcut_registry as registry
+
+        monkeypatch.setattr(registry, "key_for", lambda action_id, bindings=None: "G" if action_id == "tab_gear_items" else "")
+        sidebar.apply_shortcut_tooltips()
+
+        tips = {key: btn.toolTip() for key, btn in zip(sidebar.tabs.keys, sidebar.tabs.buttons)}
+        assert "G" in tips["gear"]
+        assert "G" not in tips["presets"]
 
 
 class TestPreviewPinning:
-    """The Preview stays visible above the per-frame cards, which scroll on their own."""
+    """The Preview is pinned above the tabs like Analysis, and folds to its header."""
 
-    def test_preview_is_pinned_above_the_scrolling_cards(self, sidebar: MetadataSidebar) -> None:
-        assert sidebar.layout.indexOf(sidebar.preview_section) != -1
-        assert sidebar.layout.indexOf(sidebar._metadata_controls) == -1
-        assert isinstance(sidebar._metadata_scroll_area, QScrollArea)
-        assert sidebar._metadata_scroll_area.widget() is sidebar._metadata_controls
-        assert sidebar.layout.indexOf(sidebar.preview_section) < sidebar.layout.indexOf(sidebar._metadata_scroll_area)
+    def test_preview_is_pinned_above_the_tabs(self, sidebar: MetadataSidebar) -> None:
+        assert sidebar.preview_split.widget(0) is sidebar.preview_section
+        assert sidebar.preview_split.widget(1).isAncestorOf(sidebar.tabs.stack)
 
-    def test_preview_is_a_sibling_of_the_scrolling_controls_area(self, sidebar: MetadataSidebar) -> None:
-        assert sidebar.preview_section not in sidebar._metadata_controls.findChildren(CollapsibleSection)
+    def test_a_folded_preview_keeps_only_its_header(self, sidebar: MetadataSidebar) -> None:
+        sidebar.preview_section.set_expanded(False)
+        assert sidebar.preview_section.maximumHeight() == sidebar.preview_section.sizeHint().height()
+
+        sidebar.preview_section.set_expanded(True)
+        assert sidebar.preview_section.maximumHeight() == QWIDGETSIZE_MAX
 
 
 class TestProtectGating:
-    """Protect Original Metadata sits above the cards it disables, so it stays live while they are off."""
+    """Protect Original Metadata is a toggle on the Preview, so it stays live while the cards are off."""
 
-    def test_protect_disables_this_tabs_fields(self, sidebar: MetadataSidebar) -> None:
-        assert sidebar._metadata_controls.isEnabled() is True
+    def test_protect_disables_the_cards(self, sidebar: MetadataSidebar) -> None:
+        assert all(_cards_enabled(sidebar))
 
         _set_metadata(sidebar, protect_original_metadata=True)
         sidebar.sync_ui()
-        assert sidebar._metadata_controls.isEnabled() is False
+        assert not any(_cards_enabled(sidebar))
 
         _set_metadata(sidebar, protect_original_metadata=False)
         sidebar.sync_ui()
-        assert sidebar._metadata_controls.isEnabled() is True
+        assert all(_cards_enabled(sidebar))
 
     def test_the_toggle_persists_and_grays_out_the_cards(self, sidebar: MetadataSidebar) -> None:
+        assert sidebar.preview_section.isAncestorOf(sidebar.protect_btn)
         sidebar.protect_btn.setChecked(True)
         assert sidebar.state.config.metadata.protect_original_metadata is True
-        assert not sidebar._metadata_controls.isEnabled()
+        assert not any(_cards_enabled(sidebar))
         assert sidebar.protect_btn.isEnabled()
 
         _set_metadata(sidebar, protect_original_metadata=False)
@@ -435,7 +479,7 @@ def _card_titled(sidebar: MetadataSidebar, title: str) -> CollapsibleSection:
 
 class TestCollapsibleCards:
     def test_every_card_collapses(self, sidebar: MetadataSidebar) -> None:
-        for title in ("Metadata Preview", "Metadata Presets", "Analog Gear", "Capture", "Process", "Scanning", "Exposure"):
+        for title in ("Metadata Preview", "Analog Gear", "Capture", "Process", "Scanning", "Exposure"):
             section = _card_titled(sidebar, title)
             assert section.collapsible is True
             assert section.chevron_label is not None
@@ -443,3 +487,42 @@ class TestCollapsibleCards:
     def test_preview_header_click_collapses_it(self, sidebar: MetadataSidebar) -> None:
         sidebar.preview_section.toggle_button.click()
         assert sidebar.preview_section.content_area.isHidden() is True
+
+
+@pytest.fixture
+def gear(monkeypatch, tmp_path) -> GearLibraryPanel:
+    monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+    return GearLibraryPanel(GearLibrary())
+
+
+class TestGearCards:
+    def test_gear_cards_get_their_own_tabs_and_stay_live_under_protect(self, sidebar: MetadataSidebar, gear) -> None:
+        sidebar.attach_gear_panel(gear)
+
+        _set_metadata(sidebar, protect_original_metadata=True)
+        sidebar.sync_ui()
+
+        assert _page(sidebar, "presets").isAncestorOf(gear.sections["presets"])
+        assert _page(sidebar, "gear").isAncestorOf(gear.sections["items"])
+        assert all(section.isEnabled() for section in gear.sections.values())
+        assert not gear.presets.apply_btn.isEnabled()
+
+    def test_apply_on_the_presets_tab_writes_onto_this_frame(self, sidebar: MetadataSidebar, gear, monkeypatch, tmp_path) -> None:
+        from negpy.services.assets.presets import MetadataPresets
+
+        monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path / "presets"))
+        sidebar.attach_gear_panel(gear)
+        MetadataPresets.save_preset("HP5", {"developer": "D-76"})
+
+        gear.presets.apply_requested.emit("HP5")
+
+        assert sidebar.state.config.metadata.developer == "D-76"
+
+    def test_a_sync_never_unblocks_the_gear_cards(self, sidebar: MetadataSidebar, gear) -> None:
+        sidebar.attach_gear_panel(gear)
+        gear.items.item_list.blockSignals(True)
+
+        sidebar.block_signals(True)
+        sidebar.block_signals(False)
+
+        assert gear.items.item_list.signalsBlocked()

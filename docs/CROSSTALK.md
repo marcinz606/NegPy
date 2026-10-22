@@ -1,6 +1,6 @@
 # Custom Crosstalk Matrices
 
-The **Crosstalk** control in the Calibration sidebar unmixes the color channels. NegPy ships
+The **Crosstalk** control in the Calibration card (Roll tab) unmixes the color channels. NegPy ships
 one built-in matrix (**Generic C41**). You can add your own, calibrated for your film *and
 your scanning setup*, without code.
 
@@ -142,7 +142,7 @@ presets stay reproducible if you later move or delete the file.
 ## Using it
 
 1. Put your `.toml` into `<Documents>/NegPy/crosstalk/`.
-2. Open the **Calibration** sidebar and find the **crosstalk dropdown** under CROSSTALK. New
+2. Open the **Calibration** card on the Roll tab and find the **crosstalk dropdown** under CROSSTALK. New
    files show the next time the panel syncs, for example when you switch photos. If yours
    does not show, restart.
 3. Pick your profile and raise **Strength** above 0.
@@ -177,7 +177,7 @@ The **sliders icon** beside the dropdown opens the **matrix editor**:
 - Each channel (**Red**, **Green**, **Blue**) has two sliders, **From** each other channel,
   from −1 to 1, and the preview updates live. Row normalization makes the diagonal
   redundant, so only the six mixing terms are editable. The **Preview Strength** slider
-  controls only this preview. The sidebar **Strength** slider applies the matrix.
+  controls only this preview. The card's **Strength** slider applies the matrix.
 - **Make Editable Copy** clones the selected locked matrix into an editable profile.
 - **Save** writes the profile as a `.toml` into `<Documents>/NegPy/crosstalk/`, so it shows
   in the dropdown.

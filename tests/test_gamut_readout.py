@@ -118,7 +118,7 @@ class TestGamutRow(unittest.TestCase):
 
     def test_present_at_zero_once_a_profile_is_proofed_to(self):
         """Zero is an answer: the frame prints. Blank means the question was not asked."""
-        self.assertEqual(_by_name(self._rows(0.0), "Gamut").value, "0.0% unprintable")
+        self.assertEqual(_by_name(self._rows(0.0), "Gamut").value, "0.0%")
 
     def test_warns_above_two_percent(self):
         self.assertTrue(_by_name(self._rows(0.03), "Gamut").warn)

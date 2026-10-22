@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import List, Optional
 
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.i18n import mark
 from negpy.kernel.system.paths import get_resource_path
 from negpy.services.assets.naming import escape_toml_string, slugify
 from negpy.services.assets.toml_cache import load_toml_cached
@@ -24,11 +25,11 @@ class CrosstalkType(StrEnum):
 
 #: Dropdown group order and headings; the trailing entry is the catch-all.
 GROUP_ORDER: tuple[tuple[CrosstalkType, str], ...] = (
-    (CrosstalkType.BUILTIN, "Built-in"),
-    (CrosstalkType.MEASURED, "Measured"),
-    (CrosstalkType.TUNED, "Tuned on a rig"),
-    (CrosstalkType.SPECSHEET, "From spec sheets (approx)"),
-    (CrosstalkType.OTHER, "Other"),
+    (CrosstalkType.BUILTIN, mark("Built-in")),
+    (CrosstalkType.MEASURED, mark("Measured")),
+    (CrosstalkType.TUNED, mark("Tuned on a rig")),
+    (CrosstalkType.SPECSHEET, mark("From spec sheets (approx)")),
+    (CrosstalkType.OTHER, mark("Other")),
 )
 
 

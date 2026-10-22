@@ -31,15 +31,15 @@ class CropGuide(StrEnum):
 
 
 GUIDE_LABELS: dict[CropGuide, str] = {
-    CropGuide.THIRDS: "Thirds",
+    CropGuide.THIRDS: tr("Thirds"),
     CropGuide.PHI: tr("Phi Grid"),
     CropGuide.DIAGONALS: tr("Diagonals"),
     CropGuide.TRIANGLES: tr("Golden Triangles"),
     CropGuide.SPIRAL: tr("Golden Spiral"),
     CropGuide.ARMATURE: tr("Armature"),
     CropGuide.DIAGONAL_METHOD: tr("Diagonal Method"),
-    CropGuide.GRID: "Grid",
-    CropGuide.OFF: "Off",
+    CropGuide.GRID: tr("Grid"),
+    CropGuide.OFF: tr("Off"),
 }
 
 ORIENTATION_COUNT: dict[CropGuide, int] = {

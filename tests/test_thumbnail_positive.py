@@ -117,7 +117,7 @@ class TestThumbnailWorker(unittest.TestCase):
         ts = APP_CONFIG.thumbnail_size
         self.assertEqual(len(seen), 1)
         self.assertLessEqual(max(seen[0]), ts)
-        self.assertEqual(thumb.size, (ts, ts))
+        self.assertEqual(max(thumb.size), ts)
 
 
 if __name__ == "__main__":

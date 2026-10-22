@@ -1,7 +1,9 @@
 from negpy.kernel.system.i18n import tr
 from typing import Optional
 
-from PyQt6.QtWidgets import QCheckBox, QMessageBox
+from PyQt6.QtWidgets import QMessageBox
+
+from negpy.desktop.view.styles.templates import box_toggle
 from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
 
@@ -21,7 +23,7 @@ def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
     box.setWindowTitle(tr("Load Roll"))
     box.setText(tr("Load {value} from “{label}”?", value=count_of(n, "image"), label=label))
     box.setInformativeText(tr("They are hashed and thumbnailed on load, which takes a moment on a large roll."))
-    remember = QCheckBox(tr("Always load without asking"))
+    remember = box_toggle(tr("Always Load Without Asking"))
     box.setCheckBox(remember)
     load = box.addButton(tr("Load"), QMessageBox.ButtonRole.AcceptRole)
     box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
@@ -45,7 +47,7 @@ def warn_targets_affect_unbaked(parent, repo) -> None:
     box.setWindowTitle(tr("Auto Density and Grade Targets"))
     box.setText(tr("Changing the targets affects every frame, including ones not yet baked."))
     box.setInformativeText(tr("Bake Auto Density and Grade on a frame before you change the targets to keep its density and grade fixed."))
-    dismiss = QCheckBox(tr("Don't show again"))
+    dismiss = box_toggle(tr("Do Not Show Again"))
     box.setCheckBox(dismiss)
     ok = box.addButton(tr("OK"), QMessageBox.ButtonRole.AcceptRole)
     box.setDefaultButton(ok)
@@ -55,18 +57,14 @@ def warn_targets_affect_unbaked(parent, repo) -> None:
 
 
 def confirm_close_roll(parent, roll_name: str | None) -> bool:
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
+    informative = tr("Your saved edits stay in the database. The roll stays in the Library.")
     if roll_name is None:
-        box.setWindowTitle(tr("Unload All"))
-        box.setText(tr("Unload all frames from the Film Strip?"))
-    else:
-        box.setWindowTitle(tr("Close Roll"))
-        box.setText(tr("Close “{roll_name}”?", roll_name=roll_name))
-    box.setInformativeText(tr("Your saved edits stay in the database. The roll stays in the Library."))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+        return confirm_action(
+            parent, tr("Unload All"), tr("Unload all frames from the Film Strip?"), tr("Unload"), informative, destructive=False
+        )
+    return confirm_action(
+        parent, tr("Close Roll"), tr("Close “{roll_name}”?", roll_name=roll_name), tr("Close"), informative, destructive=False
+    )
 
 
 def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
@@ -77,8 +75,9 @@ def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     accidental Clear All is destructive to the working set, so we gate it behind a
     prompt. Enter confirms (default button); Esc cancels.
     """
+    verb = tr("Unload")
     if clear_all:
-        title = tr("Clear All")
+        title, verb = tr("Clear All"), tr("Clear")
         text = tr("Remove all loaded images from the session?")
     elif count > 1:
         title = tr("Unload Selected")
@@ -86,15 +85,9 @@ def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     else:
         title = tr("Unload")
         text = tr("Unload this image from the session?")
-
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(title)
-    box.setText(text)
-    box.setInformativeText(tr("Your saved edits stay in the database — this only removes the frames from the list."))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent, title, text, verb, tr("Your saved edits stay in the database. This only removes the frames from the list.")
+    )
 
 
 def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "") -> bool:
@@ -102,64 +95,39 @@ def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "")
     flat-field profile. None of them are undoable and none can be re-derived from the
     frame, so each one is gated like Clear All. Enter confirms; Esc cancels.
     """
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Delete {kind}", kind=kind))
-    box.setText(tr("Delete the {value} “{name}”?", value=kind.lower(), name=name))
-    if informative:
-        box.setInformativeText(informative)
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent,
+        tr("Delete {kind}", kind=kind),
+        tr("Delete the {value} “{name}”?", value=kind.lower(), name=name),
+        tr("Delete"),
+        informative,
+    )
 
 
 def prompt_delete_scene(parent, controller, scene_id: str) -> None:
     """The Film Strip menu and the Roll tab ask the same question before forgetting a scene."""
     entry = dict(rolls.roll_scenes(controller.session.repo, controller.state.active_roll_id)).get(scene_id)
     if entry and confirm_delete_named(
-        parent, "Scene", entry["name"], informative=tr("Its frames keep their edits and the baseline they carry.")
+        parent, tr("Scene"), entry["name"], informative=tr("Its frames keep their edits and the baseline they carry.")
     ):
         controller.request_delete_scene(scene_id)
 
 
-def confirm_delete_several(parent, kind: str, names: list, *, informative: str = "") -> bool:
+def confirm_delete_several(parent, kinds: str, names: list, *, informative: str = "") -> bool:
     """Ask before deleting several named items at once, selected together. Enter
     confirms; Esc cancels."""
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Delete {value} {kind}s", value=len(names), kind=kind))
-    box.setText(tr("Delete these {value} {value1}s?", value=len(names), value1=kind.lower()))
-    box.setInformativeText(informative or "\n".join(names))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent,
+        tr("Delete {value} {kinds}", value=len(names), kinds=kinds),
+        tr("Delete these {value} {kinds}?", value=len(names), kinds=kinds.lower()),
+        tr("Delete"),
+        informative or "\n".join(names),
+    )
 
 
 def confirm_delete_mask(parent) -> bool:
     """Ask before deleting a single dodge/burn mask. Enter confirms; Esc cancels."""
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Delete Mask"))
-    box.setText(tr("Delete this dodge/burn mask?"))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
-
-
-def confirm_roll_auto_crop(parent, on: bool, count: int) -> bool:
-    """Ask before a Roll push changes the roll's Auto Crop: the frames that follow the
-    roll gain or lose an auto crop."""
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Auto Crop"))
-    box.setText(tr("Turn Auto Crop {value} for this roll?", value="on" if on else "off"))
-    change = tr("are auto-cropped") if on else tr("lose their auto crop")
-    box.setInformativeText(
-        tr("{value} that follow the roll {change}. A hand-drawn crop stays.", value=count_of(count, "frame"), change=change)
-    )
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(parent, tr("Delete Mask"), tr("Delete this dodge/burn mask?"), tr("Delete"))
 
 
 def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
@@ -168,30 +136,24 @@ def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
     Each frame's reset is still an ordinary undo step, but reverting many frames at
     once in the wrong roll or selection is disruptive, so it is gated like Clear All.
     """
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
     if roll:
-        box.setWindowTitle(tr("Reset Roll to Defaults"))
-        box.setText(tr("Reset all {value} in this roll to their default settings?", value=count_of(count, "frame")))
+        title = tr("Reset Roll to Defaults")
+        text = tr("Reset all {value} in this roll to their default settings?", value=count_of(count, "frame"))
     else:
-        box.setWindowTitle(tr("Reset Settings"))
-        box.setText(tr("Reset {value} to their default settings?", value=count_of(count, "frame")))
-    box.setInformativeText(tr("Each frame's reset is a normal undo step, so you can revert it after."))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+        title = tr("Reset Settings")
+        text = tr("Reset {value} to their default settings?", value=count_of(count, "frame"))
+    return confirm_action(parent, title, text, tr("Reset"), tr("Each frame's reset is a normal undo step, so you can revert it after."))
 
 
 def confirm_reset_tab(parent, tab: str, count: int) -> bool:
     """Ask before one tab's whole set of cards goes back to defaults. One card's reset
     button is a single undo step and asks nothing; a tab's is every card at once."""
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Reset {tab}", tab=tab))
-    box.setText(tr("Reset {value} on {tab} to their default settings?", value=count_of(count, "card"), tab=tab))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent,
+        tr("Reset {tab}", tab=tab),
+        tr("Reset {value} on {tab} to their default settings?", value=count_of(count, "card"), tab=tab),
+        tr("Reset"),
+    )
 
 
 def confirm_clear_heals(parent, count: int) -> bool:
@@ -200,24 +162,19 @@ def confirm_clear_heals(parent, count: int) -> bool:
     Unlike single-heal undo this is not step-recoverable, so gate it like the
     session Clear All. Enter confirms (default button); Esc cancels.
     """
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Clear All Heals"))
-    box.setText(tr("Remove all {value} from this image?", value=count_of(count, tr("manual heal"))))
-    box.setInformativeText(tr("Every heal and scratch repair placed on this frame will be removed."))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent,
+        tr("Clear All Heals"),
+        tr("Remove all {value} from this image?", value=count_of(count, tr("manual heal"))),
+        tr("Clear"),
+        tr("This removes every heal and scratch repair on this frame."),
+    )
 
 
 def confirm_clear_clones(parent, count: int) -> bool:
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setWindowTitle(tr("Clear All Clones"))
-    box.setText(tr("Remove all {value} from this image?", value=count_of(count, tr("clone stroke"))))
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return confirm_action(
+        parent, tr("Clear All Clones"), tr("Remove all {value} from this image?", value=count_of(count, tr("clone stroke"))), tr("Clear")
+    )
 
 
 def confirm_delete_leak(parent) -> bool:
@@ -293,12 +250,15 @@ def confirm_frame_merge(parent, title: str, counts: dict, skipped: list) -> Opti
         lines.append(tr("A stitch also bakes in its flat field and sensor correction; the TIFF cannot be unstitched."))
     if skipped:
         shown = skipped[:8]
-        more = f"\n…and {len(skipped) - len(shown)} more" if len(skipped) > len(shown) else ""
-        lines.append(tr("Skipped:\n") + "\n".join(shown) + more)
+        if len(skipped) > len(shown):
+            shown.append(tr("…and {value} more", value=len(skipped) - len(shown)))
+        lines.append(tr("Skipped:\n") + "\n".join(shown))
     box.setInformativeText("\n\n".join(lines))
-    trash = QCheckBox(tr("Move each merged frame's source files to the Trash"))
-    trash.setToolTip(tr("Off keeps the source files, and the frame stays in the Film Strip beside the TIFF"))
-    trash.setChecked(True)
+    trash = box_toggle(
+        tr("Move Source Files to the Trash"),
+        True,
+        tr("Move each merged frame's source files to the Trash, or keep the frame in the Film Strip beside its TIFF"),
+    )
     box.setCheckBox(trash)
     merge = box.addButton(tr("Merge"), QMessageBox.ButtonRole.AcceptRole)
     box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
@@ -315,53 +275,59 @@ def _merge_subject(counts: dict) -> str:
     return " and ".join(parts) if parts else count_of(0, "frame")
 
 
-def _confirm_with_verb(parent, title: str, text: str, informative: str, verb: str) -> bool:
-    """A destructive confirmation whose accept button is named after the act, not Yes.
-    Enter confirms; Esc cancels."""
+def confirm_action(
+    parent, title: str, text: str, verb: str, informative: str = "", *, destructive: bool = True, default_cancel: bool = False
+) -> bool:
+    """A confirmation whose accept button is named after the act, not Yes. Esc cancels; Enter
+    confirms, or cancels with default_cancel for an act that wipes data for good."""
     box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Warning)
+    box.setIcon(QMessageBox.Icon.Warning if destructive else QMessageBox.Icon.Question)
     box.setWindowTitle(title)
     box.setText(text)
     box.setInformativeText(informative)
     accept = box.addButton(verb, QMessageBox.ButtonRole.AcceptRole)
-    box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
-    box.setDefaultButton(accept)
+    cancel = box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel if default_cancel else accept)
     box.exec()
     return box.clickedButton() is accept
 
 
 def confirm_remove_from_roll(parent, count: int, roll_name: str) -> bool:
     """Ask before frames leave a roll. Their files and edits stay."""
-    subject = tr("this frame") if count == 1 else f"the {count_of(count, tr('selected frame'))}"
-    return _confirm_with_verb(
+    text = (
+        tr("Remove this frame from “{roll_name}”?", roll_name=roll_name)
+        if count == 1
+        else tr("Remove the {value} from “{roll_name}”?", value=count_of(count, tr("selected frame")), roll_name=roll_name)
+    )
+    return confirm_action(
         parent,
         tr("Remove from Roll"),
-        tr("Remove {subject} from “{roll_name}”?", subject=subject, roll_name=roll_name),
-        tr("The files and their edits stay. Their scene, card locks and own edit in this roll are deleted."),
+        text,
         tr("Remove"),
+        tr("The files and their edits stay. Their scene, card locks and own edit in this roll are deleted."),
     )
 
 
 def confirm_unfork_edit(parent) -> bool:
     """Ask before this roll's own edit for a frame goes and the frame returns to the
     edit every other roll it belongs to already shares."""
-    return _confirm_with_verb(
+    return confirm_action(
         parent,
         tr("Use the Shared Edit Again"),
         tr("Drop this roll's own edit for this frame?"),
-        tr("Its independent edit is deleted. The frame goes back to the edit shared with every other roll."),
         tr("Use Shared Edit"),
+        tr("Its independent edit is deleted. The frame goes back to the edit shared with every other roll."),
     )
 
 
 def confirm_undiptych(parent) -> bool:
     """Ask before a half-frame diptych's two halves, and both their edits, go."""
-    return _confirm_with_verb(
+    return confirm_action(
         parent,
         tr("Unsplit Diptych"),
         tr("Turn this diptych back into one plain frame?"),
-        tr("Both halves' edits are deleted. Splitting the scan again starts from defaults."),
         tr("Unsplit"),
+        tr("Both halves' edits are deleted. Splitting the scan again starts from defaults."),
     )
 
 
@@ -377,12 +343,12 @@ def confirm_move_to_trash(parent, count: int) -> bool:
         if count > 1
         else tr("Move this frame to the Trash?")
     )
-    return _confirm_with_verb(
+    return confirm_action(
         parent,
         tr("Move to Trash"),
         text,
-        tr("The source files and their sidecars go to the Trash. The edits stay in the database, so a restored file keeps its edit."),
         tr("Move to Trash"),
+        tr("The source files and their sidecars go to the Trash. The edits stay in the database, so a restored file keeps its edit."),
     )
 
 

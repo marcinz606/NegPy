@@ -62,17 +62,19 @@ def test_a_held_space_scans_once(qapp, window):
     assert fired == ["scan_btn"]
 
 
-def test_a_stepper_arrow_keeps_space_as_its_own_key(qapp, window):
-    """The arrows have no binding of their own, so Space on a focused one steps, never scans."""
+def test_a_focused_stepper_keeps_space_and_steps_on_the_arrow_keys(qapp, window):
+    """Space on a focused stepper never scans; the arrow keys step it."""
     fired = _spy(window, "scan_btn")
     window.iso_stepper.addItem("100", "100")
     window.iso_stepper.addItem("200", "200")
-    window.iso_stepper._next.setFocus(Qt.FocusReason.TabFocusReason)
+    window.iso_stepper.setFocus(Qt.FocusReason.TabFocusReason)
     qapp.processEvents()
 
     _send(qapp, window, Qt.Key.Key_Space)
-
     assert fired == []
+    assert window.iso_stepper.currentIndex() == 0
+
+    _send(qapp, window, Qt.Key.Key_Down)
     assert window.iso_stepper.currentIndex() == 1
 
 

@@ -1,17 +1,21 @@
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import language, tr
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QKeySequence, QShortcut
+from PyQt6.QtCore import QDateTime, QLocale, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFileDialog,
-    QHeaderView,
+    QHBoxLayout,
     QInputDialog,
+    QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
+    QStyle,
+    QStyledItemDelegate,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -30,21 +34,135 @@ from negpy.desktop.view.confirm import (
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
 from negpy.desktop.view.keyboard_shortcuts import _close_roll
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
-from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, wrap_tooltip
-from negpy.desktop.view.widgets.overflow_bar import OverflowBar
+from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, labeled_action, wrap_tooltip
+from negpy.desktop.view.widgets.flat_rows import ICON, more_press, more_rect, paint_fill, paint_more, paint_pill, two_line_rects
 from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
 from negpy.services.assets.composites import frame_count, saved_composites
-from negpy.services.assets.library import folder_counts, folder_image_paths, folder_label, summarize_counts
+from negpy.services.assets.library import folder_counts, folder_image_paths, folder_label
 from negpy.services.assets.triplets import saved_triplets
 from negpy.services.assets.presets import is_valid_preset_name
+from negpy.services.assets.gear import GearProfiles
+from negpy.features.process.models import ProcessMode
 
 _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
 _MISSING_ROLE = Qt.ItemDataRole.UserRole + 1
 _NAME_ROLE = Qt.ItemDataRole.UserRole + 2
 _FOLDER_ROLE = Qt.ItemDataRole.UserRole + 3
+# The line under a roll's name (count, film mode, stock, scenes, date), or a folder row's roll count.
+_DETAIL_ROLE = Qt.ItemDataRole.UserRole + 4
+# The film-mode dot ahead of that line; "" for none.
+_DOT_ROLE = Qt.ItemDataRole.UserRole + 5
+_FRAMES_ROLE = Qt.ItemDataRole.UserRole + 6
+
+_ROLL_ROW = 46
+_FOLDER_ROW = 30
+
+# The Setup card's names and the Film Strip's mode colors.
+_MODES = {
+    ProcessMode.C41: (tr("Color"), THEME.mode_c41),
+    ProcessMode.BW: (tr("B&W"), THEME.mode_bw),
+    ProcessMode.E6: (tr("Slide"), THEME.mode_e6),
+}
+
+
+def _short_date(timestamp: float) -> str:
+    date = QDateTime.fromSecsSinceEpoch(int(timestamp)).date()
+    same_year = date.year() == QDateTime.currentDateTime().date().year()
+    # The UI's language, not the system's: the month reads in the language around it.
+    return QLocale(language()).toString(date, "d MMM" if same_year else "d MMM yyyy")
+
+
+class _RollDelegate(QStyledItemDelegate):
+    """A roll row: its name over a line that says what it is, the open roll marked with an Open
+    pill, ⋮ on hover. A folder row is one line: the folder and how many rolls it holds."""
+
+    def __init__(self, tree: QTreeWidget, active_roll):
+        super().__init__(tree)
+        self._active_roll = active_roll
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        return QSize(option.rect.width(), _ROLL_ROW if index.data(_ROLL_ID_ROLE) is not None else _FOLDER_ROW)
+
+    def paint(self, p: QPainter, option, index) -> None:
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = option.rect.adjusted(0, 1, 0, -1)
+        roll_id = index.data(_ROLL_ID_ROLE)
+        is_open = roll_id is not None and roll_id == self._active_roll()
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        paint_fill(p, rect, current=is_open, hover=hover and roll_id is not None, selected=selected)
+
+        font = QFont(option.font)
+        font.setPixelSize(THEME.font_size_base)
+        small = QFont(font)
+        small.setPixelSize(THEME.font_size_small)
+        x = rect.left() + THEME.space_lg
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if icon is not None:
+            icon.paint(p, QRect(x, rect.center().y() - ICON // 2, ICON, ICON))
+            x += ICON + THEME.space_lg
+        right = more_rect(option.rect).left() - THEME.space_md
+        name = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        detail = index.data(_DETAIL_ROLE) or ""
+
+        if roll_id is None:
+            p.setFont(small)
+            p.setPen(QColor(THEME.text_hint))
+            width = QFontMetrics(small).horizontalAdvance(detail)
+            p.drawText(QRect(right - width, rect.top(), width, rect.height()), Qt.AlignmentFlag.AlignVCenter, detail)
+            p.setFont(font)
+            p.setPen(QColor(THEME.text_secondary))
+            text = QFontMetrics(font).elidedText(name, Qt.TextElideMode.ElideRight, right - width - THEME.space_md - x)
+            p.drawText(QRect(x, rect.top(), right - x, rect.height()), Qt.AlignmentFlag.AlignVCenter, text)
+            p.restore()
+            return
+
+        if is_open:
+            right = paint_pill(p, right, rect.center().y(), tr("Open"), small, accent=True) - THEME.space_md
+        name_font = QFont(font)
+        name_font.setWeight(QFont.Weight(THEME.weight_semibold if is_open else THEME.weight_regular))
+        name_metrics, small_metrics = QFontMetrics(name_font), QFontMetrics(small)
+        name_line, line = two_line_rects(rect, x, right, name_metrics, small_metrics)
+        p.setFont(name_font)
+        p.setPen(QColor(THEME.text_primary))
+        p.drawText(name_line, Qt.AlignmentFlag.AlignVCenter, name_metrics.elidedText(name, Qt.TextElideMode.ElideRight, right - x))
+        # The dot's slot stays when a roll records no film mode, so the lines align.
+        dot = index.data(_DOT_ROLE)
+        if dot:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(dot))
+            p.drawEllipse(line.left(), line.center().y() - 3, 7, 7)
+        line.setLeft(line.left() + 7 + THEME.space_md)
+        p.setFont(small)
+        p.setPen(QColor(THEME.warn_amber if index.data(_MISSING_ROLE) else THEME.text_hint))
+        p.drawText(line, Qt.AlignmentFlag.AlignVCenter, small_metrics.elidedText(detail, Qt.TextElideMode.ElideRight, line.width()))
+        if hover:
+            paint_more(p, option.rect)
+        p.restore()
+
+
+class _RollTree(QTreeWidget):
+    """A press on a roll's ⋮, or a right click, asks for that row's menu instead of picking it."""
+
+    menu_requested = pyqtSignal(QPoint)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMouseTracking(True)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.menu_requested)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        pos = more_press(self, event)
+        if pos is not None and self.itemAt(pos).data(0, _ROLL_ID_ROLE) is not None:
+            self.menu_requested.emit(pos)
+            return
+        super().mousePressEvent(event)
 
 
 class LibraryTree(QWidget):
@@ -68,6 +186,7 @@ class LibraryTree(QWidget):
         self.controller = controller
         self.repo = controller.session.repo
         self._sort_order, self._sort_descending = self._saved_sort()
+        self._gear = None
         self._init_ui()
         # Deferred: files_changed fires before the session saves its triplets.
         self._count_timer = QTimer(self)
@@ -80,80 +199,80 @@ class LibraryTree(QWidget):
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(THEME.space_sm)
 
-        # No title of its own: the section header above already names it. The same
-        # OverflowBar of toolbar buttons the Film Strip uses, so both sections' rows read
-        # as one control set.
-        self.toolbar = OverflowBar(height=TOOLBAR_BUTTON_HEIGHT, spacing=4)
+        # Like the canvas bar's Roll mode: the filter takes the free width, then Sort, Import and ⋮.
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText(tr("Filter rolls…"))
+        self.filter_input.setToolTip(tr("Show the rolls whose name or line under it holds this text"))
+        self.filter_input.setClearButtonEnabled(True)
+        self.filter_input.addAction(qta.icon("fa5s.search", color=THEME.text_secondary), QLineEdit.ActionPosition.LeadingPosition)
+        self.filter_input.setFixedHeight(TOOLBAR_BUTTON_HEIGHT)
+        self.filter_input.setMinimumWidth(40)
+        self.filter_input.textChanged.connect(lambda _text: self._apply_filter())
+
+        self.sort_btn = SortButton((("name", tr("Name")), ("date", tr("Date"))), tr("Sort the roll list"))
+        self.sort_btn.order_selected.connect(lambda order: self.set_sort(order, self._sort_descending, save=True))
+        self.sort_btn.direction_selected.connect(lambda descending: self.set_sort(self._sort_order, descending, save=True))
 
         self.import_btn = QToolButton()
-        self.import_btn.setIcon(qta.icon("fa5s.plus", color=THEME.text_primary))
-        self.import_btn.setToolTip(wrap_tooltip(tr("Import — a folder as a roll, or its subfolders as one roll each")))
+        self.import_btn.setIcon(qta.icon("mdi6.folder-plus-outline", color=THEME.text_primary))
+        self.import_btn.setText(tr("Import"))
+        self.import_btn.setToolTip(wrap_tooltip(tr("Import a folder as a roll, or its subfolders as one roll each")))
         self.import_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         import_menu = QMenu(self.import_btn)
         import_menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
         import_menu.addAction(tr("Import Subfolders as Rolls…")).triggered.connect(self.prompt_import_subfolders)
         self.import_btn.setMenu(import_menu)
 
-        self.refresh_btn = QToolButton()
-        self.refresh_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-        self.refresh_btn.setToolTip(
-            wrap_tooltip(tr("Find new rolls in folders imported as subfolders, and re-read every roll's frame count from disk"))
-        )
-        self.refresh_btn.clicked.connect(self.refresh)
-
+        self.more_btn = QToolButton()
+        self.more_btn.setObjectName("toolbar_overflow")
+        self.more_btn.setIcon(qta.icon("fa5s.ellipsis-v", color=THEME.text_primary))
+        self.more_btn.setToolTip(tr("Refresh, Discovery Filters and Index Library"))
+        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        more_menu = QMenu(self.more_btn)
+        more_menu.setToolTipsVisible(True)
+        self.refresh_action = more_menu.addAction(tr("Refresh"))
+        self.refresh_action.setToolTip(tr("Find new rolls in imported folders, and recount the frames of each roll."))
+        self.refresh_action.triggered.connect(self.refresh)
+        self.filters_action = more_menu.addAction(tr("Discovery Filters…"))
+        self.filters_action.setToolTip(tr("Discovery Filters: folder names that importing subfolders and Refresh skip"))
+        self.filters_action.triggered.connect(self.edit_discovery_filters)
         # Opt-in (Preferences); hidden until then. Decodes and embeds every photo
         # under library_roots once, so search by meaning can rank the whole library,
         # not just the open roll -- an explicit action, never automatic.
-        self.index_btn = QToolButton()
-        self.index_btn.setIcon(qta.icon("fa5s.database", color=THEME.text_primary))
-        self.index_btn.setToolTip(wrap_tooltip(tr("Index the library so search by meaning can rank every roll, not just the loaded one")))
-        self.index_btn.clicked.connect(self.controller.index_library)
+        self.index_action = more_menu.addAction(tr("Index Library"))
+        self.index_action.setToolTip(tr("Index the library, so search by meaning covers every roll."))
+        self.index_action.triggered.connect(self.controller.index_library)
+        self.index_action.setVisible(False)
+        self.more_btn.setMenu(more_menu)
 
-        self.sort_btn = SortButton((("name", "Name"), ("date", "Date")), tr("Sort the roll list"))
-        self.sort_btn.show_order(self._sort_order, self._sort_descending)
-        self.sort_btn.order_selected.connect(lambda order: self.set_sort(order, self._sort_descending, save=True))
-        self.sort_btn.direction_selected.connect(lambda descending: self.set_sort(self._sort_order, descending, save=True))
-
-        self.filters_btn = QToolButton()
-        self.filters_btn.setIcon(qta.icon("fa5s.filter", color=THEME.text_primary))
-        self.filters_btn.setToolTip(wrap_tooltip(tr("Discovery Filters — folder names that importing subfolders and Refresh skip")))
-        self.filters_btn.clicked.connect(self.edit_discovery_filters)
-
-        for btn in (self.import_btn, self.refresh_btn, self.index_btn, self.filters_btn, self.sort_btn):
+        for btn in (self.sort_btn, self.import_btn, self.more_btn):
+            btn.setProperty("boxed", True)
             btn.setIconSize(QSize(TOOLBAR_ICON_SIZE, TOOLBAR_ICON_SIZE))
             btn.setFixedHeight(TOOLBAR_BUTTON_HEIGHT)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        for btn in (self.sort_btn, self.import_btn):
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setProperty("dropdown", True)
+        self.set_sort(self._sort_order, self._sort_descending)
 
-        for widget, label in (
-            (self.import_btn, "Import"),
-            (self.refresh_btn, tr("Refresh")),
-            (self.index_btn, tr("Index Library")),
-            (self.filters_btn, tr("Discovery Filters…")),
-            (self.sort_btn, "Sort"),
-        ):
-            self.toolbar.add_button(widget, label)
-        # Opt-in, so it starts off; sync_ui turns it on with the feature.
-        self.toolbar.set_button_visible(self.index_btn, False)
-        layout.addWidget(self.toolbar)
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(THEME.space_sm)
+        toolbar.addWidget(self.filter_input, 1)
+        for btn in (self.sort_btn, self.import_btn, self.more_btn):
+            toolbar.addWidget(btn)
+        layout.addLayout(toolbar)
 
-        self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
+        self.tree = _RollTree()
+        self.tree.setObjectName("roll_tree")
+        self.tree.setColumnCount(1)
         self.tree.setHeaderHidden(True)
-        self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.header().setStretchLastSection(False)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.tree.setStyleSheet(
-            f"QTreeWidget::item:selected {{ background: {THEME.accent_primary}; color: {THEME.text_on_accent}; }}"
-            f"QTreeWidget::item:hover:!selected {{ background: {THEME.surface_hover_faint}; }}"
-        )
+        self.tree.setItemDelegate(_RollDelegate(self.tree, lambda: self.controller.state.active_roll_id))
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
-        self.tree.itemSelectionChanged.connect(self._recolor_counts)
-        self.tree.customContextMenuRequested.connect(self._show_context_menu)
+        self.tree.menu_requested.connect(self._show_context_menu)
         # A scoped shortcut rather than an event filter: a filter object that outlives the tree, or
         # is collected before it, aborts Qt during teardown.
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -162,11 +281,30 @@ class LibraryTree(QWidget):
             shortcut.activated.connect(self.open_selection)
         layout.addWidget(self.tree, 1)
 
-        self.empty_label = hint_label(tr("Import a folder to build your library"))
-        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.empty_label)
+        self.tally_label = hint_label("")
+        layout.addWidget(self.tally_label)
 
-    # --- importing -----------------------------------------------------------
+        # An empty library is told what a roll is, with the import it needs in reach.
+        self.empty_label = QWidget()
+        empty_col = QVBoxLayout(self.empty_label)
+        empty_col.setContentsMargins(THEME.space_2xl, THEME.space_2xl * 2, THEME.space_2xl, THEME.space_2xl * 2)
+        empty_col.setSpacing(THEME.space_lg)
+        icon = QLabel()
+        icon.setPixmap(qta.icon("mdi6.bookshelf", color=THEME.text_muted).pixmap(34, 34))
+        title = QLabel(tr("No rolls yet"))
+        title.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_header}px; font-weight: {THEME.weight_semibold};")
+        hint = hint_label(tr("A roll is a folder of scans, or a set of frames you saved."))
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        first = labeled_action(
+            "mdi6.folder-plus-outline", tr("Import Folder as a Roll…"), tr("Make one folder of scans a roll and open it"), primary=True
+        )
+        first.clicked.connect(self.prompt_import_folder)
+        many = labeled_action("", tr("Import Subfolders as Rolls…"), tr("Make each folder of scans under a parent a roll of its own"))
+        many.clicked.connect(self.prompt_import_subfolders)
+        for widget in (icon, title, hint, first, many):
+            empty_col.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.empty_label)
+        layout.addStretch(0)
 
     def prompt_import_folder(self) -> bool:
         """Import Folder as a Roll: recognize one folder and open it.
@@ -232,8 +370,6 @@ class LibraryTree(QWidget):
             self.refresh()
         return ok
 
-    # --- rolls -----------------------------------------------------------------
-
     def _saved_sort(self) -> tuple[str, bool]:
         """The roll list's own sort. Before it had one it followed the Film Strip, so an
         unset one starts from the Film Strip's (Scene reads as Name: rolls have no scenes)."""
@@ -247,6 +383,7 @@ class LibraryTree(QWidget):
     def set_sort(self, order: str, descending: bool, save: bool = False) -> None:
         """Order the roll list, independently of the Film Strip's own sort."""
         self.sort_btn.show_order(order, descending)
+        self.sort_btn.setText(self.sort_btn.order_action(order).text())
         if save:
             self.repo.save_global_setting("library_sort_order", order)
             self.repo.save_global_setting("library_sort_descending", descending)
@@ -267,17 +404,22 @@ class LibraryTree(QWidget):
         from negpy.services.assets import semantic_model
 
         enabled = self.controller.state.semantic_search_enabled
-        self.toolbar.set_button_visible(self.index_btn, enabled)
-        self.index_btn.setEnabled(enabled and semantic_model.clip_model_ready())
+        self.index_action.setVisible(enabled)
+        self.index_action.setEnabled(enabled and semantic_model.clip_model_ready())
+        # The open roll's mark follows the session, which never rebuilds the tree.
+        self.tree.viewport().update()
 
     def refresh(self) -> None:
         """Refresh: rediscover rolls under the imported parents, then re-read every count."""
         found, dropped = self.controller.rediscover_rolls()
         self.reload()
         if found or dropped:
-            parts = [f"Found {count_of(found, tr('new roll'))}"] if found else []
-            parts += [f"removed {count_of(dropped, tr('filtered roll'))}"] if dropped else []
-            self.controller.set_status(" · ".join(parts).capitalize(), 3000)
+            new, gone = count_of(found, "new roll"), count_of(dropped, "filtered roll")
+            if found and dropped:
+                message = tr("Found {value}, removed {value1}", value=new, value1=gone)
+            else:
+                message = tr("Found {value}", value=new) if found else tr("Removed {value}", value=gone)
+            self.controller.set_status(message, 3000)
             self.rolls_changed.emit()
 
     def reload(self) -> None:
@@ -286,6 +428,9 @@ class LibraryTree(QWidget):
         self.tree.clear()
         entries = self._sorted(rolls.all_rolls_sorted(self.repo))
         self.empty_label.setVisible(not entries)
+        self.tree.setVisible(bool(entries))
+        stock_ids = {(entry.get("defaults") or {}).get("film_stock_id") for _roll_id, entry in entries} - {None, ""}
+        self._gear = GearProfiles.load_library() if stock_ids else None
         # A folder roll named "a/b/c" sits under folder rows "a" and "a/b", placed where
         # their first roll falls in the sort.
         folders: dict[str, QTreeWidgetItem] = {}
@@ -303,20 +448,22 @@ class LibraryTree(QWidget):
                 parent = folders[key]
             parent.addChild(self._make_item(roll_id, entry, parts[-1]))
         for item in folders.values():
-            item.setText(1, count_of(self._leaf_count(item), "roll"))
+            item.setData(0, _DETAIL_ROLE, count_of(self._leaf_count(item), "roll"))
             item.setExpanded(item.data(0, _FOLDER_ROLE) not in collapsed)
+        # Without folder rows there is nothing to expand, so the rows start at the edge.
+        self.tree.setRootIsDecorated(bool(folders))
+        self._apply_filter()
         if selected:
             self._select_roll(selected)
 
     @staticmethod
     def _make_folder_item(name: str, folder_path: str) -> QTreeWidgetItem:
         """A folder row: groups rolls, is not a roll itself, so it opens and selects nothing."""
-        item = QTreeWidgetItem([name, ""])
+        item = QTreeWidgetItem([name])
         item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         item.setData(0, _FOLDER_ROLE, folder_path)
         item.setToolTip(0, folder_path)
-        item.setIcon(0, qta.icon("fa5s.folder-open", color=THEME.text_secondary))
-        item.setForeground(1, QColor(THEME.text_muted))
+        item.setIcon(0, qta.icon("mdi6.folder-open-outline", color=THEME.text_secondary))
         return item
 
     def _leaf_count(self, item: QTreeWidgetItem) -> int:
@@ -343,29 +490,65 @@ class LibraryTree(QWidget):
         is_folder = entry.get("kind") == "folder"
         folder_path = entry.get("folder_path", "")
         missing = is_folder and not os.path.isdir(folder_path)
-        item = QTreeWidgetItem([label, tr("folder missing") if missing else self._count_text(roll_id, entry)])
+        item = QTreeWidgetItem([label])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
         item.setData(0, _MISSING_ROLE, missing)
+        self._set_detail(item, roll_id, entry)
         # Roll kind reads off the icon's shape: a folder roll is a folder, a virtual one
-        # the search it was built from. Colour is spoken for elsewhere (film mode, channels).
-        item.setIcon(0, qta.icon("fa5s.folder" if is_folder else "fa5s.search", color=THEME.text_secondary))
-        item.setForeground(1, QColor(self._count_color(item)))
+        # the search it was built from.
+        item.setIcon(0, qta.icon("mdi6.folder-outline" if is_folder else "mdi6.text-search", color=THEME.text_secondary))
         if missing:
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
-            item.setToolTip(1, tr("Folder not found on disk — move it back, or delete the roll"))
+            item.setToolTip(1, tr("The folder is not on disk, so move it back or delete the roll."))
         else:
             item.setToolTip(0, folder_path if is_folder else tr("Built from a search or a hand-picked set of frames"))
         return item
 
-    @staticmethod
-    def _count_color(item: QTreeWidgetItem) -> str:
-        if item.isSelected():
-            return THEME.text_on_accent
-        return THEME.warn_amber if item.data(0, _MISSING_ROLE) else THEME.text_muted
+    def _set_detail(self, item: QTreeWidgetItem, roll_id: str, entry: dict) -> None:
+        """The line under a roll's name: its photos, film mode, stock, scenes and import date."""
+        if item.data(0, _MISSING_ROLE):
+            item.setData(0, _DETAIL_ROLE, tr("folder missing"))
+            item.setData(0, _DOT_ROLE, "")
+            item.setData(0, _FRAMES_ROLE, 0)
+            return
+        defaults = entry.get("defaults") or {}
+        frames = self._frame_count(roll_id, entry)
+        item.setData(0, _FRAMES_ROLE, frames)
+        parts = [count_of(frames, "photo")]
+        mode = defaults.get("process_mode")
+        label, color = _MODES.get(ProcessMode(mode), ("", "")) if mode else ("", "")
+        if label:
+            parts.append(label)
+        stock = self._gear.get_film_stock(defaults.get("film_stock_id", "")) if self._gear is not None else None
+        if stock is not None:
+            parts.append(stock.resolved_display_name)
+        if entry.get("scenes"):
+            parts.append(count_of(len(entry["scenes"]), "scene"))
+        if entry.get("created_at"):
+            parts.append(_short_date(entry["created_at"]))
+        item.setData(0, _DETAIL_ROLE, " · ".join(parts))
+        item.setData(0, _DOT_ROLE, color)
 
-    def _count_text(self, roll_id: str, entry: dict) -> str:
-        return summarize_counts(self._frame_count(roll_id, entry), 0)
+    def _apply_filter(self) -> None:
+        """Hide the rolls the filter box rules out, a folder row with them, and say how many show."""
+        needle = self.filter_input.text().strip().casefold()
+        shown = 0
+        rolls_ = self._roll_items()
+        for item in rolls_:
+            visible = not needle or needle in f"{item.text(0)} {item.data(0, _DETAIL_ROLE) or ''}".casefold()
+            item.setHidden(not visible)
+            shown += visible
+        for item in reversed(self._folder_items()):
+            item.setHidden(not any(not item.child(i).isHidden() for i in range(item.childCount())))
+        total = len(rolls_)
+        if needle:
+            text = tr("{shown} of {total}", shown=shown, total=count_of(total, "roll"))
+        else:
+            frames = sum(item.data(0, _FRAMES_ROLE) or 0 for item in rolls_)
+            text = f"{count_of(total, 'roll')} · {count_of(frames, 'photo')}"
+        self.tally_label.setText(text)
+        self.tally_label.setVisible(bool(total))
 
     def _frame_count(self, roll_id: str, entry: dict) -> int:
         if entry.get("kind") == "folder":
@@ -384,7 +567,8 @@ class LibraryTree(QWidget):
         entry = rolls.roll_for_id(self.repo, roll_id) if roll_id else None
         for item in self._roll_items() if entry else ():
             if item.data(0, _ROLL_ID_ROLE) == roll_id and not item.data(0, _MISSING_ROLE):
-                item.setText(1, self._count_text(roll_id, entry))
+                self._set_detail(item, roll_id, entry)
+                self._apply_filter()
 
     def _selected_roll_id(self):
         item = self.tree.currentItem()
@@ -396,14 +580,6 @@ class LibraryTree(QWidget):
                 item.setSelected(True)
                 self.tree.setCurrentItem(item)
                 return
-
-    def _recolor_counts(self) -> None:
-        # A per-item brush is out of a stylesheet's reach, so the count column has to be repainted
-        # by hand or it stays grey on the accent red.
-        for item in self._roll_items():
-            item.setForeground(1, QColor(self._count_color(item)))
-
-    # --- opening -----------------------------------------------------------
 
     def _on_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         roll_id = item.data(0, _ROLL_ID_ROLE)
@@ -470,7 +646,7 @@ class LibraryTree(QWidget):
         if not name or (name == current_name and not rename_folder):
             return
         if not is_valid_preset_name(name):
-            warn_invalid_roll_name(self, "Rename Roll")
+            warn_invalid_roll_name(self, tr("Rename Roll"))
             return
 
         if rename_folder:
@@ -478,10 +654,7 @@ class LibraryTree(QWidget):
                 QMessageBox.warning(
                     self,
                     tr("Rename Roll"),
-                    tr(
-                        "Could not rename the folder on disk — check that no other folder already has that name, "
-                        "and that you have permission to rename it here."
-                    ),
+                    tr("Could not rename the folder on disk. Check that no other folder has that name and that you may rename it."),
                 )
                 return
         rolls.rename_roll(self.repo, roll_id, f"{prefix}{rolls.ROLL_PATH_SEP}{name}" if prefix else name)
@@ -490,20 +663,20 @@ class LibraryTree(QWidget):
         self.rolls_changed.emit()
 
     def _delete_roll(self, roll_id: str, name: str) -> None:
-        if confirm_delete_named(self, "Roll", name, informative=tr("This only forgets the roll — nothing on disk is touched.")):
+        if confirm_delete_named(self, tr("Roll"), name, informative=tr("This only forgets the roll. Nothing on disk changes.")):
             rolls.delete_roll(self.repo, roll_id)
             self.reload()
             self.rolls_changed.emit()
 
     def _delete_folder(self, folder_path: str, name: str) -> None:
-        if confirm_delete_named(self, "Folder", name, informative=tr("This forgets every roll in it — nothing on disk is touched.")):
+        if confirm_delete_named(self, tr("Folder"), name, informative=tr("This forgets every roll in it. Nothing on disk changes.")):
             rolls.delete_folder_rolls(self.repo, folder_path)
             self.reload()
             self.rolls_changed.emit()
 
     def _delete_rolls(self, selection: list[tuple]) -> None:
         names = [name for _roll_id, name in selection]
-        if confirm_delete_several(self, "Roll", names, informative=tr("This only forgets the roll records — nothing on disk is touched.")):
+        if confirm_delete_several(self, tr("Rolls"), names, informative=tr("This only forgets the roll records. Nothing on disk changes.")):
             for roll_id, _name in selection:
                 rolls.delete_roll(self.repo, roll_id)
             self.reload()

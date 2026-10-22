@@ -8,7 +8,6 @@ from PyQt6.QtCore import QByteArray, Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
-    QDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -24,18 +23,22 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.canvas.hud import INFO_FULL, frame_info
+from negpy.desktop.view.canvas.hud import INFO_FULL, MODE_LABELS, frame_info
 from negpy.desktop.view.canvas.reference_pane import ReferencePane
 from negpy.desktop.view.canvas.toolbar import ActionToolbar, frame_position
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import SpacePanKeyFilter, setup_keyboard_shortcuts
 from negpy.desktop.view.mac_menu_bar import install_mac_menus
+from negpy.desktop.view.shortcut_hints import HINT_MS, ShortcutHints
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.custom_routing_dialog import CustomRoutingDialog
 from negpy.desktop.view.sidebar.pick_better_window import PickBetterWindow
 from negpy.desktop.view.sidebar.right_panel import RightPanel
-from negpy.desktop.view.sidebar.session_panel import SessionPanel
+from negpy.desktop.view.sidebar.files import FileBrowser, table_color
+from negpy.desktop.view.update_notice import UpdateNotice
 from negpy.desktop.view.styles.templates import hint_label, labeled_action
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.collapsible import fit_pane
 from negpy.desktop.view.widgets.command_palette import CommandPalette, FindField
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
@@ -90,8 +93,7 @@ class _EmptyStateOverlay(QWidget):
     """Shown on top of the canvas when no image is loaded.
 
     Tracks the canvas rather than the window: hiding a dock resizes the canvas
-    without resizing the window, which used to leave this stranded off-centre
-    while the floating toolbar (which the canvas lays out) moved with it.
+    without resizing the window.
     """
 
     add_files_requested = pyqtSignal()
@@ -105,7 +107,7 @@ class _EmptyStateOverlay(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(12)
+        layout.setSpacing(THEME.space_xl)
 
         self.load_btn = labeled_action(
             "fa5s.folder-open", tr("Load Scans…"), tr("Import a folder as a roll, add single files, or scan film"), primary=True
@@ -136,6 +138,13 @@ class _EmptyStateOverlay(QWidget):
         super().resizeEvent(event)
         if self.parent():
             self.setGeometry(self.parent().rect())
+
+
+# (canvas, Film Strip) heights until the splitter is first dragged; Qt scales them to the window.
+_STRIP_DEFAULT_SPLIT = (700, 300)
+_CANVAS_MIN_HEIGHT = 120
+# The Film Strip section's key, so a strip folded before keeps its fold.
+_STRIP_EXPANDED_KEY = "section_expanded_frames"
 
 
 class MainWindow(QMainWindow):
@@ -235,16 +244,14 @@ class MainWindow(QMainWindow):
                 self.controller.restore_session()
                 self._schedule_onboarding()
                 return
-        self.session_panel.show_library(ask_if_unset=False)
+        self.show_library(ask_if_unset=False)
         self._schedule_onboarding()
 
     def _schedule_onboarding(self) -> None:
         """Runs after the restore question, so the first-run tour never opens under a message box."""
         repo = self.controller.session.repo
         if not repo.get_global_setting("tutorial_seen", False):
-            QTimer.singleShot(600, self.show_tutorial)  # the scan-setup wizard follows the tour
-        elif repo.get_global_setting("scan_setup") is None:
-            QTimer.singleShot(600, self.show_scan_setup)
+            QTimer.singleShot(600, self.show_tutorial)
 
     def _refresh_monitor_profile(self, force: bool = False) -> None:
         """Detect the active screen's ICC profile and hand it to the controller, which
@@ -256,32 +263,29 @@ class MainWindow(QMainWindow):
             return
         if data is None and not self.state.monitor_profile_override and not getattr(self, "_icc_miss_notified", False):
             self._icc_miss_notified = True
-            self.canvas.hud.showMessage(tr("No monitor ICC profile detected — preview assumes sRGB"), 6000, kind="warning")
+            self.canvas.hud.showMessage(tr("No monitor ICC profile found. The preview assumes sRGB."), 6000, kind="warning")
         self.controller.set_monitor_detected(data)
 
     def _init_ui(self) -> None:
         """Setup widgets and layout."""
-        # Main Window Padding
-        self.setContentsMargins(8, 8, 8, 8)
+        self.setContentsMargins(THEME.space_lg, THEME.space_lg, THEME.space_lg, THEME.space_lg)
 
-        # Central Area
         self.central_widget = QWidget()
         self.central_layout = QVBoxLayout(self.central_widget)
         self.central_layout.setContentsMargins(0, 0, 0, 0)
-        self.central_layout.setSpacing(4)
+        self.central_layout.setSpacing(0)
 
         self.canvas = ImageCanvas(self.state)
 
         self.controller.register_canvas(self.canvas)
         self.canvas.set_controller(self.controller)
         self.toolbar = ActionToolbar(self.controller)
-        self.canvas.set_floating_toolbar(self.toolbar)
 
         self.empty_state = _EmptyStateOverlay(self.canvas)
         self.empty_state.tour_requested.connect(self.show_tutorial)
-        # session_panel is built further down; resolve the browser lazily.
-        self.empty_state.add_files_requested.connect(lambda: self.session_panel.file_browser.prompt_add_files())
-        self.empty_state.import_roll_requested.connect(lambda: self.session_panel.library_tree.prompt_import_folder())
+        # The browser and the right panel are built further down; resolve them lazily.
+        self.empty_state.add_files_requested.connect(lambda: self.file_browser.prompt_add_files())
+        self.empty_state.import_roll_requested.connect(lambda: self.right_panel.library_tree.prompt_import_folder())
         self.empty_state.scan_requested.connect(self._show_scan_tab)
         self.empty_state.raise_()
 
@@ -293,7 +297,7 @@ class MainWindow(QMainWindow):
                 0,
                 lambda: self.canvas.hud.showMessage(
                     tr(
-                        "GPU viewport failed to start — display runs on the CPU ({gpu_viewport_failed})",
+                        "GPU viewport failed to start, so the display runs on the CPU ({gpu_viewport_failed})",
                         gpu_viewport_failed=self.state.gpu_viewport_failed,
                     ),
                     8000,
@@ -310,8 +314,28 @@ class MainWindow(QMainWindow):
         self.central_splitter.addWidget(self.reference_pane)
         self.central_splitter.addWidget(self.central_stack)
         self.central_splitter.setCollapsible(1, False)
-        self.central_layout.addWidget(self.central_splitter, stretch=1)
-        self._panels_before_light_table: list = []
+        # The Film Strip under the canvas, the toolbar at the window's bottom: the splitter sets the
+        # strip's height, the toolbar's chevron collapses it.
+        self.file_browser = FileBrowser(self.controller)
+        self.toolbar.set_roll_row(self.file_browser.roll_row)
+        self.strip_pane = QWidget()
+        pane_layout = QVBoxLayout(self.strip_pane)
+        pane_layout.setContentsMargins(0, 0, 0, 0)
+        pane_layout.setSpacing(0)
+        pane_layout.addWidget(self.file_browser, 1)
+        pane_layout.addWidget(self.toolbar)
+        self.strip_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.strip_splitter.setObjectName("strip_splitter")
+        self._strip_handle_width = self.strip_splitter.handleWidth()
+        self._sync_strip_handle()
+        self.strip_splitter.addWidget(self.central_splitter)
+        self.strip_splitter.addWidget(self.strip_pane)
+        self.strip_splitter.setCollapsible(0, False)
+        self.strip_splitter.setCollapsible(1, False)
+        self.strip_splitter.setStretchFactor(0, 1)
+        self.strip_splitter.setStretchFactor(1, 0)
+        self.central_layout.addWidget(self.strip_splitter, stretch=1)
+        self._strip_open_before_light_table = True
 
         self.setCentralWidget(self.central_widget)
 
@@ -324,27 +348,22 @@ class MainWindow(QMainWindow):
         )
         self.drawer.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
-        self.right_panel = RightPanel(self.controller)
+        self.right_panel = RightPanel(self.controller, library_tree=self.file_browser.library_tree)
         # Back-compat alias: tutorial, keyboard shortcuts, and _sync_tool_buttons reach feature sidebars here.
         self.controls_panel = self.right_panel.controls_panel
+        geo = self.controls_panel.geometry_sidebar
+        geo.rot_l_btn.clicked.connect(lambda: self.toolbar.rotate(1))
+        geo.rot_r_btn.clicked.connect(lambda: self.toolbar.rotate(-1))
+        geo.flip_h_btn.clicked.connect(lambda: self.toolbar.flip("horizontal"))
+        geo.flip_v_btn.clicked.connect(lambda: self.toolbar.flip("vertical"))
 
         # Object names are required for saveState/restoreState to identify the docks.
         self.drawer.setObjectName("controls_dock")
         self.drawer.setWidget(self.right_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.drawer)
 
-        self.session_dock = PinnableDockWidget(
-            tr("Session"),
-            self,
-            pin_tooltip=tooltip_with_shortcut(tr("Dock session panel to left"), "toggle_left_panel"),
-            on_pin=self.dock_session_panel,
-        )
-        self.session_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.session_dock.setObjectName("session_dock")
-        self.session_panel = SessionPanel(self.controller)
-        self.session_dock.setWidget(self.session_panel)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
-        self.central_stack.addWidget(self.session_panel.file_browser.light_table_view)
+        self.central_stack.addWidget(self.file_browser.light_table_view)
+        self.update_notice = UpdateNotice(self, self.controller.session.repo)
 
         # Snapshot the pristine layout, with both docked at their home edges at default widths,
         # so the pin and Reset Panel Layout restore the true original position and size rather
@@ -356,14 +375,24 @@ class MainWindow(QMainWindow):
         if isinstance(saved_docks, str) and saved_docks:
             self.restoreState(QByteArray.fromBase64(saved_docks.encode("ascii")))
         # The visibility keys are what the toggles write, so they win over the dock snapshot.
-        self.session_dock.setVisible(repo.get_global_setting("panel_left_visible", True))
         self.drawer.setVisible(repo.get_global_setting("panel_right_visible", True))
+        saved_strip = repo.get_global_setting("film_strip_splitter_sizes")
+        if isinstance(saved_strip, list) and len(saved_strip) == 2:
+            self.strip_splitter.setSizes([int(s) for s in saved_strip])
+        else:
+            self.strip_splitter.setSizes(list(_STRIP_DEFAULT_SPLIT))
+        self._strip_open_height = self.strip_splitter.sizes()[1]
+        self.strip_splitter.splitterMoved.connect(self._on_strip_splitter_moved)
+        expanded = bool(repo.get_global_setting(_STRIP_EXPANDED_KEY, True))
+        self.file_browser.setVisible(expanded)
+        self.toolbar.set_strip_expanded(expanded)
+        self._apply_strip_constraints(expanded)
 
     TOOL_LABELS: dict[ToolMode, str] = {
         ToolMode.WB_PICK: tr("WB Picker"),
-        ToolMode.CROP_MANUAL: "Crop",
-        ToolMode.DUST_PICK: tr("Heal Tool"),
-        ToolMode.CLONE: tr("Clone Tool"),
+        ToolMode.CROP_MANUAL: tr("Crop"),
+        ToolMode.DUST_PICK: tr("Heal"),
+        ToolMode.CLONE: tr("Clone"),
     }
 
     def _update_title(self) -> None:
@@ -377,15 +406,18 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle(tr("NegPy"))
 
-    def _on_immersive_changed(self) -> None:
-        if getattr(self, "_last_immersive", None) != self.controller.session.state.immersive_canvas:
-            self._last_immersive = self.controller.session.state.immersive_canvas
-            self.canvas.fit_to_window()
-
     def _show_scan_tab(self) -> None:
         if not self.drawer.isVisible():
             self.toggle_controls_dock()
         self.right_panel.show_tab_by_key("scan")
+
+    def show_library(self, ask_if_unset: bool = True) -> None:
+        """Open the Library tab, offering an import when there is no roll yet."""
+        if ask_if_unset and not self.controller.has_rolls():
+            self.right_panel.library_tree.prompt_import_folder()
+        if not self.drawer.isVisible():
+            self.toggle_controls_dock()
+        self.right_panel.show_tab_by_key("library")
 
     def show_tutorial(self) -> None:
         from negpy.desktop.view.widgets.tutorial_steps import build
@@ -396,10 +428,6 @@ class MainWindow(QMainWindow):
         repo = self.controller.session.repo
         repo.save_global_setting("tutorial_seen", True)
         repo.save_global_setting("tutorial_resume", 0 if completed else self.tutorial_overlay.index)
-        # Unset only until the wizard is answered once, so replaying the tour later from the
-        # menu does not ask again.
-        if repo.get_global_setting("scan_setup") is None:
-            QTimer.singleShot(0, self.show_scan_setup)
 
     def show_about(self) -> None:
         from negpy.kernel.system.version import GITHUB_REPO, get_app_version
@@ -426,46 +454,61 @@ class MainWindow(QMainWindow):
     def show_command_palette(self) -> None:
         CommandPalette(self).exec()
 
-    def show_scan_setup(self) -> None:
-        from negpy.desktop.view.widgets.scan_setup_dialog import ScanSetupDialog
-
-        repo = self.controller.session.repo
-        dlg = ScanSetupDialog(self, repo.get_global_setting("scan_setup"), repo=repo)
-        # Cancel leaves scan_setup unset: an unanswered wizard is not an answer, so it asks again.
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            choice = dlg.choice()
-            self.controller.apply_scan_setup(**choice)
-            self.right_panel.show_scan_source("camera" if choice["capture"] == "camera" else "film")
-
     def _restore_default_dock_state(self) -> None:
-        """Restore both docks to the snapshot taken at startup (home edge + width)."""
+        """Restore the controls dock to the snapshot taken at startup (home edge + width)."""
         if self._default_dock_state is not None:
             self.restoreState(self._default_dock_state)
 
-    def dock_session_panel(self) -> None:
-        # Restore the pristine layout, which returns this panel to its original edge and width,
-        # but preserve the other panel's current visibility so pinning one never forces the
-        # other to reappear.
-        right_visible = self.drawer.isVisible()
-        self._restore_default_dock_state()
-        self.drawer.setVisible(right_visible)
-        self.session_dock.setVisible(True)
-        self.controller.session.repo.save_global_setting("panel_left_visible", True)
-
     def dock_controls_panel(self) -> None:
-        left_visible = self.session_dock.isVisible()
         self._restore_default_dock_state()
-        self.session_dock.setVisible(left_visible)
         self.drawer.setVisible(True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
 
-    def toggle_session_dock(self) -> None:
-        if self.session_dock.isFloating():
-            self.dock_session_panel()
+    def _apply_strip_constraints(self, expanded: bool) -> None:
+        """A collapsed Film Strip is exactly its toolbar tall, so no drag can open an empty pane;
+        expanding gives back the height it had open."""
+        # Collapsed, the canvas sits on the toolbar with no handle between.
+        self.strip_splitter.setHandleWidth(self._strip_handle_width if expanded else 0)
+        fit_pane(self.strip_splitter, 1, expanded, self._strip_open_height, self.toolbar.sizeHint().height(), _CANVAS_MIN_HEIGHT)
+
+    def _sync_strip_handle(self) -> None:
+        """The handle above the strip takes the table's color and no grip, so it reads as the strip's top edge."""
+        color = table_color(self.state.canvas_bg_index)
+        self.strip_splitter.setStyleSheet(f"QSplitter#strip_splitter::handle {{ background: {color}; }}")
+
+    def _on_strip_splitter_moved(self, *_args) -> None:
+        if not self.film_strip_expanded():
             return
-        visible = not self.session_dock.isVisible()
-        self.session_dock.setVisible(visible)
-        self.controller.session.repo.save_global_setting("panel_left_visible", visible)
+        self._strip_open_height = self.strip_splitter.sizes()[1]
+        self.controller.session.repo.save_global_setting("film_strip_splitter_sizes", self.strip_splitter.sizes())
+
+    def film_strip_expanded(self) -> bool:
+        return not self.file_browser.isHidden()
+
+    def set_film_strip_expanded(self, expanded: bool, persist: bool = True) -> None:
+        if not expanded and self.film_strip_expanded():
+            self._strip_open_height = self.strip_pane.height()
+        self.file_browser.setVisible(expanded)
+        self.toolbar.set_strip_expanded(expanded)
+        if persist:
+            self.controller.session.repo.save_global_setting(_STRIP_EXPANDED_KEY, expanded)
+        self._apply_strip_constraints(expanded)
+
+    def toggle_film_strip(self) -> None:
+        self.set_film_strip_expanded(not self.film_strip_expanded())
+
+    def focus_search(self) -> None:
+        """The filter sits on the toolbar's Roll row and filters the strip, which opens for it."""
+        self.toolbar.set_mode("roll")
+        if not self.film_strip_expanded():
+            self.set_film_strip_expanded(True)
+        self.file_browser.focus_search()
+
+    def reveal_strip_widget(self, target: QWidget) -> None:
+        """Bring a toolbar or Film Strip control into view, for the tour."""
+        self.toolbar.reveal(target)
+        if self.file_browser.isAncestorOf(target) and not self.film_strip_expanded():
+            self.set_film_strip_expanded(True)
 
     def toggle_controls_dock(self) -> None:
         if self.drawer.isFloating():
@@ -476,12 +519,12 @@ class MainWindow(QMainWindow):
         self.controller.session.repo.save_global_setting("panel_right_visible", visible)
 
     def toggle_side_panels(self) -> None:
-        show = not (self.session_dock.isVisible() or self.drawer.isVisible())
-        for dock, key in ((self.session_dock, "panel_left_visible"), (self.drawer, "panel_right_visible")):
-            if dock.isFloating():
-                continue
-            dock.setVisible(show)
-            self.controller.session.repo.save_global_setting(key, show)
+        """Hide the controls panel and collapse the Film Strip together, or bring both back."""
+        show = not (self.film_strip_expanded() or self.drawer.isVisible())
+        if not self.drawer.isFloating():
+            self.drawer.setVisible(show)
+            self.controller.session.repo.save_global_setting("panel_right_visible", show)
+        self.set_film_strip_expanded(show)
 
     def toggle_reference(self) -> None:
         if self.reference_pane.isVisible():
@@ -519,23 +562,22 @@ class MainWindow(QMainWindow):
             self.set_light_table(False)
 
     def set_light_table(self, on: bool) -> None:
-        """Both side panels hide while the grid shows, so it has the whole window; their saved
-        visibility is untouched. Esc, Shift+G or opening a frame leaves it."""
-        browser = self.session_panel.file_browser
-        # Both panels hide with it, so an empty grid would have no way back but Esc.
+        """The grid takes the place of the canvas and the Film Strip, over the toolbar; the controls panel
+        stays as it is. Esc, Shift+G, the toolbar's grid button or opening a frame leaves it."""
         if on and self.controller.session.asset_model.rowCount() == 0:
             on = False
             self.controller.set_status(tr("No frames match the filter") if self.state.uploaded_files else tr("No frames loaded"), 3000)
-        browser.light_table_btn.blockSignals(True)
-        browser.light_table_btn.setChecked(on)
-        browser.light_table_btn.blockSignals(False)
+        button = self.toolbar.btn_light_table
+        button.blockSignals(True)
+        button.setChecked(on)
+        button.blockSignals(False)
         if on == self.light_table_active():
             return
-        view = browser.light_table_view
+        self.toolbar.set_light_table(on)
+        view = self.file_browser.light_table_view
         if on:
-            self._panels_before_light_table = [d for d in (self.session_dock, self.drawer) if d.isVisible() and not d.isFloating()]
-            for dock in self._panels_before_light_table:
-                dock.setVisible(False)
+            self._strip_open_before_light_table = self.film_strip_expanded()
+            self.set_film_strip_expanded(False, persist=False)
             self.central_stack.setCurrentIndex(1)
             row = self.controller.session.asset_model.actual_to_display(self.state.selected_file_idx)
             if row >= 0:
@@ -543,30 +585,42 @@ class MainWindow(QMainWindow):
             view.setFocus()
         else:
             self.central_stack.setCurrentIndex(0)
-            for dock in self._panels_before_light_table:
-                dock.setVisible(True)
+            self.set_film_strip_expanded(self._strip_open_before_light_table, persist=False)
+
+    def _sync_frames_per_row(self) -> None:
+        table = self.file_browser.light_table_view
+        self.toolbar.set_frames_per_row(table.columns(), *table.column_range())
 
     def reset_panel_layout(self) -> None:
-        """Restore both side panels to their original edges, widths and visibility."""
+        """Restore the controls panel to its original edge and width, show it and expand the Film Strip."""
         self._restore_default_dock_state()
-        self.session_dock.setVisible(True)
         self.drawer.setVisible(True)
-        self.controller.session.repo.save_global_setting("panel_left_visible", True)
+        self.set_film_strip_expanded(True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
         self.canvas.hud.showMessage(tr("Panel layout reset"), timeout=1500)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
-        browser = self.session_panel.file_browser
-        browser.light_table_btn.toggled.connect(self.set_light_table)
+        browser = self.file_browser
+        self.controller.session.canvas_bg_changed.connect(self._sync_strip_handle)
         browser.light_table_opened.connect(lambda: self.set_light_table(False))
-        self.session_panel.update_found.connect(self.toolbar.set_update_available)
+        table = browser.light_table_view
+        self.toolbar.frames_per_row.valueChanged.connect(lambda columns: table.set_columns(round(columns)))
+        table.columns_changed.connect(self._sync_frames_per_row)
+        self._sync_frames_per_row()
+        browser.library_requested.connect(self.show_library)
+        library = self.right_panel.library_tree
+        # An imported, renamed or deleted roll leaves the cached search walk describing a library
+        # that no longer exists.
+        library.rolls_changed.connect(self.controller.invalidate_library_walk)
+        self.controller.library_cleared.connect(library.reload)
+        self.controller.library_cleared.connect(self.controller.invalidate_library_walk)
+        self.update_notice.update_found.connect(self.toolbar.set_update_available)
         self.controller.session.state_changed.connect(self._update_title)
-        self.controller.session.state_changed.connect(self._on_immersive_changed)
 
         # visibilityChanged only mirrors the button, and it also fires on close and minimize, so
         # persist in the toggle methods instead and the saved state survives exit.
-        self.toolbar.btn_toggle_left.clicked.connect(self.toggle_session_dock)
+        self.toolbar.btn_toggle_strip.clicked.connect(self.toggle_film_strip)
         self.toolbar.btn_toggle_right.clicked.connect(self.toggle_controls_dock)
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.preview_loaded.connect(self._refresh_image_info)
@@ -656,6 +710,11 @@ class MainWindow(QMainWindow):
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
+        # Parented to the window, so Qt drops the app-wide filter when the window goes.
+        self.shortcut_hints = ShortcutHints(
+            self.controller.session.state, lambda text: self.canvas.hud.showMessage(text, HINT_MS), parent=self
+        )
+        QApplication.instance().installEventFilter(self.shortcut_hints)
 
         self.progress_dialog = ProgressDialog(self)
         self.controller.batch_started.connect(self._on_batch_started)
@@ -720,15 +779,6 @@ class MainWindow(QMainWindow):
             self.controller.set_status(tr("Printing notes saved: {value}", value=os.path.basename(path)), 4000)
         else:
             self.controller.set_status(tr("Could not write {path}", path=path), 4000, kind="error")
-
-    def _display_buffer_for_canvas(self, buffer):
-        if isinstance(buffer, GPUTexture):
-            buffer = buffer.readback()
-
-        if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
-            return buffer[:, :, :3]
-
-        return buffer
 
     def _on_loading_started(self) -> None:
         """Keep the previous frame visible (dimmed) under a spinner instead of blanking."""
@@ -815,7 +865,7 @@ class MainWindow(QMainWindow):
                 st.config,
                 os.path.basename(st.current_file_path),
                 f"{w} x {h} px",
-                str(st.config.process.process_mode),
+                MODE_LABELS[st.config.process.process_mode],
                 frame_position(self.controller.session.asset_model, st.selected_file_idx),
                 proof,
             )
@@ -841,9 +891,11 @@ class MainWindow(QMainWindow):
 
     def _on_export_finished(self, elapsed: float, errors: list) -> None:
         self.canvas.hud.hide_progress()
-        msg = f"Export complete in {elapsed:.2f}s"
-        if errors:
-            msg += f" — {len(errors)} failed"
+        msg = (
+            tr("Export complete in {value:.2f}s, {failed} failed", value=elapsed, failed=count_of(len(errors), "file"))
+            if errors
+            else tr("Export complete in {value:.2f}s", value=elapsed)
+        )
         self.canvas.hud.showMessage(msg, timeout=6000 if errors else 3000, kind="warning" if errors else "info")
         if errors:
             # A toast holds one line and the next one replaces it; the box keeps every file.
@@ -878,9 +930,8 @@ class MainWindow(QMainWindow):
         mode = self.state.active_tool
         self.canvas.set_tool_mode(mode)
 
-        # We access buttons through the controls panel
         self.controls_panel.color_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
-        self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
+        self.controls_panel.autocrop_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
         self.controls_panel.retouch_sidebar.clone_btn.setChecked(mode == ToolMode.CLONE)
 
@@ -899,7 +950,7 @@ class MainWindow(QMainWindow):
         if len(paths) == 1 and os.path.isdir(paths[0]):
             # The same courtesy as Add folder: a dropped folder that only holds subfolders shows
             # them rather than reporting that it found nothing.
-            self.session_panel.file_browser.open_or_browse(paths[0])
+            self.file_browser.open_or_browse(paths[0])
         elif paths:
             self.controller.request_asset_discovery(paths, auto_open=True)
         event.acceptProposedAction()

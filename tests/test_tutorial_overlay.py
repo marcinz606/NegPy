@@ -16,8 +16,13 @@ from negpy.desktop.view.widgets.tutorial_overlay import Offer, TutorialOverlay, 
 from negpy.desktop.view.widgets.tutorial_steps import build
 
 
+# Python owns the hosts: a host the collector frees mid-test deletes its overlay while Qt paints it.
+_HOSTS: list[QMainWindow] = []
+
+
 def _host() -> QMainWindow:
     win = QMainWindow()
+    _HOSTS.append(win)
     win.setGeometry(100, 100, 900, 700)
     win.show()
     return win
@@ -44,7 +49,7 @@ def test_built_steps_are_consistent() -> None:
     assert [s.chapter for s in steps] == [c for c in chapters for s in steps if s.chapter == c]
     for s in steps:
         words = len(re.sub(r"<[^>]+>", " ", s.body).split())
-        assert words <= 60, f"{s.title}: {words} words"
+        assert words <= 40, f"{s.title}: {words} words"
         assert not s.guide[0] or has_guide(s.guide[0]), f"{s.title}: no guide for {s.guide[0]}"
         assert bool(s.task) == (s.watch is not None), s.title
 
@@ -300,3 +305,9 @@ def test_focus_control_gets_a_ring_and_stays_clickable() -> None:
     assert mask.contains(QPoint(int(rect.left()) - 4, int(rect.center().y())))
     assert not mask.contains(QPoint(int(rect.left()) - 20, int(rect.center().y())))
     overlay.dismiss()
+
+
+def test_a_saved_step_past_a_shorter_tour_lands_on_its_last_step() -> None:
+    overlay, _ = _started(_host(), [TutorialStep("A", "One", "x", lambda _: None), TutorialStep("A", "Two", "y", lambda _: None)])
+    overlay.goto(40)
+    assert overlay.index == 1

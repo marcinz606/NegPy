@@ -9,23 +9,24 @@ from typing import Optional, Sequence, Union
 
 from negpy.features.metadata.gear_models import Camera, DevelopmentProcess, FilmStock, GearLibrary, Lens, ScanSetup
 from negpy.features.metadata.models import PUSH_PULL_LABELS, MetadataConfig
+from negpy.kernel.system.i18n import mark
 
 GearItem = Union[Camera, Lens, FilmStock, DevelopmentProcess, ScanSetup]
 
 CATEGORY_SINGULAR: dict[str, str] = {
-    "cameras": "Camera",
-    "lenses": "Lens",
-    "film_stocks": "Film Stock",
-    "processes": "Process",
-    "scan_setups": "Scan Setup",
+    "cameras": mark("Camera"),
+    "lenses": mark("Lens"),
+    "film_stocks": mark("Film Stock"),
+    "processes": mark("Process"),
+    "scan_setups": mark("Scan Setup"),
 }
 
 CATEGORY_SEARCH_PLACEHOLDER: dict[str, str] = {
-    "cameras": "Search cameras…",
-    "lenses": "Search lenses…",
-    "film_stocks": "Search film stocks…",
-    "processes": "Search processes…",
-    "scan_setups": "Search scan setups…",
+    "cameras": mark("Search cameras…"),
+    "lenses": mark("Search lenses…"),
+    "film_stocks": mark("Search film stocks…"),
+    "processes": mark("Search processes…"),
+    "scan_setups": mark("Search scan setups…"),
 }
 
 # Sentinel row appended by own_gear_entries(): picking it means "not in my own gear",

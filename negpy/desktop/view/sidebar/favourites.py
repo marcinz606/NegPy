@@ -28,7 +28,8 @@ class FavouritesSidebar(BaseSidebar):
     the slider out of its home section. The mirror forwards to the original, which keeps its
     existing binding, mode-gating and channel-retargeting intact."""
 
-    SIDE_MARGIN = 5
+    # No card here, so the mirrors take the inset a card gives its content.
+    SIDE_MARGIN = THEME.space_xl
 
     def __init__(self, controller: AppController, controls):
         self.controls = controls
@@ -38,15 +39,14 @@ class FavouritesSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         row = QHBoxLayout()
         self.edit_btn = self._labeled_action(
-            "fa5s.sliders-h", tr(" Edit Favorites"), tr("Choose which sliders appear here, and in what order")
+            "fa5s.sliders-h", tr("Edit Favorites"), tr("Choose which sliders appear here, and in what order")
         )
         self.edit_btn.clicked.connect(self._open_editor)
         row.addWidget(self.edit_btn)
         row.addStretch()
         self.layout.addLayout(row)
 
-        self.empty_hint = hint_label(tr("No favorites yet — use Edit Favorites to pick the sliders you reach for most."))
-        self.empty_hint.setWordWrap(True)
+        self.empty_hint = hint_label(tr("No favorites yet. Use Edit Favorites to pick the sliders you use most."))
         self.layout.addWidget(self.empty_hint)
 
         self._container = QWidget()
@@ -101,6 +101,6 @@ class FavouritesSidebar(BaseSidebar):
                 clone.set_default(src.default_value())
             clone.setValue(src.value())
             # Only mode gating should hide a mirror. A collapsed section or an off-screen tab must
-            # not. B&W hides the whole Colour section, so isHidden() alone misses it.
+            # not. B&W hides the whole Filtration card, so isHidden() alone misses it.
             clone.setVisible(not hidden_by_gating(src))
             clone.setEnabled(src.isEnabled())

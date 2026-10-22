@@ -142,7 +142,7 @@ def test_the_frame_boundary_is_outlined_once_there_is_a_frame() -> None:
     on_edge = shot.pixelColor(rect.left(), rect.top() + rect.height() // 2)
     inside = shot.pixelColor(rect.left() + rect.width() // 2, rect.top() + rect.height() // 2)
     # The house red, undiluted, with the picture itself left alone.
-    assert on_edge.name() == QColor(THEME.accent_primary).name()
+    assert on_edge.name() == QColor(THEME.mark_photo).name()
     assert inside.red() == 0
 
 

@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optiona
 
 from negpy.features.exposure.normalization import BOUNDS_VERSION
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
-from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.process.models import neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts
 
@@ -572,7 +571,6 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     "sensor": (
         "process",
         (
-            "linear_raw",
             "sensor_profile",
             "sensor_matrix",
             "sensor_unmix",
@@ -586,7 +584,8 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             "hue_trim",
         ),
     ),
-    "demosaic": ("process", ("demosaic_preview", "demosaic_export", "highlight_reconstruction")),
+    # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
+    "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
     "process": (
         "process",
         (
@@ -609,16 +608,6 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # analysis. locked_floors/locked_ceils themselves stay Roll Analysis's own job to
     # spread (a metering run, not an edit).
     "baseline": ("process", ("use_luma_average", "use_color_average", "use_cast_average")),
-    # The film edge, the rebate width and the format's shape are properties of the roll,
-    # not of one frame. The rect autocrop finds from them is not: it stays each frame's own.
-    # The Calibration card's second half: how strongly the stock's own cast is balanced out
-    # is a fact of the film, like its crosstalk. It lives on ExposureConfig, so it is its
-    # own card, driven by the Calibration section alongside "sensor".
-    "cast_removal": ("exposure", ("cast_removal_strength",)),
-    "autocrop": ("geometry", ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio", "autocrop_square")),
-    # Auto Crop's on/off, driven by the Crop section alongside "autocrop". Its own card, so a
-    # frame with a hand-drawn crop still takes the roll's shape but not this (holds_own_crop).
-    "auto_crop": ("geometry", ("crop_from_auto",)),
     "lens": ("geometry", ("distortion_k1", "lens_distortion_from_metadata", "lens_ca_from_metadata")),
     # profile_id also has a rig-global fallback, applied upstream of roll defaults, so a
     # roll that names no profile of its own still gets the active one.
@@ -700,6 +689,21 @@ def restore_roll_fields(repo: Any, roll_id: str, snapshot: Dict[str, Any]) -> No
     _write(repo, store)
 
 
+def frame_seed(repo: Any, roll_id: str) -> Dict[str, Any]:
+    """The roll's values for fields that left its cards, which a frame with no saved edit still starts from."""
+    entry = roll_for_id(repo, roll_id)
+    return dict(entry.get("frame_seed", {})) if entry else {}
+
+
+def add_frame_seed(repo: Any, roll_id: str, **fields: Any) -> None:
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    entry["frame_seed"] = {**entry.get("frame_seed", {}), **fields}
+    _write(repo, store)
+
+
 def roll_fields_snapshot(repo: Any, roll_id: str, names) -> Dict[str, Any]:
     """The roll's current value for each named field, or a marker where it has none."""
     defaults = roll_defaults(repo, roll_id)
@@ -749,14 +753,6 @@ def set_frame_override(repo: Any, roll_id: str, file_hash: str, card_key: str, l
     _write(repo, store)
 
 
-def holds_own_crop(card_key: str, config: "WorkspaceConfig") -> bool:
-    """Whether *card_key* is Auto Crop on a frame with a hand-drawn crop. That frame's Auto
-    Crop off is its placement: the roll's value never reaches it, it never pushes to the
-    roll, and it never locks the card."""
-    geometry = config.geometry
-    return card_key == "auto_crop" and geometry.crop_rect is not None and not geometry.crop_from_auto
-
-
 def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":
     """Overlay this roll's defaults onto *config* for every card the frame has not
     locked to its own value. No roll, no defaults set yet, or every relevant card
@@ -769,13 +765,12 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     locked_cards = frame_override_cards(repo, roll_id, file_hash)
     by_section: Dict[str, Dict[str, Any]] = {}
     for card_key, (section, field_names) in ROLL_DEFAULT_FIELDS.items():
-        if card_key in locked_cards or holds_own_crop(card_key, config):
+        if card_key in locked_cards:
             continue
         for name in field_names:
             if name in defaults:
                 by_section.setdefault(section, {})[name] = defaults[name]
     config = with_film_fields(config, by_section.get("process", {}))
-    config = with_auto_crop_field(config, by_section.get("geometry", {}))
     for section, updates in by_section.items():
         config = replace(config, **{section: replace(getattr(config, section), **updates)})
     return config

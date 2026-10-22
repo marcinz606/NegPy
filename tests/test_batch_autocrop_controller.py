@@ -75,51 +75,24 @@ class TestBatchAutoCropController:
         assert self.tasks[0].generation == self.controller._autocrop_batch_token
         self.controller._on_batch_autocrop_cancelled()
 
-    def test_request_skips_only_frames_locked_with_auto_crop_off(self) -> None:
+    def test_request_takes_a_frame_with_auto_crop_off(self) -> None:
+        """Crop is each frame's own: the run crops every frame without a hand-drawn crop."""
         files = [
-            {"name": "a.dng", "path": "/roll/a.dng", "hash": "a"},
             {"name": "off.dng", "path": "/roll/off.dng", "hash": "off"},
             {"name": "on.dng", "path": "/roll/on.dng", "hash": "on"},
         ]
         self.controller.state.uploaded_files = files
-        self.controller.state.current_file_hash = "a"
+        self.controller.state.current_file_hash = "off"
         self.controller.state.current_file_path = files[0]["path"]
         self.controller.state.config = WorkspaceConfig()
         self.controller.state.active_roll_id = "roll"
         armed = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_from_auto=True))
-        self.session.config_for_asset.side_effect = lambda asset: armed if asset["hash"] == "on" else WorkspaceConfig()
+        self.session.config_for_asset.side_effect = lambda asset: armed
 
-        with patch(
-            "negpy.desktop.controller.rolls.frame_override_cards",
-            side_effect=lambda _repo, _roll, file_hash: {"auto_crop"} if file_hash in ("off", "on") else set(),
-        ):
-            self.controller.request_batch_auto_crop()
+        self.controller.request_batch_auto_crop()
 
-        assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["a", "on"]
+        assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["off", "on"]
         self.controller._on_batch_autocrop_cancelled()
-
-    def test_finish_locks_a_crop_the_rolls_auto_crop_off_would_clear(self) -> None:
-        asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
-        other = WorkspaceConfig()
-        self.controller.state.current_file_hash = "a"
-        self.controller.state.active_roll_id = "another roll"
-        self.session.config_for_asset.return_value = other
-        token = self.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
-        self.controller._autocrop_batch_token = token
-        self.controller._autocrop_frame_rolls = {"b": "roll"}
-        self.controller._autocrop_dispatched = 1
-        self.controller._autocrop_preflight_skipped = 0
-        result = BatchAutoCropResult(
-            asset, _autocrop_fingerprint(other, self.controller.state.workspace_color_space), (0.1, 0.1, 0.9, 0.9), 0.0, 0.9, False
-        )
-
-        with (
-            patch("negpy.desktop.controller.rolls.roll_defaults", return_value={"crop_from_auto": False}),
-            patch("negpy.desktop.controller.rolls.set_frame_override") as set_override,
-        ):
-            self.controller._on_batch_autocrop_finished([result])
-
-        set_override.assert_called_once_with(self.session.repo, "roll", "b", "auto_crop", True)
 
     def _finish_one(self, latest: WorkspaceConfig, started: bool, saved_now) -> None:
         asset = {"name": "b.dng", "path": "/roll/b.dng", "hash": "b"}
@@ -176,7 +149,7 @@ class TestBatchAutoCropController:
 
         self.controller._on_batch_autocrop_progress(5, 6, "frame_03.tif")
 
-        self.controller.set_status.assert_called_once_with("Auto-crop all frames 5/6: frame_03.tif")
+        self.controller.set_status.assert_called_once_with("Auto Crop 5/6: frame_03.tif")
 
     def test_batch_autocrop_uses_a_private_preview_cache(self) -> None:
         assert self.controller.batch_autocrop_preview_service is not self.controller.preview_service
@@ -407,3 +380,60 @@ class TestBatchAutoCropController:
 
         self.session.repo.save_file_settings.assert_not_called()
         assert self.controller._active_batch == "normalization"
+
+    def _roll_for_analysis(self, configs: dict) -> list:
+        files = [{"name": f"{h}.dng", "path": f"/roll/{h}.dng", "hash": h} for h in configs]
+        self.controller.state.uploaded_files = files
+        self.controller.state.current_file_hash = "none"
+        self.session.asset_model.visible_actual_indices_ordered.return_value = list(range(len(files)))
+        self.session.config_for_asset.side_effect = lambda asset: configs[asset["hash"]]
+        self.controller._confirm_normalization = MagicMock(return_value=True)
+        analysed = []
+        self.controller.normalization_requested.connect(analysed.append)
+        return analysed
+
+    def _armed_and_found(self):
+        base = WorkspaceConfig()
+        armed = replace(base, geometry=replace(base.geometry, crop_from_auto=True))
+        geometry = replace(armed.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9))
+        found = replace(base, geometry=replace(geometry, crop_detect_key=autocrop_detection_key(geometry)))
+        return base, armed, found
+
+    def test_roll_analysis_crops_the_frames_waiting_for_auto_crop_first(self) -> None:
+        """An armed frame has no crop yet, so it would meter its film border."""
+        off, armed, found = self._armed_and_found()
+        analysed = self._roll_for_analysis({"off": off, "armed": armed, "found": found})
+
+        with patch("negpy.desktop.controller.rolls.scene_by_hash", return_value={}):
+            self.controller.request_batch_normalization()
+            assert [frame.file_info["hash"] for frame in self.tasks[0].frames] == ["armed"]
+            assert analysed == []
+
+            self.controller._on_batch_autocrop_finished([])
+
+        assert [frame.file_info["hash"] for frame in analysed[0].frames] == ["off", "armed", "found"]
+        self.controller._confirm_normalization.assert_called_once()
+        assert self.controller._active_batch == "normalization"
+
+    def test_a_cancelled_crop_run_starts_no_analysis(self) -> None:
+        _off, armed, _found = self._armed_and_found()
+        analysed = self._roll_for_analysis({"armed": armed})
+
+        with patch("negpy.desktop.controller.rolls.scene_by_hash", return_value={}):
+            self.controller.request_batch_normalization()
+            self.controller._on_batch_autocrop_cancelled()
+            assert self.controller._active_batch is None
+            self.controller.request_batch_auto_crop()
+            self.controller._on_batch_autocrop_finished([])
+
+        assert analysed == []
+
+    def test_roll_analysis_with_every_crop_found_starts_at_once(self) -> None:
+        off, _armed, found = self._armed_and_found()
+        analysed = self._roll_for_analysis({"off": off, "found": found})
+
+        with patch("negpy.desktop.controller.rolls.scene_by_hash", return_value={}):
+            self.controller.request_batch_normalization()
+
+        assert self.tasks == []
+        assert len(analysed) == 1

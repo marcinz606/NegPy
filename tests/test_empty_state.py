@@ -30,7 +30,7 @@ def overlay(host):
 
 
 def test_prompt_is_a_button_not_a_label(overlay):
-    assert overlay.load_btn.text() == "Load Scans…"
+    assert overlay.load_btn.text().strip() == "Load Scans…"
     assert overlay.load_btn.isEnabled()
 
 

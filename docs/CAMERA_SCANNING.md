@@ -1,6 +1,6 @@
 # Camera Scanning
 
-The **Camera Scanning** tab captures negatives with a tethered camera and imports them
+The **Scan** tab, with **Scanner** set to **Camera**, captures negatives with a tethered camera and imports them
 into NegPy. It has two modes and picks one from the hardware it finds.
 
 ## What it does
@@ -27,7 +27,7 @@ overlap on the sensor, so pair it with a [sensor calibration](#sensor-calibratio
 | **python-gphoto2** | Optional dependency, LGPL. `pip install gphoto2`. No vendor SDK is bundled, linked or required. |
 | **Scanlight** *(optional)* | Needed for narrowband RGB only. |
 
-Without python-gphoto2, the Camera Scanning tab shows a one-line setup hint and the rest
+Without python-gphoto2, the Scan tab's Camera scanner shows a one-line setup hint and the rest
 of NegPy works as usual.
 
 > **macOS and Linux only.** libgphoto2 has no Windows build, so there are no Windows
@@ -46,7 +46,7 @@ shows the setup hint.
 Put the camera in **PC Remote** mode and plug it in over USB. NegPy detects it.
 
 > On macOS the system camera daemon claims a free PTP camera and keeps it for minutes, so
-> NegPy claims the body as soon as the Camera Scanning panel sees it. While that panel is
+> NegPy claims the body as soon as the Scan tab's Camera scanner sees it. While that scanner is
 > open, Preview, Photos, Image Capture and other tethering software cannot use the camera.
 > Unplug the cable to release it. If the camera reads as in use with nothing visible
 > running, see [Troubleshooting](#troubleshooting).

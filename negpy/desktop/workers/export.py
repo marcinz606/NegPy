@@ -31,14 +31,8 @@ from negpy.features.hdr.models import hdr_frame_paths
 from negpy.services.export.print import PrintService
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
-from negpy.services.export.contact_sheet_layout import (
-    MM_PER_INCH,
-    ContactSheetSettings,
-    SheetFormat,
-    best_dpi,
-    film_geometry,
-    plan_sheets,
-)
+from negpy.services.export.contact_sheet_layout import MM_PER_INCH, ContactSheetSettings, best_dpi, plan_rows, plan_sheets
+from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import SheetFrame, SheetLook, tile_params, turns_for
 from negpy.services.export.encoders import encode_jpeg
 
@@ -113,6 +107,8 @@ class ContactSheetJob:
     numbers: tuple[int, ...] = ()
     # Frames that start a new strip.
     breaks: tuple[int, ...] = ()
+    # Each frame's upright print aspect, which lays out the rows when Film Edges is off.
+    aspects: tuple[float, ...] = ()
 
 
 def contact_sheet_paths(out_dir: str, count: int) -> list[str]:
@@ -515,15 +511,24 @@ class ExportWorker(QObject):
         try:
             geometry = film_geometry(job.format, job.frame_size)
             settings = job.settings
-            plan = plan_sheets(settings.paper_width, settings.paper_height, geometry, len(job.frames), settings.roll_label, job.breaks)
+            if settings.film_edges:
+                plan = plan_sheets(settings.paper_width, settings.paper_height, geometry, len(job.frames), settings.roll_label, job.breaks)
+            else:
+                aspects = job.aspects or tuple(geometry.window_aspect for _ in job.frames)
+                plan = plan_rows(settings.paper_width, settings.paper_height, geometry, aspects, settings.roll_label, job.breaks)
             if not plan.pages:
                 self.error.emit(tr("Contact sheet: {reason}", reason=plan.reason))
                 self.finished.emit()
                 return
             dpi = best_dpi(settings.paper_width, settings.paper_height, settings.dpi)
             px_per_mm = dpi / MM_PER_INCH
-            window_long_px = int(math.ceil(max(geometry.frame_along, geometry.frame_across) * px_per_mm))
-            target_long_px = int(window_long_px * 1.5)
+            if settings.film_edges:
+                window_long_px = int(math.ceil(max(geometry.frame_along, geometry.frame_across) * px_per_mm))
+                target_long_px = int(window_long_px * 1.5)
+            else:
+                # A row frame takes the tile's own aspect, so the tile need only cover its longest side.
+                longest = max(max(f.width, f.height) for page in plan.pages for row in page.rows for f in row.frames)
+                target_long_px = int(math.ceil(longest * px_per_mm))
             paths = contact_sheet_paths(job.out_dir, len(plan.pages))
             os.makedirs(job.out_dir, exist_ok=True)
             icc = _srgb_icc_bytes()
@@ -533,7 +538,7 @@ class ExportWorker(QObject):
             for page_index, page in enumerate(plan.pages):
                 tiles: list[Optional[np.ndarray]] = [None] * len(job.frames)
                 turns = [0] * len(job.frames)
-                indices = [i for strip in page.strips for i in range(strip.first, strip.first + strip.count)]
+                indices = page.slots()
                 for n, index in enumerate(indices):
                     if self._cancel.is_set():
                         self.cancelled.emit()

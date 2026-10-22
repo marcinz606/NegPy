@@ -8,22 +8,30 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
+from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.desktop.view.styles.templates import gradient_icon, header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.leak.models import LeakConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
-from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode, invalidate_local_bounds
+from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
-from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, PAPER_FIELDS, TONE_FIELDS, frame_card_rows
+from negpy.desktop.settings_catalog import (
+    COLOR_FIELDS,
+    CROP_FIELDS,
+    FRAME_CARD_FIELDS,
+    GEOMETRY_FIELDS,
+    PAPER_FIELDS,
+    TONE_FIELDS,
+    frame_card_rows,
+)
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -33,12 +41,12 @@ from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
 from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
+from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.paper import PaperSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
-from negpy.desktop.view.confirm import confirm_roll_auto_crop
 from negpy.desktop.view.sidebar.autocrop import AutocropSidebar
 from negpy.desktop.view.sidebar.trichrome import TrichromeSidebar
 from negpy.desktop.view.sidebar.half_frame import HalfFrameSidebar
@@ -52,16 +60,8 @@ from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
 _DEMOSAIC_FIELDS = ("highlight_reconstruction",)
-# GeometryConfig is split across three cards. The rect auto crop resolves, the rotation
-# and the easel movements are this frame's own placement and stay on Geometry; what the
-# detector looks for and how the scanning lens bends are the roll's.
-_AUTOCROP_FIELDS = (
-    "autocrop_mode",
-    "autocrop_offset",
-    "autocrop_rebate_trim",
-    "autocrop_ratio",
-    "autocrop_square",
-)
+# GeometryConfig is split across three cards: Crop and Geometry are this frame's own,
+# and how the scanning lens bends is the roll's (Optics).
 _LENS_FIELDS = (
     "distortion_k1",
     "lens_distortion_from_metadata",
@@ -126,8 +126,6 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 # Roll-tab sections that drive more than one roll card, keyed by section key.
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {
     "optics": ("lens", "flatfield"),
-    "sensor": ("sensor", "cast_removal"),
-    "autocrop": ("autocrop", "auto_crop"),
 }
 
 
@@ -170,10 +168,10 @@ class ControlsPanel(QWidget):
 
         self.geometry_sidebar = GeometrySidebar(self.controller)
         self.geometry_section = self._make_section(
-            tr("Geometry"),
+            tr("Straighten"),
             "geometry",
             self.geometry_sidebar,
-            icon_name="fa5s.crop",
+            icon_name="fa5s.ruler",
         )
 
         self.autocrop_sidebar = AutocropSidebar(self.controller)
@@ -206,13 +204,21 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.circle-notch",
         )
 
+        self.scan_setup_sidebar = ScanSetupSidebar(self.controller)
         self.process_sidebar = ProcessSidebar(self.controller)
-        # Always expanded (no chevron): the first choice of every edit, and the one
-        # every other Roll-tab card's fields assume is already settled.
+        # Always expanded (no chevron): the first choices of every edit, and the ones
+        # every other Roll-tab card's fields assume are already settled. The roll shares
+        # the film mode; the scanning setup is one setting for the app.
+        setup_body = QWidget()
+        setup_layout = QVBoxLayout(setup_body)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
+        setup_layout.setSpacing(THEME.space_lg)
+        setup_layout.addWidget(self.process_sidebar.mode_bar)
+        setup_layout.addWidget(self.scan_setup_sidebar)
         self.film_section = self._make_section(
-            tr("Film Mode"),
+            tr("Setup"),
             "film",
-            self.process_sidebar.mode_bar,
+            setup_body,
             icon_name="mdi6.film",
             collapsible=False,
         )
@@ -238,7 +244,7 @@ class ControlsPanel(QWidget):
         baseline_body = QWidget()
         baseline_layout = QVBoxLayout(baseline_body)
         baseline_layout.setContentsMargins(0, 0, 0, 0)
-        baseline_layout.setSpacing(4)
+        baseline_layout.setSpacing(THEME.space_sm)
         baseline_layout.addWidget(self.roll_sidebar)
         baseline_layout.addWidget(self.process_sidebar.baseline_bar)
         self.baseline_section = self._make_section(
@@ -253,7 +259,7 @@ class ControlsPanel(QWidget):
         metering_body = QWidget()
         metering_layout = QVBoxLayout(metering_body)
         metering_layout.setContentsMargins(0, 0, 0, 0)
-        metering_layout.setSpacing(4)
+        metering_layout.setSpacing(THEME.space_sm)
         metering_layout.addWidget(self.process_sidebar)
         metering_layout.addWidget(self.process_sidebar.analysis_bar)
         self.metering_histogram = MiniHistogramWidget(clip_strips=False)  # the Clipping line below is the card's one clip readout
@@ -386,26 +392,26 @@ class ControlsPanel(QWidget):
                 "geometry",
                 tr("Geometry"),
                 tr("Geometry"),
-                [self.geometry_section],
-                ["geometry_section"],
+                [self.autocrop_section, self.geometry_section],
+                ["autocrop_section", "geometry_section"],
             ),
             (
                 "tone",
-                tr("Exposure — Filtration, Tone, Paper Response, Dodge & Burn"),
+                tr("Exposure: Filtration, Tone, Paper Response, Dodge & Burn"),
                 tr("Exposure"),
                 [self.color_section, self.tone_section, self.paper_section, self.local_section],
                 ["color_section", "tone_section", "paper_section", "local_section"],
             ),
             (
                 "color",
-                tr("Look — Lab, Alternative Processes, Toning"),
+                tr("Look: Lab, Alternative Processes, Toning"),
                 tr("Look"),
                 [self.lab_section, self.altproc_section, self.toning_section],
                 ["lab_section", "altproc_section", "toning_section"],
             ),
             (
                 "finish",
-                tr("Finish — Light Leak, Retouch, Finishing"),
+                tr("Finish: Light Leak, Retouch, Finishing"),
                 tr("Finish"),
                 [self.leak_section, self.retouch_section, self.finish_section],
                 ["leak_section", "retouch_section", "finish_section"],
@@ -418,7 +424,7 @@ class ControlsPanel(QWidget):
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
-            page_layout.setSpacing(8)
+            page_layout.setSpacing(THEME.space_lg)
             # A one-card tab has no header: that card's own is already the whole tab's.
             header = (
                 self._make_tab_header(title, sections, [a.removesuffix("_section") for a in section_attrs]) if len(sections) > 1 else None
@@ -461,14 +467,9 @@ class ControlsPanel(QWidget):
     @staticmethod
     def _pick_better_tooltip(printing: bool = False) -> str:
         if printing:
-            return "Printing Pick Better…"
+            return tr("Printing Pick Better…")
         return tooltip_with_shortcut(
-            tr(
-                "Pick Better: a separate window shows the current edit on top and two candidates below — "
-                "the stronger on the left, the weaker on the right. Click a candidate to keep it; the next "
-                "pair fills the same window. A fixed 22-round sequence runs first, then finer pairs. OK ends "
-                "the mode; Undo re-shows the previous pair."
-            ),
+            tr("Pick Better: shows two versions beside your edit, and each click on the better one tunes one control."),
             "toggle_pick_better",
         )
 
@@ -522,6 +523,8 @@ class ControlsPanel(QWidget):
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         # The histogram only changes on render completion, so refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
+        self._sync_clip_colors()
+        self.controller.session.color_vision_changed.connect(self._sync_clip_colors)
 
         self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(COLOR_FIELDS))
         self.tone_section.reset_requested.connect(self._reset_tone_fields)
@@ -587,7 +590,6 @@ class ControlsPanel(QWidget):
             (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
             (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),
             (self.autocrop_sidebar.square_btn, "auto_crop_square"),
-            (self.geometry_sidebar.auto_crop_btn, "auto_crop"),
             (self.autocrop_sidebar.auto_crop_all_btn, "batch_autocrop"),
             (self.tone_sidebar.auto_density_action, "toggle_auto_density"),
             (self.tone_sidebar.auto_grade_action, "toggle_auto_grade"),
@@ -610,393 +612,297 @@ class ControlsPanel(QWidget):
         fin = self.finish_sidebar
         lens.metadata_distortion_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Apply embedded scanning-lens distortion correction. Replaces manual distortion."),
+                tr("Use the file's own lens distortion correction, in place of the slider."),
                 "lens_distortion_from_metadata",
             )
         )
         lens.metadata_ca_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Apply embedded lateral chromatic aberration correction. Can be used with manual distortion."),
+                tr("Use the file's own correction for color fringes."),
                 "lens_ca_from_metadata",
             )
         )
 
         col.pick_wb_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Activate eyedropper — click a neutral gray pixel to auto-compute white balance offsets"),
+                tr("Click something in the picture that should be gray, and the color is corrected to make it gray."),
                 "pick_wb",
             )
         )
         col.temp_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Color temperature lever over the Global Magenta/Yellow white balance — moving it "
-                    "steers M/Y along the warm-cool axis (tint preserved); moving M/Y updates the readout. "
-                    "Mired-linear travel, warm right; Kelvin is nominal"
-                ),
+                tr("Makes the picture warmer or cooler."),
                 ["temp_warm", "temp_cool"],
             )
         )
         col.cyan_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Cyan↔Red white balance shift; negative = cyan, positive = red. Applies to selected region (Global/Shadows/Highlights)"),
+                tr("Shifts the color between cyan and red."),
                 ["cyan_inc", "cyan_dec"],
             )
         )
         col.magenta_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Magenta↔Green white balance shift. Applies to selected region (Global/Shadows/Highlights)"),
+                tr("Shifts the color between magenta and green."),
                 ["magenta_up", "magenta_down"],
             )
         )
         col.yellow_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Yellow↔Blue white balance shift. Applies to selected region (Global/Shadows/Highlights)"),
+                tr("Shifts the color between yellow and blue."),
                 ["yellow_up", "yellow_down"],
             )
         )
         exp.density_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker. "
-                    "With Auto Density on, it shows the metered density; moving it trims the meter"
-                ),
+                tr("How light or dark the print is, where lower is lighter."),
                 ["density_up", "density_down"],
             )
         )
         exp.grade_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Paper contrast (ISO R): R{value:.0f} is very soft, R{value1:.0f} very hard, R110 ≈ grade 2. With Auto Grade on, it shows the grade the frame prints at; moving it trims the auto",
-                    value=EXPOSURE_CONSTANTS["iso_r_max"],
-                    value1=EXPOSURE_CONSTANTS["iso_r_min"],
-                ),
+                tr("Contrast: a lower number gives more contrast, and about 110 is a normal print."),
                 ["grade_up", "grade_down"],
             )
         )
         paper.toe_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Shadow toe: positive lifts shadows for a gentle film toe; negative deepens blacks"),
+                tr("Shapes the shadows: positive lifts them, and negative makes them deeper."),
                 ["toe_inc", "toe_dec"],
             )
         )
         paper.toe_w_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("How broadly the shadow toe transition spreads into the midtones"),
+                tr("How far the Toe change reaches into the midtones."),
                 ["toe_width_inc", "toe_width_dec"],
             )
         )
         paper.sh_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Highlight shoulder: positive compresses highlights (film roll-off); negative extends them and risks clipping"),
+                tr("Shapes the highlights: positive softens them, and negative brightens them and can lose detail."),
                 ["shoulder_inc", "shoulder_dec"],
             )
         )
         paper.sh_w_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("How broadly the highlight shoulder transition spreads into the midtones"),
+                tr("How far the Shoulder change reaches into the midtones."),
                 ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
         paper.midtone_gamma_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Snap — paper midtone gamma trim: steepens or flattens the S-curve around the reference "
-                    "tone; paper white/black stay put. In R/G/B mode: this layer's Snap trim"
-                ),
+                tr("Midtone contrast, with no change to the deepest black and the paper white."),
                 ["snap_inc", "snap_dec"],
             )
         )
         exp.shadow_density_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Shadow zone density (ΔD): weighted to the deep shadows, bounded by paper black. "
-                    "Positive darkens shadows; negative lifts them. With Auto Grade on, it includes "
-                    "the automatic shadow lift"
-                ),
+                tr("Darkens (positive) or lightens (negative) only the shadows, and Auto Grade can set it too."),
                 ["shadow_density_inc", "shadow_density_dec"],
             )
         )
         exp.highlight_density_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Highlight zone density (ΔD): weighted to the highlights, bounded by paper white. "
-                    "Positive burns highlights in; negative bleaches them. With Auto Grade on, it includes "
-                    "the automatic highlight burn"
-                ),
+                tr("Darkens (positive) or lightens (negative) only the highlights, and Auto Grade can set it too."),
                 ["highlight_density_inc", "highlight_density_dec"],
             )
         )
         exp.shadow_grade_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Split grade — shadow zone contrast trim (ISO-R): rotates the curve locally in the deep "
-                    "shadows. In R/G/B mode: this layer's shadow-grade trim"
-                ),
+                tr("Contrast in the shadows only."),
                 ["shadow_grade_inc", "shadow_grade_dec"],
             )
         )
         exp.highlight_grade_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Split grade — highlight zone contrast trim (ISO-R): rotates the curve locally in the "
-                    "highlights. In R/G/B mode: this layer's highlight-grade trim"
-                ),
+                tr("Contrast in the highlights only."),
                 ["highlight_grade_inc", "highlight_grade_dec"],
             )
         )
 
-        geo.manual_crop_btn.setToolTip(
+        crop.manual_crop_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Crop: draw a crop rectangle on the canvas — drag to set, constrained by the current aspect ratio"),
+                tr("Draw: drag a crop on the picture."),
                 "manual_crop",
             )
         )
         geo.auto_skew_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Auto Skew: square the frame to its film edges, not to the picture. Sets Fine Rotation, Tilt and Swing"),
+                tr("Square to Film: line the picture up with the edges of the film."),
                 "auto_skew",
             )
         )
         geo.straighten_btn.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Straighten with a reference line — draw along the horizon or a vertical edge "
-                    "(a building, a door frame) and the image rotates to make it level or plumb. "
-                    "Applies once per line; Esc cancels an in-progress line"
-                ),
+                tr("Level: draw a line along the horizon or a vertical edge, and the picture turns to level it."),
                 "straighten",
             )
         )
+        for btn, text, action_id in (
+            (geo.rot_l_btn, tr("Rotate 90° counter-clockwise."), "rotate_ccw"),
+            (geo.rot_r_btn, tr("Rotate 90° clockwise."), "rotate_cw"),
+            (geo.flip_h_btn, tr("Flip the picture left to right."), "flip_h"),
+            (geo.flip_v_btn, tr("Flip the picture top to bottom."), "flip_v"),
+        ):
+            btn.setToolTip(tooltip_with_shortcut(text, action_id))
         geo.keystone_lines_btn.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Tilt and swing with reference lines: drag a line along each rebate edge, and Tilt and "
-                    "Swing square them. Stays on until you turn it off"
-                ),
+                tr("Draw a line along each edge of the film, and Tilt and Swing make them square."),
                 "keystone_lines",
             )
         )
         crop.offset_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Insets the auto-crop border from the detected film edge. Positive = trim more; negative = bleed outside"),
+                tr("Moves the crop inside (positive) or outside (negative) the found edge."),
                 ["offset_inc", "offset_dec"],
             )
         )
         geo.fine_rot_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Sub-degree rotation correction for tilted scans: positive turns clockwise, negative counter-clockwise. "
-                    "For quick rotation, drag the round handles outside the crop box in the Crop tool"
-                ),
+                tr("Turns the picture by small amounts, clockwise for a positive value."),
                 ["fine_rot_inc", "fine_rot_dec"],
             )
         )
 
         proc.lock_bounds_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Lock Bounds — freeze normalization bounds so crop and analysis sliders no longer re-analyze the frame"),
+                tr("Lock Bounds: keep this frame's measured black and white points, even when the crop or Roll Analysis changes."),
                 "lock_bounds_toggle",
             )
         )
         proc.use_cast_avg_btn.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Take Cast Removal's neutral axis from the picked roll or scene, so every frame gets the same "
-                    "gray balance; off measures this frame's own grays. Color Negative only"
-                ),
+                tr("Color negatives only: use the roll's gray balance for Cast Removal, so frames under one light match."),
                 "cast_average_toggle",
             )
         )
         proc.analysis_buffer_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Insets the analysis window from the frame edge so rebate, sprocket holes, and scanner borders don't skew black/white-point detection"
-                ),
+                tr("Ignores a border around the frame when measuring, so film edges and holders do not count."),
                 ["analysis_buffer_inc", "analysis_buffer_dec"],
             )
         )
         proc.luma_range_clip_slider.setToolTip(
             tooltip_with_shortcut(
                 tr(
-                    "Tonal-range normalization (black/white-point span). Neutral already applies a small robust clip. "
-                    "Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
-                    "Negative: outward headroom — lifted blacks / unclipped highlights for a gentler stretch"
+                    "How tightly black and white are set: positive gives more contrast, and negative keeps more shadow and highlight detail."
                 ),
                 ["luma_range_clip_inc", "luma_range_clip_dec"],
             )
         )
         proc.color_range_clip_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Per-channel color-balance clip percentile (orange-mask cast removal), independent of tonal range. "
-                    "Neutral: P1 clip. Negative: gentler, samples nearer the extremes. Positive: tighter channel balance"
-                ),
+                tr("How tightly the color balance is set: positive balances more strongly, and negative is gentler."),
                 ["color_range_clip_inc", "color_range_clip_dec"],
             )
         )
         proc.white_point_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Shifts the normalization floor (scan white point). Positive = brighter; negative = pull highlights "
-                    "back. In R/G/B mode: this layer's trim — per-layer film-base correction"
-                ),
+                tr("Moves the white point: positive brightens the print, and negative brings back highlights."),
                 ["white_point_inc", "white_point_dec"],
             )
         )
         proc.black_point_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Shifts the normalization ceiling (scan black point). Positive = lifted blacks; negative = deeper "
-                    "blacks. In R/G/B mode: this layer's trim — per-layer Dmax correction"
-                ),
+                tr("Moves the black point: positive lifts the blacks, and negative makes them deeper."),
                 ["black_point_inc", "black_point_dec"],
             )
         )
 
         sen.crosstalk_strength_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Channel unmix on the raw negative densities — how much of the matrix to apply. 1.0 = each "
-                    "channel's leak fully subtracted from the others; 0 = scanned densities untouched. The leak "
-                    "comes from the film's dyes, your light's spectrum and your sensor's filters together, so "
-                    "tune this per scanning setup rather than per stock. Re-run Roll Analysis after changing it"
-                ),
+                tr("How much crosstalk correction to apply; run Roll Analysis again after a change."),
                 ["separation_inc", "separation_dec"],
             )
         )
         lab.chroma_denoise_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Removes color speckle finer than this radius and keeps color edges; luminance grain stays"),
+                tr("Removes colored speckles and keeps the film grain."),
                 ["chroma_denoise_inc", "chroma_denoise_dec"],
             )
         )
         lab.saturation_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Linear chroma scale (CIELAB a*/b*) after the print is decoded — a retouching move, "
-                    "applied evenly to every tone. Dye Separation in Tone is the density-space equivalent: "
-                    "it works on the print's dye densities, so it stays in step with the paper and the curve. "
-                    "1.0 = unchanged, 0 = grayscale, 2.0 = double"
-                ),
+                tr("Color strength. 1 is unchanged, 0 is black and white."),
                 ["saturation_inc", "saturation_dec"],
             )
         )
-        lab.skin_protection_slider.setToolTip(
-            tr(
-                "Holds skin-hued color under a chroma ceiling so faces don't go sunburnt — hue and lightness "
-                "untouched, and chroma is only ever pulled down. Independent of Chroma: it also reins in skin "
-                "that arrived over-saturated from the print curve. 0 = off, 1.0 = matte"
-            )
-        )
+        lab.skin_protection_slider.setToolTip(tr("Keeps skin tones from getting too strong in color. 0 is off."))
         paper.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Pushes density apart before decode. On a print, in the same matrix slot as the "
-                    "paper's own dye crosstalk — so it responds to the print stock and eases off where the "
-                    "curve is already compressed at toe and shoulder, and takes per-layer R/G/B trims. On a "
-                    "slide, applied directly with no paper matrix or trims. Chroma in "
-                    "Color is the flat version: an even a*/b* scale after decode. 1.0 = off/identity"
-                ),
+                tr("Color strength in the print, through the paper's dyes. 1 is unchanged."),
                 ["dye_separation_inc", "dye_separation_dec"],
             )
         )
         paper.separation_damping_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Decides where Dye Separation's push lands instead of adding one of its own — at 0 every "
-                    "color gets the same push, at 1 muted color takes it all while color that is already "
-                    "saturated gets the opposite, so a hard push adds color where there was none instead of "
-                    "flattening the strongest colors. Dead at Dye Separation 1.0. 0 = flat"
-                ),
+                tr("Puts more of the Dye Separation change on dull colors and less on strong ones."),
                 ["separation_damping_inc", "separation_damping_dec"],
             )
         )
         exp.preflash_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "A flash of plain light over the whole sheet, as a fraction of the paper's threshold exposure. It adds "
-                    "to the image exposure, so it pulls highlight detail off paper white and moves the shadows "
-                    "little; the print gets softer, which a harder grade gives back. Bare paper stays white up to 1.0. 0 = off"
-                ),
+                tr("Preflash: brings back detail in the brightest areas, and also lowers contrast a little."),
                 ["preflash_inc", "preflash_dec"],
             )
         )
         lab.clahe_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Local contrast (CLAHE) without blowing global highlights or crushing shadows. Use sparingly — near 1.0 can look cartoonish"
-                ),
+                tr("Adds local contrast to bring out detail, but strong values can look unnatural."),
                 ["clahe_inc", "clahe_dec"],
             )
         )
         lab.sharpen_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("L-channel unsharp mask with halo suppression — crisps detail without bright edge outlines or color fringing"),
+                tr("Sharpens detail without colored edges."),
                 ["sharpen_inc", "sharpen_dec"],
             )
         )
         lab.sharpen_method_combo.setToolTip(
-            tr(
-                "Unsharp Mask boosts edge contrast; Deconvolution (Richardson–Lucy) reverses the scanner's optical blur — set Radius to the blur width of the scan"
-            )
+            tr("Unsharp Mask makes edges crisper, and Deconvolution undoes the scanner's blur when Radius is the blur size.")
         )
-        lab.sharpen_radius_slider.setToolTip(
-            tr("Blur radius in pixels — small for fine grain and detail, larger for smoother films and soft scans")
-        )
-        lab.sharpen_masking_slider.setToolTip(
-            tr("Restricts sharpening to edges — higher values protect flat areas (sky, skin, grain) from being crisped")
-        )
+        lab.sharpen_radius_slider.setToolTip(tr("Size of the detail to sharpen, in pixels: small for fine grain, larger for soft scans."))
+        lab.sharpen_masking_slider.setToolTip(tr("Sharpens only edges, so sky, skin and grain stay smooth."))
         lab.glow_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Lens bloom — bright highlights scatter equally across all channels, softening edges and adding a dreamy quality"),
+                tr("A soft glow around bright areas, like an old lens."),
                 ["glow_inc", "glow_dec"],
             )
         )
         lab.halation_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Simulates the red glow from light scattering back through the film base. Affects highlights only, strongly red-dominant"
-                ),
+                tr("A red glow around bright areas, as some films give."),
                 ["halation_inc", "halation_dec"],
             )
         )
 
         ret.pick_dust_btn.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Toggle manual heal brush — click dust spots in the preview to paint them out one at a time. "
-                    "Right-click an existing heal overlay to delete it"
-                ),
+                tr("Heal: click or paint over dust to remove it, and clean film under the brush stays as it is."),
                 "pick_dust",
             )
         )
         ret.clone_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Clone Tool: copy film from another area over a defect. Alt-click the source, then paint. Uses Brush Size"),
+                tr("Clone: Alt-click to pick an area, then copy its film over a defect."),
                 "clone_tool",
             )
         )
         ret.threshold_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "How far a speck must stand out from the grain to be repaired. Lower catches more, with more false positives. 1.0 is off"
-                ),
+                tr("How easily dust specks are found: lower finds more but can remove real detail, and 1 is off."),
                 ["threshold_inc", "threshold_dec"],
             )
         )
         ret.hair_threshold_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "How far a hair-shaped mark must stand out from the grain to be repaired. Lower it for a hair "
-                    "missed in busy detail. 1.0 is off"
-                ),
+                tr("How easily hairs are found: lower finds more, and 1 is off."),
                 ["hair_threshold_inc", "hair_threshold_dec"],
             )
         )
         ret.auto_size_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Maximum radius of auto-detected dust spots. Larger catches bigger blobs but risks eating fine detail"),
+                tr("Largest dust size to remove, where larger values can remove real detail."),
                 ["auto_size_inc", "auto_size_dec"],
             )
         )
@@ -1009,69 +915,62 @@ class ControlsPanel(QWidget):
 
         ton.selenium_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Simulates selenium toning — converts the densest silver first: deeper blacks, cool eggplant shadows. B&W Negative mode only"
-                ),
+                tr("Selenium toner, B&W negatives only: deeper, cooler blacks."),
                 ["selenium_inc", "selenium_dec"],
             )
         )
         ton.sepia_slider.setToolTip(
             tooltip_with_shortcut(
-                tr(
-                    "Simulates sepia bleach-redevelop toning — warms the highlights first; more strength reaches "
-                    "further into the mids, and the deepest shadows stay black at any strength. B&W Negative mode only"
-                ),
+                tr("Sepia toner, B&W negatives only: warm brown tones, from the highlights down."),
                 ["sepia_inc", "sepia_dec"],
             )
         )
         ton.shadow_hue_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Hue of the shadow split-tone color injection"),
+                tr("Color added to the shadows."),
                 ["shadow_hue_inc", "shadow_hue_dec"],
             )
         )
         ton.shadow_str_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("How strongly the shadow hue is mixed in"),
+                tr("How much color is added to the shadows."),
                 ["shadow_strength_inc", "shadow_strength_dec"],
             )
         )
         ton.highlight_hue_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Hue of the highlight split-tone color injection"),
+                tr("Color added to the highlights."),
                 ["highlight_hue_inc", "highlight_hue_dec"],
             )
         )
         ton.highlight_str_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("How strongly the highlight hue is mixed in"),
+                tr("How much color is added to the highlights."),
                 ["highlight_strength_inc", "highlight_strength_dec"],
             )
         )
 
         fin.vignette_burn_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Edge exposure in stops: positive = burn in the edges (darken); negative = hold back (lighten). 0 = off"),
+                tr("Darkens (positive) or lightens (negative) the edges of the print. 0 is off."),
                 ["vignette_str_inc", "vignette_str_dec"],
             )
         )
         fin.vignette_size_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Falloff radius: smaller = tight corner effect; larger = burn spreads well into the frame"),
+                tr("How far the effect reaches into the picture."),
                 ["vignette_size_inc", "vignette_size_dec"],
             )
         )
-        fin.vignette_roundness_slider.setToolTip(
-            tr("Falloff shape: 0 = radial (lens-like), 1 = rectangular card burn following the print edges")
-        )
+        fin.vignette_roundness_slider.setToolTip(tr("Shape: 0 is round, like a lens; 1 follows the edges of the print."))
         fin.border_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Border thickness as a fraction of the image dimensions. Zero = no border"),
+                tr("Border width. 0 is no border."),
                 ["border_size_inc", "border_size_dec"],
             )
         )
 
-    _DIPTYCH_HINT = tr("Diptych — the edits live on the halves. Turn Half Frame Mode on to edit either one.")
+    _DIPTYCH_HINT = tr("Diptych: the edits belong to the halves. Turn Half Frame Mode on to edit either one.")
 
     def _set_read_only(self, read_only: bool) -> None:
         """A diptych renders from the two halves' own configs, so this panel drives nothing.
@@ -1114,10 +1013,27 @@ class ControlsPanel(QWidget):
         self.half_frame_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()
+        self.scan_setup_sidebar.sync_ui()
+        self._sync_scan_setup()
         # Scope first: the tab headers refresh at the end of the modified pass and read
         # each card's Reset to Roll state.
         self._sync_scope_buttons()
         self._sync_modified_dots()
+
+    def _sync_scan_setup(self) -> None:
+        """The scanning setup decides which rig cards show: Raw Decode and Optics are a camera's,
+        Trichrome a narrowband camera's. A card or row that holds a setting stays in view."""
+        state = self.controller.state
+        capture, light = resolved_rig(self.controller.session.repo, state)
+        camera = capture == "camera"
+        cfg = state.config
+        self.trichrome_sidebar.setVisible(
+            (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
+        )
+        self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
+        self.demosaic_section.setVisible(camera or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction)
+        optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
+        self.optics_section.setVisible(camera or optics_edited)
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS
 
@@ -1126,7 +1042,6 @@ class ControlsPanel(QWidget):
             ("film", self.film_section),
             ("sensor", self.sensor_section),
             ("process", self.process_section),
-            ("autocrop", self.autocrop_section),
             ("baseline", self.baseline_section),
             ("demosaic", self.demosaic_section),
             ("optics", self.optics_section),
@@ -1155,17 +1070,19 @@ class ControlsPanel(QWidget):
             section.set_scope_buttons(
                 True,
                 "frame" if locked or not has_roll else "roll",
-                roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
-                frame_tooltip=f"{label} follows this frame alone" if has_roll else f"{label} is this frame's own",
+                roll_tooltip=(
+                    tr("{value} follows the roll: click to give the roll this frame's value", value=label)
+                    if has_roll
+                    else NO_ROLL_SCOPE_HINT
+                ),
+                frame_tooltip=tr("{value} follows this frame alone", value=label)
+                if has_roll
+                else tr("{value} is this frame's own", value=label),
                 roll_enabled=has_roll,
             )
             section.set_roll_revert(any(card in revertible for card in cards))
             if locked:
                 overridden.append(label)
-
-        crop_label = self._ROLL_CARD_LABELS["auto_crop"]
-        if crop_label not in overridden and self.controller.hand_drawn_crop_departs_from_roll():
-            overridden.append(f"{crop_label} (hand-drawn)")
 
         scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
         for key, section in frame_sections:
@@ -1198,18 +1115,15 @@ class ControlsPanel(QWidget):
         picker over that card's own settings. Frame on a Roll-tab card locks it here;
         a frame card is already there, so the pair's own click guard swallows it."""
         if key in dict(self._roll_sections()):
-            effect = None
-            if key == "autocrop" and scope == "roll" and not self.controller.crop_edits_blocked():
-                effect = self.controller.auto_crop_push_effect()
-            if effect is not None and not confirm_roll_auto_crop(self, *effect):
-                self._sync_scope_buttons()
-                return
             self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
             self._sync_scope_buttons()
             return
         applied = open_apply_dialog(self, self.controller.session, rows=frame_card_rows(key))
         if applied and applied[1] == "roll":
             self.controller.record_roll_apply(applied[0])
+
+    def _sync_clip_colors(self) -> None:
+        self.tone_histogram.set_clip_colors(*palette_for(self.controller.state.color_vision).pair)
 
     def _update_histogram(self) -> None:
         """Repaint only when the render produced a new buffer."""
@@ -1223,8 +1137,6 @@ class ControlsPanel(QWidget):
 
     def _reset_sensor_fields(self) -> None:
         self._reset_process_fields(_SENSOR_FIELDS)
-        mode = self.controller.state.config.process.process_mode
-        self.controller.set_roll_default("cast_removal", cast_removal_strength=_default_exposure_field("cast_removal_strength", mode))
 
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not
@@ -1257,17 +1169,7 @@ class ControlsPanel(QWidget):
     def _sync_crop_block(self) -> None:
         """Crop controls are disabled while Auto-crop all frames runs (controller.crop_edits_blocked)."""
         enabled = not self.controller.crop_edits_blocked()
-        geo = self.geometry_sidebar
-        for widget in (
-            self.autocrop_sidebar,
-            self.autocrop_section.reset_btn,
-            self.autocrop_section.roll_revert_btn,
-            self.geometry_section.reset_btn,
-            geo.manual_crop_btn,
-            geo.auto_crop_btn,
-            geo.clear_crop_btn,
-            geo.ratio_combo,
-        ):
+        for widget in (self.autocrop_sidebar, self.autocrop_section.reset_btn, self.autocrop_section.roll_revert_btn):
             widget.setEnabled(enabled)
 
     def _reset_geometry_fields(self) -> None:
@@ -1275,40 +1177,19 @@ class ControlsPanel(QWidget):
         take Crop and Lens Correction with it."""
         from dataclasses import replace
 
-        if self.controller.refuse_crop_edit():
-            return
-
         cfg = self.controller.state.config
-        # Auto Crop and its rect belong to the Crop card; only a hand-drawn rect resets here.
-        own = ("crop_rect", "crop_detect_key") if cfg.geometry.crop_from_auto else ()
-        fields = [f for f in GEOMETRY_FIELDS if f != "crop_from_auto" and f not in own]
-        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in fields})
-        new_proc = cfg.process
-        if new_geo.crop_rect != cfg.geometry.crop_rect:
-            new_proc = replace(new_proc, **invalidate_local_bounds(new_proc))
-        with self.controller.session.carried_crop_kept():
-            self.controller.apply_config(replace(cfg, geometry=new_geo, process=new_proc), persist=True)
-        if new_geo.crop_rect != cfg.geometry.crop_rect:
-            self.controller.sync_auto_crop_lock()
+        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in GEOMETRY_FIELDS})
+        self.controller.apply_config(replace(cfg, geometry=new_geo), persist=True)
 
     def _reset_crop_card(self) -> None:
-        """The Crop card's two roll cards. Auto Crop turns off through reset_crop, which
-        clears the auto rect; a hand-drawn crop belongs to Geometry and stays."""
-        if self.controller.refuse_crop_edit():
-            return
-        self._reset_card_fields("autocrop")
-        if self.controller.state.config.geometry.crop_from_auto:
-            self.controller.reset_crop()
+        self.controller.reset_crop(**{f: getattr(_DEFAULT_GEOMETRY, f) for f in CROP_FIELDS if f.startswith("autocrop_")})
 
     def _reset_card_fields(self, card_key: str) -> None:
         """Reset one roll card through set_roll_default, so the reset follows the roll
-        or locks away from it exactly as an edit by hand would. Ratio keeps its own
-        entry point, which reshapes a drawn crop rather than leaving it stale."""
+        or locks away from it exactly as an edit by hand would."""
         section, fields = ROLL_DEFAULT_FIELDS[card_key]
         default = getattr(_DEFAULT_CONFIG, section)
-        if "autocrop_ratio" in fields:
-            self.controller.set_crop_ratio(default.autocrop_ratio)
-        self.controller.set_roll_default(card_key, **{f: getattr(default, f) for f in fields if f != "autocrop_ratio"})
+        self.controller.set_roll_default(card_key, **{f: getattr(default, f) for f in fields})
 
     def _reset_exposure_fields(self, fields) -> None:
         """Reset only the given ExposureConfig fields to defaults (scoped section reset).
@@ -1386,20 +1267,17 @@ class ControlsPanel(QWidget):
         )
 
         geo = cfg.geometry
-        # Geometry counts a hand-drawn crop; an auto crop and its rect are the Crop card's.
-        crop_fields = ("crop_rect", "crop_from_auto", "crop_detect_key")
-        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in GEOMETRY_FIELDS if f not in crop_fields)
-        geometry_count += has_manual_crop(geo)
-        autocrop_count = sum(getattr(geo, f) != getattr(_geo, f) for f in (*_AUTOCROP_FIELDS, "crop_from_auto"))
+        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in GEOMETRY_FIELDS)
+        # A rect counts once, as a hand-drawn crop; an auto rect is Auto Crop's result.
+        autocrop_count = sum(getattr(geo, f) != getattr(_geo, f) for f in CROP_FIELDS if f not in ("crop_rect", "crop_detect_key"))
+        autocrop_count += has_manual_crop(geo)
         lens_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _LENS_FIELDS)
 
         proc = cfg.process
         film_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FILM_FIELDS)
         process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS)
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
-        sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS) + (
-            exp.cast_removal_strength != _default_exposure_field("cast_removal_strength", mode)
-        )
+        sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
 
         ff = cfg.flatfield
         _ff = _DEFAULT_FLATFIELD
@@ -1470,9 +1348,7 @@ class ControlsPanel(QWidget):
         self.geometry_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
         self.process_sidebar.sync_ui()
-        # Retouch hosts two tool toggles, heal and scratch. Without this sync, activating one
-        # left the other highlighted as if both were live. The color sidebar's WB picker had the
-        # same latent stale-check bug.
+        # Retouch's heal and scratch toggles and the color sidebar's WB picker follow active_tool too.
         self.retouch_sidebar.sync_ui()
         self.leak_sidebar.sync_ui()
         self.color_sidebar.sync_ui()

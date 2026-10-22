@@ -1,3 +1,4 @@
+import math
 import os
 import tempfile
 import unittest
@@ -9,9 +10,11 @@ import tifffile
 from PIL import Image
 
 from negpy.domain.models import ExportResolutionMode, WorkspaceConfig
+from negpy.desktop.workers import export as worker_module
 from negpy.desktop.workers.export import ContactSheetJob, ExportWorker
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
-from negpy.services.export.contact_sheet_layout import ContactSheetSettings, SheetFormat
+from negpy.services.export.contact_sheet_layout import ContactSheetSettings
+from negpy.services.film_edge.geometry import SheetFormat
 from negpy.services.export.contact_sheet_roll import FrameFacts, SheetFrame, SheetLook
 from negpy.services.rendering.image_processor import ImageProcessor, _downsample_to_long_edge
 
@@ -181,6 +184,26 @@ class TestContactSheetWorker(unittest.TestCase):
         self.assertEqual(params.export.export_resolution_mode, ExportResolutionMode.ORIGINAL)
         # A 36 mm frame at 150 dpi is 213 px; the render is a little larger than the window.
         self.assertEqual(worker._processor.render_display_array.call_args.kwargs["target_long_px"], 319)
+
+    def test_film_edges_off_prints_rows_with_the_dialogs_aspects(self):
+        good = np.full((30, 20, 3), 200, dtype=np.uint8)
+        worker = self._worker_with([good] * 3)
+        settings = ContactSheetSettings(dpi=150, film_edges=False)
+        rows = []
+        real = worker_module.ContactSheetService.render_sheet
+
+        def spy(plan, *args, **kwargs):
+            rows.extend(plan.pages[0].rows)
+            return real(plan, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as out, patch("negpy.desktop.workers.export.ContactSheetService.render_sheet", side_effect=spy):
+            signals = self._run(worker, _job(3, out, settings=settings, aspects=(2 / 3, 2 / 3, 1.5)))
+        self.assertEqual(signals["finished"], [True])
+        frames = [frame for row in rows for frame in row.frames]
+        self.assertEqual([round(f.width / f.height, 3) for f in frames], [0.667, 0.667, 1.5])
+        # The tile covers the longest side of its frame on the paper.
+        longest = max(max(f.width, f.height) for f in frames)
+        self.assertEqual(worker._processor.render_display_array.call_args.kwargs["target_long_px"], math.ceil(longest * 150 / 25.4))
 
     def test_sheet_carries_its_true_size(self):
         good = np.zeros((20, 30, 3), dtype=np.uint8)

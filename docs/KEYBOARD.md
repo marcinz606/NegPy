@@ -20,9 +20,9 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Right` | Next file |
 | `Home` | First file |
 | `End` | Last file |
-| `Ctrl + L` | Open the library |
+| `Ctrl + L` | Open the Library tab |
 | `Ctrl + K` | Find a control, card or action |
-| `Ctrl + F` | Focus the film strip search box |
+| `Ctrl + F` | Focus the Film Strip search box |
 | `Ctrl + Shift + F` | Search the whole library and load the matches |
 
 ## Triage
@@ -34,7 +34,7 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Tools
 | Key | Action |
 |-----|--------|
-| `\` | Before/after split (auto baseline); hold for the whole frame as the baseline |
+| `\` | Before/after split against the default conversion; hold to see the default alone |
 | `Shift + W` | Toggle WB picker |
 | `Shift + C` | Toggle manual crop |
 | `Shift + D` | Toggle heal tool |
@@ -62,9 +62,9 @@ Actions with no default key are not listed; every one of them can still be bound
 | `[` | Rotate 90° CCW |
 | `H` | Flip horizontal |
 | `V` | Flip vertical |
-| `X` / `Z` | Increase / decrease **Crop offset** (default step 1 px) |
-| `Alt + R` / `Alt + Shift + R` | Increase / decrease **Fine rotation** (default step 0.01°) |
-| `L` | Toggle straighten line tool |
+| `X` / `Z` | Increase / decrease **Crop Offset** (default step 1 px) |
+| `Alt + R` / `Alt + Shift + R` | Increase / decrease **Fine Rotation** (default step 0.01°) |
+| `L` | Toggle the Level tool |
 | `O` | Next crop guide overlay |
 | `Shift + O` | Rotate crop guide orientation |
 | `Shift + A` | Toggle Auto Crop |
@@ -73,11 +73,13 @@ Actions with no default key are not listed; every one of them can still be bound
 | Key | Action |
 |-----|--------|
 | `I` | Frame info on the canvas: off, basic or full |
-| `Ctrl + [` | Toggle session panel (re-docks when floating) |
+| `Ctrl + [` | Collapse or expand the Film Strip |
 | `Ctrl + ]` | Toggle controls panel (re-docks when floating) |
-| `Ctrl + Shift + L` | Dock session and controls panels |
-| `Shift + H` | Hide or show both side panels |
-| `Shift + G` | Light Table: the roll as a grid in place of the canvas |
+| `Ctrl + Shift + L` | Dock the controls panel and expand the Film Strip |
+| `Shift + H` | Hide the controls panel and collapse the Film Strip, or bring both back |
+| `Shift + G` | Light Table: the whole roll in rows, in place of the canvas |
+| ` + ` | Light Table: larger frames, fewer to a row |
+| `-` | Light Table: smaller frames, more to a row |
 | `Shift + R` | Reference view: pin this frame beside the canvas to match others to it |
 | `0` | Fit to window |
 | `1` | Zoom 100% |
@@ -86,9 +88,9 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Retouch
 | Key | Action |
 |-----|--------|
-| `Alt + 9` / `Alt + Shift + 9` | Increase / decrease **Spot threshold** (default step 0.01) |
-| `Alt + 0` / `Alt + Shift + 0` | Increase / decrease **Auto size** (default step 1 px) |
-| `Alt + M` / `Alt + Shift + M` | Increase / decrease **Brush size** (default step 1 px) |
+| `Alt + 9` / `Alt + Shift + 9` | Increase / decrease **Spot Threshold** (default step 0.01) |
+| `Alt + 0` / `Alt + Shift + 0` | Increase / decrease **Size** (default step 1 px) |
+| `Alt + M` / `Alt + Shift + M` | Increase / decrease **Brush Size** (default step 1 px) |
 
 ## Exposure
 | Key | Action |
@@ -96,14 +98,14 @@ Actions with no default key are not listed; every one of them can still be bound
 | `E` / `D` | Increase / decrease **Magenta** (default step 0.01) |
 | `R` / `F` | Increase / decrease **Yellow** (default step 0.01) |
 | `T` / `G` | Increase / decrease **Temperature** (default step 50 K) |
-| `Q` / `A` | Increase / decrease **Density** (default step 0.01) |
-| `W` / `S` | Increase / decrease **Grade** (default step 10 ISO-R) |
+| `Q` / `A` | Increase / decrease **Print Density** (default step 0.01) |
+| `W` / `S` | Increase / decrease **ISO-R Grade** (default step 10 ISO-R) |
 | `Alt + T` / `Alt + Shift + T` | Increase / decrease **Toe** (default step 0.01) |
-| `Alt + Y` / `Alt + Shift + Y` | Increase / decrease **Toe width** (default step 0.01) |
+| `Alt + Y` / `Alt + Shift + Y` | Increase / decrease **Toe Width** (default step 0.01) |
 | `Alt + U` / `Alt + Shift + U` | Increase / decrease **Shoulder** (default step 0.01) |
-| `Alt + I` / `Alt + Shift + I` | Increase / decrease **Shoulder width** (default step 0.01) |
-| `Alt + P` / `Alt + Shift + P` | Increase / decrease **White point** (default step 0.01) |
-| `Alt + O` / `Alt + Shift + O` | Increase / decrease **Black point** (default step 0.01) |
+| `Alt + I` / `Alt + Shift + I` | Increase / decrease **Shoulder Width** (default step 0.01) |
+| `Alt + P` / `Alt + Shift + P` | Increase / decrease **White Point** (default step 0.01) |
+| `Alt + O` / `Alt + Shift + O` | Increase / decrease **Black Point** (default step 0.01) |
 
 ## Actions
 | Key | Action |
@@ -120,16 +122,16 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Process
 | Key | Action |
 |-----|--------|
-| `Alt + Q` | Toggle bounds lock |
-| `Alt + B` / `Alt + Shift + B` | Increase / decrease **Analysis buffer** (default step 0.01) |
-| `Alt + N` / `Alt + Shift + N` | Increase / decrease **Luma range clip** (default step 1) |
-| `Alt + E` / `Alt + Shift + E` | Increase / decrease **Color range clip** (default step 1) |
+| `Alt + Q` | Toggle Lock Bounds |
+| `Alt + B` / `Alt + Shift + B` | Increase / decrease **Analysis Buffer** (default step 0.01) |
+| `Alt + N` / `Alt + Shift + N` | Increase / decrease **Luma Range Clip** (default step 1) |
+| `Alt + E` / `Alt + Shift + E` | Increase / decrease **Color Clip** (default step 1) |
 | `Alt + 1` / `Alt + Shift + 1` | Increase / decrease **Crosstalk** (default step 0.01) |
 
 ## Lab
 | Key | Action |
 |-----|--------|
-| `Alt + 2` / `Alt + Shift + 2` | Increase / decrease **Denoise** (default step 0.01) |
+| `Alt + 2` / `Alt + Shift + 2` | Increase / decrease **Chroma Denoise** (default step 0.01) |
 | `Alt + 3` / `Alt + Shift + 3` | Increase / decrease **Chroma** (default step 0.01) |
 | `Alt + 5` / `Alt + Shift + 5` | Increase / decrease **CLAHE** (default step 0.01) |
 | `Alt + 6` / `Alt + Shift + 6` | Increase / decrease **Sharpening** (default step 0.01) |

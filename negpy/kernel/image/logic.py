@@ -690,22 +690,12 @@ def calculate_file_hash(file_path: str) -> str:
     return file_hashes(file_path)[0]
 
 
+# The padding around the picture in a square thumbnail from an older cache.
+THUMBNAIL_PAD = (14, 17, 23)
+
+
 def prepare_thumbnail(img: Any, size: int) -> Any:
-    """
-    Resizes and pads an image to a square of given size.
-    Returns a PIL.Image.
-    """
-    from PIL import Image
+    """The PIL image scaled so its long edge is *size*."""
+    from PIL import Image, ImageOps
 
-    # Copy, so the original is not mutated
-    img_copy = img.copy()
-    img_copy.thumbnail((size, size), Image.Resampling.LANCZOS)
-
-    # Create dark square background
-    square_img = Image.new("RGB", (size, size), (14, 17, 23))
-    # Center the thumbnail
-    offset_x = (size - img_copy.width) // 2
-    offset_y = (size - img_copy.height) // 2
-    square_img.paste(img_copy, (offset_x, offset_y))
-
-    return square_img
+    return ImageOps.contain(img, (size, size), Image.Resampling.LANCZOS)

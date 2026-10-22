@@ -93,11 +93,11 @@ def test_a_crop_offset_drag_drops_the_cached_bounds_on_release():
     ctrl.state.config = replace(cfg, process=replace(cfg.process, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
     ctrl._previewed_meter_cards = set()
     ctrl.refuse_crop_edit.return_value = False
-    ctrl._with_card_values = AppController._with_card_values
+    ctrl._edit_card = lambda *args: AppController._edit_card(ctrl, *args)
     ctrl.apply_config.side_effect = lambda c, **k: setattr(ctrl.state, "config", c)
 
-    AppController.set_roll_default(ctrl, "autocrop", persist=False, readback_metrics=False, autocrop_offset=12)
-    AppController.set_roll_default(ctrl, "autocrop", autocrop_offset=12)
+    AppController.set_crop_settings(ctrl, persist=False, readback_metrics=False, autocrop_offset=12)
+    AppController.set_crop_settings(ctrl, autocrop_offset=12)
 
     assert ctrl.state.config.geometry.autocrop_offset == 12
     assert ctrl.state.config.process.local_floors == (0.0, 0.0, 0.0)

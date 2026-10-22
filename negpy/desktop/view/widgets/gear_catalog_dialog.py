@@ -40,7 +40,7 @@ class GearCatalogDialog(QDialog):
 
         root.addWidget(field_label(singular))
         self.combo = SearchableGearCombo(placeholder=placeholder)
-        self.combo.setToolTip(wrap_tooltip(tr("Search the built-in {value} catalog. Click and type to search.", value=singular.lower())))
+        self.combo.setToolTip(wrap_tooltip(tr("Click and type to search the built-in {value} catalog", value=singular.lower())))
         self.combo.set_gear_items(catalog, "", label_fn)
         self.combo.selection_changed.connect(self._update_add_enabled)
         root.addWidget(self.combo)
@@ -93,10 +93,10 @@ def resolve_other_gear_pick(parent, category: str, library: GearLibrary, *, repo
         return blank_gear_item(category)
     dlg = GearCatalogDialog(
         parent,
-        CATEGORY_SINGULAR[category],
+        tr(CATEGORY_SINGULAR[category]),
         catalog,
         lambda item: item.resolved_display_name,
-        CATEGORY_SEARCH_PLACEHOLDER[category],
+        tr(CATEGORY_SEARCH_PLACEHOLDER[category]),
         repo=repo,
     )
     if dlg.exec() != QDialog.DialogCode.Accepted:

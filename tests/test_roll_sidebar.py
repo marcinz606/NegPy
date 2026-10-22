@@ -47,7 +47,8 @@ def test_picker_owns_its_batch_analysis_subheader(qapp):
     Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
     assert sidebar.layout.itemAt(0).layout().itemAt(0).widget().text() == "ROLLS"
-    assert sidebar.layout.itemAt(1).widget() is sidebar.roll_combo
+    assert sidebar.layout.itemAt(1).widget().text() == "Roll Analysis first crops the frames that wait for Auto Crop."
+    assert sidebar.layout.itemAt(2).widget() is sidebar.roll_combo
 
 
 def test_picker_defaults_to_the_active_roll_and_lists_every_library_roll(qapp):

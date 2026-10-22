@@ -30,7 +30,7 @@ The desktop interface and panel guides support English, Simplified Chinese (简�
 * The print is built in density space on an H&D curve (toe, straight section, shoulder) and graded in ISO-R points like darkroom paper.
 * Auto Density and Auto Grade meter each frame to adjustable targets.
 * Paper profiles from Ilford, Kodak, Foma and Fuji datasheets.
-* Color negative, B&W and slide modes. Slides open as captured, with optional normalization for faded film and HDR merging of bracketed exposures.
+* Color negative, B&W and slide modes. Slides open as captured, with optional Auto Density and Auto Grade for faded film and HDR merging of bracketed exposures.
 
 ### Rolls
 
@@ -71,7 +71,7 @@ The desktop interface and panel guides support English, Simplified Chinese (简�
 
 ## Getting started
 
-Download the build for your OS from the [Releases page](https://github.com/marcinz606/NegPy/releases). NegPy then updates itself from an Update Available notice.
+Download the build for your OS from the [Releases page](https://github.com/marcinz606/NegPy/releases). When a new version is out, a dot shows on the ⋯ menu, and **Update to vX.Y.Z…** in its Help menu installs it.
 
 To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

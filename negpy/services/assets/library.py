@@ -61,15 +61,6 @@ def folder_image_paths(path: str) -> list[str]:
         return []
 
 
-def summarize_counts(images: int, subfolders: int) -> str:
-    parts = []
-    if images:
-        parts.append(f"{images} photo{'s' if images != 1 else ''}")
-    if subfolders:
-        parts.append(f"{subfolders} folder{'s' if subfolders != 1 else ''}")
-    return " · ".join(parts) or "empty"
-
-
 def iter_library_files(roots: list[str]) -> Iterator[dict[str, Any]]:
     """Walk the roots, yielding one asset-shaped dict per supported image.
 

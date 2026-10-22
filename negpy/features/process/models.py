@@ -304,10 +304,18 @@ SCAN_SETUP_PAPERS = ("neutral", "pakon")
 
 
 def scan_setup_values(capture: str, light: str) -> tuple[bool, str]:
-    """(linear_raw, paper_profile) for a scanning rig — capture is "camera"/"scanner", light is
-    "white"/"narrowband". A camera under white light is the only combination that wants the
-    as-shot-WB decode. Narrowband light prints on the Pakon minilab stock, white light on Digital."""
-    return not (capture == "camera" and light == "white"), "pakon" if light == "narrowband" else "neutral"
+    """(linear_raw, paper_profile) for a scanning rig — capture is "auto"/"camera"/"scanner", light
+    is "white"/"narrowband". A camera under white light is the only combination that wants the
+    as-shot-WB decode; Auto decodes as a camera, since a scanner's TIFF takes no RAW decode.
+    Narrowband light prints on the Pakon minilab stock, white light on Digital."""
+    return capture == "scanner" or light != "white", "pakon" if light == "narrowband" else "neutral"
+
+
+def scan_setup_rig(saved) -> tuple[str, str]:
+    """(capture, light) from the saved scanning setup; Auto under white light when none is saved."""
+    saved = saved if isinstance(saved, dict) else {}
+    capture, light = str(saved.get("capture")), str(saved.get("light"))
+    return (capture if capture in ("auto", "camera", "scanner") else "auto"), (light if light in ("white", "narrowband") else "white")
 
 
 def per_channel_point_offsets(process: ProcessConfig) -> tuple[tuple[float, float, float], tuple[float, float, float]]:

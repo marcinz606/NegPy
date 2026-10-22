@@ -1,8 +1,9 @@
 from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QToolButton, QWidget
+from PyQt6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QWidget
 
+from negpy.desktop.view.styles.templates import header_button
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -47,17 +48,13 @@ class PinnableDockWidget(QDockWidget):
         if self._floating_title is None:
             bar = QWidget()
             layout = QHBoxLayout(bar)
-            layout.setContentsMargins(8, 4, 4, 4)
-            layout.setSpacing(6)
+            layout.setContentsMargins(THEME.space_lg, THEME.space_sm, THEME.space_sm, THEME.space_sm)
+            layout.setSpacing(THEME.space_md)
 
             label = QLabel(self.windowTitle())
             label.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold; background: transparent;")
 
-            pin = QToolButton()
-            pin.setIcon(qta.icon("fa5s.thumbtack", color=THEME.text_primary))
-            pin.setToolTip(self._pin_tooltip)
-            pin.setCursor(Qt.CursorShape.PointingHandCursor)
-            pin.setStyleSheet("QToolButton { border: none; background: transparent; padding: 2px; }")
+            pin = header_button(qta.icon("fa5s.thumbtack", color=THEME.text_primary), self._pin_tooltip)
             pin.clicked.connect(self._on_pin)
 
             layout.addWidget(label)

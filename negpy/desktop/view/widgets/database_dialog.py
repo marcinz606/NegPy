@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import pin_dialog_default
+from negpy.desktop.view.confirm import confirm_action
+from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.text import human_bytes
@@ -38,11 +39,11 @@ _TOOLING_ROWS = (
 class DatabaseDialog(QDialog):
     """View what the app has stored in SQLite and clear it.
 
-    Three clear actions: 'Clear Saved Edits' drops per-image looks/history/marks so a
+    Four clear actions: 'Clear Saved Edits' drops per-image looks/history/marks so a
     reloaded image starts from defaults; 'Clear Thumbnails' empties the on-disk
-    thumbnail cache; 'Reset Everything' wipes both databases (also presets, rig
-    profiles, preferences) but leaves thumbnails alone. All confirm first; the counts
-    and sizes refresh in place after a clear.
+    thumbnail cache; 'Clear Library' forgets the rolls; 'Reset Everything' wipes both
+    databases (also presets, rig profiles, preferences) but leaves thumbnails alone. All
+    confirm first; the counts and sizes refresh in place after a clear.
     """
 
     def __init__(self, repo, controller, parent: Optional[QWidget] = None) -> None:
@@ -67,19 +68,16 @@ class DatabaseDialog(QDialog):
         self._value_labels: dict[str, QLabel] = {}
         root.addLayout(self._grid)
 
-        self._size_label = QLabel("")
-        self._size_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        self._size_label = hint_label()
         root.addWidget(self._size_label)
 
-        note = QLabel(
+        note = hint_label(
             tr(
                 "Clearing only affects this app's database and its thumbnail cache. Source files are "
                 "never touched. If you export .negpy sidecars, those still exist next to your images "
                 "and can restore an edit when that image is reloaded."
             )
         )
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         root.addWidget(note)
 
         root.addLayout(self._build_footer())
@@ -90,21 +88,19 @@ class DatabaseDialog(QDialog):
         row = QHBoxLayout()
         row.setSpacing(THEME.space_lg)
 
-        self.clear_edits_btn = QPushButton(tr("Clear Saved Edits"))
-        self.clear_edits_btn.setToolTip(
-            tr("Drop saved per-image edits, undo history and keep/reject marks. Keeps presets and rig profiles.")
-        )
+        self.clear_edits_btn = QPushButton(tr("Clear Saved Edits…"))
+        self.clear_edits_btn.setToolTip(tr("Delete the saved edits, undo history and keep/reject marks of every image"))
         self.clear_edits_btn.clicked.connect(self._on_clear_edits)
 
-        self.clear_thumbs_btn = QPushButton(tr("Clear Thumbnails"))
-        self.clear_thumbs_btn.setToolTip(tr("Delete the cached file-grid thumbnails. They are regenerated as images are loaded."))
+        self.clear_thumbs_btn = QPushButton(tr("Clear Thumbnails…"))
+        self.clear_thumbs_btn.setToolTip(tr("Delete the cached Film Strip thumbnails, which render again as images load"))
         self.clear_thumbs_btn.clicked.connect(self._on_clear_thumbnails)
 
-        self.clear_library_btn = QPushButton(tr("Clear Library"))
-        self.clear_library_btn.setToolTip(tr("Forget which folders your library points at. The folders and their files are untouched."))
+        self.clear_library_btn = QPushButton(tr("Clear Library…"))
+        self.clear_library_btn.setToolTip(tr("Forget the rolls in your library, but keep the folders and their files"))
         self.clear_library_btn.clicked.connect(self._on_clear_library)
 
-        self.reset_all_btn = QPushButton(tr("Reset Everything"))
+        self.reset_all_btn = QPushButton(tr("Reset Everything…"))
         self.reset_all_btn.setToolTip(
             tr("Wipe the entire database: edits, history, marks, rig profiles, export presets and all app preferences.")
         )
@@ -189,16 +185,7 @@ class DatabaseDialog(QDialog):
         self.clear_library_btn.setEnabled(stats.get("library_rolls", 0) > 0)
 
     def _confirm(self, title: str, text: str, ok_label: str, informative: str = tr("This cannot be undone.")) -> bool:
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle(title)
-        box.setText(text)
-        box.setInformativeText(informative)
-        ok = box.addButton(ok_label, QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(box.buttons()[-1])  # default to Cancel
-        box.exec()
-        return box.clickedButton() is ok
+        return confirm_action(self, title, text, ok_label, informative, default_cancel=True)
 
     def _on_clear_edits(self) -> None:
         if not self._confirm(
@@ -234,8 +221,7 @@ class DatabaseDialog(QDialog):
         if not self._confirm(
             tr("Clear Library"),
             tr(
-                "Forget every roll in your library?\n\n"
-                "Only the roll records are cleared — the folders, your images and their edits are untouched."
+                "Forget every roll in your library?\n\nOnly the roll records are cleared. The folders, your images and their edits stay as they are."
             ),
             tr("Clear Library"),
             tr("You can import a folder as a roll again at any time."),
@@ -255,9 +241,7 @@ class DatabaseDialog(QDialog):
         if not self._confirm(
             tr("Reset Everything"),
             tr(
-                "Wipe the entire database — every saved edit, undo history, keep/reject mark, "
-                "flat-field profile, export preset, and all app preferences?\n\n"
-                "The app returns to a first-run state."
+                "Wipe the entire database: every saved edit, undo history, keep/reject mark, flat-field profile, export preset, and all app preferences?\n\nThe app returns to its first-run state."
             ),
             tr("Reset Everything"),
         ):

@@ -58,7 +58,7 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "sharpness": ("Sharpening",),
     "noise": ("Chroma Denoise",),
     "orange mask": ("Cast Removal",),
-    "invert": ("Film Mode",),
+    "invert": ("Setup",),
     "straighten": ("Fine Rotation",),
     "perspective": ("Tilt", "Swing"),
     "keystone": ("Tilt", "Swing"),

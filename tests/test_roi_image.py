@@ -47,6 +47,21 @@ def test_the_frame_has_a_border_just_outside_its_pixels():
     assert shot.pixel(rect.right(), mid_y) == black
 
 
+def test_the_pick_better_hover_ring_is_gray():
+    lbl = RoiImageLabel()
+    lbl.hover_ring = True
+    lbl.resize(300, 200)
+    lbl.set_frame(QPixmap(100, 100))
+    lbl._hover = True
+    shot = QImage(lbl.size(), QImage.Format.Format_RGB32)
+    shot.fill(QColor("black"))
+    lbl.render(shot)
+    rect = lbl._display()
+    ring = {shot.pixelColor(rect.left() - x, rect.center().y()).name() for x in range(3, 7)}
+
+    assert QColor(THEME.text_hint).name() in ring
+
+
 def test_to_fraction_maps_widget_px_to_full_frame():
     draw = QRect(0, 0, 100, 100)
     # centre of the drawn frame → centre fraction

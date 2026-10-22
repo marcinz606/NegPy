@@ -1,14 +1,14 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLineEdit, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLineEdit, QVBoxLayout
 
-from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, labeled_toggle, pin_button_box, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
 
 class RenameRollDialog(QDialog):
     """Renames a roll: its display name always, and -- for a folder roll, only if
-    asked -- the actual folder on disk too. The checkbox starts unchecked every time;
+    asked -- the actual folder on disk too. The toggle starts off every time;
     it is never remembered, since a disk rename is a bigger deal than a library-only
     one. A virtual roll has no folder, so it gets the same dialog without that row.
     """
@@ -28,8 +28,9 @@ class RenameRollDialog(QDialog):
         self.name_edit.selectAll()
         root.addWidget(self.name_edit)
 
-        self.rename_folder_check = QCheckBox(tr("Also rename the folder on disk"))
-        self.rename_folder_check.setToolTip(wrap_tooltip(tr("Rename the actual folder as well, in place")))
+        self.rename_folder_check = labeled_toggle(
+            "fa5s.folder", tr("Rename the Folder Too"), False, tr("Rename the actual folder as well, in place")
+        )
         self.rename_folder_check.setVisible(folder_backed)
         root.addWidget(self.rename_folder_check)
         if folder_backed:

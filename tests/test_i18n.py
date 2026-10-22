@@ -284,27 +284,26 @@ from negpy.kernel.system.i18n import configure, tr
 configure(sys.argv[1])
 from PyQt6.QtWidgets import QApplication, QDialog
 app = QApplication([])
-from negpy.desktop.view.widgets.scan_setup_dialog import ScanSetupDialog
+from unittest.mock import MagicMock
+from negpy.desktop.session import AppState
+from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 
-for capture in ('camera', 'scanner'):
+controller = MagicMock()
+controller.state = AppState()
+for capture in ('auto', 'camera', 'scanner'):
     for light in ('white', 'narrowband'):
-        dlg = ScanSetupDialog(None, {'capture': capture, 'light': light})
-        assert dlg.capture_btn.currentData() == capture
-        assert dlg.light_btn.currentData() == light
-        assert dlg.capture_btn._choices[0][1] == tr('Camera') != 'Camera'
-        assert dlg.light_btn._choices[0][1] == tr('White Light') != 'White Light'
-        dlg.next_btn.click()
-        assert dlg.pages.currentIndex() == 1
-        decode = tr('Camera WB') if (capture, light) == ('camera', 'white') else tr('Linear RAW')
-        paper = 'Digital (Adobe RGB)' if light == 'white' else 'Digital (Pakon Minilab)'
-        assert dlg.summary.text() == tr('Sets {decode} · Print stock {paper}', decode=decode, paper=paper)
-        assert not dlg.summary.text().startswith('Sets ')
-        assert dlg.stock_hint.text() != ''
-        dlg.next_btn.click()
-        assert dlg.result() == QDialog.DialogCode.Accepted
-        assert dlg.choice() == {'capture': capture, 'light': light}
+        controller.session.repo.get_global_setting.return_value = {'capture': capture, 'light': light}
+        card = ScanSetupSidebar(controller)
+        card.sync_ui()
+        assert card.capture_btn.currentData() == ('camera' if capture == 'auto' else capture)
+        assert card.light_btn.currentData() == light
+        assert card.capture_btn._choices[0][1] == tr('Camera') != 'Camera'
+        assert card.light_btn._choices[0][1] == tr('White Light') != 'White Light'
+        assert card.hint.text() != ''
+        card.light_btn.setCurrentIndex(1 - card.light_btn.currentIndex())
+        assert controller.apply_scan_setup.call_args.args[0] == capture
 
 dlg = GranularSettingsDialog(
     None, WorkspaceConfig(), 'scan.raw', show_scope=True, show_current=True,
@@ -363,9 +362,7 @@ assert {page['key']: page['label'] for page in panel.pages} == {
 }
 assert panel.pages[0]['tooltip'] == '几何'
 controller.state.config = replace(controller.state.config, geometry=replace(controller.state.config.geometry, autocrop_ratio='6:7'))
-panel.geometry_sidebar.sync_ui()
 panel.autocrop_sidebar.sync_ui()
-assert panel.geometry_sidebar.ratio_combo.currentData() == '6:7'
 assert panel.autocrop_sidebar.ratio_combo.currentData() == '6:7'
 buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
 assert 'Cancel' not in buttons.button(QDialogButtonBox.StandardButton.Cancel).text()

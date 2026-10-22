@@ -4,9 +4,9 @@ Guidance for Claude Code in this repository. It holds rules and traps the code d
 
 > **Keep this file current.** A change that alters stage order, the feature pattern or the commands updates it in the same change.
 
-> **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control and is **rendered in-app**: each panel's ⓘ opens the section marked `<!-- panel:<key> -->`, so a stale doc is a stale in-app guide. Update it when a control is added, renamed, retired or given a new range or default. Retiring a control deletes its prose. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes.
+> **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control and is **rendered in-app**: each panel's ⓘ opens the section marked `<!-- panel:<key> -->`, so a stale doc is a stale in-app guide. Update it when a control is added, renamed, retired or given a new range or default. Retiring a control deletes its prose. **Writing** below sets its voice and budgets. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes.
 
-> **Keep the translations current, in the same change.** Wrap every user-visible string in `tr` (`mark` for a lookup key). A change that adds or rewords display text runs `make translations` and fills every registered catalog. A `docs/USER_GUIDE.md` change runs `make translations`, updates the same panels in each `negpy/translations/USER_GUIDE.<locale>.md` and sets their `src:` hash. The `update-translations` skill has the steps; `tests/test_i18n.py` fails on a missing entry, a bare display string or a stale guide panel, and prints the fix.
+> **Keep the translations current, in the same change.** Wrap every user-visible string in `tr` (`mark` for a lookup key). A change that adds or rewords display text runs `make translations` and fills every registered catalog. A `docs/USER_GUIDE.md` change runs `make translations`, updates the same panels in each `negpy/translations/USER_GUIDE.<locale>.md` and sets their `src:` hash. The `update-translations` skill has the steps; `tests/test_i18n.py` fails on a missing entry, a bare display string or a stale guide panel, and prints the fix. Translate a label for its use, not its dictionary entry: read the call site, because a homonym (Draw, Free, Stop, Order, Stock, Capture, Grain, Feather) has a wrong sense in every language, and a button is a short noun or verb, never a polite sentence.
 
 > **Leave `docs/CHANGELOG.md` alone unless asked.** It is written per release, not per change.
 
@@ -44,9 +44,11 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 
 **Composite membership** (`services/assets/composites.py`): the files of a stitch or HDR merge are a user decision that no file records. It is stored per primary path and lives until the composite is dissolved. `_persist_session` upserts, never rewrites: the open files are one folder, the store is all of them.
 
-**Rolls** (`services/assets/rolls.py`): a Roll is the Library's only unit; folders are an import mechanism, not a live view. A roll holds defaults for some cards (`ROLL_DEFAULT_FIELDS`, one `(config section, fields)` pair per card; `controls_panel._SECTION_CARDS` for a section that drives two cards). A frame that diverges is locked on that card until Roll pushes it back out. A card holds the roll's or the rig's values, never one frame's placement: the crop rectangle, rotation, easel movements and capture frame number stay per-frame.
+**Rolls** (`services/assets/rolls.py`): a Roll is the Library's only unit; folders are an import mechanism, not a live view. A roll holds defaults for some cards (`ROLL_DEFAULT_FIELDS`, one `(config section, fields)` pair per card; `controls_panel._SECTION_CARDS` for a section that drives two cards). A frame that diverges is locked on that card until Roll pushes it back out. A card holds the roll's or the rig's values, never one frame's crop or placement: the crop and its settings, rotation, easel movements and capture frame number stay per-frame.
 
 **Roll-scoped edit fork**: a photo in more than one Roll has one edit, unless a per-frame fork gives it its own edit for one Roll. A fork is the content hash suffixed `#roll:<id>` (`roll_edit_hash`), like a half-frame's `#N`. Triage marks and legacy-hash migration strip the suffix (`unforked_hash`), because they belong to the physical scan.
+
+**Film edge print** (`services/film_edge/`): a stock's own marks, DX number and respool source (`prints_as`) are the `edge` object in `gear/film_stocks.json`, and each entry names its `source`. The `edge-print-from-photo` skill adds a stock from a photo of the film.
 
 ### Pipeline
 
@@ -75,7 +77,7 @@ Every feature lives in `negpy/features/<name>/`:
 - Automatic thumbnails never use a full camera RAW demosaic: loaders bound the decode in `load_bounded_preview(...)`.
 - **Bump `THUMBNAIL_RENDER_VERSION`** (`services/assets/thumbnail_fingerprint.py`) in any change that alters rendered pixels for unchanged settings, a changed default included (`test_a_changed_default_bumps_the_render_version`). A config section that never reaches the pixels belongs in `NON_PIXEL_SECTIONS`; an export-only or label field in a hashed section belongs in `_UNHASHED_FIELDS`.
 - The Film Strip grid (`ThumbnailGridView` in `files.py`) owns click selection: it reads Shift/Ctrl once, at press. Never call `setSelection` or rely on the base class's mouse handling there, because `QAbstractItemView` reads fresh modifiers at each stage.
-- **Shortcuts**: `REGISTRY` in `shortcut_registry.py` is the single source of truth for every binding, dispatched through the action map in `keyboard_shortcuts.py`. **Any new user-facing toggle, tool or action gets a registry entry.** Leave `default_key` empty instead of inventing a conflicting one: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead. Run `uv run python -m negpy.desktop.view.keyboard_doc` after a registry change (`docs/KEYBOARD.md` is generated). Copy that names a key reads it through `key_for`/`label_with_shortcut`, never as a literal.
+- **Shortcuts**: `REGISTRY` in `shortcut_registry.py` is the single source of truth for every binding, dispatched through the action map in `keyboard_shortcuts.py`. **Any new user-facing toggle, tool or action gets a registry entry.** Leave `default_key` empty instead of inventing a conflicting one: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead. Run `uv run python -m negpy.desktop.view.keyboard_doc` after a registry change (`docs/KEYBOARD.md` is generated). Copy that names a key reads it through `key_for`/`label_with_shortcut`, never as a literal. A shortcut-bearing tooltip comes from `tooltip_with_shortcut`: the action ids it hides in the tooltip drive Shortcut Hints (`view/shortcut_hints.py`).
 
 ## Adding a new feature
 
@@ -94,35 +96,58 @@ Every feature lives in `negpy/features/<name>/`:
 
 - **Controls come from a factory** in `styles/templates.py`, never a bare `QPushButton` + `setStyleSheet`.
   - `tool_toggle`: icon-only or icon+label toggle. `clearable_tool_toggle`: one whose tool leaves a saved result, with an inline × that clears it.
-  - `labeled_toggle` (checkable) and `labeled_action`, its one-shot twin; `primary=True` for the panel's one call to action.
+  - `labeled_toggle` (checkable) and `labeled_action`, its one-shot twin; `primary=True` for the panel's one call to action. A factory puts the gap between icon and label (`icon_text`), so a label never starts with a space.
   - `icon_button`: icon-only action. `header_button`: a section header's small flat icon.
-  - `gradient_icon(name, sweep)`: for the one icon in a row that must stand out. Every sweep is a named constant beside `RGB_SWEEP` with one meaning.
+  - `gradient_icon(name, sweep)`: for the one icon in a row that must stand out. Every sweep is a named constant beside `RGB_SWEEP` with one meaning; `clipping_sweep` takes the Color vision pair, as the Clipping Overlay does.
   - `field_label` / `field_row`: a label beside a combo or entry. `hint_label`: a line of help under a control. `section_subheader` and `header_row` for grouping.
   - `CollapsibleSection`: a panel section, and the only reset affordance.
   - `CompactSlider`: one slider per row, never two side by side.
   - `SliderGroup`: a rail under the control its members depend on (Toe Width under Toe, or the settings a toggle above turns on). The main control stays outside the rail; peers of equal rank get no rail.
-  - `SegmentedChoice` (two to four short, fixed choices in view) and `ChoiceButton` (a longer list, a device-decided list, or a setting that need not stay in view) for every mutually exclusive choice, never a row of exclusive toggles and never radio buttons (`tests/test_no_radio_buttons.py`).
-  - `StepCombo` for every dropdown, never a bare `QComboBox`; an editable combo stays a `QComboBox`.
-  - Booleans in a panel are toggle buttons; `QCheckBox` is for a list of options in a form.
+  - Folds (`widgets/fold.py`) keep fine-tune controls out of the first view: `rail_fold` puts a rail behind a chevron on its parent's row, `group_fold` a group behind its sub-header. A fold starts closed (`default_open` for the few that start open) and remembers the user's state per key. Gate the fold's `content`, never the fold. A folded rail whose members do nothing while the parent is at neutral stays and grays out (Separation Damping at Dye Separation 1.0). An unfolded one shows only while the parent acts (`show_while`, Vignette Size at Burn 0).
+  - `SegmentedChoice` (two to four short, fixed choices in view) and `StepCombo` (a longer list, a device-decided list, or a setting that need not stay in view) for every mutually exclusive choice, never a row of exclusive toggles and never radio buttons (`tests/test_no_radio_buttons.py`).
+  - `StepCombo` for every dropdown (`StepCombo.of(labels, tooltip, data)`), never a bare `QComboBox`; an editable combo stays a `QComboBox`. A `MenuButton` opens a menu of actions, not a choice.
+  - Every on/off choice is a toggle (`labeled_toggle`, or `tool_toggle` with `align_left` for a list of options), in a panel, a dialog or a list alike. The app has no checkbox: `templates.box_toggle` is the one `QCheckBox`, drawn as a toggle, because `QMessageBox.setCheckBox` takes nothing else (`tests/test_toggle_look.py`).
 - **Type**: the `font_size_*` tokens in `styles/theme.py`, read in QSS as `@font_size_basepx`. Never a literal size in a stylesheet string or a `setPixelSize`.
-- **Color**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions, `warn_amber` advisories, `error` errors and invalid input (not the accent, which means selected/armed), `status_success` a good state. `text_muted` is the **disabled** gray, never on text a user has to read. Every color is a token (`tests/test_theme_tokens.py`). A view that tells marks apart by hue alone reads them from `styles/color_vision.py` (`palette_for(state.color_vision)`) and repaints on `session.color_vision_changed`.
-- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()` and the `THEME.space_*` scale. A row that needs a width already has one. A panel body has no side inset of its own; the section card insets.
+- **Color**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions, `warn_amber` advisories, `error` errors and invalid input, `status_success` a good state. `text_muted` is the **disabled** gray, never on text a user has to read. Every color is a token (`tests/test_theme_tokens.py`). A view that tells marks apart by hue alone reads them from `styles/color_vision.py` (`palette_for(state.color_vision)`) and repaints on `session.color_vision_changed`.
+- **Selection**: a chosen item (checked toggle, segment, tab, current row, checked menu item) takes the warm chip, `bg_checked` with a `border_checked` edge (`_hover` pair on hover). An icon that is on is `text_primary`, off `text_hint`, disabled `text_muted`. A selected frame on the Film Strip or the Light Table takes a `border_checked` mat over its border (`border_checked_hover` on the open frame). Hover, the arrow-key row and keyboard focus (`border_focus`) are neutral. Nothing is bright red but an error and the red channel (`tests/test_toggle_look.py`): a mark on the photo is `mark_photo` white on a `mark_shadow` edge or plate (`templates.with_alpha` for a translucent token), a primary action is `bg_primary` with a `border_checked_hover` edge (its hover a lighter fill), and an edited control's dot is `mark_edited`. A button at rest sits on the track surface (`bg_input`, `border_primary` edge), a sub-header's icons (`header_row`, `group_fold`) included; only a card header's own icons (`header_button`) and the canvas bar's buttons are flat (`setFlat`), the bar's in one track per group. A `QToolButton` outside the bar takes the `boxed` property, because the plain one is flat.
+- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()` and the `THEME.space_*` scale; the canvas bar's controls take `BAR_BUTTON_HEIGHT` and `BAR_ICON_SIZE`. A row that needs a width already has one. A panel body has no side inset of its own; the section card insets.
 - **Slider metadata**: unit in `unit=` (a space before a word, none before a symbol), never in the label; decimals from `step`/`precision`.
 - **Dialogs**: a footer calls `templates.pin_dialog_default(default, *others)` (`pin_button_box` for a `QDialogButtonBox`). Verbs: **Cancel** before one action verb (OK for a plain form, else Apply, Save, Scan); **Close** alone on a view-only dialog. Delete confirmations go through `view/confirm.py`. A resizable dialog takes a keyword-only `repo` and ends `__init__` with `remember_dialog_geometry(self, repo, "<name>")`; a fixed-size one calls `setFixedWidth`/`setFixedSize`. `tests/test_dialog_footers.py` and `tests/test_dialog_geometry.py` walk every dialog.
 - **Labels**: control names in Title Case ("Toe Width"); a label beside a combo/entry in sentence case ("Film stock"). The same concept takes the same words in every panel, so grep for the words before you write a new label.
 - **Copy**: every user-visible string goes through `tr`. American spelling in strings and `docs/`. Buttons, menu items and dialog titles are Title Case; a message-box title is the feature name. An item that opens a dialog, picker or confirmation ends in `…` (the character; `tests/test_ui_copy.py`). The feature is "Flat Field". No emoji.
-- **Tooltips**: every control gets one. A shortcut-bearing widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip` there is overwritten.
-- **Hide or gray out**: hide a single control the frame's film or mode can never use. Gray out a group or a whole panel the mode cannot use, under one `hint_label` that says why. Gray out a control that waits on a toggle or resource on the same frame.
+- **Tooltips**: every control gets one, within the budget under **Writing**. A shortcut-bearing widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip` there is overwritten.
+- **Hide or gray out**: hide a single control the frame's film or mode can never use. Gray out a group or a whole panel the mode cannot use, under one `hint_label` that says why. Gray out a control that waits on a toggle or resource on the same frame, or a folded rail that waits on its parent; an unfolded rail that waits on its parent hides instead (`show_while`).
 
 If no existing control fits, say so and propose the addition. Do not ship a one-off.
 
-## Style
+## Writing
 
-- Use **ASD-STE100 Simplified Technical English**.
+All prose (UI copy, docs, comments, commit messages) is **ASD-STE100 Simplified Technical English**:
+
+- One topic per sentence: at most 20 words in an instruction, 25 in a description.
+- Active voice, present tense. An instruction is a command ("Click Apply"), not a suggestion ("you may want to click Apply").
+- Simple words with one meaning: "use", not "utilize"; "start", not "initiate". One thing keeps one word everywhere; grep before you name it.
+- Keep the articles. No idioms, slang or contractions in UI copy and docs.
+
+### Text the user reads
+
+UI copy, tooltips, `docs/USER_GUIDE.md` and the tour (`widgets/tutorial_steps.py`) are for a photographer who does not know darkroom terms.
+
+- Say what a control does in plain words first, the darkroom name second ("Print Density: how light or dark the print is, like the exposure time under an enlarger"). Internals (normalization, matrices, log densities, cache keys) belong in `docs/PIPELINE.md`.
+- Budgets, each enforced by a test; over budget means cut, not reformat:
+  - a tooltip is one sentence of at most 25 words, with no ranges (`tests/test_tooltip_budget.py`); the detail goes in the guide;
+  - a guide panel stays under 350 words (`tests/test_section_help_dialog.py`): one sentence on what the card is for, then one bullet per control, and fine-tune controls in one fold may share a bullet;
+  - a tour step stays under 40 words (`tests/test_tutorial_overlay.py`).
+- Bold only the control name a bullet defines. Edge cases and rare states stay out of the guide unless a user acts on them.
+- A label is a noun or a short verb phrase, never a sentence. A message says what happened, then what to do.
+- No machine-sounding prose. Use a period, colon or comma, never an em-dash aside (`tests/test_ui_copy.py`). No "not X, but Y", no lists of three for rhythm, no filler adjectives ("seamless", "powerful", "robust"), no closing summary.
+
+### Code comments and developer docs
+
 - **Comments minimal.** Comment only non-obvious constraints the code cannot express (a cache contract, an ordering requirement, a rejected-alternative trap). Never narrate the next line, restate the diff or justify a change to a reviewer. One dense line beats a paragraph; docstrings short and factual.
 - **Write the state, not the change.** Code, comments and docs describe how the thing works now. Never "used to", "no longer" or a war story about the bug: the symptom belongs in the commit message, and only there. Write a constraint that exists *because* of a past bug as the rule ("detection runs once, upstream of both engines"), not as its history.
 - **No measurements in comments or docs.** No timings, frame rates, file sizes, speedups, error deltas or sample counts from a test run ("113→31 ms", "2.7% further right", "one 35mm night scan"): they are true of one machine and one file, and rot silently. State the constraint instead ("this scan is cached because it is the slowest step in a preview"). Numbers belong in the commit message, a test assertion or a report. Exceptions: a value the code depends on (a threshold, a limit, a unit) and a documented control range.
-- **Budget the prose.** An inline comment is 1–2 lines, a docstring 1–4. A new control gets **one** `docs/USER_GUIDE.md` bullet; a stage change gets at most a short paragraph in `docs/PIPELINE.md`. Over budget means the point is buried: cut, do not reformat. Skip emphasis and rhetoric (bold, "on purpose", "this is not an optimization", em-dash asides, punchlines).
+- **Budget the prose.** An inline comment is 1 or 2 lines, a docstring 1 to 4. A stage change gets at most a short paragraph in `docs/PIPELINE.md`, which keeps the math, mirrored constants and ordering rules and leaves UI behavior to the guide. Over budget means the point is buried: cut, do not reformat. Skip emphasis and rhetoric (bold, "on purpose", "this is not an optimization", em-dash asides, punchlines).
 - **Say it once.** A paragraph that states one constraint three ways buries it. A constraint shared by a function and its caller goes in the function that enforces it; the caller says nothing.
 - **No notes to a reviewer.** A comment asking someone to confirm, verify or check something is stale the day it merges, and outlives the answer. Open questions and things still to test go in the PR description. `TODO` is for work the code needs, not a message to a person.
 - **End on the constraint.** The last sentence of a comment, a docstring or a doc paragraph is a fact, not a conclusion about it ("the one question the pipeline cannot answer about itself", "this is what Esc is for").

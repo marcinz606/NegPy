@@ -15,9 +15,9 @@ from negpy.services.assets.rolls import next_roll_name, roll_folder_name
 
 SETTINGS_KEY = "scan_output_settings"
 
-_AS_ROLL_TIP = tr("Open the folder the frames go to as a Library roll, so Half Frame, roll defaults and Roll Analysis apply as you scan.")
+_AS_ROLL_TIP = tr("Open the output folder as a roll in the Library, so the Roll tab and Roll Analysis work as you scan.")
 _NEW_ROLL_TIP = tr("Start the next roll: step the Roll name to the next one with no subfolder yet")
-_FOLDER_ROLL_TIP = tr("Scan into the output folder itself and name the roll after it. Off scans into a Roll subfolder.")
+_FOLDER_ROLL_TIP = tr("Scan into the output folder itself and name the roll after it, or into a Roll subfolder when this is off.")
 
 
 @dataclass(frozen=True)
@@ -63,8 +63,8 @@ class ScanOutputPanel(QWidget):
         self.browse_btn = icon_button("fa5s.folder-open", tr("Choose the output folder"))
         layout.addLayout(field_row(tr("Folder"), self.folder_edit, self.browse_btn))
 
-        self.as_roll_btn = labeled_toggle("fa5s.film", tr(" Scan as Roll"), self._settings.scan_as_roll, _AS_ROLL_TIP)
-        self.folder_roll_btn = labeled_toggle("fa5s.folder", tr(" Folder as Roll"), self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
+        self.as_roll_btn = labeled_toggle("fa5s.film", tr("Scan as Roll"), self._settings.scan_as_roll, _AS_ROLL_TIP)
+        self.folder_roll_btn = labeled_toggle("fa5s.folder", tr("Folder as Roll"), self._settings.roll_is_folder, _FOLDER_ROLL_TIP)
         toggles = QHBoxLayout()
         toggles.addWidget(self.as_roll_btn, 1)
         toggles.addWidget(self.folder_roll_btn, 1)

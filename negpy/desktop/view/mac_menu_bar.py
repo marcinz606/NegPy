@@ -66,8 +66,6 @@ class MacMenuBar(QMenuBar):
 
         self.sync_shortcuts()
 
-    # -- construction ---------------------------------------------------------------
-
     def _menu(self, title: str) -> QMenu:
         menu = QMenu(title, self)
         self.addMenu(menu)
@@ -106,14 +104,14 @@ class MacMenuBar(QMenuBar):
         """About and Preferences, which macOS moves into the application menu. Their roles are
         the exception to the NoRole rule above."""
         menu = self._menu(tr("NegPy"))
-        self._add(menu, "About NegPy", action_id="show_about", role=QAction.MenuRole.AboutRole)
-        self._add(menu, "Preferences…", action_id="open_preferences", role=QAction.MenuRole.PreferencesRole)
+        self._add(menu, tr("About NegPy"), action_id="show_about", role=QAction.MenuRole.AboutRole)
+        self._add(menu, tr("Preferences…"), action_id="open_preferences", role=QAction.MenuRole.PreferencesRole)
         return menu
 
     def _build_help(self) -> QMenu:
         menu = self._menu(tr("Help"))
-        self._add(menu, "Take the Tour", slot=self._window.show_tutorial)
-        self._add(menu, "Keyboard Shortcuts…", action_id="show_shortcuts")
+        self._add(menu, tr("Take the Tour"), slot=self._window.show_tutorial)
+        self._add(menu, tr("Keyboard Shortcuts…"), action_id="show_shortcuts")
         self._add(menu, tr("Customize Shortcuts…"), slot=self._open_shortcut_editor)
         self._add(menu, tr("Analysis Panel Guide…"), action_id="show_analysis_help")
         menu.addSeparator()
@@ -124,15 +122,11 @@ class MacMenuBar(QMenuBar):
         self._add(menu, tr("Check for Updates…"), action_id="check_for_updates")
         return menu
 
-    # -- state ----------------------------------------------------------------------
-
     def sync_shortcuts(self) -> None:
         """Re-read every menu item's key from the live bindings. Called after a rebind, or
         the retired key would keep working from the menu."""
         for action, action_id in self._keyed:
             action.setShortcut(_menu_key(key_for(action_id)))
-
-    # -- slots ----------------------------------------------------------------------
 
     def _open_shortcut_editor(self) -> None:
         self._window.shortcut_manager.open_editor(self._window)

@@ -189,8 +189,9 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertTrue(config.process.linear_raw)
 
     def test_config_for_asset_applies_roll_defaults_outside_the_process_config(self):
-        """Auto Crop, Lens Correction and Flat Field are roll cards on other config
-        sections; a roll's own flat-field profile outranks the rig-global one."""
+        """Lens Correction and Flat Field are roll cards on other config sections; a roll's
+        own flat-field profile outranks the rig-global one. A crop value an older roll
+        stored never reaches the frame."""
         rolls_store = {
             "r1": {
                 "kind": "virtual",
@@ -206,30 +207,10 @@ class TestDesktopSessionSync(unittest.TestCase):
         with patch("negpy.desktop.session.load_or_promote", return_value=None):
             config = self.session.config_for_asset(asset)
 
-        self.assertEqual(config.geometry.autocrop_rebate_trim, 0.5)
+        self.assertEqual(config.geometry.autocrop_rebate_trim, 1.0)
         self.assertEqual(config.geometry.distortion_k1, 0.02)
         self.assertEqual(config.flatfield.profile_id, "roll-ff")
         self.assertTrue(config.flatfield.apply)
-
-    def test_config_for_asset_keeps_a_frames_own_auto_crop_when_that_card_is_locked(self):
-        rolls_store = {
-            "r1": {
-                "kind": "virtual",
-                "name": "Portra",
-                "defaults": {"autocrop_rebate_trim": 0.5, "distortion_k1": 0.02},
-                "frame_overrides": {"a-hash": ["autocrop"]},
-            }
-        }
-        globals_ = {"rolls_by_id": rolls_store}
-        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
-        self.session.state.active_roll_id = "r1"
-        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
-
-        with patch("negpy.desktop.session.load_or_promote", return_value=None):
-            config = self.session.config_for_asset(asset)
-
-        self.assertEqual(config.geometry.autocrop_rebate_trim, 1.0)
-        self.assertEqual(config.geometry.distortion_k1, 0.02)
 
     def test_config_for_asset_ignores_roll_defaults_when_the_file_belongs_to_no_roll(self):
         rolls_store = {"r1": {"kind": "virtual", "name": "Portra", "defaults": {"linear_raw": True}}}
@@ -282,7 +263,7 @@ class TestDesktopSessionSync(unittest.TestCase):
                 "kind": "virtual",
                 "name": "Portra",
                 "defaults": {"linear_raw": True},
-                "frame_overrides": {"a-hash": ["sensor"]},
+                "frame_overrides": {"a-hash": ["demosaic"]},
             }
         }
         globals_ = {"rolls_by_id": rolls_store}
@@ -307,7 +288,7 @@ class TestDesktopSessionSync(unittest.TestCase):
                 "kind": "virtual",
                 "name": "Portra",
                 "defaults": {"linear_raw": True},
-                "frame_overrides": {"a-hash": ["sensor"]},
+                "frame_overrides": {"a-hash": ["demosaic"]},
             }
         }
         globals_ = {"rolls_by_id": rolls_store}
@@ -323,16 +304,6 @@ class TestDesktopSessionSync(unittest.TestCase):
         # sensor (Calibration) is locked for a-hash, so linear_raw keeps its own value
         # even though the asset is currently showing its forked edit identity.
         self.assertFalse(config.process.linear_raw)
-
-    def test_set_autodetect_enabled_persists(self):
-        self.assertFalse(self.session.state.autodetect_enabled)
-        self.session.set_autodetect_enabled(True)
-        self.assertTrue(self.session.state.autodetect_enabled)
-        self.mock_repo.save_global_setting.assert_called_with("autodetect_enabled", True)
-
-    def test_set_autodetect_enabled_noop_when_unchanged(self):
-        self.session.set_autodetect_enabled(False)
-        self.mock_repo.save_global_setting.assert_not_called()
 
     def test_set_sticky_zoom_persists(self):
         self.assertFalse(self.session.state.sticky_zoom)
@@ -353,6 +324,12 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_set_invert_zoom_scroll_noop_when_unchanged(self):
         self.session.set_invert_zoom_scroll(False)
         self.mock_repo.save_global_setting.assert_not_called()
+
+    def test_shortcut_hints_start_on_and_persist_when_turned_off(self):
+        self.assertTrue(self.session.state.shortcut_hints)
+        self.session.set_shortcut_hints(False)
+        self.assertFalse(self.session.state.shortcut_hints)
+        self.mock_repo.save_global_setting.assert_called_with("shortcut_hints", False)
 
     def test_persist_writes_sticky_settings_in_one_batch(self):
         self.session.select_file(0)
@@ -991,6 +968,30 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
         self.assertEqual(saved["hash2"].exposure.density, 2.2)
 
+    def test_a_paste_onto_one_selected_frame_that_is_not_open_leaves_the_open_one(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = WorkspaceConfig()
+        self.session.state.clipboard = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, density=2.2))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig()
+        self.session.update_selection([1])
+
+        self.session.apply_pasted_fields([_row("Print Density")])
+
+        self.assertEqual(self.session.state.config.exposure.density, WorkspaceConfig().exposure.density)
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved["hash2"].exposure.density, 2.2)
+
+    def test_copy_takes_one_selected_frame_that_is_not_open(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.config = WorkspaceConfig()
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=3))
+        self.session.update_selection([1])
+
+        self.session.copy_settings()
+
+        self.assertEqual(self.session.state.clipboard.geometry.rotation, 3)
+
     def test_a_card_copy_holds_its_rows_and_a_whole_copy_clears_them(self):
         self.session.state.current_file_hash = "hash1"
         rows = [_row("Print Density")]
@@ -1296,6 +1297,22 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertEqual(touched, ["hash2-v3", "hash3-v3"])
         self.assertEqual(messages, ["Rotated 2 frames"])
+
+    def test_rotate_selected_frames_turns_one_selected_frame_that_is_not_open(self):
+        self.session.state.selected_file_idx = 0
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.session.update_selection([1])
+
+        touched = self.session.rotate_selected_frames(1, active_included=False)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        self.assertEqual(self.mock_repo.save_file_settings.call_args.args[0], "hash2")
+
+    def test_the_open_frame_is_the_target_only_when_it_is_the_whole_selection(self):
+        self.session.state.selected_file_idx = 0
+        for selection, open_frame in (([], True), ([0], True), ([1], False), ([0, 1], False)):
+            self.session.state.selected_indices = selection
+            self.assertEqual(self.session.selection_is_open_frame(), open_frame, selection)
 
     def test_rotate_selected_frames_noop_on_single_selection(self):
         self.session.state.selected_file_idx = 0
@@ -2310,7 +2327,7 @@ class ResetKeepsScanSetup(unittest.TestCase):
         roll_id = rolls.create_virtual_roll(self.repo, "Pakon", [f["path"] for f in self.session.state.uploaded_files])
         rolls.set_roll_defaults(self.repo, roll_id, linear_raw=True)
         for h in ("hash1", "hash2"):
-            rolls.set_frame_override(self.repo, roll_id, h, "sensor", locked=True)
+            rolls.set_frame_override(self.repo, roll_id, h, "demosaic", locked=True)
         self.repo.save_global_settings({"last_linear_raw": False})
         self.session.state.active_roll_id = roll_id
         return roll_id
@@ -2346,7 +2363,7 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.session.undo()
 
         self.assertFalse(self.session.state.config.process.linear_raw)
-        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
         self.session.repo.save_file_settings("hash1", self.session.state.config, file_path=self.session.state.uploaded_files[0]["path"])
         self.assertFalse(self.session.config_for_asset(self.session.state.uploaded_files[0]).process.linear_raw)
 
@@ -2380,7 +2397,7 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.session.jump_to_step(self.session.state.undo_index - 1)
 
         self.assertFalse(self.session.state.config.process.linear_raw)
-        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
 
     def test_loading_a_work_print_locks_a_card_that_differs_from_the_roll(self):
         from negpy.services.assets import rolls
@@ -2390,7 +2407,7 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.session.load_work_print("own")
 
         self.assertFalse(self.session.state.config.process.linear_raw)
-        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
 
     def test_loading_a_sidecar_replaces_the_edit_as_one_undo_step(self):
         import tempfile
@@ -2411,7 +2428,7 @@ class ResetKeepsScanSetup(unittest.TestCase):
 
         self.assertEqual(self.session.state.config.exposure.density, 0.77)
         self.assertEqual(self.repo.load_file_settings("hash1").exposure.density, 0.77)
-        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
         self.assertEqual(self.session.state.undo_index, before + 1)
 
     def test_a_paste_locks_a_card_that_differs_from_the_roll(self):

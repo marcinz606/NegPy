@@ -2,6 +2,7 @@ import math
 from typing import Optional
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QWidget,
     QHBoxLayout,
     QSlider,
@@ -10,16 +11,17 @@ from PyQt6.QtWidgets import (
     QLayout,
     QSizePolicy,
     QSpacerItem,
+    QStyle,
     QVBoxLayout,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QRectF, QEvent, QLocale
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRectF, QEvent, QLocale
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.i18n import tr
 from negpy.desktop.view.styles.templates import EditedDot, FieldLabel, slider_handle_qss, slider_label_qss, slider_value_qss, wrap_tooltip
 
 
-# text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
+# text_muted is too dim to read on the tooltip background.
 _RESET_HINT = f'<div style="color:{THEME.text_secondary};">{tr("Double-click to reset")}</div>'
 
 # Quiet period after the last slider step before a render is asked for.
@@ -88,11 +90,17 @@ class _NoScrollSlider(QSlider):
         super().paintEvent(event)
         if self._default_pos is None:
             return
-        p = QPainter(self)
         groove_y = self.height() // 2
         handle_w = 12
         usable = self.width() - handle_w
         x = handle_w // 2 + int(self._default_pos * usable)
+        handle_x = handle_w // 2 + QStyle.sliderPositionFromValue(
+            self.minimum(), self.maximum(), self.value(), usable, self.invertedAppearance()
+        )
+        # Over the handle the tick would read as a notch in it.
+        if abs(handle_x - x) <= handle_w // 2 + 1:
+            return
+        p = QPainter(self)
         pen = QPen(QColor(THEME.text_unit), 1)
         p.setPen(pen)
         p.drawLine(x, groove_y - 1, x, groove_y + 2)
@@ -317,7 +325,8 @@ class BaseSlider(QWidget):
 
 
 class CompactSlider(BaseSlider):
-    """One row: label, track, value; click the value to type one."""
+    """One row: label, track, value; click the value to type one. A drag on the label scrubs the
+    value."""
 
     def __init__(
         self,
@@ -338,7 +347,7 @@ class CompactSlider(BaseSlider):
         self._label_color = color if color else THEME.text_secondary
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 0, 2, 0)
+        layout.setContentsMargins(THEME.space_xs, 0, THEME.space_xs, 0)
         layout.setSpacing(THEME.space_md)
 
         self.label = QLabel(tr(label))
@@ -365,13 +374,14 @@ class CompactSlider(BaseSlider):
             self.spin.setSuffix(unit)
 
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.spin.setStyleSheet(slider_value_qss())
 
         # Label-scrub: drag the label horizontally to change value
         self.label.setCursor(Qt.CursorShape.SizeHorCursor)
         self.label.installEventFilter(self)
         self._scrub_active = False
+        self._scrubbing = False
         self._scrub_start_x = 0.0
         self._scrub_start_val = 0.0
         self._band_drag = False
@@ -473,11 +483,16 @@ class CompactSlider(BaseSlider):
                 if not self.isEnabled():
                     return True
                 self._scrub_active = True
+                self._scrubbing = False
                 self._scrub_start_x = event.position().x()
                 self._scrub_start_val = self.spin.value()
                 return True
             if et == QEvent.Type.MouseMove and self._scrub_active and self.isEnabled():
                 dx = event.position().x() - self._scrub_start_x
+                # Within the drag distance it is still a click, so a shaky click never nudges the value.
+                if not self._scrubbing and abs(dx) < QApplication.startDragDistance():
+                    return True
+                self._scrubbing = True
                 span = self._max - self._min
                 sensitivity = span / 400.0
                 mods = event.modifiers()
@@ -492,7 +507,8 @@ class CompactSlider(BaseSlider):
                 return True
             if et == QEvent.Type.MouseButtonRelease and self._scrub_active:
                 self._scrub_active = False
-                self._on_committed()
+                if self._scrubbing:
+                    self._on_committed()
                 return True
         return super().eventFilter(obj, event)
 
@@ -576,7 +592,7 @@ class HueSlider(CompactSlider):
         self._apply_hue(default_val)
 
     def _apply_hue(self, hue_deg: float) -> None:
-        """Update slider handle to match the current hue; label stays grey (yellow when edited)."""
+        """Tint the slider handle to the current hue."""
         if self.isEnabled():
             h = int(hue_deg) % 360
             color = QColor.fromHsv(h, 200, 210).name()
@@ -658,8 +674,9 @@ def clone_slider(src: CompactSlider) -> CompactSlider:
         return HueSlider(label, src._default)
     if cls is KelvinSlider:
         return KelvinSlider(label)
-    if cls is CompactSlider:
-        clone = CompactSlider(
+    if cls in (CompactSlider, LogSlider):
+        extra = {"log_floor": src._log_floor} if cls is LogSlider else {}
+        clone = cls(
             label,
             src._min,
             src._max,
@@ -670,121 +687,12 @@ def clone_slider(src: CompactSlider) -> CompactSlider:
             has_neutral=src.slider.objectName() == "neutral_slider",
             unit=src.spin.suffix(),
             inverted=src.slider.invertedAppearance(),
+            **extra,
         )
         # Decimals are not a constructor argument, so a fine slider would drop back to 2.
         clone.spin.setDecimals(src.spin.decimals())
         return clone
     raise TypeError(f"clone_slider: unhandled slider class {cls.__name__}")
-
-
-class RangeSlider(QWidget):
-    """
-    Dual-handle slider for selecting a range (0.0 to 1.0).
-    """
-
-    rangeChanged = pyqtSignal(float, float)
-    rangeCommitted = pyqtSignal(float, float)
-
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(50)
-        self._label = label
-        self._min_val = 0.0
-        self._max_val = 1.0
-        self._last_min = 0.0
-        self._last_max = 1.0
-        self._active_handle = None
-
-        self._margin = 10
-        self._handle_r = 6
-
-        # Debounce
-        self.timer = QTimer()
-        self.timer.setSingleShot(True)
-        self.timer.setInterval(33)
-        self.timer.timeout.connect(lambda: self.rangeChanged.emit(self._min_val, self._max_val))
-
-    def setRange(self, low: float, high: float) -> None:
-        self._min_val = low
-        self._max_val = high
-        self._last_min = low
-        self._last_max = high
-        self.update()
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw Label
-        painter.setPen(QColor(THEME.text_secondary))
-        painter.setFont(painter.font())
-        painter.drawText(QRect(0, 0, self.width(), 15), Qt.AlignmentFlag.AlignLeft, self._label)
-
-        # Track math
-        w = self.width() - 2 * self._margin
-        y = 35
-
-        # Draw Groove
-        painter.setPen(QPen(QColor(THEME.border_color), 4))
-        painter.drawLine(self._margin, y, self.width() - self._margin, y)
-
-        # Draw Active Part
-        x1 = self._margin + int(self._min_val * w)
-        x2 = self._margin + int(self._max_val * w)
-        painter.setPen(QPen(QColor(THEME.accent_primary), 4))
-        painter.drawLine(x1, y, x2, y)
-
-        # Draw the handles: filled with the accent, plus a 1px dark stroke ring for visibility
-        r = self._handle_r
-        for cx in (x1, x2):
-            painter.setBrush(QColor(THEME.accent_primary))
-            painter.setPen(QPen(QColor(THEME.canvas_bg_black), 1))
-            painter.drawEllipse(cx - r, y - r, r * 2, r * 2)
-
-    def _get_val(self, x: int) -> float:
-        w = self.width() - 2 * self._margin
-        val = (x - self._margin) / max(1, w)
-        return float(max(0.0, min(1.0, val)))
-
-    def mousePressEvent(self, event) -> None:
-        x = int(event.position().x())
-        w = self.width() - 2 * self._margin
-        x1 = self._margin + int(self._min_val * w)
-        x2 = self._margin + int(self._max_val * w)
-
-        if abs(x - x1) < 15:
-            self._active_handle = "min"
-        elif abs(x - x2) < 15:
-            self._active_handle = "max"
-        else:
-            self._active_handle = None
-
-    def mouseMoveEvent(self, event) -> None:
-        if not self._active_handle:
-            return
-
-        val = self._get_val(int(event.position().x()))
-        if self._active_handle == "min":
-            self._min_val = min(val, self._max_val - 0.05)
-        else:
-            self._max_val = max(val, self._min_val + 0.05)
-
-        self.update()
-        self.timer.start()
-
-    def mouseReleaseEvent(self, event) -> None:
-        if self._active_handle:
-            if self._min_val != self._last_min or self._max_val != self._last_max:
-                self._last_min = self._min_val
-                self._last_max = self._max_val
-                self.rangeCommitted.emit(self._min_val, self._max_val)
-        self._active_handle = None
-
-    def mouseDoubleClickEvent(self, event) -> None:
-        """Reset for the entire range."""
-        self.setRange(0.0, 1.0)
-        self.rangeChanged.emit(0.0, 1.0)
-        self.rangeCommitted.emit(0.0, 1.0)
 
 
 class SliderGroup(QWidget):
@@ -812,7 +720,7 @@ class SliderGroup(QWidget):
 
 
 def _group_indent(widget: QWidget) -> int:
-    indent = 0
+    indent = widget.property("fold_gutter") or 0
     parent = widget.parentWidget()
     while parent is not None:
         if isinstance(parent, SliderGroup):
@@ -830,7 +738,9 @@ def _row_layout(widget: QWidget) -> QHBoxLayout | None:
     while pending:
         layout = pending.pop()
         if layout.indexOf(widget) >= 0:
-            return layout if isinstance(layout, QHBoxLayout) and layout.indexOf(widget) == 0 else None
+            # A fold's chevron may open the row, ahead of the widget.
+            opens = layout.indexOf(widget) == (1 if widget.property("fold_gutter") else 0)
+            return layout if isinstance(layout, QHBoxLayout) and opens else None
         for k in range(layout.count()):
             item = layout.itemAt(k)
             child = item.layout() if item is not None else None

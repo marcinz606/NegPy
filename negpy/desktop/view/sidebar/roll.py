@@ -17,15 +17,10 @@ _TICK = "✓ "
 
 # Roll Analysis is the action, Roll Baseline the field it fills; the Library's own
 # menu item runs the same action, so it reads these rather than restating them.
-BATCH_ANALYSIS_TOOLTIP = tr(
-    "Roll Analysis — measures the exposure of every loaded frame outside a scene and saves the average as this roll's baseline"
-)
-BATCH_ANALYSIS_DISABLED_TOOLTIP = tr("Open this roll first — Roll Analysis measures the files currently loaded.")
-FROM_FRAME_TOOLTIP = tr(
-    "Use This Frame — save the current frame's bounds as this roll's baseline, in place of a measured "
-    "average. Every frame outside a scene on Use Luma/Color Average follows it, including one loaded later."
-)
-FROM_FRAME_DISABLED_TOOLTIP = tr("Open this roll first — the baseline is written onto the files currently loaded.")
+BATCH_ANALYSIS_TOOLTIP = tr("Roll Analysis: measure every loaded frame and save the average as the roll's baseline.")
+BATCH_ANALYSIS_DISABLED_TOOLTIP = tr("Open this roll first, because Roll Analysis measures the loaded files.")
+FROM_FRAME_TOOLTIP = tr("Use This Frame: make this frame's measurement the roll's baseline.")
+FROM_FRAME_DISABLED_TOOLTIP = tr("Open this roll first, because the baseline goes onto the loaded files.")
 STALE_ROLL_HINT = tr("Baseline from an older analysis: run Reanalyze")
 STALE_SCENE_TOOLTIP = tr("Baseline from an older analysis: run Scene Analysis")
 
@@ -50,6 +45,7 @@ class RollAnalysisSidebar(BaseSidebar):
         self.reanalyze_btn = self._icon_action("fa5s.tachometer-alt", BATCH_ANALYSIS_TOOLTIP)
         self.from_frame_btn = self._icon_action("fa5s.crosshairs", FROM_FRAME_TOOLTIP)
         self.layout.addLayout(header_row(section_subheader(tr("ROLLS")), self.reanalyze_btn, self.from_frame_btn))
+        self.layout.addWidget(hint_label(tr("Roll Analysis first crops the frames that wait for Auto Crop."), "muted"))
         self.layout.addWidget(self.roll_combo)
 
         self.roll_status_hint = hint_label("", "muted")
@@ -159,7 +155,7 @@ class RollAnalysisSidebar(BaseSidebar):
                 label.setToolTip(STALE_SCENE_TOOLTIP)
             row_layout.addWidget(label, 1)
             analyze = self._icon_action(
-                "fa5s.tachometer-alt", tr("Scene Analysis — measure “{value}” and give its frames their own baseline", value=entry["name"])
+                "fa5s.tachometer-alt", tr("Scene Analysis: measure “{value}” and give its frames their own baseline", value=entry["name"])
             )
             analyze.clicked.connect(lambda _=False, sid=scene_id: self.controller.request_scene_analysis(sid))
             select = self._icon_action("fa5s.object-group", tr("Select the frames of “{value}” in the Film Strip", value=entry["name"]))
@@ -167,7 +163,7 @@ class RollAnalysisSidebar(BaseSidebar):
             for btn in (analyze, select):
                 btn.setEnabled(count > 0)
                 row_layout.addWidget(btn)
-            delete = self._icon_action("fa5s.trash", tr("Delete “{value}” — its frames keep their edits and baseline", value=entry["name"]))
+            delete = self._icon_action("fa5s.trash", tr("Delete “{value}”: its frames keep their edits and baseline.", value=entry["name"]))
             delete.clicked.connect(lambda _=False, sid=scene_id: prompt_delete_scene(self, self.controller, sid))
             row_layout.addWidget(delete)
             self._scene_rows_layout.addWidget(row)

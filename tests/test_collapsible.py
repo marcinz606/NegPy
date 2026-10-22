@@ -8,10 +8,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
 
-from PyQt6.QtWidgets import QApplication, QWidget
+import pytest
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QApplication, QSplitter, QWidget
 
 from conftest import FakeRepo
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, fit_pane, make_section
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -83,6 +87,19 @@ class TestScopeButtons:
         assert (section.roll_btn.isChecked(), section.frame_btn.isChecked()) == (True, False)
         section.set_scope_buttons(visible=True, scope="frame")
         assert (section.roll_btn.isChecked(), section.frame_btn.isChecked()) == (False, True)
+
+    @pytest.mark.parametrize(("scope", "color"), [("frame", THEME.border_scope_frame), ("roll", THEME.border_checked_hover)])
+    def test_the_active_half_takes_its_scope_stripes_color(self, scope, color) -> None:
+        section = CollapsibleSection("Calibration")
+        section.set_scope_buttons(visible=True, scope=scope)
+
+        def glyph(btn) -> set:
+            image = btn.icon().pixmap(32, 32).toImage()
+            return {image.pixelColor(x, y).name() for x in range(32) for y in range(32) if image.pixelColor(x, y).alpha() == 255}
+
+        active, other = (section.frame_btn, section.roll_btn) if scope == "frame" else (section.roll_btn, section.frame_btn)
+        assert glyph(active) == {QColor(color).name()}
+        assert glyph(other) == {QColor(THEME.text_hint).name()}
 
     def test_roll_can_be_shown_disabled_rather_than_hidden(self) -> None:
         """Frames that are not one roll have no roll to move values to. The pair still
@@ -266,3 +283,28 @@ def test_a_field_row_value_reserve_gives_way_in_a_narrow_card() -> None:
     assert len(spacers) == 1
     assert spacers[0].sizeHint().width() > 0
     assert spacers[0].minimumSize().width() == 0
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_a_folded_pane_holds_its_header_height_and_opens_to_its_saved_height(qapp, index):
+    splitter = QSplitter(Qt.Orientation.Vertical)
+    splitter.addWidget(QWidget())
+    splitter.addWidget(QWidget())
+    splitter.resize(200, 600)
+    splitter.show()
+    qapp.processEvents()
+    pane = splitter.widget(index)
+
+    fit_pane(splitter, index, False, 250, 30, 120)
+    assert splitter.sizes()[index] == 30 and pane.minimumHeight() == pane.maximumHeight() == 30
+    fit_pane(splitter, index, True, 250, 30, 120)
+    assert splitter.sizes()[index] == 250 and pane.maximumHeight() > 600
+    fit_pane(splitter, index, True, 900, 30, 120)
+    assert splitter.sizes()[1 - index] == 120, "the other pane keeps its least height"
+    splitter.hide()
+
+
+def test_a_header_over_a_chart_draws_its_title_above_the_chart() -> None:
+    section = CollapsibleSection("Tone", background_widget=QWidget())
+    stack = section.toggle_button.parentWidget().layout()
+    assert stack.currentWidget() is section.toggle_button

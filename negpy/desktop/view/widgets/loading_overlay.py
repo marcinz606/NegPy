@@ -30,7 +30,7 @@ class LoadingOverlay(QWidget):
         self._spinner.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._spinner.setStyleSheet("QToolButton { border: none; background: transparent; }")
         self._spin = qta.Spin(self._spinner, interval=12, step=12)
-        self._spinner.setIcon(qta.icon("fa5s.circle-notch", color=THEME.accent_primary, animation=self._spin))
+        self._spinner.setIcon(qta.icon("fa5s.circle-notch", color=THEME.text_primary, animation=self._spin))
         self._spinner.setIconSize(QSize(52, 52))
         layout.addWidget(self._spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 

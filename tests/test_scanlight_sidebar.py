@@ -230,7 +230,7 @@ def test_white_preset_hint_shows_then_clears():
     assert not w.preset_hint.isHidden()  # note appears under the preset row (not in camera status)
     assert "white-light" in w.preset_hint.text().lower()
     # Deselecting the preset must clear the note (it used to linger in the camera status line).
-    w.preset_combo.setCurrentIndex(0)  # "— Select preset —" (data=None)
+    w.preset_combo.setCurrentIndex(0)  # "Select preset" (data=None)
     w._on_preset_selected(0)
     assert w.preset_hint.text() == ""
     assert w.preset_hint.isHidden()
@@ -1390,7 +1390,7 @@ def test_calibration_outcome_survives_the_light_echo(monkeypatch):
     assert "Saved preset" in w.status_strip.message(), "the light echo must not clobber the calibration outcome"
     # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
     # light echo works again afterwards.
-    w._set_status("Calibrating a new preset — see the pop-up")
+    w._set_status("Calibrating a new preset. See the pop-up.")
     w._on_light_set(10, 20, 30, 0)
     assert w.status_strip.message() == "Light: R10 G20 B30"
 
@@ -1574,7 +1574,7 @@ def test_selecting_manual_without_a_camera_is_refused():
     w = _sidebar()  # no camera
     w._on_preset_manual()
     assert not w._manual_mode  # refused — no body to source valid ISO/shutter/aperture from
-    assert w.preset_combo.currentData() is None  # reverted to "— Select preset —"
+    assert w.preset_combo.currentData() is None  # reverted to "Select preset"
 
 
 def _white_preset_item(w):
@@ -2351,22 +2351,22 @@ def _rows(w):
 
 def test_built_ins_live_under_plus_until_picked():
     w = _sidebar(adopt=False)
-    assert _rows(w) == ["— Click + to add a preset —"]
+    assert _rows(w) == ["Click + to add a preset"]
     assert [a.text() for a in w.builtin_menu.actions()] == list(_BUILTIN_PRESETS)
     assert not any(a.isChecked() for a in w.builtin_actions.values())
 
     w._on_builtin_picked("Trichrome, Color Negative")
 
-    assert _rows(w) == ["— Select preset —", "Trichrome, Color Negative"] and w._preset_selected()
+    assert _rows(w) == ["Select preset", "Trichrome, Color Negative"] and w._preset_selected()
     assert w.builtin_actions["Trichrome, Color Negative"].isChecked()
     saved = w.controller.session.repo.save_global_setting.call_args_list
     assert any(k == "scanlight_settings" and v["adopted_presets"] == ("Trichrome, Color Negative",) for (k, v), _ in saved)
     w._on_builtin_picked("Trichrome, Color Negative")  # picking it again selects it, once in the list
-    assert _rows(w) == ["— Select preset —", "Trichrome, Color Negative"]
+    assert _rows(w) == ["Select preset", "Trichrome, Color Negative"]
 
     w._on_preset_delete()
 
-    assert _rows(w) == ["— Click + to add a preset —"] and not w._preset_selected()
+    assert _rows(w) == ["Click + to add a preset"] and not w._preset_selected()
     assert w._settings.adopted_presets == () and not w.builtin_actions["Trichrome, Color Negative"].isChecked()
     assert "Built-in Presets" in w.status_strip.message() and not w.preset_del_btn.isEnabled()
 
@@ -2375,11 +2375,11 @@ def test_the_preset_list_shows_headers_only_with_both_groups(monkeypatch):
     w = _sidebar(adopt=False)
     monkeypatch.setattr(w._presets, "names", lambda: ["Portra 400"])
     w._reload_presets()
-    assert _rows(w) == ["— Select preset —", "Portra 400"]  # the user's own, no caption over one group
+    assert _rows(w) == ["Select preset", "Portra 400"]  # the user's own, no caption over one group
 
     w._on_builtin_picked("Trichrome, Color Negative")
 
-    assert _rows(w) == ["— Select preset —", "Built-in", "Trichrome, Color Negative", "Your presets", "Portra 400"]
+    assert _rows(w) == ["Select preset", "Built-in", "Trichrome, Color Negative", "Your presets", "Portra 400"]
     assert not w.preset_combo.model().item(1).isEnabled()  # a caption row is not a choice
 
 
@@ -2389,16 +2389,16 @@ def test_adopted_presets_persist_and_an_older_settings_dict_loads_clean(monkeypa
     ctrl.session.repo.get_global_setting.side_effect = lambda k, default=None: stored if k == "scanlight_settings" else default
     w = ScanlightSidebar(ctrl)
     assert w._settings.adopted_presets == ("Trichrome, Color Negative", "A built-in this build no longer has")  # a tuple again
-    assert _rows(w) == ["— Select preset —", "Trichrome, Color Negative"]  # an unknown name is not a row
+    assert _rows(w) == ["Select preset", "Trichrome, Color Negative"]  # an unknown name is not a row
 
     ctrl.session.repo.get_global_setting.side_effect = (
         lambda k, default=None: {"white_mode": True, "w_level": 255} if k == "scanlight_settings" else default
     )
     w = ScanlightSidebar(ctrl)  # a user from before the list existed
-    assert w._settings.adopted_presets == () and _rows(w) == ["— Click + to add a preset —"]
+    assert w._settings.adopted_presets == () and _rows(w) == ["Click + to add a preset"]
     monkeypatch.setattr(w._presets, "names", lambda: ["Portra 400"])
     w._reload_presets()
-    assert _rows(w) == ["— Select preset —", "Portra 400"]  # their own presets are untouched
+    assert _rows(w) == ["Select preset", "Portra 400"]  # their own presets are untouched
 
 
 def test_the_light_gates_the_built_in_submenu_like_the_rows():
@@ -2544,7 +2544,7 @@ def test_the_card_meter_opens_live_view_and_meters_once_it_streams(tmp_path, mon
 
 def test_the_plus_menu_offers_calibration_and_hand_setting():
     w = _sidebar()
-    assert w.preset_combo.currentText() == "— Select preset —"  # the placeholder shows only for a hand-set recipe
+    assert w.preset_combo.currentText() == "Select preset"  # the placeholder shows only for a hand-set recipe
     assert [a.text() for a in w.preset_new_btn.menu().actions()] == ["Calibrate on the Film Base…", "Set by Hand", "Built-in Presets"]
     assert w.preset_new_btn.isEnabled() and not w.preset_manual_action.isEnabled()  # the built-ins need no camera
     w._camera_verified = True

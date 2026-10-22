@@ -98,10 +98,9 @@ def test_crop_reset_restores_its_own_card(qapp):
     controller.state.config = replace(cfg, geometry=replace(cfg.geometry, autocrop_offset=9, distortion_k1=0.05, fine_rotation=1.5))
 
     panel.autocrop_section.reset_requested.emit()
-    card, changes = controller.set_roll_default.call_args[0][0], controller.set_roll_default.call_args[1]
-    assert card == "autocrop"
-    assert changes["autocrop_offset"] == cfg.geometry.autocrop_offset
-    assert "distortion_k1" not in changes
+    settings = controller.reset_crop.call_args.kwargs
+    assert settings["autocrop_offset"] == cfg.geometry.autocrop_offset
+    assert all(field.startswith("autocrop_") for field in settings)
 
 
 def test_geometry_reset_leaves_the_roll_scoped_cards_alone(qapp):
@@ -180,7 +179,7 @@ def test_roll_analysis_counts_the_averages_and_the_picked_roll_not_metering(qapp
     assert applied.process.use_luma_average == cfg.process.use_luma_average
 
 
-def test_auto_crop_lights_the_crop_card_and_only_a_hand_drawn_crop_lights_geometry(qapp):
+def test_a_crop_lights_the_crop_card_alone(qapp):
     controller, panel = _panel()
     cfg = controller.state.config
 
@@ -196,4 +195,4 @@ def test_auto_crop_lights_the_crop_card_and_only_a_hand_drawn_crop_lights_geomet
 
     controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
     panel._sync_modified_dots()
-    assert (panel.autocrop_section.modified_count, panel.geometry_section.modified_count) == (0, 1)
+    assert (panel.autocrop_section.modified_count, panel.geometry_section.modified_count) == (1, 0)

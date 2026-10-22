@@ -285,3 +285,21 @@ def test_confirmed_target_change_warns_but_no_change_does_not(qapp, monkeypatch)
 
     sidebar._on_targets_finished(_Same(), int(QDialog.DialogCode.Accepted))
     assert len(warned) == 0
+
+
+def test_mask_spacer_folds_and_grays_out_at_a_neutral_contrast_mask(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+    sidebar.sync_ui()
+    fold = sidebar.mask_spacer_fold
+    assert not fold.is_open()
+    fold.set_open(True)
+    assert not sidebar.mask_spacer_slider.isEnabled()
+
+    sidebar.contrast_mask_slider.setValue(0.2)
+    sidebar.contrast_mask_slider.valueChanged.emit(0.2)
+    assert sidebar.mask_spacer_slider.isEnabled()
+
+    sidebar.ch_btn.setCurrentIndex(1)
+    assert not sidebar.mask_spacer_slider.isEnabled()

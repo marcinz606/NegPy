@@ -1,5 +1,6 @@
 """The ⓘ in a section header and the guide it renders out of docs/USER_GUIDE.md."""
 
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,8 @@ from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _g
 GUIDED_KEYS = (
     "analysis",
     "presets",
+    "work_prints",
+    "edit_history",
     "film",
     "assembly",
     "sensor",
@@ -39,12 +42,9 @@ GUIDED_KEYS = (
     "library",
     "frames",
     "export_presets",
-    "printing_notes",
-    "export_sidecars",
-    "export_bake",
+    "export_alongside",
     "contact_sheet",
     "soft_proof",
-    "metadata_presets",
     "metadata_gear",
     "metadata_capture",
     "metadata_process",
@@ -77,7 +77,7 @@ def test_a_slice_stops_at_the_next_section() -> None:
     bleeding in -- "Presets", its actual next-heading neighbour, is the boundary to check."""
     assert "Presets" not in guide_markdown("process")
     assert "Setup tab" not in guide_markdown("analysis")
-    assert "Step wedge" in guide_markdown("analysis")
+    assert "step wedge" in guide_markdown("analysis")
 
 
 def test_cross_doc_links_are_flattened_to_their_text() -> None:
@@ -97,7 +97,7 @@ def test_the_analysis_guide_still_covers_every_read_out() -> None:
     part of the panel unexplained with nothing else in the UI to explain it."""
     text = guide_markdown("analysis")
 
-    for topic in ("Photometric curve", "histograms", "Lin / Log", "Clipping", "Step wedge", "Zone strip", "Probe", "Negative stats"):
+    for topic in ("Curve", "histogram", "**Log**", "Clipping", "step wedge", "zone strip", "Readouts"):
         assert topic in text, f"the guide never mentions {topic!r}"
 
 
@@ -108,6 +108,18 @@ def test_the_dialog_renders_markdown_for_every_panel(key: str) -> None:
 
     assert text.strip()
     assert "###" not in text, "markdown syntax leaked into the rendered body"
+
+
+def test_a_guide_table_draws_its_grid_in_the_card_edge_color() -> None:
+    from PyQt6.QtGui import QColor, QTextTable
+
+    from negpy.desktop.view.styles.theme import THEME
+
+    dlg = SectionHelpDialog("frames", "Film Strip")
+    tables = [f for f in dlg.body.document().rootFrame().childFrames() if isinstance(f, QTextTable)]
+
+    assert tables
+    assert {t.format().borderBrush().color().name() for t in tables} == {QColor(THEME.border_primary).name()}
 
 
 def test_the_info_button_is_opt_in() -> None:
@@ -151,3 +163,10 @@ def test_clicking_info_asks_for_help_without_collapsing_the_section() -> None:
 
     assert requests == [1]
     assert section.toggle_button.isChecked()
+
+
+@pytest.mark.parametrize("key", GUIDED_KEYS)
+def test_a_panel_guide_stays_short(key: str) -> None:
+    """The ⓘ opens over the work: a panel that grows past one screen of reading is skipped."""
+    words = re.findall(r"[^\W\d_][\w'’-]*", guide_markdown(key))
+    assert len(words) <= 350, f"panel:{key} has {len(words)} words; cut it, the full detail belongs in docs/PIPELINE.md"

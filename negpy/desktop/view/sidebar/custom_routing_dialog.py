@@ -110,7 +110,7 @@ class CustomRoutingDialog(QDialog):
 
     @staticmethod
     def _row_text(position: int, index: int) -> str:
-        return f"{position + 1}. {PICK_PARAMS[index].name}"
+        return f"{position + 1}. {tr(PICK_PARAMS[index].name)}"
 
     def _on_reordered(self) -> None:
         # The dropped list is the truth; renumber each row to its new round position.

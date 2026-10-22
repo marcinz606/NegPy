@@ -9,57 +9,27 @@ from negpy.desktop.view.styles.templates import header_button, labeled_action
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
 
-CLIPPING_TOOLTIP = tr("Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns amber above 1%.")
+CLIPPING_TOOLTIP = tr("Share of the picture that prints pure black in the shadows or pure white in the highlights.")
 
 _TOOLTIPS = {
-    "Negative": (
-        tr(
-            "The negative itself: its development character vs a nominal frame (lo = flat, ≈N−1; nrm = normal; "
-            "hi = contrasty, ≈N+1), then Dmin · Dmed · Dmax above the clear base and Δ, the density range "
-            "of the normalization window (luminance). Relative scale, comparable across a roll; a heuristic "
-            "from this scan's normalized bounds, not a calibrated densitometer reading."
-        )
-    ),
-    "Exposure": (
-        tr(
-            "Where the frame's midtone sits, in stops from neutral: positive = brighter (high-key), "
-            "negative = darker (low-key). Approximate — read off the metered midtone, not a precise meter."
-        )
-    ),
+    mark("Negative"): (tr("How contrasty the negative is: its estimated density range (Δ), read as flat, normal or contrasty.")),
+    mark("Exposure"): (tr("Where the midtones sit, in stops: positive is bright (high-key), negative is dark (low-key).")),
     mark("Clipping"): CLIPPING_TOOLTIP,
-    mark("Scan clip"): (
-        tr(
-            "Share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and "
-            "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
-            "expose the scan lower. Turns amber above 1%."
-        )
-    ),
-    mark("Gamut"): (
-        tr(
-            "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
-            "tone ran off the end of the paper; this says a color is outside what the profile can make, "
-            "so it will be pulled to the nearest one it can. Blank unless soft proofing to an "
-            "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
-            "which pixel. Turns amber above 2%."
-        )
-    ),
-    mark("Repair"): (
-        tr(
-            "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
-            "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
-            "Reads none until a route fires; turns amber above 5%, where a route is repairing the "
-            "picture rather than the dust on it."
-        )
-    ),
+    mark("Scan clip"): (tr("Share of each channel at the scanner's maximum, which no edit can bring back.")),
+    mark("Gamut"): (tr("Share of the picture that the proof printer or paper cannot print, shown while soft proofing.")),
+    mark("Repair"): (tr("Share of the scan that dust removal rewrote, which can change the picture itself above 5%.")),
 }
 
 
-_PROBE_EMPTY = "—"
-_PROBE_SAMPLE = "ΔD -0.00·0.00·0.00 · D 0.00 · VIII⅔"
+def _channel_markup(value: str) -> str:
+    """R · G · B in the channel colors; a warning stays all amber, so the amber reads."""
+    colors = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
+    return " · ".join(f'<span style="color:{color}">{part}</span>' for color, part in zip(colors, value.split(" · ")))
+
 
 # One per zone-placement pin, in pin order. The canvas overlay draws its rings in these
 # same colors, so the sidebar row and the pin on the photo match by eye.
-PIN_COLORS = (THEME.accent_primary, THEME.text_on_accent, THEME.channel_blue)
+PIN_COLORS = (THEME.mark_photo, THEME.channel_blue, THEME.status_success)
 
 
 def _lock_height(label: QLabel, sample: str) -> None:
@@ -72,44 +42,8 @@ def _lock_height(label: QLabel, sample: str) -> None:
     label.setText(text)
 
 
-class DensitometerRow(QWidget):
-    """Hover spot-densitometer read-out shown between the H&D curve and the stats."""
-
-    _TOOLTIP = tr(
-        "Spot densitometer — hover the image to read the pixel: ΔD per channel, the displayed tone's reflection "
-        "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). ΔD is density "
-        "above the thin end of the normalization window. On a negative that end is the detected thin bound plus "
-        "the Black Point offset, or the roll's bound under Roll Analysis; the rebate reads below zero. On a slide "
-        "it is decoder white plus the White Point offset. "
-        "In B&W Negative mode the ΔD channels read the pre-conversion color record."
-    )
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(THEME.space_lg)
-        grid.setColumnStretch(1, 1)
-        name = QLabel(tr("Probe"))
-        name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
-        self._value = QLabel(_PROBE_EMPTY)
-        self._value.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;")
-        self._value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        grid.addWidget(name, 0, 0)
-        grid.addWidget(self._value, 0, 1)
-        _lock_height(name, "Probe")
-        _lock_height(self._value, _PROBE_SAMPLE)
-        name.setToolTip(self._TOOLTIP)
-        self._value.setToolTip(self._TOOLTIP)
-
-    def set_reading(self, reading) -> None:
-        from negpy.features.exposure.densitometer import format_reading
-
-        self._value.setText(_PROBE_EMPTY if reading is None else format_reading(reading))
-
-
 class ZonePlacementRows(QWidget):
-    """Zone-placement rows under the probe: one per pinned spot with a ⅓-step target
+    """Zone-placement rows under the zone strip: one per pinned spot with a ⅓-step target
     stepper and its own remove button, plus Place zones. Dumb widget — the controller
     owns the pins and the solve; rows arrive via refresh() as (index, measured roman,
     target zone, achieved roman when the target is out of the paper's scale, solvable)."""
@@ -118,12 +52,7 @@ class ZonePlacementRows(QWidget):
     apply_clicked = pyqtSignal()
     remove_clicked = pyqtSignal(int)
 
-    _TOOLTIP = tr(
-        "Zone placement — pick a zone on the strip above, then click the photo: that spot is asked "
-        "to print there. The steppers trim a pin by thirds, and Place zones solves Print Density "
-        "(one pin), Print Density + Grade (two pins), or those plus one knee control for the middle "
-        "tone (three pins) so the pinned tones land. Applying turns the matching autos off for this frame."
-    )
+    _TOOLTIP = tr("Zone placement: pick a zone on the strip, then click the picture, and that spot prints in that zone.")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -218,14 +147,14 @@ class ZonePlacementRows(QWidget):
             self._target_labels[index].setText(zone_roman(target))
             if achieved is not None:
                 self._lands[index].setText(tr("→ lands {achieved}", achieved=achieved))
-                self._lands[index].setToolTip(tr("Outside the paper's scale at this grade and exposure — closest print shown."))
+                self._lands[index].setToolTip(tr("Outside the paper's range at this grade and exposure, so the closest print is shown."))
             else:
                 self._lands[index].setText("")
                 self._lands[index].setToolTip("")
             self._lands[index].setVisible(achieved is not None)
             solvable = row_solvable
         self.apply_btn.setEnabled(solvable)
-        self.apply_btn.setToolTip(tr("The outer pins read the same tone — grade needs two different tones.") if not solvable else "")
+        self.apply_btn.setToolTip(tr("Grade needs two different tones, but the outer pins read the same tone.") if not solvable else "")
         self.solving.setText(solving)
         self.solving.setVisible(bool(solving))
 
@@ -243,6 +172,9 @@ class NegativeStatsWidget(QWidget):
     """
 
     _ROWS = 6
+
+    # True while any stat shows amber.
+    warning_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -298,7 +230,7 @@ class NegativeStatsWidget(QWidget):
             if row.detail:
                 tip = f"{tip}\n\n{row.detail}" if tip else row.detail
             self._names[i].setText(tr(row.name))
-            self._values[i].setText(row.value)
+            self._values[i].setText(_channel_markup(row.value) if row.per_channel and not row.warn else row.value)
             self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
             # Tooltip per stat (hover its name or value), not merged across the pair.
             self._names[i].setToolTip(tip)
@@ -306,3 +238,4 @@ class NegativeStatsWidget(QWidget):
         for pair, divider in enumerate(self._dividers):
             # A divider separates two stats; hide it when the pair's second slot is empty.
             divider.setVisible(2 * pair + 1 < len(rows))
+        self.warning_changed.emit(any(row.warn for row in rows[: self._ROWS]))

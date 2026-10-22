@@ -82,7 +82,7 @@ class ShortcutEditorDialog(QDialog):
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setSpacing(THEME.space_xl)
 
         intro = QLabel(
             tr(
@@ -262,8 +262,8 @@ class ShortcutEditorDialog(QDialog):
         body = QWidget()
         grid = QGridLayout(body)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(THEME.space_xl)
+        grid.setVerticalSpacing(THEME.space_lg)
 
         header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
         for col, label in enumerate((tr("Action"), tr("Default"), tr("Shortcut"), tr("Step"))):
@@ -293,8 +293,8 @@ class ShortcutEditorDialog(QDialog):
         edit = self._make_key_edit(action_id, entry.default_key)
         row_frame = self._make_row_frame(action_id, edit)
         inner = QGridLayout(row_frame)
-        inner.setContentsMargins(4, 4, 4, 4)
-        inner.setHorizontalSpacing(12)
+        inner.setContentsMargins(THEME.space_sm, THEME.space_sm, THEME.space_sm, THEME.space_sm)
+        inner.setHorizontalSpacing(THEME.space_xl)
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(entry.description), 0, 0)
@@ -314,8 +314,8 @@ class ShortcutEditorDialog(QDialog):
         dec_edit = self._make_key_edit(group.dec_action, dec_entry.default_key)
         row_frame = self._make_row_frame(group.id, inc_edit)
         inner = QGridLayout(row_frame)
-        inner.setContentsMargins(4, 4, 4, 4)
-        inner.setHorizontalSpacing(12)
+        inner.setContentsMargins(THEME.space_sm, THEME.space_sm, THEME.space_sm, THEME.space_sm)
+        inner.setHorizontalSpacing(THEME.space_xl)
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(group.label), 0, 0)
@@ -325,7 +325,7 @@ class ShortcutEditorDialog(QDialog):
 
         shortcuts = QHBoxLayout()
         shortcuts.setContentsMargins(0, 0, 0, 0)
-        shortcuts.setSpacing(6)
+        shortcuts.setSpacing(THEME.space_md)
         sep = QLabel("/")
         sep.setStyleSheet(f"color: {THEME.text_muted};")
         shortcuts.addWidget(inc_edit, 1)

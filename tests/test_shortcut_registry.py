@@ -37,6 +37,18 @@ def test_merge_bindings_applies_known_overrides_only():
     assert "unknown" not in bindings
 
 
+def test_a_users_key_wins_over_a_new_default_on_the_same_key():
+    bindings = merge_bindings({"density_up": "+"})
+
+    assert bindings["density_up"] == "+"
+    assert bindings["light_table_zoom_in"] == ""
+    assert bindings["light_table_zoom_out"] == "-"
+
+
+def test_a_renamed_action_keeps_its_saved_key():
+    assert merge_bindings({"toggle_left_panel": "Ctrl+Alt+F"})["toggle_film_strip"] == "Ctrl+Alt+F"
+
+
 def test_save_bindings_only_persists_overrides():
     repo = _Repo()
     bindings = default_bindings()
@@ -137,7 +149,7 @@ def test_category_editor_rows_merge_slider_pairs():
     rows = category_editor_rows(exposure_items)
     labels = [row.group.label if isinstance(row, EditorRowSlider) else row.entry.description for row in rows]
 
-    assert "Density ↑/↓" in labels
+    assert "Print Density ↑/↓" in labels
     assert "Density up" not in labels
     assert "Density down" not in labels
     assert "Magenta ↑/↓" in labels

@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from negpy.kernel.system.i18n import mark, tr
 from negpy.infrastructure.scanners.params import FilmType, film_reads_positive
 
 
@@ -37,10 +38,10 @@ class RollPreviewSignalsMixin:
         for signal, slot in self._preview_signal_pairs():
             signal.connect(slot)
 
-    def _on_preview_progress(self, fraction: float, phase: str = "Scanning") -> None:
+    def _on_preview_progress(self, fraction: float, phase: str = mark("Scanning")) -> None:
         if not self._previewing:
             return
-        self.status_strip.set_progress(f"{phase}… %p%", float(fraction))
+        self.status_strip.set_progress(tr("{phase}… %p%", phase=tr(phase)), float(fraction))
 
     def stop_preview(self) -> None:
         """Ask the transport to abandon the pass in flight. The worker answers with
@@ -59,7 +60,7 @@ class RollPreviewSignalsMixin:
 
     def done(self, result: int) -> None:
         # accept() and reject() both route through done() and never raise a close event,
-        # so this is the only hook that catches Use / Scan / Cancel / Esc.
+        # so this is the only hook that catches Apply / Scan / Cancel / Esc.
         self._teardown_preview()
         super().done(result)
 

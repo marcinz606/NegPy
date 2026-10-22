@@ -12,8 +12,7 @@ from negpy.features.geometry.models import AspectRatio, AutocropMode
 from negpy.features.metadata.gear_models import FilmColorType, FilmStock
 from negpy.features.process.models import ProcessMode
 from negpy.services.export import contact_sheet_roll as roll
-from negpy.services.export.contact_sheet_edge import EdgeFamily
-from negpy.services.export.contact_sheet_layout import SheetFormat, film_geometry
+from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import (
     FrameFacts,
     SheetFrame,
@@ -167,8 +166,8 @@ class TestLook:
         )
         look = sheet_look([positive], SheetFormat.FULL_FRAME, "", _Library(stock))
         assert look.palette == "color"
-        assert look.edge.dx and look.edge.family == EdgeFamily.KODAK
-        assert look.edge.stock == "KODAK PORTRA 400"
+        assert look.edge.dx and look.edge.layout == "kodak"
+        assert (look.edge.maker, look.edge.text) == ("KODAK", "PORTRA 400")
 
     def test_slide_stock_prints_as_a_slide(self):
         frame = _frame(film="Kodak Ektachrome E100", film_color_type=FilmColorType.COLOR_SLIDE.value)
@@ -191,7 +190,8 @@ class TestLook:
     def test_gear_display_name_avoids_a_doubled_maker(self):
         stock = FilmStock(manufacturer="Kentmere", stock_name="Kentmere 400", color_type=FilmColorType.BW_NEGATIVE)
         frame = _frame(film_stock_id=stock.id)
-        assert sheet_look([frame], SheetFormat.FULL_FRAME, "", _Library(stock)).edge.stock == "KENTMERE 400"
+        edge = sheet_look([frame], SheetFormat.FULL_FRAME, "", _Library(stock)).edge
+        assert (edge.maker, edge.text) == ("KENTMERE", "400")
 
     def test_sheet_black_follows_the_paper_model(self):
         assert sheet_black(False) == 0

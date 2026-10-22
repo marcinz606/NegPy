@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QTextTable
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
@@ -22,9 +23,8 @@ from negpy.kernel.system.paths import get_resource_path
 # A localized guide's marker also records its English source (src:<hash>), checked by tests/test_i18n.py.
 _MARKER = re.compile(r"^<!--\s*panel:([a-z_]+)(?:\s+src:[0-9a-f]+)?\s*-->\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s")
-# Cross-doc links ([CROSSTALK.md](CROSSTALK.md)) have nowhere to go from a modal, and Qt's
-# markdown importer paints anchors in the app palette's accent red, unreadable at body
-# size. Flattened to their text, so they read as the file names they are.
+# Cross-doc links ([CROSSTALK.md](CROSSTALK.md)) have nowhere to go from a modal. Flattened
+# to their text, so they read as the file names they are.
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
@@ -82,7 +82,7 @@ class SectionHelpDialog(QDialog):
 
     def __init__(self, key: str, title: str, parent: Optional[QWidget] = None, *, repo=None):
         super().__init__(parent)
-        heading = tr("Reading the {title} panel", title=title)
+        heading = tr("Reading the {title} Panel", title=title)
         self.setWindowTitle(heading)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self.setModal(True)
@@ -90,7 +90,7 @@ class SectionHelpDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setSpacing(THEME.space_xl)
 
         label = QLabel(heading)
         label.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: bold;")
@@ -112,6 +112,12 @@ class SectionHelpDialog(QDialog):
             f"QTextBrowser {{ background: transparent; border: none; color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px; }}"
         )
         self.body.setMarkdown(guide_markdown(key))
+        for frame in self.body.document().rootFrame().childFrames():
+            # Qt's markdown importer draws the grid in light gray, the brightest line in the app.
+            if isinstance(frame, QTextTable):
+                table = frame.format()
+                table.setBorderBrush(QColor(THEME.border_primary))
+                frame.setFormat(table)
         root.addWidget(self.body, stretch=1)
 
         actions = QHBoxLayout()

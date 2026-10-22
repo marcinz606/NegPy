@@ -30,6 +30,6 @@ def test_no_dialog_hand_rolls_the_primary_look():
     offenders = []
     for path in _dialog_sources():
         for line in path.read_text(encoding="utf-8").splitlines():
-            if "setStyleSheet(" in line and "accent_primary" in line and "background" in line:
+            if "setStyleSheet(" in line and "bg_primary" in line and "background" in line:
                 offenders.append(f"{path.name}: {line.strip()[:80]}")
     assert not offenders, offenders

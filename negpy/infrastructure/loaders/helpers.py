@@ -1,5 +1,6 @@
 import os
 import io
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Tuple
 
@@ -239,6 +240,9 @@ _REDUCED_PAGE_ASPECT_TOLERANCE = 0.02
 _DNG_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_BAND_BYTES = 8 * 1024 * 1024
+# Strips a preview inflates at once, and how many it reads ahead of them; a background task keeps to a few cores.
+_PREVIEW_DECODE_WORKERS = 4
+_PREVIEW_DECODE_BATCH = 16
 _DNG_LINEAR_RAW = 34892
 _DNG_CFA = 32803
 
@@ -555,24 +559,60 @@ def bounded_tiff_page_preview(
             place(band, y, 0)
         return Image.fromarray(output)
 
-    for decoded, position, _shape in page.segments(maxworkers=1):
-        if should_cancel is not None and should_cancel():
-            raise InterruptedError("preview cancelled")
-        if decoded is None:
-            continue
-        tile = decoded[0] if decoded.ndim == 4 else decoded
-        if tile.ndim == 2:
-            tile = tile[:, :, None]
-        if tile.ndim != 3 or tile.shape[2] not in (1, 3, 4):
-            return None
-        y, x = int(position[2]), int(position[3])
-        valid_height = min(tile.shape[0], height - y)
-        valid_width = min(tile.shape[1], width - x)
-        if valid_height <= 0 or valid_width <= 0:
-            continue
-        place(tile[:valid_height, :valid_width], y, x)
+    handle = page.parent.filehandle
+    # The arguments TiffPage.segments() passes.
+    decode_args: dict[str, Any] = {"_fullsize": page.is_tiled}
+    if page.compression in {6, 7, 34892, 33007}:
+        decode_args.update(jpegtables=page.jpegtables, jpegheader=page.jpegheader)
+
+    def read(index: int) -> tuple[Optional[bytes], int]:
+        offset, count = int(page.dataoffsets[index]), int(page.databytecounts[index])
+        # A sparse segment has no data; decode() gives None for it.
+        if not offset or not count:
+            return None, index
+        handle.seek(offset)
+        return handle.read(count), index
+
+    indices = _segments_in_preview(page, height, width, out_height, out_width)
+    # The file reads stay on this thread; inflating a compressed strip releases the GIL, so a few run at once.
+    with ThreadPoolExecutor(_PREVIEW_DECODE_WORKERS) as pool:
+        for start in range(0, len(indices), _PREVIEW_DECODE_BATCH):
+            if should_cancel is not None and should_cancel():
+                raise InterruptedError("preview cancelled")
+            batch = [read(index) for index in indices[start : start + _PREVIEW_DECODE_BATCH]]
+            for decoded, position, _shape in pool.map(lambda item: page.decode(*item, **decode_args), batch):
+                if decoded is None:
+                    continue
+                tile = decoded[0] if decoded.ndim == 4 else decoded
+                if tile.ndim == 2:
+                    tile = tile[:, :, None]
+                if tile.ndim != 3 or tile.shape[2] not in (1, 3, 4):
+                    return None
+                y, x = int(position[2]), int(position[3])
+                valid_height = min(tile.shape[0], height - y)
+                valid_width = min(tile.shape[1], width - x)
+                if valid_height <= 0 or valid_width <= 0:
+                    continue
+                place(tile[:valid_height, :valid_width], y, x)
 
     return Image.fromarray(output)
+
+
+def _segments_in_preview(page: Any, height: int, width: int, out_height: int, out_width: int) -> list[int]:
+    """The strips or tiles that land on at least one preview pixel, by the rounding place() uses. A strip
+    thinner than a preview row lands on none, and decoding it is most of a compressed scan's preview."""
+    segment_height = int(page.tilelength if page.is_tiled else page.rowsperstrip or height)
+    segment_width = int(page.tilewidth if page.is_tiled else width)
+    across = -(-width // segment_width)
+    found = []
+    for index in range(len(page.dataoffsets)):
+        y, x = (index // across) * segment_height, (index % across) * segment_width
+        bottom, right = min(height, y + segment_height), min(width, x + segment_width)
+        rows = int(round(bottom * out_height / height)) - int(round(y * out_height / height))
+        columns = int(round(right * out_width / width)) - int(round(x * out_width / width))
+        if rows > 0 and columns > 0:
+            found.append(index)
+    return found
 
 
 def embedded_preview(raw: Any, file_path: str) -> Optional[Image.Image]:

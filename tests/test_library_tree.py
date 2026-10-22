@@ -2,10 +2,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import QPoint
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
-from negpy.desktop.view.sidebar.library_tree import _FOLDER_ROLE, LibraryTree
+from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.rolls import create_virtual_roll, recognize_folder, roll_for_id
@@ -42,6 +42,11 @@ def _names(widget) -> list[str]:
 # --- listing --------------------------------------------------------------
 
 
+def _count(item) -> str:
+    """The photo count that leads a roll row's line."""
+    return item.data(0, _DETAIL_ROLE).split(" · ")[0]
+
+
 def test_empty_library_shows_the_hint(widget):
     assert widget.tree.topLevelItemCount() == 0
     assert widget.empty_label.isVisibleTo(widget)
@@ -69,8 +74,8 @@ def _icon_names(widget, monkeypatch) -> list:
 def test_a_folder_roll_shows_a_folder_icon_and_its_live_count(widget, tree_dirs, monkeypatch):
     recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
 
-    assert _icon_names(widget, monkeypatch) == ["fa5s.folder"]
-    assert widget.tree.topLevelItem(0).text(1) == "2 photos"
+    assert _icon_names(widget, monkeypatch) == ["mdi6.folder-outline"]
+    assert _count(widget.tree.topLevelItem(0)) == "2 photos"
 
 
 def _triplet_roll(widget, tree_dirs) -> str:
@@ -90,7 +95,7 @@ def test_an_assembled_triplet_counts_as_one_photo(widget, tree_dirs):
     widget.controller.rgb_scan_mode_for_roll.return_value = True
     widget.reload()
 
-    assert widget.tree.topLevelItem(0).text(1) == "4 photos"
+    assert _count(widget.tree.topLevelItem(0)) == "4 photos"
 
 
 def test_a_roll_out_of_trichrome_mode_counts_every_file(widget, tree_dirs):
@@ -98,7 +103,7 @@ def test_a_roll_out_of_trichrome_mode_counts_every_file(widget, tree_dirs):
     widget.controller.rgb_scan_mode_for_roll.return_value = False
     widget.reload()
 
-    assert widget.tree.topLevelItem(0).text(1) == "6 photos"
+    assert _count(widget.tree.topLevelItem(0)) == "6 photos"
 
 
 def test_a_stitch_counts_as_one_photo(widget, tree_dirs):
@@ -108,7 +113,7 @@ def test_a_stitch_counts_as_one_photo(widget, tree_dirs):
     recognize_folder(widget.repo, str(folder), name="roll_a")
     widget.reload()
 
-    assert widget.tree.topLevelItem(0).text(1) == "1 photo"
+    assert _count(widget.tree.topLevelItem(0)) == "1 photo"
 
 
 def test_the_open_roll_recounts_when_its_files_change(widget, tree_dirs):
@@ -120,15 +125,15 @@ def test_the_open_roll_recounts_when_its_files_change(widget, tree_dirs):
 
     widget.refresh_active_count()
 
-    assert widget.tree.topLevelItem(0).text(1) == "3 photos"
+    assert _count(widget.tree.topLevelItem(0)) == "3 photos"
 
 
 def test_a_virtual_roll_shows_a_search_icon_and_its_member_count(widget, monkeypatch):
     """Roll kind reads off the icon's shape: colour carries other meanings already."""
     create_virtual_roll(widget.repo, "Portra", ["/a.nef", "/b.nef"])
 
-    assert _icon_names(widget, monkeypatch) == ["fa5s.search"]
-    assert widget.tree.topLevelItem(0).text(1) == "2 photos"
+    assert _icon_names(widget, monkeypatch) == ["mdi6.text-search"]
+    assert _count(widget.tree.topLevelItem(0)) == "2 photos"
 
 
 def test_selection_survives_a_reload(widget, tree_dirs):
@@ -142,8 +147,32 @@ def test_selection_survives_a_reload(widget, tree_dirs):
     assert widget.tree.currentItem().text(0) == "roll_b"
 
 
-def test_selection_uses_the_accent_color(widget):
-    assert THEME.accent_primary in widget.tree.styleSheet()
+def test_a_roll_row_says_what_the_roll_is(widget):
+    from negpy.desktop.view.sidebar.library_tree import _DOT_ROLE
+    from negpy.services.assets import rolls
+
+    roll_id = create_virtual_roll(widget.repo, "portra", [])
+    rolls.set_roll_defaults(widget.repo, roll_id, process_mode="B&W Negative")
+    widget.reload()
+
+    item = widget.tree.topLevelItem(0)
+    parts = item.data(0, _DETAIL_ROLE).split(" · ")
+    assert parts[:2] == ["0 photos", "B&W"] and len(parts) == 3, "count, film mode, import date"
+    assert item.data(0, _DOT_ROLE) == THEME.mode_bw
+
+
+def test_the_filter_box_hides_the_rolls_it_rules_out(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="20260901/kentmere_400_1")
+    create_virtual_roll(widget.repo, "portra", [])
+    widget.reload()
+
+    widget.filter_input.setText("PORTRA")
+
+    folder, portra = widget.tree.topLevelItem(0), widget.tree.topLevelItem(1)
+    assert folder.isHidden() and not portra.isHidden()
+    assert widget.tally_label.text() == "1 of 2 rolls"
+    widget.filter_input.clear()
+    assert not folder.isHidden() and widget.tally_label.text().startswith("2 rolls")
 
 
 # --- sorting ----------------------------------------------------------------
@@ -183,7 +212,7 @@ def test_its_own_sort_button_orders_and_saves_the_roll_list(widget):
     assert _names(widget) == ["Zebra", "apple"]
     assert widget.repo.get_global_setting("library_sort_descending") is True
     assert widget.sort_btn.order_action("name").isChecked()
-    assert widget.sort_btn in widget.toolbar.buttons
+    assert widget.sort_btn.text() == "Name"
 
 
 def test_the_roll_list_starts_from_the_film_strips_sort_until_it_has_its_own(qapp, tmp_path):
@@ -610,8 +639,7 @@ def test_a_roll_whose_folder_is_gone_is_marked_missing(widget, tmp_path):
     widget.reload()
 
     item = widget.tree.topLevelItem(0)
-    assert item.text(1) == "folder missing"
-    assert item.foreground(1).color().name() == QColor(THEME.warn_amber).name()
+    assert item.data(0, _DETAIL_ROLE) == "folder missing" and item.data(0, _MISSING_ROLE)
 
 
 def test_importing_a_folder_without_images_imports_its_subfolders(widget, tree_dirs, monkeypatch):
@@ -631,7 +659,7 @@ def test_importing_a_folder_without_images_imports_its_subfolders(widget, tree_d
 def test_index_button_hidden_by_default(widget):
     widget.controller.state.semantic_search_enabled = False
     widget.sync_ui()
-    assert widget.index_btn.isHidden()
+    assert not widget.index_action.isVisible()
 
 
 def test_sync_ui_shows_the_button_once_the_model_is_ready(widget, monkeypatch):
@@ -640,8 +668,8 @@ def test_sync_ui_shows_the_button_once_the_model_is_ready(widget, monkeypatch):
 
     widget.sync_ui()
 
-    assert not widget.index_btn.isHidden()
-    assert widget.index_btn.isEnabled()
+    assert widget.index_action.isVisible()
+    assert widget.index_action.isEnabled()
 
 
 def test_sync_ui_disables_the_button_before_the_model_is_downloaded(widget, monkeypatch):
@@ -650,16 +678,14 @@ def test_sync_ui_disables_the_button_before_the_model_is_downloaded(widget, monk
 
     widget.sync_ui()
 
-    assert not widget.index_btn.isHidden()
-    assert not widget.index_btn.isEnabled()
+    assert widget.index_action.isVisible()
+    assert not widget.index_action.isEnabled()
 
 
 def test_clicking_index_calls_the_controller(widget):
-    # A MagicMock slot can't be introspected for arity the way a real bound method
-    # can, so clicked's bool argument passes through here where it wouldn't in
-    # production (confirmed separately against a real bound method) -- only whether
-    # it fired is the point of this test.
-    widget.index_btn.click()
+    widget.controller.state.semantic_search_enabled = True
+    widget.index_action.setEnabled(True)
+    widget.index_action.trigger()
     widget.controller.index_library.assert_called_once()
 
 
@@ -672,7 +698,7 @@ def test_nested_rolls_sit_under_their_folder_row(widget, tree_dirs):
     assert _names(widget) == ["20260901", "portra"]
     folder = widget.tree.topLevelItem(0)
     assert [folder.child(i).text(0) for i in range(folder.childCount())] == ["kentmere_400_1", "kentmere_400_2"]
-    assert folder.text(1) == "2 rolls"
+    assert folder.data(0, _DETAIL_ROLE) == "2 rolls"
     assert folder.isExpanded()
 
 

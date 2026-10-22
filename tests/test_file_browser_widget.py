@@ -4,12 +4,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PyQt6.QtCore import QModelIndex, QPoint, QPointF, QPropertyAnimation, QRect, Qt
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QWheelEvent
-from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog, QStyleOptionViewItem
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog, QListView, QStyleOptionViewItem
 
 from negpy.desktop.session import DesktopSessionManager, composite_kind, composite_summary
 from negpy.desktop.view.sidebar.files import (
-    THUMB_CELL_MAX,
-    THUMB_CELL_MIN,
     FileBrowser,
     ThumbnailGridView,
     _ThumbnailDelegate,
@@ -61,7 +59,7 @@ def browser(session):
 def test_search_input_is_present(browser):
     assert browser.search_input is not None
     assert "film:portra" in browser.search_input.placeholderText()
-    assert browser.regex_btn.isCheckable()
+    assert browser.regex_action.isCheckable()
 
 
 def test_apply_filter_narrows_visible_files(browser, session):
@@ -73,7 +71,7 @@ def test_apply_filter_narrows_visible_files(browser, session):
 
 
 def test_regex_toggle_compiles_pattern(browser, session):
-    browser.regex_btn.setChecked(True)
+    browser.regex_action.setChecked(True)
     browser.search_input.setText(r"^IMG_\d{4}")
     browser._apply_filter()
     assert session.asset_model._filter_pattern is not None
@@ -82,17 +80,17 @@ def test_regex_toggle_compiles_pattern(browser, session):
 
 
 def test_invalid_regex_sets_error_stylesheet(browser):
-    browser.regex_btn.setChecked(True)
+    browser.regex_action.setChecked(True)
     browser.search_input.setText("[")
     browser._apply_filter()
-    assert THEME.accent_primary in browser.search_input.styleSheet()
+    assert THEME.error in browser.search_input.styleSheet()
 
 
 def test_invalid_regex_does_not_change_visible(browser, session):
     browser.search_input.setText("IMG")
     browser._apply_filter()
     before = list(session.asset_model._sorted_indices)
-    browser.regex_btn.setChecked(True)
+    browser.regex_action.setChecked(True)
     browser.search_input.setText("[")
     browser._apply_filter()
     assert session.asset_model._sorted_indices == before
@@ -132,7 +130,7 @@ def _action_labels(menu):
 def test_context_menu_single_selection_items(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Export Current Frame" in labels
     assert "Export Selected Frames" not in labels
     assert "Reset Settings" in labels
@@ -145,7 +143,7 @@ def test_context_menu_single_selection_items(browser, session):
 def test_context_menu_update_thumbnail_requests_the_selection_scope(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    menu = browser._build_context_menu()
+    menu = browser.build_frame_menu()
     action = next(a for a in menu.actions() if a.text() == "Update Thumbnail")
     action.trigger()
     browser.controller.request_thumbnail_refresh.assert_called_once_with("selection")
@@ -156,12 +154,12 @@ def test_context_menu_offers_cancel_while_a_refresh_is_running(browser, session)
     session.state.selected_file_idx = 0
     browser.controller.thumbnail_refresh_running = True
 
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
 
     assert "Cancel Thumbnail Update" in labels
     assert "Update Thumbnail" not in labels
 
-    menu = browser._build_context_menu()
+    menu = browser.build_frame_menu()
     action = next(a for a in menu.actions() if a.text() == "Cancel Thumbnail Update")
     action.trigger()
     browser.controller.cancel_thumbnail_refresh.assert_called_once_with()
@@ -170,23 +168,23 @@ def test_context_menu_offers_cancel_while_a_refresh_is_running(browser, session)
 def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Unsplit Diptych…" not in _action_labels(browser._build_context_menu())
+    assert "Unsplit Diptych…" not in _action_labels(browser.build_frame_menu())
 
     session.state.uploaded_files[0]["diptych"] = True
-    assert "Unsplit Diptych…" in _action_labels(browser._build_context_menu())
+    assert "Unsplit Diptych…" in _action_labels(browser.build_frame_menu())
 
 
 def test_context_menu_offers_per_frame_split_only_for_a_half(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
     browser.controller.half_frame_override.return_value = None
-    assert "Adjust Split for This Frame…" not in _action_labels(browser._build_context_menu())
+    assert "Adjust Split for This Frame…" not in _action_labels(browser.build_frame_menu())
 
     session.state.uploaded_files[0]["half"] = 1
     session.state.uploaded_files[0]["hash"] = "h1#1"
-    assert "Adjust Split for This Frame…" in _action_labels(browser._build_context_menu())
+    assert "Adjust Split for This Frame…" in _action_labels(browser.build_frame_menu())
     # No override saved yet, so nothing to reset.
-    assert "Reset Split to Roll Default" not in _action_labels(browser._build_context_menu())
+    assert "Reset Split to Roll Default" not in _action_labels(browser.build_frame_menu())
 
 
 def test_context_menu_offers_reset_only_with_a_saved_override(browser, session):
@@ -195,7 +193,7 @@ def test_context_menu_offers_reset_only_with_a_saved_override(browser, session):
     session.state.uploaded_files[0]["half"] = 1
     session.state.uploaded_files[0]["hash"] = "h1#1"
     browser.controller.half_frame_override.return_value = {"split_x": 0.4}
-    assert "Reset Split to Roll Default" in _action_labels(browser._build_context_menu())
+    assert "Reset Split to Roll Default" in _action_labels(browser.build_frame_menu())
 
 
 def _set_rolls_store(session, rolls_store):
@@ -208,10 +206,10 @@ def test_context_menu_offers_fork_only_when_the_file_is_in_two_rolls(browser, se
     session.state.active_roll_id = "r1"
     rolls_store = {"r1": {"kind": "virtual", "name": "A", "member_paths": ["/tmp/IMG_0001.cr2"]}}
     _set_rolls_store(session, rolls_store)
-    assert "Edit Independently in This Roll" not in _action_labels(browser._build_context_menu())
+    assert "Edit Independently in This Roll" not in _action_labels(browser.build_frame_menu())
 
     rolls_store["r2"] = {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]}
-    assert "Edit Independently in This Roll" in _action_labels(browser._build_context_menu())
+    assert "Edit Independently in This Roll" in _action_labels(browser.build_frame_menu())
 
 
 def test_context_menu_needs_an_active_roll_to_offer_fork(browser, session):
@@ -223,7 +221,7 @@ def test_context_menu_needs_an_active_roll_to_offer_fork(browser, session):
         "r2": {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]},
     }
     _set_rolls_store(session, rolls_store)
-    assert "Edit Independently in This Roll" not in _action_labels(browser._build_context_menu())
+    assert "Edit Independently in This Roll" not in _action_labels(browser.build_frame_menu())
 
 
 def test_context_menu_offers_unfork_once_forked(browser, session):
@@ -235,7 +233,7 @@ def test_context_menu_offers_unfork_once_forked(browser, session):
         "r2": {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]},
     }
     _set_rolls_store(session, rolls_store)
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Use the Shared Edit Again…" in labels
     assert "Edit Independently in This Roll" not in labels
 
@@ -279,7 +277,7 @@ def test_unsplit_diptych_needs_the_confirm(browser):
 def test_context_menu_multi_selection_uses_export_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Export Selected Frames" in labels
     assert "Export Current Frame" not in labels
 
@@ -287,7 +285,7 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
 def test_context_menu_multi_selection_counts_update_thumbnails(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Update 2 thumbnails" in labels
     assert "Update Thumbnail" not in labels
 
@@ -295,7 +293,7 @@ def test_context_menu_multi_selection_counts_update_thumbnails(browser, session)
 def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Apply Settings…" in labels
     assert "Unload Selected…" in labels
     assert "Unload…" not in labels
@@ -558,13 +556,13 @@ def test_maybe_suggest_gear_noop_without_an_active_file(browser, session):
 
 def test_context_menu_paste_disabled_without_clipboard(browser, session):
     session.state.clipboard = None
-    paste = next(a for a in browser._build_context_menu().actions() if a.text().startswith("Paste"))
+    paste = next(a for a in browser.build_frame_menu().actions() if a.text().startswith("Paste"))
     assert not paste.isEnabled()
 
 
 def test_context_menu_paste_enabled_with_clipboard(browser, session):
     session.state.clipboard = object()
-    paste = next(a for a in browser._build_context_menu().actions() if a.text().startswith("Paste"))
+    paste = next(a for a in browser.build_frame_menu().actions() if a.text().startswith("Paste"))
     assert paste.isEnabled()
 
 
@@ -574,6 +572,7 @@ def test_remove_from_menu_routes_single_vs_multi(browser, session):
 
     # confirm_unload opens a blocking QMessageBox — must be patched headless.
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        session.state.selected_file_idx = 1
         session.state.selected_indices = [1]
         browser._on_remove_from_menu()
         session.remove_current_file.assert_called_once()
@@ -591,6 +590,7 @@ def test_remove_from_menu_cancelled_confirm_removes_nothing(browser, session):
     session.remove_selected_files = MagicMock()
 
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=False):
+        session.state.selected_file_idx = 1
         session.state.selected_indices = [1]
         browser._on_remove_from_menu()
         session.state.selected_indices = [0, 1]
@@ -634,94 +634,121 @@ def test_add_files_falls_back_to_empty_dir_when_unset(browser, session):
 
 
 def test_clearing_filter_clears_error_stylesheet(browser):
-    browser.regex_btn.setChecked(True)
+    browser.regex_action.setChecked(True)
     browser.search_input.setText("[")
     browser._apply_filter()
     assert browser.search_input.styleSheet() != ""
 
-    browser.regex_btn.setChecked(False)
+    browser.regex_action.setChecked(False)
     browser.search_input.setText("")
     browser._apply_filter()
     assert browser.search_input.styleSheet() == ""
 
 
-def test_thumbnail_grid_defaults_to_one_filling_column_at_min_sidebar_width(browser):
-    """The session sidebar can't be dragged below ~240px, so that viewport width is
-    the smallest the filmstrip ever lays out at. At the default thumbnail size it
-    must show a single column that *fills* it — the previous 180px cell cap left
-    25% of the panel empty at that width."""
+def test_the_film_strip_is_one_row_as_tall_as_the_strip_scrolling_sideways(browser, qapp):
     view = browser.list_view
-    for viewport_w in (214, 240):  # measured: sidebar at minimum, then default width
-        assert view.columns_for_width(viewport_w) == 1
-        assert view.cell_for_width(viewport_w) / viewport_w > 0.95
+    browser.resize(900, 300)
+    browser.show()
+    qapp.processEvents()
+
+    assert not view.isWrapping()
+    assert view.flow() == QListView.Flow.LeftToRight
+    cell = view.visualRect(view.model().index(0, 0))
+    assert 0 <= view.viewport().height() - cell.height() <= 2
+
+    browser.resize(900, 500)
+    qapp.processEvents()
+    cell = view.visualRect(view.model().index(0, 0))
+    assert 0 <= view.viewport().height() - cell.height() <= 2
 
 
-def test_thumbnail_grid_stays_single_column_on_a_slightly_wider_sidebar(browser):
-    """Regression: with the old 120px target the grid flipped to two columns as soon
-    as the panel was nudged past ~260px, which is where users actually sit — the
-    reported "two columns by default"."""
+def test_the_film_strip_lies_on_the_canvas_background(browser, qapp):
+    from negpy.desktop.view.sidebar.files import table_color
+
     view = browser.list_view
-    for viewport_w in (260, 272, 300, 340):
-        assert view.columns_for_width(viewport_w) == 1, f"split into columns at {viewport_w}px"
+    browser.resize(900, 300)
+    browser.show()
+    browser.sync_ui()
+    qapp.processEvents()
+
+    image = view.grab().toImage()
+    assert image.pixelColor(view.width() // 2, 1) == QColor(table_color(browser.session.state.canvas_bg_index))
 
 
-def test_thumbnail_slider_low_end_fits_two_columns(browser):
-    """The point of the slider's low end: trade size for a second column at the
-    same panel width."""
+def test_the_scroll_bars_sit_on_the_edge_and_the_film_runs_off_the_other_edges(browser, qapp):
+    browser.resize(300, 260)
+    browser.show()
+    table = browser.light_table_view
+    table.resize(300, 260)
+    table.show()
+    qapp.processEvents()
+
+    strip, strip_bar = browser.list_view, browser.list_view.horizontalScrollBar()
+    strip_vp = strip.viewport().geometry()
+    assert strip_bar.mapTo(strip, strip_bar.rect().bottomLeft()).y() == strip.height() - 1
+    assert strip_bar.mapTo(strip, strip_bar.rect().topLeft()).y() == strip_vp.bottom() + 1
+    assert (strip_vp.left(), strip_vp.top(), strip_vp.right()) == (0, 0, strip.width() - 1)
+
+    table_bar = table.verticalScrollBar()
+    table_vp = table.viewport().geometry()
+    assert table_bar.mapTo(table, table_bar.rect().topRight()).x() == table.width() - 1
+    assert table_bar.mapTo(table, table_bar.rect().topLeft()).x() - table_vp.right() > THEME.space_2xl
+    assert (table_vp.top(), table_vp.bottom()) == (0, table.height() - 1)
+
+
+def test_the_wheel_moves_the_strip_a_frame_a_notch(browser, qapp):
     view = browser.list_view
-    browser.thumb_size_slider.setValue(THUMB_CELL_MIN)
-    assert view.columns_for_width(240) == 2
+    browser.resize(300, 260)
+    browser.show()
+    qapp.processEvents()
+    bar = view.horizontalScrollBar()
+    # A notch moves the height of a frame: frames differ in width.
+    notch = view.viewport().height()
+    assert bar.maximum() > notch, "fixture strip does not scroll"
+
+    view.wheelEvent(_wheel(angle_y=-120))
+    assert bar.value() == notch
+    view.wheelEvent(_wheel(pixel_y=10))
+    assert bar.value() == notch - 10
 
 
-def test_slider_maximum_never_pins_a_widened_sidebar_to_one_oversized_column(browser):
-    """Regression: the slider's top end used to hold a widened sidebar at a single
-    column, so the cell grew to the full panel width (~500px). Cells are square, so a
-    3:2 frame in one left ~165px of empty space above and below it. Even at the
-    largest setting a wide panel has to split into columns."""
+def _swipe(dx: int, dy: int, phase: Qt.ScrollPhase, pixel: bool = True) -> QWheelEvent:
+    delta = QPoint(dx, dy)
+    return QWheelEvent(
+        QPointF(10.0, 10.0),
+        QPointF(10.0, 10.0),
+        delta if pixel else QPoint(),
+        QPoint() if pixel else delta,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        phase,
+        False,
+    )
+
+
+def test_a_sideways_swipe_keeps_its_axis_through_vertical_drift(browser, qapp):
     view = browser.list_view
-    browser.thumb_size_slider.setValue(browser.thumb_size_slider.maximum())
-    for viewport_w in (450, 500, 600, 700):
-        assert view.columns_for_width(viewport_w) > 1, f"still one column at {viewport_w}px"
-        assert view.cell_for_width(viewport_w) <= 300, f"oversized cell at {viewport_w}px"
+    browser.resize(300, 260)
+    browser.show()
+    qapp.processEvents()
+    bar = view.horizontalScrollBar()
+    bar.setValue(100)
+
+    phases = (Qt.ScrollPhase.ScrollBegin, Qt.ScrollPhase.ScrollUpdate, Qt.ScrollPhase.ScrollMomentum)
+    for (dx, dy), phase in zip(((-30, 2), (-20, -3), (-10, 15)), phases, strict=True):
+        view.wheelEvent(_swipe(dx, dy, phase))
+    assert bar.value() == 160
+    view.wheelEvent(_swipe(0, 0, Qt.ScrollPhase.ScrollEnd))
+
+    view.wheelEvent(_swipe(2, -40, Qt.ScrollPhase.ScrollBegin))
+    view.wheelEvent(_swipe(-30, -5, Qt.ScrollPhase.ScrollUpdate))
+    assert bar.value() == 205, "a vertical swipe stays vertical"
+
+    view.wheelEvent(_swipe(-120, 10, Qt.ScrollPhase.NoScrollPhase, pixel=False))
+    assert bar.value() == 205 + view.viewport().height(), "a wheel notch takes its larger axis"
 
 
-def test_thumbnail_slider_drives_the_grid_live(browser):
-    view = browser.list_view
-    browser.thumb_size_slider.setValue(THUMB_CELL_MIN)
-    assert view.target_cell == THUMB_CELL_MIN
-    browser.thumb_size_slider.setValue(THUMB_CELL_MAX)
-    assert view.target_cell == THUMB_CELL_MAX
-
-
-def test_thumbnail_size_persists_only_on_release(browser, session):
-    """Dragging crosses dozens of values; each one must not hit the settings DB."""
-    session.repo.save_global_setting.reset_mock()
-    browser.thumb_size_slider.setValue(180)
-    assert not any(c.args and c.args[0] == "thumbnail_cell_size" for c in session.repo.save_global_setting.call_args_list)
-
-    browser.thumb_size_slider.sliderReleased.emit()
-    session.repo.save_global_setting.assert_called_with("thumbnail_cell_size", 180)
-
-
-def test_thumbnail_size_restored_from_settings(session):
-    session.repo.get_global_setting.side_effect = lambda key, default=None: (150 if key == "thumbnail_cell_size" else None)
-    controller = MagicMock()
-    controller.session = session
-    restored = FileBrowser(controller)
-    assert restored.thumb_size_slider.value() == 150
-    assert restored.list_view.target_cell == 150
-
-
-def test_thumbnail_size_out_of_range_setting_is_clamped(session):
-    """A hand-edited or stale setting must not produce an unusable grid."""
-    session.repo.get_global_setting.side_effect = lambda key, default=None: (9999 if key == "thumbnail_cell_size" else None)
-    controller = MagicMock()
-    controller.session = session
-    restored = FileBrowser(controller)
-    assert restored.list_view.target_cell == THUMB_CELL_MAX
-
-
-# --- Session panel scrolling & empty-space menu ---------------------------
+# --- Grid scrolling & empty-space menu -------------------------------------
 
 
 def _wheel(angle_y: int = 0, pixel_y: int = 0) -> QWheelEvent:
@@ -738,12 +765,12 @@ def _wheel(angle_y: int = 0, pixel_y: int = 0) -> QWheelEvent:
 
 
 def _scrollable(browser, value: int = 0):
-    """Lay the panel out narrow and short so the grid genuinely overflows — the
+    """Lay the Light Table out narrow and short so the grid genuinely overflows — the
     scrollbar range is recomputed from the layout, so it can't just be faked."""
-    browser.resize(240, 300)
-    browser.show()
+    view = browser.light_table_view
+    view.resize(240, 160)
+    view.show()
     QApplication.processEvents()
-    view = browser.list_view
     bar = view.verticalScrollBar()
     assert bar.maximum() > 2 * view._row_step(), "fixture grid does not scroll"
     bar.setValue(value)
@@ -754,18 +781,18 @@ def _scrollable(browser, value: int = 0):
 def test_grid_scrolls_per_pixel(browser):
     """ScrollPerItem snaps to whole rows, so no partial offset (and no easing) is
     representable — it is what made the wheel jump several frames at a time."""
-    assert browser.list_view.verticalScrollMode() == QAbstractItemView.ScrollMode.ScrollPerPixel
+    assert browser.light_table_view.verticalScrollMode() == QAbstractItemView.ScrollMode.ScrollPerPixel
 
 
 def test_one_wheel_notch_scrolls_exactly_one_row(browser):
-    view = browser.list_view
+    view = browser.light_table_view
     _scrollable(browser)
     view.wheelEvent(_wheel(angle_y=-120))
     assert view._scroll_target == view._row_step()
 
 
 def test_wheel_scroll_is_animated_not_instant(browser):
-    view = browser.list_view
+    view = browser.light_table_view
     bar = _scrollable(browser)
     view.wheelEvent(_wheel(angle_y=-120))
     assert view._scroll_anim.state() == QPropertyAnimation.State.Running
@@ -778,7 +805,7 @@ def test_wheel_scroll_is_animated_not_instant(browser):
 def test_consecutive_notches_accumulate_onto_the_running_target(browser):
     """A fast spin must cover the full distance, not restart from wherever the
     easing had reached."""
-    view = browser.list_view
+    view = browser.light_table_view
     _scrollable(browser)
     view.wheelEvent(_wheel(angle_y=-120))
     assert view._scroll_target == view._row_step()
@@ -787,7 +814,7 @@ def test_consecutive_notches_accumulate_onto_the_running_target(browser):
 
 
 def test_wheel_up_scrolls_back(browser):
-    view = browser.list_view
+    view = browser.light_table_view
     bar = _scrollable(browser, value=2 * view._row_step())
     start = bar.value()  # the layout may clamp the requested offset
     view.wheelEvent(_wheel(angle_y=120))
@@ -795,7 +822,7 @@ def test_wheel_up_scrolls_back(browser):
 
 
 def test_wheel_target_is_clamped_to_the_scroll_range(browser):
-    view = browser.list_view
+    view = browser.light_table_view
     bar = _scrollable(browser, value=2 * view._row_step())
     for _ in range(20):
         view.wheelEvent(_wheel(angle_y=120))  # up, well past the top
@@ -805,7 +832,7 @@ def test_wheel_target_is_clamped_to_the_scroll_range(browser):
 
 def test_trackpad_pixel_delta_scrolls_immediately(browser):
     """Trackpads already deliver continuous deltas; easing them would add lag."""
-    view = browser.list_view
+    view = browser.light_table_view
     bar = _scrollable(browser, value=100)
     start = bar.value()
     view.wheelEvent(_wheel(pixel_y=-40))
@@ -845,7 +872,7 @@ def test_right_click_on_empty_space_opens_the_session_menu(browser):
     with no context menu at all."""
     with (
         patch.object(browser, "_build_session_menu") as session_menu,
-        patch.object(browser, "_build_context_menu") as frame_menu,
+        patch.object(browser, "build_frame_menu") as frame_menu,
     ):
         browser._show_context_menu(QPoint(5, 99999))
     session_menu.assert_called_once()
@@ -856,7 +883,7 @@ def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
     idx = browser.session.asset_model.index(0, 0)
     with (
         patch.object(browser.list_view, "indexAt", return_value=idx),
-        patch.object(browser, "_build_context_menu") as frame_menu,
+        patch.object(browser, "build_frame_menu") as frame_menu,
         patch.object(browser, "_build_session_menu") as session_menu,
     ):
         browser._show_context_menu(QPoint(5, 5))
@@ -875,7 +902,7 @@ def test_new_roll_menu_action_clears_the_session_like_clear_all(browser, session
     """Distinct from Unload: this is the deliberate "start over" action, for building a
     roll entirely by drag-drop, so it confirms and clears everything, not the selection."""
     session.clear_files = MagicMock()
-    menu = browser.frames_section.actions_btn.menu()
+    menu = browser.roll_menu_btn.menu()
     action = next(a for a in menu.actions() if a.text() == "New Roll…")
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True) as confirm:
         action.trigger()
@@ -884,7 +911,7 @@ def test_new_roll_menu_action_clears_the_session_like_clear_all(browser, session
 
 
 def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
-    menu = browser.frames_section.actions_btn.menu()
+    menu = browser.roll_menu_btn.menu()
     action = next(a for a in menu.actions() if a.text() == "Reset Roll to Defaults…")
     with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=True) as confirm:
         action.trigger()
@@ -916,6 +943,7 @@ def test_unload_button_always_targets_the_selection_never_the_whole_roll(browser
     session.clear_files = MagicMock()
 
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        session.state.selected_file_idx = 1
         session.state.selected_indices = [1]
         browser._on_unload_clicked()
         session.remove_current_file.assert_called_once()
@@ -928,14 +956,15 @@ def test_unload_button_always_targets_the_selection_never_the_whole_roll(browser
     session.clear_files.assert_not_called()
 
 
-def test_unload_button_tooltip_reflects_the_selection(browser, session):
+def test_the_unload_item_names_the_selection(browser, session):
+    session.state.selected_file_idx = 0
     session.state.selected_indices = [0]
     browser._update_unload_button()
-    assert browser.unload_btn.toolTip() == "Unload…"
+    assert browser.unload_action.text() == "Unload…"
 
     session.state.selected_indices = [0, 1]
     browser._update_unload_button()
-    assert browser.unload_btn.toolTip() == "Unload Selected…"
+    assert browser.unload_action.text() == "Unload Selected…"
 
 
 def test_save_roll_prompts_for_a_name_and_refreshes_the_tree(browser):
@@ -1046,14 +1075,14 @@ def test_placeholder_fills_the_square_thumbnail_cell(qapp):
 
 
 def test_placeholder_item_uses_the_full_thumbnail_cell(qapp):
-    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    view = ThumbnailGridView(target_cell=100)
     delegate = _ThumbnailDelegate(view)
 
     assert delegate.sizeHint(QStyleOptionViewItem(), QModelIndex()) == view.iconSize()
 
 
 def test_grid_hover_follows_a_plain_pointer_move(qapp):
-    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    view = ThumbnailGridView(target_cell=100)
 
     assert view.viewport().hasMouseTracking()
     assert view.viewport().testAttribute(Qt.WidgetAttribute.WA_Hover)
@@ -1068,8 +1097,20 @@ def test_active_placeholder_curtain_advances_across_the_glyph(qapp):
     assert early != late
 
 
+def test_a_hidden_view_skips_the_progress_repaint(session, qapp):
+    view = ThumbnailGridView(target_cell=100)
+    view.setModel(session.asset_model)
+    delegate = _ThumbnailDelegate(view, state=session.state)
+    view.setItemDelegate(delegate)
+    delegate.set_activity(asset_thumbnail_key(session.state.uploaded_files[1]))
+    delegate._activity_timer.stop()
+
+    with patch.object(view, "visualRect", side_effect=AssertionError("a hidden view laid its frames out")):
+        delegate._advance_activity()
+
+
 def test_placeholder_animation_repaints_only_the_active_cell(session, qapp):
-    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    view = ThumbnailGridView(target_cell=100)
     view.resize(320, 240)
     view.setModel(session.asset_model)
     delegate = _ThumbnailDelegate(view, state=session.state)
@@ -1113,7 +1154,7 @@ def _scene_menu(menu):
 
 def test_scene_menu_is_absent_without_a_roll(browser, session):
     session.state.selected_indices = [0, 1]
-    assert "Scene" not in _action_labels(browser._build_context_menu())
+    assert "Scene" not in _action_labels(browser.build_frame_menu())
 
 
 def test_scene_menu_offers_group_and_add_for_loose_frames(browser, session):
@@ -1122,7 +1163,7 @@ def test_scene_menu_offers_group_and_add_for_loose_frames(browser, session):
     session.state.active_roll_id = "roll-1"
     session.state.selected_indices = [0, 1]
     with patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"})]):
-        labels = _action_labels(_scene_menu(browser._build_context_menu()))
+        labels = _action_labels(_scene_menu(browser.build_frame_menu()))
     assert labels == ["Group as Scene…", "Add to Beach"]
 
 
@@ -1134,7 +1175,7 @@ def test_scene_menu_for_members_of_one_scene(browser, session):
     session.state.selected_file_idx = 0
     session.state.uploaded_files[0]["scene"] = (1, "s1", "Beach")
     with patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"}), ("s2", {"name": "Night"})]):
-        menu = _scene_menu(browser._build_context_menu())
+        menu = _scene_menu(browser.build_frame_menu())
     assert _action_labels(menu) == ["Add to Night", "Remove from Scene", "Analyze Scene…", "Rename Scene…", "Delete Scene…"]
     next(a for a in menu.actions() if a.text() == "Analyze Scene…").trigger()
     browser.controller.request_scene_analysis.assert_called_once_with("s1")
@@ -1197,41 +1238,8 @@ def test_adding_a_folder_without_images_imports_its_roll_folders(browser, tmp_pa
     browser.controller.request_asset_discovery.assert_not_called()
 
 
-def _shown(browser, qapp):
-    browser.resize(300, 900)
-    browser.show()
-    qapp.processEvents()
-    return browser.sections_splitter
-
-
-@pytest.mark.parametrize("index", [0, 1])
-def test_a_collapsed_section_reopens_at_its_open_size(browser, qapp, index):
-    splitter = _shown(browser, qapp)
-    button = (browser.library_section, browser.frames_section)[index].toggle_button
-    before = splitter.sizes()
-    button.click()
-    qapp.processEvents()
-    assert splitter.sizes()[index] == button.height()
-    button.click()
-    qapp.processEvents()
-    assert splitter.sizes() == before
-
-
-def test_a_drag_while_collapsed_keeps_the_open_size_for_reopen_and_restart(browser, qapp, session):
-    splitter = _shown(browser, qapp)
-    open_size = splitter.sizes()[1]
-    browser.frames_section.toggle_button.click()
-    qapp.processEvents()
-    browser._on_sections_splitter_moved()
-    saved = session.repo.save_global_setting.call_args_list[-1].args
-    assert saved == ("session_sections_splitter_sizes", [splitter.sizes()[0], open_size])
-    browser.frames_section.toggle_button.click()
-    qapp.processEvents()
-    assert splitter.sizes()[1] == open_size
-
-
 def test_film_strip_menu_offers_close_roll(browser, session):
-    menu = browser.frames_section.actions_btn.menu()
+    menu = browser.roll_menu_btn.menu()
     session.state.active_roll_id = None
     browser._sync_close_roll_action()
     assert browser.close_roll_action.text().startswith("Unload All…")
@@ -1247,27 +1255,46 @@ def test_film_strip_menu_offers_close_roll(browser, session):
 def test_context_menu_offers_merge_to_tiff_only_for_an_assembled_frame(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Merge Frame to TIFF Negative…" not in _action_labels(browser._build_context_menu())
+    assert "Merge Frame to TIFF Negative…" not in _action_labels(browser.build_frame_menu())
 
     session.state.uploaded_files[0].update(green_path="/g.ARW", blue_path="/b.ARW")
-    assert "Merge Frame to TIFF Negative…" in _action_labels(browser._build_context_menu())
+    assert "Merge Frame to TIFF Negative…" in _action_labels(browser.build_frame_menu())
 
     session.state.uploaded_files[0].update(green_path="", blue_path="", stitch_paths=("/p.ARW",))
-    assert "Merge Frame to TIFF Negative…" in _action_labels(browser._build_context_menu())
+    assert "Merge Frame to TIFF Negative…" in _action_labels(browser.build_frame_menu())
 
     # A bracket cannot merge, so it gets no item.
     session.state.uploaded_files[0].update(stitch_paths=(), hdr_paths=("/e.ARW",))
-    assert "Merge Frame to TIFF Negative…" not in _action_labels(browser._build_context_menu())
+    assert "Merge Frame to TIFF Negative…" not in _action_labels(browser.build_frame_menu())
 
 
 def test_context_menu_scopes_merge_to_tiff_by_selection(browser, session):
     session.state.uploaded_files[1].update(green_path="/g.ARW", blue_path="/b.ARW")
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Merge Selected to TIFF Negative…" in labels
     assert "Merge Frame to TIFF Negative…" not in labels
 
     session.state.selected_indices = [0]
-    labels = _action_labels(browser._build_context_menu())
+    labels = _action_labels(browser.build_frame_menu())
     assert "Merge Selected to TIFF Negative…" not in labels
+
+
+def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(browser, session):
+    """A Light Table click selects a frame without opening it: the menu must not act on the open one."""
+    session.state.selected_file_idx = 0
+    session.state.selected_indices = [2]
+    labels = _action_labels(browser.build_frame_menu())
+
+    assert "Export Selected Frames" in labels and "Export Current Frame" not in labels
+    assert "Reset 1 Frame…" in labels and "Reset Settings" not in labels
+    assert "Unload Selected…" in labels
+    assert "Edit RGB Triplet…" not in labels and "Stitch Selected Frames" not in labels
+
+    session.remove_current_file = MagicMock()
+    session.remove_selected_files = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        browser._on_remove_from_menu()
+    session.remove_selected_files.assert_called_once()
+    session.remove_current_file.assert_not_called()

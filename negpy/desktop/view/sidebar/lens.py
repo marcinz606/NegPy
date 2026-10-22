@@ -25,23 +25,19 @@ class LensSidebar(BaseSidebar):
         )
         # Nothing derives the readout's decimals from `precision`, so a 0.001 step needs both.
         self.distortion_slider.spin.setDecimals(3)
-        self.distortion_slider.setToolTip(
-            wrap_tooltip(
-                tr("Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference.")
-            )
-        )
+        self.distortion_slider.setToolTip(wrap_tooltip(tr("Straightens lines that bow out (positive) or in (negative).")))
 
         self.metadata_distortion_btn = self._labeled_toggle(
             "fa5s.camera",
-            tr(" Distortion"),
+            tr("Distortion"),
             conf.lens_distortion_from_metadata,
-            tr("Apply embedded scanning-lens distortion correction. Replaces manual distortion."),
+            tr("Use the file's own lens distortion correction, in place of the slider."),
         )
         self.metadata_ca_btn = self._labeled_toggle(
             "fa5s.camera",
-            tr(" CA"),
+            tr("CA"),
             conf.lens_ca_from_metadata,
-            tr("Apply embedded lateral chromatic aberration correction. Can be used with manual distortion."),
+            tr("Use the file's own correction for color fringes."),
         )
         # The file's own profile first: its distortion replaces the manual slider below.
         btn_row = QHBoxLayout()
@@ -51,7 +47,6 @@ class LensSidebar(BaseSidebar):
         self.layout.addLayout(btn_row)
 
         self.lens_hint = hint_label("")
-        self.lens_hint.setWordWrap(True)
         self.lens_hint.setVisible(False)
         self.layout.addWidget(self.lens_hint)
         self.layout.addWidget(self.distortion_slider)

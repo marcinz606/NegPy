@@ -5,29 +5,26 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, RING_AROUND_SWEEP, gradient_icon, wrap_tooltip
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
 
 class ColorSidebar(BaseSidebar):
-    """White balance: region CMY, Temperature and Pick WB."""
+    """White balance: region CMY, Temperature and Pick WB, and Cast Removal over the whole frame."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
 
         self.region_btn = SegmentedChoice(
             (("fa5s.globe", tr("Global")), ("fa5s.moon", tr("Shadows")), ("fa5s.sun", tr("Highlights"))),
-            tr(
-                "Region for Temperature, CMY and Pick WB: Global applies to the entire tonal range; "
-                "Shadows and Highlights bias toward shadow (low-density) or highlight (high-density) areas"
-            ),
+            tr("Apply the color controls to the whole picture, or mostly to its dark or bright parts."),
         )
         self.pick_wb_btn = self._tool_toggle(
             "fa5s.eye-dropper",
             "",
             tooltip_with_shortcut(
-                tr("Pick a neutral gray from the canvas — solves the selected region's CMY so the patch prints neutral"),
+                tr("Click something in the picture that should be gray, and the color is corrected to make it gray."),
                 "pick_wb",
             ),
         )
@@ -56,6 +53,13 @@ class ColorSidebar(BaseSidebar):
         self.yellow_slider.slider.setObjectName("yellow_slider")
         for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
             self.layout.addWidget(slider)
+
+        # Balances each dye layer against the frame's own grays; no region scopes it.
+        self.cast_removal_slider = CompactSlider(tr("Cast Removal"), 0.0, 1.0, conf.cast_removal_strength)
+        self.cast_removal_slider.setToolTip(
+            tr("Cast Removal: removes a color cast that differs between the dark and bright parts of the picture. 0 is off.")
+        )
+        self.layout.addWidget(self.cast_removal_slider)
 
         self.layout.addStretch()
 
@@ -89,6 +93,12 @@ class ColorSidebar(BaseSidebar):
         self.magenta_slider.valueChanged.connect(self._on_magenta_changed)
         self.yellow_slider.valueChanged.connect(self._on_yellow_changed)
         self.cyan_slider.valueCommitted.connect(lambda v: self._on_cyan_changed(v, persist=True))
+        self.cast_removal_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", persist=False, readback_metrics=False, cast_removal_strength=v)
+        )
+        self.cast_removal_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", persist=True, readback_metrics=True, cast_removal_strength=v)
+        )
         self.magenta_slider.valueCommitted.connect(lambda v: self._on_magenta_changed(v, persist=True))
         self.yellow_slider.valueCommitted.connect(lambda v: self._on_yellow_changed(v, persist=True))
 
@@ -102,13 +112,7 @@ class ColorSidebar(BaseSidebar):
         if printing:
             return tr("Printing the color ring-around…")
         return tooltip_with_shortcut(
-            tr(
-                "Color Ring-Around: print the frame as a 5×5 mosaic — the center patch neutral, the "
-                "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
-                "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
-                "it is up. With Cast Removal on the patches separate less, since it corrects toward "
-                "neutral underneath."
-            ),
+            tr("Ring-around: show the picture as a grid of color variations, then click the one that looks right."),
             "toggle_ring_around",
         )
 
@@ -160,6 +164,7 @@ class ColorSidebar(BaseSidebar):
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
+            self.cast_removal_slider.setValue(conf.cast_removal_strength)
 
             for i, fields in enumerate(self._REGION_FIELDS):
                 self.region_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
@@ -175,6 +180,7 @@ class ColorSidebar(BaseSidebar):
             self.cyan_slider,
             self.magenta_slider,
             self.yellow_slider,
+            self.cast_removal_slider,
             self.pick_wb_btn,
             self.ring_btn,
         ):

@@ -33,20 +33,26 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg.vram_warning_box.setChecked(False)
         self.assertIs(dlg.repo.data["show_vram_capped_warning"], False)
 
-    def test_canvas_background_pills_cover_every_colour(self):
+    def test_canvas_background_offers_every_color_darkest_first_and_keeps_saved_indexes(self):
         from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 
         dlg = _dlg()
-        self.assertEqual(len(dlg.canvas_pills), len(CANVAS_COLORS))
-        self.assertTrue(dlg.canvas_pills[0].isChecked())
-        self.assertEqual([p.toolTip() for p in dlg.canvas_pills], [label for _, _, label in CANVAS_COLORS])
+        combo = dlg.canvas_combo
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["Black", "Dark Gray", "Mid Gray", "Light Gray", "White"])
+        self.assertEqual(sorted(combo.itemData(i) for i in range(combo.count())), list(range(len(CANVAS_COLORS))))
+        self.assertEqual(combo.currentData(), 2, "Mid Gray is the default")
+        self.assertEqual(combo.itemData(combo.findText("White")), 3)
 
-    def test_clicking_a_pill_sets_that_background(self):
+    def test_choosing_a_background_sets_that_index(self):
         dlg = _dlg()
-        dlg.canvas_pills[2].click()
-        dlg.session.set_canvas_bg.assert_called_once_with(2)
-        self.assertTrue(dlg.canvas_pills[2].isChecked())
-        self.assertFalse(dlg.canvas_pills[0].isChecked())
+        dlg.canvas_combo.setCurrentIndex(dlg.canvas_combo.findData(1))
+        dlg.session.set_canvas_bg.assert_called_once_with(1)
+
+    def test_automatic_thumbnail_updates_default_off_and_go_through_the_session(self):
+        dlg = _dlg()
+        self.assertFalse(dlg.auto_thumbnails_box.isChecked())
+        dlg.auto_thumbnails_box.setChecked(True)
+        dlg.session.set_auto_thumbnail_refresh.assert_called_once_with(True)
 
     def test_color_vision_offers_every_palette_and_sets_it(self):
         from negpy.desktop.view.styles.color_vision import PALETTES
@@ -58,9 +64,7 @@ class TestPreferencesDialog(unittest.TestCase):
 
     def test_view_toggles_go_through_the_session(self):
         dlg = _dlg()
-        dlg.immersive_box.setChecked(not dlg.immersive_box.isChecked())
         dlg.sticky_zoom_box.setChecked(not dlg.sticky_zoom_box.isChecked())
-        dlg.session.set_immersive_canvas.assert_called_once()
         dlg.session.set_sticky_zoom.assert_called_once()
 
     def test_sticky_settings_box_reflects_state_and_toggles_through_the_session(self):
@@ -125,7 +129,7 @@ class TestPreferencesDialog(unittest.TestCase):
     def test_the_restart_hint_waits_for_a_startup_change(self):
         dlg = _dlg()
         self.assertTrue(dlg._restart_hint.isHidden())
-        dlg.immersive_box.setChecked(not dlg.immersive_box.isChecked())
+        dlg.sticky_zoom_box.setChecked(not dlg.sticky_zoom_box.isChecked())
         self.assertTrue(dlg._restart_hint.isHidden())
         dlg._spins["preview_render_size"].setValue(2048)
         self.assertFalse(dlg._restart_hint.isHidden())

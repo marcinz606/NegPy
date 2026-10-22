@@ -13,6 +13,7 @@ from PyQt6.QtCore import QObject, QPoint, QPointF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QNativeGestureEvent, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QToolButton, QWidget
 
+from negpy.desktop.view.styles.templates import with_alpha
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.metadata.capture import deg2tile, tile2deg
 from negpy.services.maps import MAX_ZOOM, MIN_ZOOM, TILE_SIZE, fetch_tile
@@ -219,8 +220,8 @@ class SlippyMapWidget(QWidget):
         if self._pin is None:
             return
         x, y = self._pixel_at(*self._pin)
-        painter.setPen(QColor(THEME.accent_secondary))
-        painter.setBrush(QColor(THEME.accent_primary))
+        painter.setPen(QColor(THEME.mark_photo))
+        painter.setBrush(QColor(THEME.bg_dark))
         painter.drawEllipse(int(x) - 5, int(y) - 5, 10, 10)
         painter.drawLine(int(x), int(y) - 14, int(x), int(y) - 5)
 
@@ -231,7 +232,7 @@ class SlippyMapWidget(QWidget):
         metrics = painter.fontMetrics()
         width = metrics.horizontalAdvance(_ATTRIBUTION) + 8
         height = metrics.height() + 2
-        painter.fillRect(self.width() - width, self.height() - height, width, height, QColor(0, 0, 0, 150))
+        painter.fillRect(self.width() - width, self.height() - height, width, height, with_alpha(THEME.mark_shadow, 150))
         painter.setPen(QColor(THEME.text_primary))
         painter.drawText(self.width() - width + 4, self.height() - 3 - metrics.descent(), _ATTRIBUTION)
 

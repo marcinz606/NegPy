@@ -123,7 +123,7 @@ def test_average_rows_apply_and_format_as_booleans():
 
     process_rows = dict((r.label, val) for _t, entries in catalog_sections(src) for r, val, _e in entries if r.section == "process")
     for label in ("Use Average Luma", "Use Average Color"):
-        assert process_rows[label] == "on"
+        assert process_rows[label] == "On"
 
 
 # ── metering inputs clear the target's per-frame bounds ──────────────────────

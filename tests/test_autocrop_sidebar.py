@@ -40,17 +40,16 @@ def test_rebate_trim_commit_stores_a_fraction_not_a_percentage(qapp):
 
     sidebar.rebate_trim_slider.valueCommitted.emit(150.0)
 
-    controller.set_roll_default.assert_called_with("autocrop", autocrop_rebate_trim=1.5)
+    controller.set_crop_settings.assert_called_with(autocrop_rebate_trim=1.5)
 
 
-def test_the_card_edits_the_roll_default_not_the_frame(qapp):
-    """Auto Crop is a roll card: every control goes through set_roll_default, which
-    locks the frame away from the roll only once the value actually diverges."""
+def test_the_card_edits_go_through_set_crop_settings(qapp):
+    """It refuses a crop edit while Auto-crop all frames runs, and re-meters once on release."""
     sidebar, controller = _sidebar()
 
     sidebar.offset_slider.valueCommitted.emit(12.0)
 
-    controller.set_roll_default.assert_called_with("autocrop", autocrop_offset=12)
+    controller.set_crop_settings.assert_called_with(autocrop_offset=12)
     controller.session.update_config.assert_not_called()
 
 
@@ -75,18 +74,6 @@ def test_rebate_trim_slider_follows_the_crop_mode(qapp):
     sidebar.sync_ui()
     assert sidebar.rebate_trim_slider.isEnabled() is True
     assert sidebar.auto_crop_all_btn.isEnabled() is True
-
-
-def test_the_run_buttons_are_icons_on_the_auto_crop_header(qapp):
-    """Frame/Roll words would read as the card header's scope pair."""
-    sidebar, _ = _sidebar()
-    assert sidebar.auto_frame_btn.text() == "" and sidebar.auto_crop_all_btn.text() == ""
-    row = next(
-        sidebar.layout.itemAt(i).layout()
-        for i in range(sidebar.layout.count())
-        if sidebar.layout.itemAt(i).layout() is not None and sidebar.layout.itemAt(i).layout().indexOf(sidebar.auto_frame_btn) != -1
-    )
-    assert row.indexOf(sidebar.auto_crop_all_btn) != -1
 
 
 def test_the_frame_button_crops_this_frame_and_clears_it(qapp):

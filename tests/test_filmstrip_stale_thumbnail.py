@@ -30,8 +30,7 @@ def _paint(delegate, file_info: dict) -> QPixmap:
 
 def image_rect() -> QRect:
     """Where _paint's 60x40 thumbnail lands in its 66x46 cell."""
-    m = _ThumbnailDelegate._MARGIN
-    area = QRect(m, m, 66 - 2 * m, 46 - 2 * m)
+    area = QRect(0, 0, 66, 46)
     return _ThumbnailDelegate._fit_rect(area, QSize(60, 40).scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
 

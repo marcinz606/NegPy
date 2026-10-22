@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, List, Optional
@@ -25,18 +26,24 @@ class StorageRepository(IRepository):
         # History panel refreshes re-read every step; WorkspaceConfig is frozen, so a parse keyed
         # by its JSON text is safe to share and needs no invalidation.
         self._history_parse: dict[str, WorkspaceConfig] = {}
+        # One open connection per thread and database: opening one costs more than most queries.
+        self._local = threading.local()
 
     @contextmanager
     def _connect(self, path: str):
-        """Connection context manager that actually closes the connection (sqlite3's own doesn't)."""
-        conn = sqlite3.connect(path)
-        # Under WAL, NORMAL cannot corrupt the database; a power loss can lose only the last commit.
-        conn.execute("PRAGMA synchronous=NORMAL")
+        """The thread's connection to *path*; commits on success, rolls back on an error."""
+        conns = self._local.__dict__.setdefault("conns", {})
+        conn = conns.get(path)
+        if conn is None:
+            conn = conns[path] = sqlite3.connect(path)
+            # Under WAL, NORMAL cannot corrupt the database; a power loss can lose only the last commit.
+            conn.execute("PRAGMA synchronous=NORMAL")
         try:
             yield conn
             conn.commit()
-        finally:
-            conn.close()
+        except BaseException:
+            conn.rollback()
+            raise
 
     def initialize(self) -> None:
         """
@@ -599,8 +606,8 @@ class StorageRepository(IRepository):
     def _wipe(self, path: str, tables: list[str]) -> None:
         """Empty the given tables, then checkpoint + VACUUM so the disk footprint
         actually shrinks (WAL retains freed pages until checkpointed; VACUUM
-        rebuilds the file). VACUUM must run outside a transaction — a fresh
-        connection with no prior DML has none open."""
+        rebuilds the file). VACUUM must run outside a transaction; the commit that ends
+        the DELETE leaves none open."""
         with self._connect(path) as conn:
             for table in tables:
                 try:

@@ -9,9 +9,9 @@ from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import field_row, hint_label, pin_dialog_default
+from negpy.desktop.view.styles.templates import field_row, hint_label, pin_dialog_default, with_alpha
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.workers.chart_fit import ChartFitWorker, ChartSource
 from negpy.features.process.chart import CHARTS, ChartFit, grid_corners, patch_centers, sample_radius
@@ -117,12 +117,13 @@ class _ChartCornersLabel(QLabel):
         for box, color in zip(boxes, colors):
             painter.setPen(QPen(color, 1.5))
             painter.drawRect(box)
-        painter.setPen(QPen(QColor(THEME.status_success), 1.5))
         pts = [self._to_widget(r, c) for c in grid_corners(self._corners)]
-        for a, b in zip(pts, pts[1:] + pts[:1]):
-            painter.drawLine(a, b)
-        painter.setBrush(QColor(THEME.status_success))
-        painter.setPen(Qt.PenStyle.NoPen)
+        for pen in (QPen(with_alpha(THEME.mark_shadow, 160), 3.5), QPen(QColor(THEME.mark_photo), 1.5)):
+            painter.setPen(pen)
+            for a, b in zip(pts, pts[1:] + pts[:1]):
+                painter.drawLine(a, b)
+        painter.setBrush(QColor(THEME.mark_photo))
+        painter.setPen(QPen(with_alpha(THEME.mark_shadow, 170), 1.5))
         for p in pts:
             painter.drawEllipse(p, _HANDLE_R, _HANDLE_R)
         if scores is not None:
@@ -134,8 +135,7 @@ class _ChartCornersLabel(QLabel):
         font = painter.font()
         font.setPixelSize(THEME.font_size_small)
         painter.setFont(font)
-        backdrop = QColor(THEME.bg_dark)
-        backdrop.setAlpha(200)
+        backdrop = with_alpha(THEME.bg_dark, 200)
         for box, color, score in zip(boxes, colors, scores):
             text = f"{score:.1f}"
             label = QRectF(painter.fontMetrics().boundingRect(text)).adjusted(-THEME.space_sm, 0, THEME.space_sm, 0)
@@ -174,7 +174,7 @@ class ChartCalibrationDialog(QDialog):
         intro = hint_label(
             tr(
                 "Use a frame of a SpyderCheckr 24 or a ColorChecker 24 shot on this film and scanned on this rig. "
-                "Drag the four green dots onto the centers of the chart's corner patches, in any order. The chart "
+                "Drag the four white dots onto the centers of the chart's corner patches, in any order. The chart "
                 "can sit any way up, sideways or mirrored. NegPy reads its orientation from the colors, then "
                 "finds the Crosstalk matrix that brings the patches nearest the chart's published colors, through "
                 "the frame's own render."
@@ -188,13 +188,13 @@ class ChartCalibrationDialog(QDialog):
 
         self.chart_choice = SegmentedChoice(
             tuple(("", c.name) for c in CHARTS),
-            tr("The chart in the frame. Each has its own published patch colors."),
+            tr("The chart in the frame, whose published patch colors the fit aims for."),
         )
         root.addLayout(field_row(tr("Chart"), self.chart_choice))
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(tr("e.g. Portra 400 + CS-Lite"))
-        self.name_edit.setToolTip(tr("The profile's name in the Matrix dropdown. Name the film and the rig."))
+        self.name_edit.setToolTip(tr("The profile's name in the Matrix dropdown: name the film and the rig."))
         self.name_edit.textChanged.connect(self._refresh)
         root.addLayout(field_row(tr("Name"), self.name_edit))
 

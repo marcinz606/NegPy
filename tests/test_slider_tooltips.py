@@ -49,6 +49,6 @@ def test_export_form_sliders_tooltip_the_container():
 
     form = ExportSettingsForm()
 
-    assert "libjxl" in form.jxl_distance_spin.toolTip()
+    assert "Quality loss" in form.jxl_distance_spin.toolTip()
     assert form.jxl_distance_spin.label.toolTip() == form.jxl_distance_spin.toolTip()
     assert "Encoder effort" in form.webp_method_spin.toolTip()

@@ -415,13 +415,13 @@ class TestMoveSummary:
         old = WorkspaceConfig()
         new = _config(grade=135.0)
         progress = start_pick_better(old)
-        assert move_summary(old, new, progress) == "Grade +20"
+        assert move_summary(old, new, progress) == "ISO-R Grade +20"
 
     def test_zero_delta_shows_name_only(self):
         # A pick that keeps the value (delta 0) shows the name alone, with no delta.
         config = _config(grade=135.0)
         progress = start_pick_better(config)
-        assert move_summary(config, config, progress) == "Grade"
+        assert move_summary(config, config, progress) == "ISO-R Grade"
 
     def test_names_the_real_param_at_the_position(self):
         # With param_order putting density (index 1) at position 0, the summary reads the real
@@ -435,4 +435,4 @@ class TestMoveSummary:
             _zeros(),
             param_order=(1, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10),
         )
-        assert move_summary(old, new, progress) == "Density +0.3"
+        assert move_summary(old, new, progress) == "Print Density +0.3"

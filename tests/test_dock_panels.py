@@ -37,9 +37,9 @@ class TestPinnableDockWidget(unittest.TestCase):
         bar = dock.titleBarWidget()
         self.assertIsNotNone(bar)
 
-        from PyQt6.QtWidgets import QToolButton
+        from PyQt6.QtWidgets import QPushButton
 
-        pin = bar.findChild(QToolButton)
+        pin = bar.findChild(QPushButton)
         self.assertIsNotNone(pin)
         pin.click()
         QApplication.processEvents()

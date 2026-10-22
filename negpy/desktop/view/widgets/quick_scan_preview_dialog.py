@@ -10,10 +10,10 @@ from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
+from negpy.desktop.view.styles.templates import StatusStrip, field_row, hint_label, icon_text, labeled_action, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
@@ -38,39 +38,29 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._film_type = film_type
         self._caps = device.capabilities
         self._previewing = False
-        self._scan_now = False  # set when the user chooses "Scan" over "Use"
+        self._scan_now = False  # set when the user chooses Scan Frame over Apply Window
         self.setWindowTitle(tr("Preview — Set the Scan Window"))
         self.setModal(True)
         self.resize(560, 480)
 
         layout = QVBoxLayout(self)
 
-        help_lbl = QLabel(
-            tr(
-                "Preview the current holder position, then drag to crop — a corner to resize, "
-                "inside to move. Use Apply Window (apply and return) or Scan (start scanning now)."
+        layout.addWidget(
+            hint_label(
+                tr(
+                    "Preview the holder, then drag to crop: a corner resizes, the inside moves. Apply Window keeps it, and Scan Frame scans now."
+                )
             )
         )
-        help_lbl.setWordWrap(True)
-        help_lbl.setStyleSheet(
-            f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
-            f" background: rgba(255,255,255,0.04); border-radius: 6px; padding: 6px 8px;"
-        )
-        layout.addWidget(help_lbl)
 
-        top = QHBoxLayout()
-        top.addWidget(QLabel(tr("Preview DPI")))
         self.preview_dpi_combo = StepCombo()
         for dpi in sorted(self._caps.supported_dpi) or [_PREVIEW_FALLBACK_DPI]:
             self.preview_dpi_combo.addItem(str(dpi), dpi)
         self.preview_dpi_combo.setCurrentIndex(0)  # lowest: fastest, framing only
         self.preview_dpi_combo.setToolTip(tr("Resolution used for the preview scan"))
-        top.addWidget(self.preview_dpi_combo)
-        top.addStretch()
-        self.preview_btn = QPushButton(qta.icon("fa5s.eye", color=THEME.text_primary), tr(" Preview"))
+        self.preview_btn = labeled_action("fa5s.eye", tr("Preview"), tr("Scan the holder at the preview resolution."))
         self.preview_btn.clicked.connect(self._on_preview)
-        top.addWidget(self.preview_btn)
-        layout.addLayout(top)
+        layout.addLayout(field_row(tr("Preview DPI"), self.preview_dpi_combo, self.preview_btn))
 
         self.label = ScanWindowLabel()
         self.label.set_window(tuple(initial_window) if initial_window else None)
@@ -93,7 +83,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.ok_btn.setToolTip(tr("Keep this window and return to the Scan panel"))
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
-        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), tr(" Scan Frame"))
+        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), icon_text(tr("Scan Frame")))
         self.scan_btn.setToolTip(tr("Scan now with the current settings"))
         self.scan_btn.clicked.connect(self._on_scan_clicked)
         btns.addWidget(self.scan_btn)
@@ -109,7 +99,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         return self.label.window()
 
     def scan_requested(self) -> bool:
-        """True when the dialog was accepted via Scan (start now), not Use."""
+        """True when the dialog was accepted via Scan Frame (start now), not Apply Window."""
         return self._scan_now
 
     # ── ui state ──────────────────────────────────────────────────────
@@ -151,7 +141,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         try:
             self._controller.start_roll_preview(req)
         except Exception as e:
-            self.status_strip.set_message(tr("Scanner busy — {e}", e=e))
+            self.status_strip.set_message(tr("Scanner busy: {e}", e=e))
             return
         self._previewing = True
         self._set_previewing(True)

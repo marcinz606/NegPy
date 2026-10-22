@@ -16,15 +16,17 @@ import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF
 
+from negpy.desktop.view.styles.templates import with_alpha
+from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.logic import min_points, outline_points
 from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import MaskNote, mask_notes
 
 _INK = QColor(242, 242, 242)
-_CARD_BG = QColor(10, 10, 10, 195)
+_CARD_BG = with_alpha(THEME.bg_input, 195)
 _BAND_BG = QColor(16, 16, 16)
-_BADGE_BG = QColor(0, 0, 0, 190)
+_BADGE_BG = with_alpha(THEME.mark_shadow, 190)
 
 _HATCH_SPACING_PX = 9.0
 _CARD_PAD_PX = 8.0
@@ -34,10 +36,10 @@ _SHEET_SCALE_REF = 1400.0  # px long edge the on-screen line weights were drawn 
 Poly = Tuple[List[QPointF], MaskNote]
 
 
-def notes_font(scale: float = 1.0, px: float = 12.0) -> QFont:
+def notes_font(scale: float = 1.0, px: float = THEME.font_size_small) -> QFont:
     font = QFont()
     font.setBold(True)
-    font.setPixelSize(max(9, round(px * scale)))
+    font.setPixelSize(max(THEME.font_size_micro, round(px * scale)))
     return font
 
 

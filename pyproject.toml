@@ -72,7 +72,7 @@ pieusb = [
 ]
 nkscan = [
     # Nikon Coolscan over SCSI/USB. A Rust extension, shipped as wheels.
-    "nkscan>=0.14",
+    "nkscan>=0.15",
 ]
 
 [project.urls]

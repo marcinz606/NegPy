@@ -63,7 +63,7 @@ def _reset_roll(window, controller) -> None:
 
 
 def close_roll_label(state) -> str:
-    return "Close Roll…" if state.active_roll_id else tr("Unload All…")
+    return tr("Close Roll…") if state.active_roll_id else tr("Unload All…")
 
 
 def _close_roll(window, controller) -> None:
@@ -101,6 +101,11 @@ def _step_file(controller, step: int) -> None:
     """Previous/next file, or the neighbor paper while the paper strip is up."""
     if not controller.step_paper_strip(step):
         (controller.session.next_file if step > 0 else controller.session.prev_file)()
+
+
+def _zoom_light_table(window, steps: int) -> None:
+    if window.light_table_active():
+        window.file_browser.light_table_view.zoom(steps)
 
 
 def _context_cancel(controller, window) -> None:
@@ -435,12 +440,11 @@ class ShortcutManager:
             "first_file": controller.session.first_file,
             "last_file": controller.session.last_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
-            "toggle_scene_overlay": lambda: self.window.session_panel.file_browser.scenes_btn.click(),
-            "toggle_advance_after_mark": lambda: self.window.session_panel.file_browser.act_advance_after_mark.toggle(),
+            "toggle_advance_after_mark": lambda: self.window.file_browser.act_advance_after_mark.toggle(),
             "hdr_merge": controller.request_hdr_merge_selected,
             "hdr_unmerge": controller.request_unmerge_hdr,
             # The view method, not the controller's: it carries the confirm the deletion needs.
-            "half_frame_undiptych": self.window.session_panel.file_browser.prompt_undiptych,
+            "half_frame_undiptych": self.window.file_browser.prompt_undiptych,
             "update_thumbnails_selection": (
                 lambda: controller.cancel_thumbnail_refresh()
                 if controller.thumbnail_refresh_running
@@ -460,12 +464,11 @@ class ShortcutManager:
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "reanalyze_frame": lambda: controls.process_sidebar.reanalyze_frame_btn.click(),
             "cast_average_toggle": lambda: controls.process_sidebar.use_cast_avg_btn.toggle(),
-            "metadata_preset_load": lambda: right.metadata_sidebar.metadata_preset_load_btn.click(),
+            "metadata_preset_load": lambda: right.gear_panel.presets.apply_btn.click(),
             "metadata_clear_gear": lambda: right.metadata_sidebar.gear_clear_btn.click(),
             "metadata_clear_process": lambda: right.metadata_sidebar.process_clear_btn.click(),
             "metadata_clear_scanning": lambda: right.metadata_sidebar.scan_clear_btn.click(),
             "assign_sequential_frame": lambda: right.metadata_sidebar.frame_sequence_btn.click(),
-            "scan_setup": lambda: controls.sensor_sidebar.scan_setup_btn.click(),
             "measure_chart": lambda: controls.sensor_sidebar.measure_chart_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "scan_meter_frame": (
@@ -484,11 +487,11 @@ class ShortcutManager:
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(1),
             "mode_transparency": lambda: controls.process_sidebar.mode_btn.setCurrentIndex(2),
             "pick_wb": lambda: controls.color_sidebar.pick_wb_btn.toggle(),
-            "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
+            "manual_crop": lambda: controls.autocrop_sidebar.manual_crop_btn.toggle(),
             "auto_skew": lambda: controls.geometry_sidebar.auto_skew_btn.click(),
             "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),
             "keystone_lines": lambda: controls.geometry_sidebar.keystone_lines_btn.toggle(),
-            "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
+            "crop_guide_next": lambda: controls.autocrop_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.autocrop_sidebar.auto_frame_btn.toggle(),
             "auto_crop_square": lambda: controls.autocrop_sidebar.square_btn.toggle(),
@@ -529,18 +532,18 @@ class ShortcutManager:
             "cycle_frame_info": controller.cycle_canvas_info,
             "toggle_soft_proof": lambda: controller.set_soft_proof(not controller.state.soft_proof_enabled),
             "cancel_tool": lambda: _context_cancel(controller, self.window),
-            "show_library": self.window.session_panel.show_library,
-            "focus_search": self.window.session_panel.file_browser.focus_search,
-            "search_library": self.window.session_panel.file_browser.search_library,
-            "toggle_library_tree": self.window.session_panel.toggle_library_tree,
-            "library_discovery_filters": self.window.session_panel.library_tree.edit_discovery_filters,
-            "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
+            "show_library": self.window.show_library,
+            "focus_search": self.window.focus_search,
+            "search_library": self.window.file_browser.search_library,
+            "library_discovery_filters": self.window.right_panel.library_tree.edit_discovery_filters,
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
             "toggle_sticky_settings": lambda: controller.session.set_sticky_settings_enabled(
                 not controller.session.state.sticky_settings_enabled
             ),
             "toggle_invert_zoom_scroll": lambda: controller.session.set_invert_zoom_scroll(not controller.session.state.invert_zoom_scroll),
-            "toggle_left_panel": self.window.toggle_session_dock,
+            "toggle_shortcut_hints": lambda: controller.session.set_shortcut_hints(not controller.session.state.shortcut_hints),
+            "toggle_film_strip": self.window.toggle_film_strip,
+            "toggle_toolbar_mode": self.window.toolbar.toggle_mode,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
             "edit_toolbar": toolbar.open_toolbar_editor,
@@ -553,7 +556,6 @@ class ShortcutManager:
             "tab_export": lambda: right.show_tab_by_key("export"),
             "tab_metadata": lambda: right.show_tab_by_key("metadata"),
             "tab_history": lambda: right.show_tab_by_key("history"),
-            "tab_gear": lambda: right.show_tab_by_key("gear"),
             "tab_gear_items": lambda: right.show_gear_section_by_key("items"),
             "tab_gear_presets": lambda: right.show_gear_section_by_key("presets"),
             "tab_scan": lambda: right.show_tab_by_key("scan"),
@@ -583,14 +585,14 @@ class ShortcutManager:
             "toggle_tab_cards": lambda: _fire_tab_header(right, "cards"),
             "roll_batch_analysis": controller.request_batch_normalization,
             "analyze_all_scenes": controller.request_analyze_all_scenes,
-            "roll_settings": lambda: self.window.session_panel.file_browser.roll_settings_btn.click(),
+            "roll_settings": lambda: self.window.file_browser.roll_settings_btn.click(),
             "contact_sheet": lambda: right.export_sidebar.contact_sheet_btn.click(),
-            "save_as_roll": lambda: self.window.session_panel.file_browser.save_roll_btn.click(),
-            "import_roll": lambda: self.window.session_panel.library_tree.prompt_import_folder(),
-            "index_library": lambda: self.window.session_panel.library_tree.index_btn.click(),
+            "save_as_roll": lambda: self.window.file_browser.save_roll_action.trigger(),
+            "import_roll": lambda: self.window.right_panel.library_tree.prompt_import_folder(),
+            "index_library": lambda: self.window.right_panel.library_tree.index_action.trigger(),
             "metadata_infer_gear": lambda: right.metadata_sidebar.gear_infer_btn.click(),
-            "toggle_gear_catalog": lambda: right.gear_panel.show_catalog_btn.click(),
-            "toggle_semantic_search": lambda: self.window.session_panel.file_browser.semantic_btn.click(),
+            "toggle_gear_catalog": lambda: right.gear_panel.items.show_catalog_btn.click(),
+            "toggle_semantic_search": lambda: self.window.file_browser.semantic_action.trigger(),
             "toggle_positive_source": lambda: controls.process_sidebar.positive_source_btn.click(),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
             "open_preferences": lambda: _open_preferences(self.window, controller),
@@ -604,8 +606,10 @@ class ShortcutManager:
             "toggle_side_panels": self.window.toggle_side_panels,
             "toggle_reference": self.window.toggle_reference,
             "toggle_light_table": lambda: self.window.set_light_table(not self.window.light_table_active()),
+            "light_table_zoom_in": lambda: _zoom_light_table(self.window, 1),
+            "light_table_zoom_out": lambda: _zoom_light_table(self.window, -1),
             "show_analysis_help": self.window.right_panel.show_analysis_help,
-            "check_for_updates": lambda: self.window.session_panel.check_for_updates(),
+            "check_for_updates": lambda: self.window.update_notice.check_for_updates(),
             "show_about": self.window.show_about,
             "toggle_hq": controller.toggle_hq_preview,
             # Button clicks, so the shortcut runs the same gating and toast the mouse gets.

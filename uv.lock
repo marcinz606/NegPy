@@ -452,21 +452,21 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-nkscan = [{ name = "nkscan", specifier = ">=0.14" }]
+nkscan = [{ name = "nkscan", specifier = ">=0.15" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.3.6" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
 name = "nkscan"
-version = "0.14.2"
+version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0f/23/a99115465fcfac857742345bba7038192b53118b3bab4bbe1c0bfdbc3ed9/nkscan-0.14.2.tar.gz", hash = "sha256:2f4a8c3de9f73e076c1364af92fc566b126c1eec2d44482e779c86cade8b9d46", size = 2850116, upload-time = "2026-10-16T17:59:51.611Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/95/68168ea09af3472cfac9e070669c0a0d24bfe8ed6bf2f28b59a7770a86ef/nkscan-0.15.0.tar.gz", hash = "sha256:8971e833ceaa3ab06c3edca11a3a2c56659bb0f68c7ee79c2ef7bc3aea3ae4d9", size = 2851731, upload-time = "2026-10-19T18:19:36.082Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/0f/918c06c216b302f06a51072ba88af8e8967e70dde5726a7a8a15ec08bdf3/nkscan-0.14.2-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d46fa90c320cee5629eb5bd2d1e8ad7bbe6b13276ee41f886b8e07beaabd4439", size = 3793583, upload-time = "2026-10-16T17:59:43.42Z" },
-    { url = "https://files.pythonhosted.org/packages/db/0c/359acf66ffb761cd9168b505273c800c9f17b647a9e7265f1d6397152ce1/nkscan-0.14.2-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:7c8fbf8754cfe795b8c13910edf579931f3cfac4a39034712dde352baf2d2be1", size = 3796594, upload-time = "2026-10-16T17:59:45.203Z" },
-    { url = "https://files.pythonhosted.org/packages/79/1b/4e4d22b6ec16bf905e8b3ca16f16603563cce2d7874bf1c4da2b0863bb1c/nkscan-0.14.2-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:94717316d492379177c516146945308c56e6915acdc7848e0222edbd4f6661d5", size = 3930981, upload-time = "2026-10-16T17:59:46.789Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/b3/2de4e2afe0df0c4ee1fb1b010d6d088c1f9886f7da14705ba484ac7a7cb3/nkscan-0.14.2-cp313-abi3-win_amd64.whl", hash = "sha256:734d1049d4203cfb4cedc1d69d0f53bbfa031fd3689c3a83d0452f1a43306e89", size = 3627105, upload-time = "2026-10-16T17:59:49.853Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/c1/1b0c8c87bca4c9b55f58b54cda205065b8cc5c138743f4d641bfd1c027d6/nkscan-0.15.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:75f422654c290ead5927e7a209ae31f607302b7b56545df7ef968ec46e7ab85a", size = 3794471, upload-time = "2026-10-19T18:19:27.817Z" },
+    { url = "https://files.pythonhosted.org/packages/be/b2/29def5ef4059b8a6c3052b6706f830bfc177d8c0d00224e94dfb5d94900a/nkscan-0.15.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:8274820795dacb3d265e66a5b0c87915ddb0ddca97d899a8d758a4181aad23ec", size = 3795980, upload-time = "2026-10-19T18:19:30.163Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/c3/56d20aae225ec497cd0f1b9ee04140b0910fb5c6f83145e5e8ddf149e03d/nkscan-0.15.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4c83b5d6d7d0cd4105d9297d6c118f8961c5552ce740634fcefa4d91472ea37e", size = 3933008, upload-time = "2026-10-19T18:19:32.244Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/21/0836f4875f4448837b9d44e26ef57db4e646c2a78e17c4b1d0d1c207dad9/nkscan-0.15.0-cp313-abi3-win_amd64.whl", hash = "sha256:c3ab8dd6b6d074e688df4df3648b9fe1da1d064d6476cafafafa0b197ced8194", size = 3629610, upload-time = "2026-10-19T18:19:34.148Z" },
 ]
 
 [[package]]

@@ -1,9 +1,12 @@
+from collections.abc import Sequence
+from typing import Any, Optional
+
 import qtawesome as qta
 from PyQt6.QtCore import QPoint, QPointF, QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QComboBox, QStyledItemDelegate, QStyleOptionViewItem
+from PyQt6.QtWidgets import QComboBox, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
-from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, default_button_height
+from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, default_button_height, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 _HEADER_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -17,7 +20,7 @@ def _is_separator(index) -> bool:
 
 
 class _ChoiceDelegate(QStyledItemDelegate):
-    """List rows: a check and a semibold label on the current choice, a caption for a header,
+    """List rows: a chip, a check and a semibold label on the current choice, a caption for a header,
     a rule for a separator."""
 
     def __init__(self, combo: QComboBox):
@@ -52,6 +55,15 @@ class _ChoiceDelegate(QStyledItemDelegate):
         opt = QStyleOptionViewItem(option)
         if current:
             opt.font.setWeight(QFont.Weight.DemiBold)
+            # The chip of a checked toggle; hover lightens it instead of the gray hover fill.
+            hover = bool(option.state & (QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver))
+            opt.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver)
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(THEME.border_checked_hover if hover else THEME.border_checked), 1))
+            painter.setBrush(QColor(THEME.bg_checked_hover if hover else THEME.bg_checked))
+            painter.drawRoundedRect(QRectF(option.rect).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_sm, THEME.radius_sm)
+            painter.restore()
         super().paint(painter, opt, index)
         if current:
             r = option.rect
@@ -75,6 +87,35 @@ class StepCombo(QComboBox):
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.setIconSize(QSize(_ICON, _ICON))
         self.setItemDelegate(_ChoiceDelegate(self))
+
+    @classmethod
+    def of(cls, labels: Sequence[str], tooltip: str, data: Optional[Sequence[Any]] = None) -> "StepCombo":
+        """A StepCombo holding `labels`, the first current; `data` is each choice's stored value."""
+        combo = cls()
+        combo.set_choices(labels, data)
+        combo.setToolTip(wrap_tooltip(tooltip))
+        return combo
+
+    def set_choices(self, labels: Sequence[str], data: Optional[Sequence[Any]] = None) -> None:
+        """Replace the choices without emitting; the first becomes current."""
+        blocked = self.blockSignals(True)
+        self.clear()
+        for i, label in enumerate(labels):
+            self.addItem(label, None if data is None else data[i])
+        self.blockSignals(blocked)
+
+    def set_item_enabled(self, index: int, enabled: bool) -> None:
+        """A grayed choice: the list will not pick it and the arrows step past it."""
+        item = self.model().item(index)
+        if item is not None:
+            item.setEnabled(enabled)
+
+    def is_item_enabled(self, index: int) -> bool:
+        item = self.model().item(index)
+        return item is not None and item.isEnabled()
+
+    def set_item_tooltip(self, index: int, tooltip: str) -> None:
+        self.setItemData(index, tooltip, Qt.ItemDataRole.ToolTipRole)
 
     def add_header(self, text: str) -> None:
         """A caption row in the list. It never becomes current, so the caller sets the current choice."""
@@ -125,12 +166,15 @@ class StepCombo(QComboBox):
         if e.button() != Qt.MouseButton.LeftButton or zone == "face":
             super().mousePressEvent(e)
             return
-        target = self._step_target(-1 if zone == "prev" else 1)
+        self._step(-1 if zone == "prev" else 1)
+        e.accept()
+
+    def _step(self, step: int) -> None:
+        target = self._step_target(step)
         if target >= 0:
             self.setCurrentIndex(target)
             self.activated.emit(target)
             self.textActivated.emit(self.itemText(target))
-        e.accept()
 
     def _draw_arrow(self, p: QPainter, rect: QRectF, name: str, usable: bool) -> None:
         pix = qta.icon(name, color=THEME.text_secondary if usable else THEME.text_muted).pixmap(_CHEVRON, _CHEVRON)
@@ -162,21 +206,25 @@ class StepCombo(QComboBox):
 
         if hover in ("prev", "next") and self._step_target(-1 if hover == "prev" else 1) < 0:
             hover = None
+        clip = QPainterPath()
+        clip.addRoundedRect(outline, THEME.radius_md, THEME.radius_md)
+        p.save()
+        p.setClipPath(clip)
+        p.fillRect(outline, QColor(THEME.bg_input))
         if hover:
-            clip = QPainterPath()
-            clip.addRoundedRect(outline, THEME.radius_md, THEME.radius_md)
-            p.save()
-            p.setClipPath(clip)
             p.fillRect(cells[hover], QColor(THEME.border_primary))
-            p.restore()
+        p.restore()
 
-        border = THEME.accent_secondary if self.hasFocus() else (THEME.border_hover if hover else THEME.border_color)
+        border = THEME.border_focus if self.hasFocus() else (THEME.border_hover if hover else THEME.border_primary)
         p.setPen(QPen(QColor(border), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(outline, THEME.radius_md, THEME.radius_md)
-        p.setPen(QPen(QColor(THEME.border_hover if hover else THEME.border_color), 1))
-        for x in (cells["prev"].right(), cells["next"].left()):
-            p.drawLine(QPointF(x, 0.5), QPointF(x, self.height() - 0.5))
+        # Short dividers, as between a segmented control's choices; one beside a hovered cell goes.
+        p.setPen(QPen(QColor(THEME.border_primary), 1))
+        inset = THEME.space_md + 1
+        for cell, x in (("prev", cells["prev"].right()), ("next", cells["next"].left())):
+            if hover not in (cell, "face"):
+                p.drawLine(QPointF(x, inset), QPointF(x, self.height() - inset))
 
         self._draw_face(p, cells["face"], live)
         self._draw_arrow(p, cells["prev"], "fa5s.chevron-left", live and self._step_target(-1) >= 0)

@@ -1,13 +1,11 @@
 from negpy.kernel.system.i18n import tr
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 from PyQt6.QtCore import QPoint, Qt, QTimer
-from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
-    QPushButton,
     QScrollArea,
     QSplitter,
     QStackedWidget,
@@ -21,36 +19,38 @@ from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.export import ExportSidebar
 from negpy.desktop.view.sidebar.favourites import FavouritesSidebar
 from negpy.desktop.view.sidebar.history import HistoryPanel
+from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.color_vision import palette_for
-from negpy.desktop.view.styles.fonts import ui_font_family
-from negpy.desktop.view.styles.templates import CLIPPING_SWEEP, EditedDot, gradient_icon, tool_toggle
+from negpy.desktop.view.styles.templates import clipping_sweep, gradient_icon, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
-from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, VectorscopeWidget, WaveformWidget, ZoneStripWidget
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.charts import (
+    ChartWell,
+    PhotometricCurveWidget,
+    StepWedgeWidget,
+    VectorscopeWidget,
+    WaveformWidget,
+    ZoneStripWidget,
+)
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, fit_pane, make_section
+from negpy.desktop.view.widgets.fold import Fold, group_fold
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
 from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.features.process.models import ProcessMode
 from negpy.services.assets.rolls import card_fields
-from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget, ZonePlacementRows
+from negpy.desktop.view.widgets.stats import NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
+from negpy.desktop.view.widgets.panel_tab import PanelTab
 
-_SCAN_BASE_TIP = tr(
-    "Base Relative: each channel's density above its clear film base (the Film Base set on the roll, "
-    "else the base read from the rebate, else the stretch's thin end), so the mask's offset is gone "
-    "and the channels compare at one height"
-)
+_SCAN_BASE_TIP = tr("Base Relative: line up each channel at its film base, so the channels compare at one height.")
 
 # The Roll tab's cards that own settings, for its header's Apply picker.
 _ROLL_TAB_CARDS = (
     "film",
     "sensor",
-    "cast_removal",
-    "autocrop",
-    "auto_crop",
     "baseline",
     "process",
     "demosaic",
@@ -66,10 +66,40 @@ _ROLL_SECTION_ATTRS = frozenset(
         "demosaic_section",
         "baseline_section",
         "process_section",
-        "autocrop_section",
         "optics_section",
     }
 )
+
+
+_TAB_ICONS = {
+    "library": "mdi6.bookshelf",
+    "roll": "mdi6.filmstrip",
+    "frame": "mdi6.image-outline",
+    "metadata": "mdi6.tag-outline",
+    "export": "mdi6.export-variant",
+    "scan": "mdi6.scanner",
+    "geometry": "mdi6.crop",
+    "tone": "mdi6.brightness-6",
+    "color": "mdi6.palette-outline",
+    "finish": "mdi6.auto-fix",
+    "favourites": "mdi6.star-outline",
+    "history": "mdi6.history",
+}
+
+# Frame tabs that show only their icon, after the workflow tabs.
+_ICON_TABS = ("favourites", "history")
+
+# A tab saved as an index, in this tab order.
+_INDEXED_GROUPS = ("roll", "frame", "metadata", "gear", "export", "scan")
+
+
+def saved_group_key(saved: object, keys: list[str]) -> str:
+    """The tab to open from the saved setting: a tab key, or an index; Gear is part of Metadata."""
+    if isinstance(saved, int) and not isinstance(saved, bool):
+        saved = _INDEXED_GROUPS[saved] if 0 <= saved < len(_INDEXED_GROUPS) else ""
+    if saved == "gear":
+        saved = "metadata"
+    return saved if isinstance(saved, str) and saved in keys else ("roll" if "roll" in keys else keys[0])
 
 
 def default_analysis_split(screen) -> list[int]:
@@ -78,23 +108,15 @@ def default_analysis_split(screen) -> list[int]:
     return [top, max(600, height - top)]
 
 
-def _tab_width(labels: list[str], pixel_size: int) -> int:
-    """Widest label at the checked weight, so a tab spills into » before its text clips."""
-    font = QFont(ui_font_family())
-    font.setPixelSize(pixel_size)
-    font.setWeight(QFont.Weight.DemiBold)
-    return max(QFontMetrics(font).horizontalAdvance(label) for label in labels) + 2 * THEME.space_md
-
-
 class RightPanel(QWidget):
-    """Right sidebar panel: a flat tab switcher across Roll / Frame / Metadata / Gear /
-    Export / Scan, in the order an edit moves through them. Analysis is pinned above
-    Roll and Frame. Metadata and Gear pin a section above their own scroll area
-    (Preview, the Items/Presets switcher); Export and Scan are plain pages."""
+    """Right sidebar panel: a flat tab switcher across Library / Roll / Frame / Metadata / Export /
+    Scan, in the order an edit moves through them. Analysis is pinned above Roll and Frame. Metadata
+    pins its Preview above its own sub-tabs, and Export pins its Export button below its own."""
 
-    def __init__(self, controller: AppController):
+    def __init__(self, controller: AppController, library_tree: Optional[LibraryTree] = None):
         super().__init__()
         self.controller = controller
+        self.library_tree = library_tree or LibraryTree(controller)
         # Heal/scratch tool suspended by leaving the Retouch tab; restored on return.
         self._suspended_retouch_tool = None
 
@@ -118,8 +140,7 @@ class RightPanel(QWidget):
         self.export_sidebar = ExportSidebar(self.controller)
         self.metadata_sidebar = MetadataSidebar(self.controller)
         self.gear_panel = GearLibraryPanel(current_config_fn=lambda: self.controller.state.config, repo=self.controller.session.repo)
-        self.gear_panel.library_changed.connect(self.metadata_sidebar._on_library_changed)
-        self.gear_panel.presets_changed.connect(self.metadata_sidebar._refresh_metadata_presets)
+        self.metadata_sidebar.attach_gear_panel(self.gear_panel)
 
         from negpy.desktop.view.sidebar.scan import ScanSidebar
         from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
@@ -130,40 +151,42 @@ class RightPanel(QWidget):
         self.scanlight_sidebar = ScanlightSidebar(self.controller, self.scan_output)
         self.scan_page = self._build_scan_page()
 
+        library_page = make_section(
+            self.controller.session.repo, tr("Library"), "library", self.library_tree, "mdi6.bookshelf", collapsible=False
+        )
+
         # (key, label, content_widget)
         group_specs = [
+            ("library", tr("Library"), library_page),
             ("roll", tr("Roll"), roll_page),
             ("frame", tr("Frame"), frame_page),
             ("metadata", tr("Metadata"), self.metadata_sidebar),
-            ("gear", tr("Gear"), self.gear_panel),
             ("export", tr("Export"), self.export_sidebar),
             ("scan", tr("Scan"), self.scan_page),
         ]
 
         # Spills into a » menu when the panel is narrowed
-        self.group_switcher = OverflowBar(
-            tile=True, height=38, min_item=_tab_width([spec[1] for spec in group_specs], THEME.font_size_base)
-        )
+        self.group_switcher = OverflowBar(height=58, min_item=PanelTab.min_width([spec[1] for spec in group_specs], stacked=True))
+        # The » button sits on the strip, not on the panel.
+        self.group_switcher.setObjectName("main_tabs")
+        self.group_switcher.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.group_stack = QStackedWidget()
         self.group_stack.setContentsMargins(0, 0, 0, 0)
 
-        self._group_buttons: list[QPushButton] = []
+        self._group_buttons: list[PanelTab] = []
         self._group_keys: list[str] = []
         self._group_tooltips: list[str] = []
         self._active_group = 0
         self._scan_group_index = -1
 
         for i, (key, tooltip, content) in enumerate(group_specs):
-            btn = QPushButton(tooltip)
-            btn.setObjectName("right_tab_btn")
+            btn = PanelTab(_TAB_ICONS[key], tooltip, stacked=True)
             btn.setToolTip(tooltip)
-            btn.setCheckable(True)
-            btn.setFixedHeight(38)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_group(idx))
             self.group_switcher.add_button(btn, tooltip)
 
             # These pages scroll inside, beside a pinned part; every other page scrolls whole.
-            page = content if key in ("frame", "metadata", "gear", "scan") else wrap_scroll(content)
+            page = content if key in ("library", "frame", "metadata", "export", "scan") else wrap_scroll(content)
             self.group_stack.addWidget(page)
             self._group_buttons.append(btn)
             self._group_keys.append(key)
@@ -200,8 +223,7 @@ class RightPanel(QWidget):
 
         self.apply_shortcut_tooltips()
 
-        saved_group = repo.get_global_setting("right_panel_group", 0)
-        self._switch_group(saved_group if isinstance(saved_group, int) and 0 <= saved_group < len(self._group_buttons) else 0)
+        self._switch_group(self._group_keys.index(saved_group_key(repo.get_global_setting("right_panel_group", "roll"), self._group_keys)))
 
     def _build_frame_page(self, wrap_scroll) -> QWidget:
         """The Analysis section, and a second, inner tab switcher for the per-image
@@ -223,7 +245,6 @@ class RightPanel(QWidget):
         self.vectorscope_widget = VectorscopeWidget()
         self.step_wedge = StepWedgeWidget()
         self.zone_strip = ZoneStripWidget()
-        self.probe_row = DensitometerRow()
         self.zone_placement = ZonePlacementRows()
         self.stats_widget = NegativeStatsWidget()
         self._clip_fracs: tuple = (None, None)
@@ -234,21 +255,12 @@ class RightPanel(QWidget):
         self._scan_base_source = ""
 
         repo = self.controller.session.repo
-        self.scale_btn = SegmentedChoice(
-            (("", tr("Lin")), ("", tr("Log"))),
-            tr(
-                "Histogram, waveform and parade count scale: Log lifts small counts so thin tails and clipped ends "
-                "read. The scan parade in Peek Negative keeps its own, Log at first. On the Vectorscope it is the "
-                "chroma scale, kept apart for B&W and color frames: Log opens up the near-neutral center, where a toner lives."
-            ),
-        )
-        self.scale_btn.setCurrentIndex(1 if repo.get_global_setting("histogram_log_scale") else 0)
-        self.curve_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
-        self.waveform_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
-        self.parade_widget.set_log_scale(self.scale_btn.currentIndex() == 1)
-        self.scale_btn.currentChanged.connect(self._on_histogram_scale)
-        self._sync_chart_colors()
-        self.controller.session.color_vision_changed.connect(self._sync_chart_colors)
+        self.scale_btn = tool_toggle("", tr("Log"), tr("Log Scale: shows small areas, such as clipped ends, that the linear scale hides"))
+        self.scale_btn.setChecked(bool(repo.get_global_setting("histogram_log_scale")))
+        self.curve_widget.set_log_scale(self.scale_btn.isChecked())
+        self.waveform_widget.set_log_scale(self.scale_btn.isChecked())
+        self.parade_widget.set_log_scale(self.scale_btn.isChecked())
+        self.scale_btn.toggled.connect(self._on_histogram_scale)
 
         self.chart_stack = QStackedWidget()
         self.chart_stack.addWidget(self.curve_widget)
@@ -256,20 +268,25 @@ class RightPanel(QWidget):
         self.chart_stack.addWidget(self.parade_widget)
         self.chart_stack.addWidget(self.vectorscope_widget)
         self.view_btn = SegmentedChoice(
-            (("", tr("Curve")), ("", tr("Waveform")), ("", tr("Parade")), ("", tr("Vectorscope"))),
+            (
+                ("mdi6.chart-bell-curve-cumulative", tr("Curve")),
+                ("mdi6.waveform", tr("Waveform")),
+                ("mdi6.view-parallel-outline", tr("Parade")),
+                ("mdi6.target", tr("Vectorscope")),
+            ),
             tr("Analysis chart"),
             data=("curve", "waveform", "parade", "vectorscope"),
+            icon_only=(0, 1, 2, 3),
         )
-        self.view_btn.set_choice_tooltip(0, tr("The paper curve over the scan's and the print's histograms"))
-        self.view_btn.set_choice_tooltip(1, tr("The print's tones across the frame, column by column, on the zone scale"))
+        self.view_btn.set_choice_tooltip(0, tr("Curve: the paper curve over the scan's and the print's histograms"))
+        self.view_btn.set_choice_tooltip(1, tr("Waveform: the print's tones across the frame, column by column, on the zone scale"))
         self.view_btn.set_choice_tooltip(
             2,
-            tr(
-                "The print's R, G and B side by side across the frame: a neutral sits at one height in all three, and a "
-                "channel that drifts across the frame is uneven light or Flat Field. In Peek Negative, the scan's density per channel"
-            ),
+            tr("Parade: red, green and blue side by side, where a gray subject sits at one height in all three."),
         )
-        self.view_btn.set_choice_tooltip(3, tr("The print's colors on the a*b* plane: a cast, a toner, a split tone"))
+        self.view_btn.set_choice_tooltip(
+            3, tr("Vectorscope: the print's colors on the a*b* plane, where a cast, a toner or a split tone shows")
+        )
         # Restored before the handler connects: it reaches widgets built further down.
         saved_view = self.view_btn.findData(repo.get_global_setting("analysis_view", "curve"))
         self.view_btn.setCurrentIndex(max(0, saved_view))
@@ -296,20 +313,21 @@ class RightPanel(QWidget):
         chart_row.addWidget(self.parade_overlay_btn)
         chart_row.addWidget(self.scale_btn)
 
-        analysis_layout.addWidget(self.chart_stack, 1)
         analysis_layout.addLayout(chart_row)
-        analysis_layout.addWidget(self.step_wedge, 0)
-        analysis_layout.addWidget(self.zone_strip, 0)
-        analysis_layout.addWidget(self.probe_row, 0)
+        analysis_layout.addWidget(ChartWell(self.chart_stack, self.step_wedge, self.zone_strip), 1)
         analysis_layout.addWidget(self.zone_placement, 0)
-        analysis_layout.addWidget(self.stats_widget, 0)
+        readouts_header, self.readouts_fold = group_fold("analysis_readouts", tr("Readouts"), self.stats_widget)
+        self.stats_widget.warning_changed.connect(self.readouts_fold.set_warning)
+        analysis_layout.addLayout(readouts_header)
+        analysis_layout.addWidget(self.readouts_fold, 0)
 
         repo = self.controller.session.repo
         # Roll and Frame each keep their own expanded state; _switch_group restores it.
         self.analysis_section = make_section(repo, tr("Analysis"), "analysis", analysis_content, "fa5s.chart-bar", persist=False)
         self.analysis_section.expanded_changed.connect(lambda checked: repo.save_global_setting(self._analysis_expanded_setting(), checked))
-        self.clipping_btn = self.analysis_section.add_header_toggle("fa5s.adjust", "Clipping Overlay")
-        self.clipping_btn.setIcon(gradient_icon("fa5s.adjust", CLIPPING_SWEEP))
+        self.clipping_btn = self.analysis_section.add_header_toggle("fa5s.adjust", tr("Clipping Overlay"))
+        self._sync_chart_colors()
+        self.controller.session.color_vision_changed.connect(self._sync_chart_colors)
         self.clipping_btn.setChecked(self.controller.state.clipping_overlay)
         self.clipping_btn.toggled.connect(self.controller.toggle_clipping_overlay)
         self.zone_highlight_btn = self.analysis_section.add_header_toggle("fa5s.highlighter", tr("Zone Highlight"))
@@ -340,12 +358,13 @@ class RightPanel(QWidget):
         ]
 
         # Spills into a » menu when the panel is narrowed
-        self.switcher = OverflowBar(tile=True, height=30, min_item=_tab_width([spec[1] for spec in tab_specs], THEME.font_size_small))
+        labels = [spec[1] for spec in tab_specs if spec[0] not in _ICON_TABS]
+        self.switcher = OverflowBar(height=38, min_item=PanelTab.min_width(labels, stacked=False))
 
         self.stack = QStackedWidget()
-        self.stack.setContentsMargins(0, 8, 0, 0)
+        self.stack.setContentsMargins(0, THEME.space_lg, 0, 0)
 
-        self._tab_buttons: list[QPushButton] = []
+        self._tab_buttons: list[PanelTab] = []
         self._tab_keys: list[str] = []
         self._tab_tooltips: list[str] = []
         self._section_tab_index: dict[str, int] = {}
@@ -354,12 +373,8 @@ class RightPanel(QWidget):
         self._active_index = 0
 
         for i, (key, label, tooltip, content, section_attrs) in enumerate(tab_specs):
-            btn = QPushButton(label)
-            btn.setObjectName("sub_tab_btn")
+            btn = PanelTab(_TAB_ICONS[key], label, icon_only=key in _ICON_TABS, divider=key == _ICON_TABS[0])
             btn.setToolTip(tooltip)
-            btn.setCheckable(True)
-            btn.setFixedHeight(30)
-            btn.edited_dot = EditedDot(btn)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
             self.switcher.add_button(btn, tooltip)
 
@@ -382,12 +397,9 @@ class RightPanel(QWidget):
         return page
 
     def _build_roll_page(self) -> QWidget:
-        """Facts the whole roll shares, not one frame's own edit: what film it is (Film
-        Mode), how its files become frames (Frame Assembly), what the rig does to it
-        (Calibration), each frame's own exposure baseline (Metering), the frame's shape
-        (Crop) and the roll's shared baseline (Roll Analysis), and how it decodes and the
-        scanning optics (Raw Decode, Optics). Film Mode leads, since it decides which of the others
-        even apply."""
+        """The cards for facts the whole roll shares, not one frame's own edit: its film, scanning rig,
+        frame assembly, calibration, metering, shared baseline, decode and optics. Setup leads, since
+        it decides which of the others apply."""
         cp = self.controls_panel
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -400,7 +412,6 @@ class RightPanel(QWidget):
                 cp.film_section,
                 cp.sensor_section,
                 cp.process_section,
-                cp.autocrop_section,
                 cp.baseline_section,
                 cp.demosaic_section,
                 cp.optics_section,
@@ -417,7 +428,6 @@ class RightPanel(QWidget):
             cp.assembly_section,
             cp.sensor_section,
             cp.process_section,
-            cp.autocrop_section,
             cp.baseline_section,
             cp.demosaic_section,
             cp.optics_section,
@@ -428,12 +438,12 @@ class RightPanel(QWidget):
 
     def active_tab_header(self):
         """The header bar of whatever tab is in front, or None on a tab that owns no
-        settings (Gear, Export, Scan, Favorites, History)."""
+        settings (Library, Export, Scan, Favorites, History)."""
         group = self._group_keys[self._active_group]
         if group == "roll":
             return self.roll_tab_header
         if group == "metadata":
-            return self.metadata_sidebar.tab_header
+            return self.metadata_sidebar.active_tab_header()
         if group == "frame":
             return self._frame_tab_headers.get(self._tab_keys[self._active_index])
         return None
@@ -502,6 +512,7 @@ class RightPanel(QWidget):
             page_layout.addWidget(footer)
 
         self.scan_source_btn.currentChanged.connect(self._on_scan_source_changed)
+        self.controls_panel.scan_setup_sidebar.capture_picked.connect(self._follow_scan_setup)
         scan.cards_changed.connect(self._sync_scan_cards)
         cam.cards_changed.connect(self._sync_scan_cards)
         self._sync_scan_cards()
@@ -512,6 +523,9 @@ class RightPanel(QWidget):
 
     def _active_scan_sidebar(self):
         return self.scan_sidebar if self._scan_film() else self.scanlight_sidebar
+
+    def _follow_scan_setup(self, capture: str) -> None:
+        self.show_scan_source("camera" if capture == "camera" else "film")
 
     def show_scan_source(self, source: str) -> None:
         """Switch the Scan tab to "film" or "camera"."""
@@ -541,7 +555,7 @@ class RightPanel(QWidget):
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
 
-        SectionHelpDialog("analysis", "Analysis", self, repo=self.controller.session.repo).exec()
+        SectionHelpDialog("analysis", tr("Analysis"), self, repo=self.controller.session.repo).exec()
 
     def _analysis_expanded_setting(self) -> str:
         return "section_expanded_analysis_roll" if self._group_keys[self._active_group] == "roll" else "section_expanded_analysis"
@@ -561,16 +575,8 @@ class RightPanel(QWidget):
         self.controller.session.repo.save_global_setting("analysis_splitter_sizes", sizes)
 
     def _resize_splitter_for_analysis(self, expanded: bool) -> None:
-        """Pin the collapsed Analysis header at the top: shrink pane 0 to the header and
-        give the rest to the tabs; restore the dragged size when re-expanded."""
-        total = sum(self.splitter.sizes())
-        if total <= 0 or not self._analysis_split_shown:
-            return
-        if expanded:
-            top = min(max(self._analysis_expanded_size, 120), max(120, total - 120))
-        else:
-            top = max(1, self.analysis_section.sizeHint().height())
-        self.splitter.setSizes([top, max(0, total - top)])
+        header = max(1, self.analysis_section.sizeHint().height())
+        fit_pane(self.splitter, 0, expanded, self._analysis_expanded_size, header, 120, resize=self._analysis_split_shown)
 
     def apply_shortcut_tooltips(self) -> None:
         """Append the current keyboard shortcut (action id `tab_<key>`) to each tab tooltip,
@@ -578,7 +584,7 @@ class RightPanel(QWidget):
         for btn, key, base in zip(self._tab_buttons, self._tab_keys, self._tab_tooltips):
             btn.setToolTip(tooltip_with_shortcut(base, f"tab_{key}"))
         for btn, key, base in zip(self._group_buttons, self._group_keys, self._group_tooltips):
-            btn.setToolTip(tooltip_with_shortcut(base, f"tab_{key}"))
+            btn.setToolTip(tooltip_with_shortcut(base, "show_library" if key == "library" else f"tab_{key}"))
         self._refresh_zone_strip_hint()
         self._sync_parade_overlay()
         self.scan_base_btn.setToolTip(tooltip_with_shortcut(_SCAN_BASE_TIP, "toggle_scan_parade_base"))
@@ -647,9 +653,11 @@ class RightPanel(QWidget):
         self.parade_overlay_btn.setEnabled(standard and not apart)
         tip = tr("Parade Overlay: R, G and B on one plot, white where they agree")
         if not standard:
-            tip = tr("{tip}. Off under this Color vision: its fringes tell the channels apart by hue alone", tip=tip)
+            tip = tr(
+                "Parade Overlay: R, G and B on one plot, off under this Color vision because its fringes tell the channels apart by hue alone"
+            )
         elif apart:
-            tip = tr("{tip}. On the scan, turn on Base Relative first: the film's mask keeps the channels apart", tip=tip)
+            tip = tr("Parade Overlay: R, G and B on one plot, which needs Base Relative on the scan")
         self.parade_overlay_btn.setToolTip(tooltip_with_shortcut(tip, "toggle_parade_overlay"))
         self.parade_widget.set_overlay(standard and self.parade_overlay_btn.isChecked())
 
@@ -667,7 +675,7 @@ class RightPanel(QWidget):
         return bool(self.controller.session.repo.get_global_setting("scan_parade_log", True))
 
     def _sync_scale_btn(self) -> None:
-        """Lin/Log shows the visible chart's own scale: the histograms' one, the vectorscope's for
+        """Log shows the visible chart's own scale: the histograms' one, the vectorscope's for
         this film mode, or the scan parade's in Peek Negative."""
         scope_log = self._scope_log()
         self.vectorscope_widget.set_log_scale(scope_log)
@@ -683,14 +691,13 @@ class RightPanel(QWidget):
         else:
             log = hist_log
         self.scale_btn.blockSignals(True)
-        self.scale_btn.setCurrentIndex(1 if log else 0)
+        self.scale_btn.setChecked(log)
         self.scale_btn.blockSignals(False)
 
     def set_analysis_view(self, key: str) -> None:
         self.view_btn.setCurrentIndex(max(0, self.view_btn.findData(key)))
 
-    def _on_histogram_scale(self, index: int) -> None:
-        log = index == 1
+    def _on_histogram_scale(self, log: bool) -> None:
         if self.view_btn.currentData() == "vectorscope":
             self.vectorscope_widget.set_log_scale(log)
             self.controller.session.repo.save_global_setting(self._scope_scale_key(), log)
@@ -706,13 +713,18 @@ class RightPanel(QWidget):
         self.controller.session.repo.save_global_setting("histogram_log_scale", log)
 
     def _sync_chart_colors(self) -> None:
-        self.curve_widget.set_zone_colors(*palette_for(self.controller.state.color_vision).dodge_burn)
+        palette = palette_for(self.controller.state.color_vision)
+        self.curve_widget.set_zone_colors(*palette.dodge_burn)
+        self.waveform_widget.set_clip_colors(*palette.pair)
+        self.parade_widget.set_clip_colors(*palette.pair)
+        self.zone_strip.set_clip_colors(*palette.pair)
+        self.clipping_btn.setIcon(gradient_icon("fa5s.adjust", clipping_sweep(palette.pair)))
 
     def _refresh_zone_strip_hint(self) -> None:
         self.zone_strip.set_overlay_hint(tooltip_with_shortcut(tr("Double-click: Zone Overlay on or off"), "toggle_zones"))
         self.clipping_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("Clipping Overlay: mark the pixels that print as paper black or paper white, in the Color vision pair (Preferences)"),
+                tr("Clipping Overlay: mark the parts of the picture that print pure black or pure white."),
                 "toggle_clipping_overlay",
             )
         )
@@ -756,7 +768,7 @@ class RightPanel(QWidget):
 
     def _refresh_tab_dots(self) -> None:
         for i, btn in enumerate(self._tab_buttons):
-            btn.edited_dot.set_active(self._tab_edited[i])
+            btn.set_marked(self._tab_edited[i])
 
     def _switch_tab(self, index: int) -> None:
         self._active_index = index
@@ -787,7 +799,7 @@ class RightPanel(QWidget):
 
     def _switch_group(self, index: int) -> None:
         self._active_group = index
-        self.controller.session.repo.save_global_setting("right_panel_group", index)
+        self.controller.session.repo.save_global_setting("right_panel_group", self._group_keys[index])
         self.group_stack.setCurrentIndex(index)
         analysis_shown = self._group_keys[index] in ("roll", "frame")
         self.analysis_section.setVisible(analysis_shown)
@@ -832,30 +844,40 @@ class RightPanel(QWidget):
             self._switch_tab(self._tab_keys.index(key))
 
     def show_gear_section_by_key(self, key: str) -> None:
-        self._switch_group(self._group_keys.index("gear"))
-        self.gear_panel.show_section_by_key(key)
+        self._switch_group(self._group_keys.index("metadata"))
+        self.metadata_sidebar.show_tab("presets" if key == "presets" else "gear")
 
-    def _pages_holding(self, widget: QWidget) -> list[tuple[QStackedWidget, int]]:
+    def _stacks(self) -> tuple:
+        """Each tab stack with its switch and its tab names, outermost first."""
+        return (
+            (self.group_stack, self._switch_group, self._group_tooltips),
+            (self.stack, self._switch_tab, [btn.text() for btn in self._tab_buttons]),
+            *(
+                (tabs.stack, tabs.switch, [btn.text() for btn in tabs.buttons])
+                for tabs in (self.metadata_sidebar.tabs, self.export_sidebar.tabs)
+            ),
+        )
+
+    def _pages_holding(self, widget: QWidget) -> list[tuple[Any, int, str]]:
         found = []
-        for stack in (self.group_stack, self.stack):
+        for stack, switch, names in self._stacks():
             for i in range(stack.count()):
                 if stack.widget(i).isAncestorOf(widget):
-                    found.append((stack, i))
+                    found.append((switch, i, names[i]))
         return found
 
     def tab_path(self, widget: QWidget) -> list[str]:
-        return [
-            self._group_tooltips[i] if stack is self.group_stack else self._tab_buttons[i].text()
-            for stack, i in self._pages_holding(widget)
-        ]
+        return [name for _switch, _i, name in self._pages_holding(widget)]
 
     def reveal_widget(self, widget: QWidget) -> None:
-        for stack, i in self._pages_holding(widget):
-            (self._switch_group if stack is self.group_stack else self._switch_tab)(i)
+        for switch, i, _name in self._pages_holding(widget):
+            switch(i)
         parent = widget
         while parent is not None:
             if isinstance(parent, CollapsibleSection):
                 parent.expand()
+            elif isinstance(parent, Fold):
+                parent.set_open(True)
             parent = parent.parentWidget()
         # A card just opened has no geometry until the next layout pass.
         QTimer.singleShot(0, lambda: self.scroll_to(widget, centered=True))
@@ -878,7 +900,6 @@ class RightPanel(QWidget):
             parent = parent.parent()
 
     def _on_densitometer(self, reading: Any) -> None:
-        self.probe_row.set_reading(reading)
         self.curve_widget.set_tracking_point(None if reading is None else reading.val_luma)
         if self.controller.state.negative_peek:
             from negpy.features.exposure.analysis import scan_density_axis, scan_density_of_val

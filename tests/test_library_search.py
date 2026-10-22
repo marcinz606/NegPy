@@ -129,11 +129,3 @@ def test_folder_counts_on_a_missing_path_are_zero_not_fatal(tree):
     from negpy.services.assets.library import folder_counts
 
     assert folder_counts(str(tree / "nope")) == (0, 0)
-
-
-def test_count_summaries_read_naturally():
-    from negpy.services.assets.library import summarize_counts
-
-    assert summarize_counts(1, 0) == "1 photo"
-    assert summarize_counts(36, 2) == "36 photos · 2 folders"
-    assert summarize_counts(0, 0) == "empty"

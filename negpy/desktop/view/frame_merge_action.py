@@ -13,9 +13,9 @@ SCOPE_SELECTION = "selection"
 SCOPE_ROLL = "roll"
 
 LABELS = {
-    SCOPE_FRAME: "Merge Frame to TIFF Negative…",
-    SCOPE_SELECTION: "Merge Selected to TIFF Negative…",
-    SCOPE_ROLL: "Merge Roll to TIFF Negative…",
+    SCOPE_FRAME: tr("Merge Frame to TIFF Negative…"),
+    SCOPE_SELECTION: tr("Merge Selected to TIFF Negative…"),
+    SCOPE_ROLL: tr("Merge Roll to TIFF Negative…"),
 }
 
 ACTION_IDS = {SCOPE_FRAME: "merge_frame", SCOPE_SELECTION: "merge_selected", SCOPE_ROLL: "merge_roll"}
@@ -55,5 +55,8 @@ def merge_to_tiff(parent, controller, scope: str) -> None:
 
 
 def _nothing_message(scope: str) -> str:
-    where = {SCOPE_FRAME: tr("This frame"), SCOPE_SELECTION: tr("Nothing selected"), SCOPE_ROLL: tr("No frame in this roll")}[scope]
-    return f"{where} is not a triplet or a stitch" if scope == SCOPE_FRAME else f"{where} can be merged"
+    return {
+        SCOPE_FRAME: tr("This frame is not a triplet or a stitch"),
+        SCOPE_SELECTION: tr("No selected frame can be merged"),
+        SCOPE_ROLL: tr("No frame in this roll can be merged"),
+    }[scope]

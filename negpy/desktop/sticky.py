@@ -174,7 +174,7 @@ def migrate_square_before_crop_sticky_row(repo: IRepository) -> None:
 
 def migrate_auto_crop_sticky_row(repo: IRepository) -> None:
     """Add Auto Crop to a saved row choice, once. A user who never chose rows gets it from
-    DEFAULT_STICKY_IDS, and an untick after this stays."""
+    DEFAULT_STICKY_IDS, and turning it off after this stays."""
     if repo.get_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY):
         return
     repo.save_global_setting(_AUTO_CROP_ROW_MIGRATED_KEY, True)

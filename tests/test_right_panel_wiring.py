@@ -1,5 +1,5 @@
 """Signal wiring of the right panel's analysis refresh, and the outer Roll / Frame /
-Metadata / Gear / Export / Scan tab switch.
+Metadata / Export / Scan tab switch.
 
 _paint_negative_peek emits image_updated only, never metrics_available, so the
 image_updated path must refresh the histograms itself or entering Peek Negative
@@ -12,8 +12,10 @@ RightPanel, since it pulls in a full chain of sidebars that need a real controll
 from typing import Optional
 from unittest.mock import MagicMock
 
+import pytest
+
 from negpy.desktop.session import AppState
-from negpy.desktop.view.sidebar.right_panel import RightPanel
+from negpy.desktop.view.sidebar.right_panel import RightPanel, saved_group_key
 
 
 def _panel_stub(last_metrics: dict, peek_frame: Optional[dict] = None) -> MagicMock:
@@ -54,22 +56,24 @@ def test_a_peek_refreshes_over_a_stale_interactive_print() -> None:
     panel._update_histograms.assert_called_once_with(metrics)
 
 
-def _group_panel_stub(*, scan_index: int = 5, active_group: int = 0, n_groups: int = 6) -> MagicMock:
+GROUP_KEYS = ["roll", "frame", "metadata", "export", "scan"]
+
+
+def _group_panel_stub(*, active_group: int = 0) -> MagicMock:
     panel = MagicMock()
-    panel._group_buttons = [MagicMock() for _ in range(n_groups)]
-    panel._group_icons = ["mdi6.film", "fa5s.image", "fa5s.tags", "fa5s.toolbox", "fa5s.file-export", "fa5s.camera-retro"][:n_groups]
-    panel._group_keys = ["roll", "frame", "metadata", "gear", "export", "scan"][:n_groups]
-    panel._scan_group_index = scan_index
+    panel._group_buttons = [MagicMock() for _ in GROUP_KEYS]
+    panel._group_keys = list(GROUP_KEYS)
+    panel._scan_group_index = GROUP_KEYS.index("scan")
     panel._active_group = active_group
     return panel
 
 
-def test_switch_group_persists_the_index_and_updates_the_stack():
+def test_switch_group_persists_the_key_and_updates_the_stack():
     panel = _group_panel_stub()
 
     RightPanel._switch_group(panel, 1)
 
-    panel.controller.session.repo.save_global_setting.assert_called_once_with("right_panel_group", 1)
+    panel.controller.session.repo.save_global_setting.assert_called_once_with("right_panel_group", "frame")
     panel.group_stack.setCurrentIndex.assert_called_once_with(1)
     panel.group_switcher.set_pinned.assert_called_once_with(1)
     assert panel._active_group == 1
@@ -122,6 +126,7 @@ def test_only_an_expanded_analysis_drag_sets_the_saved_height():
 def test_analysis_split_waits_for_the_first_show():
     panel = MagicMock()
     panel.splitter.sizes.return_value = [189, 287]
+    panel.analysis_section.sizeHint.return_value.height.return_value = 30
     panel._analysis_split_shown = False
 
     RightPanel._resize_splitter_for_analysis(panel, True)
@@ -130,14 +135,14 @@ def test_analysis_split_waits_for_the_first_show():
 
 
 def test_switch_group_activates_the_chosen_scanner_only_on_the_scan_tab():
-    panel = _group_panel_stub(scan_index=5)
+    panel = _group_panel_stub()
 
     RightPanel._switch_group(panel, 0)
     panel.scan_sidebar.on_activated.assert_not_called()
     panel.scanlight_sidebar.on_activated.assert_not_called()
 
     panel._active_scan_sidebar.return_value = panel.scan_sidebar
-    RightPanel._switch_group(panel, 5)
+    RightPanel._switch_group(panel, GROUP_KEYS.index("scan"))
     panel.scan_sidebar.on_activated.assert_called_once_with()
     panel.scanlight_sidebar.on_activated.assert_not_called()
 
@@ -194,10 +199,10 @@ def test_reveal_section_switches_to_roll_for_a_roll_section():
     panel._switch_tab.assert_not_called()
 
 
-def test_reveal_section_switches_to_roll_for_the_geometry_and_flat_field_cards():
-    """Crop, Optics and Frame Assembly are Roll-tab cards, so the ⓘ
-    and the search must not look for them among Frame's sub-tabs."""
-    for attr in ("autocrop_section", "optics_section", "assembly_section"):
+def test_reveal_section_switches_to_roll_for_the_optics_and_assembly_cards():
+    """Optics and Frame Assembly are Roll-tab cards, so the ⓘ and the search must not
+    look for them among Frame's sub-tabs."""
+    for attr in ("optics_section", "assembly_section"):
         panel = _group_panel_stub()
         panel._section_tab_index = {}
 
@@ -263,13 +268,13 @@ def test_update_analysis_tells_the_strip_whether_placement_is_available() -> Non
 def test_histogram_scale_choice_sets_the_chart_and_persists() -> None:
     panel = MagicMock()
 
-    RightPanel._on_histogram_scale(panel, 1)
+    RightPanel._on_histogram_scale(panel, True)
 
     panel.curve_widget.set_log_scale.assert_called_once_with(True)
     panel.controller.session.repo.save_global_setting.assert_called_once_with("histogram_log_scale", True)
 
 
-def test_chart_zone_tints_follow_color_vision() -> None:
+def test_chart_colors_follow_color_vision() -> None:
     from negpy.desktop.view.styles.color_vision import palette_for
 
     panel = MagicMock()
@@ -278,6 +283,22 @@ def test_chart_zone_tints_follow_color_vision() -> None:
     RightPanel._sync_chart_colors(panel)
 
     panel.curve_widget.set_zone_colors.assert_called_once_with(*palette_for("tritan").dodge_burn)
+    panel.waveform_widget.set_clip_colors.assert_called_once_with(*palette_for("tritan").pair)
+    panel.parade_widget.set_clip_colors.assert_called_once_with(*palette_for("tritan").pair)
+    panel.zone_strip.set_clip_colors.assert_called_once_with(*palette_for("tritan").pair)
+    panel.clipping_btn.setIcon.assert_called_once()
+
+
+def test_the_tone_card_histogram_follows_color_vision() -> None:
+    from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+    from negpy.desktop.view.styles.color_vision import palette_for
+
+    panel = MagicMock()
+    panel.controller.state = AppState(color_vision="tritan")
+
+    ControlsPanel._sync_clip_colors(panel)
+
+    panel.tone_histogram.set_clip_colors.assert_called_once_with(*palette_for("tritan").pair)
 
 
 def test_roll_tab_apply_offers_every_card_of_its_sections():
@@ -289,10 +310,27 @@ def test_roll_tab_apply_offers_every_card_of_its_sections():
             assert set(cards) <= set(_ROLL_TAB_CARDS), section
 
 
-def test_roll_tab_apply_offers_auto_crop():
+def test_roll_tab_apply_leaves_the_crop_to_the_frame():
     from negpy.desktop.settings_catalog import rows_for_fields
     from negpy.desktop.view.sidebar.right_panel import _ROLL_TAB_CARDS
     from negpy.services.assets.rolls import card_fields
 
     rows = rows_for_fields(f for card in _ROLL_TAB_CARDS for f in card_fields(card))
-    assert "Auto Crop" in {r.label for r in rows}
+    assert not {"Auto Crop", "Crop Ratio", "Crop"} & {r.label for r in rows}
+
+
+@pytest.mark.parametrize(
+    ("saved", "opens"),
+    [
+        ("export", "export"),
+        (1, "frame"),
+        (3, "metadata"),
+        (4, "export"),
+        ("gear", "metadata"),
+        (99, "roll"),
+        ("bogus", "roll"),
+        (True, "roll"),
+    ],
+)
+def test_a_saved_tab_opens_by_key_or_by_its_index_in_the_tab_order(saved, opens):
+    assert saved_group_key(saved, GROUP_KEYS) == opens

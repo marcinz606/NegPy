@@ -260,7 +260,7 @@ def test_both_exits_name_what_they_do_and_enter_scans_once_frames_are_ticked() -
     assert dialog.ok_btn.isDefault() is False
 
     for tile in dialog._tiles.values():
-        tile.checkbox.setChecked(False)
+        tile.toggle.setChecked(False)
 
     assert dialog.scan_btn.text().strip() == "Scan"
     assert dialog.scan_btn.isDefault() is False
@@ -274,7 +274,7 @@ def test_the_help_is_one_line_and_the_detail_lives_where_the_hand_is() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(3))
 
     assert len(dialog.help_lbl.text().split()) < 20
-    assert "gap" in dialog.offset_slider.toolTip()
+    assert "line it up" in dialog.offset_slider.toolTip()
     assert "per frame position" in dialog.drift_slider.toolTip()
     assert has_guide("scan_strip") and dialog.help_btn.isVisibleTo(dialog) is True
 
@@ -342,18 +342,18 @@ def test_tiles_wrap_in_rows_of_six() -> None:
 def test_scan_button_is_gated_on_a_frame_being_checked() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(3))
     for tile in dialog._tiles.values():
-        tile.checkbox.setChecked(False)
+        tile.toggle.setChecked(False)
     assert dialog.scan_btn.isEnabled() is False
-    dialog._tiles[2].checkbox.setChecked(True)
+    dialog._tiles[2].toggle.setChecked(True)
     assert dialog.scan_btn.isEnabled() is True
 
 
 def test_use_is_disabled_when_no_frame_is_checked() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(3))
     for tile in dialog._tiles.values():
-        tile.checkbox.setChecked(False)
+        tile.toggle.setChecked(False)
     assert dialog.ok_btn.isEnabled() is False
-    dialog._tiles[2].checkbox.setChecked(True)
+    dialog._tiles[2].toggle.setChecked(True)
     assert dialog.ok_btn.isEnabled() is True
 
 
@@ -603,7 +603,7 @@ def _discovery_device() -> ScannerDevice:
 def test_a_measured_strip_opens_with_no_tiles() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device())
     assert dialog._tiles == {}
-    assert dialog.preview_all_btn.text().strip() == "Detect frames"
+    assert dialog.preview_all_btn.text().strip() == "Detect Frames"
 
 
 def test_tiles_grow_from_the_frames_the_measurement_found() -> None:
@@ -624,7 +624,7 @@ def test_the_selection_is_read_off_the_tiles_that_appeared() -> None:
     dialog._on_preview_all()
     controller.deliver_all((1, 2, 3))
 
-    dialog._tiles[2].checkbox.setChecked(False)
+    dialog._tiles[2].toggle.setChecked(False)
     assert dialog.selected_frames() == (1, 3)
 
 
@@ -766,7 +766,7 @@ def test_the_selection_is_counted_where_the_buttons_are() -> None:
     controller.deliver_all((1, 2, 3))
     assert dialog.selection_label.text() == "3 of 3 frames"
 
-    dialog._tiles[2].checkbox.setChecked(False)
+    dialog._tiles[2].toggle.setChecked(False)
     assert dialog.selection_label.text() == "2 of 3 frames"
 
 

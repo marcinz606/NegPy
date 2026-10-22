@@ -310,7 +310,7 @@ class PreviewLoadTask:
     for_cache_warm: bool = False
     integrated_gpu: bool = False
     protected_file_hashes: tuple[str, ...] = ()
-    detect_mode: bool = False  # run process-mode autodetect (new files only)
+    detect_mode: bool = False  # run process-mode detection (a white-light capture of unknown film)
     # The assembly configs travel whole rather than flattened into loose fields. They are
     # frozen and hashable, the worker rebuilt them from the pieces anyway, and a new field on
     # one of them then needs no change here or at the call site.

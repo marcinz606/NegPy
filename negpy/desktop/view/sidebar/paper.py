@@ -5,9 +5,16 @@ from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_selector
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, PAPER_STRIP_SWEEP, field_row, gradient_icon, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    PAPER_STRIP_SWEEP,
+    field_row,
+    gradient_icon,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.fold import group_fold, rail_fold
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, profiles_for_mode
@@ -29,10 +36,7 @@ class PaperSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.ch_btn = channel_selector(
-            tr(
-                "Global edits the paper's shared H&D curve (all layers). Red, Green and Blue edit per-layer "
-                "Snap/Toe/Shoulder/Width/Dye Separation trims for the cyan-, magenta- and yellow-dye emulsions"
-            )
+            tr("Global changes all colors, and R, G or B changes one color, for a cast that differs in shadows and highlights.")
         )
         self._channel_fields = tuple(
             (
@@ -49,18 +53,13 @@ class PaperSidebar(BaseSidebar):
             "fa5s.circle",
             "",
             conf.paper_black,
-            tr(
-                "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
-                "compensating it to pure display black. Off (default) applies black point compensation, "
-                "like an ICC relative-colorimetric soft-proof, so the adapted eye reads paper black as "
-                "black; on preserves the paper's true maximum density."
-            ),
+            tr("Paper Black: show the black of real paper, a little lighter than pure black."),
         )
         self.paper_dmin_btn = self._small_toggle(
             "fa5s.file",
             "",
             conf.paper_dmin,
-            tr("Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print"),
+            tr("Paper White: show the white of real paper, a little darker than pure white."),
         )
         self.paper_black_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.paper_dmin_btn.setFixedWidth(ICON_BUTTON_WIDTH)
@@ -74,15 +73,7 @@ class PaperSidebar(BaseSidebar):
         self.layout.addLayout(ch_row)
 
         self.paper_combo = StepCombo()
-        self.paper_combo.setToolTip(
-            tr(
-                "Print stock: the paper or print film the negative is printed on. It sets the H&D curve and, "
-                "on color stock, the colors its dyes make, from the datasheet or the paper's measured "
-                "Frontier profile; Grade, Density, Toe and "
-                "Shoulder still trim on top. Digital (Adobe RGB) is an idealized print: NegPy's own curve "
-                "and perfect dyes. Digital (Pakon Minilab) is that curve with a Pakon minilab's colors."
-            )
-        )
+        self.paper_combo.setToolTip(tr("The paper the picture prints on, which sets the contrast curve and, on color paper, the colors."))
         self._populate_paper_combo(self.state.config.process.process_mode)
         idx = self.paper_combo.findData(conf.paper_profile)
         if idx >= 0:
@@ -99,49 +90,40 @@ class PaperSidebar(BaseSidebar):
         # Density-domain saturation on the dye amounts, before the stock's dyes, not a Lab a*/b* step.
         self.dye_separation_slider = CompactSlider(tr("Dye Separation"), 0.5, 1.5, conf.dye_separation, has_neutral=True)
         self.dye_separation_trim_slider = CompactSlider(tr("Dye Separation"), -0.4, 0.4, 0.0, has_neutral=True)
-        self.dye_separation_trim_slider.setToolTip(
-            tr(
-                "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
-                "channel's density separation independently. Neutrals stay flat at any trim value."
-            )
-        )
+        self.dye_separation_trim_slider.setToolTip(tr("Dye Separation of this color layer only."))
         self.dye_separation_trim_slider.setVisible(False)
-        # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
-        # it is disabled there rather than reading as broken.
+        # Redistributes the slider above by each pixel's own chroma, so it is inert at 1.0 separation.
         self.separation_damping_slider = CompactSlider(tr("Separation Damping"), 0.0, 1.0, conf.separation_damping)
         self.layout.addWidget(self.dye_separation_slider)
         self.layout.addWidget(self.dye_separation_trim_slider)
-        self.separation_damping_rail = SliderGroup(self.separation_damping_slider)
-        self.layout.addWidget(self.separation_damping_rail)
+        self.separation_damping_fold = rail_fold("paper_separation", self.dye_separation_slider, self.separation_damping_slider)
+        self.layout.addWidget(self.separation_damping_fold)
 
         self.midtone_gamma_slider = CompactSlider(tr("Snap"), -0.5, 0.5, conf.midtone_gamma)
-        self.layout.addWidget(self.midtone_gamma_slider)
 
         self.toe_w_slider = CompactSlider(tr("Toe Width"), 0.1, 5.0, conf.toe_width)
         self.toe_w_trim_slider = CompactSlider(tr("Toe Width"), -2.0, 2.0, 0.0)
-        self.toe_w_trim_slider.setToolTip(
-            tr(
-                "This layer's toe width trim on top of the global Toe Width — per-layer roll-off extent "
-                "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
-            )
-        )
+        self.toe_w_trim_slider.setToolTip(tr("Toe Width of this color layer only."))
         self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, conf.toe)
-        self.layout.addWidget(self.toe_slider)
-        self.layout.addWidget(SliderGroup(self.toe_w_slider, self.toe_w_trim_slider))
 
         self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, conf.shoulder)
         self.sh_w_slider = CompactSlider(tr("Shoulder Width"), 0.1, 5.0, conf.shoulder_width)
         self.sh_w_trim_slider = CompactSlider(tr("Shoulder Width"), -2.0, 2.0, 0.0)
-        self.sh_w_trim_slider.setToolTip(
-            tr(
-                "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
-                "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
-            )
-        )
+        self.sh_w_trim_slider.setToolTip(tr("Shoulder Width of this color layer only."))
         self.sh_w_trim_slider.setVisible(False)
-        self.layout.addWidget(self.sh_slider)
-        self.layout.addWidget(SliderGroup(self.sh_w_slider, self.sh_w_trim_slider))
+        curve_header, curve_fold = group_fold(
+            "paper_curve_shape",
+            tr("Curve Shape"),
+            self.midtone_gamma_slider,
+            self.toe_slider,
+            rail_fold("paper_toe", self.toe_slider, self.toe_w_slider, self.toe_w_trim_slider),
+            self.sh_slider,
+            rail_fold("paper_shoulder", self.sh_slider, self.sh_w_slider, self.sh_w_trim_slider),
+            default_open=True,
+        )
+        self.layout.addLayout(curve_header)
+        self.layout.addWidget(curve_fold)
 
         self.layout.addStretch()
 
@@ -157,11 +139,7 @@ class PaperSidebar(BaseSidebar):
         if printing:
             return tr("Printing the paper test strip…")
         return tooltip_with_shortcut(
-            tr(
-                "Paper Test Strip: print the frame on every print stock, as a band each or as a grid of "
-                "small frames. Click a paper to see it on the whole frame, step to the next paper, and keep "
-                "the one you like. The 90° rotate controls turn the bands while the strip is up."
-            ),
+            tr("Paper Test Strip: print the frame on every paper side by side, then keep the one you like."),
             "toggle_paper_strip",
         )
 
@@ -207,6 +185,7 @@ class PaperSidebar(BaseSidebar):
         self.controller.test_strip_changed.connect(self._sync_paper_strip_btn)
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
         self.ch_btn.currentChanged.connect(lambda _i: self.sync_ui())
+        self.dye_separation_slider.valueChanged.connect(lambda _v: self._sync_damping_rail())
 
         for slider, field in (
             (self.toe_w_slider, "toe_width"),
@@ -303,8 +282,6 @@ class PaperSidebar(BaseSidebar):
             # Separation Damping has no per-channel trim, so it stays global-view-only.
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
-            self.separation_damping_slider.setVisible(global_mode and not is_bw)
-            self.separation_damping_rail.setVisible(global_mode and not is_bw)
             self.toe_slider.label.setText(tr("Toe") + suffix)
             self.sh_slider.label.setText(tr("Shoulder") + suffix)
             self.midtone_gamma_slider.label.setText(tr("Snap") + suffix)
@@ -333,18 +310,26 @@ class PaperSidebar(BaseSidebar):
             self.sh_w_slider.setValue(conf.shoulder_width)
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
-            # It redistributes Dye Separation's push and does nothing on its own, so it is dead at 1.0
-            # separation on every channel. A per-channel trim also arms it.
-            sep_k3 = per_channel_dye_separation(
-                conf.dye_separation,
-                (conf.dye_separation_trim_red, conf.dye_separation_trim_green, conf.dye_separation_trim_blue),
-            )
-            self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
+            self._sync_damping_rail()
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.paper_black_btn.setChecked(conf.paper_black)
         finally:
             self.block_signals(False)
+
+    def _sync_damping_rail(self) -> None:
+        # It redistributes Dye Separation's push and does nothing on its own, so it is dead at 1.0
+        # separation on every channel. A per-channel trim also arms it. No trim form, so global view only.
+        from negpy.features.process.models import ProcessMode
+
+        conf = self.state.config.exposure
+        sep_k3 = per_channel_dye_separation(
+            self.dye_separation_slider.value(),
+            (conf.dye_separation_trim_red, conf.dye_separation_trim_green, conf.dye_separation_trim_blue),
+        )
+        is_bw = self.state.config.process.process_mode == ProcessMode.BW
+        self.separation_damping_fold.content.setVisible(self._channel_index() == 0 and not is_bw)
+        self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
 
     def block_signals(self, blocked: bool) -> None:
         for w in (

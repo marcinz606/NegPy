@@ -19,79 +19,60 @@ _OFF_AT_MIN = frozenset({"shadow_hold_strength", "highlight_hold_density"})
 # (heading, hint, ((key, slider label, tooltip), ...)).
 _GROUPS = (
     (
-        "Auto Density",
-        tr("How bright the metered midtone prints and how far the meter is trusted."),
+        tr("Auto Density"),
+        tr("How bright Auto Density makes each frame, and how closely it follows the meter."),
         (
             (
                 "anchor_target_density",
                 tr("Print Density Target"),
-                tr("Density the metered reference tone prints at. Raise for darker, moodier prints; lower for brighter ones."),
+                tr("Raise to print the middle tones darker, or lower to print them brighter."),
             ),
             (
                 "anchor_meter_strength",
                 tr("Metering Strength"),
-                tr(
-                    "How far the anchor moves from the assumed key toward what was measured. "
-                    "0% ignores the meter; 100% forces every frame to the metered midtone "
-                    "(low-key and high-key scenes lose their intended key)."
-                ),
+                tr("How closely Auto Density follows the meter, so a higher value prints dark and bright scenes more alike."),
             ),
             (
                 "anchor_meter_band",
                 tr("Metering Band"),
-                tr(
-                    "Hard safety clamp around the assumed key. Raise to allow bigger exposure "
-                    "swings between frames; lower to keep a roll consistent."
-                ),
+                tr("The largest brightness change Auto Density may make, so a lower value keeps a roll more even."),
             ),
         ),
     ),
     (
-        "Auto Grade",
-        tr("The contrast each frame prints at, from its textural density range."),
+        tr("Auto Grade"),
+        tr("The contrast Auto Grade gives each frame."),
         (
             (
                 "auto_grade_target",
                 tr("Contrast Target"),
-                tr("Printed contrast aimed for across all frames. Raise for punchier prints, lower for softer ones."),
+                tr("The printed contrast Auto Grade aims for on every frame, higher for punchier prints."),
             ),
             (
                 "auto_grade_strength",
                 tr("Adaptation Strength"),
-                tr(
-                    "How far the grade is pulled toward a normal negative's textural range. 0% prints "
-                    "every frame on one fixed paper; 100% prints every frame's detail range alike."
-                ),
+                tr("How much Auto Grade adapts the grade to each negative to give every frame the same detail range."),
             ),
         ),
     ),
     (
         tr("Shadows and Highlights"),
-        tr("Where Auto Grade puts the darkest and brightest textured tones."),
+        tr("Where Auto Grade puts the darkest and brightest detail."),
         (
             (
                 "shadow_reach_density",
                 tr("Shadow Reach"),
-                tr(
-                    "Print density the darkest textured tones must reach. The grade only goes harder "
-                    "for it, so a flat negative still prints a black. Lower for softer shadows."
-                ),
+                tr("How dark the darkest detail must print, so a flat negative still gets a black."),
             ),
             (
                 "shadow_hold_strength",
                 tr("Shadow Hold"),
-                tr(
-                    "How far the shadows of a contrasty frame are lifted when its darkest textured tones "
-                    "print far past black. Raise for more open shadows; Off leaves them."
-                ),
+                tr("Lifts the shadows of a contrasty frame when its darkest detail would go black."),
             ),
             (
                 "highlight_hold_density",
                 tr("Highlight Hold"),
-                tr(
-                    "Print density the brightest textured tones must keep, so a sunlit wall or sky holds "
-                    "tone instead of printing paper white. Off lets them reach paper white."
-                ),
+                tr("Keeps detail in the brightest areas, such as a sunlit wall or sky, so they do not print pure white."),
             ),
         ),
     ),
@@ -114,7 +95,7 @@ def _make_slider(key: str, label: str, value: float) -> CompactSlider:
         slider = CompactSlider(label, lo, hi, value)
     slider.set_default(_shown(key, DEFAULT_TARGETS[key]))
     if key in _OFF_AT_MIN:
-        slider.spin.setSpecialValueText("Off")
+        slider.spin.setSpecialValueText(tr("Off"))
     return slider
 
 

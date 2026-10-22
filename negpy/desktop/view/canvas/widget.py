@@ -5,7 +5,7 @@ import sys
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout, QMenu, QWidget, QPinchGesture, QGestureEvent
 from PyQt6.QtGui import QCursor, QImage, QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
-from PyQt6.QtCore import QEvent, QRectF, pyqtSignal, Qt, QPointF
+from PyQt6.QtCore import QEvent, QRectF, QSize, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.hud import CanvasHud
@@ -26,9 +26,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Inset for the floating bottom toolbar, so the pill is not flush against the canvas edge
-# or clipped by it on tight laptop layouts.
-_TOOLBAR_INSET = THEME.space_xl
+# Inset of the navigator from the canvas corner.
+_NAVIGATOR_INSET = THEME.space_xl
 # Clear space kept around the frame at fit.
 FIT_MARGIN = THEME.space_xl
 
@@ -224,19 +223,8 @@ class ImageCanvas(QWidget):
         self.hud = CanvasHud(self)
         self.navigator = CanvasNavigator(self)
         self.navigator.center_requested.connect(self.center_on)
-        self._floating_toolbar: Optional[QWidget] = None
 
         self.grabGesture(Qt.GestureType.PinchGesture)
-
-    def set_floating_toolbar(self, toolbar: QWidget) -> None:
-        """Adopts the action toolbar as a floating pill anchored to the canvas bottom."""
-        toolbar.setParent(self)
-        # The canvas carries tool cursors (blank heal brush, pen nib, WB picker) and the toolbar
-        # must not inherit them, because buttons want the normal arrow.
-        toolbar.setCursor(Qt.CursorShape.ArrowCursor)
-        toolbar.show()
-        self._floating_toolbar = toolbar
-        self._layout_floating_widgets()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -245,34 +233,17 @@ class ImageCanvas(QWidget):
         # The fit scale moves with the viewport, so the true-zoom % readout must refresh.
         self.zoom_changed.emit(self.zoom_level)
 
-    def relayout_floating_widgets(self) -> None:
-        """Re-place the floating pill after it changes size outside a resize."""
-        self._layout_floating_widgets()
-
     def _layout_floating_widgets(self) -> None:
         self.hud.setGeometry(self.rect())
-        tb = self._floating_toolbar
         nav = self.navigator.sizeHint()
-        nav_bottom = self.height() - (self._toolbar_reserved_height() if tb is not None else 0) - _TOOLBAR_INSET
-        self.navigator.setGeometry(self.width() - nav.width() - _TOOLBAR_INSET, nav_bottom - nav.height(), nav.width(), nav.height())
-        if tb is not None:
-            if hasattr(tb, "set_available_width"):
-                tb.set_available_width(self.width())
-            size = tb.pill_size_hint() if hasattr(tb, "pill_size_hint") else tb.sizeHint()
-            tw, th = size.width(), size.height()
-            inset = _TOOLBAR_INSET
-            x = (self.width() - tw) // 2
-            x = max(inset, min(x, self.width() - tw - inset))
-            y = max(inset, self.height() - th - inset)
-            tb.setGeometry(x, y, tw, th)
-            self.hud.set_bottom_clearance(th + inset)
+        self.navigator.setGeometry(
+            self.width() - nav.width() - _NAVIGATOR_INSET, self.height() - nav.height() - _NAVIGATOR_INSET, nav.width(), nav.height()
+        )
         self._raise_floating_widgets()
 
     def _raise_floating_widgets(self) -> None:
         self.hud.raise_()
         self.navigator.raise_()
-        if self._floating_toolbar is not None:
-            self._floating_toolbar.raise_()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.setCursor(_cursor_for_tool(mode))
@@ -307,15 +278,6 @@ class ImageCanvas(QWidget):
             return int(buf.width), int(buf.height)
         return None
 
-    def _toolbar_reserved_height(self) -> int:
-        """Logical pixels reserved at the canvas bottom for the floating toolbar
-        when immersive mode is off."""
-        tb = self._floating_toolbar
-        if tb is None:
-            return 0
-        size = tb.pill_size_hint() if hasattr(tb, "pill_size_hint") else tb.sizeHint()
-        return size.height() + _TOOLBAR_INSET
-
     def _fit_scale(self) -> Optional[float]:
         """Device-pixel scale the shader applies at zoom_level 1.0 — its fit ratio
         min(viewport / image). True pixel zoom = zoom_level * _fit_scale()."""
@@ -326,8 +288,6 @@ class ImageCanvas(QWidget):
         dpr = self.devicePixelRatioF()
         vw = max(1.0, self.width() * dpr)
         vh = max(1.0, self.height() * dpr)
-        if not self.state.immersive_canvas:
-            vh = max(1.0, vh - self._toolbar_reserved_height() * dpr)
         margin = 2.0 * FIT_MARGIN * dpr
         return min(max(1.0, vw - margin) / max(1, img_w), max(1.0, vh - margin) / max(1, img_h))
 
@@ -391,14 +351,13 @@ class ImageCanvas(QWidget):
         view = self.overlay._view_rect
         if view.isEmpty():
             return
-        reserve = self._toolbar_reserved_height() if not self.state.immersive_canvas else 0
-        cx, cy = self.width() / 2.0, (self.height() - reserve) / 2.0
+        cx, cy = self.width() / 2.0, self.height() / 2.0
         self.pan_by_viewport_delta(cx - (view.x() + nx * view.width()), cy - (view.y() + ny * view.height()))
 
     def _navigator_image(self) -> Optional[QImage]:
         """The displayed frame on the CPU path; else the frame's film-strip thumbnail, cut out of
-        its square padding. A GPU frame has no host copy, and an HQ readback costs far more than
-        the map is worth."""
+        any padding by the frame's shape. A GPU frame has no host copy, and an HQ readback costs far
+        more than the map is worth."""
         if self.overlay._qimage is not None:
             return self.overlay._qimage
         st = self.state
@@ -412,10 +371,9 @@ class ImageCanvas(QWidget):
             return None
         side = APP_CONFIG.thumbnail_size
         thumb = icon.pixmap(side, side).toImage()
-        side = thumb.width()
-        aspect = dims[0] / max(1, dims[1])
-        w, h = (side, round(side / aspect)) if aspect >= 1.0 else (round(side * aspect), side)
-        return thumb.copy((side - w) // 2, (side - h) // 2, max(1, w), max(1, h))
+        size = QSize(dims[0], dims[1]).scaled(thumb.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        w, h = max(1, size.width()), max(1, size.height())
+        return thumb.copy((thumb.width() - w) // 2, (thumb.height() - h) // 2, w, h)
 
     def _sync_navigator(self) -> None:
         """Shown while part of the frame is off screen, in a view whose geometry the map shares."""
@@ -746,10 +704,7 @@ class ImageCanvas(QWidget):
 
     def _sync_transform(self) -> None:
         """Propagates zoom/pan to sub-widgets."""
-        reserve = self._toolbar_reserved_height() if not self.state.immersive_canvas else 0
-        self.gpu_widget.fit_height_reserve = reserve
         self.gpu_widget.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
-        self.overlay.fit_height_reserve = reserve
         self.overlay.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
         self._sync_navigator()
         self.zoom_changed.emit(self.zoom_level)
@@ -835,9 +790,9 @@ class ImageCanvas(QWidget):
             return
 
         menu = QMenu(self)
-        act_wb = menu.addAction(label_with_shortcut(tr("Pick WB"), "pick_wb"))
+        act_wb = menu.addAction(label_with_shortcut(tr("WB Picker"), "pick_wb"))
         act_wb.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.WB_PICK))  # type: ignore[union-attr]
-        act_dust = menu.addAction(label_with_shortcut(tr("Pick Dust"), "pick_dust"))
+        act_dust = menu.addAction(label_with_shortcut(tr("Heal"), "pick_dust"))
         act_dust.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.DUST_PICK))  # type: ignore[union-attr]
         self._add_exclude_action(menu, pos)
         menu.addSeparator()
@@ -845,7 +800,7 @@ class ImageCanvas(QWidget):
         act_copy.triggered.connect(self._controller.session.copy_settings)  # type: ignore[union-attr]
         act_copy_bounds = menu.addAction(label_with_shortcut(tr("Copy Settings + Bounds"), "copy_with_bounds"))
         act_copy_bounds.triggered.connect(self._controller.session.copy_settings_with_bounds)  # type: ignore[union-attr]
-        act_paste = menu.addAction(label_with_shortcut(tr("Paste Settings"), "paste"))
+        act_paste = menu.addAction(label_with_shortcut(tr("Paste Settings…"), "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self._controller))  # type: ignore[arg-type]
         act_paste.setEnabled(self.state.clipboard is not None)
         act_sync_bounds = menu.addAction(label_with_shortcut(tr("Sync Bounds…"), "sync_bounds"))
@@ -853,8 +808,8 @@ class ImageCanvas(QWidget):
         menu.addSeparator()
         self._add_reset_actions(menu)
         menu.addSeparator()
-        act_reset = menu.addAction(tr("Reset View"))
-        act_reset.triggered.connect(self.fit_to_window)
+        act_fit = menu.addAction(label_with_shortcut(tr("Fit to Window"), "fit_view"))
+        act_fit.triggered.connect(self.fit_to_window)
         act_sticky_zoom = menu.addAction(tr("Sticky Zoom"))
         act_sticky_zoom.setCheckable(True)
         act_sticky_zoom.setChecked(self.state.sticky_zoom)

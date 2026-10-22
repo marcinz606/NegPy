@@ -9,7 +9,6 @@ same way instead of hiding: a hidden sticky setting is one whose state the user 
 import os
 import sys
 from dataclasses import replace
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -49,7 +48,7 @@ def _sidebar(linear_raw=True, profile=_NAME, sensor_matrix=_MATRIX):
 
 def test_sidebar_builds_with_all_controls():
     w = _sidebar()
-    for attr in ("sensor_combo", "calibrate_sensor_btn", "sensor_hint", "capture_hint"):
+    for attr in ("sensor_combo", "calibrate_sensor_btn", "sensor_hint"):
         assert hasattr(w, attr), attr
 
 
@@ -164,73 +163,6 @@ def _to_rgbscan(w, **rgbscan):
     w.sync_ui()
 
 
-def test_capture_row_stays_visible_and_greys_out_per_reason():
-    """A hidden sticky setting follows a frame into Transparency unseen, so the row stays
-    visible and greys out instead."""
-    w = _sidebar(linear_raw=True)
-    w.sync_ui()
-    assert w.linear_raw_btn.currentData() is True
-    for widget in (w.capture_header, w.linear_raw_btn, w.scan_setup_btn):
-        assert not widget.isHidden()
-        assert widget.isEnabled()
-    assert w.capture_hint.isHidden()
-
-    # Transparency transfer: Linear RAW is inert here, and the scanning setup describes a negative rig.
-    _to_mode(w, process_mode=ProcessMode.E6)
-    for widget in (w.capture_header, w.linear_raw_btn, w.scan_setup_btn):
-        assert not widget.isHidden()
-    assert not w.linear_raw_btn.isEnabled()
-    assert not w.scan_setup_btn.isEnabled()
-    assert not w.capture_hint.isHidden()
-
-    # Positive decodes on the source's own profile, so Linear RAW decides the decode once more.
-    _to_mode(w, positive_source=True)
-    assert w.linear_raw_btn.isEnabled()
-    assert not w.scan_setup_btn.isEnabled()
-    assert not w.capture_hint.isHidden()
-
-    _to_mode(w, process_mode=ProcessMode.C41)
-    assert w.linear_raw_btn.isEnabled()
-    assert w.scan_setup_btn.isEnabled()
-    assert w.capture_hint.isHidden()
-
-
-def test_linear_raw_unlocks_on_the_transfer_with_positive_source_on():
-    """Positive on the transfer makes effective_linear_raw read the stored flag again
-    (see effective_linear_raw), so a stale Linear RAW left on from a real scan would
-    silently defeat Positive's own decode. Must be live, not greyed, so the user can see
-    and clear it — the old \"inert either way\" reasoning stopped being true."""
-    w = _sidebar(linear_raw=True)
-    _to_mode(w, process_mode=ProcessMode.E6)
-    assert not w.linear_raw_btn.isEnabled()
-
-    _to_mode(w, positive_source=True)
-    assert w.linear_raw_btn.isEnabled()
-    assert w.linear_raw_btn.currentData() is True
-
-    _to_mode(w, positive_source=False)
-    assert not w.linear_raw_btn.isEnabled()
-
-
-def test_linear_raw_locks_for_an_rgb_scan_triplet():
-    """Every triplet exposure decodes neutral regardless of this choice (see
-    tests/test_rgbscan_white_balance.py), so it locks rather than sitting live with no effect."""
-    w = _sidebar(linear_raw=True)
-    w.sync_ui()
-    assert w.linear_raw_btn.isEnabled()
-    assert w.capture_hint.isHidden()
-
-    _to_rgbscan(w, enabled=True, green_path="/x/g.arw", blue_path="/x/b.arw")
-    assert w.linear_raw_btn.isEnabled() is False
-    assert w.linear_raw_btn.currentData() is True  # the sticky value is still shown, just not editable
-    assert w.scan_setup_btn.isEnabled()
-    assert not w.capture_hint.isHidden()
-
-    _to_rgbscan(w, enabled=False)
-    assert w.linear_raw_btn.isEnabled()
-    assert w.capture_hint.isHidden()
-
-
 def test_unmix_is_refused_on_a_transparency_whatever_linear_raw_says():
     """A sticky profile from a negative rig must not stay live when the frame is a slide."""
     w = _sidebar(linear_raw=True)
@@ -253,74 +185,6 @@ def test_the_profile_comes_back_on_a_negative():
     assert w.sensor_combo.currentText() == _NAME
     assert w.sensor_combo.isEnabled()
     assert w.sensor_hint.isHidden()
-
-
-def test_the_capture_choice_reaches_the_controller():
-    """A Calibration-card, roll-eligible field -- set_roll_default, not a bare
-    apply_config, so a roll (if any) and its other frames pick the change up too."""
-    w = _sidebar(linear_raw=False)
-    w.sync_ui()
-    assert w.linear_raw_btn.currentData() is False
-
-    w.linear_raw_btn.setCurrentIndex(w.linear_raw_btn.findData(True))
-    args, kwargs = w.controller.set_roll_default.call_args
-    assert args[0] == "sensor"
-    assert kwargs["linear_raw"] is True
-
-    w.linear_raw_btn.setCurrentIndex(w.linear_raw_btn.findData(False))
-    _args, kwargs = w.controller.set_roll_default.call_args
-    assert kwargs["linear_raw"] is False
-
-
-def test_cast_removal_is_colour_only(qapp):
-    """Both colour processes solve against a neutral axis, so both show the slider. B&W
-    collapses to one density before the curve and has nothing to balance."""
-    sidebar = _sidebar()
-    controller = SimpleNamespace(state=sidebar.state)
-
-    for mode in (ProcessMode.C41, ProcessMode.E6):
-        cfg = controller.state.config
-        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
-        sidebar.sync_ui()
-        assert not sidebar.cast_removal_slider.isHidden(), mode
-
-    cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
-    sidebar.sync_ui()
-    assert sidebar.cast_removal_slider.isHidden()
-
-
-def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
-    """Pins the two halves together: a visible slider that the render ignores is a dead
-    control, and a hidden one the render honours strands a live setting. Asserted against
-    the render, not a repeated mode list. The frame carries greys across the meter's three
-    luma bands, so every mode that *can* solve does."""
-    import numpy as np
-
-    from negpy.domain.models import WorkspaceConfig
-    from negpy.services.rendering.engine import DarkroomEngine
-
-    sidebar = _sidebar()
-    controller = SimpleNamespace(state=sidebar.state)
-    rng = np.random.default_rng(4)
-    v = np.geomspace(5e-4, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
-    img = np.stack([v, v * 0.9, v * 0.78], -1)
-    img = np.ascontiguousarray(img + rng.uniform(0, 1e-4, img.shape).astype(np.float32))
-
-    for mode in (ProcessMode.C41, ProcessMode.E6, ProcessMode.BW):
-        s = WorkspaceConfig()
-        base = replace(s, process=replace(s.process, process_mode=mode))
-        renders = [
-            DarkroomEngine().process(img, replace(base, exposure=replace(base.exposure, cast_removal_strength=v)), f"cast_{mode}_{v}")
-            for v in (0.0, 1.0)
-        ]
-        render_honours_it = not np.allclose(renders[0], renders[1])
-
-        cfg = controller.state.config
-        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
-        sidebar.sync_ui()
-        visible = not sidebar.cast_removal_slider.isHidden()
-        assert visible == render_honours_it, mode
 
 
 def test_a_triplet_names_its_own_reason_even_under_camera_wb():

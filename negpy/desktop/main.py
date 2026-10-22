@@ -24,7 +24,9 @@ from negpy.services.assets.migrations.positive_auto import migrate_auto_meter_fo
 from negpy.services.assets.migrations.roll_fields import (
     migrate_auto_crop_roll_locks,
     migrate_baseline_card_split,
-    migrate_cast_removal_roll_locks,
+    migrate_cast_removal_to_frames,
+    migrate_crop_to_frames,
+    migrate_linear_raw_card_split,
     migrate_new_roll_field_locks,
     migrate_paper_card_split,
 )
@@ -81,7 +83,7 @@ class AppEventFilter(QObject):
             elif tip and isinstance(obj, QAbstractButton) and not obj.text():
                 # The shortcut chips follow the text as a table; the name is the text before them.
                 plain = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", tip.split("<table", 1)[0])).split())
-                obj.setAccessibleName(plain.split(" — ", 1)[0])
+                obj.setAccessibleName(re.split(r": | — ", plain, maxsplit=1)[0])
         return False
 
 
@@ -283,7 +285,7 @@ def main() -> None:
         apply_stored_override(override_cfg, APP_CONFIG, repo.get_global_setting)
 
         # Opt-in smaller-tile/no-pipelining export path: override.toml wins if set, else the
-        # saved Preferences checkbox, else off. Not a STORED_PERF_KEYS entry since apply_stored
+        # saved Preferences toggle, else off. Not a STORED_PERF_KEYS entry since apply_stored
         # skips bool values (see its docstring).
         if override_cfg.low_vram_export_tiling is None:
             APP_CONFIG.low_vram_export_tiling = bool(repo.get_global_setting("low_vram_export_tiling", False))
@@ -312,9 +314,11 @@ def main() -> None:
         migrate_legacy_slide_cast_removal(repo)
         migrate_baseline_card_split(repo)
         migrate_paper_card_split(repo)
+        migrate_linear_raw_card_split(repo)
         migrate_new_roll_field_locks(repo)
-        migrate_cast_removal_roll_locks(repo)
+        migrate_cast_removal_to_frames(repo)
         migrate_auto_crop_roll_locks(repo)
+        migrate_crop_to_frames(repo)
         migrate_stale_frame_bounds(repo)
 
         scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
@@ -339,9 +343,10 @@ def main() -> None:
             app.setWindowIcon(QIcon(icon_path))
 
         if os.path.exists(get_resource_path("negpy/desktop/view/styles/modern_dark.qss")):
-            from negpy.desktop.view.styles.templates import load_stylesheet
+            from negpy.desktop.view.styles.templates import load_stylesheet, themed_palette
 
             app.setStyleSheet(load_stylesheet())
+            app.setPalette(themed_palette(app.palette()))
 
         session_manager = DesktopSessionManager(repo)
         controller = AppController(session_manager)

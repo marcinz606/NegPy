@@ -63,7 +63,6 @@ class Panel(unittest.TestCase):
         ctrl = MagicMock()
         cfg = replace(_slide(level), hdr=hdr)
         ctrl.state.config = cfg
-        ctrl.state.autodetect_enabled = False
         ctrl.state.preview_cam_xyz = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
         w = DemosaicSidebar(ctrl)
         w.sync_ui()

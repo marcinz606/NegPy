@@ -10,9 +10,11 @@ into app startup.
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 
-from negpy.features.exposure.models import ExposureConfig
-from negpy.features.process.models import ProcessConfig, ProcessMode, cast_removal_for_mode
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.models import with_auto_crop
+from negpy.features.process.models import ProcessConfig
 from negpy.kernel.system.logging import get_logger
 from negpy.services.assets import rolls
 
@@ -20,9 +22,14 @@ logger = get_logger(__name__)
 
 _DONE_FLAG = "roll_field_locks_migrated_v1"
 _BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
-_CAST_REMOVAL_FLAG = "cast_removal_roll_card_v1"
+_CAST_REMOVAL_FLAG = "cast_removal_to_frames_v1"
 _PAPER_SPLIT_FLAG = "paper_card_split_v1"
 _AUTO_CROP_FLAG = "auto_crop_roll_card_v1"
+_RAW_DECODE_SPLIT_FLAG = "raw_decode_linear_raw_v1"
+_CROP_TO_FRAMES_FLAG = "crop_to_frames_v1"
+
+# The Crop card's settings, which were the roll's "autocrop" card; Auto Crop was its "auto_crop" card.
+_CROP_SHAPE_FIELDS = ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio", "autocrop_square")
 
 # The Paper Response card's fields, which left the Tone card (settings_catalog.PAPER_FIELDS).
 _PAPER_FIELDS = (
@@ -111,35 +118,67 @@ def migrate_baseline_card_split(repo) -> None:
     repo.save_global_setting(_BASELINE_SPLIT_FLAG, True)
 
 
-def migrate_cast_removal_roll_locks(repo) -> None:
-    """Cast Removal became a roll default (the ``cast_removal`` card). Locks that card on
-    every frame whose saved strength differs from its own film mode's default, so the
-    first Roll push does not overwrite a strength set by hand. Same guards as
-    migrate_new_roll_field_locks."""
+def migrate_cast_removal_to_frames(repo) -> None:
+    """Cast Removal is a Filtration field, not a roll card. A saved frame that followed its
+    roll's Cast Removal keeps that value as its own, a frame with no saved edit gets it from the
+    roll's frame seed; the roll's value and the card's locks go."""
     if repo.get_global_setting(_CAST_REMOVAL_FLAG):
         return
     try:
-        default_mode = ProcessConfig().process_mode
-        default_strength = float(ExposureConfig.cast_removal_strength)
-        locks = []
-        with closing(sqlite3.connect(repo.edits_db_path)) as conn:
-            for file_hash, settings_json, file_path in conn.execute("SELECT file_hash, settings_json, file_path FROM file_settings"):
-                try:
-                    data = json.loads(settings_json) if settings_json else {}
-                except (ValueError, TypeError):
-                    continue
-                if "cast_removal_strength" not in data:
-                    continue
-                mode_default = cast_removal_for_mode(ProcessMode(data.get("process_mode", default_mode)), default_strength)
-                if float(data["cast_removal_strength"]) == mode_default:
-                    continue
-                for roll_id in _rolls_for_row(repo, file_hash, file_path):
-                    locks.append((roll_id, rolls.unforked_hash(file_hash)))
-        for roll_id, file_hash in locks:
-            rolls.set_frame_override(repo, roll_id, file_hash, "cast_removal", True)
+        saved = rolls.saved_rolls(repo)
+        roll_values = {
+            roll_id: e["defaults"]["cast_removal_strength"]
+            for roll_id, e in saved.items()
+            if "cast_removal_strength" in e.get("defaults", {})
+        }
+        if roll_values:
+            with closing(sqlite3.connect(repo.edits_db_path)) as conn, conn:
+                rows = conn.execute("SELECT file_hash, settings_json, file_path FROM file_settings").fetchall()
+                for file_hash, settings_json, file_path in rows:
+                    base = rolls.unforked_hash(file_hash)
+                    roll_id = next(
+                        (
+                            r
+                            for r in _rolls_for_row(repo, file_hash, file_path)
+                            if r in roll_values and "cast_removal" not in rolls.frame_override_cards(repo, r, base)
+                        ),
+                        None,
+                    )
+                    if roll_id is None:
+                        continue
+                    try:
+                        data = json.loads(settings_json) if settings_json else {}
+                    except (ValueError, TypeError):
+                        continue
+                    data["cast_removal_strength"] = float(roll_values[roll_id])
+                    conn.execute(
+                        "UPDATE file_settings SET settings_json = ? WHERE file_hash = ?", (json.dumps(data, default=str), file_hash)
+                    )
+        for roll_id, entry in saved.items():
+            for file_hash, cards in entry.get("frame_overrides", {}).items():
+                if "cast_removal" in cards:
+                    rolls.set_frame_override(repo, roll_id, file_hash, "cast_removal", False)
+            if roll_id in roll_values:
+                rolls.add_frame_seed(repo, roll_id, cast_removal_strength=roll_values[roll_id])
+                rolls.restore_roll_fields(repo, roll_id, {"cast_removal_strength": rolls._ABSENT})
     except Exception:
-        logger.exception("Cast Removal roll-card lock migration failed; continuing without it")
+        logger.exception("Cast Removal move to Filtration failed; continuing without it")
     repo.save_global_setting(_CAST_REMOVAL_FLAG, True)
+
+
+def migrate_linear_raw_card_split(repo) -> None:
+    """Linear RAW left the Calibration (``sensor``) card for Raw Decode (``demosaic``). A
+    frame locked on the old card keeps both halves of that lock, so nothing it renders changes."""
+    if repo.get_global_setting(_RAW_DECODE_SPLIT_FLAG):
+        return
+    try:
+        for roll_id, entry in rolls.saved_rolls(repo).items():
+            for file_hash, cards in entry.get("frame_overrides", {}).items():
+                if "sensor" in cards:
+                    rolls.set_frame_override(repo, roll_id, file_hash, "demosaic", True)
+    except Exception:
+        logger.exception("Raw Decode card split migration failed; continuing without it")
+    repo.save_global_setting(_RAW_DECODE_SPLIT_FLAG, True)
 
 
 def migrate_paper_card_split(repo) -> None:
@@ -157,7 +196,7 @@ def migrate_paper_card_split(repo) -> None:
 
 def migrate_auto_crop_roll_locks(repo) -> None:
     """Auto Crop is a roll default (the ``auto_crop`` card). Locks that card on every frame saved with Auto Crop on, so the
-    first Roll push of it off does not clear their crops. A hand-drawn crop needs no lock (rolls.holds_own_crop)."""
+    first Roll push of it off does not clear their crops. A hand-drawn crop needs no lock."""
     if repo.get_global_setting(_AUTO_CROP_FLAG):
         return
     try:
@@ -177,3 +216,74 @@ def migrate_auto_crop_roll_locks(repo) -> None:
     except Exception:
         logger.exception("Auto Crop roll-card lock migration failed; continuing without it")
     repo.save_global_setting(_AUTO_CROP_FLAG, True)
+
+
+def migrate_crop_to_frames(repo) -> None:
+    """Crop is a frame card, not two roll cards. A saved frame keeps the crop it resolved to
+    through its roll as its own, a frame with no saved edit gets it from the roll's frame seed;
+    the roll's crop values and the cards' locks go, and a whole-roll Geometry apply hands its crop
+    fields to Crop. Runs after migrate_auto_crop_roll_locks, so a frame saved with Auto Crop on keeps it."""
+    if repo.get_global_setting(_CROP_TO_FRAMES_FLAG):
+        return
+    try:
+        saved = rolls.saved_rolls(repo)
+        roll_values = {}
+        for roll_id, entry in saved.items():
+            values = {f: v for f, v in entry.get("defaults", {}).items() if f in (*_CROP_SHAPE_FIELDS, "crop_from_auto")}
+            if values:
+                roll_values[roll_id] = values
+        if roll_values:
+            with closing(sqlite3.connect(repo.edits_db_path)) as conn, conn:
+                rows = conn.execute("SELECT file_hash, settings_json, file_path FROM file_settings").fetchall()
+                for file_hash, settings_json, file_path in rows:
+                    roll_id = next((r for r in _rolls_for_row(repo, file_hash, file_path) if r in roll_values), None)
+                    if roll_id is None:
+                        continue
+                    try:
+                        data = json.loads(settings_json) if settings_json else {}
+                    except (ValueError, TypeError):
+                        continue
+                    before = WorkspaceConfig.from_flat_dict(data)
+                    locked = rolls.frame_override_cards(repo, roll_id, rolls.unforked_hash(file_hash))
+                    old, new = before.to_dict(), _with_roll_crop(before, roll_values[roll_id], locked).to_dict()
+                    changed = {k: v for k, v in new.items() if old.get(k) != v}
+                    if changed:
+                        data.update(changed)
+                        conn.execute(
+                            "UPDATE file_settings SET settings_json = ? WHERE file_hash = ?", (json.dumps(data, default=str), file_hash)
+                        )
+        rolls.move_section_push_fields(repo, "geometry", "autocrop", ("crop_rect", "crop_from_auto", "crop_detect_key"))
+        for roll_id, entry in saved.items():
+            for file_hash, cards in entry.get("frame_overrides", {}).items():
+                for card in ("autocrop", "auto_crop"):
+                    if card in cards:
+                        rolls.set_frame_override(repo, roll_id, file_hash, card, False)
+            if roll_id in roll_values:
+                rolls.add_frame_seed(repo, roll_id, **roll_values[roll_id])
+                rolls.restore_roll_fields(repo, roll_id, {f: rolls._ABSENT for f in roll_values[roll_id]})
+    except Exception:
+        logger.exception("Crop move to the frames failed; continuing without it")
+    repo.save_global_setting(_CROP_TO_FRAMES_FLAG, True)
+
+
+def with_frame_seed(config: WorkspaceConfig, seed: dict) -> WorkspaceConfig:
+    """*config* with the crop and Cast Removal of a roll's frame seed."""
+    config = _with_roll_crop(config, seed, set())
+    if "cast_removal_strength" in seed:
+        config = replace(config, exposure=replace(config.exposure, cast_removal_strength=float(seed["cast_removal_strength"])))
+    return config
+
+
+def _with_roll_crop(config: WorkspaceConfig, values: dict, locked: set) -> WorkspaceConfig:
+    """*config* as its roll's crop resolved it: the shape on an unlocked "autocrop" card, Auto Crop
+    on an unlocked "auto_crop" card unless the frame holds a hand-drawn crop."""
+    if "autocrop" not in locked:
+        shape = {f: rolls.config_value(values[f]) for f in _CROP_SHAPE_FIELDS if f in values}
+        config = replace(config, geometry=replace(config.geometry, **shape))
+    geometry = config.geometry
+    hand_drawn = geometry.crop_rect is not None and not geometry.crop_from_auto
+    if "auto_crop" not in locked and not hand_drawn and "crop_from_auto" in values:
+        on = bool(values["crop_from_auto"])
+        if on != geometry.crop_from_auto:
+            config = with_auto_crop(config, on)
+    return config

@@ -40,3 +40,22 @@ def test_no_three_dot_ellipsis():
 
 def test_american_spelling():
     assert _offenders(lambda s: BRITISH.search(s) is not None) == []
+
+
+def _display_literals():
+    for path in DESKTOP.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) in {"tr", "mark"}
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                yield f"{path.relative_to(ROOT)}:{node.lineno}", node.args[0].value
+
+
+def test_display_sentences_have_no_dash_asides():
+    """A short title may read "Scanlight — Live View"; a sentence takes a period, colon or comma."""
+    offenders = [f"{where}: {text[:80]}" for where, text in _display_literals() if "—" in text and len(re.findall(r"[^\W\d_]+", text)) > 7]
+    assert offenders == []

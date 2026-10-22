@@ -12,6 +12,7 @@ from dataclasses import fields, replace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from conftest import FakeController
@@ -119,28 +120,24 @@ def sidebar(monkeypatch) -> MetadataSidebar:
     return MetadataSidebar(controller)
 
 
-def test_load_writes_only_the_stored_fields(sidebar: MetadataSidebar) -> None:
+def test_apply_writes_only_the_stored_fields(sidebar: MetadataSidebar) -> None:
     state = sidebar.state
     state.config = replace(state.config, metadata=replace(state.config.metadata, scanning="Flextight", developer="Rodinal"))
     MetadataPresets.save_preset("HP5", {"developer": "D-76 1+1", "push_pull": 1})
-    sidebar._refresh_metadata_presets()
-    sidebar.metadata_preset_combo.set_selected_id("HP5")
 
-    sidebar._on_metadata_preset_load()
+    sidebar._apply_preset("HP5")
 
     assert state.config.metadata.developer == "D-76 1+1"
     assert state.config.metadata.push_pull == 1
     assert state.config.metadata.scanning == "Flextight"
 
 
-def test_load_restores_gear_ids_with_resolved_values(sidebar: MetadataSidebar) -> None:
+def test_apply_restores_gear_ids_with_resolved_values(sidebar: MetadataSidebar) -> None:
     base = WorkspaceConfig()
     source = replace(base, metadata=replace(base.metadata, camera_id="c1", camera_make="Nikon", camera_model="F3"))
     MetadataPresets.save_preset("F3", selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Analog Gear"]))
-    sidebar._refresh_metadata_presets()
-    sidebar.metadata_preset_combo.set_selected_id("F3")
 
-    sidebar._on_metadata_preset_load()
+    sidebar._apply_preset("F3")
 
     meta = sidebar.state.config.metadata
     assert (meta.camera_id, meta.camera_make, meta.camera_model) == ("c1", "Nikon", "F3")
@@ -407,7 +404,7 @@ class TestDevelopmentTime:
         assert payload.development_temperature == "20 °C"
         rows = dict(next(rows for title, rows in payload.to_preview_sections() if title == "Process"))
         assert rows["Development time"] == "9:30"
-        assert rows["Temperature"] == "20 °C"
+        assert rows["Development temperature"] == "20 °C"
         assert rows["Dilution"] == "1+1"
 
     def test_dilution_joins_the_developer_in_the_image_description(self):
@@ -532,7 +529,7 @@ class TestReviewFixes:
         assert "metadata_preset_load" in REGISTRY
         assert REGISTRY["metadata_preset_load"].default_key == ""
         source = (Path(__file__).parent.parent / "negpy/desktop/view/keyboard_shortcuts.py").read_text(encoding="utf-8")
-        assert '"metadata_preset_load": lambda: right.metadata_sidebar.metadata_preset_load_btn.click()' in source
+        assert '"metadata_preset_load": lambda: right.gear_panel.presets.apply_btn.click()' in source
 
 
 class TestFilmFormatTravelsWithGear:
@@ -689,11 +686,13 @@ class TestSecondReviewRound:
         assert MetadataPresets.load_preset("HP5") == {"developer": "D-76"}
         assert [f for f in os.listdir(tmp_path / "metadata") if f.endswith(".tmp")] == []
 
-    def test_load_tooltip_carries_its_binding(self, sidebar: MetadataSidebar) -> None:
+    def test_apply_tooltip_carries_its_binding(self, monkeypatch, tmp_path) -> None:
         from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 
+        monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+        panel = GearLibraryPanel(GearLibrary())
         expected = tooltip_with_shortcut("Write the selected preset's fields onto this frame", "metadata_preset_load")
-        assert sidebar.metadata_preset_load_btn.toolTip() == expected
+        assert panel.presets.apply_btn.toolTip() == expected
 
 
 class TestPresetNames:
@@ -749,23 +748,25 @@ class TestPresetNames:
         assert sorted(MetadataPresets.list_presets()) == ["Existing", "Source"]
         assert MetadataPresets.load_preset("Existing") == {"scanning": "Flextight"}
 
-    def test_load_tooltip_follows_a_rebinding(self, sidebar: MetadataSidebar, monkeypatch) -> None:
+    def test_apply_tooltip_follows_a_rebinding(self, monkeypatch, tmp_path) -> None:
         import negpy.desktop.view.shortcut_registry as registry
 
+        monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+        panel = GearLibraryPanel(GearLibrary())
         # display_key renders the portable binding the way the platform does (e.g. "⇧⌘L" on
         # macOS, literally "Ctrl+Shift+L" elsewhere), so the tooltip must be checked through
         # it too, not against the portable string itself.
         rebound = registry.display_key("Ctrl+Shift+L")
-        assert rebound not in sidebar.metadata_preset_load_btn.toolTip()
+        assert rebound not in panel.presets.apply_btn.toolTip()
         monkeypatch.setattr(
             registry,
             "key_for",
             lambda action_id, bindings=None: "Ctrl+Shift+L" if action_id == "metadata_preset_load" else "",
         )
 
-        sidebar.apply_shortcut_tooltips()
+        panel.apply_shortcut_tooltips()
 
-        assert rebound in sidebar.metadata_preset_load_btn.toolTip()
+        assert rebound in panel.presets.apply_btn.toolTip()
 
 
 class TestEditingPresetValuesInTheLibrary:
@@ -1056,25 +1057,17 @@ class TestNewPresetWindow:
 
 
 class TestItemsPresetsSplit:
-    """The Gear tab's My Gear/Presets sections, and what each side does and does not have."""
+    """The My Gear and Presets cards, and what each side does and does not have."""
 
     def _panel(self, monkeypatch, tmp_path, **kwargs):
         monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
         return GearLibraryPanel(GearLibrary(), **kwargs)
 
-    def test_both_sections_start_expanded(self, monkeypatch, tmp_path):
+    def test_each_card_fills_its_own_tab_and_never_folds(self, monkeypatch, tmp_path):
         panel = self._panel(monkeypatch, tmp_path)
 
-        assert panel._sections["items"].content_area.isVisibleTo(panel) is True
-        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
-
-    def test_collapsing_one_section_leaves_the_other_open(self, monkeypatch, tmp_path):
-        panel = self._panel(monkeypatch, tmp_path)
-
-        panel._sections["items"].toggle_button.setChecked(False)
-
-        assert panel._sections["items"].content_area.isVisibleTo(panel) is False
-        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
+        assert set(panel.sections) == {"items", "presets"}
+        assert all(not section.collapsible for section in panel.sections.values())
 
     def test_items_category_picker_has_no_presets_entry(self, monkeypatch, tmp_path):
         panel = self._panel(monkeypatch, tmp_path)
@@ -1105,34 +1098,58 @@ class TestItemsPresetsSplit:
         ids = {item_id for _label, item_id, _search in panel.presets.preset_camera_combo._entries}
         assert added.id in ids
 
-    def test_show_section_by_key_expands_a_collapsed_section(self, monkeypatch, tmp_path):
+
+def test_a_gear_save_elsewhere_reaches_the_gear_panel(qapp, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+    library = GearLibrary()
+    panel = GearLibraryPanel(library)
+    panel.items._select_category("cameras")
+    saved = GearLibrary(cameras=[Camera(id="c1", make="Nikon", model="FM2")])
+    monkeypatch.setattr(GearProfiles, "load_library", staticmethod(lambda: saved))
+
+    panel.reload_library()
+
+    assert panel.library() is library
+    assert [camera.id for camera in library.cameras] == ["c1"]
+    assert panel.items.item_list.count() == 1
+
+
+class TestPresetList:
+    """The Presets tab lists each preset over what it stores, and applies the selected one."""
+
+    def _panel(self, monkeypatch, tmp_path, config=WorkspaceConfig()):
+        monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+        return GearLibraryPanel(GearLibrary(), current_config_fn=lambda: config)
+
+    def test_a_row_names_the_fields_its_preset_stores(self, monkeypatch, tmp_path):
+        MetadataPresets.save_preset("HP5", {"developer": "D-76", "push_pull": 1, "scanning": "Flextight"})
+        MetadataPresets.save_preset("Empty", {})
         panel = self._panel(monkeypatch, tmp_path)
-        panel._sections["presets"].toggle_button.setChecked(False)
 
-        panel.show_section_by_key("presets")
+        details = {panel.presets.item_list.item(i).text(): panel.presets.item_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(2)}
 
-        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
+        assert details == {"Empty": "Stores nothing", "HP5": "Process, Scanning"}
 
-    def test_show_section_by_key_ignores_an_unknown_key(self, monkeypatch, tmp_path):
+    def test_apply_sends_the_selected_preset(self, monkeypatch, tmp_path):
+        MetadataPresets.save_preset("HP5", {"developer": "D-76"})
         panel = self._panel(monkeypatch, tmp_path)
+        sent = []
+        panel.presets.apply_requested.connect(sent.append)
 
-        panel.show_section_by_key("bogus")
+        panel.presets.apply_btn.click()
 
-        assert panel._sections["items"].content_area.isVisibleTo(panel) is True
+        assert sent == ["HP5"]
 
-    def test_section_tooltips_carry_their_bound_shortcut(self, monkeypatch, tmp_path):
-        # A bare, unmodified key: Ctrl/Shift combos render as platform symbols (e.g. macOS
-        # shows ⇧⌘ glyphs), which a literal string match can't see through.
-        import negpy.desktop.view.shortcut_registry as registry
-
+    def test_apply_waits_for_a_frame_a_preset_and_no_protect(self, monkeypatch, tmp_path):
         panel = self._panel(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            registry,
-            "key_for",
-            lambda action_id, bindings=None: "G" if action_id == "tab_gear_items" else "",
-        )
+        assert not panel.presets.apply_btn.isEnabled()
 
-        panel.apply_shortcut_tooltips()
+        MetadataPresets.save_preset("HP5", {"developer": "D-76"})
+        panel.presets._rebuild_item_list(select_id="HP5")
+        assert panel.presets.apply_btn.isEnabled()
 
-        assert "G" in panel._sections["items"].toggle_button.toolTip()
-        assert "G" not in panel._sections["presets"].toggle_button.toolTip()
+        panel.presets.set_apply_allowed(False)
+        assert not panel.presets.apply_btn.isEnabled()
+
+        no_frame = self._panel(monkeypatch, tmp_path, config=None)
+        assert not no_frame.presets.apply_btn.isEnabled()

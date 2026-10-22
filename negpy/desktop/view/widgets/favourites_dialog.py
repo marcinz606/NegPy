@@ -1,6 +1,5 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -9,11 +8,19 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss, pin_dialog_default
+from negpy.desktop.view.styles.templates import (
+    dialog_pane_qss,
+    hint_label,
+    pane_header_qss,
+    pin_dialog_default,
+    section_subheader,
+    tool_toggle,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
@@ -38,7 +45,7 @@ class _ReorderList(QListWidget):
 
 
 class FavouritesDialog(QDialog):
-    """Column-chooser for the Favourites panel: tick sliders on the left, order them on the
+    """Column-chooser for the Favourites panel: toggle sliders on the left, order them on the
     right. Takes plain (id, category, label) triples rather than widgets so it stays testable
     without a live controls panel."""
 
@@ -50,9 +57,7 @@ class FavouritesDialog(QDialog):
         *,
         title: str = tr("Edit Favorites"),
         chosen_header: str = tr("FAVORITES"),
-        hint: str = tr(
-            "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel."
-        ),
+        hint: str = tr("Drag to reorder. A favorite is the same control as in its own card."),
         defaults: list[str] | None = None,
         repo=None,
     ):
@@ -93,29 +98,29 @@ class FavouritesDialog(QDialog):
         title.setStyleSheet(pane_header_qss())
         layout.addWidget(title)
 
-        self.available_list = QListWidget()
-        self.available_list.setObjectName("preset_list")
-        self.available_list.itemChanged.connect(self._on_item_toggled)
-        layout.addWidget(self.available_list)
-
-        self.available_list.blockSignals(True)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("available_body")
+        body.setStyleSheet("QWidget#available_body { background: transparent; }")
+        column = QVBoxLayout(body)
+        column.setContentsMargins(0, 0, THEME.space_md, 0)
+        column.setSpacing(THEME.space_xs)
+        self.available_toggles: dict[str, QPushButton] = {}
         current_category = None
         for slider_id, category, label in self._choices:
             if category != current_category:
                 current_category = category
-                header = QListWidgetItem(category.upper())
-                header.setFlags(Qt.ItemFlag.NoItemFlags)
-                font = QFont(header.font())
-                font.setBold(True)
-                header.setFont(font)
-                header.setForeground(QColor(THEME.text_muted))
-                self.available_list.addItem(header)
-            item = QListWidgetItem(label)
-            item.setData(_ID_ROLE, slider_id)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if slider_id in self._chosen else Qt.CheckState.Unchecked)
-            self.available_list.addItem(item)
-        self.available_list.blockSignals(False)
+                column.addWidget(section_subheader(category.upper()))
+            toggle = tool_toggle("", label, tr("Show {value} here", value=label), align_left=True)
+            toggle.setChecked(slider_id in self._chosen)
+            toggle.toggled.connect(lambda checked, sid=slider_id: self._on_item_toggled(sid, checked))
+            self.available_toggles[slider_id] = toggle
+            column.addWidget(toggle)
+        column.addStretch()
+        scroll.setWidget(body)
+        layout.addWidget(scroll)
         return pane
 
     def _build_chosen(self) -> QWidget:
@@ -153,20 +158,13 @@ class FavouritesDialog(QDialog):
     def _restore_defaults(self) -> None:
         self._chosen = list(self._defaults or [])
         chosen = set(self._chosen)
-        self.available_list.blockSignals(True)
-        for i in range(self.available_list.count()):
-            item = self.available_list.item(i)
-            slider_id = item.data(_ID_ROLE)
-            if slider_id is not None:
-                item.setCheckState(Qt.CheckState.Checked if slider_id in chosen else Qt.CheckState.Unchecked)
-        self.available_list.blockSignals(False)
+        for slider_id, toggle in self.available_toggles.items():
+            toggle.blockSignals(True)
+            toggle.setChecked(slider_id in chosen)
+            toggle.blockSignals(False)
         self._rebuild_chosen()
 
-    def _on_item_toggled(self, item: QListWidgetItem) -> None:
-        slider_id = item.data(_ID_ROLE)
-        if slider_id is None:
-            return
-        checked = item.checkState() == Qt.CheckState.Checked
+    def _on_item_toggled(self, slider_id: str, checked: bool) -> None:
         if checked and slider_id not in self._chosen:
             self._chosen.append(slider_id)
         elif not checked and slider_id in self._chosen:

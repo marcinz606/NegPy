@@ -24,5 +24,5 @@ def test_border_color_is_a_choice_and_the_swatch_is_live_only_for_custom(qapp):
     assert custom.border_color_btn.currentIndex() == 1
     assert custom.color_btn.isEnabled()
 
-    custom.border_color_btn.choice_menu.actions()[0].trigger()
+    custom.border_color_btn.setCurrentIndex(0)
     assert controller.apply_config.call_args.args[0].finish.border_match_paper is True

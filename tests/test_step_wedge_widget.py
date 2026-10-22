@@ -111,7 +111,7 @@ def test_the_tooltip_reads_the_step_and_its_density() -> None:
     with patch.object(StepWedgeWidget, "setToolTip") as set_tip:
         with patch("PyQt6.QtWidgets.QWidget.mouseMoveEvent"):
             widget.mouseMoveEvent(event)
-    assert set_tip.call_args[0][0] == "Step 2 — density 0.30"
+    assert set_tip.call_args[0][0] == "Step 2: density 0.30"
 
 
 def _panel_stub(flat_peek: bool) -> MagicMock:

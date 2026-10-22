@@ -59,8 +59,7 @@ class TestHydration(unittest.TestCase):
             "hdr_paths": ("/x/b.nef",),
             "hdr_ratios": (1.0, 0.5),
         }
-        config, is_new = session._hydrate_asset_config(asset)
-        self.assertTrue(is_new)
+        config = session._hydrate_asset_config(asset)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
 
     def test_a_saved_edit_still_wins(self):
@@ -69,8 +68,7 @@ class TestHydration(unittest.TestCase):
         saved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.BW))
         session = self._session(saved_config=saved, sticky_mode=ProcessMode.C41)
         asset = {"hash": "merged#hdr", "path": "/x/a.nef", "process_mode": ProcessMode.E6}
-        config, is_new = session._hydrate_asset_config(asset)
-        self.assertFalse(is_new)
+        config = session._hydrate_asset_config(asset)
         self.assertEqual(config.process.process_mode, ProcessMode.BW)
 
     def test_hydration_applies_the_bracket(self):
@@ -80,14 +78,14 @@ class TestHydration(unittest.TestCase):
         composes its params elsewhere, merged correctly."""
         session = self._session(saved_config=None)
         asset = {"hash": "merged#hdr", "path": "/x/a.nef", "hdr_paths": ("/x/b.nef",), "hdr_ratios": (1.0, 0.5), "hdr_align": True}
-        config, _ = session._hydrate_asset_config(asset)
+        config = session._hydrate_asset_config(asset)
         self.assertTrue(config.hdr.hdr_enabled)
         self.assertEqual(config.hdr.hdr_paths, ("/x/b.nef",))
         self.assertEqual(config.hdr.hdr_ratios, (1.0, 0.5))
 
     def test_a_plain_frame_never_inherits_a_stale_bracket(self):
         session = self._session(saved_config=None)
-        config, _ = session._hydrate_asset_config({"hash": "plain", "path": "/x/a.nef"})
+        config = session._hydrate_asset_config({"hash": "plain", "path": "/x/a.nef"})
         self.assertEqual(config.hdr, HdrConfig())
         self.assertFalse(config.hdr.hdr_enabled)
 
@@ -265,25 +263,23 @@ class TestHdrSeedHydration(unittest.TestCase):
     }
 
     def test_a_fresh_merge_opens_with_its_shadows_lifted(self):
-        config, is_new = self._session()._hydrate_asset_config(self._ASSET)
-        self.assertTrue(is_new)
+        config = self._session()._hydrate_asset_config(self._ASSET)
         self.assertAlmostEqual(config.exposure.shadow_density, -0.6, places=5)
 
     def test_zeroing_the_slider_sticks(self):
         """The whole reason to seed rather than bake in: a user who wants the render that
         is faithful to the metered frame zeroes the slider, and it must stay zeroed."""
         neutral = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, shadow_density=0.0))
-        config, is_new = self._session(saved_config=neutral)._hydrate_asset_config(self._ASSET)
-        self.assertFalse(is_new)
+        config = self._session(saved_config=neutral)._hydrate_asset_config(self._ASSET)
         self.assertEqual(config.exposure.shadow_density, 0.0)
 
     def test_a_plain_frame_is_never_seeded(self):
-        config, _ = self._session()._hydrate_asset_config({"hash": "plain", "path": "/x/a.nef"})
+        config = self._session()._hydrate_asset_config({"hash": "plain", "path": "/x/a.nef"})
         self.assertEqual(config.exposure.shadow_density, 0.0)
 
     def test_a_bracket_that_recovered_nothing_is_not_seeded(self):
         asset = {**self._ASSET, "hdr_ratios": (1.0,), "hdr_paths": ("/x/b.nef",)}
-        config, _ = self._session()._hydrate_asset_config(asset)
+        config = self._session()._hydrate_asset_config(asset)
         self.assertEqual(config.exposure.shadow_density, 0.0)
 
 
@@ -358,10 +354,9 @@ class TestResetSettingsOnAComposite(unittest.TestCase):
         mod.load_or_promote = lambda *a, **k: None
         try:
             session._apply_sticky_settings = lambda c, only_global=False: c
-            fresh, is_new = session._hydrate_asset_config(asset)
+            fresh = session._hydrate_asset_config(asset)
         finally:
             mod.load_or_promote = orig
-        self.assertTrue(is_new)
         reset = self._reset_result(session)
         self.assertEqual(reset.hdr, fresh.hdr)
         self.assertEqual(reset.process.process_mode, fresh.process.process_mode)
@@ -455,14 +450,13 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
         self.assertTrue(self.seen.get("composite"))
 
     def test_a_stitch_inherits_its_parts_film_process(self):
-        config, is_new = self._session(sticky_mode=ProcessMode.C41)._hydrate_asset_config(self._ASSET)
-        self.assertTrue(is_new)
+        config = self._session(sticky_mode=ProcessMode.C41)._hydrate_asset_config(self._ASSET)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
 
     def test_a_stitch_is_never_seeded_with_a_shadow_lift(self):
         """The seed is derived from bracket ratios; a stitch has none and must not be
         given a lift because it is a composite."""
-        config, _ = self._session()._hydrate_asset_config(self._ASSET)
+        config = self._session()._hydrate_asset_config(self._ASSET)
         self.assertEqual(config.exposure.shadow_density, 0.0)
 
     def test_reset_keeps_a_stitch_assembled(self):

@@ -113,9 +113,7 @@ class TestBatchStartedPopupSuppression(unittest.TestCase):
         return SimpleNamespace(
             controller=controller,
             progress_dialog=MagicMock(),
-            session_panel=SimpleNamespace(
-                file_browser=SimpleNamespace(hot_folder_btn=SimpleNamespace(isChecked=lambda: hot_folder_checked))
-            ),
+            file_browser=SimpleNamespace(hot_folder_btn=SimpleNamespace(isChecked=lambda: hot_folder_checked)),
         )
 
     def test_manual_import_shows_popup_even_when_hot_folder_checked(self):
@@ -152,29 +150,42 @@ if __name__ == "__main__":
 
 
 class TestScanSetupPicksScanSource(unittest.TestCase):
-    """The wizard's capture answer switches the Scan tab to the same scanner."""
+    """Picking Camera or Film Scanner on the Scanning Setup card switches the Scan tab to match."""
 
-    def _run(self, capture: str, accepted: bool = True):
-        from types import SimpleNamespace
+    def _card(self):
         from unittest.mock import MagicMock
 
-        from PyQt6.QtWidgets import QDialog
+        from negpy.desktop.session import AppState
+        from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar
 
-        from negpy.desktop.view.main_window import MainWindow
+        controller = MagicMock()
+        controller.state = AppState()
+        controller.session.repo.get_global_setting.return_value = None
+        card = ScanSetupSidebar(controller)
+        card.sync_ui()
+        picks: list = []
+        card.capture_picked.connect(picks.append)
+        return card, picks
 
-        stub = SimpleNamespace(controller=MagicMock(), right_panel=MagicMock())
-        dlg = MagicMock()
-        dlg.exec.return_value = QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
-        dlg.choice.return_value = {"capture": capture, "light": "white"}
-        with patch("negpy.desktop.view.widgets.scan_setup_dialog.ScanSetupDialog", return_value=dlg):
-            MainWindow.show_scan_setup(stub)
+    def _follow(self, capture: str):
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.view.sidebar.right_panel import RightPanel
+
+        stub = MagicMock()
+        RightPanel._follow_scan_setup(stub, capture)
         return stub
 
-    def test_camera_answer_selects_camera(self):
-        self._run("camera").right_panel.show_scan_source.assert_called_once_with("camera")
+    def test_a_camera_pick_selects_camera(self):
+        self._follow("camera").show_scan_source.assert_called_once_with("camera")
 
-    def test_scanner_answer_selects_film_scanner(self):
-        self._run("scanner").right_panel.show_scan_source.assert_called_once_with("film")
+    def test_a_scanner_pick_selects_film_scanner(self):
+        card, picks = self._card()
+        card.capture_btn.setCurrentIndex(card.capture_btn.findData("scanner"))
+        self.assertEqual(picks, ["scanner"])
+        self._follow("scanner").show_scan_source.assert_called_once_with("film")
 
-    def test_cancel_leaves_the_scan_tab_alone(self):
-        self._run("scanner", accepted=False).right_panel.show_scan_source.assert_not_called()
+    def test_a_light_change_leaves_the_scan_tab_alone(self):
+        card, picks = self._card()
+        card.light_btn.setCurrentIndex(card.light_btn.findData("narrowband"))
+        self.assertEqual(picks, [])

@@ -38,3 +38,19 @@ def test_applying_thumbnails_repaints_rather_than_reindexes() -> None:
 
     controller.session.asset_model.refresh.assert_not_called()
     controller.session.asset_model.refresh_thumbnails.assert_called_once()
+
+
+def test_the_rows_showing_a_thumbnail_follow_a_new_order_and_a_new_hash() -> None:
+    model = _model()
+    files = model._state.uploaded_files
+    b = asset_thumbnail_key(files[0])
+    assert model.rows_showing(b) == [1]
+
+    model.set_sort_descending(True)
+    assert model.rows_showing(b) == [1]
+    assert model.rows_showing(asset_thumbnail_key(files[2])) == [0]
+
+    files[0]["hash"] = "b2"
+    model.refresh()
+    assert model.rows_showing(asset_thumbnail_key(files[0])) == [1]
+    assert model.rows_showing(b) == []

@@ -129,3 +129,58 @@ def test_export_ratio_arrows_keep_stored_values_in_translated_ui(qapp, locale: s
         assert form.values()["paper_aspect_ratio"] == "Original"
     finally:
         i18n.configure(previous)
+
+
+def test_the_face_sits_on_the_track_surface_with_short_dividers(qapp):
+    """The dropdown takes a segmented control's look: bg_input inside a border_primary edge."""
+    from PyQt6.QtGui import QColor
+
+    from negpy.desktop.view.styles.theme import THEME
+
+    combo = _combo("A", "B", "C")
+    combo.setCurrentIndex(1)
+    image = combo.grab().toImage()
+    cells = combo._cells()
+    x, h = int(cells["prev"].right()), combo.height()
+    track = QColor(THEME.bg_input)
+
+    assert image.pixelColor(int(cells["prev"].center().x()), 3) == track
+    assert image.pixelColor(x, 3) == track and image.pixelColor(x - 1, 3) == track, "the divider stops short of the edge"
+    assert track not in (image.pixelColor(x, h // 2), image.pixelColor(x - 1, h // 2)), "the divider shows at mid height"
+    assert image.pixelColor(int(cells["prev"].center().x()), 0) == QColor(THEME.border_primary)
+
+
+def test_a_setting_stepper_stops_at_the_ends_and_opens_no_list(qapp):
+    from negpy.desktop.view.sidebar.live_view_window import SettingStepper
+
+    stepper = SettingStepper()
+    stepper.resize(240, stepper.height())
+    stepper.addItem("1/60", "1/60")
+    stepper.addItem("1/125", "1/125")
+    _changed, activated = _record(stepper)
+
+    assert stepper.currentIndex() == 0
+    _click(stepper, "prev")
+    assert (stepper.currentIndex(), activated) == (0, [])
+    _click(stepper, "next")
+    _click(stepper, "next")
+    assert (stepper.currentIndex(), activated) == (1, [1])
+    assert stepper.stepping()
+
+    _click(stepper, "face")
+    assert not stepper.view().isVisible()
+
+
+def test_set_choices_replaces_the_list_quietly_and_a_grayed_choice_is_stepped_past(qapp):
+    combo = StepCombo.of(["8-bit"], "Bit depth")
+    combo.resize(240, combo.height())
+    changed, activated = _record(combo)
+    combo.set_choices(["150", "300", "600"], [150, 300, 600])
+    assert (changed, combo.currentIndex(), combo.currentData()) == ([], 0, 150)
+
+    combo.set_item_enabled(1, False)
+    combo.set_item_tooltip(1, "Over the pixel budget")
+    assert not combo.is_item_enabled(1)
+    assert combo.itemData(1, Qt.ItemDataRole.ToolTipRole) == "Over the pixel budget"
+    _click(combo, "next")
+    assert combo.currentIndex() == 2 and activated == [2]

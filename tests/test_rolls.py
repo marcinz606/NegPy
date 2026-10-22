@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from negpy.domain.models import ProcessConfig, WorkspaceConfig
-from negpy.features.process.models import DemosaicMode, ProcessMode
+from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.rolls import (
     add_to_scene,
@@ -483,66 +483,6 @@ class TestRollDefaults:
         assert resolved.exposure.cast_removal_strength == cast_removal_for_mode(ProcessMode.E6, frame.exposure.cast_removal_strength)
         assert resolved.exposure.auto_exposure is False
 
-    def test_a_roll_auto_crop_arms_an_uncropped_frame(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, crop_from_auto=True)
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig())
-
-        assert resolved.geometry.crop_from_auto is True
-        assert resolved.geometry.crop_rect is None
-
-    def test_a_roll_auto_crop_off_clears_a_frames_auto_rect(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, crop_from_auto=False)
-        base = WorkspaceConfig()
-        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, crop_detect_key="k"))
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
-
-        assert resolved.geometry.crop_from_auto is False
-        assert resolved.geometry.crop_rect is None
-
-    def test_a_roll_auto_crop_never_reaches_an_unlocked_hand_drawn_crop(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="4:3")
-        base = WorkspaceConfig()
-        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
-
-        assert resolved.geometry.crop_rect == (0.1, 0.1, 0.9, 0.9)
-        assert resolved.geometry.crop_from_auto is False
-        assert resolved.geometry.autocrop_ratio == "4:3"
-
-    def test_a_roll_auto_crop_keeps_a_frames_resolved_auto_rect(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, crop_from_auto=True)
-        base = WorkspaceConfig()
-        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, crop_detect_key="k"))
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
-
-        assert resolved.geometry == frame.geometry
-
-    def test_a_frame_locked_on_auto_crop_keeps_its_hand_drawn_crop(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, crop_from_auto=True, autocrop_ratio="4:3")
-        set_frame_override(repo, roll_id, "h1", "auto_crop", locked=True)
-        base = WorkspaceConfig()
-        frame = replace(base, geometry=replace(base.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False))
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", frame)
-
-        assert resolved.geometry.crop_rect == (0.1, 0.1, 0.9, 0.9)
-        assert resolved.geometry.crop_from_auto is False
-        assert resolved.geometry.autocrop_ratio == "4:3"
-
     def test_no_roll_id_leaves_the_frame_alone(self):
         repo = _repo()
         assert resolve_roll_config(repo, None, "h1", WorkspaceConfig()) == WorkspaceConfig()
@@ -550,15 +490,15 @@ class TestRollDefaults:
     def test_locking_a_card_keeps_that_frames_own_value(self):
         repo = _repo()
         roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, linear_raw=True, demosaic_preview=DemosaicMode.VNG)
-        set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
+        set_roll_defaults(repo, roll_id, linear_raw=True, hue_trim=4.0)
+        set_frame_override(repo, roll_id, "h1", "demosaic", locked=True)
 
         resolved = resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig(process=ProcessConfig(linear_raw=False)))
 
-        # sensor (Calibration) is locked, so linear_raw keeps the frame's own value...
+        # demosaic (Raw Decode) is locked, so linear_raw keeps the frame's own value...
         assert resolved.process.linear_raw is False
-        # ...but demosaic (a different card) is not locked, so it still takes the roll default.
-        assert resolved.process.demosaic_preview == DemosaicMode.VNG
+        # ...but sensor (a different card) is not locked, so it still takes the roll default.
+        assert resolved.process.hue_trim == 4.0
 
     def test_locking_does_not_affect_a_different_frame_in_the_same_roll(self):
         repo = _repo()
@@ -639,28 +579,14 @@ class TestRollDefaults:
         assert resolved.process.positive_source is True
 
     def test_a_geometry_field_follows_the_roll_unless_its_card_is_locked(self):
-        """Roll defaults span config sections: the Auto Crop card's fields live on
-        GeometryConfig, not ProcessConfig."""
+        """Roll defaults span config sections: Lens Correction lives on GeometryConfig."""
         repo = _repo()
         roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, autocrop_rebate_trim=0.5, distortion_k1=0.02)
+        set_roll_defaults(repo, roll_id, distortion_k1=0.02)
 
-        resolved = resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig())
-
-        assert resolved.geometry.autocrop_rebate_trim == 0.5
-        assert resolved.geometry.distortion_k1 == 0.02
-
-    def test_locking_auto_crop_leaves_lens_following_the_roll(self):
-        """Both cards write GeometryConfig, so one lock must not take the other with it."""
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_roll_defaults(repo, roll_id, autocrop_rebate_trim=0.5, distortion_k1=0.02)
-        set_frame_override(repo, roll_id, "h1", "autocrop", locked=True)
-
-        resolved = resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig())
-
-        assert resolved.geometry.autocrop_rebate_trim == 1.0
-        assert resolved.geometry.distortion_k1 == 0.02
+        assert resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig()).geometry.distortion_k1 == 0.02
+        set_frame_override(repo, roll_id, "h1", "lens", locked=True)
+        assert resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig()).geometry.distortion_k1 == 0.0
 
     def test_flat_field_follows_the_roll_unless_its_card_is_locked(self):
         repo = _repo()

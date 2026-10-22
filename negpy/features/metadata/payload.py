@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from negpy.kernel.system.i18n import mark, tr
 from negpy.features.metadata.capture import (
     CaptureDate,
     format_coords,
@@ -157,97 +158,97 @@ class MetadataPayload:
 
         capture: list[tuple[str, str]] = []
         if self.capture_date is not None:
-            capture.append(("Date", self.capture_date.xmp_text()))
+            capture.append((mark("Date"), self.capture_date.xmp_text()))
         if self.camera_make:
-            capture.append(("Camera make", self.camera_make))
+            capture.append((mark("Camera make"), self.camera_make))
         if self.camera_model:
-            capture.append(("Camera model", self.camera_model))
+            capture.append((mark("Camera model"), self.camera_model))
         if self.lens_make:
-            capture.append(("Lens make", self.lens_make))
+            capture.append((mark("Lens make"), self.lens_make))
         if self.lens_model:
-            capture.append(("Lens model", self.lens_model))
+            capture.append((mark("Lens model"), self.lens_model))
         if self.focal_length_mm is not None:
-            capture.append(("Focal length", f"{self.focal_length_mm:g} mm"))
+            capture.append((mark("Focal length"), f"{self.focal_length_mm:g} mm"))
         if self.max_aperture is not None:
-            capture.append(("Max aperture", f"f/{self.max_aperture:g}"))
+            capture.append((mark("Max aperture"), f"f/{self.max_aperture:g}"))
         if self.capture_exposure:
-            capture.append(("Exposure", self.capture_exposure))
+            capture.append((mark("Exposure"), self.capture_exposure))
         if self.iso is not None:
-            capture.append(("Film ISO", str(self.iso)))
+            capture.append((mark("Film ISO"), str(self.iso)))
         if self.film_stock:
-            capture.append(("Film stock", self.film_stock))
+            capture.append((mark("Film stock"), self.film_stock))
         if self.film_manufacturer:
-            capture.append(("Film manufacturer", self.film_manufacturer))
+            capture.append((mark("Film manufacturer"), self.film_manufacturer))
         if self.film_format:
-            capture.append(("Film format", self.film_format))
+            capture.append((mark("Film format"), self.film_format))
         if self.film_color_type:
-            capture.append(("Film type", self.film_color_type))
+            capture.append((mark("Film type"), self.film_color_type))
         place = self.place_display()
         if place:
-            capture.append(("Place", place))
+            capture.append((mark("Place"), place))
         if self.gps_latitude is not None and self.gps_longitude is not None:
             coords = format_coords(self.gps_latitude, self.gps_longitude)
             if coords != place:
-                capture.append(("Coordinates", coords))
+                capture.append((mark("Coordinates"), coords))
         if capture:
-            sections.append(("Original capture", capture))
+            sections.append((mark("Original capture"), capture))
 
         scan: list[tuple[str, str]] = []
         if self.scan_camera_make:
-            scan.append(("Camera make", self.scan_camera_make))
+            scan.append((mark("Camera make"), self.scan_camera_make))
         if self.scan_camera_model:
-            scan.append(("Camera model", self.scan_camera_model))
+            scan.append((mark("Camera model"), self.scan_camera_model))
         if self.scan_lens_make:
-            scan.append(("Lens make", self.scan_lens_make))
+            scan.append((mark("Lens make"), self.scan_lens_make))
         if self.scan_lens_model:
-            scan.append(("Lens model", self.scan_lens_model))
+            scan.append((mark("Lens model"), self.scan_lens_model))
         if self.scan_focal_length_mm is not None:
-            scan.append(("Focal length", f"{self.scan_focal_length_mm:g} mm"))
+            scan.append((mark("Focal length"), f"{self.scan_focal_length_mm:g} mm"))
         if self.scan_aperture is not None:
-            scan.append(("Aperture", f"f/{self.scan_aperture:g}"))
+            scan.append((mark("Aperture"), f"f/{self.scan_aperture:g}"))
         if self.scan_exposure:
-            scan.append(("Exposure", self.scan_exposure))
+            scan.append((mark("Exposure"), self.scan_exposure))
         if self.scan_iso is not None:
-            scan.append(("ISO", str(self.scan_iso)))
+            scan.append((mark("ISO"), str(self.scan_iso)))
         if self.scan_method:
-            scan.append(("Scan method", self.scan_method))
+            scan.append((mark("Scan method"), self.scan_method))
         if self.scan_datetime:
-            scan.append(("Scan date", self.scan_datetime))
+            scan.append((mark("Scan date"), self.scan_datetime))
         if self.scan_gps_latitude is not None and self.scan_gps_longitude is not None:
-            scan.append(("Scan place", format_coords(self.scan_gps_latitude, self.scan_gps_longitude)))
+            scan.append((mark("Scan place"), format_coords(self.scan_gps_latitude, self.scan_gps_longitude)))
         if self.capture_roll:
-            scan.append(("Roll", self.capture_roll))
+            scan.append((mark("Roll"), self.capture_roll))
         if self.capture_frame is not None:
-            scan.append(("Frame", str(self.capture_frame)))
+            scan.append((mark("Frame"), str(self.capture_frame)))
         if scan:
-            sections.append(("Scan", scan))
+            sections.append((mark("Scan"), scan))
 
         process: list[tuple[str, str]] = []
         if self.film_format and not capture:
-            process.append(("Format", self.film_format))
+            process.append((mark("Film format"), self.film_format))
         if self.developer:
-            process.append(("Developer", self.developer))
+            process.append((mark("Developer"), self.developer))
         if self.dilution:
-            process.append(("Dilution", self.dilution))
+            process.append((mark("Dilution"), self.dilution))
         if self.push_pull and self.push_pull != "Normal":
-            process.append(("Push / pull", self.push_pull))
+            process.append((mark("Push / pull"), self.push_pull))
         if self.development_time:
-            process.append(("Development time", self.development_time))
+            process.append((mark("Development time"), self.development_time))
         if self.development_temperature:
-            process.append(("Temperature", self.development_temperature))
+            process.append((mark("Development temperature"), self.development_temperature))
         if process:
-            sections.append(("Process", process))
+            sections.append((mark("Process"), process))
 
         summary: list[tuple[str, str]] = []
         if self.image_description:
-            summary.append(("Image description", self.image_description))
-        summary.append(("Software", _NEGPY_SOFTWARE))
+            summary.append((mark("Image description"), self.image_description))
+        summary.append((mark("Software"), _NEGPY_SOFTWARE))
         if self.exif_flags.strip_scan_residuals:
-            summary.append(("EXIF capture tags", "Written to standard EXIF"))
+            summary.append((mark("EXIF capture tags"), tr("Written to standard EXIF")))
         elif self.scan_camera_make or self.scan_camera_model:
-            summary.append(("EXIF camera/lens", "Source scan device (capture not set)"))
+            summary.append((mark("EXIF camera/lens"), tr("Source scan device (capture not set)")))
         if summary:
-            sections.append(("File", summary))
+            sections.append((mark("File"), summary))
 
         return sections
 

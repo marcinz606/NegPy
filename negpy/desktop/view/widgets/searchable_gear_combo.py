@@ -29,9 +29,13 @@ from negpy.kernel.system.i18n import tr
 
 from typing import Callable, Optional, Sequence
 
-from PyQt6.QtCore import QEvent, QModelIndex, QSortFilterProxyModel, Qt, QTimer, pyqtSignal
+import qtawesome as qta
+from PyQt6.QtCore import QEvent, QModelIndex, QSize, QSortFilterProxyModel, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QToolButton, QWidget
+
+from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, default_button_height
+from negpy.desktop.view.styles.theme import THEME
 
 
 _NONE_LABEL = tr("— None —")
@@ -78,6 +82,10 @@ class SearchableGearCombo(QWidget):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        # One dropdown face around the text field and its chevron (QWidget#gear_combo).
+        self.setObjectName("gear_combo")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedHeight(default_button_height())
         self._none_label = none_label
         self._entries: list[tuple[str, str, str]] = []  # (label, id, search_text)
         self._selected_id = ""
@@ -88,17 +96,19 @@ class SearchableGearCombo(QWidget):
         self._line.textEdited.connect(self._on_text_edited)
         self._line.editingFinished.connect(self._on_editing_finished)
         self._line.installEventFilter(self)
+        self._line.addAction(qta.icon("fa5s.search", color=THEME.text_secondary), QLineEdit.ActionPosition.LeadingPosition)
 
         self._arrow = QToolButton(self)
-        self._arrow.setText("\u25be")
+        self._arrow.setIcon(qta.icon("fa5s.chevron-down", color=THEME.text_secondary, color_disabled=THEME.text_muted))
+        self._arrow.setIconSize(QSize(THEME.font_size_small, THEME.font_size_small))
         self._arrow.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._arrow.setCursor(Qt.CursorShape.ArrowCursor)
-        self._arrow.setFixedWidth(20)
+        self._arrow.setFixedWidth(HEADER_BUTTON_SIZE)
         self._arrow.clicked.connect(self._toggle_popup)
         self._arrow.setObjectName("gear_combo_arrow")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(1, 1, THEME.space_sm, 1)
         layout.setSpacing(0)
         layout.addWidget(self._line, 1)
         layout.addWidget(self._arrow)
@@ -260,6 +270,11 @@ class SearchableGearCombo(QWidget):
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         if watched is self._line:
             etype = event.type()
+            if etype in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
+                # The face, not the borderless field, shows focus; QSS has no :focus-within.
+                self.setProperty("focused", etype == QEvent.Type.FocusIn)
+                self.style().unpolish(self)
+                self.style().polish(self)
             if etype == QEvent.Type.FocusIn:
                 if self._line.text():
                     QTimer.singleShot(0, self._line.selectAll)

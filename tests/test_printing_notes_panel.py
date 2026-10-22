@@ -1,5 +1,5 @@
-"""Export panel's Printing Notes section: one collapsible home for the canvas preview
-and the export, and the preview toggle mirrors the controller without echoing back."""
+"""Export panel's Printing Notes: the canvas preview and the export share the Alongside
+Exports card, and the preview toggle mirrors the controller without echoing back."""
 
 from types import SimpleNamespace
 
@@ -12,11 +12,11 @@ def _sidebar() -> ExportSidebar:
     return ExportSidebar(controller)
 
 
-def test_the_preview_and_the_export_share_one_section() -> None:
+def test_the_preview_and_the_export_share_one_card() -> None:
     sidebar = _sidebar()
 
-    assert sidebar.printing_notes_section._title_text == "Printing Notes"
-    content = sidebar.printing_notes_section.findChildren(type(sidebar.printing_notes_btn))
+    assert sidebar.alongside_section._title_text == "Alongside Exports"
+    content = sidebar.alongside_section.findChildren(type(sidebar.printing_notes_btn))
     assert sidebar.printing_notes_btn in content
     assert sidebar.printing_notes_preview_btn in content
 

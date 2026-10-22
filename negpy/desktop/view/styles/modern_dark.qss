@@ -29,28 +29,20 @@ QDockWidget::title {
     color: @text_on_accent;
 }
 
-QGroupBox {
-    margin-top: 2ex;
-    padding: 12px 8px;
-    border: none;
-    border-top: 1px solid @border_primary;
-    font-weight: bold;
-    color: @accent_primary; /* Safelight Red */
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 3px 0 3px;
-    color: @text_on_accent;
-}
-
+/* A button sits on the surface of a segmented control's track and a dropdown's face. */
 QPushButton {
-    background-color: transparent;
+    background-color: @bg_input;
     color: @text_primary;
-    border: 1px solid transparent;
+    border: 1px solid @border_primary;
     border-radius: 4px;
     padding: 6px 12px;
+}
+
+/* setFlat: a sub-header row's icons, and the canvas bar's buttons, which sit in their
+   group's track (ActionToolbar.paintEvent). */
+QPushButton:flat {
+    background-color: transparent;
+    border: 1px solid transparent;
 }
 
 QPushButton:hover {
@@ -59,43 +51,52 @@ QPushButton:hover {
 }
 
 QPushButton:pressed {
-    background-color: @accent_primary;
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
     color: @text_on_accent;
 }
 
-/* Active/checked toggle tools (e.g. "Linear RAW", "Lock Bounds"). Low-key but
-   clearly engaged: a warm-tinted fill and a safelight-accent border so the user
-   can tell at a glance which tools are currently on. */
+/* A checked toggle takes the chip of a segmented control's current choice; its icon
+   brightens from text_hint to text_primary (templates._button_icon). */
 QPushButton:checked {
     background-color: @bg_checked;
-    color: @text_on_accent;
-    border: 1px solid @accent_primary;
+    border: 1px solid @border_checked;
     font-weight: 600;
 }
 
 QPushButton:checked:hover {
     background-color: @bg_checked_hover;
-    border: 1px solid @accent_secondary;
+    border: 1px solid @border_checked_hover;
+}
+
+/* The fill means checked, so hover on a toggle that is off brightens only the border. */
+QPushButton[checkable="true"]:hover:!checked {
+    background-color: @bg_input;
+    border: 1px solid @border_indicator;
+}
+
+QPushButton[checkable="true"]:flat:hover:!checked {
+    background-color: transparent;
 }
 
 /* The Scan panel's commit button: the only control that moves the transport and
    writes files, so it is the one filled button in the app. While a scan runs it
-   reads "Stop" and goes hollow — the same accent, but not an invitation. */
+   reads "Stop" and takes the chip of a toggle that is on; a click turns it off. */
 QPushButton#scan_btn {
-    background-color: @accent_primary;
+    background-color: @bg_primary;
     color: @text_on_accent;
-    border: 1px solid @accent_secondary;
+    border: 1px solid @border_checked_hover;
     border-radius: 4px;
     font-weight: 600;
 }
 
 QPushButton#scan_btn:hover {
-    background-color: @accent_secondary;
-    border: 1px solid @accent_secondary;
+    background-color: @bg_primary_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 QPushButton#scan_btn:pressed {
-    background-color: @accent_pressed;
+    background-color: @bg_checked_hover;
     color: @text_on_accent;
 }
 
@@ -106,14 +107,14 @@ QPushButton#scan_btn:disabled {
 }
 
 QPushButton#scan_btn[scanning="true"] {
-    background-color: transparent;
-    color: @accent_secondary;
-    border: 1px solid @accent_primary;
+    background-color: @bg_checked;
+    color: @text_primary;
+    border: 1px solid @border_checked;
 }
 
 QPushButton#scan_btn[scanning="true"]:hover {
-    background-color: @bg_checked;
-    color: @text_on_accent;
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 QToolButton {
@@ -130,20 +131,24 @@ QToolButton:hover {
 
 QToolButton:checked {
     background-color: @bg_checked;
-    border: 1px solid @accent_primary;
+    border: 1px solid @border_checked;
 }
 
 QToolButton:checked:hover {
     background-color: @bg_checked_hover;
-    border: 1px solid @accent_secondary;
+    border: 1px solid @border_checked_hover;
+}
+
+QSlider {
+    background: transparent;
 }
 
 QSlider::groove:horizontal {
     border: none;
-    height: 6px;
+    height: 4px;
     background: @border_primary;
-    margin: 2px 0;
-    border-radius: 3px;
+    margin: 0;
+    border-radius: 2px;
 }
 
 QSlider#neutral_slider::groove:horizontal,
@@ -154,29 +159,24 @@ QSlider#yellow_slider::groove:horizontal {
 }
 
 QSlider#cyan_slider::handle:horizontal { background: @filter_cyan; }
-QSlider#cyan_slider::sub-page:horizontal { background: @border_hover; }
-
 QSlider#magenta_slider::handle:horizontal { background: @filter_magenta; }
-QSlider#magenta_slider::sub-page:horizontal { background: @border_hover; }
-
 QSlider#yellow_slider::handle:horizontal { background: @filter_yellow; }
-QSlider#yellow_slider::sub-page:horizontal { background: @border_hover; }
 
 QSlider::handle:horizontal {
     background: @text_secondary;
     border: none;
     width: 12px;
     height: 12px;
-    margin: -3px 0;
+    margin: -4px 0;
     border-radius: 6px;
 }
 
 QSlider::handle:horizontal:hover { background: @text_primary; }
-QSlider::handle:horizontal:pressed { background: @accent_primary; }
+QSlider::handle:horizontal:pressed { background: @text_primary; }
 
+/* An even track: the handle and the value say where it is. */
 QSlider::sub-page:horizontal {
-    background: @border_hover;
-    border-radius: 3px;
+    background: transparent;
 }
 
 /* Disabled state — grey out locked/overridden controls. Relies entirely on
@@ -184,7 +184,6 @@ QSlider::sub-page:horizontal {
    widget.setEnabled(False); no per-callsite changes needed. */
 QSlider::handle:horizontal:disabled { background: @slider_disabled; }
 QSlider::groove:horizontal:disabled { background: @border_input; }
-QSlider::sub-page:horizontal:disabled { background: @slider_fill_disabled; }
 
 QSlider#cyan_slider::handle:horizontal:disabled,
 QSlider#magenta_slider::handle:horizontal:disabled,
@@ -204,36 +203,9 @@ QListView::item {
 }
 
 QListView::item:selected {
-    background-color: @bg_selected;
-    border: 1px solid @slider_disabled;
-    color: @text_on_accent;
-}
-
-QTabWidget::pane {
-    border: 1px solid @border_primary;
-    background-color: @bg_dark;
-    border-radius: 4px;
-}
-
-QTabBar::tab {
-    background-color: @bg_header;
-    color: @text_secondary;
-    padding: 8px 12px;
-    border: 1px solid @border_color;
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
-}
-
-QTabBar::tab:selected {
-    background-color: @bg_selected;
-    color: @text_on_accent;
-    font-weight: bold;
-    border-bottom: none;
-}
-
-QTabBar::tab:hover:!selected {
-    background-color: @border_color;
-    color: @text_on_accent;
+    background-color: @bg_checked;
+    border: 1px solid @border_checked;
+    color: @text_primary;
 }
 
 QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QTextEdit {
@@ -252,6 +224,34 @@ QComboBox:focus, QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QTextEdi
 QComboBox:disabled, QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled, QTextEdit:disabled {
     color: @text_muted;
     border: 1px solid @border_input;
+}
+
+/* An editable combo (Scan › Resolution) wears the dropdown face, its chevron inside. StepCombo
+   paints itself, so none of this reaches it. */
+QComboBox:editable {
+    border: 1px solid @border_primary;
+    padding-left: 8px;
+}
+
+QComboBox:editable:focus {
+    border: 1px solid @slider_disabled;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox::down-arrow {
+    image: url("__CHEVRON_DOWN_ICON__");
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox QLineEdit, QComboBox QLineEdit:focus {
+    background: transparent;
+    border: none;
+    padding: 0;
 }
 
 /* Combo-box dropdown popup. Its a QListView-based view, so without this rule it
@@ -288,21 +288,19 @@ QComboBox QAbstractItemView::item:hover {
 QPushButton:disabled, QToolButton:disabled { color: @text_muted; }
 QCheckBox:disabled { color: @text_muted; }
 
-QStatusBar {
-    background-color: @accent_primary;
-    color: @text_on_accent;
-}
-
+/* The filled part is the chip of a checked toggle, growing. */
 QProgressBar {
     border: 1px solid @border_primary;
-    background-color: @bg_card;
+    background-color: @bg_input;
+    color: @text_primary;
     text-align: center;
     border-radius: 4px;
 }
 
 QProgressBar::chunk {
-    background-color: @accent_primary;
-    border-radius: 2px;
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
+    border-radius: 3px;
 }
 
 QScrollArea {
@@ -358,13 +356,25 @@ QMenu {
 QMenu::item {
     background-color: transparent;
     color: @text_primary;
-    padding: 5px 24px 5px 12px;
+    border: 1px solid transparent;
+    padding: 4px 23px 4px 11px;
     border-radius: 3px;
 }
 
 QMenu::item:selected {
     background-color: @bg_menu_selected;
     color: @text_on_accent;
+}
+
+/* Hover stays gray; the chip marks the item that is on, as on a checked toggle. */
+QMenu::item:checked {
+    background-color: @bg_checked;
+    border: 1px solid @border_checked;
+}
+
+QMenu::item:checked:selected {
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 QMenu::item:disabled {
@@ -393,19 +403,19 @@ QFrame#collapsible_content {
     background-color: @bg_card;
     border-bottom-left-radius: 4px;
     border-bottom-right-radius: 4px;
-    border: 1px solid @border_input;
+    border: 1px solid @border_primary;
     border-top: none;
 }
 
-/* A card's scope (widgets/collapsible.py set_scope_buttons), as a stripe on the header
-   alone: the same amber and red the Frame/Roll buttons beside it carry, so the card says
-   which one is lit without the buttons being read. */
+/* A card's scope (widgets/collapsible.py set_scope_buttons), as a dim stripe on the header
+   alone: amber for a frame card, red for a roll card, the colors of the lit Frame/Roll button,
+   so the card says its scope without the buttons being read. */
 QPushButton#collapsible_header[scope="frame"] {
-    border-left: 3px solid @warn_amber;
+    border-left: 3px solid @border_scope_frame;
 }
 
 QPushButton#collapsible_header[scope="roll"] {
-    border-left: 3px solid @accent_secondary;
+    border-left: 3px solid @border_checked_hover;
 }
 
 /* Section content must not repaint over the card: plain QWidget bodies would
@@ -456,11 +466,9 @@ QPushButton#icon_menu_btn::menu-indicator {
     width: 0px;
 }
 
-QFrame#toolbar_container {
+QWidget#action_bar {
     background-color: @bg_dark;
-    border: 1px solid @border_color;
-    border-radius: 6px;
-    padding: 4px;
+    border-top: 1px solid @border_color;
 }
 
 QFrame#toolbar_separator {
@@ -468,9 +476,57 @@ QFrame#toolbar_separator {
     background-color: @border_color;
 }
 
+/* The bar's row containers let the group tracks (ActionToolbar.paintEvent) show through. */
+QWidget#toolbar_row {
+    background: transparent;
+}
+
+/* In the canvas bar a group's track divides it from the next; the separator stays as the gap. */
+QWidget#action_bar QFrame#toolbar_separator {
+    color: transparent;
+    background-color: transparent;
+}
+
 QToolButton#toolbar_overflow::menu-indicator {
     image: none;
     width: 0px;
+}
+
+/* A dropdown in the canvas bar's Roll row: a chevron after the icon, as on a MenuButton. */
+QToolButton[dropdown="true"] {
+    padding-right: 22px;
+}
+
+QToolButton[dropdown="true"]::menu-indicator {
+    image: url("__CHEVRON_DOWN_ICON__");
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    width: 12px;
+    height: 12px;
+    right: 6px;
+}
+
+/* A QToolButton in a panel (the Library row) sits on the track surface, as a QPushButton does.
+   The plain QToolButton stays flat for the canvas bar, which draws its own tracks. */
+QToolButton[boxed="true"] {
+    background-color: @bg_input;
+    border: 1px solid @border_primary;
+}
+
+QToolButton[boxed="true"]:hover {
+    background-color: @border_primary;
+    border: 1px solid @border_hover;
+}
+
+/* The Roll row's sheet filter while it hides frames: the chip of a chosen item. */
+QToolButton[filtering="true"] {
+    background-color: @bg_checked;
+    border: 1px solid @border_checked;
+}
+
+QToolButton[filtering="true"]:hover {
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 /* Shortcut overview/Customize dialog rows. Transparent by default so the row
@@ -481,34 +537,28 @@ QFrame#shortcut_editor_row {
 }
 
 QFrame#shortcut_editor_row[highlighted="true"], QFrame#reveal_flash {
-    background-color: rgba(183, 28, 28, 0.12);
-    border-left: 2px solid @accent_primary;
+    background-color: @surface_reveal_flash;
+    border: 1px solid @border_checked_hover;
+    border-radius: 4px;
 }
 
-QLabel#update_label {
-    font-size: @font_size_smallpx;
-    color: @status_success;
-    font-weight: bold;
-    padding: 5px;
-}
-
-/* Primary action (Export in the Export panel): solid accent fill so it reads
+/* Primary action (Export in the Export panel): a dark red fill with a dim edge, so it reads
    as the one call-to-action, not a disabled outline. */
 QPushButton[primary="true"], QToolButton[primary="true"] {
-    background-color: @accent_primary;
-    border: 1px solid @accent_primary;
+    background-color: @bg_primary;
+    border: 1px solid @border_checked_hover;
     color: @text_on_accent;
     font-weight: 600;
 }
 
 QPushButton[primary="true"]:hover, QToolButton[primary="true"]:hover {
-    background-color: @accent_secondary;
-    border: 1px solid @accent_secondary;
+    background-color: @bg_primary_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 QPushButton[primary="true"]:pressed, QToolButton[primary="true"]:pressed {
-    background-color: @accent_pressed;
-    border: 1px solid @accent_pressed;
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
 }
 
 QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
@@ -517,33 +567,10 @@ QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     color: @text_muted;
 }
 
-/* Right-panel tabs (see sidebar/right_panel.py). */
-QPushButton#right_tab_btn, QPushButton#sub_tab_btn {
-    background-color: transparent;
-    color: @text_secondary;
-    border: none;
+/* The right panel's main tab strip (see widgets/panel_tab.py). */
+OverflowBar#main_tabs {
+    background-color: @bg_header;
     border-bottom: 1px solid @border_primary;
-    border-radius: 0;
-    padding: 0px;
-}
-
-QPushButton#sub_tab_btn {
-    font-size: @font_size_smallpx;
-}
-
-QPushButton#right_tab_btn:hover, QPushButton#sub_tab_btn:hover {
-    color: @text_primary;
-}
-
-QPushButton#right_tab_btn:pressed, QPushButton#sub_tab_btn:pressed {
-    background-color: transparent;
-}
-
-QPushButton#right_tab_btn:checked, QPushButton#sub_tab_btn:checked {
-    background-color: transparent;
-    color: @text_primary;
-    border-bottom: 2px solid @accent_primary;
-    font-weight: 600;
 }
 
 /* Collapsible section header (see widgets/collapsible.py). [overlay="true"] =
@@ -568,42 +595,79 @@ QPushButton#collapsible_header:checked {
 }
 
 QPushButton#collapsible_header[overlay="true"] {
-    background-color: @surface_overlay_strong;
+    background-color: @header_veil;
 }
 
 QPushButton#collapsible_header[overlay="true"]:hover {
-    background-color: @surface_overlay_hover;
+    background-color: @header_veil_hover;
 }
 
 QPushButton#collapsible_header[overlay="true"]:checked {
-    background-color: @surface_overlay_strong;
+    background-color: @header_veil;
 }
 
 /* Preset lists: Export Presets dialog and the Presets sidebar. */
-QListWidget#preset_list {
-    background: @bg_dark;
-    border: 1px solid @border_primary;
-}
-
-QListWidget#preset_list::item {
-    padding: 8px;
-    color: @text_primary;
-}
-
-QListWidget#preset_list::item:selected {
-    background: @bg_hover;
-    color: @text_on_accent;
-}
-
-/* Searchable gear combo (widgets/searchable_gear_combo.py): inline arrow + completer popup. */
-QToolButton#gear_combo_arrow {
+/* The Library's roll rows (see sidebar/library_tree.py): the delegate paints them. */
+QTreeWidget#roll_tree {
+    background: transparent;
     border: none;
-    color: @text_secondary;
+    outline: none;
+}
+
+QTreeWidget#roll_tree::item:selected, QTreeWidget#roll_tree::branch:selected, QTreeWidget#roll_tree::item:hover {
     background: transparent;
 }
 
-QToolButton#gear_combo_arrow:hover {
+/* Flat rows (see widgets/flat_rows.py): the delegate paints them. */
+QListWidget#flat_rows {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+
+QListWidget#preset_list {
+    background: @bg_dark;
+    border: 1px solid @border_primary;
+    outline: none;
+}
+
+QListWidget#preset_list::item {
+    padding: 7px;
+    border: 1px solid transparent;
+    border-radius: 4px;
     color: @text_primary;
+}
+
+QListWidget#preset_list::item:focus {
+    background: @bg_menu_selected;
+}
+
+QListWidget#preset_list::item:selected {
+    background: @bg_checked;
+    border: 1px solid @border_checked;
+    color: @text_primary;
+}
+
+/* Searchable gear combo (widgets/searchable_gear_combo.py): the text field and its chevron share
+   one dropdown face; the face takes a text field's focus edge. */
+QWidget#gear_combo {
+    background-color: @bg_input;
+    border: 1px solid @border_primary;
+    border-radius: 4px;
+}
+
+QWidget#gear_combo[focused="true"] {
+    border: 1px solid @slider_disabled;
+}
+
+QWidget#gear_combo QLineEdit, QWidget#gear_combo QLineEdit:focus {
+    background: transparent;
+    border: none;
+}
+
+QToolButton#gear_combo_arrow {
+    border: none;
+    background: transparent;
 }
 
 /* QCompleter views — the QMenu/combo rules above don't reach them; mirror them.
@@ -635,9 +699,9 @@ QAbstractItemView#shortcut_editor_search_popup::item:hover {
     border: none;
 }
 
-/* Darker red divider between the two halves of a primary split button. */
+/* A dim divider between the two halves of a primary split button. */
 QToolButton#split_menu_btn[primary="true"] {
-    border-left: 1px solid @accent_pressed;
+    border-left: 1px solid @border_checked_hover;
 }
 
 /* Fused split button (main action + menu arrow), see widgets/split_button.py. */
@@ -667,52 +731,52 @@ QToolButton#split_menu_btn::menu-arrow {
     height: 0px;
 }
 
-/* Checkboxes — Fusion's default indicator is almost invisible on this dark
-   background. Give the unchecked box a clear border + subtle fill, and a filled
-   accent when checked, so its state reads at a glance. */
-QCheckBox {
-    spacing: 6px;
+/* templates.box_toggle: QMessageBox.setCheckBox takes only a QCheckBox, so this one is drawn as
+   a labeled toggle, with no indicator. */
+QCheckBox#box_toggle {
+    background-color: @bg_input;
+    border: 1px solid @border_primary;
+    border-radius: 4px;
+    padding: 0px 12px;
+    spacing: 0px;
 }
 
-QCheckBox::indicator {
-    width: 15px;
-    height: 15px;
-    border-radius: 3px;
+QCheckBox#box_toggle:hover:!checked {
     border: 1px solid @border_indicator;
-    background-color: @bg_indicator;
 }
 
-QCheckBox::indicator:hover {
-    border: 1px solid @border_indicator_hover;
-    background-color: @bg_indicator_hover;
+QCheckBox#box_toggle:checked {
+    background-color: @bg_checked;
+    border: 1px solid @border_checked;
+    font-weight: 600;
 }
 
-QCheckBox::indicator:checked {
-    background-color: @accent_primary;
-    border: 1px solid @accent_secondary;
-    image: url("__CHECKBOX_CHECK_ICON__");
+QCheckBox#box_toggle:checked:hover {
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
 }
 
-QCheckBox::indicator:checked:hover {
-    background-color: @accent_secondary;
-    border: 1px solid @accent_secondary;
-    image: url("__CHECKBOX_CHECK_ICON__");
+QCheckBox#box_toggle:focus {
+    border: 1px solid @border_focus;
 }
 
-QCheckBox::indicator:disabled {
-    border: 1px solid @border_color;
-    background-color: @bg_indicator_disabled;
+QCheckBox#box_toggle::indicator {
+    width: 0px;
+    height: 0px;
+    border: none;
+    background: transparent;
+    image: none;
+}
+
+/* Cancel before the accept button, as every hand-built footer has it: GnomeLayout. */
+QDialogButtonBox {
+    button-layout: 3;
 }
 
 /* Keyboard focus. A styled QPushButton loses Fusion's focus rect, so tabbing through a
-   panel or a dialog footer moves an invisible cursor. Marked with the accent border the
-   checked state uses, one step brighter. */
+   panel or a dialog footer moves an invisible cursor. Marked with a neutral gray edge. */
 QPushButton:focus, QToolButton:focus {
-    border: 1px solid @accent_secondary;
-}
-
-QCheckBox::indicator:focus {
-    border-color: @accent_secondary;
+    border: 1px solid @border_focus;
 }
 
 /* The ring grows inward: a 2px border on a 12px content box would make the
@@ -721,7 +785,7 @@ QSlider::handle:horizontal:focus {
     border: 2px solid @text_on_accent;
     width: 8px;
     height: 8px;
-    margin: -3px 0;
+    margin: -4px 0;
     border-radius: 6px;
 }
 

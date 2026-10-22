@@ -3,13 +3,13 @@ import unittest
 from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, DesktopSessionManager
-from negpy.desktop.view.widgets.scan_setup_dialog import ScanSetupDialog
+from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.process.models import ProcessMode, scan_setup_values, with_process_mode
+from negpy.features.process.models import ProcessMode, scan_setup_rig, scan_setup_values, with_process_mode
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -30,67 +30,113 @@ class TestScanSetupValues(unittest.TestCase):
         self.assertEqual(scan_setup_values("scanner", "narrowband"), (True, "pakon"))
 
 
-class TestScanSetupDialog(unittest.TestCase):
-    def test_starts_on_capture_page(self):
-        dlg = ScanSetupDialog(None)
-        self.assertEqual(dlg.pages.currentIndex(), 0)
-        self.assertFalse(dlg.back_btn.isVisibleTo(dlg))
-        self.assertEqual(dlg.next_btn.text(), "Next →")
-        self.assertEqual(dlg.choice(), {"capture": "camera", "light": "white"})
+class TestScanSetupRig(unittest.TestCase):
+    def test_auto_decodes_as_a_camera(self):
+        self.assertEqual(scan_setup_values("auto", "white"), (False, "neutral"))
+        self.assertEqual(scan_setup_values("auto", "narrowband"), (True, "pakon"))
 
-    def test_next_advances_and_back_returns(self):
-        dlg = ScanSetupDialog(None)
-        dlg.next_btn.click()
-        self.assertEqual(dlg.pages.currentIndex(), 1)
-        self.assertEqual(dlg.next_btn.text(), "Apply")
-        self.assertTrue(dlg.back_btn.isVisibleTo(dlg))
-        dlg.back_btn.click()
-        self.assertEqual(dlg.pages.currentIndex(), 0)
+    def test_nothing_saved_reads_auto_under_white_light(self):
+        self.assertEqual(scan_setup_rig(None), ("auto", "white"))
+        self.assertEqual(scan_setup_rig({"capture": "drum", "light": 3}), ("auto", "white"))
+        self.assertEqual(scan_setup_rig({"capture": "scanner", "light": "narrowband"}), ("scanner", "narrowband"))
 
-    def test_a_scanner_is_asked_its_light_with_scanner_examples(self):
-        dlg = ScanSetupDialog(None)
-        dlg.capture_btn.setCurrentIndex(1)  # film scanner
-        dlg.next_btn.click()
-        self.assertEqual(dlg.pages.currentIndex(), 1)
-        dlg.light_btn.setCurrentIndex(1)
-        self.assertIn("Coolscan", dlg.light_hint.text())
-        self.assertEqual(dlg.choice(), {"capture": "scanner", "light": "narrowband"})
-        self.assertEqual("Sets Linear RAW · Print stock Digital (Pakon Minilab)", dlg.summary.text())
 
-    def test_choice_round_trips_through_the_pages(self):
-        dlg = ScanSetupDialog(None)
-        dlg.next_btn.click()
-        dlg.light_btn.setCurrentIndex(1)
-        self.assertEqual(dlg.choice(), {"capture": "camera", "light": "narrowband"})
+def _setup_controller(setup=None, **state):
+    controller = MagicMock()
+    controller.state = AppState()
+    for key, value in state.items():
+        setattr(controller.state, key, value)
+    controller.session.repo.get_global_setting.side_effect = lambda key, default=None: setup if key == "scan_setup" else default
+    controller.active_diptych.return_value = None
+    controller.rgb_scan_mode_for_roll.return_value = False
+    return controller
 
-    def test_apply_accepts(self):
-        dlg = ScanSetupDialog(None)
-        dlg.next_btn.click()
-        dlg.next_btn.click()
-        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
 
-    def test_preselects_the_saved_choice(self):
-        dlg = ScanSetupDialog(None, {"capture": "camera", "light": "narrowband"})
-        self.assertEqual(dlg.capture_btn.currentIndex(), 0)
-        self.assertEqual(dlg.light_btn.currentIndex(), 1)
-        self.assertEqual(dlg.choice(), {"capture": "camera", "light": "narrowband"})
-        self.assertEqual(ScanSetupDialog(None, {"capture": "scanner"}).capture_btn.currentIndex(), 1)
+class TestScanSetupCard(unittest.TestCase):
+    def test_shows_the_saved_setup_and_applies_a_change(self):
+        controller = _setup_controller({"capture": "scanner", "light": "white"})
+        card = ScanSetupSidebar(controller)
+        card.sync_ui()
+        self.assertEqual((card.capture_btn.currentData(), card.light_btn.currentData()), ("scanner", "white"))
 
-    def test_summary_reports_what_apply_will_set(self):
-        dlg = ScanSetupDialog(None)
-        dlg.next_btn.click()
-        self.assertEqual("Sets Camera WB · Print stock Digital (Adobe RGB)", dlg.summary.text())
-        dlg.light_btn.setCurrentIndex(1)
-        self.assertEqual("Sets Linear RAW · Print stock Digital (Pakon Minilab)", dlg.summary.text())
+        card.light_btn.setCurrentIndex(card.light_btn.findData("narrowband"))
+        controller.apply_scan_setup.assert_called_once_with("scanner", "narrowband")
 
-    def test_the_light_page_suggests_other_print_stocks(self):
-        dlg = ScanSetupDialog(None)
-        self.assertFalse(dlg.stock_hint.isVisibleTo(dlg))
-        dlg.next_btn.click()
-        self.assertTrue(dlg.stock_hint.isVisibleTo(dlg))
-        self.assertIn("Print stock", dlg.stock_hint.text())
-        dlg.light_btn.setCurrentIndex(1)
-        self.assertIn("Kodak Supra Endura", dlg.stock_hint.text())
+    def test_the_capture_is_read_from_the_file_until_picked(self):
+        controller = _setup_controller(None, current_file_hash="h", preview_cam_xyz=None)
+        card = ScanSetupSidebar(controller)
+        card.sync_ui()
+        self.assertEqual(card.capture_btn.count(), 2)
+        self.assertEqual(card.capture_btn.currentData(), "scanner")
+
+        card.light_btn.setCurrentIndex(card.light_btn.findData("narrowband"))
+        controller.apply_scan_setup.assert_called_with("auto", "narrowband")
+        card.capture_btn.setCurrentIndex(card.capture_btn.findData("camera"))
+        controller.apply_scan_setup.assert_called_with("camera", "narrowband")
+
+    def test_bw_hides_the_light_and_keeps_it(self):
+        controller = _setup_controller({"capture": "scanner", "light": "narrowband"})
+        config = controller.state.config
+        controller.state.config = replace(config, process=replace(config.process, process_mode=ProcessMode.BW))
+        card = ScanSetupSidebar(controller)
+        card.sync_ui()
+        self.assertTrue(card.light_btn.isHidden())
+        self.assertEqual(card.light_btn.currentData(), "narrowband")
+        self.assertTrue(card.hint.isHidden())
+
+        controller.state.config = config
+        card.sync_ui()
+        self.assertFalse(card.light_btn.isHidden())
+
+    def test_auto_reads_the_open_frame(self):
+        camera = _setup_controller(None, current_file_hash="h", preview_cam_xyz=((1, 0, 0), (0, 1, 0), (0, 0, 1)))
+        scanner = _setup_controller(None, current_file_hash="h", preview_cam_xyz=None)
+        self.assertEqual(resolved_rig(camera.session.repo, camera.state), ("camera", "white"))
+        self.assertEqual(resolved_rig(scanner.session.repo, scanner.state), ("scanner", "white"))
+        self.assertEqual(resolved_rig(_setup_controller(None).session.repo, AppState()), ("camera", "white"))
+
+
+class TestRigCards(unittest.TestCase):
+    def _panel(self, setup, **state):
+        from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+
+        controller = _setup_controller(setup, **state)
+        panel = ControlsPanel(controller)
+        panel._sync_all_sidebars()
+        return panel
+
+    def test_a_film_scanner_hides_the_camera_cards(self):
+        panel = self._panel({"capture": "scanner", "light": "narrowband"})
+        self.assertTrue(panel.demosaic_section.isHidden())
+        self.assertTrue(panel.optics_section.isHidden())
+        self.assertTrue(panel.trichrome_sidebar.isHidden())
+        self.assertTrue(panel.sensor_sidebar.light_fold.content.isHidden())
+        self.assertTrue(panel.sensor_sidebar.narrowband_fold.content.isHidden())
+        self.assertFalse(panel.sensor_section.isHidden(), "crosstalk stays")
+
+    def test_a_narrowband_camera_shows_everything(self):
+        panel = self._panel({"capture": "camera", "light": "narrowband"})
+        for widget in (panel.demosaic_section, panel.optics_section, panel.trichrome_sidebar):
+            self.assertFalse(widget.isHidden())
+        self.assertFalse(panel.sensor_sidebar.light_fold.content.isHidden())
+        self.assertFalse(panel.sensor_sidebar.narrowband_fold.content.isHidden())
+
+    def test_a_white_light_camera_hides_the_narrowband_rows(self):
+        panel = self._panel({"capture": "camera", "light": "white"})
+        self.assertFalse(panel.demosaic_section.isHidden())
+        self.assertTrue(panel.trichrome_sidebar.isHidden())
+        self.assertTrue(panel.sensor_sidebar.light_fold.content.isHidden())
+
+    def test_a_setting_keeps_its_control_in_view(self):
+        config = WorkspaceConfig()
+        config = replace(config, process=replace(config.process, hue_trim=4.0))
+        panel = self._panel({"capture": "scanner", "light": "white"}, config=config)
+        self.assertFalse(panel.sensor_sidebar.light_fold.content.isHidden())
+
+    def test_bw_on_a_white_light_scanner_leaves_calibration_empty(self):
+        config = with_process_mode(WorkspaceConfig(), ProcessMode.BW)
+        panel = self._panel({"capture": "scanner", "light": "white"}, config=config)
+        self.assertTrue(panel.sensor_section.isHidden())
 
 
 class TestApplyScanSetup(unittest.TestCase):
@@ -146,6 +192,8 @@ class TestApplyScanSetup(unittest.TestCase):
         self.assertNotIn("last_narrowband_scan", saved)
 
     def test_updates_the_open_frame(self):
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True))
         self.controller.apply_scan_setup("camera", "white")
         config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertFalse(config.process.linear_raw)
@@ -184,9 +232,22 @@ class TestApplyScanSetup(unittest.TestCase):
         self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
 
     def test_unchanged_linear_raw_renders_without_reloading(self):
-        self.controller.apply_scan_setup("camera", "white")
+        self._open_frame_paper("white", paper="pakon")
         self.controller.load_file.assert_not_called()
         self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["render"])
+
+    def test_a_new_stock_alone_keeps_the_frames_bounds(self):
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True, local_floors=(0.1, 0.1, 0.1)))
+        self._open_frame_paper("narrowband")
+        self.assertEqual(self.mock_session_manager.update_config.call_args.args[0].process.local_floors, (0.1, 0.1, 0.1))
+
+    def test_frames_the_setup_does_not_change_are_left_alone(self):
+        self.controller.apply_scan_setup("camera", "white")
+        self.mock_session_manager.update_config.assert_not_called()
+        self.repo.save_file_settings.assert_not_called()
+        self.mock_session_manager.push_external_history.assert_not_called()
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_not_called()
 
     def test_rewrites_other_frames_that_have_saved_edits(self):
         self.controller.apply_scan_setup("scanner", "narrowband")

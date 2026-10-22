@@ -15,6 +15,7 @@ import numpy as np
 from PyQt6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QSizePolicy
+from negpy.desktop.view.styles.templates import with_alpha
 from negpy.desktop.view.styles.theme import THEME
 
 from negpy.services.capture.calibration import Roi
@@ -46,12 +47,13 @@ def _stripe_masks(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
     return _stripes[(h, w)]
 
 
-def zebra_image(highlights: np.ndarray, blacks: np.ndarray) -> QImage:
-    """Hatched overlay at frame resolution from two boolean `HxW` masks: clipped highlights in
-    the clip-warning color, clipped blacks in the blue channel's fill color."""
+def zebra_image(highlights: np.ndarray, blacks: np.ndarray, pair: tuple[str, str]) -> QImage:
+    """Hatched overlay at frame resolution from two boolean `HxW` masks, in the Clipping
+    Overlay's (shadow, highlight) pair."""
     h, w = highlights.shape
     buf = np.zeros((h, w, 4), np.uint8)  # BGRA bytes: ARGB32 on a little-endian host
-    for mask, stripe, color in zip((highlights, blacks), _stripe_masks(h, w), (THEME.clip_warning, THEME.channel_blue)):
+    shadow, highlight = pair
+    for mask, stripe, color in zip((highlights, blacks), _stripe_masks(h, w), (highlight, shadow)):
         r, g, b, _ = QColor(color).getRgb()
         buf[mask & stripe] = (b, g, r, _ZEBRA_ALPHA)
     return QImage(buf.data, w, h, 4 * w, QImage.Format.Format_ARGB32).copy()
@@ -79,7 +81,7 @@ class RoiImageLabel(QLabel):
         self._zebra: Optional[QImage] = None  # clipping overlay for the current frame, scan pop-up only
         self._roi: Optional[tuple[float, float, float, float]] = None
         self._drag_start: Optional[QPoint] = None
-        self.hover_ring = False  # when True a cursor hover draws the red selection ring (Pick Better)
+        self.hover_ring = False  # when True a cursor hover draws the gray hover ring (Pick Better)
         self._hover = False
         # Video-player-style buffering spinner drawn on the black frame while a stream spins up.
         self._loading = False
@@ -87,8 +89,6 @@ class RoiImageLabel(QLabel):
         self._spin_timer = QTimer(self)
         self._spin_timer.setInterval(70)
         self._spin_timer.timeout.connect(self._advance_spinner)
-
-    # ── public API ────────────────────────────────────────────────────
 
     def set_frame(self, pixmap: QPixmap) -> None:
         self._pixmap = pixmap
@@ -152,8 +152,6 @@ class RoiImageLabel(QLabel):
             return None
         return Roi(*self._roi)
 
-    # ── geometry ──────────────────────────────────────────────────────
-
     def _display(self) -> Optional[QRect]:
         """Widget-px rect the full frame is drawn into (letterboxed & centred); None when no frame."""
         if self._pixmap is None or self._pixmap.isNull():
@@ -180,8 +178,6 @@ class RoiImageLabel(QLabel):
         fx = min(1.0, max(0.0, (p.x() - draw_rect.x()) / max(1, draw_rect.width())))
         fy = min(1.0, max(0.0, (p.y() - draw_rect.y()) / max(1, draw_rect.height())))
         return fx, fy
-
-    # ── mouse ─────────────────────────────────────────────────────────
 
     def mousePressEvent(self, ev: QMouseEvent) -> None:
         if self._display() is not None:
@@ -219,8 +215,6 @@ class RoiImageLabel(QLabel):
             self.update()
         super().leaveEvent(event)
 
-    # ── paint ─────────────────────────────────────────────────────────
-
     def paintEvent(self, _ev) -> None:
         painter = QPainter(self)
         draw_rect = self._display()
@@ -230,9 +224,9 @@ class RoiImageLabel(QLabel):
                 painter.drawImage(draw_rect, self._zebra)
             painter.setPen(QPen(QColor(THEME.border_indicator), _FRAME_BORDER))
             painter.drawRect(draw_rect.adjusted(-_FRAME_BORDER, -_FRAME_BORDER, 0, 0))
-            if self.hover_ring and self._hover:  # cursor hover → the red selection ring (Pick Better)
+            if self.hover_ring and self._hover:
                 # Drawn outside the photo edge, in the ring margin reserved by _display.
-                painter.setPen(QPen(QColor(THEME.accent_primary), 2))
+                painter.setPen(QPen(QColor(THEME.text_hint), 2))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawRoundedRect(
                     QRectF(draw_rect).adjusted(-_RING_OFFSET, -_RING_OFFSET, _RING_OFFSET, _RING_OFFSET),
@@ -240,8 +234,11 @@ class RoiImageLabel(QLabel):
                     _RING_RADIUS,
                 )
             if self._roi is not None:  # just the box outline — no centre cross (cleaner)
-                painter.setPen(QPen(QColor(THEME.status_success), 2))
-                painter.drawRect(self._roi_in_widget(self._roi, draw_rect))
+                roi = self._roi_in_widget(self._roi, draw_rect)
+                # White over a dark edge, so the box reads on any film.
+                for color, width in ((with_alpha(THEME.mark_shadow, 160), 4), (QColor(THEME.mark_photo), 2)):
+                    painter.setPen(QPen(color, width))
+                    painter.drawRect(roi)
         else:
             painter.fillRect(self.rect(), QColor(THEME.bg_dark))  # black while there's no frame (e.g. stream starting)
             if self._loading:  # stream starting → video-player-style buffering hint

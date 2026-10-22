@@ -247,3 +247,53 @@ def test_unrelated_second_page_is_not_a_quick_preview(tmp_path):
         _two_page_tiff(path, reduced, software=software)
 
         assert _quick(path) is None, name
+
+
+def test_a_compressed_scan_decodes_only_the_strips_its_preview_rows_land_on(tmp_path):
+    from negpy.infrastructure.loaders.helpers import _segments_in_preview
+
+    path = str(tmp_path / "scan.tif")
+    source = np.zeros((400, 60, 3), dtype=np.uint16)
+    source[:, :, 1] = np.arange(400, dtype=np.uint16)[:, None] * 160
+    tifffile.imwrite(path, source, photometric="rgb", compression="zlib", rowsperstrip=1)
+
+    with tifffile.TiffFile(path) as tif:
+        assert len(_segments_in_preview(tif.pages[0], 400, 60, 40, 6)) == 40
+    result = TiffLoader().load_bounded_preview(path, 40)
+
+    assert result is not None and result.size == (6, 40)
+    green = np.asarray(result)[:, 0, 1].astype(int)
+    assert (np.diff(green) >= 0).all() and green[-1] > green[0], "every preview row comes from its own strip"
+
+
+@pytest.mark.parametrize("layout", [{"rowsperstrip": 3}, {"tile": (16, 16)}])
+def test_a_compressed_preview_is_the_same_with_one_decode_worker_or_several(tmp_path, monkeypatch, layout):
+    from negpy.infrastructure.loaders import helpers
+
+    path = str(tmp_path / "scan.tif")
+    rng = np.random.default_rng(0)
+    tifffile.imwrite(path, rng.integers(0, 65535, (160, 96, 3), dtype=np.uint16), photometric="rgb", compression="zlib", **layout)
+
+    previews = []
+    for workers in (1, 4):
+        monkeypatch.setattr(helpers, "_PREVIEW_DECODE_WORKERS", workers)
+        previews.append(np.asarray(TiffLoader().load_bounded_preview(path, 64)))
+
+    assert previews[0].shape == (64, 38, 3)
+    assert (previews[0] == previews[1]).all()
+
+
+def test_a_sparse_tile_leaves_its_area_empty(tmp_path):
+    path = str(tmp_path / "scan.tif")
+    tifffile.imwrite(path, np.full((64, 64, 3), 40000, dtype=np.uint16), photometric="rgb", compression="zlib", tile=(16, 16))
+    with tifffile.TiffFile(path, mode="r+b") as tif:
+        page = tif.pages[0]
+        offsets, counts = list(page.dataoffsets), list(page.databytecounts)
+        offsets[0] = counts[0] = 0
+        page.tags["TileOffsets"].overwrite(offsets)
+        page.tags["TileByteCounts"].overwrite(counts)
+
+    preview = np.asarray(TiffLoader().load_bounded_preview(path, 32))
+
+    assert preview.shape == (32, 32, 3)
+    assert preview[0, 0].max() == 0 and preview[-1, -1].min() > 0

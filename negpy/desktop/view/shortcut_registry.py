@@ -1,4 +1,5 @@
 from negpy.kernel.system.i18n import tr
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -32,7 +33,6 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "first_file": ShortcutEntry("Home", tr("First file"), tr("Navigation")),
     "last_file": ShortcutEntry("End", tr("Last file"), tr("Navigation")),
     "toggle_keep": ShortcutEntry("K", tr("Mark frame as keeper"), tr("Triage")),
-    "toggle_scene_overlay": ShortcutEntry("", tr("Show or hide scene marks on the film strip"), tr("Triage")),
     "toggle_reject": ShortcutEntry("Shift+X", tr("Reject frame (skipped by batch export)"), tr("Triage")),
     "toggle_advance_after_mark": ShortcutEntry("", tr("Advance to the next frame after marking"), tr("Triage")),
     # No default key: nothing obvious is free, and an invented binding that collides makes Qt
@@ -42,7 +42,9 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "half_frame_undiptych": ShortcutEntry("", tr("Unsplit a diptych back into one plain frame"), tr("Triage")),
     "update_thumbnails_selection": ShortcutEntry("", tr("Update selected frames' thumbnails"), tr("Triage")),
     "update_thumbnails_roll": ShortcutEntry("", tr("Update thumbnails for the whole roll"), tr("Triage")),
-    "toggle_compare": ShortcutEntry("\\", tr("Before/after split (auto baseline); hold for the whole frame as the baseline"), tr("Tools")),
+    "toggle_compare": ShortcutEntry(
+        "\\", tr("Before/after split against the default conversion; hold to see the default alone"), tr("Tools")
+    ),
     "rotate_cw": ShortcutEntry("]", tr("Rotate 90° CW"), tr("Geometry")),
     "rotate_ccw": ShortcutEntry("[", tr("Rotate 90° CCW"), tr("Geometry")),
     "flip_h": ShortcutEntry("H", tr("Flip horizontal"), tr("Geometry")),
@@ -55,8 +57,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "converge_v_inc": ShortcutEntry("", tr("Easel tilt up"), tr("Geometry")),
     "converge_h_dec": ShortcutEntry("", tr("Easel swing down"), tr("Geometry")),
     "converge_h_inc": ShortcutEntry("", tr("Easel swing up"), tr("Geometry")),
-    "auto_skew": ShortcutEntry("", tr("Auto skew: square the frame to its edges"), tr("Geometry")),
-    "straighten": ShortcutEntry("L", tr("Toggle straighten line tool"), tr("Geometry")),
+    "auto_skew": ShortcutEntry("", tr("Square to Film: square the frame to its edges"), tr("Geometry")),
+    "straighten": ShortcutEntry("L", tr("Toggle the Level tool"), tr("Geometry")),
     "keystone_lines": ShortcutEntry("", tr("Toggle tilt/swing reference-lines tool"), tr("Geometry")),
     "pick_wb": ShortcutEntry("Shift+W", tr("Toggle WB picker"), tr("Tools")),
     "manual_crop": ShortcutEntry("Shift+C", tr("Toggle manual crop"), tr("Tools")),
@@ -65,8 +67,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "lens_distortion_from_metadata": ShortcutEntry("", tr("Embedded Distortion"), tr("Geometry")),
     "lens_ca_from_metadata": ShortcutEntry("", tr("Embedded CA"), tr("Geometry")),
     "auto_crop": ShortcutEntry("Shift+A", tr("Toggle Auto Crop"), tr("Geometry")),
-    "auto_crop_square": ShortcutEntry("", tr("Toggle Square Before Crop"), tr("Geometry")),
-    "crop_to_valid": ShortcutEntry("", tr("Toggle Crop by Default"), tr("Geometry")),
+    "auto_crop_square": ShortcutEntry("", tr("Toggle Square First"), tr("Geometry")),
+    "crop_to_valid": ShortcutEntry("", tr("Toggle Crop Empty Corners"), tr("Geometry")),
     "pick_dust": ShortcutEntry("Shift+D", tr("Toggle heal tool"), tr("Tools")),
     "pick_scratch": ShortcutEntry("Shift+S", tr("Toggle scratch tool"), tr("Tools")),
     "pick_scratch_line": ShortcutEntry("Shift+K", tr("Toggle transport-scratch line tool"), tr("Tools")),
@@ -165,15 +167,14 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "diffusion_inc": ShortcutEntry("", tr("Diffusion up"), tr("Exposure")),
     "preflash_dec": ShortcutEntry("", tr("Preflash down"), tr("Exposure")),
     "preflash_inc": ShortcutEntry("", tr("Preflash up"), tr("Exposure")),
-    "lock_bounds_toggle": ShortcutEntry("Alt+Q", tr("Toggle bounds lock"), tr("Process")),
+    "lock_bounds_toggle": ShortcutEntry("Alt+Q", tr("Toggle Lock Bounds"), tr("Process")),
     "reanalyze_frame": ShortcutEntry("", tr("Reanalyze this frame's bounds"), tr("Process")),
     "cast_average_toggle": ShortcutEntry("", tr("Toggle cast average"), tr("Process")),
-    "metadata_preset_load": ShortcutEntry("", tr("Load the selected metadata preset onto this frame"), tr("Actions")),
+    "metadata_preset_load": ShortcutEntry("", tr("Apply the selected metadata preset to this frame"), tr("Actions")),
     "metadata_clear_gear": ShortcutEntry("", tr("Clear the frame's camera, lens and film stock"), tr("Actions")),
     "metadata_clear_process": ShortcutEntry("", tr("Clear the frame's development process"), tr("Actions")),
     "metadata_clear_scanning": ShortcutEntry("", tr("Clear the frame's scan setup"), tr("Actions")),
     "assign_sequential_frame": ShortcutEntry("", tr("Assign sequential frame numbers"), tr("Actions")),
-    "scan_setup": ShortcutEntry("", tr("Scanning setup wizard"), tr("Process")),
     "measure_chart": ShortcutEntry("", tr("Measure a crosstalk matrix from a color chart"), tr("Process")),
     "scan_prescan": ShortcutEntry("", tr("Prescan and set crop (Plustek)"), tr("Process")),
     "scan_meter_frame": ShortcutEntry("", tr("Meter a frame and lock the scan exposure (Coolscan)"), tr("Process")),
@@ -261,25 +262,29 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "vignette_size_inc": ShortcutEntry("Alt+S", tr("Vignette size up"), tr("Finishing")),
     "border_size_dec": ShortcutEntry("Alt+Shift+D", tr("Border width down"), tr("Finishing")),
     "border_size_inc": ShortcutEntry("Alt+D", tr("Border width up"), tr("Finishing")),
-    "show_library": ShortcutEntry("Ctrl+L", tr("Open the library"), tr("Navigation")),
+    "show_library": ShortcutEntry("Ctrl+L", tr("Open the Library tab"), tr("Navigation")),
     "command_palette": ShortcutEntry("Ctrl+K", tr("Find a control, card or action"), tr("Navigation")),
-    "focus_search": ShortcutEntry("Ctrl+F", tr("Focus the film strip search box"), tr("Navigation")),
+    "focus_search": ShortcutEntry("Ctrl+F", tr("Focus the Film Strip search box"), tr("Navigation")),
     "search_library": ShortcutEntry("Ctrl+Shift+F", tr("Search the whole library and load the matches"), tr("Navigation")),
     "toggle_semantic_search": ShortcutEntry("", tr("Toggle search by meaning"), tr("Navigation")),
-    "toggle_library_tree": ShortcutEntry("", tr("Show/hide the library"), tr("View")),
     "library_discovery_filters": ShortcutEntry("", tr("Edit the folder names library discovery skips"), tr("View")),
     "cycle_frame_info": ShortcutEntry("I", tr("Frame info on the canvas: off, basic or full"), tr("View")),
-    "toggle_immersive_canvas": ShortcutEntry("", tr("Immersive canvas (toolbar overlaps image)"), tr("View")),
     "toggle_sticky_zoom": ShortcutEntry("", tr("Sticky zoom (keep zoom level when switching images)"), tr("View")),
     "toggle_sticky_settings": ShortcutEntry("", tr("Carry settings between frames (apply Persistent Settings to a new file)"), tr("View")),
     "toggle_invert_zoom_scroll": ShortcutEntry("", tr("Reverse scroll-to-zoom direction (scroll up zooms out)"), tr("View")),
-    "toggle_left_panel": ShortcutEntry("Ctrl+[", tr("Toggle session panel (re-docks when floating)"), tr("View")),
+    "toggle_shortcut_hints": ShortcutEntry("", tr("Shortcut hints (show a control's keys after a mouse edit)"), tr("View")),
+    "toggle_film_strip": ShortcutEntry("Ctrl+[", tr("Collapse or expand the Film Strip"), tr("View")),
+    "toggle_toolbar_mode": ShortcutEntry("", tr("Switch the toolbar between the photo's tools and the roll's"), tr("View")),
     "toggle_right_panel": ShortcutEntry("Ctrl+]", tr("Toggle controls panel (re-docks when floating)"), tr("View")),
-    "reset_panel_layout": ShortcutEntry("Ctrl+Shift+L", tr("Dock session and controls panels"), tr("View")),
-    "toggle_side_panels": ShortcutEntry("Shift+H", tr("Hide or show both side panels"), tr("View")),
-    "toggle_light_table": ShortcutEntry("Shift+G", tr("Light Table: the roll as a grid in place of the canvas"), tr("View")),
+    "reset_panel_layout": ShortcutEntry("Ctrl+Shift+L", tr("Dock the controls panel and expand the Film Strip"), tr("View")),
+    "toggle_side_panels": ShortcutEntry(
+        "Shift+H", tr("Hide the controls panel and collapse the Film Strip, or bring both back"), tr("View")
+    ),
+    "toggle_light_table": ShortcutEntry("Shift+G", tr("Light Table: the whole roll in rows, in place of the canvas"), tr("View")),
+    "light_table_zoom_in": ShortcutEntry("+", tr("Light Table: larger frames, fewer to a row"), tr("View")),
+    "light_table_zoom_out": ShortcutEntry("-", tr("Light Table: smaller frames, more to a row"), tr("View")),
     "toggle_reference": ShortcutEntry("Shift+R", tr("Reference view: pin this frame beside the canvas to match others to it"), tr("View")),
-    "edit_toolbar": ShortcutEntry("", tr("Edit the canvas toolbar (which controls it shows, in what order)"), tr("View")),
+    "edit_toolbar": ShortcutEntry("", tr("Edit the toolbar (which controls it shows, in what order)"), tr("View")),
     "tab_roll": ShortcutEntry("Ctrl+1", tr("Roll tab"), tr("Tabs")),
     "tab_geometry": ShortcutEntry("Ctrl+2", tr("Geometry tab"), tr("Tabs")),
     "tab_tone": ShortcutEntry("Ctrl+3", tr("Exposure tab"), tr("Tabs")),
@@ -288,9 +293,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "tab_history": ShortcutEntry("Ctrl+6", tr("History tab"), tr("Tabs")),
     "tab_export": ShortcutEntry("Ctrl+7", tr("Export tab"), tr("Tabs")),
     "tab_metadata": ShortcutEntry("Ctrl+8", tr("Metadata tab"), tr("Tabs")),
-    "tab_gear": ShortcutEntry("", tr("Gear tab"), tr("Tabs")),
-    "tab_gear_items": ShortcutEntry("", tr("Gear: My Gear section"), tr("Tabs")),
-    "tab_gear_presets": ShortcutEntry("", tr("Gear: Presets section"), tr("Tabs")),
+    "tab_gear_items": ShortcutEntry("", tr("Metadata: My Gear tab"), tr("Tabs")),
+    "tab_gear_presets": ShortcutEntry("", tr("Metadata: Presets tab"), tr("Tabs")),
     "tab_scan": ShortcutEntry("Ctrl+9", tr("Scan tab"), tr("Tabs")),
     "tab_favourites": ShortcutEntry("Ctrl+0", tr("Favorites tab"), tr("Tabs")),
     "fit_view": ShortcutEntry("0", tr("Fit to window"), tr("View")),
@@ -438,12 +442,23 @@ def default_bindings() -> dict[str, str]:
     return {action_id: entry.default_key for action_id, entry in REGISTRY.items()}
 
 
+_RENAMED_ACTIONS = {"toggle_left_panel": "toggle_film_strip"}
+
+
 def merge_bindings(overrides: dict[str, str] | None = None) -> dict[str, str]:
+    """The defaults with the user's keys over them. A default on a key the user gave another action
+    is left unbound, as two shortcuts on one key both go dead."""
     bindings = default_bindings()
-    if overrides:
-        for action_id, key in overrides.items():
-            if action_id in REGISTRY:
-                bindings[action_id] = str(key)
+    chosen = {}
+    for action_id, key in (overrides or {}).items():
+        action_id = _RENAMED_ACTIONS.get(action_id, action_id)
+        if action_id in REGISTRY:
+            chosen[action_id] = str(key)
+    bindings.update(chosen)
+    taken = {(clash_scope(a, k), QKeySequence(k).toString()) for a, k in chosen.items() if k}
+    for action_id, key in bindings.items():
+        if action_id not in chosen and key and (clash_scope(action_id, key), QKeySequence(key).toString()) in taken:
+            bindings[action_id] = ""
     return bindings
 
 
@@ -505,18 +520,30 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
         ids = [action_ids]
     else:
         ids = list(action_ids)
-    keys = [key_for(action_id, bindings) for action_id in ids if action_id in REGISTRY and key_for(action_id, bindings)]
-    if not keys:
+    bound = [action_id for action_id in ids if action_id in REGISTRY and key_for(action_id, bindings)]
+    if not bound:
         return text
-    # Each key is a bordered table cell, so it reads like a physical keycap: a thin,
-    # lighter-than-background border boxing the label. Qt's rich-text engine ignores `border`
-    # on inline <span> elements, where background and padding render but the outline does not,
-    # and honours it on table cells, so the chips must be <td>s.
+    row = keycap_cells([key_for(action_id, bindings) for action_id in bound], "&amp;")
+    # The ids ride along in a comment, which rich text never renders: shortcut_hints reads them back.
+    mark = _IDS_MARK.format(",".join(bound))
+    return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>{mark}'
+
+
+_IDS_MARK = "<!--shortcut:{}-->"
+_IDS_RE = re.compile(r"<!--shortcut:([\w,]+)-->")
+
+
+def shortcut_ids_in(tooltip: str) -> list[str]:
+    """The action ids tooltip_with_shortcut put in a tooltip, or none."""
+    found = _IDS_RE.search(tooltip)
+    return found.group(1).split(",") if found else []
+
+
+def keycap_cells(keys: Iterable[str], separator: str) -> str:
+    """Table cells that read like physical keycaps. Qt's rich text draws `border` on table
+    cells only, never on an inline <span>; the separator cell has no border of its own."""
     cells = [
         f'<td style="border:1px solid {THEME.border_indicator};background:{THEME.bg_selected};color:{THEME.text_primary};padding:1px 6px;font-size:{THEME.font_size_small}px;">{display_key(key)}</td>'
         for key in keys
     ]
-    # The " & " separator sits in its own borderless cell, so it does not inherit a keycap
-    # outline. The whole row is right-aligned on its own line below the text.
-    row = "<td>&nbsp;&amp;&nbsp;</td>".join(cells)
-    return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>'
+    return f"<td>&nbsp;{separator}&nbsp;</td>".join(cells)

@@ -6,7 +6,7 @@ captioned above: "A" over the stronger left, "Skip" over the centre and "B" over
 right. The in-flight parameter name floats above the centre "Skip" caption and is always shown.
 A click on a candidate commits it; a click on the centre current photo rejects both candidates
 and advances to the next proposal; Undo re-shows the pair the last pick came from; OK ends the
-mode and closes the window. A hover draws a red selection ring around the frame under the cursor.
+mode and closes the window. A hover draws a gray ring around the frame under the cursor.
 A Difference slider widens or narrows the A/B spread live, and a Custom Routing button opens a
 window that reorders which parameter each round proposes. The window floats over the editor panels
 and each label letterboxes its frame, so a preview keeps its aspect ratio — it is never stretched
@@ -76,7 +76,7 @@ class PickBetterWindow(QDialog):
         self.right_label = RoiImageLabel()
         for label in (self.left_label, self.current_label, self.right_label):
             label.roi_mode = False  # a tap emits `clicked`, not a calibration crosshair
-            label.hover_ring = True  # a hover draws the red selection ring
+            label.hover_ring = True
         image_row.addWidget(self.left_label, 1)
         image_row.addWidget(self.current_label, 1)
         image_row.addWidget(self.right_label, 1)
@@ -130,8 +130,8 @@ class PickBetterWindow(QDialog):
         # Bottom-right: Undo (re-show the previous pair) and OK (close = end the mode).
         button_row = QHBoxLayout()
         button_row.addStretch(1)
-        self.undo_btn = labeled_action("fa5s.undo", tr(" Undo"), tr("Revert the last pick and re-show that pair"))
-        self.ok_btn = labeled_action("fa5s.check", tr(" OK"), tr("Finish Pick Better and close the window"), primary=True)
+        self.undo_btn = labeled_action("fa5s.undo", tr("Undo"), tr("Revert the last pick and re-show that pair"))
+        self.ok_btn = labeled_action("fa5s.check", tr("OK"), tr("Finish Pick Better and close the window"), primary=True)
         button_row.addWidget(self.undo_btn)
         button_row.addWidget(self.ok_btn)
         layout.addLayout(button_row)
@@ -259,9 +259,6 @@ class PickBetterWindow(QDialog):
         if not self._user_resized and self._last_pw > 0:
             self._size_to_image(self._last_pw, self._last_ph)
         self._schedule_reposition()
-
-    def hideEvent(self, ev) -> None:
-        super().hideEvent(ev)
 
     def _size_to_image(self, pw: int, ph: int) -> None:
         """Size the window so the three photos fill their frames at the largest scale that

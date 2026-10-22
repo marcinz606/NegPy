@@ -1,4 +1,4 @@
-"""The update window behind the sidebar's "Update Available" notice.
+"""The update window behind the ⋯ menu's "Update to vX.Y.Z…" item.
 
 Shows the release notes, downloads the asset that matches this install, and hands
 it to `updater.apply_update`. NegPy then closes: the swap only happens once this
@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import pin_dialog_default
+from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.kernel.system.logging import get_logger
@@ -138,7 +138,7 @@ class UpdateDialog(QDialog):
         self.info = info
         self._worker: Optional[DownloadWorker] = None
 
-        self.setWindowTitle(tr("NegPy {version} is available", version=info.version))
+        self.setWindowTitle(tr("NegPy {version} Is Available", version=info.version))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self.setModal(True)
         self.resize(640, 560)
@@ -151,11 +151,12 @@ class UpdateDialog(QDialog):
         heading.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: bold;")
         root.addWidget(heading)
 
-        subtitle = tr("You are on {value}.", value=get_app_version())
         if info.can_self_install:
-            subtitle += f" NegPy can install this for you ({_mb(info.size)} download)."
+            subtitle = tr(
+                "You are on {value}. NegPy can install this for you ({size} download).", value=get_app_version(), size=_mb(info.size)
+            )
         else:
-            subtitle += tr(" Download it from the releases page to update.")
+            subtitle = tr("You are on {value}. Download it from the releases page to update.", value=get_app_version())
         self.subtitle = QLabel(subtitle)
         self.subtitle.setWordWrap(True)
         self.subtitle.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px;")
@@ -176,9 +177,7 @@ class UpdateDialog(QDialog):
         self.notes.setMarkdown(info.notes or tr("_No release notes._"))
         root.addWidget(self.notes, stretch=1)
 
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
+        self.status = hint_label()
         self.status.setVisible(False)
         root.addWidget(self.status)
 
@@ -238,14 +237,14 @@ class UpdateDialog(QDialog):
                 self.bar.setRange(0, total)
             self.bar.setValue(done)
             self._set_status(
-                tr("Downloading {asset_name} — {value} of {value1}", asset_name=self.info.asset_name, value=_mb(done), value1=_mb(total))
+                tr("Downloading {asset_name}: {value} of {value1}", asset_name=self.info.asset_name, value=_mb(done), value1=_mb(total))
             )
 
     def _on_ready(self, path: Path) -> None:
         self.later_button.setEnabled(False)
         self.bar.setRange(0, 1)
         self.bar.setValue(1)
-        self._set_status(tr("Installing — NegPy will close and reopen on the new version"))
+        self._set_status(tr("Installing. NegPy closes and opens again on the new version."))
 
         try:
             apply_update(path, self.info)
@@ -254,7 +253,7 @@ class UpdateDialog(QDialog):
             return
         except Exception as exc:
             logger.exception("Failed to start the installer")
-            self._on_failed(f"Could not start the installer: {exc}")
+            self._on_failed(tr("Could not start the installer: {exc}", exc=exc))
             return
 
         self.accept()

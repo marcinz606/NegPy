@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, section_subheader
+from negpy.desktop.view.widgets.fold import show_while
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider, SliderGroup
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
@@ -15,9 +16,7 @@ class ToningSidebar(BaseSidebar):
         conf = self.state.config.toning
 
         self.chemical_header = section_subheader(tr("CHEMICAL TONING"))
-        self.chemical_header.setToolTip(
-            tr("Toners apply as sequential baths in the order shown — silver toned by an earlier bath is locked to the later ones")
-        )
+        self.chemical_header.setToolTip(tr("Toners act in the order shown, and a later toner does not change what an earlier one toned."))
         self.layout.addWidget(self.chemical_header)
         # Disabled sliders get no hover, so the reason an alternative process grays them hangs here.
         self.alt_process_hint = hint_label("")
@@ -27,29 +26,13 @@ class ToningSidebar(BaseSidebar):
         self.selenium_slider = CompactSlider(tr("Selenium"), 0.0, 2.0, conf.selenium_strength)
         self.sepia_slider = CompactSlider(tr("Sepia"), 0.0, 2.0, conf.sepia_strength)
         self.gold_slider = CompactSlider(tr("Gold"), 0.0, 2.0, conf.gold_strength)
-        self.gold_slider.setToolTip(
-            tr(
-                "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W Negative only)"
-            )
-        )
+        self.gold_slider.setToolTip(tr("Gold toner, B&W negatives only: blue-black tones, or orange-red highlights over sepia."))
         self.blue_slider = CompactSlider(tr("Iron Blue"), 0.0, 2.0, conf.blue_strength)
-        self.blue_slider.setToolTip(
-            tr(
-                "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W Negative only)"
-            )
-        )
+        self.blue_slider.setToolTip(tr("Iron blue toner, B&W negatives only: blue shadows and navy blacks."))
         self.copper_slider = CompactSlider(tr("Copper"), 0.0, 2.0, conf.copper_strength)
-        self.copper_slider.setToolTip(
-            tr(
-                "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W Negative only)"
-            )
-        )
+        self.copper_slider.setToolTip(tr("Copper toner, B&W negatives only: pink to brick-red tones, with weaker blacks."))
         self.vanadium_slider = CompactSlider(tr("Vanadium"), 0.0, 2.0, conf.vanadium_strength)
-        self.vanadium_slider.setToolTip(
-            tr(
-                "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W Negative only)"
-            )
-        )
+        self.vanadium_slider.setToolTip(tr("Vanadium toner, B&W negatives only: green midtones and highlights while blacks stay black."))
         for slider in (
             self.selenium_slider,
             self.sepia_slider,
@@ -65,12 +48,19 @@ class ToningSidebar(BaseSidebar):
         self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
         self.shadow_str_slider = CompactSlider(tr("Shadow Strength"), 0.0, 1.0, conf.shadow_tint_strength)
         self.layout.addWidget(self.shadow_str_slider)
-        self.layout.addWidget(SliderGroup(self.shadow_hue_slider))
+        shadow_hue_rail = SliderGroup(self.shadow_hue_slider)
+        self.layout.addWidget(shadow_hue_rail)
 
         self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
         self.highlight_str_slider = CompactSlider(tr("Highlight Strength"), 0.0, 1.0, conf.highlight_tint_strength)
         self.layout.addWidget(self.highlight_str_slider)
-        self.layout.addWidget(SliderGroup(self.highlight_hue_slider))
+        highlight_hue_rail = SliderGroup(self.highlight_hue_slider)
+        self.layout.addWidget(highlight_hue_rail)
+        # A hue tints nothing at strength 0.
+        self._sync_hue_rails = (
+            show_while(self.shadow_str_slider, shadow_hue_rail),
+            show_while(self.highlight_str_slider, highlight_hue_rail),
+        )
 
         self.layout.addStretch()
 
@@ -152,6 +142,8 @@ class ToningSidebar(BaseSidebar):
             self.shadow_str_slider.setValue(conf.shadow_tint_strength)
             self.highlight_hue_slider.setValue(conf.highlight_tint_hue)
             self.highlight_str_slider.setValue(conf.highlight_tint_strength)
+            for refresh in self._sync_hue_rails:
+                refresh()
 
             self.chemical_header.setVisible(is_bw)
             self.selenium_slider.setVisible(is_bw)

@@ -18,17 +18,10 @@ class TrichromeSidebar(BaseSidebar):
             "mdi.google-circles-communities",
             tr("Trichrome Mode"),
             self.controller.rgb_scan_mode_for_roll(self.state.active_roll_id),
-            wrap_tooltip(
-                tr(
-                    "Assemble each frame from its red, green and blue exposures, grouped in capture order on load. "
-                    "Each roll keeps its own mode."
-                )
-            ),
+            wrap_tooltip(tr("Make each frame from three exposures (red, green and blue), a setting that each roll keeps.")),
             align_left=True,
         )
-        self.edit_btn = self._icon_action(
-            "fa5s.pen", tr("Edit Triplet…: assign this frame's three exposures by hand, for a frame the grouping got wrong")
-        )
+        self.edit_btn = self._icon_action("fa5s.pen", tr("Edit Triplet…: pick this frame's three exposures by hand."))
         row = QHBoxLayout()
         row.addWidget(self.enable_btn, 1)
         row.addWidget(self.edit_btn)

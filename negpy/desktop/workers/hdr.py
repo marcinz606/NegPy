@@ -106,10 +106,10 @@ class HdrWorker(QObject):
 
             shapes = {f.shape for f in frames}
             if len(shapes) > 1:
-                self.error.emit(tr("Bracket frames differ in size — they must be the same capture setup"))
+                self.error.emit(tr("Bracket frames differ in size. They must come from the same capture setup."))
                 return
 
-            self.progress.emit(len(task.files), total, "Solving exposures")
+            self.progress.emit(len(task.files), total, tr("Solving exposures"))
             stats = [ExposureStats(f["path"], *measure_exposure(buf)) for f, buf in zip(task.files, frames)]
             reference = choose_reference(stats)
             ratios = solve_ratios(frames, reference)

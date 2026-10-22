@@ -11,9 +11,9 @@ import pytest
 
 from PyQt6.QtWidgets import QDialog
 
-from negpy.features.metadata.gear_models import Camera, FilmStock, GearLibrary, Lens
+from negpy.features.metadata.gear_models import Camera, FilmEdge, FilmStock, GearLibrary, Lens
 
-from negpy.features.metadata.gear_logic import metadata_from_gear, matches_gear_filter
+from negpy.features.metadata.gear_logic import clone_into_personal, metadata_from_gear, matches_gear_filter
 
 from negpy.features.metadata.models import MetadataConfig
 
@@ -135,13 +135,13 @@ def test_empty_personal_list_shows_a_hint_not_a_blank_box(gear_dir):
     library = GearLibrary(cameras=[Camera(id="cam-bundled", make="Leica", model="M6", is_bundled=True)])
     dlg = GearLibraryPanel(library)
 
-    assert dlg.items.empty_hint.isVisibleTo(dlg) is True
+    assert dlg.items.empty_hint.isVisibleTo(dlg.items) is True
     assert "cameras" in dlg.items.empty_hint.text()
-    assert dlg.items.item_list.isVisibleTo(dlg) is False
+    assert dlg.items.item_list.isVisibleTo(dlg.items) is False
 
     dlg.items.show_catalog_btn.setChecked(True)
-    assert dlg.items.empty_hint.isVisibleTo(dlg) is False
-    assert dlg.items.item_list.isVisibleTo(dlg) is True
+    assert dlg.items.empty_hint.isVisibleTo(dlg.items) is False
+    assert dlg.items.item_list.isVisibleTo(dlg.items) is True
 
 
 def test_add_item_opens_the_catalog_and_clones_the_pick(gear_dir):
@@ -212,6 +212,17 @@ def test_load_and_save_library(gear_dir):
     assert len(loaded.cameras) == 1
 
     assert loaded.cameras[0].make == "Canon"
+
+
+def test_film_edge_survives_a_save_and_a_clone(gear_dir):
+    edge = FilmEdge(style="kodak", text="PORTRA 400", dx="95-13", source="I3A")
+    stock = FilmStock(id="f1", manufacturer="Kodak", stock_name="Portra 400", edge=edge)
+    GearProfiles.save_library(GearLibrary(film_stocks=[stock, FilmStock(id="f2", stock_name="Plain")]))
+
+    loaded = GearProfiles.load_library()
+    assert [s.edge for s in loaded.film_stocks] == [edge, None]
+    assert "edge" not in FilmStock(stock_name="Plain").to_dict()
+    assert clone_into_personal(stock).edge == edge
 
 
 def test_matches_gear_filter_substring_case_insensitive():

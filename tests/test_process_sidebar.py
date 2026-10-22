@@ -80,8 +80,8 @@ def test_positive_is_slide_only(qapp):
 
 def test_positive_lives_in_mode_bar_not_the_normalization_body(qapp):
     """Whether the source is already a finished positive is a fact about the file, not
-    a Normalization setting -- it lives beside Film Mode in mode_bar, the "Film Mode"
-    card's own content, not inside Normalization's."""
+    a Normalization setting -- it lives beside Film Mode in mode_bar, at the top of the
+    "Setup" card, not inside Normalization's."""
     _, sidebar = _sidebar()
     assert sidebar.positive_source_btn.parentWidget() is sidebar.mode_bar
 
@@ -157,15 +157,15 @@ def test_reanalyze_and_lock_bounds_sit_on_the_analysis_header(qapp):
     assert sidebar.lock_bounds_btn.text() == "", "an icon-only toggle"
 
 
-def test_the_point_header_opens_the_channel_row_and_its_sliders(qapp):
+def test_the_point_header_folds_the_channel_row_and_its_sliders(qapp):
     """The R/G/B selector scopes White/Black Point only, so it sits under their own
     header, after the clip sliders it does not reach."""
     _, sidebar = _sidebar()
     col = sidebar.analysis_bar.layout()
-    header_i = col.indexOf(sidebar.point_header)
+    header_i = _row_index_containing(col, sidebar.point_header)
     assert header_i > _row_index_containing(col, sidebar.color_range_clip_slider)
     assert _row_index_containing(col, sidebar.ch_btn) == header_i + 1
-    assert _row_index_containing(col, sidebar.white_point_slider) == header_i + 2
+    assert _row_index_containing(col, sidebar.white_point_slider) == header_i + 1
 
 
 def test_average_toggles_sync_from_config(qapp):

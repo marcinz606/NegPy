@@ -1,29 +1,14 @@
 import pytest
-from PyQt6.QtWidgets import QFrame, QPushButton, QToolButton
+from PyQt6.QtWidgets import QPushButton
 
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
 
 @pytest.fixture
 def tabs(qapp):
-    bar = OverflowBar(tile=True, height=38, min_item=36)
+    bar = OverflowBar(height=38, min_item=36)
     for i in range(10):
         bar.add_button(QPushButton(), f"Tab {i}")
-    bar.show()
-    return bar
-
-
-@pytest.fixture
-def toolbar(qapp):
-    bar = OverflowBar(height=28, spacing=4)
-    for i in range(6):
-        btn = QToolButton()
-        btn.setFixedWidth(24)
-        bar.add_button(btn, f"Action {i}")
-        if i == 2:
-            sep = QFrame()
-            sep.setFixedWidth(1)
-            bar.add_separator(sep)
     bar.show()
     return bar
 
@@ -37,7 +22,7 @@ def _resize(qapp, bar, width):
 def test_minimum_width_does_not_grow_with_the_button_count(qapp):
     """The whole point: the floor used to be one button per item, so every button added to a
     panel widened that panel permanently."""
-    small, large = OverflowBar(tile=True), OverflowBar(tile=True)
+    small, large = OverflowBar(), OverflowBar()
     for i in range(3):
         small.add_button(QPushButton(), f"B{i}")
     for i in range(30):
@@ -70,6 +55,21 @@ def test_pinned_button_is_never_spilled(qapp, tabs):
     assert 9 in visible and visible[-1] == 9
 
 
+def test_a_fixed_width_tile_keeps_its_width_and_the_rest_share_the_room(qapp):
+    bar = OverflowBar(height=38, min_item=80)
+    for i in range(4):
+        bar.add_button(QPushButton(), f"Tab {i}")
+    for i in range(2):
+        icon = QPushButton()
+        icon.setFixedWidth(38)
+        bar.add_button(icon, f"Icon {i}")
+    bar.show()
+
+    assert len(_resize(qapp, bar, 4 * 100 + 2 * 38)) == 6
+    assert [b.width() for b in bar.buttons] == [100, 100, 100, 100, 38, 38]
+    assert _resize(qapp, bar, 4 * 80 + 2 * 38 - 1) == [0, 1, 2, 3, 4] and bar.overflow_btn.isVisible()
+
+
 def test_tiled_buttons_fill_the_strip_without_gaps(qapp, tabs):
     visible = _resize(qapp, tabs, 240)
     edges = [(tabs.buttons[i].geometry().x(), tabs.buttons[i].geometry().right() + 1) for i in visible]
@@ -84,70 +84,20 @@ def test_full_tiled_strip_uses_the_whole_width(qapp, tabs):
     assert edges[0][0] == 0 and edges[-1][1] == tabs.width()
 
 
-def test_natural_bar_keeps_button_widths_and_packs_left(qapp, toolbar):
-    _resize(qapp, toolbar, 400)
-    assert not toolbar.overflow_btn.isVisible()
-    assert toolbar.buttons[0].geometry().x() == 0
-    assert all(btn.width() == 24 for btn in toolbar.buttons)
-
-
-def test_natural_bar_spills_the_tail_into_the_menu(qapp, toolbar):
-    visible = _resize(qapp, toolbar, 90)
-    assert len(visible) < 6
-    assert toolbar.overflow_btn.isVisible()
-    labels = [action.text() for action in toolbar.build_overflow_menu().actions()]
-    assert labels == [f"Action {i}" for i in range(len(visible), 6)]
-
-
-def test_separator_is_never_offered_in_the_menu(qapp, toolbar):
-    _resize(qapp, toolbar, 90)
-    assert all(action.text().startswith("Action") for action in toolbar.build_overflow_menu().actions())
-
-
-def test_a_trailing_separator_is_dropped_rather_than_left_dangling(qapp, toolbar):
-    """Cutting the row right after the separator would leave a hairline floating at the end."""
-    for width in range(60, 200, 2):
-        _resize(qapp, toolbar, width)
-        shown = [item for item, _label in toolbar._items if not item.isHidden()]
-        if shown:
-            assert not isinstance(shown[-1], QFrame), width
-
-
-def test_menu_entry_clicks_the_real_button(qapp, toolbar):
-    visible = _resize(qapp, toolbar, 90)
-    hidden_btn = toolbar.buttons[len(visible)]
+def test_menu_entry_clicks_the_real_button(qapp, tabs):
+    visible = _resize(qapp, tabs, 160)
+    hidden_btn = tabs.buttons[len(visible)]
     fired = []
     hidden_btn.clicked.connect(lambda *_: fired.append(1))
 
-    toolbar.build_overflow_menu().actions()[0].trigger()
+    tabs.build_overflow_menu().actions()[0].trigger()
     assert fired == [1]
 
 
-def test_menu_mirrors_toggle_state(qapp, toolbar):
-    toolbar.buttons[5].setCheckable(True)
-    toolbar.buttons[5].setChecked(True)
-    _resize(qapp, toolbar, 90)
+def test_menu_mirrors_toggle_state(qapp, tabs):
+    tabs.buttons[9].setCheckable(True)
+    tabs.buttons[9].setChecked(True)
+    _resize(qapp, tabs, 160)
 
-    action = [a for a in toolbar.build_overflow_menu().actions() if a.text() == "Action 5"][0]
+    action = [a for a in tabs.build_overflow_menu().actions() if a.text() == "Tab 9"][0]
     assert action.isCheckable() and action.isChecked()
-
-
-def test_overflow_button_stays_hidden_when_only_a_separator_would_spill(qapp):
-    """A separator's own footprint must never spuriously force the overflow reservation once
-    real content already fits — separators are decorative and, per the trailing-drop rule
-    (test_a_trailing_separator_is_dropped_rather_than_left_dangling), never count as spilled
-    content. _visible_items/_relayout measure widgets by sizeHint(), not setFixedWidth() (which
-    only clamps min/max), so avail must be derived from the real sizeHints; the separator needs
-    a real frame shape too — a bare QFrame's sizeHint is invalid (-1, -1) — matching the VLine
-    frames the app actually uses (files.py:_create_separator)."""
-    bar = OverflowBar(height=28, spacing=0)
-    btn = QToolButton()
-    bar.add_button(btn, "Only")
-    sep = QFrame()
-    sep.setFrameShape(QFrame.Shape.VLine)
-    sep.setFrameShadow(QFrame.Shadow.Plain)
-    sep.setFixedWidth(1)
-    bar.add_separator(sep)
-    bar.show()
-    _resize(qapp, bar, btn.sizeHint().width() + sep.sizeHint().width())
-    assert not bar.overflow_btn.isVisible()

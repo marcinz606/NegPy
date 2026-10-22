@@ -6,53 +6,37 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_row, header_row, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    field_row,
+    header_button,
+    header_row,
+    hint_label,
+    section_subheader,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
-from negpy.desktop.view.widgets.shape_list import ShapeList, ShapeRow, row_icon_button
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.shape_list import ShapeList, ShapeRow
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.features.leak.bake import leak_active
 from negpy.features.leak.models import LeakColor, LeakKind
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.system.i18n import tr
 
-_LEAK_TIP = tr(
-    "Reduce light leaks on the negative, under the leaks you draw or Auto places, before any dust repair. "
-    "Burned-out areas stay; heal or clone them."
-)
-_BAND_TIP = tr(
-    "Band: mark a leak along its strongest line. Drag the line along the leak, then drag a dashed edge "
-    "to where the leak fades out on that side. The film sets how strong it is and how it falls off; "
-    "Strength trims it."
-)
-_EDGE_TIP = tr(
-    "Edge: mark a leak that comes in from a side of the picture. Drag along that side; the line snaps to it. "
-    "Drag the dashed line to where the leak fades out. The film sets how strong it is and how far in it "
-    "reaches along the side, so tongues of light come off whole."
-)
-_SPOT_TIP = tr(
-    "Spot: mark a round leak, as a pinhole, a cracked body or a frame-number window throws. Drag out an oval; "
-    "its center moves it and its two axis handles stretch and tilt it. The film sets how strong it is."
-)
-_PAINT_TIP = tr(
-    "Paint: brush over a leak with no line or center, as a toy camera's blotches or a haze. Strokes grow the "
-    "selected painted leak; with none selected, they start one. The film sets how strong it is across the "
-    "region. Uses the Retouch card's Brush Size; Alt+wheel over the photo sizes it"
-)
+_LEAK_TIP = tr("Reduce light leaks under the leaks you draw or Auto places, before any dust repair.")
+_BAND_TIP = tr("Band: drag along the leak's strongest line, then drag each dashed edge to where the leak fades out.")
+_EDGE_TIP = tr("Edge: drag along the side a leak comes in from; the line snaps to it. Drag the dashed line to where it fades.")
+_SPOT_TIP = tr("Spot: drag out an oval over a round leak, as a pinhole or a frame-counter window throws.")
+_PAINT_TIP = tr("Paint: brush over a leak with no line or center, wider than the leak. Uses the Retouch card's Brush Size.")
 _AUTO_TIP = tr(
-    "Auto: find the frame's light leaks and place a shape over each, ready to adjust: an edge where lit "
-    "rebate carries on into the picture, a band along a straight leak"
+    "Auto: place a shape over each leak the rebate supports: an edge where it crosses into the picture, a band along a straight leak."
 )
 _ROLL_TIP = tr(
-    "From Roll: a leak at the gate or the door falls at about the same place on every frame. With other frames selected, carries this "
-    "frame's leaks to each, placed by its picture; each frame reads the leak's strength and color itself. With none, "
-    "selects the frames Auto finds a leak on"
+    "From Roll: carry this frame's leaks to the selected frames; each reads its own strength. With none selected, select the frames with a leak."
 )
 _BURNED_TIP = tr("Show Burned: wash the film the leak burned out in every layer, where no picture is left to bring back")
-_RECOVER_TIP = tr(
-    "Rebuild a color layer the leak drove to its densest from the layers that still hold picture, by the scene's "
-    "own color around the leak. A leak through the base often burns out red while green and blue keep the picture"
-)
+_RECOVER_TIP = tr("Rebuild a color layer the leak drove to its densest from the layers that still hold the picture.")
 _KIND_ICONS = {
     LeakKind.BAND: "fa5s.grip-lines-vertical",
     LeakKind.EDGE: "mdi.border-top-variant",
@@ -92,8 +76,7 @@ class LeakSidebar(BaseSidebar):
         self.dmax_slider.setToolTip(
             wrap_tooltip(
                 tr(
-                    "The film's maximum density over its base, where its curve flattens. Off treats the curve as a straight line; "
-                    "set it for a film whose dense end is saturated. On a slide it is the density from its black to clear film"
+                    "The film's maximum density over its base. Off treats the curve as a straight line; set it when the film's dense end is saturated."
                 )
             )
         )
@@ -134,19 +117,13 @@ class LeakSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader(tr("SELECTED LEAK")))
         self.strength_slider = CompactSlider(tr("Strength"), 0.0, 400.0, 100.0, step=1.0, precision=1, unit="%")
         self.strength_slider.setToolTip(
-            wrap_tooltip(
-                tr(
-                    "How much of the leak the film reads under the selected shape comes off. Above 100% for a leak the film "
-                    "under-reads; the frame's thinnest film nearby limits it"
-                )
-            )
+            wrap_tooltip(tr("How much of the leak the film reads under the selected shape comes off; nearby thin film limits it."))
         )
         self.falloff_slider = CompactSlider(tr("Falloff"), 0.0, 100.0, 50.0, step=1.0, precision=1, unit="%")
         self.falloff_slider.setToolTip(
             wrap_tooltip(
                 tr(
-                    "How the selected band or spot fades toward its edge. Lower holds a shoulder and drops late; higher fades early "
-                    "and softly. An edge leak fades as light spreading in the base does"
+                    "How the selected band, spot or painted region fades toward its edge: low holds a shoulder, high fades early and softly."
                 )
             )
         )
@@ -163,10 +140,7 @@ class LeakSidebar(BaseSidebar):
         self.trim_slider = CompactSlider(tr("Color Trim"), -50.0, 50.0, 0.0, step=1.0, precision=1, has_neutral=True, unit="%")
         self.trim_slider.setToolTip(
             wrap_tooltip(
-                tr(
-                    "Takes out more or less of the selected leak's leading color: blue for light from the front, red for light "
-                    "through the base. Raise it where a corrected leak leaves its own tint in dark parts of the picture"
-                )
+                tr("Take out more or less of the selected leak's leading color, where a corrected leak leaves its own tint in the shadows.")
             )
         )
         self.trim_group = SliderGroup(self.trim_slider)
@@ -219,13 +193,9 @@ class LeakSidebar(BaseSidebar):
         color = THEME.text_primary if shape.enabled else THEME.text_muted
         row = ShapeRow()
         lay = QHBoxLayout(row)
-        lay.setContentsMargins(6, 2, 4, 2)
-        lay.setSpacing(4)
-        kind_btn = row_icon_button(_KIND_ICONS[shape.kind], checkable=False)
-        kind_btn.setIcon(qta.icon(_KIND_ICONS[shape.kind], color=color))
-        kind_btn.setFixedSize(20, 22)
-        kind_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        kind_btn.setToolTip(tr("Click to turn this leak's correction off or on"))
+        lay.setContentsMargins(THEME.space_md, THEME.space_xs, THEME.space_sm, THEME.space_xs)
+        lay.setSpacing(THEME.space_sm)
+        kind_btn = header_button(qta.icon(_KIND_ICONS[shape.kind], color=color), tr("Click to turn this leak's correction off or on"))
         values = [] if shape.strength == 1.0 else [f"{shape.strength * 100.0:.0f}%"]
         if shape.color is not LeakColor.AUTO and self._color_film():
             values.append(_COLOR_LABELS[_COLORS.index(shape.color)])
@@ -234,8 +204,7 @@ class LeakSidebar(BaseSidebar):
         label = QLabel(f"{i + 1}.  {_KIND_LABELS[shape.kind]}   " + " · ".join(values))
         label.setStyleSheet(f"color: {color};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        delete = row_icon_button("fa5s.trash-alt", checkable=False)
-        delete.setToolTip(tr("Delete this leak"))
+        delete = header_button(qta.icon("fa5s.trash-alt", color=THEME.text_primary), tr("Delete this leak"))
         lay.addWidget(kind_btn)
         lay.addWidget(label)
         lay.addStretch()

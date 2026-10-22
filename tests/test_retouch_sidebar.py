@@ -50,7 +50,7 @@ def test_ir_tooltip_restores_after_ir_loads(qapp):
 
     controller.state.has_ir = True
     sb.sync_ui()
-    assert "recover the image" in sb.ir_dust_btn.toolTip().lower()
+    assert "infrared channel" in sb.ir_dust_btn.toolTip()
 
 
 def test_ir_degenerate_shows_hint(qapp):
@@ -58,7 +58,7 @@ def test_ir_degenerate_shows_hint(qapp):
     controller.state.has_ir = True
     controller.state.ir_degenerate = True
     sb.sync_ui()
-    assert "image content" in sb.ir_dust_btn.toolTip().lower()
+    assert "Kodachrome" in sb.ir_dust_btn.toolTip()
 
 
 def test_ir_buttons_unchecked_without_ir(qapp):
@@ -72,11 +72,12 @@ def test_ir_buttons_unchecked_without_ir(qapp):
     controller.state.has_ir = False
     sb.sync_ui()
     assert not sb.ir_dust_btn.isChecked()
-    assert not sb.ir_dust_btn.isEnabled()
+    assert sb.ir_dust_btn.isHidden() and sb.ir_rail.isHidden()
 
     controller.state.has_ir = True
     sb.sync_ui()
     assert sb.ir_dust_btn.isChecked()
+    assert not sb.ir_dust_btn.isHidden() and not sb.ir_rail.isHidden()
 
 
 def test_manual_heal_count_label(qapp):
@@ -89,20 +90,30 @@ def test_manual_heal_count_label(qapp):
     assert sb.heals_subheader.text() == "MANUAL HEAL · 1"
 
 
-def test_brush_size_is_live_while_optical_removal_is_on(qapp):
-    """The exclusion band is painted with no tool active, so the slider it reads has to be
-    live there. Its keyboard steps are gated on the same enabled state."""
+def test_brush_size_shows_while_optical_removal_is_on(qapp):
+    """The exclusion band is painted with no tool active, so the slider it reads has to show
+    there. Line Sensitivity waits for the Line tool."""
     controller, sb = _sidebar()
     cfg = controller.state.config
 
     controller.state.config = replace(cfg, retouch=replace(cfg.retouch, dust_remove=False))
     sb.sync_ui()
-    assert not sb.manual_size_slider.isEnabled(), "no tool and no detector, so nothing sizes a brush"
+    assert sb.manual_size_slider.isHidden(), "no tool and no detector, so nothing sizes a brush"
+    assert sb.optical_rail.isHidden()
 
     controller.state.config = replace(cfg, retouch=replace(cfg.retouch, dust_remove=True))
     sb.sync_ui()
-    assert sb.manual_size_slider.isEnabled()
-    assert sb.manual_size_slider.isVisibleTo(sb) and sb.line_threshold_slider.isVisibleTo(sb), "disabled, never hidden"
+    assert not sb.manual_size_slider.isHidden() and not sb.optical_rail.isHidden()
+    assert sb.line_threshold_slider.isHidden()
+
+
+def test_a_tool_shows_its_rail_while_armed(qapp):
+    _controller, sb = _sidebar()
+    sb.pick_line_btn.setChecked(True)
+    assert not sb.line_threshold_slider.isHidden()
+    sb.pick_line_btn.setChecked(False)
+    sb.clone_btn.setChecked(True)
+    assert not sb.clone_rail.isHidden() and not sb.manual_size_slider.isHidden()
 
 
 def test_brush_size_spans_the_shared_range(qapp):
@@ -121,9 +132,9 @@ def test_overlay_choice_sets_the_mode_and_ir_needs_an_ir_plane(qapp):
     controller, sb = _sidebar()
     controller.state.has_ir = False
     sb.sync_ui()
-    assert not sb.overlay_btn.choice_menu.actions()[2].isEnabled()
+    assert not sb.overlay_btn.is_choice_enabled(2)
 
-    sb.overlay_btn.choice_menu.actions()[1].trigger()
+    sb.overlay_btn.setCurrentIndex(1)
     controller.set_dust_overlay.assert_called_once_with("marked")
 
     controller.state.dust_overlay_mode = "ir"
@@ -173,3 +184,21 @@ def test_brush_and_clone_sliders_persist_once_per_drag(qapp):
         assert update.call_args.kwargs["persist"] is False
         slider.valueCommitted.emit(30.0)
         assert update.call_args.kwargs["persist"] is True
+
+
+def test_ir_method_is_a_step_combo_that_stores_the_method_key(qapp):
+    from negpy.desktop.view.widgets.step_combo import StepCombo
+    from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
+
+    controller, sb = _sidebar()
+    assert isinstance(sb.ir_method_btn, StepCombo)
+
+    controller.state.config = replace(
+        controller.state.config, retouch=replace(controller.state.config.retouch, ir_method=IR_METHOD_OPENICE)
+    )
+    sb.sync_ui()
+    assert sb.ir_method_btn.currentData() == IR_METHOD_OPENICE
+
+    controller.apply_config.reset_mock()
+    sb.ir_method_btn.setCurrentIndex(sb.ir_method_btn.findData(IR_METHOD_NEGPY))
+    assert controller.apply_config.call_args.args[0].retouch.ir_method == IR_METHOD_NEGPY

@@ -18,7 +18,7 @@ from negpy.features.process.models import DemosaicMode, ProcessConfig, ProcessMo
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
-def _panel_stub(*, active_roll_id="roll1", locked_cards=(), hand_drawn=False) -> MagicMock:
+def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
     panel = MagicMock()
     panel._ROLL_CARD_LABELS = ControlsPanel._ROLL_CARD_LABELS
     panel.film_section = MagicMock()
@@ -34,21 +34,11 @@ def _panel_stub(*, active_roll_id="roll1", locked_cards=(), hand_drawn=False) ->
     panel.controller.state.active_roll_id = active_roll_id
     panel.controller.locked_roll_cards.side_effect = lambda: set(locked_cards)
     panel.controller.frame_section_scopes.side_effect = lambda keys: {key: "frame" for key in keys}
-    panel.controller.hand_drawn_crop_departs_from_roll.return_value = hand_drawn
     return panel
 
 
 def _scope(section) -> str:
     return section.set_scope_buttons.call_args[0][1]
-
-
-def test_sync_scope_buttons_lists_a_hand_drawn_crop_under_a_rolls_auto_crop():
-    panel = _panel_stub(hand_drawn=True)
-
-    ControlsPanel._sync_scope_buttons(panel)
-
-    panel.roll_override_summary.setText.assert_called_with("This frame overrides: Crop (hand-drawn)")
-    assert _scope(panel.autocrop_section) == "roll"
 
 
 def test_sync_scope_buttons_blank_summary_without_an_active_roll():
@@ -123,7 +113,7 @@ def test_sync_scope_buttons_marks_only_the_diverged_card_as_frame():
     ControlsPanel._sync_scope_buttons(panel)
 
     assert _scope(panel.demosaic_section) == "frame"
-    for section in (panel.film_section, panel.sensor_section, panel.process_section, panel.autocrop_section):
+    for section in (panel.film_section, panel.sensor_section, panel.process_section):
         assert _scope(section) == "roll"
 
 
@@ -151,13 +141,12 @@ def test_sync_scope_buttons_disables_rather_than_hides_the_pair_with_no_roll_ope
         assert section.set_scope_buttons.call_args.kwargs["roll_enabled"] is False
 
 
-def test_sync_scope_buttons_names_the_optics_and_crop_cards():
-    panel = _panel_stub(locked_cards={"autocrop", "lens", "flatfield"})
+def test_sync_scope_buttons_names_the_optics_card_once():
+    panel = _panel_stub(locked_cards={"lens", "flatfield"})
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Crop, Optics")
-    assert _scope(panel.autocrop_section) == "frame"
+    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Optics")
 
 
 def test_optics_reads_frame_when_either_of_its_cards_is_locked():
@@ -186,8 +175,8 @@ def test_a_roll_card_routes_both_halves_to_the_controller():
     panel.controller.set_card_scope.assert_called_once_with("demosaic", "roll")
 
     panel.controller.set_card_scope.reset_mock()
-    ControlsPanel._on_scope_selected(panel, "sensor", "roll")
-    panel.controller.set_card_scope.assert_called_once_with(("sensor", "cast_removal"), "roll")
+    ControlsPanel._on_scope_selected(panel, "optics", "roll")
+    panel.controller.set_card_scope.assert_called_once_with(("lens", "flatfield"), "roll")
 
     panel.controller.set_card_scope.reset_mock()
     ControlsPanel._on_scope_selected(panel, "process", "frame")
@@ -405,43 +394,28 @@ def test_reset_film_fields_routes_through_the_controls_own_setters():
     panel.controller.set_process_mode.assert_called_once_with(ProcessConfig().process_mode)
 
 
-def test_the_crop_card_reset_turns_auto_crop_off_and_keeps_a_hand_drawn_crop():
+def test_the_crop_card_reset_clears_the_crop_through_the_controller_with_its_settings():
     panel = MagicMock()
-    panel.controller.refuse_crop_edit.return_value = False
-    panel.controller.state = AppState()
-    cfg = panel.controller.state.config
-    panel.controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_from_auto=True))
 
     ControlsPanel._reset_crop_card(panel)
 
-    panel._reset_card_fields.assert_called_once_with("autocrop")
-    panel.controller.reset_crop.assert_called_once_with()
-
-    panel.reset_mock()
-    panel.controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
-    ControlsPanel._reset_crop_card(panel)
-    panel.controller.reset_crop.assert_not_called()
+    settings = panel.controller.reset_crop.call_args.kwargs
+    assert (settings["autocrop_ratio"], settings["autocrop_offset"]) == ("Free", 0)
+    assert set(settings) == {"autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio", "autocrop_square"}
 
 
-def test_the_geometry_reset_clears_a_hand_drawn_crop_and_keeps_auto_crop():
+def test_the_geometry_reset_keeps_the_crop():
     panel = MagicMock()
-    panel.controller.refuse_crop_edit.return_value = False
     panel.controller.state = AppState()
     cfg = panel.controller.state.config
-    rotated = replace(cfg.geometry, rotation=1, crop_rect=(0.1, 0.1, 0.9, 0.9))
+    geometry = replace(cfg.geometry, rotation=1, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, autocrop_ratio="4:3")
+    panel.controller.state.config = replace(cfg, geometry=geometry)
 
-    panel.controller.state.config = replace(cfg, geometry=replace(rotated, crop_from_auto=True, crop_detect_key="k"))
     ControlsPanel._reset_geometry_fields(panel)
-    geo = panel.controller.apply_config.call_args.args[0].geometry
-    assert geo.rotation == 0 and geo.crop_from_auto and geo.crop_rect == (0.1, 0.1, 0.9, 0.9)
-    panel.controller.sync_auto_crop_lock.assert_not_called()
 
-    panel.controller.state.config = replace(cfg, geometry=rotated)
-    ControlsPanel._reset_geometry_fields(panel)
     geo = panel.controller.apply_config.call_args.args[0].geometry
-    assert geo.rotation == 0 and not geo.crop_from_auto and geo.crop_rect is None
-    panel.controller.sync_auto_crop_lock.assert_called_once_with()
-    panel.controller.session.carried_crop_kept.assert_called()
+    assert geo.rotation == 0
+    assert (geo.crop_rect, geo.crop_from_auto, geo.autocrop_ratio) == ((0.1, 0.1, 0.9, 0.9), True, "4:3")
 
 
 def test_reset_film_fields_does_nothing_at_the_defaults():
@@ -571,9 +545,10 @@ def test_a_frame_card_menu_copies_that_card(monkeypatch):
     panel.controller.session.copy_card_settings.assert_called_once_with(frame_card_rows("lab"))
 
 
-def test_the_geometry_card_copies_a_crop_with_its_auto_crop():
+def test_the_crop_card_copies_a_crop_with_its_auto_crop():
     """A rect copied without its Auto Crop reads as the other kind on the target frame."""
     from negpy.desktop.settings_catalog import frame_card_rows
 
-    fields = {f for row in frame_card_rows("geometry") for f in row.fields}
-    assert {"crop_rect", "crop_detect_key", "crop_from_auto"} <= fields
+    fields = {f for row in frame_card_rows("autocrop") for f in row.fields}
+    assert {"crop_rect", "crop_detect_key", "crop_from_auto", "autocrop_ratio", "autocrop_mode"} <= fields
+    assert not fields & {f for row in frame_card_rows("geometry") for f in row.fields}

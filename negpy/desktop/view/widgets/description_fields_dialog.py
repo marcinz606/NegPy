@@ -1,7 +1,7 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QGridLayout, QPushButton, QVBoxLayout
 
-from negpy.desktop.view.styles.templates import hint_label, pin_button_box
+from negpy.desktop.view.styles.templates import hint_label, labeled_toggle, pin_button_box
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.features.metadata.models import (
     DESCRIPTION_FIELD_LABELS,
@@ -19,15 +19,19 @@ class DescriptionFieldsDialog(QDialog):
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)
-        root.addWidget(hint_label(tr("Checked fields are joined with • into the export ImageDescription. Empty values are skipped.")))
+        root.addWidget(
+            hint_label(tr("The fields that are on are joined with • into the export ImageDescription. Empty values are skipped."))
+        )
 
         enabled = set(normalize_description_fields(selected))
-        self._checks: dict[str, QCheckBox] = {}
-        for key in DESCRIPTION_FIELD_ORDER:
-            box = QCheckBox(DESCRIPTION_FIELD_LABELS[key])
-            box.setChecked(key in enabled)
+        self._checks: dict[str, QPushButton] = {}
+        grid = QGridLayout()
+        for i, key in enumerate(DESCRIPTION_FIELD_ORDER):
+            label = DESCRIPTION_FIELD_LABELS[key]
+            box = labeled_toggle("", label, key in enabled, tr("Join {value} into the ImageDescription", value=label))
             self._checks[key] = box
-            root.addWidget(box)
+            grid.addWidget(box, i // 2, i % 2)
+        root.addLayout(grid)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)

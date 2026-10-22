@@ -92,3 +92,24 @@ def test_navigator_press_beside_the_map_falls_through(qapp):
     nav.center_requested.connect(lambda x, y: got.append((x, y)))
     QTest.mouseClick(nav, Qt.MouseButton.LeftButton, pos=QPoint(5, 40))
     assert got == []
+
+
+@pytest.mark.parametrize(("thumb", "frame", "picture"), [((120, 80), (3000, 2000), (120, 80)), ((120, 120), (2000, 3000), (80, 120))])
+def test_the_map_cuts_the_frame_out_of_its_thumbnail(qapp, thumb, frame, picture):
+    from types import SimpleNamespace
+
+    from PyQt6.QtGui import QColor, QIcon, QPixmap
+
+    from negpy.desktop.view.canvas.widget import ImageCanvas
+    from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+    pixmap = QPixmap(*thumb)
+    pixmap.fill(QColor(200, 0, 0))
+    asset = {"hash": "h", "path": "/a.tif"}
+    state = SimpleNamespace(selected_file_idx=0, uploaded_files=[asset], thumbnails={asset_thumbnail_key(asset): QIcon(pixmap)})
+    canvas = SimpleNamespace(overlay=SimpleNamespace(_qimage=None), state=state, display_size=lambda: frame)
+
+    image = ImageCanvas._navigator_image(canvas)
+
+    assert (image.width(), image.height()) == picture
+    assert image.pixelColor(0, 0) == image.pixelColor(picture[0] - 1, picture[1] - 1) == QColor(200, 0, 0)

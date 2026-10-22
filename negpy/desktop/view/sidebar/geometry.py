@@ -1,30 +1,22 @@
-from negpy.desktop.view.styles.templates import add_choice_items, select_choice
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-)
+from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, header_row, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import header_row, section_subheader
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.fold import rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.desktop.view.widgets.step_combo import StepCombo
-from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
-from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT
 
 
 def _keystone_reference_icon() -> QIcon:
     icon = QIcon()
     modes = (
-        (QIcon.Mode.Normal, THEME.text_primary, THEME.text_on_accent),
-        (QIcon.Mode.Active, THEME.text_primary, THEME.text_on_accent),
+        (QIcon.Mode.Normal, THEME.text_hint, THEME.text_primary),
+        (QIcon.Mode.Active, THEME.text_hint, THEME.text_primary),
         (QIcon.Mode.Disabled, THEME.text_muted, THEME.text_muted),
     )
     for mode, off_color, on_color in modes:
@@ -48,78 +40,30 @@ def _keystone_reference_icon() -> QIcon:
 
 
 class GeometrySidebar(BaseSidebar):
-    """
-    Panel for cropping and fine adjustments.
-    """
-
-    @staticmethod
-    def _field_label(text: str) -> QLabel:
-        # fixed width so the Ratio/Guide combos left-align
-        lbl = field_label(text, 42)
-        return lbl
+    """Straighten: how this frame lies, turned, flipped and leveled."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
 
-        # Icons on the header, like the Roll tab's Crop card.
-        self.manual_crop_btn = self._tool_toggle("fa5s.crop-alt", "", tr("Crop: draw the crop by hand on the canvas"))
-        # The Crop card's Auto Crop, mirrored here as Ratio is: the Crop card owns it.
-        auto_tip = tr("Auto Crop: find the frame edges and crop to them; off clears the crop. The same setting as the Crop card's wand")
-        self.auto_crop_btn = self._tool_toggle("fa5s.magic", "", auto_tip)
-        self.auto_crop_btn.plain_tooltip = auto_tip
-        for btn in (self.manual_crop_btn, self.auto_crop_btn):
-            btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.clear_crop_btn = self._icon_action("fa5s.undo", tr("Reset crop: clear the manual crop and disable auto crop"))
-        self.layout.addLayout(header_row(section_subheader(tr("CROP")), self.manual_crop_btn, self.auto_crop_btn, self.clear_crop_btn))
-
-        # The same roll field as the Crop card's Ratio: the crop tool snaps to it.
-        ratio_row = QHBoxLayout()
-        ratio_row.addWidget(self._field_label(tr("Ratio")))
-        self.ratio_combo = StepCombo()
-        add_choice_items(self.ratio_combo, [r.value for r in CROP_RATIO_CHOICES])
-        select_choice(self.ratio_combo, canonical_crop_ratio(conf.autocrop_ratio))
-        self.ratio_combo.setToolTip(
-            wrap_tooltip(tr("Aspect ratio the crop tool and auto crop snap to. A roll setting, shared with the Crop card on the Roll tab"))
-        )
-        ratio_row.addWidget(self.ratio_combo, 1)
-        self.layout.addLayout(ratio_row)
-
-        guide_row = QHBoxLayout()
-        guide_row.addWidget(self._field_label(tr("Guide")))
-        self.guide_combo = StepCombo()
-        for guide, label in GUIDE_LABELS.items():
-            self.guide_combo.addItem(label, guide.value)
-        self.guide_combo.setCurrentIndex(self.guide_combo.findData(self.state.crop_guide))
-        self.guide_combo.setToolTip(
-            tooltip_with_shortcut(tr("Composition guide shown in the crop tool"), ("crop_guide_next", "crop_guide_orient"))
-        )
-        guide_row.addWidget(self.guide_combo, 1)
-        self.guide_orient_btn = self._icon_action(
-            "fa5s.redo", tooltip_with_shortcut(tr("Rotate the guide orientation (spiral, triangles)"), "crop_guide_orient")
-        )
-        guide_row.addWidget(self.guide_orient_btn)
-        self._sync_guide_orient_btn()
-        self.layout.addLayout(guide_row)
-
-        self.crop_to_valid_btn = self._small_toggle(
-            "fa5s.crop",
-            "",
-            conf.crop_to_valid,
-            tr("Crop by Default: crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge shows extrapolated pixels"),
-        )
-        self.crop_to_valid_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.straighten_btn = self._tool_toggle("fa5s.ruler", "", tr("Draw a line along a horizon or edge to level the frame"))
-        self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.auto_skew_btn = self._icon_action("fa5s.ruler-combined", tr("Auto Skew: square the frame to its own film and frame edges"))
-        # The tools sit on the header so all three sliders keep one track width.
-        self.keystone_lines_btn = self._tool_toggle("", "", tr("Tilt and swing with reference lines"))
-        self.keystone_lines_btn.setIcon(_keystone_reference_icon())
-        self.keystone_lines_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        # The toolbar's buttons, here too; MainWindow wires them to the same rotate and flip.
+        self.rot_l_btn = self._icon_action("mdi6.file-rotate-left", tr("Rotate CCW"))
+        self.rot_r_btn = self._icon_action("mdi6.file-rotate-right", tr("Rotate CW"))
+        self.flip_h_btn = self._icon_action("fa5s.arrows-alt-h", tr("Flip Horizontal"))
+        self.flip_v_btn = self._icon_action("fa5s.arrows-alt-v", tr("Flip Vertical"))
         self.layout.addLayout(
-            header_row(
-                section_subheader(tr("ALIGNMENT")), self.auto_skew_btn, self.straighten_btn, self.keystone_lines_btn, self.crop_to_valid_btn
-            )
+            header_row(section_subheader(tr("ROTATE AND FLIP")), self.rot_l_btn, self.rot_r_btn, self.flip_h_btn, self.flip_v_btn)
         )
+
+        self.straighten_btn = self._tool_toggle("fa5s.ruler", tr("Level"), tr("Draw a line along a horizon or edge to level the frame"))
+        self.auto_skew_btn = self._labeled_action(
+            "fa5s.ruler-combined", tr("Square to Film"), tr("Square to Film: line the picture up with the edges of the film.")
+        )
+        self.keystone_lines_btn = self._tool_toggle("", tr("Draw Lines"), tr("Tilt and swing with reference lines"))
+        self.keystone_lines_btn.setIcon(_keystone_reference_icon())
+        tool_row = QHBoxLayout()
+        for btn in (self.straighten_btn, self.auto_skew_btn, self.keystone_lines_btn):
+            tool_row.addWidget(btn, 1)
+        self.layout.addLayout(tool_row)
 
         # The slider shows the photographer's convention, where positive is clockwise on screen.
         # Internally geometry.fine_rotation keeps the cv2/warp convention, where positive is
@@ -132,40 +76,22 @@ class GeometrySidebar(BaseSidebar):
 
         self.converge_v_slider = CompactSlider(tr("Tilt"), -15.0, 15.0, conf.converge_v, step=0.1, unit="%")
         self.converge_v_slider.setToolTip(
-            tr(
-                "Easel Tilt: tip the easel about a horizontal axis to straighten converging verticals, "
-                "the building that leans back because the camera pointed up. Positive stretches the top "
-                "edge. Per-cent of the frame, what you would measure on the easel, not a tilt angle: "
-                "the same tilt keystones differently at every enlargement."
-            )
+            tr("Tilt: straighten buildings that lean back because the camera pointed up, where positive stretches the top.")
         )
         self.converge_h_slider = CompactSlider(tr("Swing"), -15.0, 15.0, conf.converge_h, step=0.1, unit="%")
-        self.converge_h_slider.setToolTip(
-            tr(
-                "Easel Swing: the same movement about a vertical axis, for converging horizontals. A "
-                "wall shot from one side, or a copy stand not square to the film. Positive stretches "
-                "the left edge."
-            )
+        self.converge_h_slider.setToolTip(tr("Swing: straighten a wall that narrows to one side, where positive stretches the left side."))
+        self.layout.addWidget(rail_fold("geometry_easel", self.fine_rot_slider, self.converge_v_slider, self.converge_h_slider))
+
+        self.crop_to_valid_btn = self._small_toggle(
+            "fa5s.crop",
+            tr("Crop Empty Corners"),
+            conf.crop_to_valid,
+            tr("Crop Empty Corners: crop away the empty corners that rotation, Tilt and Swing leave."),
+            align_left=True,
         )
-        self.layout.addWidget(self.converge_v_slider)
-        self.layout.addWidget(self.converge_h_slider)
-
-    def cycle_guide(self) -> None:
-        self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
-
-    def _sync_guide_orient_btn(self) -> None:
-        guide = self.guide_combo.currentData()
-        self.guide_orient_btn.setEnabled(ORIENTATION_COUNT.get(CropGuide(guide), 1) > 1 if guide else False)
+        self.layout.addWidget(self.crop_to_valid_btn)
 
     def _connect_signals(self) -> None:
-        self.ratio_combo.currentIndexChanged.connect(lambda _: self.controller.set_crop_ratio(self.ratio_combo.currentData()))
-        self.guide_combo.currentIndexChanged.connect(lambda _i: self.controller.set_crop_guide(self.guide_combo.currentData()))
-        self.guide_combo.currentIndexChanged.connect(lambda _i: self._sync_guide_orient_btn())
-        self.guide_orient_btn.clicked.connect(self.controller.cycle_crop_guide_orientation)
-        self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
-        self.auto_crop_btn.toggled.connect(self._on_auto_crop_toggled)
-        self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
-
         self.auto_skew_btn.clicked.connect(self.controller.auto_skew_frame)
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
         self.keystone_lines_btn.toggled.connect(self._on_keystone_lines_toggled)
@@ -196,15 +122,6 @@ class GeometrySidebar(BaseSidebar):
         for slider in (self.converge_v_slider, self.converge_h_slider):
             slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
 
-    def _on_auto_crop_toggled(self, checked: bool) -> None:
-        if checked:
-            self.controller.apply_auto_crop()
-        else:
-            self.controller.reset_crop()
-
-    def _on_manual_crop_toggled(self, checked: bool) -> None:
-        self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)
-
     def _on_straighten_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.STRAIGHTEN if checked else ToolMode.NONE)
 
@@ -220,33 +137,24 @@ class GeometrySidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
-            select_choice(self.ratio_combo, canonical_crop_ratio(conf.autocrop_ratio))
-            self.guide_combo.setCurrentIndex(self.guide_combo.findData(self.state.crop_guide))
-            self._sync_guide_orient_btn()
-
             self.fine_rot_slider.setValue(-conf.fine_rotation)
             self.converge_v_slider.setValue(conf.converge_v)
             self.converge_h_slider.setValue(conf.converge_h)
 
-            self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
             self.keystone_lines_btn.setChecked(self.state.active_tool == ToolMode.KEYSTONE_LINES)
-            self.manual_crop_btn.edited_dot.set_active(has_manual_crop(conf))
-            self.auto_crop_btn.setChecked(conf.crop_from_auto)
             self.crop_to_valid_btn.setChecked(conf.crop_to_valid)
             self.crop_to_valid_btn.edited_dot.set_active(conf.crop_to_valid)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        self.ratio_combo.blockSignals(blocked)
-        self.guide_combo.blockSignals(blocked)
-        self.guide_orient_btn.blockSignals(blocked)
-        self.fine_rot_slider.blockSignals(blocked)
-        self.converge_v_slider.blockSignals(blocked)
-        self.converge_h_slider.blockSignals(blocked)
-        self.manual_crop_btn.blockSignals(blocked)
-        self.auto_crop_btn.blockSignals(blocked)
-        self.straighten_btn.blockSignals(blocked)
-        self.keystone_lines_btn.blockSignals(blocked)
-        self.crop_to_valid_btn.blockSignals(blocked)
+        for w in (
+            self.fine_rot_slider,
+            self.converge_v_slider,
+            self.converge_h_slider,
+            self.straighten_btn,
+            self.keystone_lines_btn,
+            self.crop_to_valid_btn,
+        ):
+            w.blockSignals(blocked)

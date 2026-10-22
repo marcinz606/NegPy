@@ -1,7 +1,5 @@
 """GranularSettingsDialog pick mode (the Persistent Settings picker)."""
 
-from PyQt6.QtCore import Qt
-
 from negpy.desktop.settings_catalog import all_rows
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
@@ -39,18 +37,18 @@ def test_check_all_reaches_every_row(qapp):
     assert len(dlg.selected_ids()) == len(all_rows())
 
 
-def test_section_checkbox_is_tristate_and_toggles_its_rows(qapp):
+def test_the_section_toggle_counts_its_rows_and_turns_them_all_on_or_off(qapp):
     dlg = _dlg({"lab.saturation"})
     section, row_ids = next((s, ids) for s, ids in dlg._section_rows if "lab.saturation" in ids)
-    assert section.select_box.checkState() == Qt.CheckState.PartiallyChecked
+    assert section.select_box.text() == f"1/{len(row_ids)}" and not section.select_box.isChecked()
 
-    section._on_select_clicked()
+    section.select_box.click()
     assert set(row_ids) <= set(dlg.selected_ids())
-    assert section.select_box.checkState() == Qt.CheckState.Checked
+    assert section.select_box.text() == f"{len(row_ids)}/{len(row_ids)}" and section.select_box.isChecked()
 
-    section._on_select_clicked()
+    section.select_box.click()
     assert not (set(row_ids) & set(dlg.selected_ids()))
-    assert section.select_box.checkState() == Qt.CheckState.Unchecked
+    assert section.select_box.text() == f"0/{len(row_ids)}" and not section.select_box.isChecked()
 
 
 def test_paste_mode_keeps_no_section_checkboxes(qapp):

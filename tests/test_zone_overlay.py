@@ -95,6 +95,15 @@ def _paint(overlay: CanvasOverlay) -> None:
     painter.end()
 
 
+def test_both_map_looks_mark_paper_black_and_white_in_the_clipping_pair():
+    from negpy.desktop.view.canvas.overlay import zone_colors
+
+    for palette in PALETTES:
+        for style in ("grid", "zone_map"):
+            colors = zone_colors(style, palette.key)
+            assert (colors[0][0].name(), colors[-1][0].name()) == tuple(c.lower() for c in palette.pair), (style, palette.key)
+
+
 def test_both_looks_paint_a_map_and_report_the_shares(qapp):
     for style in ("false_color", "zone_map"):
         overlay = _overlay(style)
@@ -140,10 +149,12 @@ def test_legend_rings_the_pointer_zone_and_reports_hover(qapp):
     legend = ZoneLegend()
     legend.set_colors(zone_colors("false_color", "standard"))
     legend.set_shares(np.full(11, 1 / 11))
+    assert legend.readout() == ("Zone –", "")
     legend.set_ringed(4)
+    assert legend.readout() == ("Zone IV", "9%")
     hovered = []
     legend.zone_hovered.connect(hovered.append)
-    x = legend.width() * 6.5 / 11
+    x = legend._cell(6).center().x()
     legend.mouseMoveEvent(
         QMouseEvent(
             QEvent.Type.MouseMove,
@@ -154,6 +165,7 @@ def test_legend_rings_the_pointer_zone_and_reports_hover(qapp):
             Qt.KeyboardModifier.NoModifier,
         )
     )
+    assert legend.readout() == ("Zone VI", "9%")
     legend.leaveEvent(None)
     assert legend._ringed == 4
     assert hovered == [6, None]

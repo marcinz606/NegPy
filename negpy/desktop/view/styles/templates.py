@@ -6,8 +6,9 @@ import math
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt
-from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QLinearGradient, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QLinearGradient, QPainter, QPalette, QPixmap
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialogButtonBox,
     QHBoxLayout,
@@ -75,8 +76,21 @@ HEADER_HEIGHT = 40
 # rows read as one control set.
 TOOLBAR_BUTTON_HEIGHT = 28
 TOOLBAR_ICON_SIZE = 16
+# The canvas bar under the picture, the app's main toolbar: larger than a section toolbar.
+BAR_BUTTON_HEIGHT = 36
+BAR_ICON_SIZE = 18
 
 _default_btn_height: int | None = None
+
+
+def themed_palette(palette: QPalette) -> QPalette:
+    """The roles QSS cannot reach: Fusion fills selected text, an item view's focus frame and
+    every rich-text link with its own blue."""
+    palette = QPalette(palette)
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(THEME.bg_checked_hover))
+    for role in (QPalette.ColorRole.HighlightedText, QPalette.ColorRole.Link, QPalette.ColorRole.LinkVisited):
+        palette.setColor(role, QColor(THEME.text_primary))
+    return palette
 
 
 def load_stylesheet() -> str:
@@ -94,8 +108,7 @@ def load_stylesheet() -> str:
             qss = qss.replace(f"@{f_.name}", str(value))
     # QSS url() cannot resolve relative paths reliably across dev and frozen runs, so bake in
     # the absolute icon path, with forward slashes for Qt.
-    check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
-    qss = qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
+    qss = qss.replace("__CHEVRON_DOWN_ICON__", get_resource_path("media/icons/chevron_down.svg").replace("\\", "/"))
     return qss.replace("__UI_FONT__", ui_font_family())
 
 
@@ -144,8 +157,19 @@ def pin_button_box(box: QDialogButtonBox) -> None:
 def _button_icon(icon_name: str, checkable: bool, on_accent: bool = False):
     color = THEME.text_on_accent if on_accent else THEME.text_primary
     if checkable:
-        return qta.icon(icon_name, color=color, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted)
+        return qta.icon(icon_name, color=THEME.text_hint, color_on=THEME.text_primary, color_disabled=THEME.text_muted)
     return qta.icon(icon_name, color=color, color_disabled=THEME.text_muted)
+
+
+def with_alpha(color: str, alpha: int) -> QColor:
+    c = QColor(color)
+    c.setAlpha(alpha)
+    return c
+
+
+def icon_text(label: str) -> str:
+    """A label that sits beside an icon. QPushButton draws the two with no gap between them."""
+    return " " + label.lstrip() if label else label
 
 
 class _LabeledButton(QPushButton):
@@ -179,7 +203,7 @@ def tool_toggle(icon_name: str, label: str, tooltip: str, align_left: bool = Fal
     """Checkable tool button; empty label keeps it icon-only, empty icon_name keeps it text-only.
     align_left lines the label up with toggles stacked above or below it; centered by default.
     Carries an edited_dot like labeled_toggle, for a tool whose effect outlives its checked state."""
-    btn = _LabeledButton((" " + label) if (label and icon_name) else label)
+    btn = _LabeledButton(icon_text(label) if icon_name else label)
     btn.setCheckable(True)
     if icon_name:
         btn.setIcon(_button_icon(icon_name, checkable=True))
@@ -222,7 +246,7 @@ def clearable_tool_toggle(icon_name: str, label: str, tooltip: str, clear_toolti
 
 def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
     """Labeled checkable button (icon + text), the Pick WB / Linear RAW look."""
-    btn = _LabeledButton(label)
+    btn = _LabeledButton(icon_text(label) if icon_name else label)
     btn.setCheckable(True)
     btn.setChecked(checked)
     if icon_name:
@@ -235,10 +259,22 @@ def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> Q
     return btn
 
 
+def box_toggle(label: str, checked: bool = False, tooltip: str = "") -> QCheckBox:
+    """A labeled toggle for QMessageBox.setCheckBox, which takes only a QCheckBox; the QSS draws
+    it as a toggle (QCheckBox#box_toggle). Everywhere else a toggle is labeled_toggle."""
+    box = QCheckBox(label)
+    box.setObjectName("box_toggle")
+    box.setChecked(checked)
+    box.setFixedHeight(default_button_height())
+    if tooltip:
+        box.setToolTip(wrap_tooltip(tooltip))
+    return box
+
+
 def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = False) -> QPushButton:
     """One-shot action with an optional icon and a label; the non-checkable twin of labeled_toggle.
     primary=True gives it the one filled look (the panel's call to action)."""
-    btn = _LabeledButton(label)
+    btn = _LabeledButton(icon_text(label) if icon_name else label)
     if icon_name:
         btn.setIcon(_button_icon(icon_name, checkable=False, on_accent=primary))
     if primary:
@@ -284,18 +320,22 @@ RING_AROUND_SWEEP = Sweep((THEME.filter_magenta, THEME.filter_yellow))
 TEST_STRIP_SWEEP = Sweep((THEME.canvas_bg_white, THEME.mode_bw), angle=45)
 # Paper white to a warm print, across the bands: a paper test strip prints one stock per band.
 PAPER_STRIP_SWEEP = Sweep((THEME.canvas_bg_white, THEME.mode_c41))
-# The clipping overlay's own two colors: clipped highlights, then clipped shadows.
-CLIPPING_SWEEP = Sweep((THEME.clip_warning, THEME.clip_shadow))
+
+
+def clipping_sweep(pair: tuple[str, str]) -> Sweep:
+    """The Clipping Overlay's own two colors, a Color vision pair: clipped highlights, then clipped shadows."""
+    shadow, highlight = pair
+    return Sweep((highlight, shadow))
 
 
 class _GradientIconEngine(QIconEngine):
     """Paints a qtawesome glyph, then fills its shape with a sweep. A disabled or checked glyph
-    stays flat, gray or `text_on_accent`, so it reads like every other toggle in that state."""
+    stays flat, gray or `text_primary`, so it reads like every other toggle in that state."""
 
     def __init__(self, icon_name: str, sweep: Sweep):
         super().__init__()
         self._icon_name, self._sweep = icon_name, sweep
-        self._glyph = qta.icon(icon_name, color=THEME.text_primary, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted)
+        self._glyph = qta.icon(icon_name, color=THEME.text_primary, color_on=THEME.text_primary, color_disabled=THEME.text_muted)
 
     def paint(self, painter: QPainter | None, rect: QRect, mode: QIcon.Mode, state: QIcon.State) -> None:
         if painter is None or rect.isEmpty():
@@ -427,7 +467,7 @@ class EditedDot(QLabel):
     """Red dot marking an edited (non-default) control. Standalone for layouts;
     pass overlay_on to pin it to a widget's top-right corner instead."""
 
-    def __init__(self, overlay_on: QWidget | None = None, margin: int = 4, color: str = THEME.channel_red) -> None:
+    def __init__(self, overlay_on: QWidget | None = None, margin: int = 4, color: str = THEME.mark_edited) -> None:
         super().__init__(overlay_on)
         self._margin = margin
         self.setFixedSize(8, 8)
@@ -613,7 +653,7 @@ def slider_value_qss() -> str:
         f"QDoubleSpinBox {{font-size: {THEME.font_size_base}px; color: {THEME.text_primary}; background: transparent;"
         " border: none; border-bottom: 1px solid transparent; padding: 0px;}"
         f"QDoubleSpinBox:hover {{border-bottom: 1px solid {THEME.border_hover};}}"
-        f"QDoubleSpinBox:focus {{border-bottom: 1px solid {THEME.accent_primary};}}"
+        f"QDoubleSpinBox:focus {{border-bottom: 1px solid {THEME.border_focus};}}"
         f"QDoubleSpinBox:disabled {{color: {THEME.text_muted};}}"
     )
 

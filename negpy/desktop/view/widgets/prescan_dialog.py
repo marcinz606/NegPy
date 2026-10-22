@@ -10,13 +10,12 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QVBoxLayout,
 )
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
+from negpy.desktop.view.styles.templates import StatusStrip, field_row, labeled_action, pin_dialog_default
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import PrescanRequest
@@ -71,19 +70,11 @@ class PrescanCropDialog(QDialog):
         root = QVBoxLayout(self)
 
         # Acquisition sits at the top, as in the other two preview dialogs; the footer is for
-        # leaving.
-        top = QHBoxLayout()
-        top.addWidget(QLabel(tr("Prescan")))
-        top.addStretch()
-        self._retry_btn = QPushButton(tr("Rescan"))
-        self._retry_btn.setToolTip(tr("Run the preview pass again"))
-        self._retry_btn.setEnabled(False)
-        top.addWidget(self._retry_btn)
-        root.addLayout(top)
-
-        # One reserved row: the pass that is running, or the message it left behind.
+        # leaving. The strip reserves one row: the pass that is running, or the message it left behind.
         self._strip = StatusStrip(lines=1)
-        root.addWidget(self._strip)
+        self._retry_btn = labeled_action("", tr("Rescan"), tr("Run the preview pass again"))
+        self._retry_btn.setEnabled(False)
+        root.addLayout(field_row(tr("Prescan"), self._strip, self._retry_btn))
 
         self._label = ScanWindowLabel()
         root.addWidget(self._label, 1)

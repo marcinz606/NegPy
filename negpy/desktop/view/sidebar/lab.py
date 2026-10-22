@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
-from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from PyQt6.QtWidgets import QHBoxLayout
+from negpy.desktop.view.widgets.fold import group_fold, rail_fold
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.widgets.step_combo import StepCombo
@@ -23,12 +24,10 @@ class LabSidebar(BaseSidebar):
         self.saturation_slider = CompactSlider(tr("Chroma"), 0.0, 2.0, conf.saturation, has_neutral=True)
         self.layout.addWidget(self.saturation_slider)
 
-        row1 = QVBoxLayout()
         self.skin_protection_slider = CompactSlider(tr("Skin Protection"), 0.0, 1.0, conf.skin_protection)
         self.chroma_denoise_slider = CompactSlider(tr("Chroma Denoise"), 0.0, 5.0, conf.chroma_denoise)
-        row1.addWidget(self.skin_protection_slider)
-        row1.addWidget(self.chroma_denoise_slider)
-        self.layout.addLayout(row1)
+        self.chroma_fold = rail_fold("lab_chroma", self.saturation_slider, self.skin_protection_slider, self.chroma_denoise_slider)
+        self.layout.addWidget(self.chroma_fold)
 
         self.layout.addWidget(section_subheader(tr("DETAIL")))
 
@@ -44,19 +43,18 @@ class LabSidebar(BaseSidebar):
         method_row.addWidget(self.sharpen_method_combo, 1)
         self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider(tr("Masking"), 0.0, 1.0, conf.sharpen_masking)
-        self.layout.addWidget(SliderGroup(method_row, self.sharpen_radius_slider, self.sharpen_masking_slider))
+        self.layout.addWidget(
+            rail_fold("lab_sharpen", self.sharpen_slider, method_row, self.sharpen_radius_slider, self.sharpen_masking_slider)
+        )
 
         self.clahe_slider = CompactSlider(tr("CLAHE"), 0.0, 1.0, conf.clahe_strength)
         self.layout.addWidget(self.clahe_slider)
 
-        self.layout.addWidget(section_subheader(tr("EFFECTS")))
-
-        row4 = QVBoxLayout()
         self.glow_slider = CompactSlider(tr("Glow"), 0.0, 1.0, conf.glow_amount)
         self.halation_slider = CompactSlider(tr("Halation"), 0.0, 1.0, conf.halation_strength)
-        row4.addWidget(self.glow_slider)
-        row4.addWidget(self.halation_slider)
-        self.layout.addLayout(row4)
+        effects_header, effects_fold = group_fold("lab_effects", tr("Effects"), self.glow_slider, self.halation_slider)
+        self.layout.addLayout(effects_header)
+        self.layout.addWidget(effects_fold)
 
         self.layout.addStretch()
 
@@ -148,8 +146,7 @@ class LabSidebar(BaseSidebar):
             # COLOR is entirely color controls, so hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
-            self.skin_protection_slider.setVisible(not is_bw)
-            self.chroma_denoise_slider.setVisible(not is_bw)
+            self.chroma_fold.content.setVisible(not is_bw)
         finally:
             self.block_signals(False)
 

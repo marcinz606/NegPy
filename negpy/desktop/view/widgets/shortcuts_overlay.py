@@ -86,7 +86,7 @@ class ShortcutsOverlay(QDialog):
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setSpacing(THEME.space_xl)
 
         intro = QLabel(
             tr(
@@ -132,7 +132,7 @@ class ShortcutsOverlay(QDialog):
         root.addWidget(self._scroll, stretch=1)
 
         actions = QHBoxLayout()
-        customize_btn = QPushButton(tr("Customize"))
+        customize_btn = QPushButton(tr("Customize…"))
         customize_btn.clicked.connect(self._customize)
         actions.addWidget(customize_btn)
         actions.addStretch()
@@ -257,8 +257,8 @@ class ShortcutsOverlay(QDialog):
         body = QWidget()
         grid = QGridLayout(body)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(THEME.space_xl)
+        grid.setVerticalSpacing(THEME.space_lg)
 
         header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
         for col, label in enumerate((tr("Action"), tr("Default"), tr("Shortcut"), tr("Step"))):
@@ -281,10 +281,10 @@ class ShortcutsOverlay(QDialog):
             color: {THEME.text_primary};
             background-color: {THEME.bg_header};
             border: 1px solid {THEME.border_primary};
-            border-radius: 3px;
+            border-radius: {THEME.radius_sm}px;
             font-family: {mono_font_family()};
             font-size: {THEME.font_size_small}px;
-            padding: 2px 6px;
+            padding: {THEME.space_xs}px {THEME.space_md}px;
         """)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return lbl
@@ -304,8 +304,8 @@ class ShortcutsOverlay(QDialog):
         entry = editor_row.entry
         row_frame = self._make_row_frame(editor_row.action_id)
         inner = QGridLayout(row_frame)
-        inner.setContentsMargins(4, 4, 4, 4)
-        inner.setHorizontalSpacing(12)
+        inner.setContentsMargins(THEME.space_sm, THEME.space_sm, THEME.space_sm, THEME.space_sm)
+        inner.setHorizontalSpacing(THEME.space_xl)
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(entry.description), 0, 0)
@@ -327,8 +327,8 @@ class ShortcutsOverlay(QDialog):
 
         row_frame = self._make_row_frame(group.id)
         inner = QGridLayout(row_frame)
-        inner.setContentsMargins(4, 4, 4, 4)
-        inner.setHorizontalSpacing(12)
+        inner.setContentsMargins(THEME.space_sm, THEME.space_sm, THEME.space_sm, THEME.space_sm)
+        inner.setHorizontalSpacing(THEME.space_xl)
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(group.label), 0, 0)
@@ -340,7 +340,7 @@ class ShortcutsOverlay(QDialog):
 
         shortcuts = QHBoxLayout()
         shortcuts.setContentsMargins(0, 0, 0, 0)
-        shortcuts.setSpacing(6)
+        shortcuts.setSpacing(THEME.space_md)
         shortcuts.addWidget(self._keycap(self._bindings.get(group.inc_action, "")), 1)
         sep = QLabel("/")
         sep.setStyleSheet(f"color: {THEME.text_muted};")

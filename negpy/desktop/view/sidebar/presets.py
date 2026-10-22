@@ -40,11 +40,11 @@ class PresetsSidebar(BaseSidebar):
 
         row = QHBoxLayout()
         self.apply_btn = self._labeled_action(
-            "fa5s.check", tr(" Apply"), tr("Apply the selected preset to the current image (or double-click a preset)")
+            "fa5s.check", tr("Apply"), tr("Apply the selected preset to the current image (or double-click a preset)")
         )
-        self.save_btn = self._labeled_action("fa5s.save", tr(" Save…"), tr("Pick which of the current settings to store as a new preset"))
+        self.save_btn = self._labeled_action("fa5s.save", tr("Save…"), tr("Pick which of the current settings to store as a new preset"))
 
-        self.edit_btn = self._icon_action("fa5s.pen", tr("Edit the selected preset — rename it or change which settings it stores"))
+        self.edit_btn = self._icon_action("fa5s.pen", tr("Edit the selected preset: rename it or change which settings it stores"))
         self.delete_btn = self._icon_action("fa5s.trash", tr("Delete the selected preset"))
 
         row.addWidget(self.apply_btn, stretch=1)
@@ -153,7 +153,7 @@ class PresetsSidebar(BaseSidebar):
         name = self._current_name()
         if not name:
             return
-        if confirm_delete_named(self, "Preset", name):
+        if confirm_delete_named(self, tr("Preset"), name):
             Presets.delete_preset(name)
             self._refresh_presets(force=True)
 

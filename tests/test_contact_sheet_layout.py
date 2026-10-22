@@ -4,28 +4,28 @@ import pytest
 
 from negpy.services.export.contact_sheet_layout import (
     DEFAULT_PAPER,
-    FRAME_SIZES_120,
     ILFORD_PAPERS,
+    MAX_STRETCH,
     PAPER_MAX,
-    PERF_ALONG,
+    ROW_BORDER,
+    ROW_GAP,
     SHEET_MARGIN,
     ContactSheetSettings,
-    SheetFormat,
     best_dpi,
     better_orientation,
     clamp_paper,
     cut_strips,
     dpi_allowed,
-    film_geometry,
     frame_turns,
     min_paper_size,
     paper_preset,
-    perforation_centers,
     plan_capacity,
+    plan_rows,
     plan_sheets,
     sheet_pixels,
     snap_paper,
 )
+from negpy.services.film_edge.geometry import FRAME_SIZES_120, PERF_ALONG, SheetFormat, film_geometry, perforation_centers
 
 FULL = film_geometry(SheetFormat.FULL_FRAME)
 HALF = film_geometry(SheetFormat.HALF_FRAME)
@@ -200,10 +200,10 @@ class TestSettings:
         assert ContactSheetSettings.from_dict(settings.to_dict()).white_paper is True
         assert ContactSheetSettings.from_dict({"white_paper": "yes"}).white_paper is False
 
-    def test_film_base_round_trips_and_defaults_on(self):
-        settings = ContactSheetSettings(film_base=False)
-        assert ContactSheetSettings.from_dict(settings.to_dict()).film_base is False
-        assert ContactSheetSettings.from_dict({"film_base": "no"}).film_base is True
+    def test_film_edges_round_trip_and_default_on(self):
+        settings = ContactSheetSettings(film_edges=False)
+        assert ContactSheetSettings.from_dict(settings.to_dict()).film_edges is False
+        assert ContactSheetSettings.from_dict({"film_edges": "no"}).film_edges is True
 
     def test_edge_print_defaults_on_for_records_without_it(self):
         assert ContactSheetSettings.from_dict({"dpi": 600}).edge_print is True
@@ -236,3 +236,72 @@ def test_a_new_scene_starts_a_new_strip():
 def test_scene_breaks_paginate_by_strips():
     plan = plan_sheets(DEFAULT_PAPER.width, DEFAULT_PAPER.height, FULL, 16, breaks=list(range(1, 16)))
     assert [len(page.strips) for page in plan.pages] == [7, 7, 2]
+
+
+class TestRows:
+    """Film Edges off: upright frames at their own aspect, in rows as tall as the film's frame."""
+
+    INNER = DEFAULT_PAPER.width - 2 * SHEET_MARGIN - 2 * ROW_BORDER
+
+    def _rows(self, aspects, breaks=(), height=DEFAULT_PAPER.height):
+        return plan_rows(DEFAULT_PAPER.width, height, FULL, aspects, label=False, breaks=breaks)
+
+    def test_a_full_row_fills_the_paper_width_and_the_last_row_keeps_the_film_height(self):
+        plan = self._rows([1.5] * 10)
+        first, last = plan.pages[0].rows[0], plan.pages[0].rows[-1]
+        assert first.width == pytest.approx(self.INNER + 2 * ROW_BORDER)
+        assert first.frames[0].height >= FULL.frame_across
+        assert last.frames[0].height == pytest.approx(FULL.frame_across)
+        assert last.width < first.width
+
+    def test_frames_keep_their_aspect_and_order(self):
+        aspects = [1.5, 2 / 3, 1.0, 1.5, 2 / 3, 3.0, 1.5]
+        plan = self._rows(aspects)
+        placed = [frame for row in plan.pages[0].rows for frame in row.frames]
+        assert [frame.slot for frame in placed] == list(range(len(aspects)))
+        for frame in placed:
+            assert frame.width / frame.height == pytest.approx(aspects[frame.slot])
+        assert plan.pages[0].slots() == list(range(len(aspects)))
+
+    def test_frames_in_a_row_sit_one_gap_apart_inside_the_band(self):
+        row = self._rows([1.5] * 10).pages[0].rows[0]
+        for left, right in zip(row.frames, row.frames[1:]):
+            assert right.x - (left.x + left.width) == pytest.approx(ROW_GAP)
+        assert row.frames[0].x == pytest.approx(row.x + ROW_BORDER)
+        assert row.frames[0].y == pytest.approx(row.y + ROW_BORDER)
+
+    def test_a_break_starts_a_new_row_and_the_row_before_it_stays_short(self):
+        plan = self._rows([1.5] * 6, breaks=[2])
+        rows = plan.pages[0].rows
+        assert [len(row.frames) for row in rows] == [2, 4]
+        assert rows[0].frames[0].height == pytest.approx(FULL.frame_across)
+
+    def test_a_row_that_would_stretch_too_far_stays_short(self):
+        # One upright frame, then a panorama that does not fit beside it.
+        plan = self._rows([2 / 3, self.INNER / FULL.frame_across])
+        first = plan.pages[0].rows[0]
+        assert len(first.frames) == 1
+        assert first.frames[0].height <= FULL.frame_across * MAX_STRETCH
+
+    def test_a_frame_wider_than_the_paper_shrinks_to_fit(self):
+        plan = self._rows([20.0])
+        frame = plan.pages[0].rows[0].frames[0]
+        assert frame.width == pytest.approx(self.INNER)
+
+    def test_rows_fill_a_page_then_start_the_next(self):
+        plan = self._rows([1.5] * 120)
+        assert len(plan.pages) > 1
+        assert sum(len(page.slots()) for page in plan.pages) == 120
+        for page in plan.pages:
+            bottom = max(row.y + row.height for row in page.rows)
+            assert bottom <= DEFAULT_PAPER.height - SHEET_MARGIN + 1e-6
+
+    def test_paper_too_short_for_one_row_says_so(self):
+        plan = self._rows([1.5], height=20.0)
+        assert not plan.pages and "too short" in plan.reason
+
+    def test_better_orientation_counts_rows_when_given_aspects(self):
+        width, height = better_orientation(DEFAULT_PAPER.width, DEFAULT_PAPER.height, FULL, 36, False, aspects=[1.5] * 36)
+        rows = plan_rows(width, height, FULL, [1.5] * 36, label=False)
+        turned = plan_rows(height, width, FULL, [1.5] * 36, label=False)
+        assert len(rows.pages) <= len(turned.pages)

@@ -59,7 +59,7 @@ class TestAutoDetect:
         d._on_auto()
         assert d.split_x() == 0.42
         assert d.gutter_thickness() == 0.03
-        assert d._gutter_slider.value() == 30
+        assert d._gutter_slider.value() == 3.0
 
     def test_a_rejected_detection_resets_both(self, monkeypatch):
         monkeypatch.setattr("negpy.services.assets.half_frame.detect_gutter_axis", lambda buf: (0.5, 0.0, "x"))
@@ -67,7 +67,7 @@ class TestAutoDetect:
         d._on_auto()
         assert d.split_x() == 0.5
         assert d.gutter_thickness() == 0.0
-        assert d._gutter_slider.value() == 0
+        assert d._gutter_slider.value() == 0.0
 
     def test_also_sets_the_crop(self, monkeypatch):
         monkeypatch.setattr("negpy.services.assets.half_frame.detect_film_crop", lambda buf: (0.1, 0.1, 0.9, 0.9))
@@ -102,12 +102,12 @@ class TestAutoDetect:
 
 class TestTitle:
     def test_custom_title_is_applied(self):
-        d = _dialog(title="Half Frame — split & crop (this frame)")
-        assert d.windowTitle() == "Half Frame — split & crop (this frame)"
+        d = _dialog(title="Half Frame Split and Crop (This Frame)")
+        assert d.windowTitle() == "Half Frame Split and Crop (This Frame)"
 
     def test_default_title(self):
         d = _dialog()
-        assert d.windowTitle() == "Half Frame — split & crop"
+        assert d.windowTitle() == "Half Frame Split and Crop"
 
 
 class TestPreviewPolarity:

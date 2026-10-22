@@ -13,14 +13,10 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.geometry.models import AspectRatio, AutocropMode
 from negpy.features.metadata.gear_models import FilmColorType, FilmStock
 from negpy.features.process.models import ProcessMode
-from negpy.services.export.contact_sheet_edge import EdgeFamily, EdgeStyle, ascii_upper, edge_family
-from negpy.services.export.contact_sheet_layout import (
-    DEFAULT_FRAME_120,
-    FRAME_SIZES_120,
-    FilmGeometry,
-    SheetFormat,
-    frame_turns,
-)
+from negpy.services.film_edge.edge import EdgeStyle, edge_style
+from negpy.services.export.contact_sheet_layout import frame_turns
+from negpy.services.film_edge.layouts import LAYOUTS
+from negpy.services.film_edge.geometry import DEFAULT_FRAME_120, FRAME_SIZES_120, FilmGeometry, SheetFormat
 
 
 @dataclass(frozen=True)
@@ -225,6 +221,17 @@ def upright_aspect(frame: SheetFrame, tile_shape: Optional[tuple[int, int]] = No
     return None
 
 
+def print_aspect(frame: SheetFrame, tile_shape: Optional[tuple[int, int]] = None) -> Optional[float]:
+    """Width over height of the frame as it prints upright: the rendered tile's, else the scan's after the crop."""
+    if tile_shape and tile_shape[0] > 0 and tile_shape[1] > 0:
+        return tile_shape[1] / tile_shape[0]
+    whole = upright_aspect(frame)
+    if whole is None:
+        return None
+    fx, fy = _crop_fractions(frame.config)
+    return whole * fx / fy
+
+
 def cropped_aspect(frame: SheetFrame) -> Optional[float]:
     whole = upright_aspect(frame)
     if whole is None:
@@ -349,7 +356,6 @@ class SheetLook:
     edge: EdgeStyle = EdgeStyle()
     label: str = ""
     white_paper: bool = False
-    film_base: bool = True
 
 
 def sheet_black(paper_black: bool) -> int:
@@ -371,15 +377,12 @@ def sheet_look(frames: Sequence[SheetFrame], fmt: SheetFormat, label: str = "", 
         palette = "slide"
     else:
         palette = "bw"
-    family = edge_family(stock_name, manufacturer)
-    dx = (
-        fmt != SheetFormat.MEDIUM
-        and palette != "slide"
-        and family != EdgeFamily.CINE
-        and (palette == "color" or family == EdgeFamily.ILFORD)
-    )
+    stock_id = _majority([f.config.metadata.film_stock_id for f in frames], "")
+    stock = next((_gear_stock(f, library) for f in frames if stock_id and f.config.metadata.film_stock_id == stock_id), None)
+    edge = edge_style(stock, library, stock_name, manufacturer)
+    dx = fmt != SheetFormat.MEDIUM and palette in LAYOUTS[edge.layout].dx
     paper_black = _majority([f.config.exposure.paper_black for f in frames], False)
-    return SheetLook(palette, sheet_black(bool(paper_black)), EdgeStyle(family, ascii_upper(stock_name), dx), label)
+    return SheetLook(palette, sheet_black(bool(paper_black)), replace(edge, dx=dx), label)
 
 
 def roll_label_text(roll_name: str, frames: Sequence[SheetFrame], library: Any = None) -> str:

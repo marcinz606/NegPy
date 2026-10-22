@@ -1,16 +1,19 @@
 from negpy.kernel.system.i18n import tr
+import math
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
+
+import numpy as np
 
 import qtawesome as qta
 from PyQt6.QtCore import (
     Qt,
+    QEvent,
     QEasingCurve,
     QItemSelection,
     QItemSelectionModel,
     QModelIndex,
     QPersistentModelIndex,
-    QPoint,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -19,7 +22,19 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtSlot,
 )
-from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -31,8 +46,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListView,
     QMenu,
-    QSlider,
-    QSplitter,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -44,6 +57,7 @@ from PyQt6.QtWidgets import (
 from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, composite_kind
+from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 from negpy.desktop.view.confirm import (
     prompt_delete_scene,
     confirm_reset_frames,
@@ -64,18 +78,10 @@ from negpy.desktop.view.keyboard_shortcuts import _close_roll, _reset_roll, _res
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
-from negpy.desktop.view.widgets.marks import draw_mark_badge
+from negpy.desktop.view.widgets.marks import CHIP_FILL, CHIP_RING, draw_mark_badge
 from negpy.desktop.view.widgets.sort_button import SortButton
-from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import (
-    ICON_BUTTON_WIDTH,
-    TOOLBAR_BUTTON_HEIGHT,
-    TOOLBAR_ICON_SIZE,
-    icon_button,
-    tool_toggle,
-    wrap_tooltip,
-)
+from negpy.desktop.view.styles.templates import BAR_BUTTON_HEIGHT, BAR_ICON_SIZE, hint_label, with_alpha, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME, scene_color
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.sidecar_action import LABEL as SIDECAR_LABEL, load_edit_from_sidecar
@@ -89,40 +95,27 @@ from negpy.services.assets.presets import is_valid_preset_name
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.services.assets.library import folder_counts, folder_label
 from negpy.services.assets.thumbnails import asset_thumbnail_key
-
-
-_UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
-# With both sections open the panel starts 20/80: the tree is for finding a roll, glanced
-# at occasionally, while the sheet is where the work happens and wants the room. The
-# splitter's handle can move this default any time.
-_LIBRARY_SHARE, _FRAMES_SHARE = 1, 4
+from negpy.domain.models import WorkspaceConfig
+from negpy.kernel.image.logic import THUMBNAIL_PAD
+from negpy.services.export.contact_sheet import palette_for
+from negpy.services.export.contact_sheet_roll import SheetFrame, infer_format, sheet_look
+from negpy.services.film_edge.geometry import FilmGeometry, film_geometry
 
 
 class _ThumbnailDelegate(QStyledItemDelegate):
-    """Contact-sheet rendering: scales each cached ~120px thumbnail into its cell and
-    draws a subtle 1px border hugging the image outline (no cell box), 2px in the frame's
-    scene color while Show Scenes is on. The selected image is shown full-brightness
-    with the accent ring just outside that border, so both show at once; the others are
-    dimmed. A dirty active file gets an accent line along the image's bottom edge.
-    Triage marks are small bottom-right badges: check = keeper, cross + heavy dim =
+    """Scales each cached thumbnail into its cell; a frame not selected or under the pointer is
+    dimmed. Triage marks are small bottom-right badges: check = keeper, cross + heavy dim =
     rejected; the bottom-left badge says the frame was built from several files
     (stitch, HDR merge, RGB triplet, half-frame split). Top-left holds the
     decode-failure badge, else a small dot saying the bitmap shown predates a settings
     change (a bulk apply reaches the file before a render reaches its thumbnail)."""
 
-    _MARGIN = 5  # room for the selection ring outside the picture
-    _SELECTION_OUTSET = 4  # the ring's outer edge, outside the picture edge
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
-    # Neutral, not the triage red: red already means "you marked this" and "this failed".
-    # What a frame is built from is a fact about the asset, not a state the user set.
-    _COMPOSITE_CHIP = QColor(20, 20, 20, 190)
-    _COMPOSITE_RING = QColor(255, 255, 255, 90)
-    _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
-    _DIRTY_PX = 2
+    _COMPOSITE_GLYPH = with_alpha(THEME.mark_photo, 235)
+    _IDLE_OPACITY = 0.5
     _STALE_DOT_RADIUS = 4
     _ACTIVITY_INTERVAL_MS = 40
     _ACTIVITY_STEP = 0.035
@@ -130,7 +123,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
         self._state = state
-        self._show_scenes = False
         self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
         self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
         self._activity_key = ""
@@ -139,9 +131,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         self._activity_timer = QTimer(self)
         self._activity_timer.setInterval(self._ACTIVITY_INTERVAL_MS)
         self._activity_timer.timeout.connect(self._advance_activity)
-
-    def set_show_scenes(self, on: bool) -> None:
-        self._show_scenes = on
 
     @pyqtSlot(str)
     def set_activity(self, key: str) -> None:
@@ -172,14 +161,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         if not isinstance(view, QListView) or not self._activity_key:
             return QPersistentModelIndex()
         model = view.model()
-        if model is None:
-            return QPersistentModelIndex()
-        for row in range(model.rowCount()):
-            index = model.index(row, 0)
-            file_info = index.data(Qt.ItemDataRole.UserRole) or {}
-            if file_info.get("hash") and asset_thumbnail_key(file_info) == self._activity_key:
-                return QPersistentModelIndex(index)
-        return QPersistentModelIndex()
+        rows = model.rows_showing(self._activity_key) if model is not None else []
+        return QPersistentModelIndex(model.index(rows[0], 0)) if rows else QPersistentModelIndex()
 
     def _index_matches_activity(self, index: QPersistentModelIndex) -> bool:
         if not index.isValid() or not self._activity_key:
@@ -188,14 +171,15 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         return bool(file_info.get("hash") and asset_thumbnail_key(file_info) == self._activity_key)
 
     def _repaint_index(self, index: QPersistentModelIndex) -> None:
+        # A hidden view needs no repaint, and visualRect would run its pending layout of every frame.
         view = self.parent()
-        if isinstance(view, QListView) and index.isValid():
+        if isinstance(view, QListView) and view.isVisible() and index.isValid():
             view.viewport().update(view.visualRect(QModelIndex(index)))
 
-    def _is_dirty(self, file_info: dict) -> bool:
-        """Only the active file can carry unsaved edits; every other frame is on disk."""
+    def is_active(self, file_info: dict) -> bool:
+        """The open frame, by hash: the two halves of a half-frame scan share one path."""
         state = self._state
-        return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
+        return bool(state and state.current_file_hash and file_info.get("hash") == state.current_file_hash)
 
     def _is_stale_thumbnail(self, file_info: dict) -> bool:
         """True while the cached bitmap predates a settings write a render hasn't caught up to."""
@@ -207,7 +191,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def _draw_stale_dot(self, painter: QPainter, img_rect: QRect) -> None:
         r = self._STALE_DOT_RADIUS
         cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
-        painter.setPen(QPen(QColor(0, 0, 0, 140), 1))
+        painter.setPen(QPen(with_alpha(THEME.mark_shadow, 140), 1))
         painter.setBrush(QColor(THEME.warn_amber))
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
 
@@ -219,14 +203,17 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         return QRect(x, y, size.width(), size.height())
 
     def picture_rect(self, cell: QRect, index: QModelIndex) -> QRect:
-        """Where paint() puts the picture inside *cell*: the thumbnail fitted to the area
-        within the margin, or that whole area while it has none."""
-        area = cell.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        """Where paint() puts the picture inside *cell*: the thumbnail fitted to it, or all of it
+        while it has none."""
+        area = cell
         icon = index.data(Qt.ItemDataRole.DecorationRole)
-        base = icon.pixmap(QSize(4096, 4096)) if icon is not None and not icon.isNull() else None
+        base = self._thumbnail(icon, index) if icon is not None and not icon.isNull() else None
         if base is None or base.isNull():
             return area
         return self._fit_rect(area, base.size().scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio))
+
+    def _thumbnail(self, icon: QIcon, index: QModelIndex) -> QPixmap:
+        return icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         view = self.parent()
@@ -247,22 +234,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
-    def _draw_outline(self, painter: QPainter, img_rect: QRect, file_info: dict, selected: bool, hover: bool) -> None:
-        """The picture's edge line, 2px in its scene's color while Show Scenes is on, and
-        the selection ring outside it."""
-        scene = file_info.get("scene") if self._show_scenes else None
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if scene:
-            painter.setPen(QPen(QColor(scene_color(scene[0])), 2))
-            painter.drawRoundedRect(QRectF(img_rect).adjusted(1, 1, -2, -2), self._RADIUS, self._RADIUS)
-        else:
-            painter.setPen(self._border_pen(hover))
-            painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
-        if selected:
-            out = self._SELECTION_OUTSET
-            painter.setPen(QPen(QColor(THEME.accent_primary), 2))
-            painter.drawRoundedRect(QRectF(img_rect).adjusted(1 - out, 1 - out, out - 2, out - 2), self._RADIUS + out, self._RADIUS + out)
-
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int, split_axis: str = "x") -> None:
         """Bottom-left mark: this frame was assembled from more than one file.
 
@@ -270,15 +241,15 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
         r = 9
         cx, cy = img_rect.left() + r + 4, img_rect.bottom() - r - 4
-        painter.setPen(QPen(self._COMPOSITE_RING, 1))
-        painter.setBrush(self._COMPOSITE_CHIP)
+        painter.setPen(QPen(CHIP_RING, 1))
+        painter.setBrush(CHIP_FILL)
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(self._COMPOSITE_GLYPH, 1.5))
         if kind == "stitch":  # two overlapping panes — a divided box reads as the half glyph
             painter.drawRect(QRect(cx - 6, cy - 5, 8, 7))
             front = QRect(cx - 2, cy - 2, 8, 7)
-            painter.fillRect(front, self._COMPOSITE_CHIP)
+            painter.fillRect(front, CHIP_FILL)
             painter.drawRect(front)
         elif kind == "hdr":  # a bracket: stacked exposures
             for dy, width in ((-3, 11), (0, 8), (3, 5)):
@@ -305,28 +276,18 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             return QRect(cx - 5, cy - 3, 11, 3), QRect(cx - 5, cy + 1, 11, 3)
         return QRect(cx - 5, cy - 3, 5, 7), QRect(cx + 1, cy - 3, 5, 7)
 
-    @staticmethod
-    def _border_pen(hover: bool) -> QPen:
-        if hover:
-            return QPen(QColor(THEME.text_muted), 1)
-        return QPen(QColor(THEME.border_color), 1)
-
     def _paint_placeholder(self, painter: QPainter, option: QStyleOptionViewItem, file_info: dict, failed: bool, kind: str) -> None:
-        """A cell whose thumbnail hasn't decoded yet (or failed to). Still carries the
-        selection/hover border and the triage marks, so a multi-selection or a rejected frame
-        stays visible while thumbnails are still loading in the background instead of looking
-        selective or broken."""
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        """A cell whose thumbnail hasn't decoded yet (or failed to). Still carries the triage
+        marks, so a rejected frame stays visible while thumbnails are still loading in the
+        background instead of looking broken."""
         rejected = bool(file_info.get("excluded"))
         keeper = bool(file_info.get("keeper"))
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        area = option.rect
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(20, 20, 20))
+        painter.setBrush(QColor(THEME.bg_header))
         painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
-        self._draw_outline(painter, area, file_info, selected, hover)
         if rejected:
             self._draw_mark_badge(painter, area, check=False)
         elif keeper:
@@ -346,16 +307,12 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         if icon is None or icon.isNull():
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
-            img_rect = area
-            selected = bool(option.state & QStyle.StateFlag.State_Selected)
-            hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+            img_rect = option.rect
             rejected = bool(file_info.get("excluded"))
             keeper = bool(file_info.get("keeper"))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(THEME.bg_header))
             painter.drawRoundedRect(img_rect, self._RADIUS, self._RADIUS)
-            self._draw_outline(painter, img_rect, file_info, selected, hover)
             glyph_side = min(32, min(img_rect.width(), img_rect.height()) // 3)
             glyph_rect = QRect(0, 0, glyph_side, glyph_side)
             glyph_rect.moveCenter(img_rect.center())
@@ -385,7 +342,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 )
             painter.restore()
             return
-        base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
+        base = self._thumbnail(icon, index)
         if base.isNull():
             self._paint_placeholder(painter, option, file_info, failed, kind)
             return
@@ -394,7 +351,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        area = option.rect
         scaled = base.scaled(
             area.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -402,7 +359,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         )
         img_rect = self._fit_rect(area, scaled.size())
 
-        # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         rejected = bool(file_info.get("excluded"))
@@ -411,7 +367,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(img_rect), self._RADIUS, self._RADIUS)
         painter.setClipPath(clip)
-        base_opacity = 1.0 if (selected or hover) else 0.5
+        base_opacity = 1.0 if (selected or hover) else self._IDLE_OPACITY
         painter.setOpacity(0.25 if rejected else base_opacity)
         painter.drawPixmap(img_rect.topLeft(), scaled)
         painter.setOpacity(1.0)
@@ -426,59 +382,22 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_stale_dot(painter, img_rect)
         painter.setClipping(False)
 
-        self._draw_outline(painter, img_rect, file_info, selected, hover)
-
-        if self._is_dirty(file_info):
-            # Over the frame line, so it reads as the accent and not a blend with the border.
-            painter.setClipPath(clip)
-            painter.fillRect(
-                QRect(img_rect.left(), img_rect.bottom() - self._DIRTY_PX + 1, img_rect.width(), self._DIRTY_PX),
-                QColor(THEME.accent_primary),
-            )
-            painter.setClipping(False)
-
         if failed:
             self._draw_failed_badge(painter, img_rect)
 
         painter.restore()
 
 
-# Thumbnail size preference (px), as set by the filmstrip's size slider. The default fills
-# one column of the session sidebar at a typical narrow width, where a single full-width
-# frame is the most legible use of it. Dropping toward THUMB_CELL_MIN fits a second column
-# at that width. A narrower panel overflows the toolbar and the grid keeps one column.
-#
-# The maximum is the default: the slider only shrinks frames. Anything larger holds a
-# widened sidebar at one column, and since cells are square a 3:2 frame leaves a wide band
-# of empty space above and below. Two columns are both denser and larger in practice, so
-# there is nothing above the default worth offering.
-THUMB_CELL_MIN = 100
+# A grid cell's target width, one frame pitch on the Light Table; columns justify to the width.
 THUMB_CELL_DEFAULT = 220
-THUMB_CELL_MAX = THUMB_CELL_DEFAULT
+THUMB_CELL_MIN = 110
 
 
 class ThumbnailGridView(QListView):
-    """
-    Icon-mode grid that justifies thumbnails to the panel width. It fits as many
-    columns of at least ``target_cell`` as the viewport allows, then grows the cell to
-    fill the leftover width exactly; once another target-wide column fits it adds one
-    and the cells snap back down. So ``target_cell`` sets thumbnail size and the panel
-    width sets how many fit — e.g. at the default 220 a 240px-wide panel shows one
-    236px column, and widening past ~444px splits into two.
-
-    Cells are not capped directly — at one column the frame is meant to fill the panel
-    — but capping the *target* at the default bounds them in practice: a target above
-    it only delays the split to two columns, which is what produced oversized cells
-    (and, since cells are square, large empty bands around a 3:2 frame) on a widened
-    sidebar. Cells can still exceed APP_CONFIG.thumbnail_size and upscale on a very
-    wide panel; the frames stay legible because the canvas is the place for detail.
-    """
+    """Icon-mode grid that justifies cells to the view width: as many columns of at least
+    ``target_cell`` as fit, each grown to fill the width exactly."""
 
     SPACING = 2
-    # Scene sort: the gap between two scenes' blocks, and each block's tinted band.
-    SCENE_GAP = THEME.space_lg
-    SCENE_BAND_ALPHA = 0.18
-    SCENE_BAND_RADIUS = 6
     # One notch scrolls one row of thumbnails. Qt's default, three "lines" a notch, advanced
     # several frames at a time in a single-column panel.
     WHEEL_ROWS_PER_NOTCH = 1.0
@@ -487,15 +406,13 @@ class ThumbnailGridView(QListView):
     def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT):
         super().__init__(parent)
         self._last_cell = -1
-        self._target_cell = self._clamp_target(target_cell)
+        self._target_cell = target_cell
         self._pending_click_row: Optional[int] = None
         self._pending_click_modifiers = Qt.KeyboardModifier.NoModifier
         self._pending_mode: Optional[str] = None  # "range" | "ctrl"
         self._range_anchor_row: Optional[int] = None
         self._ctrl_target: set[QPersistentModelIndex] = set()
         self._pre_press_selection: set[QPersistentModelIndex] = set()
-        self._placing_scenes = False
-        self._scene_bands: list[tuple[int, int, int, QRect]] = []  # (ordinal, first row, last row, band)
         # Hover tracks the pointer, not only a scroll. The macOS style turns on neither, so a
         # plain move never reaches the view.
         self.setMouseTracking(True)
@@ -514,22 +431,6 @@ class ThumbnailGridView(QListView):
         self._scroll_anim.setDuration(self.SCROLL_ANIM_MS)
         self._scroll_target = 0
         self._apply_cell(self._target_cell)
-
-    @staticmethod
-    def _clamp_target(cell: int) -> int:
-        return max(THUMB_CELL_MIN, min(THUMB_CELL_MAX, int(cell)))
-
-    @property
-    def target_cell(self) -> int:
-        return self._target_cell
-
-    def set_target_cell(self, cell: int) -> None:
-        """Set the preferred thumbnail size and re-justify to the current width."""
-        cell = self._clamp_target(cell)
-        if cell == self._target_cell:
-            return
-        self._target_cell = cell
-        self._relayout()
 
     def columns_for_width(self, vw: int) -> int:
         return max(1, (vw - self.SPACING) // (self._target_cell + self.SPACING))
@@ -554,68 +455,6 @@ class ThumbnailGridView(QListView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout()
-
-    def updateGeometries(self) -> None:
-        super().updateGeometries()
-        if self._placing_scenes:
-            return
-        self._placing_scenes = True
-        try:
-            self._place_scene_runs()
-        finally:
-            self._placing_scenes = False
-
-    def _place_scene_runs(self) -> None:
-        """Scene sort: each scene's frames as their own block from a new row, SCENE_GAP apart,
-        frames in no scene last. Qt re-flows every cell on each layout, so this runs after
-        each one; every other order keeps Qt's own flow."""
-        model = self.model()
-        runs = model.scene_runs() if hasattr(model, "scene_runs") else []
-        self._scene_bands = []
-        if not runs:
-            return
-        grid, cell = self.gridSize(), self.iconSize()
-        cols = self.columns_for_width(self.viewport().width())
-        inset = (grid.width() - cell.width()) // 2  # Qt centers a cell in its grid square
-        pad = self.SCENE_GAP // 2 - 1
-        y = self.SCENE_GAP // 2
-        for ordinal, first, last in runs:
-            count = last - first + 1
-            for n in range(count):
-                position = QPoint(inset + (n % cols) * grid.width(), y + (n // cols) * grid.height())
-                self.setPositionForIndex(position, model.index(first + n, 0))
-            lines = (count - 1) // cols + 1
-            if ordinal is not None:
-                height = (lines - 1) * grid.height() + cell.height() + 2 * pad
-                self._scene_bands.append((ordinal, first, last, QRect(0, y - pad, min(count, cols) * grid.width(), height)))
-            y += lines * grid.height() + self.SCENE_GAP
-
-    def paintEvent(self, event) -> None:
-        if self._scene_bands:
-            self._paint_scene_bands()
-        super().paintEvent(event)
-
-    def _paint_scene_bands(self) -> None:
-        """Each scene's band, cut away under every picture: a dimmed or letterboxed
-        thumbnail would otherwise show the tint through it."""
-        model, delegate = self.model(), self.itemDelegate()
-        painter = QPainter(self.viewport())
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(Qt.PenStyle.NoPen)
-        for ordinal, first, last, rect in self._scene_bands:
-            band = QPainterPath()
-            band.addRoundedRect(QRectF(rect.translated(0, -self.verticalOffset())), self.SCENE_BAND_RADIUS, self.SCENE_BAND_RADIUS)
-            if isinstance(delegate, _ThumbnailDelegate):
-                pictures = QPainterPath()
-                for row in range(first, last + 1):
-                    index = model.index(row, 0)
-                    picture = QRectF(delegate.picture_rect(self.visualRect(index), index))
-                    pictures.addRoundedRect(picture, delegate._RADIUS, delegate._RADIUS)
-                band = band.subtracted(pictures)
-            color = QColor(scene_color(ordinal))
-            color.setAlphaF(self.SCENE_BAND_ALPHA)
-            painter.fillPath(band, color)
-        painter.end()
 
     def _begin_click_selection(self, pre_press_current: QModelIndex) -> None:
         """Decides the gesture's mode and range anchor exactly once, from the modifiers and
@@ -793,6 +632,548 @@ class ThumbnailGridView(QListView):
         event.accept()
 
 
+def table_color(index: int) -> str:
+    """The surface of the Film Strip and the Light Table: the canvas background."""
+    return CANVAS_COLORS[index][0]
+
+
+# Share of a print's darkest pixels whose mean color is its D-max.
+_DMAX_SHARE = 0.01
+# Frames spread over the roll that stand for its D-max; measuring every frame stalls a long roll.
+_DMAX_SAMPLES = 5
+# A new thumbnail this close to the shape a frame shows keeps the layout: about 2 px on a strip frame.
+_SHAPE_TOLERANCE = 0.02
+_RESHAPE_MS = 50
+
+
+def roll_film(
+    asset: dict,
+    config: WorkspaceConfig,
+    library: Any,
+    half_frame: bool,
+    rebate: Optional[tuple[int, int, int]] = None,
+) -> tuple[FilmGeometry, tuple[int, int, int]]:
+    """The roll's film: the active frame's format and the rebate color of the contact sheet's palette;
+    `rebate`, the roll's D-max, replaces that color."""
+    frames = [SheetFrame(asset, config)]
+    fmt, frame_size = infer_format(frames, half_frame)
+    palette = palette_for(sheet_look(frames, fmt, library=library))
+    if rebate is None:
+        rebate = palette.rebate
+    return film_geometry(fmt, frame_size), rebate
+
+
+# The film until the active frame's roll gives one.
+_DEFAULT_FILM = roll_film({}, WorkspaceConfig(), None, half_frame=False)
+
+
+def _rgb_pixels(image: QImage) -> np.ndarray:
+    rgb = image.convertToFormat(QImage.Format.Format_RGB888)
+    width, height = rgb.width(), rgb.height()
+    rows = np.frombuffer(rgb.constBits().asstring(rgb.sizeInBytes()), np.uint8).reshape(height, rgb.bytesPerLine())
+    return rows[:, : width * 3].reshape(height, width, 3)
+
+
+def print_dmax(image: QImage) -> Optional[tuple[int, int, int]]:
+    """A print's D-max tone: the mean color of the darkest pixels of a thumbnail, its padding left out."""
+    pixels = _rgb_pixels(image.copy(picture_in_thumbnail(image))).reshape(-1, 3).astype(np.float32)
+    if not len(pixels):
+        return None
+    luma = pixels @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    darkest = pixels[luma <= np.quantile(luma, _DMAX_SHARE)]
+    red, green, blue = (int(round(v)) for v in darkest.mean(axis=0))
+    return red, green, blue
+
+
+def picture_in_thumbnail(image: QImage) -> QRect:
+    """The picture inside a thumbnail: all of it, or in a square one from an older cache, the part
+    inside the THUMBNAIL_PAD padding on one axis."""
+    if image.width() != image.height():
+        return image.rect()
+    pixels = _rgb_pixels(image).astype(np.int16)
+    height, width = pixels.shape[:2]
+    live = np.abs(pixels - np.array(THUMBNAIL_PAD, np.int16)).max(axis=2) > 10
+
+    def pad(lines: np.ndarray) -> int:
+        found = np.flatnonzero(lines)
+        return int(min(found[0], len(lines) - 1 - found[-1])) if found.size else 0
+
+    pad_y, pad_x = pad(live.any(axis=1)), pad(live.any(axis=0))
+    if pad_y >= pad_x:
+        return QRect(0, pad_y, width, height - 2 * pad_y)
+    return QRect(pad_x, 0, width - 2 * pad_x, height)
+
+
+def justified_rows(aspects: list[float], width: int, height: int, gap: int) -> list[tuple[int, list[tuple[int, int]]]]:
+    """Frames `gap` apart in rows that fill `width`: per row, the picture height and each frame's (x, width).
+    A row takes frames until they reach the width at `height`, then shrinks to fit; the last row keeps `height`."""
+    rows: list[tuple[int, list[tuple[int, int]]]] = []
+    start, reach = 0, 0.0
+    for end in range(1, len(aspects) + 1):
+        reach += aspects[end - 1] * height + gap
+        last = end == len(aspects)
+        if reach < width and not last:
+            continue
+        row = aspects[start:end]
+        h = (width - gap * len(row)) / sum(row) if reach >= width else float(height)
+        x, frames = 0.0, []
+        for aspect in row:
+            right = x + aspect * h + gap
+            frames.append((round(x), round(right) - round(x)))
+            x = right
+        rows.append((round(h), frames))
+        start, reach = end, 0.0
+    return rows
+
+
+# The corner radius of a scene's name chip; a selection mat's is half a pixel more.
+_CHIP_RADIUS = 3
+
+
+class _FilmDelegate(_ThumbnailDelegate):
+    """Each frame stands upright in a cell as wide as its picture, a thin rebate border around it,
+    and a scene colors the top border of its frames."""
+
+    _CACHE_LIMIT = 512
+    # Every layout reads the picture bounds of every frame, so their small cache holds a long roll. The strip's
+    # and the Light Table's delegates share it, as they show the same thumbnails.
+    _BOUNDS_LIMIT = 1 << 16
+    _bounds: dict[int, QRect] = {}
+    _IDLE_OPACITY = 0.75
+    _BORDER = THEME.space_sm
+
+    def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
+        super().__init__(parent, state)
+        self._film = _DEFAULT_FILM
+        self._pictures: dict[int, QPixmap] = {}
+
+    def set_film(self, geometry: FilmGeometry, rebate: tuple[int, int, int]) -> None:
+        self._film = (geometry, rebate)
+
+    def picture_aspect(self, index: QModelIndex) -> float:
+        """The upright picture's shape."""
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        base = super()._thumbnail(icon, index) if isinstance(icon, QIcon) and not icon.isNull() else None
+        bounds = self._picture_bounds(base) if base is not None and not base.isNull() else QRect()
+        return bounds.width() / bounds.height() if bounds.height() else self.placeholder_aspect
+
+    @property
+    def placeholder_aspect(self) -> float:
+        return self._film[0].window_aspect
+
+    def _picture_bounds(self, base: QPixmap) -> QRect:
+        bounds = self._bounds.get(base.cacheKey())
+        if bounds is None:
+            if len(self._bounds) > self._BOUNDS_LIMIT:
+                self._bounds.clear()
+            bounds = self._bounds[base.cacheKey()] = picture_in_thumbnail(base.toImage())
+        return bounds
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        view = self.parent()
+        if isinstance(view, _FilmGridView):
+            return view.slim_cell(index)
+        return super().sizeHint(option, index)
+
+    def _thumbnail(self, icon: QIcon, index: QModelIndex) -> QPixmap:
+        base = super()._thumbnail(icon, index)
+        if base.isNull():
+            return base
+        picture = self._pictures.get(base.cacheKey())
+        if picture is None:
+            # A re-rendered thumbnail is a new pixmap, so the cache only grows until cleared.
+            if len(self._pictures) > self._CACHE_LIMIT:
+                self._pictures.clear()
+            picture = self._pictures[base.cacheKey()] = base.copy(self._picture_bounds(base))
+        return picture
+
+    def band(self, cell: QRect) -> QRect:
+        """The film across a cell, without the view's space above and below it."""
+        view = self.parent()
+        gap = view.STRIP_GAP if isinstance(view, _FilmGridView) else 0
+        return cell.adjusted(0, gap // 2, 0, -(gap - gap // 2))
+
+    def _window(self, cell: QRect) -> QRect:
+        b = self._BORDER
+        return self.band(cell).adjusted(b // 2, b, -(b - b // 2), -b)
+
+    def picture_rect(self, cell: QRect, index: QModelIndex) -> QRect:
+        return super().picture_rect(self._window(cell), index)
+
+    def _paint_scene_line(self, painter: QPainter, cell: QRect, index: QModelIndex) -> None:
+        scene = (index.data(Qt.ItemDataRole.UserRole) or {}).get("scene")
+        if scene:
+            band = self.band(cell)
+            painter.fillRect(band.left(), band.top(), band.width(), self._BORDER, QColor(scene_color(scene[0])))
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        cell = option.rect
+        painter.fillRect(self.band(cell), QColor(*self._film[1]))
+        self._paint_scene_line(painter, cell, index)
+        framed = QStyleOptionViewItem(option)
+        framed.rect = self._window(cell)
+        super().paint(painter, framed, index)
+
+
+class _FilmGridView(ThumbnailGridView):
+    """Frames in justified rows, the cells of a row joined into one strip; each run of a scene's frames
+    on one row starts with the scene's name."""
+
+    SPACING = 0
+    STRIP_GAP = THEME.space_xl
+    # Scene sort: the gap between two scenes' blocks.
+    SCENE_GAP = THEME.space_lg
+    _film = _DEFAULT_FILM[0]
+    cell_zoomed = pyqtSignal(int)
+    # A layout that may change the frames to a row or their range: a zoom, a resize or a new film.
+    columns_changed = pyqtSignal()
+
+    def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT) -> None:
+        self._slim_cells: Optional[dict[int, QRect]] = None
+        # Each row's picture shape as the layout read it, kept until the frames take new shapes.
+        self._shown_aspects: dict[int, float] = {}
+        # scene_runs_on_rows in content coordinates, kept until the next layout or data change.
+        self._scene_runs: Optional[list[tuple[tuple, QModelIndex, QRect, QRect]]] = None
+        self._placing_scenes = False
+        super().__init__(parent, target_cell)
+        # Thumbnails arrive faster than a layout of every frame; new shapes in one burst share one layout.
+        self._reshape_timer = QTimer(self)
+        self._reshape_timer.setSingleShot(True)
+        self._reshape_timer.setInterval(_RESHAPE_MS)
+        self._reshape_timer.timeout.connect(self._invalidate_slim)
+        self._zoom_angle = 0
+        # Margins, not QSS padding, which would inset the scroll bar too; the film runs off the top and bottom.
+        self.setViewportMargins(THEME.space_2xl, 0, THEME.space_2xl, 0)
+        self.set_table_color(table_color(AppState.canvas_bg_index))
+
+    def set_table_color(self, color: str) -> None:
+        # A new stylesheet lays every cell out again, even when it is the same.
+        qss = self._table_qss(color)
+        if qss != self.styleSheet():
+            self.setStyleSheet(qss)
+
+    def _table_qss(self, color: str) -> str:
+        return f"QListView {{ background-color: {color}; border: none; }}"
+
+    def set_film(self, geometry: FilmGeometry) -> None:
+        """Lays the cells out again for a new film."""
+        self._film = geometry
+        self._last_cell = -1
+        self._slim_cells = None
+        self._relayout()
+
+    def setModel(self, model) -> None:  # noqa: N802
+        super().setModel(model)
+        for signal in (model.modelReset, model.layoutChanged, model.rowsInserted, model.rowsRemoved):
+            signal.connect(self._on_rows_changed)
+        model.dataChanged.connect(self._on_data_changed)
+
+    def _on_rows_changed(self, *_args) -> None:
+        self._invalidate_slim()
+
+    def _invalidate_slim(self) -> None:
+        self._slim_cells = None
+        self._shown_aspects = {}
+        self._scene_runs = None
+        self.scheduleDelayedItemsLayout()
+
+    def _on_data_changed(self, top_left: QModelIndex, bottom_right: QModelIndex, *_roles) -> None:
+        # Qt does not move the frames after one whose width a new thumbnail changed. A layout of every frame
+        # per thumbnail stalls a long roll, so a thumbnail within _SHAPE_TOLERANCE of the shape it replaces keeps it.
+        self._scene_runs = None
+        # A row no layout has read yet takes its new shape from the pending one.
+        delegate = self.itemDelegate()
+        for row in range(top_left.row(), bottom_right.row() + 1):
+            before = self._shown_aspects.get(row)
+            if before is not None and abs(delegate.picture_aspect(top_left.siblingAtRow(row)) / before - 1) > _SHAPE_TOLERANCE:
+                if not self._reshape_timer.isActive():
+                    self._reshape_timer.start()
+                return
+
+    def _slim_height(self) -> int:
+        """The picture height of a full row: a landscape frame as wide as one cell."""
+        return max(1, round(self._last_cell / self._film.window_aspect))
+
+    @property
+    def _aspect(self) -> float:
+        """The film's width over a frame's pitch along it."""
+        return self._film.width / self._film.pitch
+
+    def slim_cell(self, index: QModelIndex) -> QSize:
+        return self._slim_layout().get(index.row(), QRect()).size()
+
+    def _layout_aspect(self, index: QModelIndex) -> float:
+        row = index.row()
+        if row not in self._shown_aspects:
+            self._shown_aspects[row] = self.itemDelegate().picture_aspect(index)
+        return self._shown_aspects[row]
+
+    def _slim_layout(self) -> dict[int, QRect]:
+        """Each frame's cell in justified rows, the gap between rows split above and below its film; a
+        scene sort starts each scene's block on a new row."""
+        if self._slim_cells is None:
+            model, delegate = self.model(), self.itemDelegate()
+            runs = model.scene_runs() if hasattr(model, "scene_runs") else []
+            blocks = [(first, last) for _ordinal, first, last in runs] or [(0, model.rowCount() - 1)]
+            border, cells, y = delegate._BORDER, {}, 0
+            for first, last in blocks:
+                aspects = [self._layout_aspect(model.index(row, 0)) for row in range(first, last + 1)]
+                row = first
+                for height, frames in justified_rows(aspects, self.viewport().width(), self._slim_height(), border):
+                    for x, width in frames:
+                        cells[row] = QRect(x, y, width, height + 2 * border + self.STRIP_GAP)
+                        row += 1
+                    y += height + 2 * border + self.STRIP_GAP
+                y += self.SCENE_GAP
+            self._slim_cells = cells
+        return self._slim_cells
+
+    def cell_for_width(self, vw: int) -> int:
+        # QListView wraps a row whose right edge reaches the viewport's last pixel.
+        return max(1, (vw - 1) // self.columns_for_width(vw))
+
+    def column_range(self) -> tuple[int, int, int]:
+        """(fewest, default, most) frames to a row: one row of film as tall as the view, frames of
+        THUMB_CELL_DEFAULT, and the smallest frames."""
+        vw, vh = self.viewport().width(), self.viewport().height()
+        fewest = max(1, math.ceil(vw * self._aspect / max(1, vh)))
+        most = max(fewest, vw // THUMB_CELL_MIN)
+        return fewest, min(most, max(fewest, vw // THUMB_CELL_DEFAULT)), most
+
+    def columns(self) -> int:
+        return self.columns_for_width(self.viewport().width())
+
+    def set_columns(self, columns: int) -> None:
+        fewest, _default, most = self.column_range()
+        self._target_cell = self.viewport().width() // min(most, max(fewest, columns))
+        self._relayout()
+        self.scrollTo(self.currentIndex())
+        self.cell_zoomed.emit(self._target_cell)
+
+    def zoom(self, steps: int) -> None:
+        """One frame fewer a row per step."""
+        self.set_columns(self.columns() - steps)
+
+    def _relayout(self) -> None:
+        super()._relayout()
+        self.columns_changed.emit()
+
+    def wheelEvent(self, event) -> None:
+        if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            super().wheelEvent(event)
+            return
+        # A trackpad sends one notch as many small deltas.
+        self._zoom_angle += event.angleDelta().y()
+        steps = int(self._zoom_angle / 120)
+        if steps:
+            self._zoom_angle -= steps * 120
+            self.zoom(steps)
+        event.accept()
+
+    def _apply_cell(self, cell: int) -> None:
+        if cell == self._last_cell:
+            return
+        self._last_cell = cell
+        # No grid: each cell takes the size the delegate asks of slim_cell.
+        self._slim_cells = None
+        self.setGridSize(QSize())
+        self.scheduleDelayedItemsLayout()
+        self.verticalScrollBar().setSingleStep(max(1, self._row_step() // 4))
+
+    def resizeEvent(self, event) -> None:
+        self._slim_cells = None
+        super().resizeEvent(event)
+
+    def _row_step(self) -> int:
+        return self._slim_height() + 2 * _FilmDelegate._BORDER + self.STRIP_GAP
+
+    def _place_scene_runs(self) -> None:
+        """Each frame at its slim cell. Qt re-flows every cell on each layout, so this runs after each one."""
+        model = self.model()
+        if model is None:
+            return
+        for row, cell in self._slim_layout().items():
+            self.setPositionForIndex(cell.topLeft(), model.index(row, 0))
+
+    def updateGeometries(self) -> None:
+        self._scene_runs = None
+        super().updateGeometries()
+        if self._placing_scenes:
+            return
+        self._placing_scenes = True
+        try:
+            self._place_scene_runs()
+        finally:
+            self._placing_scenes = False
+
+    def scene_runs_on_rows(self) -> list[tuple[tuple, QModelIndex, QRect, QRect]]:
+        """(scene, first index, first cell, last cell) per run of one scene's consecutive frames on one row."""
+        model = self.model()
+        if model is None or not getattr(model, "has_scenes", True):
+            return []
+        if self._scene_runs is None:
+            self._scene_runs = self._find_scene_runs()
+        dx, dy = -self.horizontalOffset(), -self.verticalOffset()
+        return [(scene, index, first.translated(dx, dy), last.translated(dx, dy)) for scene, index, first, last in self._scene_runs]
+
+    def _find_scene_runs(self) -> list[tuple[tuple, QModelIndex, QRect, QRect]]:
+        model = self.model()
+        runs: list[tuple[tuple, QModelIndex, QRect, QRect]] = []
+        current = None
+        for row in range(model.rowCount()):
+            index = model.index(row, 0)
+            scene = (index.data(Qt.ItemDataRole.UserRole) or {}).get("scene")
+            rect = self.rectForIndex(index)
+            if scene and current and current[0] == scene and current[3].top() == rect.top():
+                current = (scene, current[1], current[2], rect)
+                runs[-1] = current
+            elif scene:
+                current = (scene, index, rect, rect)
+                runs.append(current)
+            else:
+                current = None
+        return runs
+
+    def selectionChanged(self, selected, deselected) -> None:  # noqa: N802
+        super().selectionChanged(selected, deselected)
+        # A mark reaches past its cell, where Qt repaints nothing.
+        self.viewport().update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        delegate = self.itemDelegate()
+        if not isinstance(delegate, _FilmDelegate):
+            return
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        self._paint_scene_names(painter, delegate, event.rect())
+        self._paint_marks(painter, delegate, event.rect())
+        painter.end()
+
+    def _paint_marks(self, painter: QPainter, delegate: _FilmDelegate, area: QRect) -> None:
+        """A muted red mat over a selected frame's border, the lighter red on the open frame."""
+        model, selection = self.model(), self.selectionModel()
+        rows = {index.row() for index in selection.selectedIndexes()} if selection is not None else set()
+        # As wide on every side: the border around the picture, then one pixel at 90% and one at 80%; on
+        # the left and right it reaches over the neighbors' border.
+        rings = ((delegate._BORDER, 1.0), (delegate._BORDER + 1, 0.9), (delegate._BORDER + 2, 0.8))
+        reach = rings[-1][0]
+        marks = []
+        for row in sorted(rows):
+            index = model.index(row, 0)
+            cell = self.visualRect(index)
+            if cell.adjusted(-reach, 0, reach, 0).intersects(area):
+                marks.append((delegate.is_active(index.data(Qt.ItemDataRole.UserRole) or {}), delegate._window(cell)))
+        # The open frame's mat goes over a selected neighbor's.
+        for active, window in sorted(marks, key=lambda mark: mark[0]):
+            color = QColor(THEME.border_checked_hover if active else THEME.border_checked)
+            inside = QPainterPath()
+            inside.addRect(QRectF(window))
+            for grow, alpha in rings:
+                edge = QPainterPath()
+                radius = _CHIP_RADIUS + 0.5 + grow - delegate._BORDER
+                edge.addRoundedRect(QRectF(window).adjusted(-grow, -grow, grow, grow), radius, radius)
+                color.setAlphaF(alpha)
+                painter.fillPath(edge.subtracted(inside), color)
+                inside = edge
+
+    def _paint_scene_names(self, painter: QPainter, delegate: _FilmDelegate, area: QRect) -> None:
+        """A chip with the scene's name on its line, at the start of each run of its frames on one row."""
+        font = painter.font()
+        font.setPixelSize(THEME.font_size_small)
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        height, pad = metrics.height(), THEME.space_sm
+        for scene, _index, first, last in self.scene_runs_on_rows():
+            if not first.united(last).adjusted(0, -height, 0, 0).intersects(area):
+                continue
+            band = delegate.band(first)
+            name = metrics.elidedText(scene[2], Qt.TextElideMode.ElideRight, last.right() - first.left() - 2 * pad)
+            chip = QRectF(band.left(), band.top() - height / 2, metrics.horizontalAdvance(name) + 2 * pad, height)
+            color = QColor(scene_color(scene[0]))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(chip, _CHIP_RADIUS, _CHIP_RADIUS)
+            luma = 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+            painter.setPen(QColor(THEME.bg_dark if luma > 140 else THEME.text_primary))
+            painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, name)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+
+class _FilmStripView(_FilmGridView):
+    """The Film Strip: one row of film as tall as the view, scrolling sideways."""
+
+    # The space above and below the film lies inside the cells, as the Light Table's row gap does,
+    # so a scene's name chip on the film's top edge fits.
+    STRIP_GAP = 2 * THEME.space_xl
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        # The film runs off the left and right edges.
+        self.setViewportMargins(0, 0, 0, 0)
+        self.setFlow(QListView.Flow.LeftToRight)
+        self.setWrapping(False)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Always on, so the viewport height that sizes the frames never changes as the row grows.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._wheel_axis: Optional[str] = None
+
+    def _table_qss(self, color: str) -> str:
+        return (
+            super()._table_qss(color)
+            + f"QScrollBar:horizontal {{ background: {color}; }}"
+            + "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }"
+        )
+
+    def slim_cell(self, index: QModelIndex) -> QSize:
+        height, border = self.viewport().height(), _FilmDelegate._BORDER
+        return QSize(round((height - self.STRIP_GAP - 2 * border) * self._layout_aspect(index)) + border, height)
+
+    def cell_for_width(self, vw: int) -> int:
+        return max(1, int((self.viewport().height() - self.STRIP_GAP - 1) / self._aspect))
+
+    def _apply_cell(self, cell: int) -> None:
+        super()._apply_cell(cell)
+        self.horizontalScrollBar().setSingleStep(max(1, cell // 4))
+
+    def _place_scene_runs(self) -> None:
+        # One row: scenes keep their order, without the Light Table's blocks.
+        return
+
+    def wheelEvent(self, event) -> None:
+        """The wheel moves the row a frame a notch; a trackpad moves it by its own pixels."""
+        bar = self.horizontalScrollBar()
+        phase = event.phase()
+        if phase in (Qt.ScrollPhase.ScrollBegin, Qt.ScrollPhase.NoScrollPhase):
+            self._wheel_axis = None
+        pixel = event.pixelDelta()
+        delta = pixel if not pixel.isNull() else event.angleDelta()
+        # A trackpad swipe drifts off its axis: a gesture keeps the axis it starts on, momentum included.
+        axis = self._wheel_axis
+        if axis is None and (delta.x() or delta.y()):
+            axis = "x" if abs(delta.x()) >= abs(delta.y()) else "y"
+            if phase != Qt.ScrollPhase.NoScrollPhase:
+                self._wheel_axis = axis
+        step = delta.x() if axis == "x" else delta.y()
+        if not pixel.isNull():
+            bar.setValue(bar.value() - step)
+        else:
+            frame = self.gridSize().width() if self.gridSize().isValid() else self.viewport().height()
+            bar.setValue(bar.value() - int(round(step / 120 * frame)))
+        if phase == Qt.ScrollPhase.ScrollEnd:
+            self._wheel_axis = None
+        event.accept()
+
+
+# The Roll row: the widest its roll name and tally get, and the filter box's width below which
+# Save as Roll moves to the ⋮ menu.
+_ROLL_TITLE_MAX_WIDTH = 280
+_FILTER_ROOM = 220
+
+
 class FileBrowser(QWidget):
     """
     Asset management panel for loading and selecting images.
@@ -837,67 +1218,21 @@ class FileBrowser(QWidget):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        icon_size = QSize(TOOLBAR_ICON_SIZE, TOOLBAR_ICON_SIZE)
-        btn_height = TOOLBAR_BUTTON_HEIGHT
-
-        # No top-level toolbar: every action lives in the row of the section it acts on --
-        # Library's own +/refresh corner, or film_strip_toolbar next to the loaded frames.
-        self.film_strip_toolbar = OverflowBar(height=btn_height, spacing=4)
-
-        # One button for both: Add Files and Add Folder are two pickers for the same job
-        # (put pictures in this session), not two different actions worth their own icons.
-        self.add_btn = QToolButton()
-        self.add_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
-        self.add_btn.setToolTip(tr("Add pictures or a folder to this session"))
-        self.add_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        add_menu = QMenu(self.add_btn)
-        add_menu.addAction(tr("Add Files…")).triggered.connect(self.prompt_add_files)
-        add_menu.addAction(tr("Add Folder…")).triggered.connect(self.prompt_add_folder)
-        self.add_btn.setMenu(add_menu)
-        self.unload_btn = QToolButton()
-        self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
-        self.unload_btn.setToolTip(tr("Unload…"))
-
-        self.hot_folder_btn = QToolButton()
-        self.hot_folder_btn.setCheckable(True)
-        self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_primary))
-        self.hot_folder_btn.setToolTip(tr("Hot Folder — automatically load new images from the current folder"))
-        self._update_hot_folder_style(False)
+        icon_size = QSize(BAR_ICON_SIZE, BAR_ICON_SIZE)
+        btn_height = BAR_BUTTON_HEIGHT
 
         self.apply_btn = QToolButton()
         self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
         self.apply_btn.setToolTip(tr("Apply settings from the current frame to selected frames or the whole roll"))
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
-        self.roll_settings_btn = QToolButton()
-        self.roll_settings_btn.setIcon(qta.icon("fa5s.tags", color=THEME.text_primary))
-        self.roll_settings_btn.setToolTip(
-            wrap_tooltip(
-                tr("Roll Settings — tag gear, capture and process metadata across the current frame, a selection or the whole roll")
-            )
-        )
-        self.roll_settings_btn.clicked.connect(self._open_roll_settings_dialog)
-
-        self.save_roll_btn = QToolButton()
-        self.save_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
-        self.save_roll_btn.setToolTip(wrap_tooltip(tr("Save these frames as a roll — a named, reopenable group, not tied to a folder")))
-        self.save_roll_btn.clicked.connect(self._on_save_roll_clicked)
-        self.update_thumbnails_btn = QToolButton()
-        self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-        self.update_thumbnails_btn.setToolTip(tr("Update Thumbnails — re-render every stale thumbnail in the roll"))
-        self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
-
-        self.scenes_btn = QToolButton()
-        self.scenes_btn.setCheckable(True)
-        self.scenes_btn.setToolTip(wrap_tooltip(tr("Show Scenes — frame each picture in its scene's color")))
-        self.scenes_btn.toggled.connect(self._apply_show_scenes)
-
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
-        self.sheet_btn.setToolTip(tr("Sheet — filter the contact sheet by triage mark"))
+        self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=THEME.text_primary))
+        self.sheet_btn.setToolTip(tr("Sheet filter: show frames by their keep and reject marks"))
         self.sheet_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         sheet_menu = QMenu(self.sheet_btn)
         self._sheet_group = QActionGroup(self)
@@ -923,304 +1258,214 @@ class FileBrowser(QWidget):
         self.sheet_btn.setMenu(sheet_menu)
 
         # The frames' own order; the Library's roll list has a Sort of its own.
-        self.sort_btn = SortButton((("name", "Name"), ("date", "Date"), ("scene", "Scene")), tr("Sort the frames in the Film Strip"))
+        self.sort_btn = SortButton(
+            (("name", tr("Name")), ("date", tr("Date")), ("scene", tr("Scene"))), tr("Sort the frames in the Film Strip")
+        )
         self.act_sort_name, self.act_sort_date, self.act_sort_scene = (self.sort_btn.order_action(k) for k in ("name", "date", "scene"))
         self.act_sort_asc, self.act_sort_desc = self.sort_btn.ascending_action, self.sort_btn.descending_action
         self.act_sort_scene.setVisible(False)
         self.sort_btn.order_selected.connect(self._apply_sort_order)
         self.sort_btn.direction_selected.connect(self._apply_sort_direction)
 
-        for btn in (
-            self.add_btn,
-            self.unload_btn,
-            self.hot_folder_btn,
-            self.apply_btn,
-            self.roll_settings_btn,
-            self.save_roll_btn,
-            self.update_thumbnails_btn,
-            self.scenes_btn,
-            self.sort_btn,
-            self.sheet_btn,
-        ):
+        self.roll_settings_btn = QToolButton()
+        self.roll_settings_btn.setIcon(qta.icon("mdi6.tag-outline", color=THEME.text_primary))
+        self.roll_settings_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr("Roll Settings: tag gear, film and process details on this frame, the selection or the whole roll."), "roll_settings"
+            )
+        )
+        self.roll_settings_btn.clicked.connect(self._open_roll_settings_dialog)
+
+        for btn in (self.sort_btn, self.sheet_btn):
+            btn.setProperty("dropdown", True)
+        # Icons alone: the tooltips name them, and the filter box keeps the room.
+        for btn in (self.sort_btn, self.sheet_btn, self.roll_settings_btn, self.apply_btn):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        for widget, label in (
-            (self.save_roll_btn, tr("Save as Roll…")),
-            (None, None),
-            (self.add_btn, "Add"),
-            (None, None),
-            (self.hot_folder_btn, tr("Hot Folder")),
-            (None, None),
-            (self.apply_btn, tr("Apply settings")),
-            (self.roll_settings_btn, "Roll Settings"),
-            (self.update_thumbnails_btn, tr("Update thumbnails")),
-            (None, None),
-            (self.unload_btn, "Unload…"),
-            (self.scenes_btn, tr("Show Scenes")),
-            (self.sort_btn, "Sort"),
-            (self.sheet_btn, tr("Sheet filter")),
-        ):
-            if widget is None:
-                self.film_strip_toolbar.add_separator(self._create_separator())
-            else:
-                self.film_strip_toolbar.add_button(widget, label)
+        # 1 while Save as Roll waits in the ⋮ menu for room in the row.
+        self._roll_fit = 0
+        self._save_roll_wanted = False
 
         saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
         saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
 
-        search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText(tr("Filter — name, film:portra, iso:>=400…"))
+        self.search_input.setPlaceholderText(tr("Filter: name, film:portra, iso:>=400…"))
         self.search_input.setToolTip(
-            tr(
-                "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
-                "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
-                "shot, place, scene, name, path, ext, date, keeper, rejected, edited.\n"
-                'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   shot:>=1998-07   ·   place:tokyo'
-            )
+            tr("Filter the frames: a word matches the file name, and terms such as film:portra iso:>=400 -rejected: match frame data.")
         )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(
             qta.icon("fa5s.search", color=THEME.text_secondary),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        # The elastic item in this row. Its natural minimum is what keeps the panel from narrowing
-        # further, and the other two here are fixed-width by design.
+        # The elastic item in the row: _fit_roll_row reads its width.
         self.search_input.setMinimumWidth(40)
-        self.regex_btn = tool_toggle("", ".*", tr("Regex mode"))
-        self.regex_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-
-        # Same query text, wider net: the box above filters what is loaded, and this runs it
+        self.search_input.setFixedHeight(btn_height)
+        self.search_input.installEventFilter(self)
+        # Same query text, wider net: the box filters what is loaded, and this runs it
         # against every library folder and opens what it finds.
-        self.library_search_btn = icon_button(
-            "mdi.folder-search-outline", tr("Search the whole library — runs this search across your library folders and loads the matches")
-        )
-
+        self.library_search_action = QAction(qta.icon("mdi.folder-search-outline", color=THEME.text_hint), "", self)
+        self.search_input.addAction(self.library_search_action, QLineEdit.ActionPosition.TrailingPosition)
+        self.library_search_action.setToolTip(tr("Search the whole library and load the matches."))
+        self.regex_action = self._box_toggle("mdi6.regex", tr("Regex mode"))
         # Opt-in (Preferences); hidden until then. Mutually exclusive with regex/the
         # structured query language -- ranks this session's frames by meaning instead.
-        self.semantic_btn = tool_toggle(
-            "mdi.image-search-outline", "", tr("Search by meaning — describe what you're looking for instead of using field:value terms")
+        self.semantic_action = self._box_toggle(
+            "mdi.image-search-outline", tr("Search by meaning: describe what you are looking for, in place of field:value terms")
         )
-        self.semantic_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.semantic_btn.setVisible(False)
-
-        search_row.addWidget(self.search_input)
-        search_row.addWidget(self.regex_btn)
-        search_row.addWidget(self.semantic_btn)
-        search_row.addWidget(self.library_search_btn)
-
-        # Built here (Film Strip's thumbnail grid needs a starting value below) but added to
-        # the Film Strip section's own tally row, since it only ever affects that grid.
-        saved_cell = self.session.repo.get_global_setting("thumbnail_cell_size") or THUMB_CELL_DEFAULT
-        self.thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)
-        self.thumb_size_slider.setValue(ThumbnailGridView._clamp_target(int(saved_cell)))
-        self.thumb_size_slider.setFixedWidth(72)
-        self.thumb_size_slider.setToolTip(tr("Thumbnail size — smaller fits more columns in the panel"))
-        # Above both sections: one box that filters the frames and searches the library, so it
-        # belongs to neither and stays reachable when either is folded away.
-        layout.addLayout(search_row)
+        self.semantic_action.setVisible(False)
 
         self._refresh_progress = ""
+        # First in the Roll row: the roll's name over the tally of its frames.
+        self.roll_name_label = QLabel("")
+        self.roll_name_label.setStyleSheet(
+            f"color: {THEME.text_primary}; font-size: {THEME.font_size_header}px; font-weight: {THEME.weight_semibold};"
+        )
         self.tally_label = ElidedLabel("")
-        self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
-        self.tally_label.setVisible(False)
+        self.tally_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        self.roll_title = QWidget()
+        self.roll_title.setMaximumWidth(_ROLL_TITLE_MAX_WIDTH)
+        title_col = QVBoxLayout(self.roll_title)
+        title_col.setContentsMargins(THEME.space_sm, 0, THEME.space_sm, 0)
+        title_col.setSpacing(0)
+        title_col.addWidget(self.roll_name_label)
+        title_col.addWidget(self.tally_label)
+        self.roll_title.setVisible(False)
 
-        self.list_view, self._thumbnail_delegate = self._make_grid(self.thumb_size_slider.value())
+        self.list_view = _FilmStripView()
+        self._thumbnail_delegate = _FilmDelegate(self.list_view, state=self.session.state)
+        self._make_grid(self.list_view, self._thumbnail_delegate)
         # The Light Table; MainWindow lays it out in the canvas's place.
-        self.light_table_view, self._light_table_delegate = self._make_grid(THUMB_CELL_MAX)
+        self.light_table_view = _FilmGridView(
+            target_cell=int(self.session.repo.get_global_setting("light_table_cell") or THUMB_CELL_DEFAULT)
+        )
+        self.light_table_view.cell_zoomed.connect(lambda cell: self.session.repo.save_global_setting("light_table_cell", cell))
+        self._light_table_delegate = _FilmDelegate(self.light_table_view, state=self.session.state)
+        self._make_grid(self.light_table_view, self._light_table_delegate)
         self.light_table_view.setSelectionModel(self.list_view.selectionModel())
+        self._film_key: Optional[tuple] = None
+        self._film_geometry: Optional[FilmGeometry] = None
+        # The rebate prints as the roll's mean print D-max, measured once per thumbnail pixmap.
+        self._rebate_tone: Optional[tuple[int, int, int]] = None
+        self._dmax_by_pixmap: dict[int, Optional[tuple[int, int, int]]] = {}
+        self._rebate_timer = QTimer(self)
+        self._rebate_timer.setSingleShot(True)
+        self._rebate_timer.setInterval(300)
+        self._rebate_timer.timeout.connect(self._measure_rebate)
         self._apply_sort_order(str(saved_sort), save=False)
         self._apply_sort_direction(bool(saved_desc), save=False)
 
         # Takes the strip's place when a filter hides every frame: a blank panel under a
         # full tally reads as a load failure.
-        self.empty_label = QLabel("")
+        self.empty_label = hint_label()
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setWordWrap(True)
         self.empty_label.setTextFormat(Qt.TextFormat.RichText)
         self.empty_label.setOpenExternalLinks(False)
-        self.empty_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.empty_label.setVisible(False)
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 
+        # Shown in the right panel's Library tab; the strip reloads it and reads its state.
         self.library_tree = LibraryTree(self.controller)
-        self.library_section = self._make_section(tr("Library"), "library", "fa5s.folder-open", self.library_tree)
 
-        frames = QWidget()
-        frames_layout = QVBoxLayout(frames)
-        frames_layout.setContentsMargins(0, 0, 0, 0)
-        frames_layout.setSpacing(4)
-        frames_layout.addWidget(self.film_strip_toolbar)
-        tally_row = QHBoxLayout()
-        tally_row.addWidget(self.tally_label, 1)
-        tally_row.addWidget(self.thumb_size_slider)
-        frames_layout.addLayout(tally_row)
-        frames_layout.addWidget(self.list_view, 1)
-        frames_layout.addWidget(self.empty_label, 1)
-        self.frames_section = self._make_section(tr("Film Strip"), "frames", "fa5s.film", frames)
-        self.light_table_btn = self.frames_section.add_header_toggle(
-            "fa5s.th-large", tooltip_with_shortcut(tr("Light Table — the roll as a grid in place of the canvas"), "toggle_light_table")
-        )
+        self.save_roll_btn = QToolButton()
+        self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_roll_btn.setText(tr("Save as Roll…"))
+        self.save_roll_btn.setToolTip(wrap_tooltip(tr("Save these frames as a roll you can open again.")))
+        self.save_roll_btn.clicked.connect(self._on_save_roll_clicked)
 
-        # Clearing the strip is how you start a roll you will build entirely by drag-drop,
-        # so it lives on the section header rather than its own toolbar button -- the
-        # header has room a wrapping toolbar row does not.
-        frames_menu = QMenu(self.frames_section)
-        frames_menu.addAction(tr("New Roll…")).triggered.connect(self._on_clear_all)
-        self.close_roll_action = frames_menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll"))
+        self.hot_folder_action = QAction(tr("Hot Folder"), self)
+        self.hot_folder_action.setCheckable(True)
+        self.hot_folder_action.setToolTip(tr("Hot Folder: load new images from the current folder as they appear"))
+        # The ⋮ menu holds the switch; the row shows this while it is on, since a watched
+        # folder keeps loading files. A click turns it off.
+        self.hot_folder_btn = QToolButton()
+        self.hot_folder_btn.setCheckable(True)
+        self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_hint, color_on=THEME.text_primary))
+        self.hot_folder_btn.setToolTip(tr("Hot Folder is on: click to stop loading new images from the current folder."))
+        self.hot_folder_btn.clicked.connect(lambda: self.hot_folder_action.setChecked(False))
+        self.hot_folder_btn.setVisible(False)
+
+        for btn in (self.save_roll_btn, self.hot_folder_btn):
+            btn.setIconSize(icon_size)
+            btn.setFixedHeight(btn_height)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_roll_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.save_roll_btn.setVisible(False)
+
+        self.roll_menu_btn = QToolButton()
+        self.roll_menu_btn.setIcon(qta.icon("fa5s.ellipsis-v", color=THEME.text_primary))
+        self.roll_menu_btn.setIconSize(icon_size)
+        self.roll_menu_btn.setFixedHeight(btn_height)
+        self.roll_menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.roll_menu_btn.setToolTip(tr("Add frames, the Hot Folder, and start, close or reset the roll"))
+        self.roll_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.roll_menu_btn.setObjectName("toolbar_overflow")
+        roll_menu = QMenu(self.roll_menu_btn)
+        roll_menu.setToolTipsVisible(True)
+        roll_menu.addAction(tr("Add Files…")).triggered.connect(self.prompt_add_files)
+        roll_menu.addAction(tr("Add Folder…")).triggered.connect(self.prompt_add_folder)
+        self.save_roll_action = roll_menu.addAction(label_with_shortcut(tr("Save as Roll…"), "save_as_roll"))
+        self.save_roll_action.triggered.connect(self._on_save_roll_clicked)
+        self.update_thumbnails_action = roll_menu.addAction("")
+        self.update_thumbnails_action.triggered.connect(self._on_update_thumbnails_clicked)
+        self._on_thumbnail_refresh_state_changed(False)
+        roll_menu.addAction(self.hot_folder_action)
+        self.unload_action = roll_menu.addAction(tr("Unload…"))
+        self.unload_action.triggered.connect(self._on_unload_clicked)
+        roll_menu.addSeparator()
+        roll_menu.addAction(tr("New Roll…")).triggered.connect(self._on_clear_all)
+        self.close_roll_action = roll_menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll"))
         self.close_roll_action.triggered.connect(lambda: _close_roll(self, self.controller))
-        frames_menu.aboutToShow.connect(self._sync_close_roll_action)
-        frames_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
-        self.frames_section.set_actions_menu(
-            frames_menu,
-            tr("Start, close or reset the roll"),
-        )
+        roll_menu.aboutToShow.connect(self._sync_close_roll_action)
+        roll_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
+        roll_menu.addSeparator()
+        roll_menu.addAction(tr("Film Strip Guide…")).triggered.connect(self._show_guide)
+        self.roll_menu_btn.setMenu(roll_menu)
 
-        # A splitter, like the right panel's Analysis/Tabs one, so the boundary can be
-        # dragged; expanded sections still share it by _LIBRARY_SHARE/_FRAMES_SHARE.
-        self.sections_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.sections_splitter.addWidget(self.library_section)
-        self.sections_splitter.addWidget(self.frames_section)
-        self.sections_splitter.setCollapsible(0, False)
-        self.sections_splitter.setCollapsible(1, False)
+        # The toolbar's Roll mode shows this row: what the strip holds, the box that filters the
+        # frames and searches the library, how they are sorted and shown, Apply and the ⋮ menu.
+        self.roll_row = QWidget()
+        roll_layout = QHBoxLayout(self.roll_row)
+        roll_layout.setContentsMargins(0, 0, 0, 0)
+        roll_layout.setSpacing(THEME.space_sm)
+        self._title_separator = self._create_separator()
+        self._title_separator.setVisible(False)
+        for widget in (self.roll_title, self.save_roll_btn, self.hot_folder_btn, self._title_separator):
+            roll_layout.addWidget(widget)
+        roll_layout.addWidget(self.search_input, 1)
+        roll_layout.addWidget(self.sort_btn)
+        roll_layout.addWidget(self.sheet_btn)
+        roll_layout.addWidget(self._create_separator())
+        roll_layout.addWidget(self.roll_settings_btn)
+        roll_layout.addWidget(self.apply_btn)
+        roll_layout.addWidget(self.roll_menu_btn)
 
-        saved_sizes = self.session.repo.get_global_setting("session_sections_splitter_sizes")
-        if isinstance(saved_sizes, list) and len(saved_sizes) == 2:
-            self.sections_splitter.setSizes([int(s) for s in saved_sizes])
-        else:
-            self.sections_splitter.setSizes([120, 480])
-        self.sections_splitter.splitterMoved.connect(self._on_sections_splitter_moved)
-        self._section_sizes = self.sections_splitter.sizes()
-
-        for index, section in enumerate((self.library_section, self.frames_section)):
-            section.expanded_changed.connect(lambda expanded, i=index: self._on_section_toggled(i, expanded))
-            self._on_section_toggled(index, section.toggle_button.isChecked())
-
-        # Absorbs the surplus when both sections are collapsed, or Qt spreads it above the
-        # splitter instead of below it (the splitter's own stretch factor, set to 0 in that
-        # case by _on_section_toggled, leaves this the only claimant on the leftover space).
-        layout.addWidget(self.sections_splitter, 1)
-        layout.addStretch(0)
+        layout.addWidget(self.list_view, 1)
+        layout.addWidget(self.empty_label, 1)
 
         # Applied after list_view exists: the filter prunes the selection against the view.
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
-        show_scenes = bool(self.session.repo.get_global_setting("show_scenes") or False)
-        self.scenes_btn.blockSignals(True)
-        self.scenes_btn.setChecked(show_scenes)
-        self.scenes_btn.blockSignals(False)
-        self._apply_show_scenes(show_scenes, save=False)
-
-    def _make_section(self, title: str, key: str, icon: str, content: QWidget) -> CollapsibleSection:
-        return make_section(self.session.repo, title, key, content, icon, default_expanded=True)
-
-    def _on_sections_splitter_moved(self, *_args) -> None:
-        self._remember_section_sizes()
-        self.session.repo.save_global_setting("session_sections_splitter_sizes", list(self._section_sizes))
-
-    def _remember_section_sizes(self) -> None:
-        """Record open panes only: a collapsed pane's live size is its header, not what it reopens to."""
-        sizes = self.sections_splitter.sizes()
-        for i, section in enumerate((self.library_section, self.frames_section)):
-            if section.toggle_button.isChecked():
-                self._section_sizes[i] = sizes[i]
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if hasattr(self, "sections_splitter"):
-            self._rebalance_splitter_sizes()
-
-    def _apply_section_constraints(self, index: int, expanded: bool) -> None:
-        """A collapsed pane is fixed to exactly its header height, so nothing -- a drag,
-        a resize -- can hand it more or less than that; an expanded pane is freed back to
-        its natural range."""
-        section = (self.library_section, self.frames_section)[index]
-        share = (_LIBRARY_SHARE, _FRAMES_SHARE)[index]
-        if expanded:
-            section.setMinimumHeight(0)
-            section.setMaximumHeight(_UNBOUNDED_HEIGHT)
-        else:
-            section.setFixedHeight(section.toggle_button.height())
-        self.sections_splitter.setStretchFactor(index, share if expanded else 0)
-
-    def _on_section_toggled(self, index: int, expanded: bool) -> None:
-        """Pin a collapsed section's pane to its header and hand its space to the other
-        pane, restoring the last size when it reopens — same pattern as the right panel's
-        Analysis/Tabs splitter, generalized to two panes that can each collapse."""
-        sections = (self.library_section, self.frames_section)
-        other = 1 - index
-        header = sections[index].toggle_button.height()
-        sizes = self.sections_splitter.sizes()
-        total = sum(sizes) or self.sections_splitter.height()
-
-        if not expanded:
-            self._section_sizes[index] = sizes[index]
-        self._apply_section_constraints(index, expanded)
-
-        # A stretch factor sizes the widget, not its content, so a splitter whose panes are
-        # both pinned small still takes the layout's leftover space. Its own maximum height
-        # is what keeps that space out.
-        other_header = sections[other].toggle_button.height()
-        if expanded or sections[other].toggle_button.isChecked():
-            self.sections_splitter.setMaximumHeight(_UNBOUNDED_HEIGHT)
-        else:
-            self.sections_splitter.setMaximumHeight(header + self.sections_splitter.handleWidth() + other_header)
-        if total <= 0:
-            return
-
-        want = min(max(self._section_sizes[index], header), max(header, total - header)) if expanded else header
-        other_want = max(other_header, total - want) if sections[other].toggle_button.isChecked() else other_header
-        new_sizes = [0, 0]
-        new_sizes[index] = want
-        new_sizes[other] = other_want
-        self.sections_splitter.setSizes(new_sizes)
-        self._remember_section_sizes()
-
-    def _rebalance_splitter_sizes(self) -> None:
-        """Reassert the split on a window resize: a collapsed pane stays pinned to its
-        header; expanded panes keep their current size ratio, scaled to the new total.
-        Needed because a QSplitter's own resize handling redistributes new space by
-        stretch factor, and with two independently-collapsible panes that factor is 0
-        for both whenever both happen to be collapsed.
-        """
-        sections = (self.library_section, self.frames_section)
-        total = self.sections_splitter.height() or sum(self.sections_splitter.sizes())
-        if total <= 0:
-            return
-        current = self.sections_splitter.sizes()
-        headers = [s.toggle_button.height() for s in sections]
-        expanded = [s.toggle_button.isChecked() for s in sections]
-        collapsed_total = sum(h for h, e in zip(headers, expanded) if not e)
-        remaining = max(0, total - collapsed_total)
-        expanded_weight_total = sum(w for w, e in zip(current, expanded) if e)
-        sizes = []
-        for h, e, w in zip(headers, expanded, current):
-            if e and expanded_weight_total:
-                sizes.append(round(remaining * w / expanded_weight_total))
-            elif e:
-                sizes.append(remaining)
-            else:
-                sizes.append(h)
-        self.sections_splitter.setSizes(sizes)
 
     def _connect_signals(self) -> None:
         self.library_tree.folder_roll_created.connect(self._maybe_suggest_gear)
-        self.unload_btn.clicked.connect(self._on_unload_clicked)
         self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
-        self.light_table_view.clicked.connect(lambda index: self._on_item_clicked(index, self.light_table_view))
         self.light_table_view.doubleClicked.connect(self._open_from_light_table)
         open_key = QShortcut(QKeySequence(Qt.Key.Key_Return), self.light_table_view)
         open_key.setContext(Qt.ShortcutContext.WidgetShortcut)
         open_key.activated.connect(lambda: self._open_from_light_table(self.light_table_view.currentIndex()))
         self.light_table_view.customContextMenuRequested.connect(lambda pos: self._show_context_menu(pos, self.light_table_view))
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
-        self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
+        self.hot_folder_action.toggled.connect(self._on_hot_folder_toggled)
         self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
+        self.session.canvas_bg_changed.connect(self._sync_film)
+        model = self.session.asset_model
+        for signal in (model.dataChanged, model.layoutChanged, model.modelReset, model.rowsInserted, model.rowsRemoved):
+            signal.connect(lambda *_args: self._rebate_timer.start())
         self.controller.thumbnail_refresh_progress.connect(self._on_thumbnail_refresh_progress)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
@@ -1232,13 +1477,9 @@ class FileBrowser(QWidget):
         self.session.session_emptied.connect(lambda: self.library_requested.emit(False))
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.search_input.returnPressed.connect(self.search_library)
-        self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
-        self.semantic_btn.toggled.connect(self._on_semantic_toggled)
-        self.library_search_btn.clicked.connect(self.search_library)
-        # Relayout live while dragging, but write the setting only on release: a drag crosses
-        # dozens of values and each save is a DB round-trip.
-        self.thumb_size_slider.valueChanged.connect(self.list_view.set_target_cell)
-        self.thumb_size_slider.sliderReleased.connect(self._save_thumb_size)
+        self.regex_action.toggled.connect(lambda _: self.filter_timer.start())
+        self.semantic_action.toggled.connect(self._on_semantic_toggled)
+        self.library_search_action.triggered.connect(self.search_library)
 
         # Delete unloads the selected frames, scoped to the thumbnail list so it does not fire
         # while typing in the filter box or editing elsewhere.
@@ -1247,22 +1488,77 @@ class FileBrowser(QWidget):
             del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
             del_shortcut.activated.connect(self._on_delete_key)
 
+    def _measure_rebate(self) -> None:
+        # Frames in roll order, so a sort or a filter keeps the tone.
+        state = self.session.state
+        files, tones = state.uploaded_files, []
+        last = len(files) - 1
+        for row in sorted({round(i * last / (_DMAX_SAMPLES - 1)) for i in range(_DMAX_SAMPLES)} if last >= 0 else ()):
+            icon = state.thumbnails.get(asset_thumbnail_key(files[row]))
+            pixmap = icon.pixmap(QSize(4096, 4096)) if isinstance(icon, QIcon) else None
+            if pixmap is None or pixmap.isNull():
+                continue
+            key = pixmap.cacheKey()
+            if key not in self._dmax_by_pixmap:
+                if len(self._dmax_by_pixmap) > _FilmDelegate._CACHE_LIMIT:
+                    self._dmax_by_pixmap.clear()
+                self._dmax_by_pixmap[key] = print_dmax(pixmap.toImage())
+            if (tone := self._dmax_by_pixmap[key]) is not None:
+                tones.append(tone)
+        mean = np.mean(tones, axis=0) if tones else None
+        rebate = None if mean is None else (int(round(mean[0])), int(round(mean[1])), int(round(mean[2])))
+        if rebate != self._rebate_tone:
+            self._rebate_tone = rebate
+            self._sync_film()
+
+    def _sync_film(self) -> None:
+        """The film of the strip and the Light Table, from the active frame; the gear library is read
+        only when an input changes."""
+        state = self.session.state
+        files = state.uploaded_files
+        asset = files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(files) else {}
+        config = state.config
+        meta = config.metadata
+        half_frame = bool(self.controller.half_frame_mode_for_roll(state.active_roll_id)) if state.active_roll_id else False
+        table = table_color(state.canvas_bg_index)
+        key = (
+            (meta.film_stock_id, meta.film, meta.film_manufacturer, meta.film_color_type, meta.format, meta.format_other),
+            (config.process.process_mode, config.process.positive_source, config.exposure.paper_black),
+            (half_frame, asset.get("half")),
+            table,
+            self._rebate_tone,
+        )
+        if key == self._film_key:
+            return
+        self._film_key = key
+        try:
+            library = self.controller.load_gear_library()
+        except Exception:
+            library = None
+        film = roll_film(asset, config, library, half_frame, self._rebate_tone)
+        geometry = film[0]
+        new_shape, self._film_geometry = geometry != self._film_geometry, geometry
+        for delegate, view in ((self._thumbnail_delegate, self.list_view), (self._light_table_delegate, self.light_table_view)):
+            delegate.set_film(*film)
+            if new_shape:
+                view.set_film(geometry)
+            else:
+                view.viewport().update()
+            view.set_table_color(table)
+
     def _open_from_light_table(self, index) -> None:
         if index.isValid():
             self._activate_file(index)
             self.light_table_opened.emit()
 
-    def _make_grid(self, target_cell: int) -> tuple["ThumbnailGridView", "_ThumbnailDelegate"]:
-        view = ThumbnailGridView(target_cell=target_cell)
+    def _make_grid(self, view: ThumbnailGridView, delegate: _ThumbnailDelegate) -> None:
         view.setModel(self.session.asset_model)
-        delegate = _ThumbnailDelegate(view, state=self.session.state)
         view.setItemDelegate(delegate)
         view.setViewMode(QListView.ViewMode.IconMode)
         view.setResizeMode(QListView.ResizeMode.Adjust)
         view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         view.setAlternatingRowColors(False)
         view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        return view, delegate
 
     def search_library(self) -> None:
         """Run the box's query against the library folders instead of the loaded roll."""
@@ -1270,17 +1566,19 @@ class FileBrowser(QWidget):
         # would fire _apply_filter over whatever the hand-off loaded, putting back the
         # in-session query the hand-off clears. One action, one rebuild.
         self.filter_timer.stop()
-        if self.semantic_btn.isChecked():
+        if self.semantic_action.isChecked():
             self.controller.request_library_semantic_search(self.search_input.text())
         else:
             self.controller.request_library_search(self.search_input.text())
 
+    def _show_guide(self) -> None:
+        from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
+
+        SectionHelpDialog("frames", tr("Film Strip"), self, repo=self.session.repo).exec()
+
     def focus_search(self) -> None:
         self.search_input.setFocus()
         self.search_input.selectAll()
-
-    def _save_thumb_size(self) -> None:
-        self.session.repo.save_global_setting("thumbnail_cell_size", self.thumb_size_slider.value())
 
     def _on_files_changed(self) -> None:
         # A mark toggle can hide the active frame under a Sheet filter. Pruning then auto-advances
@@ -1319,23 +1617,23 @@ class FileBrowser(QWidget):
         if not ok or not name:
             return
         if not is_valid_preset_name(name):
-            warn_invalid_roll_name(self, "Save as Roll")
+            warn_invalid_roll_name(self, tr("Save as Roll"))
             return
         if self.controller.create_roll_from_session(name):
             self.library_tree.reload()
             self._update_tally()
 
     def _update_unload_button(self) -> None:
-        multi = len(self.session.state.selected_indices) > 1
-        self.unload_btn.setToolTip(tr("Unload Selected…") if multi else tr("Unload…"))
+        on_selection = not self.session.selection_is_open_frame()
+        self.unload_action.setText(tr("Unload Selected…") if on_selection else tr("Unload…"))
 
     def sync_ui(self) -> None:
         """Updates list selection to match session state."""
         model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
-        self.semantic_btn.setVisible(self.session.state.semantic_search_enabled)
-        if not self.session.state.semantic_search_enabled and self.semantic_btn.isChecked():
-            self.semantic_btn.setChecked(False)  # reverts to the plain filter via _on_semantic_toggled
+        self.semantic_action.setVisible(self.session.state.semantic_search_enabled)
+        if not self.session.state.semantic_search_enabled and self.semantic_action.isChecked():
+            self.semantic_action.setChecked(False)  # reverts to the plain filter via _on_semantic_toggled
         self.library_tree.sync_ui()
         self._update_unload_button()
         self._update_tally()
@@ -1346,8 +1644,9 @@ class FileBrowser(QWidget):
         }
         target_actual = set(self.session.state.selected_indices)
 
-        # Repaint for dirty underline
+        # The open frame's mat follows the session, not the selection.
         self.list_view.viewport().update()
+        self._sync_film()
         self.light_table_view.viewport().update()
 
         if current_actual == target_actual:
@@ -1394,7 +1693,7 @@ class FileBrowser(QWidget):
 
     def _apply_filter(self) -> None:
         text = self.search_input.text().strip()
-        if self.semantic_btn.isChecked():
+        if self.semantic_action.isChecked():
             embedding = self.controller.embed_search_query(text)
             self.session.asset_model.set_semantic_query(embedding)
             self._set_search_error(bool(text) and embedding is None)
@@ -1404,7 +1703,7 @@ class FileBrowser(QWidget):
 
         if self.session.asset_model.semantic_query_active:
             self.session.asset_model.set_semantic_query(None)
-        regex = self.regex_btn.isChecked()
+        regex = self.regex_action.isChecked()
         ok = self.session.asset_model.set_filter(text, regex)
         self._set_search_error(not ok)
         if ok:
@@ -1412,15 +1711,13 @@ class FileBrowser(QWidget):
             self.sync_ui()
 
     def _on_semantic_toggled(self, checked: bool) -> None:
-        self.regex_btn.setEnabled(not checked)
-        self.search_input.setPlaceholderText(
-            tr("Describe what you're looking for…") if checked else tr("Filter — name, film:portra, iso:>=400…")
-        )
+        self.regex_action.setEnabled(not checked)
+        self.search_input.setPlaceholderText(tr("Describe the photo to find…") if checked else tr("Filter: name, film:portra, iso:>=400…"))
         self.filter_timer.start()
 
     def _set_search_error(self, error: bool) -> None:
         if error:
-            self.search_input.setStyleSheet(f"border: 1px solid {THEME.accent_primary};")
+            self.search_input.setStyleSheet(f"border: 1px solid {THEME.error};")
         else:
             self.search_input.setStyleSheet("")
 
@@ -1474,13 +1771,17 @@ class FileBrowser(QWidget):
         self.act_sort_scene.setChecked(order == "scene")
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
+        model = self.session.asset_model
+        model.set_sheet_filter(mode)
+        mode = model.sheet_filter
         self.act_sheet_all.setChecked(mode == "all")
         self.act_sheet_keepers.setChecked(mode == "keepers")
         self.act_sheet_unrejected.setChecked(mode == "unrejected")
         self.act_sheet_unmarked.setChecked(mode == "unmarked")
-        icon_color = "white" if mode != "all" else THEME.text_primary
-        self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=icon_color))
-        self.session.asset_model.set_sheet_filter(mode)
+        # A filter that hides frames takes the chosen-item chip (QSS [filtering]).
+        self.sheet_btn.setProperty("filtering", mode != "all")
+        self.sheet_btn.style().unpolish(self.sheet_btn)
+        self.sheet_btn.style().polish(self.sheet_btn)
         if save:
             self.session.repo.save_global_setting("sheet_filter", mode)
         self._prune_selection_to_visible()
@@ -1491,13 +1792,13 @@ class FileBrowser(QWidget):
         model = self.session.asset_model
         names = []
         if model.filter_text:
-            names.append("search")
+            names.append(tr("search"))
         if model.sheet_filter == "keepers":
             names.append(tr("Keepers"))
         elif model.sheet_filter == "unrejected":
-            names.append("Hide Rejected")
+            names.append(tr("Hide Rejected"))
         elif model.sheet_filter == "unmarked":
-            names.append("Unmarked Only")
+            names.append(tr("Unmarked Only"))
         return names
 
     def _on_thumbnail_refresh_progress(self, text: str) -> None:
@@ -1507,38 +1808,40 @@ class FileBrowser(QWidget):
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
         if not files:
-            self.tally_label.setVisible(False)
+            self.roll_title.setVisible(False)
+            self._title_separator.setVisible(False)
+            self._show_save_roll(False)
             return
         keepers = sum(1 for f in files if f.get("keeper"))
         rejected = sum(1 for f in files if f.get("excluded"))
         n = len(files)
-        # The strip shows the model, the tally counts the session, so a filter that hides
-        # every frame reads as an empty panel under a full count unless it is named here.
+        # The strip shows the model, the tally counts the session; the filter button's chip and the
+        # filter box say which filter hides the rest.
         visible = self.session.asset_model.rowCount()
         text = tr("{visible} of {n} frames", visible=visible, n=n) if visible != n else count_of(n, "frame")
-        for name in self._active_frame_filters():
-            text += f" · {name} filter"
         if keepers:
             text += f" · {count_of(keepers, 'keeper')}"
         if rejected:
-            text += f" · {rejected} rejected"
-        roll_name = self._active_roll_name()
-        # The prefix slot holds the roll's name. Frames that are not one roll get named
-        # as what they are instead: an edit here reaches the roll each frame came from,
-        # which a strip that looks identical either way gives no sign of.
-        text = f"{roll_name or tr('No roll')} — {text}"
-        # First, so a narrow panel elides the roll name rather than the progress.
+            text += f" · {count_of(rejected, 'rejected', 'rejected')}"
+        selected = len(self.session.state.selected_indices)
+        if selected > 1:
+            text += " · " + tr("{count} selected", count=selected)
+        # First, so a narrow row elides the counts rather than the progress.
         if self._refresh_progress:
             text = f"{self._refresh_progress} · {text}"
+        roll_name = self._active_roll_name()
+        # Frames that are not one roll get named as what they are: an edit here reaches the
+        # roll each frame came from, which a strip that looks identical either way gives no sign of.
+        self.roll_name_label.setText(roll_name or tr("No roll"))
         self.tally_label.setText(text)
-        self.tally_label.setToolTip(
+        self.roll_title.setToolTip(
             ""
             if roll_name
-            else wrap_tooltip(
-                tr("These frames are not one roll. An edit changes the photo itself, so it also shows in the roll the frame came from.")
-            )
+            else wrap_tooltip(tr("These frames are not one roll, so an edit here also shows in the roll the frame came from."))
         )
-        self.tally_label.setVisible(True)
+        self.roll_title.setVisible(True)
+        self._title_separator.setVisible(True)
+        self._show_save_roll(not roll_name)
 
     def _active_roll_name(self) -> str:
         """The roll the Film Strip's frames came from, if any -- shown ahead of the
@@ -1555,14 +1858,8 @@ class FileBrowser(QWidget):
         filters = self._active_frame_filters()
         empty = bool(files) and self.session.asset_model.rowCount() == 0 and bool(filters)
         if empty:
-            named = " and ".join(filters)
-            self.empty_label.setText(
-                tr(
-                    'No frames match the {named} filter.<br><a href="#clear" style="color: {accent_primary};">Show all frames</a>',
-                    named=named,
-                    accent_primary=THEME.accent_primary,
-                )
-            )
+            named = filters[0] if len(filters) == 1 else tr("{value} and {value1}", value=filters[0], value1=filters[1])
+            self.empty_label.setText(tr('No frames match the {named} filter.<br><a href="#clear">Show all frames</a>', named=named))
         self.empty_label.setVisible(empty)
         self.list_view.setVisible(not empty)
 
@@ -1575,23 +1872,45 @@ class FileBrowser(QWidget):
         self._apply_sheet_filter("all")
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
-        self._update_hot_folder_style(checked)
+        self.hot_folder_btn.setChecked(checked)
+        self.hot_folder_btn.setVisible(checked)
         if checked:
             self.scan_timer.start()
         else:
             self.scan_timer.stop()
 
-    def _apply_show_scenes(self, on: bool, save: bool = True) -> None:
-        self.scenes_btn.setIcon(qta.icon("fa5s.layer-group", color="white" if on else THEME.text_primary))
-        for delegate, view in ((self._thumbnail_delegate, self.list_view), (self._light_table_delegate, self.light_table_view)):
-            delegate.set_show_scenes(on)
-            view.viewport().update()
-        if save:
-            self.session.repo.save_global_setting("show_scenes", on)
+    def _box_toggle(self, icon_name: str, tooltip: str) -> QAction:
+        """A switch inside the filter box, its icon lit while on."""
 
-    def _update_hot_folder_style(self, checked: bool) -> None:
-        icon_color = "white" if checked else THEME.text_primary
-        self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=icon_color))
+        def icon(on: bool) -> QIcon:
+            return qta.icon(icon_name, color=THEME.text_primary if on else THEME.text_hint, color_disabled=THEME.text_muted)
+
+        action = QAction(icon(False), "", self)
+        self.search_input.addAction(action, QLineEdit.ActionPosition.TrailingPosition)
+        action.setCheckable(True)
+        action.setToolTip(tooltip)
+        action.toggled.connect(lambda on: action.setIcon(icon(on)))
+        return action
+
+    def _show_save_roll(self, wanted: bool) -> None:
+        self._save_roll_wanted = wanted
+        self.save_roll_btn.setVisible(wanted and self._roll_fit == 0)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        # Events still reach the filter while the browser is torn down, after its attributes are gone.
+        if event.type() == QEvent.Type.Resize and obj is getattr(self, "search_input", None):
+            self._fit_roll_row()
+        return False
+
+    def _fit_roll_row(self) -> None:
+        """Save as Roll moves to the ⋮ menu while the filter box would be narrower than _FILTER_ROOM with it."""
+        save = self.save_roll_btn.sizeHint().width() + THEME.space_sm if self._save_roll_wanted else 0
+        room = self.search_input.width() - (save if self._roll_fit else 0)
+        # A step back needs a margin: a width right at the edge must not flicker.
+        fit = 0 if room >= _FILTER_ROOM + (THEME.space_2xl if self._roll_fit else 0) else 1
+        if fit != self._roll_fit:
+            self._roll_fit = fit
+            self._show_save_roll(self._save_roll_wanted)
 
     def _on_adjust_half_frame_split(self, path: str, base_hash: str) -> None:
         """Open the rectangle editor for one file, defaulting Apply to just that
@@ -1648,7 +1967,7 @@ class FileBrowser(QWidget):
         if images:
             self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True)
         elif self.library_tree.import_subfolders(folder):
-            self.library_section.expand()
+            self.library_requested.emit(False)
 
     def _activate_file(self, index) -> None:
         """Load a thumbnail into the main viewer, skipping a redundant reload of the
@@ -1657,13 +1976,12 @@ class FileBrowser(QWidget):
         if actual >= 0 and actual != self.session.state.selected_file_idx:
             self.session.select_file(actual)
 
-    def _on_item_clicked(self, index, view=None) -> None:
+    def _on_item_clicked(self, index) -> None:
         # `clicked` fires from inside Qt's own mouseReleaseEvent, before ThumbnailGridView's
         # reapply runs — force it now so a plain click is told apart from a Shift/Ctrl one
         # (left to the selectionChanged handler) by the gesture's final, decided selection.
-        view = view or self.list_view
-        view._apply_pending_row(index.row())
-        selected = view.selectionModel().selectedIndexes()
+        self.list_view._apply_pending_row(index.row())
+        selected = self.list_view.selectionModel().selectedIndexes()
         if len(selected) == 1 and selected[0].row() == index.row():
             self._activate_file(index)
 
@@ -1691,7 +2009,7 @@ class FileBrowser(QWidget):
         elif actual != state.selected_file_idx:
             self.session.select_file(actual, selection_override=list(state.selected_indices))
 
-        menu = self._build_context_menu()
+        menu = self.build_frame_menu()
         menu.exec(view.viewport().mapToGlobal(pos))
 
     def _source_name(self) -> str:
@@ -1759,8 +2077,8 @@ class FileBrowser(QWidget):
 
     def _maybe_suggest_gear(self, folder_path: str) -> None:
         """A folder just became a roll for the first time: offer Roll Settings pre-filled
-        from a folder-name match against the gear library, ticked but never applied
-        without the user pressing Apply. Silent when nothing matches -- checked before
+        from a folder-name match against the gear library, never applied without the user
+        pressing Apply. Silent when nothing matches -- checked before
         building the dialog, so a folder with nothing to suggest never pops one up."""
         detected = self._detect_gear_suggestion(folder_label(folder_path))
         if detected is None:
@@ -1781,11 +2099,11 @@ class FileBrowser(QWidget):
         """Same button starts and stops it: a refresh over a very large folder needs a
         way out that isn't waiting for it to finish."""
         if running:
-            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.stop-circle", color=THEME.text_primary))
-            self.update_thumbnails_btn.setToolTip(tr("Cancel Thumbnail Update — stop the background refresh in progress"))
+            self.update_thumbnails_action.setText(tr("Cancel Thumbnail Update"))
+            self.update_thumbnails_action.setToolTip(tr("Cancel Thumbnail Update: stop the background refresh in progress"))
         else:
-            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
-            self.update_thumbnails_btn.setToolTip(tr("Update Thumbnails — re-render every stale thumbnail in the roll"))
+            self.update_thumbnails_action.setText(tr("Update Thumbnails"))
+            self.update_thumbnails_action.setToolTip(tr("Update Thumbnails: re-render every out-of-date thumbnail in the roll"))
 
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
@@ -1799,12 +2117,14 @@ class FileBrowser(QWidget):
         clear.setEnabled(bool(self.session.state.uploaded_files))
         return menu
 
-    def _build_context_menu(self) -> QMenu:
+    def build_frame_menu(self) -> QMenu:
         state = self.session.state
+        # The selection, not the open frame, once it is anything but the open frame alone.
+        on_selection = not self.session.selection_is_open_frame()
         multi = len(state.selected_indices) > 1
 
         menu = QMenu(self)
-        if multi:
+        if on_selection:
             menu.addAction(tr("Export Selected Frames")).triggered.connect(lambda: self.controller.request_export_selected())
         else:
             menu.addAction(tr("Export Current Frame")).triggered.connect(lambda: self.controller.request_export())
@@ -1813,12 +2133,12 @@ class FileBrowser(QWidget):
         menu.addAction(label_with_shortcut(tr("Copy Settings + Bounds"), "copy_with_bounds")).triggered.connect(
             self.session.copy_settings_with_bounds
         )
-        act_paste = menu.addAction(label_with_shortcut(tr("Paste Settings"), "paste"))
+        act_paste = menu.addAction(label_with_shortcut(tr("Paste Settings…"), "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self.controller))
         act_paste.setEnabled(state.clipboard is not None)
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
-        if multi:
+        if on_selection:
             menu.addAction(tr("Reset {value}…", value=count_of(n, "frame").title())).triggered.connect(
                 lambda: _reset_selected(self, self.controller)
             )
@@ -1831,11 +2151,11 @@ class FileBrowser(QWidget):
                 lambda: load_edit_from_sidecar(self, self.controller)
             )
         menu.addSeparator()
-        act_keep = menu.addAction(tr("Keep {value}", value=count_of(n, "frame")) if multi else tr("Keep"))
+        act_keep = menu.addAction(tr("Keep {value}", value=count_of(n, "frame")) if on_selection else tr("Keep"))
         act_keep.setCheckable(True)
         act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
         act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
-        act_reject = menu.addAction(tr("Reject {value}", value=count_of(n, "frame")) if multi else tr("Reject"))
+        act_reject = menu.addAction(tr("Reject {value}", value=count_of(n, "frame")) if on_selection else tr("Reject"))
         act_reject.setCheckable(True)
         act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
@@ -1847,16 +2167,17 @@ class FileBrowser(QWidget):
         if self.controller.thumbnail_refresh_running:
             menu.addAction(tr("Cancel Thumbnail Update")).triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
         else:
-            menu.addAction(tr("Update {value}", value=count_of(n, "thumbnail")) if multi else tr("Update Thumbnail")).triggered.connect(
-                lambda: self.controller.request_thumbnail_refresh("selection")
-            )
+            menu.addAction(
+                tr("Update {value}", value=count_of(n, "thumbnail")) if on_selection else tr("Update Thumbnail")
+            ).triggered.connect(lambda: self.controller.request_thumbnail_refresh("selection"))
         menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(
             lambda: _reset_roll(self, self.controller)
         )
-        if multi:
+        if on_selection:
             menu.addSeparator()
-            menu.addAction(tr("Stitch Selected Frames")).triggered.connect(lambda: self.controller.request_stitch_selected())
-            self._add_hdr_merge_action(menu, state)
+            if multi:
+                menu.addAction(tr("Stitch Selected Frames")).triggered.connect(lambda: self.controller.request_stitch_selected())
+                self._add_hdr_merge_action(menu, state)
             self._add_merge_to_tiff_action(menu, state, SCOPE_SELECTION)
         else:
             menu.addSeparator()
@@ -1889,7 +2210,7 @@ class FileBrowser(QWidget):
         if state.active_roll_id:
             self._add_scene_menu(menu, [state.uploaded_files[i] for i in targets], multi)
         menu.addSeparator()
-        if not multi:
+        if not on_selection:
             menu.addAction(label_with_shortcut(SHOW_LABEL, "show_in_folder")).triggered.connect(
                 lambda: show_current_in_folder(self.controller)
             )
@@ -1897,7 +2218,7 @@ class FileBrowser(QWidget):
             lambda: move_selected_to_trash(self, self.controller)
         )
         menu.addSeparator()
-        unload_label = "Unload Selected…" if multi else "Unload…"
+        unload_label = tr("Unload Selected…") if on_selection else tr("Unload…")
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         if state.active_roll_id:
             menu.addAction(label_with_shortcut(tr("Remove from Roll…"), "remove_from_roll")).triggered.connect(
@@ -2003,16 +2324,18 @@ class FileBrowser(QWidget):
         if len(choices) < 2:
             return  # only the reference is reachable: every entry would be the same picture
         current = str(asset.get("hdr_anchor", "") or "")
-        sub = menu.addMenu(tr("Render exposure"))
+        sub = menu.addMenu(tr("Render Exposure"))
         auto = sub.addAction(tr("Bracket Middle (Auto)"))
         auto.setCheckable(True)
         auto.setChecked(not current)
         auto.triggered.connect(lambda: self.controller.set_hdr_anchor(""))
         sub.addSeparator()
         for path, stops in choices:
-            label = tr("{value}   {stops:+.1f} EV", value=os.path.basename(path), stops=stops)
+            name = os.path.basename(path)
             if stops == 0.0:
-                label += tr("  (as captured)")
+                label = tr("{value}   {stops:+.1f} EV  (as captured)", value=name, stops=stops)
+            else:
+                label = tr("{value}   {stops:+.1f} EV", value=name, stops=stops)
             act = sub.addAction(label)
             act.setCheckable(True)
             act.setChecked(path == current)
@@ -2023,7 +2346,7 @@ class FileBrowser(QWidget):
 
     def _on_remove_from_menu(self) -> None:
         count = len(self.session.state.selected_indices)
-        if count > 1:
+        if not self.session.selection_is_open_frame():
             if confirm_unload(self, count=count):
                 self.session.remove_selected_files()
         else:

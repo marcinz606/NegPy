@@ -3,6 +3,7 @@ from dataclasses import replace
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
+from negpy.kernel.system.i18n import tr
 from negpy.features.pickbetter.models import PICK_PARAMS, PickBetterProgress, PickParam, Phase
 
 
@@ -203,5 +204,5 @@ def move_summary(old: WorkspaceConfig, new: WorkspaceConfig, progress: PickBette
     param = PICK_PARAMS[real]
     delta = param_value(new, param) - param_value(old, param)
     if abs(delta) < 1e-9:
-        return param.name
-    return f"{param.name} {delta:+g}"
+        return tr(param.name)
+    return f"{tr(param.name)} {delta:+g}"

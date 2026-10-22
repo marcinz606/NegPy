@@ -5,8 +5,10 @@ from PyQt6.QtWidgets import QColorDialog
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_row, section_subheader, wrap_tooltip
-from negpy.desktop.view.widgets.choice_button import ChoiceButton
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.fold import show_while
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
+from negpy.desktop.view.widgets.step_combo import StepCombo
 
 
 class FinishSidebar(BaseSidebar):
@@ -24,50 +26,49 @@ class FinishSidebar(BaseSidebar):
 
         self.vignette_size_slider = CompactSlider(tr("Size"), 0.0, 1.0, conf.vignette_size)
         self.vignette_roundness_slider = CompactSlider(tr("Roundness"), 0.0, 1.0, conf.vignette_roundness)
-        self.layout.addWidget(SliderGroup(self.vignette_size_slider, self.vignette_roundness_slider))
+        vignette_rail = SliderGroup(self.vignette_size_slider, self.vignette_roundness_slider)
+        self.layout.addWidget(vignette_rail)
 
         self.layout.addWidget(section_subheader(tr("FILED CARRIER")))
         self.carrier_width_slider = CompactSlider(tr("Width"), 0.0, 5.0, conf.carrier_width)
         self.carrier_width_slider.setToolTip(
-            tr("Filed-out negative carrier: a black rebate frame inside a margin of unexposed paper. 0 = off")
+            tr("Filed Carrier: a rough black frame around the picture, as from a filed negative carrier. 0 is off.")
         )
         self.carrier_rough_slider = CompactSlider(tr("Roughness"), 0.0, 1.0, conf.carrier_rough)
-        self.carrier_rough_slider.setToolTip(
-            tr(
-                "How raggedly the aperture was filed — the paper-side edge of the black frame. "
-                "The picture-side edge is the camera's film gate and only ever wobbles slightly."
-            )
-        )
+        self.carrier_rough_slider.setToolTip(tr("How rough the outer edge of the black frame is."))
         self.layout.addWidget(self.carrier_width_slider)
 
         self.carrier_flare_slider = CompactSlider(tr("Flare"), 0.0, 1.0, conf.carrier_flare)
-        self.carrier_flare_slider.setToolTip(
-            tr(
-                "Light reflected off the bared metal of the filed bevel exposes the paper just outside the filed edge. "
-                "It prints in the paper's own toe color under this frame's filtration, neutral in B&W. 0 = off"
-            )
-        )
+        self.carrier_flare_slider.setToolTip(tr("A soft gray glow just outside the black frame. 0 is off."))
         self.carrier_corner_slider = CompactSlider(tr("Corners"), 0.0, 1.0, conf.carrier_corner)
-        self.carrier_corner_slider.setToolTip(tr("How far the filed aperture's corners round off — no file cuts a sharp inside corner"))
-        self.layout.addWidget(SliderGroup(self.carrier_rough_slider, self.carrier_flare_slider, self.carrier_corner_slider))
+        self.carrier_corner_slider.setToolTip(tr("How round the corners of the black frame are."))
+        carrier_rail = SliderGroup(self.carrier_rough_slider, self.carrier_flare_slider, self.carrier_corner_slider)
+        self.layout.addWidget(carrier_rail)
 
         self.layout.addWidget(section_subheader(tr("BORDER")))
 
         self.border_slider = CompactSlider(tr("Width"), 0.0, 2.5, conf.border_size)
         self.bottom_weight_slider = CompactSlider(tr("Bottom Weight"), 1.0, 2.0, conf.border_bottom_weight)
-        self.bottom_weight_slider.setToolTip(
-            wrap_tooltip(tr("Thicken the bottom border relative to the other three, the window-mat proportion."))
-        )
+        self.bottom_weight_slider.setToolTip(wrap_tooltip(tr("Makes the bottom border wider than the others, as in a picture mat.")))
         self.layout.addWidget(self.border_slider)
 
-        self.border_color_btn = ChoiceButton(
-            (("fa5s.file", tr("Paper White")), ("fa5s.palette", tr("Custom"))),
-            tr("Border color: Paper White tints the mat with the toned paper white; Custom uses the picked color"),
+        self.border_color_btn = StepCombo.of(
+            [tr("Paper White"), tr("Custom")],
+            tr("Paper White matches the border to the paper color; Custom uses the color you pick."),
         )
+        for i, icon in enumerate(("fa5s.file", "fa5s.palette")):
+            self.border_color_btn.setItemIcon(i, qta.icon(icon, color=THEME.text_primary, color_disabled=THEME.text_muted))
         self.border_color_btn.setCurrentIndex(0 if conf.border_match_paper else 1)
         self.color_btn = self._icon_action("fa5s.square", tr("Pick the custom border color…"))
         self._update_color_btn(conf.border_color)
-        self.layout.addWidget(SliderGroup(self.bottom_weight_slider, field_row(tr("Color"), self.border_color_btn, self.color_btn)))
+        border_rail = SliderGroup(self.bottom_weight_slider, field_row(tr("Color"), self.border_color_btn, self.color_btn))
+        self.layout.addWidget(border_rail)
+        # Each effect is off at 0, and its shape controls with it.
+        self._sync_rails = (
+            show_while(self.vignette_burn_slider, vignette_rail),
+            show_while(self.carrier_width_slider, carrier_rail),
+            show_while(self.border_slider, border_rail),
+        )
 
         self.layout.addStretch()
 
@@ -135,7 +136,7 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_bottom_weight=v)
         )
 
-        self.border_color_btn.currentChanged.connect(
+        self.border_color_btn.currentIndexChanged.connect(
             lambda i: self.update_config_section("finish", persist=True, border_match_paper=i == 0)
         )
 
@@ -164,6 +165,8 @@ class FinishSidebar(BaseSidebar):
             self.border_color_btn.setCurrentIndex(0 if conf.border_match_paper else 1)
             self._update_color_btn(conf.border_color)
             self.color_btn.setEnabled(not conf.border_match_paper)
+            for refresh in self._sync_rails:
+                refresh()
         finally:
             self.block_signals(False)
 

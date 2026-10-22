@@ -38,12 +38,6 @@ def test_show_message_keeps_case_and_arms_timer(qapp):
     assert hud._toast_timer.interval() == 1500
 
 
-def test_show_message_suppresses_image_updated(qapp):
-    hud = CanvasHud()
-    hud.showMessage("Image Updated")
-    assert hud.toast.isHidden()
-
-
 def test_set_progress_show_hide(qapp):
     hud = CanvasHud()
     hud.set_progress(1, 4)

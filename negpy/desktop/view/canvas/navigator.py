@@ -5,6 +5,7 @@ from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
+from negpy.desktop.view.styles.templates import with_alpha
 from negpy.desktop.view.styles.theme import THEME
 
 _LONG_EDGE_PX = 160
@@ -114,15 +115,15 @@ class CanvasNavigator(QWidget):
         )
         # Dim what the canvas does not show, so the outline reads over any picture.
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 130))
+        painter.setBrush(with_alpha(THEME.mark_shadow, 130))
         painter.drawRect(QRectF(rect.left(), rect.top(), rect.width(), v.top() - rect.top()))
         painter.drawRect(QRectF(rect.left(), v.bottom(), rect.width(), rect.bottom() - v.bottom()))
         painter.drawRect(QRectF(rect.left(), v.top(), v.left() - rect.left(), v.height()))
         painter.drawRect(QRectF(v.right(), v.top(), rect.right() - v.right(), v.height()))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 230), 1.5))
+        painter.setPen(QPen(with_alpha(THEME.mark_photo, 230), 1.5))
         painter.drawRect(v)
-        painter.setPen(QPen(QColor(255, 255, 255, 60), 1.0))
+        painter.setPen(QPen(with_alpha(THEME.mark_photo, 60), 1.0))
         painter.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
 
         if self._caption:
@@ -130,7 +131,7 @@ class CanvasNavigator(QWidget):
             w = min(float(self.width()), painter.fontMetrics().horizontalAdvance(self._caption) + 2 * THEME.space_lg)
             cap = QRectF(self.width() - w, rect.bottom() + THEME.space_xs, w, float(_CAPTION_H - THEME.space_xs))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(0, 0, 0, 140))
+            painter.setBrush(with_alpha(THEME.mark_shadow, 140))
             painter.drawRoundedRect(cap, THEME.radius_md, THEME.radius_md)
             painter.setPen(QColor(THEME.text_secondary))
             painter.drawText(cap, Qt.AlignmentFlag.AlignCenter, self._caption)

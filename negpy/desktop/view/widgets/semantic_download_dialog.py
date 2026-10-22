@@ -12,7 +12,7 @@ from typing import Optional
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from negpy.desktop.view.styles.templates import pin_dialog_default, wrap_tooltip
+from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.update_dialog import _own
@@ -86,9 +86,7 @@ class ClipDownloadDialog(QDialog):
         self.subtitle.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px;")
         root.addWidget(self.subtitle)
 
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
+        self.status = hint_label()
         self.status.setVisible(False)
         root.addWidget(self.status)
 
@@ -106,7 +104,7 @@ class ClipDownloadDialog(QDialog):
         actions = QHBoxLayout()
         actions.addStretch()
         self.cancel_button = QPushButton(tr("Cancel"))
-        self.cancel_button.setToolTip(wrap_tooltip(tr("Stop the download and close. Search by meaning stays off.")))
+        self.cancel_button.setToolTip(wrap_tooltip(tr("Stop the download and keep search by meaning off.")))
         self.cancel_button.clicked.connect(self.reject)
         actions.addWidget(self.cancel_button)
         self.download_button = QPushButton(tr("Download"))
@@ -138,7 +136,7 @@ class ClipDownloadDialog(QDialog):
             if self.bar.maximum() != total:
                 self.bar.setRange(0, total)
             self.bar.setValue(done)
-            self._set_status(tr("Downloading — {value} of {value1}", value=_mb(done), value1=_mb(total)))
+            self._set_status(tr("Downloading: {value} of {value1}", value=_mb(done), value1=_mb(total)))
 
     def _on_ready(self) -> None:
         self.accept()

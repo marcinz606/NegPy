@@ -116,24 +116,24 @@ def test_the_vectorscope_scale_defaults_to_log_for_bw_and_lin_for_color() -> Non
 
     bw = _panel("vectorscope", ProcessMode.BW, {"histogram_log_scale": False})
     RightPanel._sync_scale_btn(bw)
-    bw.scale_btn.setCurrentIndex.assert_called_once_with(1)
+    bw.scale_btn.setChecked.assert_called_once_with(True)
     bw.vectorscope_widget.set_log_scale.assert_called_once_with(True)
 
     color = _panel("vectorscope", ProcessMode.C41, {"histogram_log_scale": True})
     RightPanel._sync_scale_btn(color)
-    color.scale_btn.setCurrentIndex.assert_called_once_with(0)
+    color.scale_btn.setChecked.assert_called_once_with(False)
 
     curve = _panel("curve", ProcessMode.BW, {"histogram_log_scale": False})
     RightPanel._sync_scale_btn(curve)
-    curve.scale_btn.setCurrentIndex.assert_called_once_with(0)
+    curve.scale_btn.setChecked.assert_called_once_with(False)
 
 
-def test_lin_log_on_the_vectorscope_saves_the_film_modes_own_scale() -> None:
+def test_log_on_the_vectorscope_saves_the_film_modes_own_scale() -> None:
     from negpy.desktop.view.sidebar.right_panel import RightPanel
 
     panel = _panel("vectorscope", ProcessMode.BW, {})
 
-    RightPanel._on_histogram_scale(panel, 0)
+    RightPanel._on_histogram_scale(panel, False)
 
     panel.controller.session.repo.save_global_setting.assert_called_once_with("vectorscope_log_bw", False)
     panel.vectorscope_widget.set_log_scale.assert_called_once_with(False)

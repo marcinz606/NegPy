@@ -164,6 +164,48 @@ class Lens:
         )
 
 
+@dataclass(frozen=True)
+class FilmEdge:
+    """What a stock prints on its rebate; an empty field falls back to the stock's name.
+
+    `style` is a film edge layout key, `dx` reads "part1-part2", and `prints_as` names the stock whose edge print
+    this film carries (a respooled cine stock), which then decides every other field."""
+
+    style: str = ""
+    maker: str = ""
+    text: str = ""
+    code: str = ""
+    dx: str = ""
+    prints_as: str = ""
+    source: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        values = {
+            "style": self.style,
+            "maker": self.maker,
+            "text": self.text,
+            "code": self.code,
+            "dx": self.dx,
+            "printsAs": self.prints_as,
+            "source": self.source,
+        }
+        return {key: value for key, value in values.items() if value}
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Optional["FilmEdge"]:
+        if not isinstance(data, dict):
+            return None
+        return cls(
+            style=str(data.get("style") or ""),
+            maker=str(data.get("maker") or ""),
+            text=str(data.get("text") or ""),
+            code=str(data.get("code") or ""),
+            dx=str(data.get("dx") or ""),
+            prints_as=str(data.get("printsAs") or data.get("prints_as") or ""),
+            source=str(data.get("source") or ""),
+        )
+
+
 @dataclass
 class FilmStock:
     id: str = field(default_factory=_new_id)
@@ -174,6 +216,7 @@ class FilmStock:
     format: FilmFormat = FilmFormat.FORMAT_35MM
     color_type: FilmColorType = FilmColorType.COLOR_NEGATIVE
     notes: str = ""
+    edge: Optional[FilmEdge] = None
     is_bundled: bool = False
 
     @property
@@ -200,6 +243,7 @@ class FilmStock:
             "format": self.format.to_storage(),
             "colorType": self.color_type.to_storage(),
             "notes": self.notes or None,
+            **({"edge": self.edge.to_dict()} if self.edge else {}),
         }
 
     @classmethod
@@ -225,6 +269,7 @@ class FilmStock:
             format=fmt,
             color_type=ct,
             notes=str(data.get("notes") or ""),
+            edge=FilmEdge.from_dict(data.get("edge")),
         )
 
 

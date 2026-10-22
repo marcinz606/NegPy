@@ -1,7 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
@@ -24,42 +24,24 @@ class AltProcessSidebar(BaseSidebar):
         conf = self.state.config.altproc
 
         self._modes = (
-            (AltProcess.NONE, "fa5s.ban", "None", tr("Print normally — no alternative process.")),
+            (AltProcess.NONE, "fa5s.ban", tr("None"), tr("Print normally, with no alternative process.")),
             (
                 AltProcess.LITH,
                 "fa5s.fire",
-                "Lith",
-                tr(
-                    "Develop the print in dilute lith developer: creamy warm highlights and a "
-                    "near-vertical drop into hard, sooty blacks.\n"
-                    "The color — peach highlights through an olive transition to neutral blacks — "
-                    "comes from the paper chosen in Exposure.\n"
-                    "Only Selenium and Gold do anything distinctive on a lith print, so the other toners "
-                    "are disabled while this is on"
-                ),
+                tr("Lith"),
+                tr("Lith print: creamy warm highlights and hard, deep blacks, in the paper's color, with only Selenium and Gold toners."),
             ),
             (
                 AltProcess.CYANOTYPE,
                 "fa5s.sun",
                 tr("Cyanotype"),
-                tr(
-                    "Contact-print the negative in UV onto iron-sensitised rag paper. The image "
-                    "substance is Prussian blue, so the print never goes black — it goes blue, with "
-                    "green highlights where the residual yellow sensitizer mixes in.\n"
-                    "There is no silver in a cyanotype, so every chemical toner is disabled while "
-                    "this is on; use Bleach and Tannin instead"
-                ),
+                tr("Cyanotype: a blue print with green highlights, made in UV light, toned with Bleach and Tannin in place of toners."),
             ),
             (
                 AltProcess.SABATTIER,
                 "fa5s.adjust",
                 tr("Sabattier"),
-                tr(
-                    "Re-expose the print to white light part-way through development: the light tones "
-                    "reverse and fold back toward gray, the dense ones hold, and a light Mackie line runs "
-                    "along every edge between dark and light.\n"
-                    "The print stays neutral silver, so every toner acts on it as on a plain print"
-                ),
+                tr("Sabattier: a flash of light during development reverses the light tones and draws light lines along edges."),
             ),
         )
         self.mode_btn = SegmentedChoice(tuple((icon, label) for _m, icon, label, _t in self._modes), tr("Alternative printing process"))
@@ -84,27 +66,13 @@ class AltProcessSidebar(BaseSidebar):
         col.setContentsMargins(0, 0, 0, 0)
 
         self.exposure_slider = CompactSlider(tr("Exposure"), 0.0, 5.0, conf.lith_exposure, step=0.1, unit=" st")
-        self.exposure_slider.setToolTip(
-            tr(
-                "Print over-exposure. Lith printing runs on two to four stops more light than a normal print: "
-                "more light gives warmer, more colorful highlights and softer gradation"
-            )
-        )
+        self.exposure_slider.setToolTip(tr("Extra exposure: more gives warmer, more colorful highlights and softer tones."))
         self.snatch_slider = CompactSlider(tr("Snatch Point"), 0.0, 1.0, conf.lith_snatch)
         self.snatch_slider.setToolTip(
-            tr(
-                "How long the print stays in the developer before it is snatched out. "
-                "Later (higher) drops the knee further up the tonal scale: deeper, colder blacks and a wider "
-                "band of undifferentiated shadow. Earlier keeps the print high-key, warm and weak in the blacks"
-            )
+            tr("When the print leaves the developer: higher gives deeper, colder blacks, and lower stays light and warm.")
         )
         self.abruptness_slider = CompactSlider(tr("Abruptness"), 0.0, 1.0, conf.lith_abruptness)
-        self.abruptness_slider.setToolTip(
-            tr(
-                "How abruptly the shadows go black — a seasoned, low-sulphite developer makes the knee a step. "
-                "Low leaves a gentle roll into the blacks"
-            )
-        )
+        self.abruptness_slider.setToolTip(tr("How suddenly the shadows turn black."))
 
         col.addWidget(self.exposure_slider)
         col.addWidget(self.snatch_slider)
@@ -122,45 +90,22 @@ class AltProcessSidebar(BaseSidebar):
             self.sensitizer_combo.addItem(_SENSITIZER_LABELS[s], s.value)
         self._select_sensitizer(conf.cyano_sensitizer)
         self.sensitizer_combo.setToolTip(
-            tr(
-                "Sensitizer. Classic is Herschel's ammonium ferric citrate: it loses much of its "
-                "pigment in the wash, so it tops out around a red-channel density of 1.0 and keeps a "
-                "strong green highlight stain. New is Ware's ferric oxalate — deeper, cleaner and "
-                "able to hold a far longer scale"
-            )
+            tr("Classic gives a light blue with green highlights, and New gives deeper, cleaner blues and more range.")
         )
         sens_row.addWidget(field_label(tr("Sensitizer")))
         sens_row.addWidget(self.sensitizer_combo, stretch=1)
         col.addLayout(sens_row)
 
         self.cyano_exposure_slider = CompactSlider(tr("Exposure"), -2.0, 4.0, conf.cyano_exposure, step=0.1, unit=" st")
-        self.cyano_exposure_slider.setToolTip(
-            tr("Time under the UV source. More light drives more of the scale into Prussian blue; less leaves the print pale and high-key")
-        )
+        self.cyano_exposure_slider.setToolTip(tr("UV exposure time: more makes the print bluer, and less makes it paler."))
         self.cyano_scale_slider = CompactSlider(tr("Exposure Scale"), 0.8, 2.8, conf.cyano_scale, step=0.05)
         self.cyano_scale_slider.setToolTip(
-            tr(
-                "The negative density range the sensitizer can print, in log D — the contrast control. "
-                "Ware measures about 1.0 to 1.2 for the traditional formula against 2.4 for the new one, "
-                "and his Simple Cyanotype ships as three variants at 1.8, 2.3 and 2.7. "
-                "Short scale means a contrastier print that clips both ends of a normal negative"
-            )
+            tr("Contrast: a shorter scale gives more contrast but can lose detail in shadows and highlights.")
         )
         self.cyano_bleach_slider = CompactSlider(tr("Bleach"), 0.0, 0.5, conf.cyano_bleach)
-        self.cyano_bleach_slider.setToolTip(
-            tr(
-                "Washing soda. Strips Prussian blue out of the print, highlights first — take it far "
-                "enough and only the deepest shadows keep any pigment"
-            )
-        )
+        self.cyano_bleach_slider.setToolTip(tr("Washing soda bleach: removes blue, highlights first."))
         self.cyano_tannin_slider = CompactSlider(tr("Tannin"), 0.0, 0.5, conf.cyano_tannin)
-        self.cyano_tannin_slider.setToolTip(
-            tr(
-                "Tea, coffee or tannic acid. Re-develops the bleached iron as a brown iron tannate that "
-                "covers more than the pigment it replaced, so the print goes browner and a little deeper. "
-                "Bleach first for a full brown, on its own for a split blue-brown"
-            )
-        )
+        self.cyano_tannin_slider.setToolTip(tr("Tea or tannin toner: turns bleached areas brown, so use Bleach first for a full brown."))
 
         col.addWidget(self.cyano_exposure_slider)
         col.addWidget(self.cyano_scale_slider)
@@ -175,28 +120,11 @@ class AltProcessSidebar(BaseSidebar):
         col.setContentsMargins(0, 0, 0, 0)
 
         self.sabattier_strength_slider = CompactSlider(tr("Strength"), 0.0, 2.0, conf.sabattier_strength, step=0.05)
-        self.sabattier_strength_slider.setToolTip(
-            tr(
-                "The second exposure's length. Below 1 the light tones flatten toward the fold; at 1 they sit on it; "
-                "above 1 they reverse, the lighter the darker. Paper white comes back as this fraction of the "
-                "re-exposure density"
-            )
-        )
+        self.sabattier_strength_slider.setToolTip(tr("Length of the second exposure: above 1 the light tones reverse."))
         self.sabattier_reexposure_slider = CompactSlider(tr("Re-exposure"), 0.1, 0.9, conf.sabattier_reexposure, step=0.05)
-        self.sabattier_reexposure_slider.setToolTip(
-            tr(
-                "Where on the scale the fold sits, as a fraction of the paper's Dmax. Tones denser than it have "
-                "developed and hold; lighter ones reverse"
-            )
-        )
+        self.sabattier_reexposure_slider.setToolTip(tr("Where the reversal starts: tones darker than this stay as they are."))
         self.sabattier_agitation_slider = CompactSlider(tr("Agitation"), 0.0, 1.0, conf.sabattier_agitation, step=0.05)
-        self.sabattier_agitation_slider.setToolTip(
-            tr(
-                "Rocking the tray after the flash. In a still bath the bromide from the developing shadows "
-                "creeps into the light tones and draws wide Mackie lines; constant agitation washes it away "
-                "and no lines form"
-            )
-        )
+        self.sabattier_agitation_slider.setToolTip(tr("Tray rocking after the flash: less rocking draws wider light lines along edges."))
 
         col.addWidget(self.sabattier_strength_slider)
         col.addWidget(self.sabattier_reexposure_slider)

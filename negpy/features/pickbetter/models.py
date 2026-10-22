@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from negpy.kernel.system.i18n import mark
+
 
 class Phase(StrEnum):
     """Which iteration phase the proposal is in."""
@@ -32,17 +34,17 @@ class PickParam:
 # Separation, Snap, Toe and Temperature. The excluded controls (Luma/Color Clip, Crop,
 # Crosstalk, Cast Removal, Hue Trim, Black/White Point) never appear here.
 PICK_PARAMS: tuple[PickParam, ...] = (
-    PickParam("grade", "Grade", 20.0, 1.0, 50.0, 180.0),
-    PickParam("density", "Density", 0.3, 0.01, 0.0, 2.0),
-    PickParam("highlight_grade", "Highlights Grade", 15.0, 1.0, -50.0, 50.0),
-    PickParam("shadow_grade", "Shadows Grade", 15.0, 1.0, -50.0, 50.0),
-    PickParam("highlight_density", "Highlights Density", 0.2, 0.01, -0.5, 0.5),
-    PickParam("shadow_density", "Shadows Density", 0.3, 0.02, -0.9, 0.9),
-    PickParam("preflash", "Preflash", 0.1, 0.01, 0.0, 1.0),
-    PickParam("dye_separation", "Dye Separation", 0.1, 0.01, 0.5, 1.5),
-    PickParam("midtone_gamma", "Snap", 0.05, 0.005, -0.5, 0.5),
-    PickParam("toe", "Toe", 0.1, 0.01, -1.0, 1.0),
-    PickParam("temperature", "Temperature", 500.0, 50.0, 3000.0, 12000.0, compound=True),
+    PickParam("grade", mark("ISO-R Grade"), 20.0, 1.0, 50.0, 180.0),
+    PickParam("density", mark("Print Density"), 0.3, 0.01, 0.0, 2.0),
+    PickParam("highlight_grade", mark("Highlights Grade"), 15.0, 1.0, -50.0, 50.0),
+    PickParam("shadow_grade", mark("Shadows Grade"), 15.0, 1.0, -50.0, 50.0),
+    PickParam("highlight_density", mark("Highlights Density"), 0.2, 0.01, -0.5, 0.5),
+    PickParam("shadow_density", mark("Shadows Density"), 0.3, 0.02, -0.9, 0.9),
+    PickParam("preflash", mark("Preflash"), 0.1, 0.01, 0.0, 1.0),
+    PickParam("dye_separation", mark("Dye Separation"), 0.1, 0.01, 0.5, 1.5),
+    PickParam("midtone_gamma", mark("Snap"), 0.05, 0.005, -0.5, 0.5),
+    PickParam("toe", mark("Toe"), 0.1, 0.01, -1.0, 1.0),
+    PickParam("temperature", mark("Temperature"), 500.0, 50.0, 3000.0, 12000.0, compound=True),
 )
 
 

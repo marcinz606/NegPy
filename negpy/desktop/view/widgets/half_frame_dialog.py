@@ -5,7 +5,6 @@ from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 import numpy as np
-import qtawesome as qta
 from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QActionGroup, QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
@@ -15,30 +14,24 @@ from PyQt6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
-    QSlider,
     QVBoxLayout,
 )
 
-from negpy.desktop.view.styles.templates import field_label, pin_dialog_default
+from negpy.desktop.view.styles.templates import field_row, hint_label, icon_text, labeled_action, pin_dialog_default, with_alpha
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.choice_button import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
+from negpy.desktop.view.widgets.sliders import CompactSlider, align_slider_columns
 from negpy.desktop.view.widgets.split_button import make_split_button
-
-
-def _with_alpha(hex_color: str, alpha: int) -> QColor:
-    c = QColor(hex_color)
-    c.setAlpha(alpha)
-    return c
 
 
 # key -> (menu label, split-button label), the same current/selected/all scopes the
 # Export button offers, chosen here rather than before the dialog even opens, since
 # what to apply to is a decision made after seeing the frame, not before.
 APPLY_SCOPES = {
-    "current": (tr("Apply to current frame"), tr(" Apply to Current")),
-    "selected": (tr("Apply to selected frames"), tr(" Apply to Selected")),
-    "all": (tr("Apply to all frames"), tr(" Apply to All")),
+    "current": (tr("Apply to Current Frame"), tr("Apply to Current")),
+    "selected": (tr("Apply to Selected Frames"), tr("Apply to Selected")),
+    "all": (tr("Apply to All Frames"), tr("Apply to All")),
 }
 
 _HANDLE_TOL = 0.04
@@ -271,16 +264,16 @@ class _HalfFrameLabel(QLabel):
                 QRect(QPoint(wr.left(), wr.bottom() + 1), QPoint(wr.right(), draw_rect.bottom())),
             ]
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(0, 0, 0, 130))
+            painter.setBrush(with_alpha(THEME.mark_shadow, 130))
             for o in outside:
                 if o.width() > 0 and o.height() > 0:
                     painter.drawRect(o)
-            # Crop rect
-            painter.setPen(QPen(QColor(THEME.status_success), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(wr)
-            painter.setBrush(QColor(THEME.status_success))
-            painter.setPen(Qt.PenStyle.NoPen)
+            for pen in (QPen(with_alpha(THEME.mark_shadow, 160), 4), QPen(QColor(THEME.mark_photo), 2)):
+                painter.setPen(pen)
+                painter.drawRect(wr)
+            painter.setBrush(QColor(THEME.mark_photo))
+            painter.setPen(QPen(with_alpha(THEME.mark_shadow, 170), 1.5))
             for corner in (wr.topLeft(), wr.topRight(), wr.bottomRight(), wr.bottomLeft()):
                 painter.drawRect(QRect(corner.x() - _HANDLE_PX, corner.y() - _HANDLE_PX, 2 * _HANDLE_PX, 2 * _HANDLE_PX))
             # Split centerline + gutter band
@@ -294,7 +287,7 @@ class _HalfFrameLabel(QLabel):
                 gw = max(0, int(self._gutter * span * draw_rect.width()))
             if gw > 0:
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(_with_alpha(THEME.warn_amber, 120))
+                painter.setBrush(with_alpha(THEME.warn_amber, 120))
                 if self._axis == "y":
                     painter.drawRect(QRect(wr.left(), c - gw // 2, wr.width(), gw))
                 else:
@@ -308,7 +301,7 @@ class _HalfFrameLabel(QLabel):
                 painter.drawLine(c, wr.top(), c, wr.bottom())
         else:
             painter.fillRect(self.rect(), QColor(THEME.bg_dark))
-            painter.setPen(QColor(THEME.text_muted))
+            painter.setPen(QColor(THEME.text_hint))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No preview"))
         painter.end()
 
@@ -329,7 +322,7 @@ class HalfFrameDialog(QDialog):
         initial_axis: str = "x",
         initial_scope: str = "current",
         process_mode: str = "",
-        title: str = tr("Half Frame — split & crop"),
+        title: str = tr("Half Frame Split and Crop"),
         parent=None,
         *,
         repo=None,
@@ -340,52 +333,41 @@ class HalfFrameDialog(QDialog):
         self.resize(720, 560)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(THEME.space_xl, THEME.space_xl, THEME.space_xl, THEME.space_xl)
         layout.setSpacing(10)
 
         self._label = _HalfFrameLabel()
         layout.addWidget(self._label, 1)
 
-        hint = QLabel(
-            tr(
-                "Drag the green rectangle to crop. Drag the orange line to set the split. Use the slider to thicken the cut band (the physical black separator)."
+        layout.addWidget(
+            hint_label(
+                tr(
+                    "Drag the white rectangle to crop. Drag the orange line to set the split. Use Cut Thickness to widen the cut band (the physical black separator)."
+                )
             )
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {THEME.text_hint};")
-        layout.addWidget(hint)
 
-        axis_row = QHBoxLayout()
-        axis_row.addWidget(field_label(tr("Split direction")))
         self._axis_choice = SegmentedChoice((("", tr("Vertical")), ("", tr("Horizontal"))), tr("Split direction"), data=("x", "y"))
         self._axis_choice.set_choice_tooltip(0, tr("A vertical cut: the two halves sit side by side."))
         self._axis_choice.set_choice_tooltip(1, tr("A horizontal cut: the two halves sit stacked, as a rotated scan lays them."))
         self._axis_choice.currentChanged.connect(lambda _i: self._set_axis(self._axis_choice.currentData()))
-        axis_row.addWidget(self._axis_choice)
-        axis_row.addStretch()
-        layout.addLayout(axis_row)
+        layout.addLayout(field_row(tr("Split direction"), self._axis_choice))
 
-        gutter_row = QHBoxLayout()
-        gutter_row.addWidget(field_label(tr("Cut thickness")))
-        self._gutter_slider = QSlider(Qt.Orientation.Horizontal)
-        self._gutter_slider.setRange(0, 100)
-        self._gutter_slider.setValue(int((initial_gutter or 0.0) * 1000))
-        self._gutter_slider.valueChanged.connect(self._on_gutter)
-        self._gutter_label = QLabel()
-        gutter_row.addWidget(self._gutter_slider, 1)
-        gutter_row.addWidget(self._gutter_label)
-        layout.addLayout(gutter_row)
+        # The slider reads percent of the crop along the split axis; the label takes a fraction.
+        self._gutter_slider = CompactSlider(tr("Cut Thickness"), 0.0, 10.0, 0.0, step=0.1, precision=10, unit="%")
+        self._gutter_slider.setValue((initial_gutter or 0.0) * 100)
+        self._gutter_slider.setToolTip(tr("How wide a band to cut away between the two frames, for the black gap the camera leaves."))
+        self._gutter_slider.valueChanged.connect(lambda value: self._label.set_gutter(value / 100))
+        layout.addWidget(self._gutter_slider)
 
         btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        self._auto_btn = QPushButton(tr("Auto-detect"))
-        self._auto_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+        self._auto_btn = labeled_action("fa5s.magic", tr("Auto-detect"), tr("Find the film edges and the gap between the two frames."))
         self._auto_btn.clicked.connect(self._on_auto)
         btn_row.addWidget(self._auto_btn)
-        self._reset_btn = QPushButton(tr("Reset"))
-        self._reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
+        self._reset_btn = labeled_action("fa5s.undo", tr("Reset"), tr("Go back to the whole scan, split in the middle with no cut band."))
         self._reset_btn.clicked.connect(self._on_reset)
         btn_row.addWidget(self._reset_btn)
+        btn_row.addStretch()
         self._cancel_btn = QPushButton(tr("Cancel"))
         self._cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self._cancel_btn)
@@ -415,8 +397,7 @@ class HalfFrameDialog(QDialog):
         self._label.set_split(initial_split if initial_split is not None else 0.5)
         self._label.set_gutter(initial_gutter or 0.0)
         self._set_axis(initial_axis)
-        self._label.changed.connect(self._update_gutter_label)
-        self._update_gutter_label()
+        align_slider_columns(self)
         remember_dialog_geometry(self, repo, "half_frame")
 
     def _set_preview(self, rgb: np.ndarray) -> None:
@@ -437,14 +418,6 @@ class HalfFrameDialog(QDialog):
         qimg = QImage(bytes(pos.tobytes()), w2, h2, w2 * 3, QImage.Format.Format_RGB888).copy()
         self._label.set_frame(QPixmap.fromImage(qimg))
 
-    def _on_gutter(self, value: int) -> None:
-        self._label.set_gutter(value / 1000.0)
-        self._update_gutter_label()
-
-    def _update_gutter_label(self) -> None:
-        g = self._label.gutter_value()
-        self._gutter_label.setText(f"{g * 100:.1f}%")
-
     def _on_auto(self) -> None:
         from negpy.services.assets.half_frame import detect_film_crop, detect_gutter_axis, slice_half
 
@@ -458,8 +431,7 @@ class HalfFrameDialog(QDialog):
         self._set_axis(axis)
         self._label.set_split(split)
         self._label.set_gutter(gutter)
-        self._gutter_slider.setValue(int(gutter * 1000))
-        self._update_gutter_label()
+        self._gutter_slider.setValue(gutter * 100)
 
     def _set_axis(self, axis: str) -> None:
         axis = "y" if axis == "y" else "x"
@@ -469,15 +441,14 @@ class HalfFrameDialog(QDialog):
     def _set_scope(self, key: str) -> None:
         self._scope = key
         self._scope_actions[key].setChecked(True)
-        self._ok_btn.setText(APPLY_SCOPES[key][1])
+        self._ok_btn.setText(icon_text(APPLY_SCOPES[key][1]))
 
     def _on_reset(self) -> None:
         self._label.set_rect((0.0, 0.0, 1.0, 1.0))
         self._label.set_split(0.5)
         self._set_axis("x")
         self._label.set_gutter(0.0)
-        self._gutter_slider.setValue(0)
-        self._update_gutter_label()
+        self._gutter_slider.setValue(0.0)
 
     # ── results ───────────────────────────────────────────────────────
 

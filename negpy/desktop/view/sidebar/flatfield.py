@@ -16,8 +16,8 @@ from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
-_NONE_LABEL = tr("— None —")
-_FILE_FILTER = f"Reference images ({get_supported_raw_wildcards()});;All files (*)"
+_NONE_LABEL = tr("None")
+_FILE_FILTER = tr("Reference images ({wildcards});;All files (*)", wildcards=get_supported_raw_wildcards())
 
 
 class FlatFieldSidebar(BaseSidebar):
@@ -31,14 +31,14 @@ class FlatFieldSidebar(BaseSidebar):
         row = QHBoxLayout()
         row.addWidget(field_label(tr("Profile")))
         self.profile_combo = StepCombo()
-        self.profile_combo.setToolTip(tr("Saved flat-field reference profiles (scan of the bare light source)"))
+        self.profile_combo.setToolTip(tr("Saved shots of the bare light, used to even out the light."))
         row.addWidget(self.profile_combo, 1)
 
         self.enable_btn = self._small_toggle(
             "fa5s.lightbulb",
             "",
             False,
-            tr("Apply Flat Field — apply the selected flat-field reference to this roll"),
+            tr("Apply Flat Field: even out the light on this roll with the selected profile."),
         )
         self.enable_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         row.addWidget(self.enable_btn)
@@ -47,10 +47,7 @@ class FlatFieldSidebar(BaseSidebar):
             "fa5s.eye",
             "",
             False,
-            tr(
-                "Check Flat Field: show how well the selected profile corrects its own reference, "
-                "from any frame. A good profile shows an even gray; a band or patch shows where it is off."
-            ),
+            tr("Check Flat Field: show how well the profile evens out its own reference, where even gray is good."),
         )
         self.check_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         row.addWidget(self.check_btn)
@@ -117,7 +114,7 @@ class FlatFieldSidebar(BaseSidebar):
             self,
             tr("Flat Field Profile"),
             self.profile_combo.currentText(),
-            informative=tr("Every frame using it loses its correction; the baked gain map cannot be recovered."),
+            informative=tr("Every frame using it loses its correction, and the profile cannot be recovered."),
         ):
             self.controller.delete_flatfield_profile(profile_id)
             self._refresh_profiles()

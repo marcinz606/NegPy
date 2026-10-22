@@ -11,9 +11,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
-    QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
@@ -21,21 +19,19 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import plural
 from negpy.desktop.view.confirm import confirm_sensor_capture
-from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_row, hint_label, pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.file_dialogs import pick_start_dir
-from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.sensor import build_sensor_matrix, measure_capture
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.services.assets.sensor import SensorProfiles
 
-_BANDS = (("R", tr("Red exposure")), ("G", tr("Green exposure")), ("B", tr("Blue exposure")))
+_BANDS = (("R", tr("Red")), ("G", tr("Green")), ("B", tr("Blue")))
 _CLIP_LEVEL = 0.98
 _CLIP_FRACTION = 0.02
 _CAPTURE_LABEL = tr("Capture from Camera…")
 _CAPTURE_TOOLTIP = tr(
-    "Shoot the red, green and blue exposures with the tethered camera and the Scanlight, then save "
-    "the profile under the name above. It asks before the first exposure."
+    "Shoot the red, green and blue exposures with the camera and the Scanlight, then save the profile under the name above."
 )
 _PRESENCE_POLL_MS = 3000
 _LED_SETTLE_S = 0.05  # the Scanlight panel's settle before each exposure
@@ -71,40 +67,31 @@ class SensorCalibrationDialog(QDialog):
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setSpacing(10)
-        intro = QLabel(
-            tr(
-                "Pick three <b>bare-light</b> exposures — red-only, green-only and blue-only, with no film in the "
-                "holder and the same light and camera settings you scan with. NegPy measures the sensor's response "
-                "to each band and builds the correction. Expose just below clipping. With a tethered camera and a "
-                "Scanlight, <b>Capture from Camera…</b> shoots and measures the three exposures for you."
+        root.addWidget(
+            hint_label(
+                tr(
+                    "Pick three <b>bare-light</b> exposures, red only, green only and blue only, with no film in the holder and the light and camera settings you scan with. Expose just below clipping. With a tethered camera and a Scanlight, <b>Capture from Camera…</b> shoots them for you."
+                )
             )
         )
-        intro.setWordWrap(True)
-        intro.setStyleSheet(f"color: {THEME.text_secondary};")
-        root.addWidget(intro)
 
-        grid = QGridLayout()
         self._path_edits = {}
-        for i, (band, label) in enumerate(_BANDS):
-            grid.addWidget(QLabel(label), i, 0)
+        for band, label in _BANDS:
             edit = QLineEdit()
             edit.setReadOnly(True)
             edit.setPlaceholderText(tr("Choose a capture…"))
+            edit.setToolTip(tr("The exposure shot with this color of light alone and no film in the holder."))
             browse = QPushButton(tr("Browse…"))
+            browse.setToolTip(tr("Choose the exposure file for this color."))
             browse.clicked.connect(lambda _c=False, b=band: self._browse(b))
-            grid.addWidget(edit, i, 1)
-            grid.addWidget(browse, i, 2)
+            root.addLayout(field_row(label, edit, browse))
             self._path_edits[band] = edit
-        grid.setColumnStretch(1, 1)
-        root.addLayout(grid)
 
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel(tr("Name")))
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(tr("e.g. X-T30 + Scanlight v4"))
+        self.name_edit.setToolTip(tr("The profile's name in the sensor Profile dropdown: name the camera and the light."))
         self.name_edit.textChanged.connect(self._refresh)
-        name_row.addWidget(self.name_edit, 1)
-        root.addLayout(name_row)
+        root.addLayout(field_row(tr("Name"), self.name_edit))
 
         self.result_label = hint_label()
         self.result_label.setWordWrap(True)
@@ -121,6 +108,7 @@ class SensorCalibrationDialog(QDialog):
         self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self.reject)
         self.compute_btn = QPushButton(tr("Compute and Save"))
+        self.compute_btn.setToolTip(tr("Build the matrix from the three exposures and save it as a sensor profile."))
         self.compute_btn.clicked.connect(self._compute_and_save)
         btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.compute_btn)
@@ -150,7 +138,7 @@ class SensorCalibrationDialog(QDialog):
         self.compute_btn.setEnabled(all(self._paths.values()) and nameable and not capturing)
         missing = self._missing_hardware()
         self.capture_btn.setEnabled(nameable and not capturing and not missing)
-        self.capture_btn.setToolTip(wrap_tooltip(f"{_CAPTURE_TOOLTIP} {missing}".strip()))
+        self.capture_btn.setToolTip(wrap_tooltip(missing or _CAPTURE_TOOLTIP))
         self.capture_btn.setText(tr("Capturing…") if capturing else _CAPTURE_LABEL)
         self.name_edit.setEnabled(not capturing)
 
@@ -203,9 +191,9 @@ class SensorCalibrationDialog(QDialog):
         camera, light = self._presence
         if camera and light:
             return ""
-        return (
-            f"Connect {' and '.join(n for n, there in ((tr('the camera'), camera), (tr('the Scanlight'), light)) if not there)} to use it."
-        )
+        if not camera and not light:
+            return tr("Connect the camera and the Scanlight to use it.")
+        return tr("Connect the camera to use it.") if not camera else tr("Connect the Scanlight to use it.")
 
     def _poll_presence(self) -> None:
         # The worker runs one job at a time, so a poll sent during a capture only queues.
@@ -286,12 +274,14 @@ class SensorCalibrationDialog(QDialog):
         s = np.column_stack([measured["R"], measured["G"], measured["B"]])
         s_norm = s / np.diag(s)
         gb, bg = s_norm[2, 1], s_norm[1, 2]  # green->blue / blue->green, the usual dominant leaks
-        lines = [
-            f"<b>Saved “{name}”</b> — measured green↔blue leakage {gb * 100:.0f}% / {bg * 100:.0f}%.",
-        ]
+        lines = [tr("<b>Saved “{name}”</b>: measured green↔blue leakage {gb:.0f}% / {bg:.0f}%.", name=name, gb=gb * 100, bg=bg * 100)]
         if clipped:
             lines.append(
-                f"⚠ {'/'.join(clipped)} {plural(len(clipped), 'exposure')} {plural(len(clipped), 'looks', 'look')} clipped — reshoot dimmer for an accurate matrix."
+                tr(
+                    "The {bands} {value} clipped. Shoot again, dimmer, for an accurate matrix.",
+                    value=plural(len(clipped), "exposure"),
+                    bands="/".join(clipped),
+                )
             )
         return "<br>".join(lines)
 

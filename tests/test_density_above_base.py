@@ -161,22 +161,22 @@ def test_the_negative_row_carries_the_densities_on_hover():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=(0.22, 0.71, 1.42), base_source="read")
 
     assert rows[0].name == "Negative"
-    assert rows[0].value == "nrm · 0.22 · 0.71 · 1.42 · Δ1.26"
-    assert rows[0].detail.startswith("Above the clear base read from the rebate: Dmax 1.42 · Dmed 0.71 · Dmin 0.22")
+    assert rows[0].value == "Δ1.26"
+    assert rows[0].detail.startswith("Normal negative. Above the clear base read from the rebate: Dmax 1.42 · Dmed 0.71 · Dmin 0.22")
     assert "Film Base tool pins it" in rows[0].detail
 
 
 def test_a_picked_base_is_named_as_such_without_the_reader_caveat():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=(0.22, 0.71, 1.42), base_source="picked")
 
-    assert rows[0].detail.startswith("Above the film base set on the roll: Dmax 1.42")
+    assert "Above the film base set on the roll: Dmax 1.42" in rows[0].detail
     assert "Film Base tool pins it" not in rows[0].detail
 
 
 def test_a_scan_with_no_base_says_so():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=None)
 
-    assert rows[0].detail.startswith("Dmax, Dmed and Dmin need the roll's film base.")
+    assert "Dmax, Dmed and Dmin need the roll's film base." in rows[0].detail
 
 
 def test_the_hover_shows_the_detail_under_the_fixed_text(qapp):
@@ -186,7 +186,7 @@ def test_the_hover_shows_the_detail_under_the_fixed_text(qapp):
     widget.update_stats([StatRow("Negative", "1.26 · normal", detail="Above the clear base: Dmax 1.42 · Dmed 0.71 · Dmin 0.22.")])
 
     tip = widget._values[0].toolTip()
-    assert tip.index("development character") < tip.index("Dmax 1.42")
+    assert tip.index("How contrasty the negative is") < tip.index("Dmax 1.42")
 
 
 def test_both_engines_record_the_same_densities():

@@ -1,6 +1,6 @@
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QVariantAnimation, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
+from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QMenu, QPushButton, QToolTip, QWidget
 
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, EditedDot, default_button_height, tool_toggle_qss, wrap_tooltip
@@ -44,7 +44,7 @@ class _MenuButton(QPushButton):
 
 
 class MenuButton(_MenuButton):
-    """The ChoiceButton look for a menu of actions: the owner sets the text and fills
+    """A button with a chevron that opens a menu of actions: the owner sets the text and fills
     `choice_menu`."""
 
     def __init__(self, tooltip: str, parent=None):
@@ -67,110 +67,16 @@ class MenuButton(_MenuButton):
         QPainter(self).drawPixmap(QPoint(self.width() - self._chevron_inset - s, (self.height() - s) // 2), pix)
 
 
-class ChoiceButton(MenuButton):
-    """One choice out of a few, as a button that opens a menu of them. A choice is
-    (icon, label) or (icon, label, icon color); an empty icon name shows none. The button's dot marks the current choice as
-    edited; the menu marks every edited choice."""
-
-    currentChanged = pyqtSignal(int)
-
-    def __init__(self, choices: tuple[tuple[str, ...], ...], tooltip: str, parent=None, data: tuple | None = None):
-        super().__init__(tooltip, parent)
-        self._group = QActionGroup(self)
-        self._group.setExclusive(True)
-        self._choices: tuple[tuple[str, ...], ...] = ()
-        self._data: tuple = ()
-        self._edited: list[bool] = []
-        self._actions: list[QAction] = []
-        self._index = -1
-        self.set_choices(choices, data)
-
-    def set_choices(self, choices: tuple[tuple[str, ...], ...], data: tuple | None = None) -> None:
-        """Replace the choices, without emitting; the first becomes current."""
-        for action in self._actions:
-            self._group.removeAction(action)
-            self.choice_menu.removeAction(action)
-        self._choices = tuple(choices)
-        self._data = tuple(data) if data is not None else tuple(range(len(self._choices)))
-        self._edited = [False] * len(self._choices)
-        self._actions = []
-        # No icons on the items: a checkable item with an icon draws no check mark.
-        for i, (_icon, label, *_color) in enumerate(self._choices):
-            action = self.choice_menu.addAction(label)
-            action.setCheckable(True)
-            self._group.addAction(action)
-            action.triggered.connect(lambda _checked=False, i=i: self.setCurrentIndex(i))
-            self._actions.append(action)
-        if not self._choices:
-            self._index = -1
-            self.setText("")
-            return
-        # Sized for the longest choice, so switching never moves the row around it.
-        self.ensurePolished()
-        widths = []
-        for i in range(len(self._choices)):
-            self._show(i)
-            widths.append(super().sizeHint().width())
-        self._show(0)
-        self.setMinimumWidth(max(widths))
-
-    def count(self) -> int:
-        return len(self._choices)
-
-    def currentData(self):  # noqa: N802
-        return self._data[self._index] if 0 <= self._index < len(self._data) else None
-
-    def findData(self, value) -> int:  # noqa: N802
-        return self._data.index(value) if value in self._data else -1
-
-    def set_choice_enabled(self, index: int, enabled: bool) -> None:
-        self._actions[index].setEnabled(enabled)
-
-    def is_choice_enabled(self, index: int) -> bool:
-        return self._actions[index].isEnabled()
-
-    def set_choice_tooltip(self, index: int, tooltip: str) -> None:
-        self._actions[index].setToolTip(tooltip)
-
-    def currentIndex(self) -> int:  # noqa: N802
-        return self._index
-
-    def setCurrentIndex(self, index: int) -> None:  # noqa: N802
-        if index == self._index or not 0 <= index < len(self._choices):
-            return
-        self._show(index)
-        self.currentChanged.emit(index)
-
-    def set_edited(self, index: int, edited: bool) -> None:
-        self._edited[index] = edited
-        label = self._choices[index][1]
-        # Text after a tab lands in the menu's right-aligned shortcut column.
-        self._actions[index].setText(f"{label}\t•" if edited else label)
-        self.edited_dot.set_active(self._edited[self._index])
-
-    def choice_action(self, index: int) -> QAction:
-        return self._actions[index]
-
-    def _show(self, index: int) -> None:
-        self._index = index
-        icon_name, label, *color = self._choices[index]
-        if icon_name:
-            self.setIcon(qta.icon(icon_name, color=color[0] if color else THEME.text_primary, color_disabled=THEME.text_muted))
-        self.setText(f" {label}" if icon_name else label)
-        self._actions[index].setChecked(True)
-        self.edited_dot.set_active(self._edited[index])
-
-
 class ToggleMenuButton(_MenuButton):
-    """Several independent on/off options behind one button: the multi-select twin of
-    ChoiceButton, in the tool-toggle look with no chevron. The button takes the checked look
-    while any option is on; an empty label leaves it icon-only."""
+    """Several independent on/off options behind one button, in the tool-toggle look with no
+    chevron. The button takes the checked look while any option is on; an empty label leaves
+    it icon-only."""
 
     def __init__(self, icon_name: str, label: str, tooltip: str, parent=None):
         super().__init__(tooltip, parent)
         self.setStyleSheet(tool_toggle_qss(icon_only=not label))
         self.setCheckable(True)
-        self.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted))
+        self.setIcon(qta.icon(icon_name, color=THEME.text_hint, color_on=THEME.text_primary, color_disabled=THEME.text_muted))
         self.setText(f" {label}" if label else "")
         self._toggles: list[QAction] = []
 
@@ -194,13 +100,12 @@ class ToggleMenuButton(_MenuButton):
 
 
 class SegmentedChoice(QWidget):
-    """One choice out of two to four, all in view: a recessed track with a raised chip on the
-    current one. Same choices and API as ChoiceButton; an icon_only segment shows its label as
-    a tooltip. The colored icon of a choice dims while another one is current."""
+    """One choice out of two to four, all in view: a track whose current segment is filled. A choice
+    is (icon, label) or (icon, label, icon color); an icon_only segment shows its label as a
+    tooltip. The colored icon of a choice dims while another one is current."""
 
     currentChanged = pyqtSignal(int)
 
-    _PAD = 2
     _ICON = 14
     _DOT = 5
     _SLIDE_MS = 120
@@ -228,7 +133,7 @@ class SegmentedChoice(QWidget):
         self._slide.valueChanged.connect(self._on_slide)
         self.setFixedHeight(default_button_height())
         self.setMouseTracking(True)
-        # Tab focus only: a click must not leave the accent focus ring on the track.
+        # Tab focus only: a click must not leave the focus ring on the track.
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self._tab_focus = False
         self.setToolTip(wrap_tooltip(tooltip))
@@ -289,10 +194,10 @@ class SegmentedChoice(QWidget):
         return 2 * THEME.space_lg + icon + QFontMetrics(self._font(True)).horizontalAdvance(label)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(sum(self._natural(i, True) for i in range(len(self._choices))) + 2 * self._PAD, default_button_height())
+        return QSize(sum(self._natural(i, True) for i in range(len(self._choices))), default_button_height())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(sum(self._natural(i, False) for i in range(len(self._choices))) + 2 * self._PAD, default_button_height())
+        return QSize(sum(self._natural(i, False) for i in range(len(self._choices))), default_button_height())
 
     def _show_icons(self) -> bool:
         return self.width() >= self.sizeHint().width()
@@ -303,15 +208,15 @@ class SegmentedChoice(QWidget):
         icons = self._show_icons()
         natural = [self._natural(i, icons) for i in range(len(self._choices))]
         labeled = [i for i in range(len(self._choices)) if i not in self._icon_only]
-        room = self.width() - 2 * self._PAD - sum(natural[i] for i in self._icon_only)
+        room = self.width() - sum(natural[i] for i in self._icon_only)
         if labeled and max(natural[i] for i in labeled) * len(labeled) <= room:
             widths = [natural[i] if i in self._icon_only else room / len(labeled) for i in range(len(natural))]
         else:
             share = max(0.0, room - sum(natural[i] for i in labeled)) / max(1, len(labeled))
             widths = [natural[i] + (0 if i in self._icon_only else share) for i in range(len(natural))]
-        x, out = float(self._PAD), []
+        x, out = 0.0, []
         for w in widths:
-            out.append(QRectF(x, self._PAD, w, self.height() - 2 * self._PAD))
+            out.append(QRectF(x, 0, w, self.height()))
             x += w
         return out
 
@@ -375,22 +280,24 @@ class SegmentedChoice(QWidget):
         segments = self._segments()
         live = self.isEnabled()
 
-        border = THEME.accent_secondary if self.hasFocus() and self._tab_focus else THEME.border_primary
+        border = THEME.border_focus if self.hasFocus() and self._tab_focus else THEME.border_primary
         p.setPen(QPen(QColor(border), 1))
         p.setBrush(QColor(THEME.bg_input))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_lg, THEME.radius_lg)
 
         if live and 0 <= self._hover != self._index and self._enabled[self._hover]:
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(255, 255, 255, 12))
-            p.drawRoundedRect(segments[self._hover], THEME.radius_md, THEME.radius_md)
+            p.setBrush(QColor(THEME.surface_hover_faint))
+            p.drawRoundedRect(segments[self._hover], THEME.radius_lg, THEME.radius_lg)
 
         chip = QRectF(segments[self._index])
         if self._slide.state() == QVariantAnimation.State.Running:
             chip.moveLeft(self._chip_x)
-        p.setPen(QPen(QColor(THEME.border_hover if live else THEME.border_primary), 1))
-        p.setBrush(QColor(THEME.bg_selected))
-        p.drawRoundedRect(chip.adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_md, THEME.radius_md)
+        # A disabled track keeps a gray chip, so the warm chip always means a live choice.
+        p.setPen(QPen(QColor(THEME.border_checked), 1) if live else Qt.PenStyle.NoPen)
+        p.setBrush(QColor(THEME.bg_checked if live else THEME.bg_selected))
+        pad = THEME.space_xs + 0.5
+        p.drawRoundedRect(chip.adjusted(pad, pad, -pad, -pad), THEME.radius_lg - pad / 2, THEME.radius_lg - pad / 2)
 
         p.setPen(QPen(QColor(THEME.border_primary), 1))
         inset = THEME.space_md + 1
@@ -423,5 +330,5 @@ class SegmentedChoice(QWidget):
                 p.drawText(QRectF(x + icon_w + gap, r.top(), text_w + 1, r.height()), Qt.AlignmentFlag.AlignVCenter, label)
             if self._edited[i]:
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QColor(THEME.channel_red))
+                p.setBrush(QColor(THEME.mark_edited))
                 p.drawEllipse(QRectF(r.right() - self._DOT - THEME.space_sm, r.top() + THEME.space_sm, self._DOT, self._DOT))

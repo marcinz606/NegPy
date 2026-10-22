@@ -259,3 +259,33 @@ def test_load_all_history_reuses_parsed_steps(tmp_path, monkeypatch):
     assert len(parses) == 1
     assert [c for _, c in second[:3]] == [c for _, c in first]
     assert second[3][1].exposure.density == 9.0
+
+
+def test_a_thread_reuses_its_connection_and_another_thread_gets_its_own(tmp_path):
+    import threading
+
+    repo = _repo(tmp_path)
+    with repo._connect(repo.edits_db_path) as first, repo._connect(repo.edits_db_path) as again:
+        assert first is again
+    other = []
+
+    def read() -> None:
+        with repo._connect(repo.edits_db_path) as conn:
+            other.append(conn)
+
+    thread = threading.Thread(target=read)
+    thread.start()
+    thread.join()
+    assert other and other[0] is not first
+
+
+def test_an_error_inside_a_connection_rolls_its_writes_back(tmp_path):
+    repo = _repo(tmp_path)
+    try:
+        with repo._connect(repo.edits_db_path) as conn:
+            conn.execute("INSERT INTO file_settings (file_hash, settings_json) VALUES ('h', '{}')")
+            raise RuntimeError("write failed")
+    except RuntimeError:
+        pass
+
+    assert repo.load_file_settings("h") is None

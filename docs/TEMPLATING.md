@@ -1,6 +1,6 @@
 # Filename Templating
 
-The **Export** and **Scan** sidebars name files with Jinja2 templates.
+The **Export** and **Scan** tabs name files with Jinja2 templates.
 
 ## Export Sidebar
 
@@ -78,7 +78,7 @@ The sequence starts at `1` for each scan session and increments until the filena
 
 ## Filename cleanup
 
-Both sidebars clean up separators:
+Both tabs clean up separators:
 
 - Spaces, dashes and underscores between variables collapse into a **single underscore** (`_`).
 - Leading and trailing separators are removed.

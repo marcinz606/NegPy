@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-from negpy.features.exposure.stats import negative_statistics
+from negpy.features.exposure.stats import clipping_row, negative_statistics
 
 
 def _by_name(rows, name):
@@ -15,7 +15,7 @@ class TestNegativeStatistics(unittest.TestCase):
         return negative_statistics(dr, anchor, lo, hi)
 
     def test_density_value_in_negative_row(self):
-        self.assertTrue(_by_name(self._rows(dr=1.82), "Negative").value.endswith(" · Δ1.82"))
+        self.assertEqual(_by_name(self._rows(dr=1.82), "Negative").value, "Δ1.82")
 
     def test_exposure_ev_number(self):
         a = EXPOSURE_CONSTANTS["assumed_anchor"]
@@ -32,6 +32,9 @@ class TestNegativeStatistics(unittest.TestCase):
         self.assertIn("%", clean.value)
         blown = _by_name(self._rows(lo=0.0, hi=0.05), "Clipping")
         self.assertTrue(blown.warn)
+        self.assertEqual((blown.value, blown.detail), ("0.0 · 5.0%", "Shadows 0.0% · highlights 5.0%"))
+        # The Metering card has the room for the names.
+        self.assertEqual(clipping_row(0.0, 0.05).value, "Sh 0.0% · Hi 5.0%")
 
     def test_missing_inputs_blank(self):
         rows = negative_statistics(None, None, None, None)
@@ -43,20 +46,22 @@ class TestNegativeStatistics(unittest.TestCase):
     def test_scan_clip_warns_only_above_threshold(self):
         clean = _by_name(negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.001, 0.0, 0.0)), "Scan clip")
         self.assertFalse(clean.warn)
-        self.assertEqual(clean.value, "R 0.1% · G 0.0% · B 0.0%")
+        self.assertEqual(clean.value, "0.1 · 0.0 · 0.0%")
+        self.assertTrue(clean.per_channel and clean.detail == "Red 0.1% · green 0.0% · blue 0.0%")
         blown = _by_name(negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.031, 0.002, 0.0)), "Scan clip")
         self.assertTrue(blown.warn)
-        self.assertEqual(blown.value, "R 3.1% · G 0.2% · B 0.0%")
+        self.assertEqual(blown.value, "3.1 · 0.2 · 0.0%")
 
     def test_negative_row_character(self):
         from negpy.features.exposure.logic import default_grade_range
 
         nominal = default_grade_range()
-        self.assertTrue(_by_name(self._rows(dr=nominal), "Negative").value.startswith("normal · "))
-        self.assertTrue(_by_name(self._rows(dr=nominal * 0.5), "Negative").value.startswith("flat · "))
-        self.assertTrue(_by_name(self._rows(dr=nominal * 1.5), "Negative").value.startswith("contrasty · "))
+        # The value is the range alone; the hover names the character.
+        self.assertTrue(_by_name(self._rows(dr=nominal), "Negative").detail.startswith("Normal negative. "))
+        self.assertTrue(_by_name(self._rows(dr=nominal * 0.5), "Negative").detail.startswith("Flat negative. "))
+        self.assertTrue(_by_name(self._rows(dr=nominal * 1.5), "Negative").detail.startswith("Contrasty negative. "))
         with_base = negative_statistics(1.82, None, None, None, density_above_base=(0.12, 0.85, 2.1), base_source="picked")
-        self.assertEqual(_by_name(with_base, "Negative").value, "hi · 0.12 · 0.85 · 2.10 · Δ1.82")
+        self.assertEqual(_by_name(with_base, "Negative").value, "Δ1.82")
         self.assertEqual(_by_name(negative_statistics(None, None, None, None), "Negative").value, "—")
 
     def test_scan_clip_fraction_measurement(self):
@@ -133,3 +138,17 @@ def test_histogram_empty_display_safe(qapp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_per_channel_value_takes_the_channel_colors_unless_it_warns(qapp):
+    from negpy.desktop.view.styles.theme import THEME
+    from negpy.desktop.view.widgets.stats import NegativeStatsWidget
+    from negpy.features.exposure.stats import StatRow
+
+    widget = NegativeStatsWidget()
+    widget.update_stats([StatRow("Scan clip", "0.1 · 0.0 · 0.0%", per_channel=True)])
+    text = widget._values[0].text()
+    assert THEME.channel_red_text in text and THEME.channel_blue_text in text
+
+    widget.update_stats([StatRow("Scan clip", "3.1 · 0.2 · 0.0%", warn=True, per_channel=True)])
+    assert widget._values[0].text() == "3.1 · 0.2 · 0.0%"

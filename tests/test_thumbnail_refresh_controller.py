@@ -86,6 +86,27 @@ class TestThumbnailRefreshController:
         assert self.tasks[0].generation == self.controller._thumbnail_render_generation
         self.controller._on_thumbnail_render_cancelled()
 
+    def test_a_bulk_edit_marks_thumbnails_stale_while_automatic_updates_are_off(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        assert self.controller.state.auto_thumbnail_refresh is False
+        self.files[2]["diptych"] = True
+        with patch.object(self.controller, "diptych_pair", side_effect=lambda f: (WorkspaceConfig(),) * 2 if f["diptych"] else None):
+            self.controller._on_frames_edited_offscreen(["active", "other", "third"])
+
+        assert self.tasks == []
+        assert self.controller.state.stale_thumbnails == {asset_thumbnail_key(self.files[1])}
+        self.session.asset_model.refresh_thumbnails.assert_called_once_with({asset_thumbnail_key(self.files[1])})
+
+    def test_a_bulk_edit_renders_thumbnails_while_automatic_updates_are_on(self) -> None:
+        self.controller.state.auto_thumbnail_refresh = True
+
+        self.controller._on_frames_edited_offscreen(["active", "other"])
+
+        assert [f.file_info["hash"] for f in self.tasks[0].frames] == ["other"]
+        assert self.controller.state.stale_thumbnails == set()
+        self.controller._on_thumbnail_render_cancelled()
+
     def test_dispatch_excludes_diptych_rows(self) -> None:
         self.files[1]["diptych"] = True
         pair = (WorkspaceConfig(), WorkspaceConfig())
@@ -838,6 +859,7 @@ class TestThumbnailRefreshController:
         from negpy.services.assets.thumbnails import asset_thumbnail_key
 
         self.controller.state.selected_indices = [0, 1, 2]
+        self.session.selection_is_open_frame.return_value = False
         before = self.controller.thumbnail_turn_snapshot()
         self.session.config_for_asset.return_value = turned
         keys = [asset_thumbnail_key(f) for f in self.files[1:]]

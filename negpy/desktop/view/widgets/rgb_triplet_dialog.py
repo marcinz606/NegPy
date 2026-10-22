@@ -1,16 +1,13 @@
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QHBoxLayout,
-    QLabel,
     QLineEdit,
     QVBoxLayout,
 )
 
-from negpy.desktop.view.styles.templates import labeled_action, pin_button_box
+from negpy.desktop.view.styles.templates import field_row, labeled_action, labeled_toggle, pin_button_box
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
@@ -25,20 +22,19 @@ class RgbTripletDialog(QDialog):
         self.setWindowTitle(tr("Edit RGB Triplet"))
         layout = QVBoxLayout(self)
         self._edits: dict[str, QLineEdit] = {}
-        for label, path in (("Red", red), ("Green", green), ("Blue", blue)):
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label, minimumWidth=48))
+        for label, path in ((mark("Red"), red), (mark("Green"), green), (mark("Blue"), blue)):
             edit = QLineEdit(path)
-            row.addWidget(edit, 1)
             browse = labeled_action("", tr("Browse…"), tr("Pick the file for this channel"))
             browse.clicked.connect(lambda _=False, e=edit: self._browse(e))
-            row.addWidget(browse)
-            layout.addLayout(row)
+            layout.addLayout(field_row(tr(label), edit, browse))
             self._edits[label] = edit
 
-        self._align = QCheckBox(tr("Align channels (sub-pixel)"))
-        self._align.setChecked(align)
-        self._align.setToolTip(tr("Register green/blue to the red exposure to remove fringing from capture drift."))
+        self._align = labeled_toggle(
+            "fa5s.crosshairs",
+            tr("Align Channels"),
+            align,
+            tr("Register green and blue to the red exposure, to a fraction of a pixel, to remove fringing from capture drift."),
+        )
         layout.addWidget(self._align)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)

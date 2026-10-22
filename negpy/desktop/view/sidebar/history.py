@@ -1,97 +1,197 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QHBoxLayout, QInputDialog, QListWidget, QListWidgetItem, QMenu, QMessageBox, QVBoxLayout
+import qtawesome as qta
+from PyQt6.QtCore import QRect, QSize, Qt
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QInputDialog,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QStyle,
+    QStyledItemDelegate,
+    QVBoxLayout,
+    QWidget,
+)
 
 from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import header_row, section_subheader
+from negpy.desktop.view.styles.templates import hint_label, labeled_action
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.collapsible import make_section
+from negpy.desktop.view.widgets.flat_rows import ICON, RowList, more_rect, paint_fill, paint_more, paint_pill
+from negpy.kernel.system.config import APP_CONFIG
 
 _INDEX_ROLE = Qt.ItemDataRole.UserRole
+_DETAIL_ROLE = Qt.ItemDataRole.UserRole + 1
+_NUMBER_ROLE = Qt.ItemDataRole.UserRole + 2
+# "now", "undone" or "": the pill at a row's right end.
+_TAG_ROLE = Qt.ItemDataRole.UserRole + 3
 
-_WORK_PRINT_TOOLTIP = tr(
-    "Named versions of this frame — the printer's work prints. Unlike the edit history they "
-    "are never pruned and never dropped by a later edit. Click one to make it live (undoable); "
-    "right-click to export, rename or delete it."
-)
+_ROW_HEIGHT = 30
+
+_WORK_PRINT_TOOLTIP = tr("Named versions of this frame: click one to use it, or right-click to export, rename or delete it.")
+
+
+class _RowDelegate(QStyledItemDelegate):
+    """A flat row: a step number or an icon, the name and a muted detail, a pill, and ⋮ on hover.
+    The current step takes the selected fill and a Now pill; an undone one is struck through."""
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        return QSize(option.rect.width(), _ROW_HEIGHT)
+
+    def paint(self, p: QPainter, option, index) -> None:
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = option.rect.adjusted(0, 1, 0, -1)
+        tag = index.data(_TAG_ROLE) or ""
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        paint_fill(p, rect, current=tag == "now", hover=hover)
+
+        font = QFont(option.font)
+        font.setPixelSize(THEME.font_size_base)
+        small = QFont(font)
+        small.setPixelSize(THEME.font_size_small)
+        x = rect.left() + THEME.space_lg
+        number = index.data(_NUMBER_ROLE)
+        if number is not None:
+            width = QFontMetrics(small).horizontalAdvance("100")
+            p.setFont(small)
+            p.setPen(QColor(THEME.text_hint))
+            p.drawText(QRect(x, rect.top(), width, rect.height()), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(number))
+            x += width + THEME.space_lg
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if icon is not None:
+            icon.paint(p, QRect(x, rect.center().y() - ICON // 2, ICON, ICON))
+            x += ICON + THEME.space_lg
+
+        # The ⋮ slot stays reserved, so a pill does not move when the row is hovered.
+        right = more_rect(option.rect).left() - THEME.space_md
+        if tag:
+            text = tr("Now") if tag == "now" else tr("Undone")
+            right = paint_pill(p, right, rect.center().y(), text, small, accent=tag == "now") - THEME.space_md
+
+        name_font = QFont(font)
+        name_font.setWeight(QFont.Weight(THEME.weight_semibold if tag == "now" else THEME.weight_regular))
+        name_font.setStrikeOut(tag == "undone")
+        name = QFontMetrics(name_font).elidedText(index.data(Qt.ItemDataRole.DisplayRole) or "", Qt.TextElideMode.ElideRight, right - x)
+        p.setFont(name_font)
+        p.setPen(QColor(THEME.text_hint if tag == "undone" else THEME.text_primary))
+        p.drawText(QRect(x, rect.top(), right - x, rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
+        x += QFontMetrics(name_font).horizontalAdvance(name)
+        detail = index.data(_DETAIL_ROLE)
+        if detail and x < right:
+            font.setStrikeOut(tag == "undone")
+            p.setFont(font)
+            p.setPen(QColor(THEME.text_hint))
+            text = QFontMetrics(font).elidedText(f" · {detail}", Qt.TextElideMode.ElideRight, right - x)
+            p.drawText(QRect(x, rect.top(), right - x, rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        if hover:
+            paint_more(p, option.rect)
+        p.restore()
 
 
 class HistoryPanel(BaseSidebar):
-    """Work prints (named versions, kept) above the edit-history steps (pruned)."""
-
-    SIDE_MARGIN = THEME.space_xl
+    """Work prints (named versions, kept) above the edit-history steps (pruned), each a card."""
 
     def _init_ui(self) -> None:
-        self.work_print_header = section_subheader(tr("WORK PRINTS"))
-        self.save_btn = self._icon_action("fa5s.save", "")
-        self.save_btn.setToolTip(tooltip_with_shortcut(tr("Save Work Print: keep the current edit as a named version"), "save_work_print"))
-        self.layout.addLayout(header_row(self.work_print_header, self.save_btn))
+        repo = self.controller.session.repo
 
-        self.work_prints = QListWidget()
+        self.work_prints = RowList(_RowDelegate, _ROW_HEIGHT)
         self.work_prints.setToolTip(_WORK_PRINT_TOOLTIP)
-        self.work_prints.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.work_prints.setMaximumHeight(120)
-
-        # Global setting, default off; the toggle stays in view even when the print list is empty.
+        self.work_prints_hint = hint_label(tr("Keep this edit as a named version."))
+        self.save_btn = labeled_action(
+            "mdi6.bookmark-plus-outline",
+            tr("Save Work Print…"),
+            tooltip_with_shortcut(tr("Save Work Print: keep the current edit as a named version"), "save_work_print"),
+        )
+        # Global setting, default off.
         self.apply_metadata_btn = self._labeled_toggle(
             "",
             tr("Load Metadata"),
             self.controller.session.work_print_apply_metadata(),
-            tr("When a work print loads, restore its saved metadata. Off (the default) keeps the metadata on screen now."),
+            tr("Also restore the metadata saved with a work print when it loads."),
         )
-        # The list and its toggle share one box: the toggle sits at the list's bottom-right.
-        box = QVBoxLayout()
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(0)
-        box.addWidget(self.work_prints)
-        apply_row = QHBoxLayout()
-        apply_row.addStretch(1)
-        apply_row.addWidget(self.apply_metadata_btn)
-        box.addLayout(apply_row)
-        self.layout.addLayout(box, 0)
+        foot = QHBoxLayout()
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.addWidget(self.save_btn)
+        foot.addStretch(1)
+        foot.addWidget(self.apply_metadata_btn)
+        prints_body = QWidget()
+        prints_col = QVBoxLayout(prints_body)
+        prints_col.setContentsMargins(0, 0, 0, 0)
+        prints_col.setSpacing(THEME.space_sm)
+        prints_col.addWidget(self.work_prints)
+        prints_col.addWidget(self.work_prints_hint)
+        prints_col.addLayout(foot)
+        self.work_prints_section = make_section(
+            repo, tr("Work Prints"), "work_prints", prints_body, "mdi6.bookmark-outline", default_expanded=True
+        )
 
-        self.layout.addWidget(section_subheader(tr("EDIT HISTORY")))
-
-        self.list = QListWidget()
+        self.list = RowList(_RowDelegate, _ROW_HEIGHT)
         self.list.setToolTip(tr("Click a step to jump to it (last 100 edits kept)."))
-        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.layout.addWidget(self.list, 1)
+        history_body = QWidget()
+        history_col = QVBoxLayout(history_body)
+        history_col.setContentsMargins(0, 0, 0, 0)
+        history_col.setSpacing(THEME.space_sm)
+        history_col.addWidget(self.list)
+        history_col.addWidget(
+            hint_label(
+                tr(
+                    "Click a step to go back to it; ⋮ or right-click exports it. The last {count} edits are kept.",
+                    count=APP_CONFIG.max_history_steps,
+                )
+            )
+        )
+        self.history_section = make_section(repo, tr("Edit History"), "edit_history", history_body, "fa5s.history", default_expanded=True)
+        self.undo_btn = self.history_section.add_header_button("mdi.undo", tooltip_with_shortcut(tr("Undo"), "undo"))
+        self.redo_btn = self.history_section.add_header_button("mdi.redo", tooltip_with_shortcut(tr("Redo"), "redo"))
+
+        self.layout.addWidget(self.work_prints_section)
+        self.layout.addWidget(self.history_section)
+        self.layout.addStretch(1)
 
         self.refresh()
 
     def _connect_signals(self) -> None:
         self.list.itemClicked.connect(self._on_item_clicked)
-        self.list.customContextMenuRequested.connect(self._on_context_menu)
+        self.list.menu_requested.connect(self._on_context_menu)
         self.work_prints.itemClicked.connect(lambda item: self.controller.session.load_work_print(item.text()))
-        self.work_prints.customContextMenuRequested.connect(self._on_work_print_menu)
+        self.work_prints.menu_requested.connect(self._on_work_print_menu)
         self.save_btn.clicked.connect(self.save_work_print)
         self.apply_metadata_btn.toggled.connect(self._on_apply_metadata_toggled)
+        self.undo_btn.clicked.connect(self.controller.session.undo)
+        self.redo_btn.clicked.connect(self.controller.session.redo)
         self.controller.session.history_changed.connect(self.refresh)
         self.controller.session.work_prints_changed.connect(self.refresh)
         self.controller.session.file_selected.connect(lambda _: self.refresh())
 
     def refresh(self) -> None:
         session = self.controller.session
+        state = self.controller.state
         names = session.work_prints()
         self.work_prints.clear()
-        self.work_prints.addItems(names)
-        # An empty list is a strip of dead space in a panel most people use for undo.
+        icon = qta.icon("mdi6.bookmark-outline", color=THEME.text_secondary)
+        for name in names:
+            self.work_prints.addItem(QListWidgetItem(icon, name))
+        self.work_prints.fit()
         self.work_prints.setVisible(bool(names))
-        self.work_print_header.setVisible(bool(names))
-        self.save_btn.setEnabled(bool(self.controller.state.current_file_hash))
+        self.work_prints_hint.setVisible(not names)
+        self.apply_metadata_btn.setVisible(bool(names))
+        self.save_btn.setEnabled(bool(state.current_file_hash))
 
         self.list.clear()
         for row in reversed(self.controller.history_steps()):  # newest on top
-            item = QListWidgetItem(row["label"])
+            item = QListWidgetItem(row["name"])
             item.setData(_INDEX_ROLE, row["index"])
-            if row["is_current"]:
-                font = item.font()
-                font.setWeight(QFont.Weight.Bold)
-                item.setFont(font)
-                self.list.setCurrentItem(item)
+            item.setData(_NUMBER_ROLE, row["index"])
+            item.setData(_DETAIL_ROLE, row["detail"])
+            item.setData(_TAG_ROLE, "now" if row["is_current"] else "undone" if row["undone"] else "")
             self.list.addItem(item)
+        self.list.fit()
+        self.undo_btn.setEnabled(state.undo_index > 0)
+        self.redo_btn.setEnabled(state.undo_index < state.max_history_index)
 
     def save_work_print(self) -> None:
         session = self.controller.session
@@ -152,6 +252,6 @@ class HistoryPanel(BaseSidebar):
                 self,
                 tr("Work Print"),
                 name,
-                informative=tr("Work prints are never pruned by later edits — this is the only way one goes away."),
+                informative=tr("Later edits never delete a work print; this is the only way to delete one."),
             ):
                 self.controller.session.delete_work_print(name)

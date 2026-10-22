@@ -13,26 +13,43 @@ def _exposure_variant() -> WorkspaceConfig:
     return replace(base, exposure=replace(base.exposure, auto_exposure=not base.exposure.auto_exposure))
 
 
-class TestHistoryStepLabel(unittest.TestCase):
-    def test_base_when_no_previous(self):
-        self.assertEqual(history_step_label(None, WorkspaceConfig(), 0), "0 · base")
+def _exposure(**changes) -> WorkspaceConfig:
+    base = WorkspaceConfig()
+    return replace(base, exposure=replace(base.exposure, **changes))
 
-    def test_names_changed_section(self):
+
+class TestHistoryStepLabel(unittest.TestCase):
+    def test_the_first_step_is_as_opened(self):
+        self.assertEqual(history_step_label(None, WorkspaceConfig()), ("As opened", ""))
+
+    def test_one_control_names_its_card_and_the_control(self):
+        self.assertEqual(history_step_label(WorkspaceConfig(), _exposure_variant()), ("Tone", "Auto Density"))
+
+    def test_controls_in_one_card_are_listed_after_it(self):
+        self.assertEqual(history_step_label(WorkspaceConfig(), _exposure(wb_magenta=0.1, wb_yellow=0.1)), ("Filtration", "Magenta, Yellow"))
+
+    def test_more_than_two_are_counted(self):
+        label = history_step_label(WorkspaceConfig(), _exposure(wb_cyan=0.1, wb_magenta=0.1, wb_yellow=0.1))
+        self.assertEqual(label, ("Filtration", "Cyan, Magenta +1"))
+
+    def test_steps_across_cards_name_the_cards(self):
         prev = WorkspaceConfig()
-        label = history_step_label(prev, _exposure_variant(), 3)
-        self.assertIn("exposure", label)
-        self.assertTrue(label.startswith("3 · "))
+        cfg = replace(_exposure(wb_magenta=0.1), lab=replace(prev.lab, sharpen=prev.lab.sharpen + 0.5))
+        self.assertEqual(history_step_label(prev, cfg), ("Filtration, Lab", ""))
+
+    def test_a_change_no_catalog_row_lists_names_its_card(self):
+        prev = WorkspaceConfig()
+        cfg = replace(prev, geometry=replace(prev.geometry, crop_to_valid=not prev.geometry.crop_to_valid))
+        self.assertEqual(history_step_label(prev, cfg), ("Crop", ""))
+
+    def test_bounds_a_render_measured_are_not_a_change(self):
+        prev = WorkspaceConfig()
+        cfg = replace(_exposure(wb_magenta=0.1), process=replace(prev.process, local_floors=(0.1, 0.1, 0.1), meter_key="k"))
+        self.assertEqual(history_step_label(prev, cfg), ("Filtration", "Magenta"))
 
     def test_unchanged_marker(self):
         cfg = WorkspaceConfig()
-        self.assertEqual(history_step_label(cfg, cfg, 2), "2 · —")
-
-    def test_only_changed_section_listed(self):
-        prev = WorkspaceConfig()
-        cfg = replace(prev, lab=replace(prev.lab, **_first_diff_field(prev.lab, LabConfig)))
-        label = history_step_label(prev, cfg, 1)
-        self.assertIn("lab", label)
-        self.assertNotIn("exposure", label)
+        self.assertEqual(history_step_label(cfg, cfg), ("—", ""))
 
 
 def _first_diff_field(current, cls):
@@ -104,3 +121,74 @@ class TestJumpToStep(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_ROWS = [
+    {"index": 0, "name": "As opened", "detail": "", "is_current": False, "undone": False},
+    {"index": 1, "name": "Tone", "detail": "Print Density", "is_current": True, "undone": False},
+    {"index": 2, "name": "Filtration", "detail": "", "is_current": False, "undone": True},
+]
+
+
+def _history_panel(prints=()):
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.session import AppState
+    from negpy.desktop.view.sidebar.history import HistoryPanel
+
+    controller = MagicMock()
+    controller.state = AppState()
+    controller.state.current_file_hash = "h"
+    controller.state.undo_index, controller.state.max_history_index = 1, 2
+    controller.history_steps.return_value = _ROWS
+    controller.session.work_prints.return_value = list(prints)
+    controller.session.work_print_apply_metadata.return_value = False
+    return controller, HistoryPanel(controller)
+
+
+def test_rows_mark_the_current_and_the_undone_steps_newest_first(qapp):
+    from negpy.desktop.view.sidebar.history import _TAG_ROLE
+
+    _controller, panel = _history_panel()
+    rows = [(panel.list.item(i).text(), panel.list.item(i).data(_TAG_ROLE)) for i in range(panel.list.count())]
+    assert rows == [("Filtration", "undone"), ("Tone", "now"), ("As opened", "")]
+    assert panel.undo_btn.isEnabled() and panel.redo_btn.isEnabled()
+
+
+def test_with_no_work_prints_the_card_says_what_they_are(qapp):
+    _controller, panel = _history_panel()
+    assert panel.work_prints.isHidden() and panel.apply_metadata_btn.isHidden()
+    assert not panel.work_prints_hint.isHidden()
+
+    _controller, panel = _history_panel(prints=["Soft proof"])
+    assert not panel.work_prints.isHidden() and not panel.apply_metadata_btn.isHidden()
+    assert panel.work_prints_hint.isHidden()
+
+
+def test_a_press_on_a_rows_more_button_opens_its_menu_and_leaves_the_step(qapp):
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+
+    from negpy.desktop.view.widgets.flat_rows import more_rect
+
+    controller, panel = _history_panel()
+    panel.resize(420, 600)
+    panel.show()
+    qapp.processEvents()
+    asked = []
+    panel.list.menu_requested.disconnect()
+    panel.list.menu_requested.connect(asked.append)
+    point = QPointF(more_rect(panel.list.visualItemRect(panel.list.item(0))).center())
+    for kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        event = QMouseEvent(
+            kind,
+            point,
+            panel.list.viewport().mapToGlobal(point),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        qapp.sendEvent(panel.list.viewport(), event)
+
+    assert len(asked) == 1
+    controller.jump_to_history_step.assert_not_called()
