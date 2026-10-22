@@ -79,6 +79,8 @@ class ToolMode(Enum):
 # These tools' renders carry crop_preview_full, which skips the crop, the border and the filed carrier.
 # Film Base shows the whole scan too: the rebate it reads lies outside the crop.
 UNCROPPED_PREVIEW_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE})
+# Esc puts back what these changed since they opened: each adjusts one thing as often as it likes.
+REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
 
 # Zone Overlay looks, by stored key and menu label.
 ZONE_STYLES = {"false_color": tr("Color"), "zone_map": tr("Grayscale"), "grid": tr("Grid")}

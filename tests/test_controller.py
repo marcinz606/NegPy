@@ -256,7 +256,8 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(cleared, [(8.0, -6.0, {}, ToolMode.KEYSTONE_LINES)])
         self.mock_session_manager.update_config.assert_called_once()
-        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["persist"])
+        reverts = [c for c in self.mock_session_manager.update_config.call_args_list if c.kwargs.get("persist")]
+        self.assertEqual(len(reverts), 1)  # one undo step
         self.controller.request_render.assert_called_once_with()
 
     def test_auto_skew_writes_absolute_rotation_and_measured_keystone(self):
@@ -278,7 +279,8 @@ class TestAppController(unittest.TestCase):
         self.assertAlmostEqual(result.fine_rotation, -1.25)
         self.assertAlmostEqual(result.converge_v, 0.8)
         self.assertAlmostEqual(result.converge_h, 2.5)  # unmeasured: kept
-        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["persist"])
+        reverts = [c for c in self.mock_session_manager.update_config.call_args_list if c.kwargs.get("persist")]
+        self.assertEqual(len(reverts), 1)  # one undo step
         self.controller.request_render.assert_called_once_with()
 
     def test_auto_skew_status_names_only_what_the_fit_measured(self):
@@ -2801,6 +2803,76 @@ class TestAppController(unittest.TestCase):
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved_config.geometry.crop_rect, (0.3, 0.25, 0.7, 0.55))
         self.controller.request_render.assert_called_once_with()
+
+    def _apply_session_updates(self):
+        def update(config, persist=False, render=True, record_history=True):
+            self.controller.state.config = config
+
+        self.mock_session_manager.update_config.side_effect = update
+        self.controller.request_render = MagicMock()
+        self.controller.state.current_file_hash = "h1"
+
+    def test_esc_puts_back_the_crop_the_tool_opened_with(self):
+        self._apply_session_updates()
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True, fine_rotation=0.5)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.set_active_tool(ToolMode.CROP_MANUAL)
+        self.controller.handle_crop_rect_changed(0.2, 0.2, 0.6, 0.6, True)
+        self.controller.handle_crop_rotation_changed(1.5, True)
+        density = self.controller.state.config.exposure.density + 0.3
+        self.controller.state.config = replace(
+            self.controller.state.config, exposure=replace(self.controller.state.config.exposure, density=density)
+        )
+        self.mock_session_manager.update_config.reset_mock()
+
+        self.controller.revert_active_tool()
+
+        geo = self.controller.state.config.geometry
+        self.assertEqual((geo.crop_rect, geo.crop_from_auto, geo.fine_rotation), ((0.1, 0.1, 0.9, 0.9), True, 0.5))
+        self.assertEqual(self.controller.state.config.exposure.density, density)  # an edit outside the tool stays
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+        reverts = [c for c in self.mock_session_manager.update_config.call_args_list if c.kwargs.get("persist")]
+        self.assertEqual(len(reverts), 1)  # one undo step
+
+    def test_done_keeps_the_crop(self):
+        self._apply_session_updates()
+        self.controller.set_active_tool(ToolMode.CROP_MANUAL)
+        self.controller.handle_crop_rect_changed(0.2, 0.2, 0.6, 0.6, True)
+
+        self.controller.cancel_active_tool()
+
+        self.assertEqual(self.controller.state.config.geometry.crop_rect, (0.2, 0.2, 0.6, 0.6))
+
+    def test_esc_with_no_change_writes_nothing(self):
+        self._apply_session_updates()
+        self.controller.set_active_tool(ToolMode.CROP_MANUAL)
+        self.mock_session_manager.update_config.reset_mock()
+
+        self.controller.revert_active_tool()
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
+    def test_esc_puts_back_the_analysis_region(self):
+        self._apply_session_updates()
+        self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW)
+        self.controller.handle_analysis_rect_changed(0.2, 0.2, 0.6, 0.6, True)
+
+        self.controller.revert_active_tool()
+
+        self.assertIsNone(self.controller.state.config.process.analysis_rect)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
+    def test_esc_on_another_frame_puts_nothing_back(self):
+        self._apply_session_updates()
+        self.controller.set_active_tool(ToolMode.CROP_MANUAL)
+        self.controller.handle_crop_rect_changed(0.2, 0.2, 0.6, 0.6, True)
+        self.controller.state.current_file_hash = "h2"
+
+        self.controller.revert_active_tool()
+
+        self.assertEqual(self.controller.state.config.geometry.crop_rect, (0.2, 0.2, 0.6, 0.6))
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
 
     def test_handle_crop_rect_changed_noop_when_tool_inactive(self):
         geometry = replace(self.controller.state.config.geometry, crop_rect=None)

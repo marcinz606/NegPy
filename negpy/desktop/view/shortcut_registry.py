@@ -123,7 +123,9 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_cursor_probe": ShortcutEntry("Shift+I", tr("Probe at cursor (zone, print density and ΔD beside the pointer)"), tr("Tools")),
     "toggle_soft_proof": ShortcutEntry("Shift+P", tr("Soft proof the print on screen"), tr("Tools")),
     "cancel_tool": ShortcutEntry(
-        "Esc", tr("Leave the current view (peek, split, strip, zone overlay) or cancel the active tool"), tr("Tools")
+        "Esc",
+        tr("Leave the current view (peek, split, strip, zone overlay) or cancel the active tool; Crop and Draw Region undo their changes"),
+        tr("Tools"),
     ),
     "cyan_dec": ShortcutEntry("", tr("Cyan down"), tr("Exposure")),
     "cyan_inc": ShortcutEntry("", tr("Cyan up"), tr("Exposure")),

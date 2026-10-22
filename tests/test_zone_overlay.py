@@ -184,7 +184,7 @@ def test_esc_closes_the_zone_overlay_only_once_no_tool_is_armed():
         ctrl.state = AppState(zones_overlay=True, active_tool=tool)
         _context_cancel(ctrl, window)
         assert ctrl.toggle_zones_overlay.called is closes
-        assert ctrl.cancel_active_tool.called is not closes
+        assert ctrl.revert_active_tool.called is not closes
 
 
 def test_zone_style_is_a_saved_preference():

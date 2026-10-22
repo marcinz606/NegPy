@@ -784,6 +784,11 @@ class CanvasOverlay(QWidget):
             self._keystone_draw_p2 = None
             self.update()
             return True
+        # Esc goes on to revert the whole session, so a held drag must not write after it.
+        if self._tool_mode == ToolMode.CROP_MANUAL:
+            self._end_crop_drag()
+        elif self._tool_mode == ToolMode.ANALYSIS_DRAW:
+            self._end_analysis_drag()
         return False
 
     def update_buffer(
@@ -3801,6 +3806,9 @@ class CanvasOverlay(QWidget):
         elif self._tool_mode == ToolMode.CROP_MANUAL:
             self._end_crop_drag()
             self.crop_confirmed.emit()
+        elif self._tool_mode == ToolMode.ANALYSIS_DRAW:
+            self._end_analysis_drag()
+            self.analysis_confirmed.emit()
         elif self._tool_mode == ToolMode.ZONE_PLACE and self.state.zone_pins:
             self.zone_placement_confirmed.emit()
 

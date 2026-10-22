@@ -222,7 +222,7 @@ Two cards: **Crop** sets the part of the picture you keep, and **Straighten** tu
 
 Choose the part of the picture to keep, by hand or with Auto Crop.
 
-*   **Draw**: drag a crop on the picture. Drag a corner to resize it, the inside to move it, or outside the box to rotate. The **×** removes a crop you drew. Drawing turns Auto Crop off.
+*   **Draw**: drag a crop on the picture. Drag a corner to resize it, the inside to move it, or outside the box to rotate. `Enter` or **Done** keeps the crop, and `Esc` puts back the crop you had before. The **×** removes a crop you drew. Drawing turns Auto Crop off.
 *   **Auto Crop**: finds the edges of the picture and crops to them.
 *   **Ratio**: the crop shape, such as `3:2` or `1:1`, turned to fit the frame. **Free** uses the shape NegPy finds, and you can drag one side at a time. **Detect** picks the nearest standard shape.
 *   **Guide**: composition lines, such as thirds, while you draw. The rotate button turns them.
@@ -541,7 +541,7 @@ Corrects color errors that come from your light, camera and film.
 To turn a negative into a positive, NegPy measures its darkest and brightest parts (the black and white points) and the color of the film. These controls set what it measures.
 
 *   **Reanalyze Frame**: measures this frame again from its current crop.
-*   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside to confirm; **×** clears it.
+*   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside or press `Enter` to confirm, and `Esc` puts back the region you had before. **×** clears it.
 *   **Film Base**: click the clear film between frames to set the roll's film base, for the Analysis readout. **×** clears it.
 *   **Analysis Buffer**: ignores a border around the frame when measuring, so film edges and holders do not count.
 *   **Clipping**: how much of the print is pure black or pure white.

@@ -53,7 +53,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Shift + N` | Printing notes (dodge/burn map + print recipe) |
 | `Shift + I` | Probe at cursor (zone, print density and ΔD beside the pointer) |
 | `Shift + P` | Soft proof the print on screen |
-| `Esc` | Leave the current view (peek, split, strip, zone overlay) or cancel the active tool |
+| `Esc` | Leave the current view (peek, split, strip, zone overlay) or cancel the active tool; Crop and Draw Region undo their changes |
 
 ## Geometry
 | Key | Action |

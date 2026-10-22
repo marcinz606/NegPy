@@ -25,6 +25,7 @@ from negpy.desktop.session import (
     AppState,
     DesktopSessionManager,
     ToolMode,
+    REVERTIBLE_TOOLS,
     UNCROPPED_PREVIEW_TOOLS,
     _source_effective_bounds,
     composite_kind,
@@ -498,6 +499,18 @@ _FILM_BASE_FLAT_DECADES = 0.02
 _LEAK_BURNED_HINT_SHARE = 0.002
 
 
+def _reverted_tool_config(tool: ToolMode, current: WorkspaceConfig, entry: WorkspaceConfig) -> WorkspaceConfig:
+    """*current* with the fields *tool* writes put back to *entry*; other edits made meanwhile stay."""
+    if tool == ToolMode.CROP_MANUAL:
+        g = entry.geometry
+        geo = replace(current.geometry, crop_rect=g.crop_rect, crop_from_auto=g.crop_from_auto, fine_rotation=g.fine_rotation)
+        return replace(current, geometry=geo)
+    if current.process.analysis_rect == entry.process.analysis_rect:
+        return current
+    proc = replace(current.process, analysis_rect=entry.process.analysis_rect)
+    return replace(current, process=replace(proc, **invalidate_local_bounds(proc)))
+
+
 class AppController(QObject):
     """
     Main application orchestrator.
@@ -865,6 +878,8 @@ class AppController(QObject):
         self._dispatched_render_state: Optional[tuple] = None  # _render_state() of the last plain render
 
         self._crop_bounds_dirty = False
+        # (tool, file hash, config) when Crop or Draw Region opened: what Esc puts back.
+        self._tool_entry: Optional[Tuple[ToolMode, Optional[str], WorkspaceConfig]] = None
         self._peek_sections: Optional[tuple] = None  # _peek_hidden_sections() when a scan peek opened; a render of others ends it
         self._keystone_lines: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = {}
         self._zone_preview_shown = False
@@ -3232,6 +3247,8 @@ class AppController(QObject):
         leaving_zone_place = self.state.active_tool == ToolMode.ZONE_PLACE and mode != ToolMode.ZONE_PLACE
         if mode != ToolMode.KEYSTONE_LINES:
             self._keystone_lines = {}
+        if mode != self.state.active_tool:
+            self._tool_entry = (mode, self.state.current_file_hash, self.state.config) if mode in REVERTIBLE_TOOLS else None
         self.state.active_tool = mode
         self.state.clone_picking = mode == ToolMode.CLONE and self.state.clone_source is None
         self.tool_sync_requested.emit()
@@ -3255,6 +3272,20 @@ class AppController(QObject):
     def cancel_active_tool(self) -> None:
         if self.state.active_tool != ToolMode.NONE:
             self.set_active_tool(ToolMode.NONE)
+
+    def revert_active_tool(self) -> None:
+        """What Esc does: leave the tool. Crop and Draw Region first put back what they changed
+        since they opened, as one undo step; every other way out keeps the changes."""
+        entry = self._tool_entry
+        if entry is not None and entry[0] == self.state.active_tool and entry[1] == self.state.current_file_hash:
+            restored = _reverted_tool_config(entry[0], self.state.config, entry[2])
+            if restored != self.state.config:
+                if entry[0] == ToolMode.CROP_MANUAL:
+                    self._crop_bounds_dirty = True  # leaving the tool re-meters the restored crop
+                self._render_debounce.stop()
+                self.session.update_config(restored, persist=True)
+                self.request_render()
+        self.cancel_active_tool()
 
     def show_rotation_guide(self) -> None:
         """Request the canvas show the fine-rotation alignment grid."""

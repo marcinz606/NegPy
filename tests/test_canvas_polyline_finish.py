@@ -98,6 +98,26 @@ def test_enter_confirms_crop() -> None:
     assert confirmed == [True]
 
 
+def test_enter_confirms_the_analysis_region() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.ANALYSIS_DRAW)
+
+    confirmed = []
+    overlay.analysis_confirmed.connect(lambda: confirmed.append(True))
+    overlay._finish_draw_if_active()
+
+    assert confirmed == [True]
+
+
+def test_esc_ends_a_held_crop_drag_and_lets_the_tool_revert() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.CROP_MANUAL)
+    overlay._crop_drag_mode = "move"
+
+    assert overlay.cancel_in_progress() is False
+    assert overlay._crop_drag_mode is None
+
+
 def _overlay_with_parent() -> CanvasOverlay:
     """Overlay whose move/release paths (which consult parent()._is_panning) work."""
     from PyQt6.QtWidgets import QWidget
@@ -267,11 +287,11 @@ def test_context_cancel_two_stage() -> None:
     controller.state.zone_pins = []
     window.canvas.overlay.cancel_in_progress.return_value = True
     _context_cancel(controller, window)
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     window.canvas.overlay.cancel_in_progress.return_value = False
     _context_cancel(controller, window)
-    controller.cancel_active_tool.assert_called_once()
+    controller.revert_active_tool.assert_called_once()
 
 
 def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
@@ -296,7 +316,7 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
     controller.toggle_test_strip.assert_called_once_with(force=False)
     # The strip owns the canvas while up, so nothing below it sees the key.
     window.canvas.overlay.cancel_in_progress.assert_not_called()
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     # A strip still printing is dismissable too.
     controller.reset_mock()
@@ -328,7 +348,7 @@ def test_context_cancel_closes_the_grain_focuser_before_any_tool() -> None:
     _context_cancel(controller, window)
     controller.toggle_grain_focuser.assert_called_once_with(force=False)
     window.canvas.overlay.cancel_in_progress.assert_not_called()
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
 
 def _crop_overlay(rect=(0.2, 0.2, 0.8, 0.8)) -> CanvasOverlay:
@@ -409,26 +429,26 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
     _context_cancel(controller, window)
     controller.toggle_negative_peek.assert_called_once_with(force=False)
     window.canvas.overlay.cancel_in_progress.assert_not_called()
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     controller, window = _fixture()
     controller.state.embedded_peek = True
     controller.state.flatfield_peek = False
     _context_cancel(controller, window)
     controller.toggle_embedded_peek.assert_called_once_with(force=False)
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     controller, window = _fixture()
     controller.state.flat_peek = True
     _context_cancel(controller, window)
     controller.toggle_flat_peek.assert_called_once_with(force=False)
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     controller, window = _fixture()
     controller.state.compare_mode = True
     _context_cancel(controller, window)
     controller.toggle_compare.assert_called_once_with()
-    controller.cancel_active_tool.assert_not_called()
+    controller.revert_active_tool.assert_not_called()
 
     # The strip still outranks them: it is the one that replaces the frame entirely.
     controller, window = _fixture()

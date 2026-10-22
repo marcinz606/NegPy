@@ -868,11 +868,7 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tool_done = labeled_action("fa5s.check", tr("Done"), "", primary=True)
-        self._tip(
-            self.btn_tool_done,
-            tr("Finish the line or shape in progress and leave the tool"),
-            "cancel_tool",
-        )
+        self.btn_tool_done.setToolTip(wrap_tooltip(tr("Finish the line or shape in progress and leave the tool, keeping its changes")))
         self.btn_tool_done.setFixedHeight(btn_height)
         # A narrow bar lays out at minimum widths, which would cut the label down to the icon.
         self.btn_tool_done.setMinimumWidth(self.btn_tool_done.sizeHint().width())
