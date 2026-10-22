@@ -227,6 +227,7 @@ class PhotometricProcessor:
             context.metrics.get("neutral_axis_refs"),
             self.config.cast_removal_strength,
         )
+        mg = effective_midtone_gamma(paper, self.config.midtone_gamma)
         slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,
@@ -240,19 +241,27 @@ class PhotometricProcessor:
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
             shadow_point=context.metrics.get("shadow_point"),
+            midtone_gamma=mg,
         )
         context.metrics["print_slopes"] = slopes
         hl_point = context.metrics.get("highlight_point")
         hl_auto = (
             highlight_hold_offset(
-                slopes[1], pivots[1], hl_point, d_min=d_min, paper=paper, preflash=self.config.preflash, grade=self.config.grade
+                slopes[1],
+                pivots[1],
+                hl_point,
+                d_min=d_min,
+                paper=paper,
+                preflash=self.config.preflash,
+                grade=self.config.grade,
+                midtone_gamma=mg,
             )
             if self.config.auto_normalize_contrast and hl_point is not None
             else 0.0
         )
         sh_point = context.metrics.get("shadow_point")
         sh_auto = (
-            shadow_hold_offset(slopes[1], pivots[1], sh_point, d_min=d_min, paper=paper)
+            shadow_hold_offset(slopes[1], pivots[1], sh_point, d_min=d_min, paper=paper, midtone_gamma=mg)
             if self.config.auto_normalize_contrast and sh_point is not None
             else 0.0
         )

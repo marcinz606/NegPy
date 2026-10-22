@@ -17,17 +17,22 @@ Sources:
                gray axis (the device RGB that prints a* = b* = 0 at each visual density) gives three
                1D curves; the LUT reads A2B1 through them. The paper white and black of the profile
                give the stock's d_min, base tint and d_max.
+    d35        a Frontier 350/370's file output, from the A1 system software's tables (--frontier-dir):
+               the negative's Pass1 matrix, then ColorData.dat's tone curves and 32³ LUT. The machine writes
+               that F-Color untagged and its monitor shows it as is, so it is read as sRGB. Its input is the
+               machine's 10-bit print density, so the gray axis is solved as for a printer profile.
 
 The CIE tables and the xenon spectrum are downloaded once into --cie-dir.
 
 Usage:
     uv run python scripts/build_print_luts.py [--key KEY ...] [--icc PATH --as KEY] [--against KEY] [--profiles DIR]
-        [--cie-dir DIR] [--check-only] [--flat-only]
+        [--frontier-dir DIR] [--cie-dir DIR] [--check-only] [--flat-only]
 
 Every LUT carries the Flat master's density 3x3 (fit_flat_matrix); --flat-only refits it on the bundled tables.
 """
 
 import argparse
+import functools
 import pathlib
 import re
 import struct
@@ -69,7 +74,14 @@ FRONTIER = {
 }
 # A Frontier stock's d_max adds the paper base to the profile's black, so its LUT reaches past device black.
 FRONTIER_HEADROOM = 0.3
-SHIPPED = ("kodak_e4070", "kodak_e4021", "kodak_2383", "kodak_2393", *LOOKS, *FRONTIER)
+# LUT key -> source, for a Frontier 350/370's own tables read from --frontier-dir (not in the repo).
+D35 = {"frontier": "Fujifilm Frontier 350/370 file output (A1 v7.6 tables)"}
+# Gaussian blur, in nodes, of the chroma of the Frontier's 32^3 cube. Its 8-bit nodes sit 32 codes apart and turn some
+# hues within one step, which a trilinear lookup draws as corners in a smooth gradient. Each node keeps its channel mean,
+# so the near-black neutral solve stays on Fuji's luminance.
+FRONTIER_CUBE_BLUR = 2.0
+FRONTIER_DIR = pathlib.Path.home() / "code" / "frontier" / "frontier_sw" / "EZ171" / "fujifilm" / "Frontier"
+SHIPPED = ("kodak_e4070", "kodak_e4021", "kodak_2383", "kodak_2393", *LOOKS, *FRONTIER, *D35)
 
 ADOBE_XY = ((0.64, 0.33), (0.21, 0.71), (0.15, 0.06))
 BRADFORD = np.array([[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]])
@@ -109,8 +121,8 @@ def viewing_light(cie_dir, name):
     return np.interp(WL, a[:, 0], a[:, 1])
 
 
-def lab(xyz):
-    r = xyz / W65
+def lab(xyz, white=W65):
+    r = xyz / white
     f = np.where(r > (6 / 29) ** 3, np.cbrt(r), r / (3 * (6 / 29) ** 2) + 4 / 29)
     return np.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], -1)
 
@@ -273,6 +285,51 @@ def tag_xyz(icc, name):
     raise SystemExit(f"the profile has no {name} tag")
 
 
+def gray_axis(lab_fn, y_white, d_black, levels=257):
+    """(d, rgb): the device RGB that prints a neutral at each visual density d above the device white, up to
+    d_black. lab_fn maps device RGB in 0..1 to Lab relative to the device white, D50."""
+    d = np.linspace(0.0, d_black, levels)
+    target = np.stack([lab(W65 * y_white * 10.0 ** -d[:, None])[:, 0], np.zeros_like(d), np.zeros_like(d)], -1)
+    ramp = np.linspace(0, 1, 1025)
+    ramp_l = lab_fn(ramp[:, None].repeat(3, 1))[:, 0]
+    rgb = np.interp(target[:, 0], ramp_l, ramp)[:, None].repeat(3, 1)
+    # Damped Gauss-Newton with a capped step, because a device curve can be flat at either end.
+    for _ in range(80):
+        f0 = lab_fn(rgb) - target
+        jac = np.stack([(lab_fn(rgb + h) - lab_fn(rgb - h)) / 2e-3 for h in np.eye(3) * 1e-3], -1)
+        jt = np.swapaxes(jac, -1, -2)
+        step = np.linalg.solve(jt @ jac + np.eye(3) * 1e-2, jt @ f0[..., None])[..., 0]
+        rgb = np.clip(rgb - step * np.minimum(1.0, 0.03 / np.maximum(np.linalg.norm(step, axis=-1, keepdims=True), 1e-12)), 0, 1)
+    miss = np.linalg.norm(lab_fn(rgb) - target, axis=-1)
+    top = int(np.nonzero(miss < 0.5)[0].max())
+    d, rgb = d[: top + 1], rgb[: top + 1]
+    for k in range(3):
+        rgb[:, k] = np.minimum.accumulate(rgb[:, k])
+    if d[-1] >= d_black:
+        return d, rgb
+    # Past the darkest neutral the gray axis runs straight to device black, at the curve's luminance.
+    d_ext = np.linspace(d[-1], d_black, 33)[1:]
+    l_ext = lab(W65 * y_white * 10.0 ** -d_ext[:, None])[:, 0]
+    lo, hi = np.zeros_like(d_ext), np.ones_like(d_ext)
+    for _ in range(40):
+        t = (lo + hi) / 2
+        dark = lab_fn(t[:, None] * rgb[-1])[:, 0] < l_ext
+        lo, hi = np.where(dark, t, lo), np.where(dark, hi, t)
+    return np.concatenate([d, d_ext]), np.vstack([rgb, ((lo + hi) / 2)[:, None] * rgb[-1]])
+
+
+def gray_axis_model(lab_fn, d, rgb, y_white, d_black):
+    """Dye densities above base -> linear Adobe RGB, each density through its channel's gray-axis curve."""
+
+    def model(e):
+        device = np.stack([np.interp(e[..., k], d, rgb[:, k]) for k in range(3)], -1)
+        # Denser than device black (Paper White off reads e up to d_max): luminance only, toward 0.
+        beyond = np.maximum(e - d_black, 0.0).mean(-1, keepdims=True)
+        return adobe(lab_to_xyz(lab_fn(device), D50) @ D50_TO_D65.T) / y_white * 10.0**-beyond
+
+    return model
+
+
 def frontier_lut(icc, source, levels=257):
     """(table, e_max, source, model, tone) from a laser minilab printer profile."""
     white = printer_lab(icc, np.ones(3))
@@ -281,36 +338,9 @@ def frontier_lut(icc, source, levels=257):
     # Densities are relative to the device white, which a profile may place a little under L* 100.
     y_white = lab_to_xyz(white, D50)[1]
     d_black = -np.log10(lab_to_xyz(printer_lab(icc, np.zeros(3)), D50)[1] / y_white)
-    d = np.linspace(0.0, d_black, levels)
-    target = np.stack([lab(W65 * y_white * 10.0 ** -d[:, None])[:, 0], np.zeros_like(d), np.zeros_like(d)], -1)
-    ramp = np.linspace(0, 1, 1025)
-    ramp_l = printer_lab(icc, ramp[:, None].repeat(3, 1))[:, 0]
-    rgb = np.interp(target[:, 0], ramp_l, ramp)[:, None].repeat(3, 1)
-    for _ in range(30):
-        f0 = printer_lab(icc, rgb) - target
-        jac = np.stack([(printer_lab(icc, rgb + h) - target - f0) / 1e-3 for h in np.eye(3) * 1e-3], -1)
-        rgb = np.clip(rgb - np.linalg.solve(jac + np.eye(3) * 1e-9, f0[..., None])[..., 0], 0, 1)
-    miss = np.linalg.norm(printer_lab(icc, rgb) - target, axis=-1)
-    top = int(np.nonzero(miss < 0.5)[0].max())
-    d, rgb = d[: top + 1], rgb[: top + 1]
-    for k in range(3):
-        rgb[:, k] = np.minimum.accumulate(rgb[:, k])
-    # Past the darkest neutral the gray axis runs straight to device black, at the curve's luminance.
-    d_ext = np.linspace(d[-1], d_black, 33)[1:]
-    l_ext = lab(W65 * y_white * 10.0 ** -d_ext[:, None])[:, 0]
-    lo, hi = np.zeros_like(d_ext), np.ones_like(d_ext)
-    for _ in range(40):
-        t = (lo + hi) / 2
-        dark = printer_lab(icc, t[:, None] * rgb[-1])[:, 0] < l_ext
-        lo, hi = np.where(dark, t, lo), np.where(dark, hi, t)
-    d, rgb = np.concatenate([d, d_ext]), np.vstack([rgb, ((lo + hi) / 2)[:, None] * rgb[-1]])
-
-    def model(e):
-        device = np.stack([np.interp(e[..., k], d, rgb[:, k]) for k in range(3)], -1)
-        # Denser than device black (Paper White off reads e up to d_max): luminance only, toward 0.
-        beyond = np.maximum(e - d_black, 0.0).mean(-1, keepdims=True)
-        return adobe(lab_to_xyz(printer_lab(icc, device), D50) @ D50_TO_D65.T) / y_white * 10.0**-beyond
-
+    lab_fn = functools.partial(printer_lab, icc)
+    d, rgb = gray_axis(lab_fn, y_white, d_black, levels)
+    model = gray_axis_model(lab_fn, d, rgb, y_white, d_black)
     wt, bk = tag_xyz(icc, "wtpt"), tag_xyz(icc, "bkpt")
     base = -np.log10(adobe(wt @ D50_TO_D65.T))
     tone = {
@@ -320,6 +350,76 @@ def frontier_lut(icc, source, levels=257):
     }
     e_max = np.full(3, d_black + FRONTIER_HEADROOM)
     return np.clip(model(nodes(e_max)), 0, 1).astype(np.float32), e_max.astype(np.float32), source, model, tone
+
+
+SRGB_XY = ((0.64, 0.33), (0.30, 0.60), (0.15, 0.06))
+Q = np.stack([xy_to_xyz(*p) for p in SRGB_XY], 1)
+SRGB_TO_XYZ = Q * np.linalg.solve(Q, W65)
+# The negative's Pass1 colour matrix, rows R, G, B, which DoNegaSyokika copies from the scanner calibration
+# (ez171scnsc-nega.dat). The file-output tables expect data that passed it; the roll gray balance cancels its row gains.
+D35_MATRIX = np.array([[1.14264, -0.06693, 0.00803], [-0.0233, 1.2875, -0.20373], [0.04798, -0.09699, 1.0833]])
+
+
+def trilinear(grid, f):
+    """grid (n, n, n, 3) at fractional node indices f (..., 3)."""
+    f = np.clip(f, 0, grid.shape[0] - 1)
+    i = np.minimum(f.astype(int), grid.shape[0] - 2)
+    t = f - i
+    out = 0.0
+    for c in np.ndindex(2, 2, 2):
+        w = np.prod([t[..., a] if c[a] else 1 - t[..., a] for a in range(3)], axis=0)
+        out = out + grid[i[..., 0] + c[0], i[..., 1] + c[1], i[..., 2] + c[2]] * w[..., None]
+    return out
+
+
+def blur_nodes(grid, sigma):
+    """Gaussian blur of an (n, n, n, 3) node grid over its node axes, edges held."""
+    r = int(4 * sigma + 0.5)
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    for ax in range(3):
+        pad = [(0, 0)] * grid.ndim
+        pad[ax] = (r, r)
+        g = np.pad(grid, pad, mode="edge")
+        grid = sum(w * np.take(g, np.arange(i, i + grid.shape[ax]), axis=ax) for i, w in enumerate(k))
+    return grid
+
+
+def d35_lab(frontier_dir):
+    """Device RGB in 0..1 (the Frontier's 10-bit print density) -> Lab of its file output read as sRGB, relative to its
+    white, D50. The hardware stores the tone curves G, R, B and clips them at 991. Dpen2Srgb.3dp is not applied: no
+    output path of the machine uses it."""
+    imgp = pathlib.Path(frontier_dir) / "PARAM" / "imgp"
+    data = (imgp / "ColorData.dat").read_bytes()
+    tone = np.frombuffer(data, "<i2", 3 * 1024).reshape(3, 1024)[[1, 0, 2]].astype(np.float64)
+    cube = np.frombuffer(data, np.uint8, 3 * 32**3, 0x3C000).reshape(3, 32, 32, 32).transpose(3, 2, 1, 0).astype(np.float64)
+    mean = cube.mean(-1, keepdims=True)
+    cube = mean + blur_nodes(cube - mean, FRONTIER_CUBE_BLUR)
+    matrix = D35_MATRIX / D35_MATRIX.sum(1, keepdims=True)
+
+    def xyz(device):
+        p = np.clip(np.clip(device, 0, 1) * 1023 @ matrix.T, 0, 1023)
+        u = np.minimum(np.stack([np.interp(p[..., c], np.arange(1024), tone[c]) for c in range(3)], -1), 991)
+        s = np.clip(trilinear(cube, u / 32), 0, 255) / 255
+        return np.where(s <= 0.04045, s / 12.92, ((s + 0.055) / 1.055) ** 2.4) @ SRGB_TO_XYZ.T
+
+    w = xyz(np.ones(3))
+    adapt = np.linalg.inv(BRADFORD) @ np.diag((BRADFORD @ D50) / (BRADFORD @ (w / w[1]))) @ BRADFORD
+
+    def lab_fn(device):
+        return lab(xyz(device) / w[1] @ adapt.T, D50)
+
+    return lab_fn
+
+
+def frontier_d35_lut(frontier_dir, source, d_black=3.0):
+    """(table, e_max, source, model) from a Frontier 350/370's file output. Its black is Y = 0, so the gray axis
+    stops at d_black."""
+    lab_fn = d35_lab(frontier_dir)
+    d, rgb = gray_axis(lab_fn, 1.0, d_black)
+    model = gray_axis_model(lab_fn, d, rgb, 1.0, d_black)
+    e_max = np.full(3, d_black)
+    return np.clip(model(nodes(e_max)), 0, 1).astype(np.float32), e_max.astype(np.float32), source, model
 
 
 def cross_check(name, model_a, model_b, top):
@@ -414,6 +514,7 @@ def main():
     ap.add_argument("--as", dest="as_key", help="the LUT key for --icc")
     ap.add_argument("--against", help="a spectral key to compare the built LUT with")
     ap.add_argument("--profiles", type=pathlib.Path, default=pathlib.Path.home() / "Pobrane" / "papers", help="the Frontier profiles")
+    ap.add_argument("--frontier-dir", type=pathlib.Path, default=FRONTIER_DIR, help="the Frontier 350/370 software's Frontier folder")
     ap.add_argument("--cie-dir", type=pathlib.Path, default=pathlib.Path.home() / ".cache" / "negpy" / "cie")
     ap.add_argument("--check-only", action="store_true", help="report, write nothing")
     ap.add_argument("--flat-only", action="store_true", help="refit the Flat master 3x3 of the bundled LUTs, keep their tables")
@@ -438,7 +539,9 @@ def main():
         profiles = {k: REPO / f for k, f in LOOKS.items()} | {k: args.profiles / f for k, f in FRONTIER.items()}
         jobs += [(k, profiles.get(k)) for k in args.key]
     for key, icc_path in jobs:
-        if icc_path is None:
+        if key in D35 and not args.icc:
+            table, e_max, source, model = frontier_d35_lut(args.frontier_dir, D35[key])
+        elif icc_path is None:
             table, e_max, source, model = spectral_lut(*SPECTRAL[key][:2], args.cie_dir)
         else:
             icc = icc_path.read_bytes()

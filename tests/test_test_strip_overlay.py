@@ -219,6 +219,7 @@ def test_each_proof_kind_lays_out_its_own_grid() -> None:
 
 
 PAPER_SHORTS = [p.short for _, p in profiles_for_mode(ProcessMode.C41)]
+ENDURA = [k for k, _ in profiles_for_mode(ProcessMode.C41)].index("kodak_endura")
 
 
 def _paper_overlay(expanded=None) -> CanvasOverlay:
@@ -243,7 +244,7 @@ def test_the_paper_strip_names_each_band_along_the_top() -> None:
 
     assert top == PAPER_SHORTS
     assert left == [""]
-    assert current == (0, 2)
+    assert current == (0, ENDURA)
 
 
 def test_a_turned_paper_strip_names_its_bands_down_the_side() -> None:
@@ -253,7 +254,7 @@ def test_a_turned_paper_strip_names_its_bands_down_the_side() -> None:
 
     assert top == [""]
     assert left == list(reversed(PAPER_SHORTS))
-    assert current == (len(PAPER_SHORTS) - 3, 0)
+    assert current == (len(PAPER_SHORTS) - 1 - ENDURA, 0)
 
 
 def test_a_paper_shown_full_frame_paints_its_own_render_and_no_bands() -> None:
@@ -305,7 +306,7 @@ def test_the_paper_grid_names_each_paper_in_its_own_cell() -> None:
     painter.end()
     texts, current = spy.call_args.args[2:]
     assert texts == PAPER_SHORTS
-    assert current == 2
+    assert current == ENDURA
 
 
 def test_the_paper_grid_paints_its_own_mosaic() -> None:

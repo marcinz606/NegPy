@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.rolls import create_virtual_roll, recognize_folder, roll_for_id
+from negpy.services.assets.rolls import create_virtual_roll, delete_roll, recognize_folder, roll_for_id
 
 
 @pytest.fixture
@@ -145,6 +145,95 @@ def test_selection_survives_a_reload(widget, tree_dirs):
     widget.reload()
 
     assert widget.tree.currentItem().text(0) == "roll_b"
+
+
+def test_a_collapsed_folder_stays_collapsed_in_the_next_session(qapp, tmp_path, tree_dirs):
+    widget = _make(tmp_path)
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+    recognize_folder(widget.repo, str(tree_dirs / "roll_b"), name="scans/roll_b")
+    widget.reload()
+    folder = widget.tree.topLevelItem(0)
+    assert folder.data(0, _FOLDER_ROLE) == str(tree_dirs)
+    assert folder.isExpanded()
+
+    folder.setExpanded(False)
+    folder = _make(tmp_path).tree.topLevelItem(0)
+    assert not folder.isExpanded()
+
+    folder.setExpanded(True)
+    assert _make(tmp_path).tree.topLevelItem(0).isExpanded()
+
+
+def test_a_reload_opens_the_folder_of_the_selected_roll_without_saving_it(widget, tmp_path, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+    widget.show()
+    widget.reload()
+    folder = widget.tree.topLevelItem(0)
+    widget.tree.setCurrentItem(folder.child(0))
+    folder.setExpanded(False)
+
+    widget.reload()
+
+    assert widget.tree.topLevelItem(0).isExpanded()
+    assert widget.tree.currentItem().text(0) == "roll_a"
+    assert widget.repo.get_global_setting("library_collapsed_folders") == ["scans"]
+    assert not _make(tmp_path).tree.topLevelItem(0).isExpanded()
+
+
+def test_the_open_roll_shows_inside_collapsed_folders_without_saving_them(widget, tmp_path):
+    day = tmp_path / "2026" / "2026-10" / "2026-10-18"
+    (day / "Roll01").mkdir(parents=True)
+    (day / "Roll02").mkdir()
+    roll_id = recognize_folder(widget.repo, str(day / "Roll01"), name="2026/2026-10/2026-10-18/Roll01")
+    recognize_folder(widget.repo, str(day / "Roll02"), name="2026/2026-10/2026-10-18/Roll02")
+    widget.repo.save_global_setting("library_collapsed_folders", ["2026/2026-10"])
+    widget = _make(tmp_path)
+    widget.show()
+    month = widget.tree.topLevelItem(0).child(0)
+    assert not month.isExpanded()
+
+    widget.controller.state.active_roll_id = roll_id
+    widget.sync_ui()
+
+    assert month.isExpanded() and month.child(0).isExpanded()
+    assert widget.repo.get_global_setting("library_collapsed_folders") == ["2026/2026-10"]
+    assert not _make(tmp_path).tree.topLevelItem(0).child(0).isExpanded()
+
+
+def test_a_folder_shared_by_two_disk_trees_stays_collapsed_after_a_sort_change(widget, tmp_path):
+    for parent in ("a", "b"):
+        (tmp_path / parent / "scans" / f"roll_{parent}").mkdir(parents=True)
+    recognize_folder(widget.repo, str(tmp_path / "a" / "scans" / "roll_a"), name="scans/roll_a")
+    recognize_folder(widget.repo, str(tmp_path / "b" / "scans" / "roll_b"), name="scans/roll_b")
+    widget.reload()
+    widget.tree.topLevelItem(0).setExpanded(False)
+
+    widget.set_sort("name", descending=True)
+
+    assert not widget.tree.topLevelItem(0).isExpanded()
+
+
+def test_a_deleted_folder_is_forgotten(widget, tree_dirs):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+    widget.reload()
+    widget.tree.topLevelItem(0).setExpanded(False)
+
+    delete_roll(widget.repo, roll_id)
+    widget.reload()
+
+    assert widget.repo.get_global_setting("library_collapsed_folders") == []
+
+
+@pytest.mark.parametrize("saved", ["scans", 5, None, ["scans", 5]])
+def test_a_bad_saved_value_still_builds_the_tree(qapp, tmp_path, tree_dirs, saved):
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    repo.save_global_setting("library_collapsed_folders", saved)
+    recognize_folder(repo, str(tree_dirs / "roll_a"), name="scans/roll_a")
+
+    folder = _make(tmp_path).tree.topLevelItem(0)
+
+    assert folder.isExpanded() == (not isinstance(saved, list))
 
 
 def test_a_roll_row_says_what_the_roll_is(widget):

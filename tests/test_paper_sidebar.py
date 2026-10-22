@@ -78,7 +78,7 @@ def _groups(combo) -> dict:
 def test_print_stock_list_groups_digital_paper_and_print_film(qapp):
     controller, sidebar = _sidebar()
     groups = _groups(sidebar.paper_combo)
-    assert groups["neutral"] == groups["pakon"] == "Digital"
+    assert groups["neutral"] == groups["pakon"] == groups["frontier"] == "Digital"
     assert groups["kodak_endura"] == groups["fuji_crystal"] == "Paper"
     assert groups["kodak_2383"] == groups["kodak_2393"] == "Print film"
 

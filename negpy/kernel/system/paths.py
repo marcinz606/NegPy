@@ -121,3 +121,20 @@ def get_default_user_dir() -> str:
 
     # Last resort: home always exists in practice; let startup surface any error.
     return str((home / "NegPy").absolute())
+
+
+def _read_umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+# Read once, at import on the main thread: os.umask can only be read by setting it, and a file
+# another thread created in between would take the temporary mask.
+_UMASK = _read_umask()
+
+
+def apply_umask_mode(path: str) -> None:
+    """Give a file the mode a newly created file gets under the umask. A tempfile file is always
+    0600, and a rename keeps it, so a file written through one would be private to its owner."""
+    os.chmod(path, 0o666 & ~_UMASK)

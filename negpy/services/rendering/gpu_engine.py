@@ -1905,6 +1905,7 @@ class GPUEngine:
             highlight_hold_offset,
             shadow_hold_offset,
             per_channel_curve_params,
+            effective_midtone_gamma,
             per_channel_midtone_gamma,
             per_channel_widths,
             preflash_params,
@@ -2030,6 +2031,7 @@ class GPUEngine:
             neutral_axis_refs,
             exp.cast_removal_strength,
         )
+        mg = effective_midtone_gamma(paper, exp.midtone_gamma)
         slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,
@@ -2043,14 +2045,17 @@ class GPUEngine:
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(exp.grade_trim_red, exp.grade_trim_green, exp.grade_trim_blue),
             shadow_point=shadow_point,
+            midtone_gamma=mg,
         )
         hl_auto = (
-            highlight_hold_offset(slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper, preflash=exp.preflash, grade=exp.grade)
+            highlight_hold_offset(
+                slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper, preflash=exp.preflash, grade=exp.grade, midtone_gamma=mg
+            )
             if exp.auto_normalize_contrast and highlight_point is not None
             else 0.0
         )
         sh_auto = (
-            shadow_hold_offset(slopes[1], pivots[1], shadow_point, d_min=d_min, paper=paper)
+            shadow_hold_offset(slopes[1], pivots[1], shadow_point, d_min=d_min, paper=paper, midtone_gamma=mg)
             if exp.auto_normalize_contrast and shadow_point is not None
             else 0.0
         )
@@ -2219,7 +2224,7 @@ class GPUEngine:
                 "ffff",
                 math.radians(float(settings.process.hue_trim)),
                 max(exp.preflash, 0.0),
-                *preflash_params(exp.grade, d_min, paper),
+                *preflash_params(exp.grade, d_min, paper, mg),
             )
             # Contrast Mask: stops per plane unit (0 = off), then the printed frame's origin and span in rotated pixels, shared
             # with the Diffusion plane; w = the diffusion mix (0 = off). The shader does the upscale.

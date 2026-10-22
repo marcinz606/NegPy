@@ -9,6 +9,7 @@ from negpy.features.exposure.logic import apply_characteristic_curve, per_channe
 from negpy.features.exposure.papers import PAPER_PROFILES, PaperProfile
 from negpy.features.exposure.print_lut import DyeLut, load_print_lut, lut_black_luminance, save_print_lut, tetra_lookup
 from negpy.features.lab.logic import LUM_B, LUM_G, LUM_R
+from negpy.kernel.image.logic import rgb_to_lab_working
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "scripts"))
 
@@ -156,6 +157,50 @@ def test_spectral_luts_rebuild(key):
     table, e_max, _, _ = b.spectral_lut(*b.SPECTRAL[key][:2], CIE_DIR)
     np.testing.assert_allclose(table, load_print_lut(key).table, atol=1e-5)
     np.testing.assert_allclose(e_max, load_print_lut(key).e_max)
+
+
+def test_frontier_lut_rebuilds():
+    import build_print_luts as b
+
+    if not (b.FRONTIER_DIR / "PARAM" / "imgp" / "ColorData.dat").exists():
+        pytest.skip("Frontier 350/370 tables not present")
+    table, e_max, _, _ = b.frontier_d35_lut(b.FRONTIER_DIR, b.D35["frontier"])
+    np.testing.assert_allclose(table, load_print_lut("frontier").table, atol=1e-5)
+    np.testing.assert_allclose(e_max, load_print_lut("frontier").e_max)
+
+
+def test_frontier_lut_keeps_grays_neutral_and_turns_red_to_orange():
+    # The hue turn pins the channel order: the Frontier stores its tone curves G, R, B.
+    lut = load_print_lut("frontier")
+    grays = np.array([tetra_lookup(lut.table, lut.e_max, e, e, e) for e in np.linspace(0.0, 2.3, 12)])
+    assert np.hypot(*rgb_to_lab_working(grays)[:, 1:].T).max() < 0.5
+    e = np.array([0.2, 1.2, 1.0])
+    digital, frontier = rgb_to_lab_working(np.stack([10.0**-e, tetra_lookup(lut.table, lut.e_max, *e)]))
+    turn = np.degrees(np.arctan2(frontier[2], frontier[1]) - np.arctan2(digital[2], digital[1]))
+    assert 5.0 < turn < 35.0
+
+
+def test_frontier_lut_turns_skin_hues_without_corners():
+    # A skin gradient's chroma must change smoothly: the 8-bit cube's corners show as steps at chroma x3.
+    s = np.linspace(0, 1, 100)
+    e = np.array([0.25, 0.45, 0.65]) + s[None, :, None] * 1.1 + s[:, None, None] * np.array([-0.05, 0.55, 0.15])
+    lut = load_print_lut("frontier")
+    ab = rgb_to_lab_working(np.array([tetra_lookup(lut.table, lut.e_max, *v) for v in e.reshape(-1, 3)]))[:, 1:]
+    gy, gx = np.gradient(ab.reshape(100, 100, 2), s, s, axis=(0, 1))
+    rate = np.hypot(np.linalg.norm(gx, axis=-1), np.linalg.norm(gy, axis=-1))
+    assert np.hypot(*np.gradient(rate, s, s)).max() < 1500.0
+
+
+def test_blur_nodes_keeps_a_flat_grid_and_spreads_a_spike():
+    import build_print_luts as b
+
+    flat = np.full((8, 8, 8, 3), 7.0)
+    np.testing.assert_allclose(b.blur_nodes(flat, 1.0), flat)
+    spike = np.zeros((9, 9, 9, 3))
+    spike[4, 4, 4] = 1.0
+    out = b.blur_nodes(spike, 1.0)
+    assert out.sum() == pytest.approx(3.0)
+    assert 0.0 < out[4, 4, 4, 0] < 0.1
 
 
 def test_build_spec_ships_print_luts():

@@ -17,6 +17,7 @@ from negpy.features.metadata.fsdate import sync_export_filesystem_dates
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import _to_uint16_jit
+from negpy.kernel.system.paths import apply_umask_mode
 from negpy.services.export.linear_output import (
     _is_camera_raw,
     _linear_resolution,
@@ -170,6 +171,7 @@ def write_merged_frame(
             raise MergeCancelled(os.path.basename(out_path))
         if os.path.exists(out_path):
             raise FileExistsError(out_path)
+        apply_umask_mode(tmp_path)
         os.replace(tmp_path, out_path)
         tmp_path = None
     finally:

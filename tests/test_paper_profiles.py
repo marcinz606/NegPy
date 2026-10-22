@@ -9,6 +9,7 @@ from negpy.features.exposure.logic import (
     compute_pivot,
     grade_to_slope,
     per_channel_curve_params,
+    slope_to_grade,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.papers import (
@@ -140,6 +141,31 @@ class TestPaperProfiles(unittest.TestCase):
     def test_lut_stock_falls_back_off_mode(self):
         for mode in (ProcessMode.BW, ProcessMode.E6):
             self.assertEqual(resolve_print_color(effective_paper_profile("kodak_endura", mode)), (None, None))
+
+    def test_frontier_gain_matches_digital_midtone_span(self):
+        # slope_gain prints L* 90 to 10 over Digital's log E span at the same Grade.
+        x = np.linspace(-0.5, 1.5, 2001, dtype=np.float32)
+        img = np.stack([x, x, x], axis=-1)[None]
+
+        def span(key):
+            y = np.maximum(self._render(key, img)[0].mean(-1), 1e-9)
+            lstar = 116.0 * np.cbrt(y) - 16.0
+            return float(x[np.argmax(lstar <= 10.0)] - x[np.argmax(lstar <= 90.0)])
+
+        self.assertAlmostEqual(span("frontier") / span(DEFAULT_PROFILE_KEY), 1.0, delta=0.05)
+
+    def test_slope_gain_keeps_a_neutral_film_neutral_under_cast_removal(self):
+        # Cast Removal matches R and B to green's slope, so the gain applies once to all three layers.
+        p = resolve_paper("frontier")
+        axis = ((0.5, 0.5, 0.5), (0.8, 0.8, 0.8), (0.2, 0.2, 0.2))
+        for strength in (0.0, 1.0):
+            slopes, _, _ = per_channel_curve_params(115.0, 1.0, False, strength, 1.3, None, d_min=p.d_min, paper=p, neutral_axis_norm=axis)
+            self.assertAlmostEqual(slopes[0], slopes[1], places=5)
+            self.assertAlmostEqual(slopes[2], slopes[1], places=5)
+        self.assertAlmostEqual(slopes[1], grade_to_slope(115.0, 1.3) * p.slope_gain, places=5)
+
+    def test_slope_to_grade_inverts_a_gained_slope(self):
+        self.assertAlmostEqual(slope_to_grade(grade_to_slope(130.0, 1.2, 2.4), 1.2, 2.4), 130.0, places=6)
 
     def test_crystal_archive_tones_from_frontier(self):
         self.assertGreater(PAPER_PROFILES["fuji_crystal"].d_max, 2.3)

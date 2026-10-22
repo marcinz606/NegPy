@@ -240,7 +240,7 @@ class PhotometricCurveWidget(QWidget):
         # Slope and pivot come from the render path (session panel). Fall back to the same
         # helpers with no metrics when called without them.
         if slope is None:
-            slope = grade_to_slope(params.grade, None)
+            slope = grade_to_slope(params.grade, None, paper.slope_gain)
         if pivot is None:
             pivot = compute_pivot(slope, params.density, d_min=d_min, paper=paper)
 

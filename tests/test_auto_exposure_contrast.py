@@ -6,7 +6,9 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.features.exposure.logic import (
     CharacteristicCurve,
     compute_pivot,
+    curve_params_from_metrics,
     effective_grade_range,
+    effective_midtone_gamma,
     grade_to_slope,
     _reference_linear_value,
     auto_highlight_from_metrics,
@@ -14,6 +16,7 @@ from negpy.features.exposure.logic import (
     highlight_hold_offset,
     shadow_hold_offset,
     per_channel_curve_params,
+    preflash_params,
     shadow_reach_slope,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -24,6 +27,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_point_from_log,
     measure_textural_range_from_log,
 )
+from negpy.features.exposure.papers import resolve_paper
 from negpy.features.exposure.processor import PhotometricProcessor
 from negpy.features.process.models import ProcessMode
 
@@ -308,7 +312,7 @@ class TestShadowReach(unittest.TestCase):
     def test_short_shadow_raises_slope_until_tail_prints_black(self):
         k = shadow_reach_slope(2.5, self.ANCHOR, 0.8)
         self.assertGreater(k, 2.5)
-        curve = CharacteristicCurve(k, compute_pivot(k, 1.0, anchor=self.ANCHOR), midtone_gamma=0.0)
+        curve = CharacteristicCurve(k, compute_pivot(k, 1.0, anchor=self.ANCHOR))
         self.assertAlmostEqual(float(curve(np.array([0.8]))[0]), EXPOSURE_CONSTANTS["shadow_reach_density"], places=2)
 
     def test_tail_already_black_keeps_slope(self):
@@ -352,7 +356,7 @@ class TestHighlightHold(unittest.TestCase):
     def test_tone_at_paper_white_is_burned_to_hold_density(self):
         hd = highlight_hold_offset(self.SLOPE, self._pivot(), 0.05)
         self.assertGreater(hd, 0.0)
-        curve = CharacteristicCurve(self.SLOPE, self._pivot(), midtone_gamma=0.0, highlight_density=hd)
+        curve = CharacteristicCurve(self.SLOPE, self._pivot(), highlight_density=hd)
         self.assertAlmostEqual(float(curve(np.array([0.05]))[0]), EXPOSURE_CONSTANTS["highlight_hold_density"], places=2)
 
     def test_tone_already_holding_is_untouched(self):
@@ -400,7 +404,7 @@ class TestShadowHold(unittest.TestCase):
         over = 0.4
         point = self._pivot() + (self._start() + over) / self.SLOPE
         expected = -EXPOSURE_CONSTANTS["shadow_hold_strength"] * over
-        self.assertAlmostEqual(shadow_hold_offset(self.SLOPE, self._pivot(), point), expected, places=6)
+        self.assertAlmostEqual(shadow_hold_offset(self.SLOPE, self._pivot(), point, midtone_gamma=0.0), expected, places=6)
 
     def test_lift_is_capped_and_never_darkens(self):
         lifts = [shadow_hold_offset(self.SLOPE, self._pivot(), p) for p in np.linspace(-1.0, 4.0, 60)]
@@ -439,3 +443,63 @@ class TestMeasureHighlightPoint(unittest.TestCase):
         # Interior normalizes to 0.25/0.5/0.75; the flat border at 0.95 must not vote.
         img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
         self.assertAlmostEqual(measure_highlight_point_from_log(img, self.BOUNDS), 0.25, places=2)
+
+
+class TestAutoTargetsThroughMidtoneGamma(unittest.TestCase):
+    """Shadow Reach, the holds and the preflash threshold aim through the paper's midtone gamma
+    and the user's Snap, as the curve prints them. Frontier carries a large one (0.25)."""
+
+    ANCHOR = 0.46
+    SLOPE = 3.0
+    PAPER = resolve_paper("frontier")
+    GAMMAS = (None, -0.3, 0.6)  # None: the paper's own
+
+    def _pivot(self, k):
+        return compute_pivot(k, 1.0, self.PAPER.d_min, anchor=self.ANCHOR, paper=self.PAPER)
+
+    def _curve(self, k, mg, **kw):
+        return CharacteristicCurve(k, self._pivot(k), d_min=self.PAPER.d_min, paper=self.PAPER, midtone_gamma=mg, **kw)
+
+    def test_shadow_reach_prints_its_target(self):
+        for mg in self.GAMMAS:
+            k = shadow_reach_slope(2.0, self.ANCHOR, 0.8, d_min=self.PAPER.d_min, paper=self.PAPER, midtone_gamma=mg)
+            printed = float(self._curve(k, mg)(np.array([0.8]))[0])
+            self.assertAlmostEqual(printed, EXPOSURE_CONSTANTS["shadow_reach_density"], places=3, msg=f"mg {mg}")
+
+    def test_highlight_hold_prints_its_target(self):
+        for mg, point in ((None, -0.2), (0.6, -0.1)):  # a burn under highlight_hold_max
+            hd = highlight_hold_offset(
+                self.SLOPE, self._pivot(self.SLOPE), point, d_min=self.PAPER.d_min, paper=self.PAPER, midtone_gamma=mg
+            )
+            self.assertTrue(0.0 < hd < EXPOSURE_CONSTANTS["highlight_hold_max"], msg=f"mg {mg}")
+            printed = float(self._curve(self.SLOPE, mg, highlight_density=hd)(np.array([point]))[0])
+            self.assertAlmostEqual(printed, EXPOSURE_CONSTANTS["highlight_hold_density"], places=2, msg=f"mg {mg}")
+
+    def test_shadow_hold_starts_where_the_tail_prints_past_reach(self):
+        c, p = EXPOSURE_CONSTANTS, self.PAPER
+        start = self._curve(self.SLOPE, None)  # the tail's density without a lift
+        begin = float(
+            CharacteristicCurve(1.0, 0.0, d_min=p.d_min, paper=p, midtone_gamma=0.0)(
+                np.array([_reference_linear_value(p.d_min, p, target=c["shadow_reach_density"]) + c["shadow_hold_overshoot"]])
+            )[0]
+        )
+        points = np.linspace(self.ANCHOR, 1.6, 400)
+        printed = np.asarray(start(points)).ravel()
+        lifts = np.array([shadow_hold_offset(self.SLOPE, self._pivot(self.SLOPE), x, d_min=p.d_min, paper=p) for x in points])
+        first = int(np.argmax(lifts < 0.0))
+        self.assertLess(printed[first - 1], begin + 1e-6)
+        self.assertGreaterEqual(printed[first], begin - 0.02)
+
+    def test_preflash_threshold_prints_the_threshold(self):
+        p = self.PAPER
+        for mg in self.GAMMAS:
+            v_th, _ = preflash_params(115.0, p.d_min, p, midtone_gamma=mg)
+            printed = float(CharacteristicCurve(1.0, 0.0, d_min=p.d_min, paper=p, midtone_gamma=mg)(np.array([v_th]))[0])
+            self.assertAlmostEqual(printed, p.d_min + EXPOSURE_CONSTANTS["preflash_threshold_density"], places=4, msg=f"mg {mg}")
+
+    def test_curve_params_aim_through_the_snap(self):
+        metrics = {"norm_density_range": 1.2, "textural_range": 0.9, "metered_anchor": self.ANCHOR, "shadow_point": 0.7}
+        exp = ExposureConfig(paper_profile="frontier", auto_normalize_contrast=True, auto_exposure=True, midtone_gamma=0.2)
+        slopes, pivots, _ = curve_params_from_metrics(exp, ProcessMode.C41, metrics)
+        curve = CharacteristicCurve(slopes[1], pivots[1], paper=self.PAPER, midtone_gamma=effective_midtone_gamma(self.PAPER, 0.2))
+        self.assertAlmostEqual(float(curve(np.array([0.7]))[0]), EXPOSURE_CONSTANTS["shadow_reach_density"], places=3)

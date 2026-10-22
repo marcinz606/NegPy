@@ -56,6 +56,11 @@ _DETAIL_ROLE = Qt.ItemDataRole.UserRole + 4
 # The film-mode dot ahead of that line; "" for none.
 _DOT_ROLE = Qt.ItemDataRole.UserRole + 5
 _FRAMES_ROLE = Qt.ItemDataRole.UserRole + 6
+# A folder row's roll-name prefix ("a/b"): the row's identity, since rolls from two disk trees can share it.
+_PREFIX_ROLE = Qt.ItemDataRole.UserRole + 7
+
+# The roll-name prefixes of the folder rows the user collapsed, kept across sessions.
+_COLLAPSED_KEY = "library_collapsed_folders"
 
 _ROLL_ROW = 46
 _FOLDER_ROW = 30
@@ -187,6 +192,11 @@ class LibraryTree(QWidget):
         self.repo = controller.session.repo
         self._sort_order, self._sort_descending = self._saved_sort()
         self._gear = None
+        # True while the tree opens folders on its own, so the saved state ignores those expands.
+        self._auto_expanding = False
+        self._shown_open_roll = None
+        saved = self.repo.get_global_setting(_COLLAPSED_KEY, [])
+        self._collapsed = {key for key in saved if isinstance(key, str)} if isinstance(saved, list) else set()
         self._init_ui()
         # Deferred: files_changed fires before the session saves its triplets.
         self._count_timer = QTimer(self)
@@ -273,6 +283,8 @@ class LibraryTree(QWidget):
         self.tree.setItemDelegate(_RollDelegate(self.tree, lambda: self.controller.state.active_roll_id))
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
         self.tree.menu_requested.connect(self._show_context_menu)
+        self.tree.itemExpanded.connect(lambda item: self._remember_folder(item, collapsed=False))
+        self.tree.itemCollapsed.connect(lambda item: self._remember_folder(item, collapsed=True))
         # A scoped shortcut rather than an event filter: a filter object that outlives the tree, or
         # is collected before it, aborts Qt during teardown.
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -408,6 +420,8 @@ class LibraryTree(QWidget):
         self.index_action.setEnabled(enabled and semantic_model.clip_model_ready())
         # The open roll's mark follows the session, which never rebuilds the tree.
         self.tree.viewport().update()
+        if self.controller.state.active_roll_id != self._shown_open_roll:
+            self._show_open_roll()
 
     def refresh(self) -> None:
         """Refresh: rediscover rolls under the imported parents, then re-read every count."""
@@ -423,8 +437,32 @@ class LibraryTree(QWidget):
             self.rolls_changed.emit()
 
     def reload(self) -> None:
+        # Selecting a roll expands its folder to show it.
+        self._auto_expanding = True
+        try:
+            self._rebuild()
+        finally:
+            self._auto_expanding = False
+        self._show_open_roll()
+
+    def _show_open_roll(self) -> None:
+        """Open the folders above the open roll and scroll to its row."""
+        roll_id = self._shown_open_roll = self.controller.state.active_roll_id
+        item = next((item for item in self._roll_items() if item.data(0, _ROLL_ID_ROLE) == roll_id), None)
+        if item is None:
+            return
+        self._auto_expanding = True
+        try:
+            parent = item.parent()
+            while parent is not None:
+                parent.setExpanded(True)
+                parent = parent.parent()
+        finally:
+            self._auto_expanding = False
+        self.tree.scrollToItem(item)
+
+    def _rebuild(self) -> None:
         selected = self._selected_roll_id()
-        collapsed = {item.data(0, _FOLDER_ROLE) for item in self._folder_items() if not item.isExpanded()}
         self.tree.clear()
         entries = self._sorted(rolls.all_rolls_sorted(self.repo))
         self.empty_label.setVisible(not entries)
@@ -444,17 +482,34 @@ class LibraryTree(QWidget):
                     for _ in range(len(parts) - depth):
                         folder_path = os.path.dirname(folder_path)
                     folders[key] = self._make_folder_item(parts[depth - 1], folder_path)
+                    folders[key].setData(0, _PREFIX_ROLE, key)
                     parent.addChild(folders[key])
                 parent = folders[key]
             parent.addChild(self._make_item(roll_id, entry, parts[-1]))
         for item in folders.values():
             item.setData(0, _DETAIL_ROLE, count_of(self._leaf_count(item), "roll"))
-            item.setExpanded(item.data(0, _FOLDER_ROLE) not in collapsed)
+            item.setExpanded(item.data(0, _PREFIX_ROLE) not in self._collapsed)
+        if not self._collapsed <= folders.keys():
+            self._collapsed &= folders.keys()
+            self._save_collapsed()
         # Without folder rows there is nothing to expand, so the rows start at the edge.
         self.tree.setRootIsDecorated(bool(folders))
         self._apply_filter()
         if selected:
             self._select_roll(selected)
+
+    def _remember_folder(self, item: QTreeWidgetItem, collapsed: bool) -> None:
+        key = item.data(0, _PREFIX_ROLE)
+        if self._auto_expanding or not key or (key in self._collapsed) == collapsed:
+            return
+        if collapsed:
+            self._collapsed.add(key)
+        else:
+            self._collapsed.discard(key)
+        self._save_collapsed()
+
+    def _save_collapsed(self) -> None:
+        self.repo.save_global_setting(_COLLAPSED_KEY, sorted(self._collapsed))
 
     @staticmethod
     def _make_folder_item(name: str, folder_path: str) -> QTreeWidgetItem:

@@ -37,6 +37,7 @@ from negpy.services.export.contact_sheet_layout import MM_PER_INCH, ContactSheet
 from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import SheetFrame, SheetLook, tile_params, turns_for
 from negpy.services.export.encoders import encode_jpeg
+from negpy.kernel.system.paths import apply_umask_mode
 
 logger = get_logger(__name__)
 
@@ -477,6 +478,7 @@ class ExportWorker(QObject):
             with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
                 tmp_path = tmp.name
                 tmp.write(bits)
+            apply_umask_mode(tmp_path)
             os.replace(tmp_path, path)
             # The write above stamps the filesystem dates with the export time; the EXIF
             # dates are already right. Tools that sort by file date read the former.
@@ -607,6 +609,7 @@ class ExportWorker(QObject):
                 del sheet
 
             for part, path in zip(parts, paths):
+                apply_umask_mode(part)
                 os.replace(part, path)
             parts.clear()
             self.contact_sheet_written.emit(job.out_dir)

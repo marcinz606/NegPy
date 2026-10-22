@@ -291,7 +291,7 @@ How light or dark the print is, and how much contrast it has.
 
 The paper the picture prints on, and how it turns light into tones from black to white.
 
-*   **Print stock**: the paper. A real paper sets the contrast curve and the colors from its maker's data. **Digital (Adobe RGB)**, the default, is an ideal paper. **Digital (Pakon Minilab)** has the colors of a Pakon lab scanner.
+*   **Print stock**: the paper. A real paper sets the contrast curve and the colors from its maker's data. **Digital (Adobe RGB)**, the default, is an ideal paper. **Digital (Pakon)** has the colors of a Pakon lab scanner. **Digital (Frontier)** has the colors and the contrast curve of a Fujifilm Frontier lab scan.
 *   **Paper Test Strip** (the striped button): prints the frame on every paper. Click a paper to see it large, step with the arrow keys, and press **Keep** to use it.
 *   **Dye Separation**: color strength in the print. 1 is unchanged. **Separation Damping** puts more of the change on dull colors and less on strong ones. **Chroma** on the Look tab changes all colors evenly instead.
 *   **Paper White**: shows the white of real paper, a little darker than pure white.
@@ -487,9 +487,9 @@ The scanning choices are one setting for the whole app. They set how a RAW file 
 | Scanned with | Light | Decode | Print stock |
 | --- | --- | --- | --- |
 | Camera | White | Camera WB | Digital (Adobe RGB) |
-| Camera | Narrowband | Linear RAW | Digital (Pakon Minilab) |
+| Camera | Narrowband | Linear RAW | Digital (Pakon) |
 | Film scanner | White | Linear RAW | Digital (Adobe RGB) |
-| Film scanner | Narrowband | Linear RAW | Digital (Pakon Minilab) |
+| Film scanner | Narrowband | Linear RAW | Digital (Pakon) |
 
 A camera shows the Raw Decode and Optics cards. A camera with narrowband light also shows Trichrome and Calibration. A change updates every open frame (Ctrl+Z undoes it per frame), but a print stock you picked yourself stays. A camera Scan sets the decode and the print stock for each frame from its own light.
 

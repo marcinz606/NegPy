@@ -63,7 +63,8 @@ class PaperProfile:
     EXPOSURE_CONSTANTS values; color fields are identity (neutral).
 
     channel_gamma — per-channel (R, G, B) slope multipliers (dye-layer contrast
-    crossover). base_tint_cmy — per-channel (C, M, Y) additions to the minimum
+    crossover), relative to G = 1. slope_gain — the straight-line slope over the one the
+    Grade gives, for a paper whose knees take much of its ISO R. base_tint_cmy — per-channel (C, M, Y) additions to the minimum
     density floor (base tint, shows in highlights). print_color — the stock's dyes: a
     DyeMatrix coupling D_rgb = M · D_dye above base, or a DyeLut from dye density to color.
     lith_path — the paper's lith color path, read by the Lith stage.
@@ -84,6 +85,7 @@ class PaperProfile:
     paper_midtone_gamma: float = EXPOSURE_CONSTANTS["paper_midtone_gamma"]
     paper_gamma_width: float = EXPOSURE_CONSTANTS["paper_gamma_width"]
     channel_gamma: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    slope_gain: float = 1.0
     base_tint_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     print_color: PrintColor = DyeMatrix(_IDENTITY_DYE)
     lith_path: LithPath = _DEFAULT_LITH_PATH
@@ -92,7 +94,24 @@ class PaperProfile:
 PAPER_PROFILES: Dict[str, PaperProfile] = {
     DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", short="Digital", kind="default", medium="digital"),
     # Digital's curve with a Pakon minilab's colors: the LUT is RGBScan.icc applied to Digital's print.
-    "pakon": PaperProfile(label="Digital (Pakon Minilab)", short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
+    "pakon": PaperProfile(label="Digital (Pakon)", short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
+    # A Frontier 350/370's file output, from its own tables, with a neutral gray axis. The curve shape is fitted to its
+    # gray curve on the print density axis (543 codes per log E). slope_gain prints L* 90 to 10 over Digital's log E span
+    # at the same Grade. The fit's equal-ISO-R gain (1.5) separates the layers so far that warm shadows block in two.
+    "frontier": PaperProfile(
+        label="Digital (Frontier)",
+        short="Frontier",
+        kind="ra4",
+        medium="digital",
+        d_max=2.52,
+        d_min=0.005,
+        toe_sharpness_base=3.53,
+        shoulder_sharpness_base=1.21,
+        paper_midtone_gamma=0.25,
+        paper_gamma_width=2.0,
+        slope_gain=1.2,
+        print_color=DyeLut("frontier"),
+    ),
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
         label="Ilford Multigrade RC",
@@ -292,6 +311,11 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         print_color=DyeLut("kodak_2393"),
     ),
 }
+
+
+def slope_gain(paper: PaperProfile | None) -> float:
+    """The paper's straight-line slope over the one its Grade gives; 1 without a paper."""
+    return 1.0 if paper is None else float(paper.slope_gain)
 
 
 def resolve_paper(key: str) -> PaperProfile:

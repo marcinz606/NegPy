@@ -6,6 +6,7 @@ from typing import List, Optional
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import BOUNDS_VERSION
 from negpy.kernel.system.logging import get_logger
+from negpy.kernel.system.paths import apply_umask_mode
 
 logger = get_logger(__name__)
 
@@ -29,6 +30,7 @@ def write_sidecar(source_path: str, config: WorkspaceConfig, half: int = 0) -> s
         with tempfile.NamedTemporaryFile("w", dir=os.path.dirname(path), delete=False, suffix=".part", encoding="utf-8") as tmp:
             tmp_path = tmp.name
             tmp.write(payload)
+        apply_umask_mode(tmp_path)
         os.replace(tmp_path, path)
     except Exception:
         if tmp_path is not None and os.path.exists(tmp_path):
