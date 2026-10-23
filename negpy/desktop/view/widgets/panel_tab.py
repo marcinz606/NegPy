@@ -21,7 +21,7 @@ def _font(checked: bool) -> QFont:
 
 
 class PanelTab(QAbstractButton):
-    """A right-panel tab. A main tab sits on a header strip with its name under a large icon. A
+    """A right-panel tab. A main tab has its name under a large icon. A
     page's tab has its name beside the icon, or shows only the icon and keeps the name for the
     tooltip and the » menu. A dot marks a tab with edits."""
 
@@ -69,12 +69,11 @@ class PanelTab(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
         checked, hover = self.isChecked(), self.underMouse()
-        p.fillRect(0, h - 1, w, 1, QColor(THEME.border_primary))
         if self._divider:
             p.fillRect(0, THEME.space_xl, 1, h - 2 * THEME.space_xl, QColor(THEME.border_primary))
         # The chip of a segmented control's current choice; hover takes its hover tint.
         pad_x, pad_y = THEME.space_xs + 0.5, THEME.space_sm + 0.5
-        chip = QRectF(0, 0, w, h - 1).adjusted(pad_x, pad_y, -pad_x, -pad_y)
+        chip = QRectF(0, 0, w, h).adjusted(pad_x, pad_y, -pad_x, -pad_y)
         radius = THEME.radius_lg - pad_x / 2
         if checked:
             p.setPen(QPen(QColor(THEME.border_checked), 1))

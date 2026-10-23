@@ -615,6 +615,8 @@ class MainWindow(QMainWindow):
         library.rolls_changed.connect(self.controller.invalidate_library_walk)
         self.controller.library_cleared.connect(library.reload)
         self.controller.library_cleared.connect(self.controller.invalidate_library_walk)
+        # Found scenes are reviewed on the Light Table, where Scene sort shows each as one block.
+        self.controller.scenes_detected.connect(lambda: self.set_light_table(True))
         self.update_notice.update_found.connect(self.toolbar.set_update_available)
         self.controller.session.state_changed.connect(self._update_title)
 

@@ -609,8 +609,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # spread (a metering run, not an edit).
     "baseline": ("process", ("use_luma_average", "use_color_average", "use_cast_average")),
     "lens": ("geometry", ("distortion_k1", "lens_distortion_from_metadata", "lens_ca_from_metadata")),
-    # profile_id also has a rig-global fallback, applied upstream of roll defaults, so a
-    # roll that names no profile of its own still gets the active one.
+    # A frame that names no profile_id takes the last chosen one, upstream of roll defaults.
     "flatfield": ("flatfield", ("apply", "profile_id")),
     # Metadata describes the roll almost by definition: one camera, one stock, one
     # development, one scanning rig. capture_frame is unique to one frame, and
@@ -1023,11 +1022,19 @@ def scene_by_hash(repo: Any, roll_id: Optional[str]) -> Dict[str, tuple]:
 
 
 def next_scene_name(repo: Any, roll_id: Optional[str]) -> str:
+    return next_scene_names(repo, roll_id, 1)[0]
+
+
+def next_scene_names(repo: Any, roll_id: Optional[str], count: int) -> List[str]:
+    """*count* free "Scene N" names, numbered on from the roll's scenes."""
     taken = {entry["name"] for _sid, entry in roll_scenes(repo, roll_id)}
-    n = len(taken) + 1
-    while f"Scene {n}" in taken:
+    n = len(taken)
+    names: List[str] = []
+    while len(names) < count:
         n += 1
-    return f"Scene {n}"
+        if f"Scene {n}" not in taken:
+            names.append(f"Scene {n}")
+    return names
 
 
 def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":

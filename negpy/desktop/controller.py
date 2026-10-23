@@ -568,6 +568,7 @@ class AppController(QObject):
     library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
     library_cleared = pyqtSignal()  # the library changed elsewhere; the panel re-reads it
     first_scene_created = pyqtSignal()  # the loaded roll's first scene: the Film Strip sorts by scene
+    scenes_detected = pyqtSignal()  # Detect Scenes found groups: the Light Table shows them by scene
     stitch_requested = pyqtSignal(object)
     contact_sheet_requested = pyqtSignal(object)  # ContactSheetJob
     hdr_requested = pyqtSignal(object)
@@ -718,7 +719,7 @@ class AppController(QObject):
         self._autocrop_started_auto: Dict[str, bool] = {}
         self._autocrop_cancel_requested = False
         # The analysis a run of Auto-crop all frames was started for: (scene id or None,), run when it finishes.
-        self._analysis_after_crop: Optional[Tuple[Optional[str]]] = None
+        self._analysis_after_crop: Optional[Tuple[Optional[str], bool]] = None
         # Background thumbnail refresh runs off the shared batch lane entirely — it must
         # never block Export or another user-triggered batch — so it tracks its own
         # generation instead of `_batch_serial`/`_active_batch_token`.
@@ -1099,6 +1100,7 @@ class AppController(QObject):
         self.normalization_requested.connect(self.norm_worker.process)
         self.norm_worker.progress.connect(self._on_normalization_progress)
         self.norm_worker.finished.connect(self._on_normalization_finished)
+        self.norm_worker.detected.connect(self._on_scenes_detected)
         self.norm_worker.cancelled.connect(self._on_normalization_cancelled)
         self.norm_worker.error.connect(self._on_normalization_error)
 
@@ -4543,7 +4545,7 @@ class AppController(QObject):
             self.request_render()
         then, self._analysis_after_crop = self._analysis_after_crop, None
         if then is not None:
-            self._request_normalization(then[0], cropped=True)
+            self._request_normalization(then[0], cropped=True, detect=then[1])
 
     def _on_batch_autocrop_cancelled(self) -> None:
         token = self._autocrop_batch_token
@@ -5650,7 +5652,7 @@ class AppController(QObject):
         )
         return reply == QMessageBox.StandardButton.Yes
 
-    def _dispatch_normalization(self, scene_id: Optional[str], frames: List[dict]) -> None:
+    def _dispatch_normalization(self, scene_id: Optional[str], frames: List[dict], detect: bool = False) -> None:
         self._normalization_scope = scene_id
         task = NormalizationTask(
             frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in frames],
@@ -5658,6 +5660,7 @@ class AppController(QObject):
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_luma_range_clip=self.state.config.process.luma_range_clip,
             override_color_range_clip=self.state.config.process.color_range_clip,
+            detect=detect,
         )
         self.normalization_requested.emit(task)
 
@@ -5673,10 +5676,11 @@ class AppController(QObject):
         """Scene Analysis: one scene's loaded members, whatever the sheet filter shows."""
         self._request_normalization(scene_id)
 
-    def _request_normalization(self, scene_id: Optional[str], *, cropped: bool = False) -> None:
+    def _request_normalization(self, scene_id: Optional[str], *, cropped: bool = False, detect: bool = False) -> None:
         """A frame still waiting for Auto Crop would meter its film border, so those are cropped
-        first and the analysis follows the crop run (cropped=True), without asking again."""
-        title = tr("Roll Analysis") if scene_id is None else tr("Scene Analysis")
+        first and the analysis follows the crop run (cropped=True), without asking again.
+        Detect Scenes (detect=True) only proposes groups, so it does not ask at all."""
+        title = tr("Detect Scenes") if detect else tr("Roll Analysis") if scene_id is None else tr("Scene Analysis")
         if self._batch_busy(title):
             return
         if scene_id is None:
@@ -5687,18 +5691,26 @@ class AppController(QObject):
             frames = self._normalization_targets(scene_id)
         if not frames:
             return
-        if not cropped and not self._confirm_normalization(frames, title, filtered=scene_id is None):
+        if detect:
+            # Detection reads the scan order, so the current sort (Scene, Date) must not reorder it.
+            frames = sorted(frames, key=lambda f: f["name"].lower())
+        if not cropped and not detect and not self._confirm_normalization(frames, title, filtered=scene_id is None):
             return
         waiting = [] if cropped else [f for f in frames if self._waits_for_auto_crop(f)]
         if waiting and self.request_batch_auto_crop(assets=waiting):
-            self._analysis_after_crop = (scene_id,)
+            self._analysis_after_crop = (scene_id, detect)
             return
-        batch_title = tr("Analyzing roll") if scene_id is None else tr("Analyzing scene “{name}”", name=self._scene_name(scene_id))
+        if detect:
+            batch_title = tr("Detecting scenes")
+        elif scene_id is None:
+            batch_title = tr("Analyzing roll")
+        else:
+            batch_title = tr("Analyzing scene “{name}”", name=self._scene_name(scene_id))
         if self._begin_batch("normalization", batch_title, abortable=True) is None:
             return
         self._scene_queue = []
         self.set_status(tr("Starting {title}…", title=title))
-        self._dispatch_normalization(scene_id, frames)
+        self._dispatch_normalization(scene_id, frames, detect=detect)
 
     def request_analyze_all_scenes(self) -> None:
         """Scene Analysis for every scene of the active roll with a loaded frame, one after another."""
@@ -5714,10 +5726,92 @@ class AppController(QObject):
             return
         if not self._confirm_normalization([f for _sid, frames in queue for f in frames], tr("Scene Analysis"), filtered=False):
             return
-        if self._begin_batch("normalization", tr("Analyzing scenes"), abortable=True) is None:
+        self._analyze_scene_queue(queue)
+
+    def _analyze_scene_queue(self, queue: List[Tuple[str, List[dict]]]) -> None:
+        """Scene Analysis on each (scene id, loaded members) in turn, as one batch."""
+        if not queue or self._begin_batch("normalization", tr("Analyzing scenes"), abortable=True) is None:
             return
         self._scene_queue = [sid for sid, _frames in queue[1:]]
         self._dispatch_normalization(*queue[0])
+
+    def request_detect_scenes(self) -> None:
+        """Detect Scenes: measure the visible frames outside every scene and find the groups under
+        another light than the roll's. The groups wait as found scenes for Accept or Discard."""
+        if self.state.active_roll_id is None:
+            self.set_status(tr("Save the Film Strip as a roll before grouping scenes"), 3000)
+            return
+        self._request_normalization(None, detect=True)
+
+    def _on_scenes_detected(self, groups: list) -> None:
+        self._end_batch("normalization")
+        self.status_progress_requested.emit(0, 0)
+        roll_id = self.state.active_roll_id
+        names = rolls.next_scene_names(self.session.repo, roll_id, len(groups))
+        self.state.found_scenes = [{"roll": roll_id, "name": name, "hashes": list(g)} for name, g in zip(names, groups)]
+        self.session.refresh_scene_marks()
+        if not groups:
+            self.set_status(tr("No frames under another light: the roll baseline fits every frame"), 4000)
+            return
+        self.set_status(tr("{value} found: name and accept them in Roll Analysis", value=count_of(len(groups), "scene")), 5000)
+        self.scenes_detected.emit()
+
+    def accept_found_scenes(self, names: Dict[int, str]) -> None:
+        """Accept: each found scene, by index, becomes a scene under its name, and Scene Analysis
+        runs on it at once. Its frames were cropped before detection, so nothing asks again."""
+        found = self.state.found_scenes
+        picked = [(found[i], name) for i, name in sorted(names.items()) if 0 <= i < len(found)]
+        if not picked:
+            return
+        first = not rolls.roll_scenes(self.session.repo, self.state.active_roll_id)
+        self.state.found_scenes = [s for i, s in enumerate(found) if i not in names]
+
+        def create(roll_id: str) -> List[Optional[str]]:
+            return [
+                rolls.create_scene(self.session.repo, roll_id, name, [rolls.unforked_hash(h) for h in s["hashes"]]) for s, name in picked
+            ]
+
+        ids = self._edit_scenes(create)
+        if ids is None:
+            self.state.found_scenes = found
+            return
+        if first:
+            self.first_scene_created.emit()
+        self._analyze_scene_queue([(sid, frames) for sid in ids if sid and (frames := self._normalization_targets(sid))])
+
+    def add_to_found_scene(self, index: int) -> None:
+        """The selected frames join the found scene at *index* and leave any other one."""
+        found = self.state.found_scenes
+        hashes = self._selected_frame_hashes()
+        if not 0 <= index < len(found) or not hashes:
+            return
+        moving = set(hashes)
+        for k, scene in enumerate(found):
+            kept = [h for h in scene["hashes"] if h not in moving]
+            scene["hashes"] = [*kept, *hashes] if k == index else kept
+        self._settle_found_scenes()
+
+    def remove_from_found_scene(self) -> None:
+        """The selected frames leave their found scene and stay with the roll baseline."""
+        leaving = set(self._selected_frame_hashes())
+        for scene in self.state.found_scenes:
+            scene["hashes"] = [h for h in scene["hashes"] if h not in leaving]
+        self._settle_found_scenes()
+
+    def _settle_found_scenes(self) -> None:
+        self.state.found_scenes = [s for s in self.state.found_scenes if s["hashes"]]
+        self.session.refresh_scene_marks()
+
+    def discard_found_scenes(self, indices: List[int]) -> None:
+        """Discard: the found scenes at *indices* are forgotten; their frames stay with the roll."""
+        drop = set(indices)
+        self.state.found_scenes = [s for i, s in enumerate(self.state.found_scenes) if i not in drop]
+        self.session.refresh_scene_marks()
+
+    def rename_found_scene(self, index: int, name: str) -> None:
+        if 0 <= index < len(self.state.found_scenes) and name:
+            self.state.found_scenes[index]["name"] = name
+            self.session.refresh_scene_marks()
 
     def _on_normalization_progress(self, current: int, total: int, name: str, has_crop: bool) -> None:
         """
@@ -5896,10 +5990,13 @@ class AppController(QObject):
         self.set_status(message, 2000)
         self.request_render()
 
-    def _selected_scene_hashes(self) -> List[str]:
+    def _selected_frame_hashes(self) -> List[str]:
         files = self.state.uploaded_files
         targets = [i for i in (self.state.selected_indices or [self.state.selected_file_idx]) if 0 <= i < len(files)]
-        return [rolls.unforked_hash(files[i]["hash"]) for i in targets]
+        return [files[i]["hash"] for i in targets]
+
+    def _selected_scene_hashes(self) -> List[str]:
+        return [rolls.unforked_hash(h) for h in self._selected_frame_hashes()]
 
     def _edit_scenes(self, edit: Callable[[str], Any]) -> Any:
         roll_id = self.state.active_roll_id
@@ -6358,9 +6455,8 @@ class AppController(QObject):
 
     def set_active_flatfield_profile(self, profile_id: str) -> None:
         """
-        Selects the rig-global flat-field reference profile (or clears it when
-        ``profile_id`` is empty), so a roll that names none of its own picks it up, and
-        edits the Flat Field card on the current frame like any other roll card.
+        Sets the Flat Field card's profile on the current frame like any other roll card (an
+        empty ``profile_id`` clears it), and makes it the profile a frame that names none takes.
         """
         from negpy.services.assets.flatfield import FlatFieldProfiles
 
@@ -6404,7 +6500,8 @@ class AppController(QObject):
 
     def delete_flatfield_profile(self, profile_id: str) -> None:
         """
-        Removes a flat-field profile; clears the active correction if it was selected.
+        Removes a flat-field profile. The current frame, if it used it, takes the last chosen
+        profile, as a frame loaded with a missing profile does.
         """
         from negpy.features.flatfield.logic import invalidate_gain
         from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -6413,8 +6510,11 @@ class AppController(QObject):
             return
         FlatFieldProfiles.delete(profile_id)
         invalidate_gain(profile_id)
-        if self.session.repo.get_global_setting("flatfield_active_profile") == profile_id:
+        active = self.session.repo.get_global_setting("flatfield_active_profile") or ""
+        if active == profile_id:
             self.set_active_flatfield_profile("")
+        elif self.state.config.flatfield.profile_id == profile_id:
+            self.set_roll_default("flatfield", profile_id=active if active and FlatFieldProfiles.get(active) else "")
 
     def load_gear_library(self):
         from negpy.services.assets.gear import GearProfiles
@@ -7990,12 +8090,15 @@ class AppController(QObject):
     def toggle_flatfield_peek(self, force: Optional[bool] = None) -> None:
         """Show how well the selected Flat Field profile corrects its own reference. Excludes the
         other peeks, the compare view and the test strip. With no profile it says so and stays off."""
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
         if self.state.preview_raw is None:
             return
         target = (not self.state.flatfield_peek) if force is None else force
         if target == self.state.flatfield_peek:
             return
-        if target and not self.state.config.flatfield.profile_id:
+        profile_id = self.state.config.flatfield.profile_id
+        if target and not (profile_id and FlatFieldProfiles.get(profile_id)):
             self.set_status(tr("Choose a Flat Field profile to check"), 3000)
             self.flatfield_peek_changed.emit(False)
             return

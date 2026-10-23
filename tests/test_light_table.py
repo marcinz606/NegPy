@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 from PIL import Image
-from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
+from PyQt6.QtCore import QItemSelectionModel, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QStandardItem, QStandardItemModel, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QListView, QStackedWidget, QStyle, QStyleOptionViewItem, QToolButton, QWidget
@@ -406,9 +406,8 @@ def test_a_scene_draws_a_line_over_its_frames_that_starts_with_its_name(browser,
     image = strip.viewport().grab().toImage()
     color = QColor(scene_color(2))
 
-    assert [_near(image.pixelColor(band.center().x(), band.top() + 1), color) for band in bands] == [False, True, False, False]
-    selected = image.pixelColor(bands[2].center().x(), bands[2].top() + 1)
-    assert selected == QColor(THEME.border_checked), "the selection mat covers the line"
+    assert [_near(image.pixelColor(band.center().x(), band.top() + 1), color) for band in bands] == [False, True, True, False]
+    assert image.pixelColor(bands[2].left() + 1, bands[2].center().y()) == QColor(THEME.border_checked), "the mat still frames the sides"
     assert not _near(image.pixelColor(bands[1].center().x(), bands[1].bottom() - 1), color), "only the top border"
     assert _near(image.pixelColor(bands[1].left() + 3, bands[1].top() - 3), color), "the name sits on the line at the run's start"
     assert not _near(image.pixelColor(bands[2].center().x(), bands[2].top() - 3), color)
@@ -536,7 +535,7 @@ def test_a_loop_rings_each_run_of_a_scenes_frames_on_one_row(browser, qapp):
     qapp.processEvents()
 
     runs = [(scene, index.row(), first, last) for scene, index, first, last in strip.scene_runs_on_rows()]
-    assert [(scene, row) for scene, row, _first, _last in runs] == [(BEACH, 1), (NIGHT, 3), (BEACH, 5)]
+    assert [(scene, row) for scene, row, _first, _last in runs] == [((*BEACH, False), 1), ((*NIGHT, False), 3), ((*BEACH, False), 5)]
     assert runs[0][3] == strip.visualRect(strip.model().index(2, 0))
 
     table.resize(table.gridSize().width() * 2 + 2 * THEME.space_2xl + 30, 600)  # two frames a row
@@ -544,6 +543,205 @@ def test_a_loop_rings_each_run_of_a_scenes_frames_on_one_row(browser, qapp):
     table.show()
     qapp.processEvents()
     assert [index.row() for _scene, index, _first, _last in table.scene_runs_on_rows()] == [1, 2, 3, 5]
+    browser.hide()
+
+
+def test_a_found_scene_runs_as_a_found_mark(browser, qapp):
+    _scene_roll(browser, [BEACH, None, None])
+    for f in browser.session.state.uploaded_files[1:]:
+        f["found_scene"] = (2, 0, "Scene 2")
+    browser.session.asset_model.refresh()
+    _show_strip(browser)
+    qapp.processEvents()
+
+    runs = [(scene, index.row()) for scene, index, _first, _last in browser.list_view.scene_runs_on_rows()]
+    assert runs == [((*BEACH, False), 0), ((2, 0, "Scene 2", True), 1)]
+    browser.hide()
+
+
+def _found_roll(browser, qapp, marks):
+    """Frames carrying found marks (None for no scene), on a Light Table six frames wide."""
+    state = browser.session.state
+    state.uploaded_files = [
+        {
+            "name": f"{i}.tif",
+            "path": f"/r/{i}.tif",
+            "hash": f"h{i}",
+            **({"found_scene": (1 + k, k, f"Scene {1 + k}")} if k is not None else {}),
+        }
+        for i, k in enumerate(marks)
+    ]
+    browser.session.asset_model.refresh()
+    browser.controller.load_gear_library.return_value = _hp5()[1]
+    browser._film_key = None
+    browser.sync_ui()
+    table = browser.light_table_view
+    table.resize(table.gridSize().width() * 6 + 2 * THEME.space_2xl + 30, 600)
+    table._relayout()
+    table.show()
+    qapp.processEvents()
+    return table
+
+
+def _select(view, rows):
+    sel = view.selectionModel()
+    sel.clearSelection()
+    for row in rows:
+        sel.select(view.model().index(row, 0), QItemSelectionModel.SelectionFlag.Select)
+
+
+def _centre(view, row):
+    return view.visualRect(view.model().index(row, 0)).center()
+
+
+def _selected(view):
+    return sorted(i.row() for i in view.selectionModel().selectedIndexes())
+
+
+def _drag(view, start, end):
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _centre(view, start))
+    QTest.mouseMove(view.viewport(), _centre(view, end))
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _centre(view, end))
+
+
+def test_dragging_selected_frames_onto_another_found_scene_drops_them_there(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    _select(table, [0, 1])
+    drops = []
+    table.found_scene_drop.connect(drops.append)
+
+    _drag(table, 0, 2)
+
+    assert drops == [1]
+    assert _selected(table) == [0, 1]
+    browser.hide()
+
+
+def test_a_drop_right_after_selecting_moves_the_new_selection(browser, qapp):
+    """The browser commits a selection after a short debounce; a quick drag must not act on the old one."""
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    seen = []
+    browser.controller.add_to_found_scene.side_effect = lambda k: seen.append((k, sorted(browser.session.state.selected_indices)))
+    _select(table, [0, 1])
+
+    _drag(table, 0, 2)
+
+    assert seen == [(1, [0, 1])]
+    browser.hide()
+
+
+def test_a_frame_that_is_not_selected_drags_at_once(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    seen = []
+    browser.controller.add_to_found_scene.side_effect = lambda k: seen.append((k, sorted(browser.session.state.selected_indices)))
+    _select(table, [3])
+
+    _drag(table, 0, 2)
+
+    assert seen == [(1, [0])]
+    assert _selected(table) == [0]
+    browser.hide()
+
+
+def test_the_dragged_frame_follows_the_pointer_and_leaves_a_faint_slot(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    _thumbs(browser, [(300, 200)] * 5)
+    QTest.qWait(3 * _RESHAPE_MS)
+    empty = QPoint(_centre(table, 2).x(), table.visualRect(table.model().index(4, 0)).bottom() + 80)
+    near, slot = empty - QPoint(4, 4), _centre(table, 0)
+    before = table.viewport().grab().toImage()
+
+    QTest.mousePress(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, slot)
+    QTest.mouseMove(table.viewport(), empty)
+    qapp.processEvents()
+    during = table.viewport().grab().toImage()
+    QTest.mouseRelease(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, empty)
+
+    bg = before.pixelColor(near)
+    gap = lambda c: abs(c.red() - bg.red()) + abs(c.green() - bg.green()) + abs(c.blue() - bg.blue())  # noqa: E731
+    assert gap(during.pixelColor(near)) > 60, "the frame is drawn under the pointer"
+    assert gap(during.pixelColor(slot)) < gap(before.pixelColor(slot)) / 2, "its own place fades to the table"
+    browser.hide()
+
+
+def test_dragging_onto_a_frame_with_no_scene_leaves_the_frames_out(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    _select(table, [2, 3])
+    drops = []
+    table.found_scene_drop.connect(drops.append)
+
+    _drag(table, 3, 4)
+
+    assert drops == [-1]
+    browser.hide()
+
+
+def test_a_still_press_on_a_selected_frame_is_a_plain_click(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    _select(table, [0, 1])
+    drops = []
+    table.found_scene_drop.connect(drops.append)
+
+    _drag(table, 1, 1)
+
+    assert drops == []
+    assert _selected(table) == [1]
+    browser.hide()
+
+
+def test_a_double_click_on_a_selected_frame_still_opens_it_while_reviewing(browser, qapp):
+    table = _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    _select(table, [0, 1])
+    opened = []
+    table.doubleClicked.connect(lambda index: opened.append(index.row()))
+
+    # The platform sends a click, then the double click; QTest.mouseDClick alone sends only the second.
+    QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _centre(table, 1))
+    QTest.mouseDClick(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _centre(table, 1))
+
+    assert opened == [1]
+    browser.hide()
+
+
+def test_a_drag_on_the_light_table_selects_only_the_pressed_frame(browser, qapp):
+    """The Light Table's drag moves found scenes' frames, so it never sweeps a selection."""
+    table = _found_roll(browser, qapp, [None] * 5)
+    _select(table, [0, 1])
+
+    _drag(table, 1, 3)
+    assert _selected(table) == [1]
+
+    _drag(table, 2, 4)
+    assert _selected(table) == [2]
+    browser.hide()
+
+
+def test_a_drag_from_the_light_tables_empty_space_selects_nothing(browser, qapp):
+    table = _found_roll(browser, qapp, [None] * 5)
+    empty = QPoint(_centre(table, 0).x(), table.visualRect(table.model().index(4, 0)).bottom() + 40)
+    assert not table.indexAt(empty).isValid()
+
+    QTest.mousePress(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, empty)
+    QTest.mouseMove(table.viewport(), _centre(table, 2))
+    QTest.mouseRelease(table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _centre(table, 2))
+
+    assert _selected(table) == []
+    browser.hide()
+
+
+def test_the_film_strip_keeps_its_drag_selection_while_reviewing(browser, qapp):
+    _found_roll(browser, qapp, [0, 0, 1, 1, None])
+    strip = browser.list_view
+    _show_strip(browser)
+    qapp.processEvents()
+    _select(strip, [0, 1])
+    drops = []
+    strip.found_scene_drop.connect(drops.append)
+
+    _drag(strip, 1, 3)
+
+    assert drops == []
+    assert _selected(strip) == [1, 2, 3]
     browser.hide()
 
 
@@ -682,6 +880,14 @@ def test_an_idle_picture_dims_but_not_its_film(qapp, hover):
     assert picture.lightness() <= QColor(40, 160, 220).lightness()
     film = canvas.pixelColor(window.center().x(), window.top() - 2)
     assert max(film.red(), film.green(), film.blue()) < 40, "the rebate is not dimmed"
+
+
+def test_the_light_table_does_not_dim_an_idle_picture(browser, qapp):
+    canvas, window = _paint_cell(browser._light_table_delegate, hover=False)
+    strip, _ = _paint_cell(browser._thumbnail_delegate, hover=False)
+
+    assert canvas.pixelColor(window.center()) == QColor(40, 160, 220)
+    assert strip.pixelColor(window.center()) != QColor(40, 160, 220), "the Film Strip still dims it"
 
 
 def _long_roll(browser, count: int) -> None:

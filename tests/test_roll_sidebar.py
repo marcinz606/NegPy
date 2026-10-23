@@ -285,3 +285,48 @@ def test_scene_row_delete_asks_then_deletes(qapp):
         delete.click()
     assert ask.call_args.args[1:3] == ("Scene", "Beach")
     controller.request_delete_scene.assert_called_once_with(sid)
+
+
+def _found(sidebar, k: int, column: int):
+    return sidebar._found_rows_layout.itemAt(k).widget().layout().itemAt(column).widget()
+
+
+def test_found_scenes_list_once_detection_ends_even_when_the_scenes_are_unchanged(qapp):
+    controller, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    assert not sidebar.found_rows.isVisibleTo(sidebar)
+    roll_id = controller.state.active_roll_id
+    controller.state.found_scenes = [
+        {"roll": roll_id, "name": "Scene 1", "hashes": ["h1", "h2"]},
+        {"roll": roll_id, "name": "Scene 2", "hashes": ["h3"]},
+    ]
+
+    sidebar._refresh_scenes()
+
+    assert sidebar._found_rows_layout.count() == 2
+    assert _found(sidebar, 0, 1).text() == "Scene 1"
+    assert _found(sidebar, 1, 2).text() == "1 frame"
+    assert sidebar.found_actions.isVisibleTo(sidebar)
+
+
+def test_accept_takes_the_typed_name_and_discard_forgets_the_group(qapp):
+    controller, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    roll_id = controller.state.active_roll_id
+    controller.state.found_scenes = [
+        {"roll": roll_id, "name": "Scene 1", "hashes": ["h1"]},
+        {"roll": roll_id, "name": "Scene 2", "hashes": ["h2"]},
+    ]
+    sidebar._refresh_scenes()
+
+    _found(sidebar, 1, 1).setText("Kitchen")
+    _found(sidebar, 1, 3).click()
+    controller.accept_found_scenes.assert_called_once_with({1: "Kitchen"})
+    _found(sidebar, 0, 4).click()
+    controller.discard_found_scenes.assert_called_once_with([0])
+    sidebar.accept_all_btn.click()
+    controller.accept_found_scenes.assert_called_with({0: "Scene 1", 1: "Kitchen"})
+
+
+def test_detect_scenes_sits_on_the_scenes_header(qapp):
+    controller, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    sidebar.detect_scenes_btn.click()
+    controller.request_detect_scenes.assert_called_once()

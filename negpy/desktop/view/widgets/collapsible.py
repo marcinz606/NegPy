@@ -184,8 +184,8 @@ class CollapsibleSection(QWidget):
             self.toggle_button.toggled.connect(self._on_toggle)
 
     def set_content(self, widget: QWidget) -> None:
-        # Plain QWidget content is painted #0D0D0D by the global `QWidget {}` QSS rule, covering
-        # the #121212 card frame, since custom subclasses are not auto-painted. The objectName
+        # Plain QWidget content is painted bg_panel by the global `QWidget {}` QSS rule, covering
+        # the bg_card card frame, since custom subclasses are not auto-painted. The objectName
         # rule forces it transparent either way.
         widget.setObjectName("collapsible_content_body")
         self.content_layout.addWidget(widget)

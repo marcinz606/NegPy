@@ -763,11 +763,18 @@ class ScanlightSidebar(QWidget):
         if on:
             self._settings = replace(self._settings, white_mode=False)
             self._set_slider(self.w_slider, 0)  # RGB preset → white LED off (the Scanlight can't combine them)
-            self._settings_loaded = False  # force a fresh repopulate of the sidebar exposure steppers
-            self._manual_populate_pending = True  # fill them from the body once (below), then the user owns them
+            self._reset_hand_set_exposure()
             self._refresh_camera_settings()
             self._update_settings_from_ui()  # seed settings from the freshly populated steppers + sliders
         self._apply_gating()
+
+    def _reset_hand_set_exposure(self) -> None:
+        """Blank the hand-set exposure until the body fills it: a previous preset's values, or a
+        camera that went away, must not reach Save. The body keeps each step, so a refill reads it back."""
+        for stepper in (self.iso_stepper, self.shutter_stepper, self.aperture_stepper):
+            self._show_lone(stepper, "")
+        self._settings_loaded = False  # force a fresh repopulate of the sidebar exposure steppers
+        self._manual_populate_pending = True  # fill them from the body once, then the user owns them
 
     def _on_live_view_exposure(self, which: str, stepper) -> None:
         """A Live View stepper moved. With the exposure editable it is the card's, so the step
@@ -832,11 +839,6 @@ class ScanlightSidebar(QWidget):
         """Set by Hand: a recipe typed in. The dropdown shows no preset while it is unsaved."""
         if self._manual_mode:
             return
-        if not self._camera_verified:
-            # Defensive: the menu entry is greyed without a camera, but refuse here too. A hand-set recipe
-            # steps through the body's own ISO/shutter/aperture choices.
-            self._set_status(tr("Connect the camera first. A hand-set preset steps through its ISO, shutter and aperture choices."))
-            return
         self.preset_combo.blockSignals(True)
         self.preset_combo.setCurrentIndex(-1)
         self.preset_combo.blockSignals(False)
@@ -846,10 +848,12 @@ class ScanlightSidebar(QWidget):
 
     def _refresh_preset_hint(self) -> None:
         """One-line note under the preset row for the current selection — white-light presets
-        do a single exposure. Empty/hidden for RGB film-stock presets or no selection."""
+        do a single exposure. Empty/hidden for narrowband film-stock presets or no selection."""
         name = self.preset_combo.currentData()
         builtin = _BUILTIN_PRESETS.get(name)
-        if self._manual_mode:
+        if self._manual_mode and not self._camera_verified:
+            text = tr("Set the light levels. The save button keeps them as a preset. Connect the camera to set the exposure as well.")
+        elif self._manual_mode:
             text = tr("Set the levels and the exposure. Scan uses them as they stand; the save button keeps them as a preset.")
         elif builtin is not None and builtin.white:
             text = tr("Single white-light exposure.")
@@ -1630,7 +1634,8 @@ class ScanlightSidebar(QWidget):
         """Poll the stream's settings JSON → refresh the ISO/Shutter/aperture steppers in both the
         live-view and the calibration pop-up (the calibration one carries no shutter — the
         calibration solves that; it does carry ISO + aperture, which the base is metered at)."""
-        data = self._settings_json()
+        # A file this process wrote for an earlier camera must not fill the steppers after an unplug.
+        data = self._settings_json() if self._camera_verified else {}
         if not data:
             return
         magnifier = data.get("magnifier")
@@ -1805,9 +1810,12 @@ class ScanlightSidebar(QWidget):
                 if result.sensor_matrix is not None:
                     SensorProfiles.save(name, list(result.sensor_matrix))
                     sensor_profile = name
-                    status = tr("Saved preset “{name}” and its sensor profile", name=name)
+                    status = tr("Saved preset “{name}” and its sensor crosstalk profile", name=name)
                 else:
-                    status = tr("Saved preset “{name}”, with no sensor profile: the probe exposures were too dim to measure one", name=name)
+                    status = tr(
+                        "Saved preset “{name}”, with no sensor crosstalk profile: the probe exposures were too dim to measure one",
+                        name=name,
+                    )
             self._save_current_as_preset(name, sensor_profile)
             self._lv_target = self.lv_image
             self.calib_window.hide()
@@ -2118,6 +2126,11 @@ class ScanlightSidebar(QWidget):
         # Calibrate as if it were absent, and let the dot say why instead of showing green.
         self._camera_verified = bool(status["usb_ok"]) and not claimed
         self._set_cam_status(bool(status["usb_ok"]), status["usb_model"], claimed_elsewhere=claimed)
+        if self._camera_verified != was_verified:
+            if self._manual_mode and not self._camera_verified:
+                self._reset_hand_set_exposure()
+                self._update_settings_from_ui()
+            self._refresh_preset_hint()  # a hand-set recipe's note names the exposure only with a camera
         if self._camera_verified and not was_verified:
             self._set_status("")  # just connected → drop any stale failure line
         elif was_verified and not self._camera_verified and self.lv_btn.isChecked():
@@ -2209,7 +2222,7 @@ class ScanlightSidebar(QWidget):
 
     def _apply_gating(self) -> None:
         """“Live View & Scan” needs camera+light+folder+preset. Under +, Calibrate needs camera+light,
-        Set by Hand the camera, a built-in nothing. When scanning is blocked, say why."""
+        Set by Hand and a built-in nothing more. When scanning is blocked, say why."""
         missing = self._missing_requirements()
         can_scan = not missing
         # Live view needs only the camera; it stays enabled while open so it can be toggled off.
@@ -2234,9 +2247,9 @@ class ScanlightSidebar(QWidget):
             and not self._scanning
             and not self._calibrating_preset
         )
-        # A hand-set recipe steps through the *camera's* own ISO/shutter/aperture choices, so it
-        # waits for a camera: the values differ per model.
-        can_manual = self._camera_verified and not self._scanning and not self._calibrating_preset
+        # The light levels need only the light, which the preset area already needs. The exposure
+        # waits for a camera (see _set_manual_mode).
+        can_manual = not self._scanning and not self._calibrating_preset
         self.preset_calibrate_action.setEnabled(can_calibrate)
         self.preset_manual_action.setEnabled(can_manual)
         self.calib_window.calibrate_btn.setEnabled(can_calibrate)  # the pop-up may already be open
@@ -2282,18 +2295,19 @@ class ScanlightSidebar(QWidget):
         if not hasattr(self, "inter_exposure_delay_slider"):
             return  # first call lands during __init__, before the RGB section is built
         editable = self._manual_mode
-        exposure_editable = editable or self._free_exposure
+        exposure_editable = (editable or self._free_exposure) and self._camera_verified
         self.capture_btn.setEnabled(editable)
         self.capture_mode_row.setVisible(not self._settings.white_mode)
         self.inter_exposure_delay_slider.setEnabled(not self._settings.single_capture)
         for slider in (self.r_slider, self.g_slider, self.b_slider):
             slider.setEnabled(editable)
         self.w_slider.setEnabled(False)  # the Scanlight can't light white with RGB → a manual RGB preset keeps W off
-        tip = (
-            tr("Set it for this preset, in the camera's own steps.")
-            if exposure_editable
-            else tr("Locked to the preset: pick Set by Hand under + to set it by hand.")
-        )
+        if exposure_editable:
+            tip = tr("Set it for this preset, in the camera's own steps.")
+        elif editable or self._free_exposure:
+            tip = tr("Connect the camera to set the exposure.")
+        else:
+            tip = tr("Locked to the preset: pick Set by Hand under + to set it by hand.")
         for stepper in (self.iso_stepper, self.shutter_stepper, self.aperture_stepper):
             stepper.setEnabled(exposure_editable)
             stepper.setToolTip(tip)

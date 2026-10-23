@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
@@ -83,9 +84,29 @@ def test_blend_keeps_the_pooled_shape_at_the_frames_own_level():
 
 def test_blend_scales_the_offset_by_weight_and_confidence():
     pooled = (*_film(0.0, 0.0)[:4], 0.5)
-    blended = blend_neutral_axis(_film(0.1, 0.0, conf=0.5), pooled)
+    blended = blend_neutral_axis(_film(0.1, -0.1, conf=0.5), pooled)  # an azure cast, removed in full
 
     assert abs(blended[0][0] - pooled[0][0] - 0.025) < 1e-9
+
+
+@pytest.mark.parametrize(
+    ("density_offset", "removed"),
+    [
+        ((0.1, 0.1), 0.0),  # magenta
+        ((0.1, 0.0), 0.6),  # red
+        ((0.0, -0.1), 0.6),  # yellow
+        ((-0.1, -0.1), 0.3),  # green
+        ((-0.1, 0.1), 1.0),  # azure
+    ],
+)
+def test_blend_removes_a_frames_own_cast_by_its_hue(density_offset, removed):
+    """The Frontier's cast-hue table: the frame's own (R, B) density offset from the pool, by hue."""
+    dr, db = -density_offset[0], -density_offset[1]  # log offsets: a denser layer reads lower
+    pooled = (*_film(0.0, 0.0)[:4], 1.0)
+    blended = blend_neutral_axis(_film(dr, db), pooled)
+
+    shift = (blended[0][0] - pooled[0][0], blended[0][2] - pooled[0][2])
+    np.testing.assert_allclose(shift, (removed * dr, removed * db), atol=1e-9)
 
 
 def test_blend_without_weight_or_own_axis_is_the_pool():

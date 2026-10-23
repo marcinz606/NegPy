@@ -103,3 +103,17 @@ def test_default_mode_unchanged(qapp):
     assert dlg.apply_btn.text() == "Apply"
     assert dlg.name() == ""
     assert dlg.apply_btn.isEnabled()
+
+
+def test_every_toggle_has_the_same_width(qapp):
+    """A long value never narrows its toggle: the toggles share one column."""
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG.cr2", bounds_mode="axes")
+    dlg._show_unchanged.setChecked(True)
+    dlg.resize(700, 800)
+    dlg.show()
+    qapp.processEvents()
+
+    boxes = [box for box in dlg._all_boxes() if box.isVisible()]
+    assert len(boxes) > 10
+    assert len({box.width() for box in boxes}) == 1
+    dlg.close()

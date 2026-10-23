@@ -183,6 +183,7 @@ class BaseSlider(QWidget):
         self.spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.slider.installEventFilter(self)
         self.spin.installEventFilter(self)
+        self._tab_focus = False
 
     def _connect_base_signals(self) -> None:
         self.slider.valueChanged.connect(self._on_slider_changed)
@@ -321,7 +322,22 @@ class BaseSlider(QWidget):
         if event.type() == QEvent.Type.MouseButtonDblClick:
             self.mouseDoubleClickEvent(event)
             return True
+        if obj is self.slider and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
+            # A window regaining focus keeps the edge it had.
+            if event.type() == QEvent.Type.FocusIn and event.reason() != Qt.FocusReason.ActiveWindowFocusReason:
+                self._tab_focus = event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason)
+            self.update()
         return super().eventFilter(obj, event)
+
+    def paintEvent(self, event) -> None:
+        # Keyboard focus on the track: the neutral edge a focused button takes, round the whole row.
+        # Tab focus only, so a click or a drag leaves no edge behind.
+        if not (self.slider.hasFocus() and self._tab_focus):
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor(THEME.border_focus), 1))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_md, THEME.radius_md)
 
 
 class CompactSlider(BaseSlider):

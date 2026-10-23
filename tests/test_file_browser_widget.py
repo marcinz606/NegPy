@@ -1181,6 +1181,41 @@ def test_scene_menu_for_members_of_one_scene(browser, session):
     browser.controller.request_scene_analysis.assert_called_once_with("s1")
 
 
+def _reviewing(session, marks):
+    """Found scenes waiting for review, with each listed frame's found mark set as the session stamps it."""
+    session.state.active_roll_id = "roll-1"
+    session.state.found_scenes = [{"roll": "roll-1", "name": "Scene 2", "hashes": []}, {"roll": "roll-1", "name": "Scene 3", "hashes": []}]
+    for i, k in marks.items():
+        session.state.uploaded_files[i]["found_scene"] = (2 + k, k, session.state.found_scenes[k]["name"])
+        session.state.found_scenes[k]["hashes"].append(session.state.uploaded_files[i]["hash"])
+
+
+def test_scene_menu_adds_to_a_found_scene_while_reviewing(browser, session):
+    from negpy.services.assets import rolls
+
+    _reviewing(session, {2: 0})
+    session.state.selected_indices = [0, 1]
+    with patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"})]):
+        menu = _scene_menu(browser.build_frame_menu())
+    assert _action_labels(menu) == ["Group as Scene…", "Add to Beach", "Add to Scene 2", "Add to Scene 3"]
+    next(a for a in menu.actions() if a.text() == "Add to Scene 3").trigger()
+    browser.controller.add_to_found_scene.assert_called_once_with(1)
+
+
+def test_remove_from_scene_takes_frames_out_of_their_found_scene(browser, session):
+    from negpy.services.assets import rolls
+
+    _reviewing(session, {0: 0})
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    with patch.object(rolls, "roll_scenes", return_value=[]):
+        menu = _scene_menu(browser.build_frame_menu())
+    assert _action_labels(menu) == ["Add to Scene 3", "Remove from Scene"]
+    next(a for a in menu.actions() if a.text() == "Remove from Scene").trigger()
+    browser.controller.remove_from_found_scene.assert_called_once_with()
+    browser.controller.request_remove_from_scene.assert_not_called()
+
+
 def test_tooltip_names_the_scene(session):
     session.state.uploaded_files[0]["scene"] = (1, "s1", "Beach")
     session.asset_model.refresh()

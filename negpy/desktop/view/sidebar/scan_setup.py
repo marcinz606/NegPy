@@ -46,7 +46,7 @@ class ScanSetupSidebar(BaseSidebar):
             data=("camera", "scanner"),
         )
         self.light_btn = SegmentedChoice(
-            (("mdi6.lightbulb-outline", tr("White Light")), ("mdi6.led-on", tr("Narrowband RGB"))),
+            (("mdi6.lightbulb-outline", tr("White Light")), ("mdi6.led-on", tr("Narrowband Light"))),
             tr("The light behind the negative"),
             data=("white", "narrowband"),
         )

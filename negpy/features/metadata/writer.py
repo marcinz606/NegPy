@@ -805,6 +805,120 @@ def export_embed_plan(
         return None
 
 
+def _pack_exif_value(ttype: int, value: str | bytes | int | list | tuple, endian: str) -> tuple[int, bytes] | None:
+    if ttype == 2 and isinstance(value, str):
+        raw = value.encode("ascii", "replace") + b"\x00"
+        return len(raw), raw
+    if ttype in (1, 7) and isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        return len(raw), raw
+    nums: tuple[int, ...] | None = None
+    count = 0
+    fmt = {3: "H", 4: "I", 8: "h", 9: "i"}.get(ttype)
+    if fmt is not None:
+        if isinstance(value, int):
+            nums, count = (value,), 1
+        elif isinstance(value, (list, tuple)) and value and all(isinstance(item, int) for item in value):
+            nums, count = tuple(value), len(value)
+    elif ttype in _TIFF_TYPE_RATIONAL:
+        fmt = "i" if ttype == 10 else "I"
+        if isinstance(value, tuple) and len(value) == 2 and all(isinstance(item, int) for item in value):
+            nums, count = value, 1
+        elif isinstance(value, (list, tuple)) and len(value) % 2 == 0 and all(isinstance(item, int) for item in value):
+            nums, count = tuple(value), len(value) // 2
+    if fmt is None or nums is None or count <= 0:
+        return None
+    try:
+        return count, struct.pack(endian + fmt * len(nums), *nums)
+    except struct.error:
+        return None
+
+
+def _exif_ifd_bytes(tags: dict, endian: str, file_offset: int) -> bytes | None:
+    table = piexif.TAGS.get("Exif", {})
+    encoded: list[tuple[int, int, int, bytes]] = []
+    for tag in sorted(tags):
+        # The offset addresses an Interop IFD in the source, not in this TIFF.
+        if tag == piexif.ExifIFD.InteroperabilityTag:
+            continue
+        info = table.get(tag)
+        ttype = info.get("type") if info else None
+        if not isinstance(ttype, int):
+            continue
+        built = _build_extratag(tag, ttype, tags[tag])
+        if built is None:
+            continue
+        _tag, built_type, _count, built_value, _write = built
+        packed = _pack_exif_value(built_type, built_value, endian)
+        if packed is None or packed[0] <= 0:
+            continue
+        encoded.append((tag, built_type, packed[0], packed[1]))
+    if not encoded:
+        return None
+
+    head = 2 + len(encoded) * 12 + 4
+    entries = bytearray(struct.pack(endian + "H", len(encoded)))
+    blob = bytearray()
+    for tag, ttype, count, payload in encoded:
+        if len(payload) <= 4:
+            field = payload + b"\x00" * (4 - len(payload))
+        else:
+            field = struct.pack(endian + "I", file_offset + head + len(blob))
+            blob.extend(payload)
+        entries += struct.pack(endian + "HHI", tag, ttype, count) + field
+    entries += struct.pack(endian + "I", 0)
+    return bytes(entries) + bytes(blob)
+
+
+def attach_exif_ifd(tiff_bytes: bytes, exif_bytes: bytes) -> bytes:
+    """Add an Exif IFD to a classic TIFF."""
+    if len(tiff_bytes) < 8 or tiff_bytes[:2] not in (b"II", b"MM"):
+        return tiff_bytes
+    endian = "<" if tiff_bytes[:2] == b"II" else ">"
+    if struct.unpack(endian + "H", tiff_bytes[2:4])[0] != 42:
+        return tiff_bytes
+
+    ifd = struct.unpack(endian + "I", tiff_bytes[4:8])[0]
+    if ifd < 8 or ifd + 2 > len(tiff_bytes):
+        return tiff_bytes
+    count = struct.unpack(endian + "H", tiff_bytes[ifd : ifd + 2])[0]
+    ifd_end = ifd + 2 + count * 12 + 4
+    if count > 4096 or ifd_end > len(tiff_bytes):
+        return tiff_bytes
+
+    entries: list[tuple[int, bytes]] = []
+    for index in range(count):
+        start = ifd + 2 + index * 12
+        raw = tiff_bytes[start : start + 12]
+        tag = struct.unpack(endian + "H", raw[:2])[0]
+        if tag == piexif.ImageIFD.ExifTag:
+            return tiff_bytes
+        entries.append((tag, raw))
+
+    exif_tags = piexif.load(exif_bytes).get("Exif") or {}
+    if not exif_tags:
+        return tiff_bytes
+    pad = len(tiff_bytes) & 1
+    ifd_at = len(tiff_bytes) + pad
+    exif_at = ifd_at + 2 + (count + 1) * 12 + 4
+    exif_ifd = _exif_ifd_bytes(exif_tags, endian, exif_at)
+    if exif_ifd is None:
+        return tiff_bytes
+
+    entries.append((piexif.ImageIFD.ExifTag, struct.pack(endian + "HHII", piexif.ImageIFD.ExifTag, 4, 1, exif_at)))
+    entries.sort(key=lambda item: item[0])
+    out = bytearray(tiff_bytes)
+    if pad:
+        out.append(0)
+    struct.pack_into(endian + "I", out, 4, ifd_at)
+    out += struct.pack(endian + "H", len(entries))
+    for _tag, raw in entries:
+        out += raw
+    out += tiff_bytes[ifd_end - 4 : ifd_end]
+    out += exif_ifd
+    return bytes(out)
+
+
 def _page_resolution_kwargs(page) -> dict:
     """imwrite resolution kwargs mirroring a source page; empty when it carries none.
     Dropping them on a rewrite substitutes tifffile's unit-less default."""
@@ -848,6 +962,10 @@ def _rewrite_tiff_preserve(
         **res_kwargs,
         **tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold_user_comment),
     )
+    patched = attach_exif_ifd(output.getvalue(), exif_bytes)
+    output.seek(0)
+    output.truncate(0)
+    output.write(patched)
 
 
 def _rewrite_png_with_metadata(

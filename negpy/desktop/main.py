@@ -66,11 +66,17 @@ def _filter_qt_messages(mode, context, message: str) -> None:
 
 class AppEventFilter(QObject):
     """The app-wide event rules, in one filter so each event crosses into Python once. Combo and
-    spin boxes never take the wheel, every tooltip wraps (Qt never wraps plain text), and an
-    icon-only button takes its tooltip's first clause as its accessible name."""
+    spin boxes never take the wheel, every tooltip wraps (Qt never wraps plain text), an
+    icon-only button takes its tooltip's first clause as its accessible name, and a macOS window
+    takes the theme's background (``mac_window``)."""
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         kind = event.type()
+        if kind == QEvent.Type.Show and isinstance(obj, QWidget):
+            from negpy.desktop.view.mac_window import paint_window_background
+
+            paint_window_background(obj)
+            return False
         if kind == QEvent.Type.Wheel and isinstance(obj, (QComboBox, QAbstractSpinBox)):
             event.ignore()
             return True

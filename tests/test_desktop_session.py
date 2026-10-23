@@ -53,6 +53,26 @@ class TestDesktopSessionSync(unittest.TestCase):
         # A scoped apply reads the visible set, which a real load always builds.
         self.session.asset_model.refresh()
 
+    def test_found_scenes_mark_their_frames_after_the_scenes_and_drop_with_their_roll(self):
+        from negpy.services.assets import rolls
+
+        self.session.state.active_roll_id = "roll-1"
+        self.session.state.found_scenes = [{"roll": "roll-1", "name": "Scene 2", "hashes": ["hash2"]}]
+        with (
+            patch.object(rolls, "scene_by_hash", return_value={"hash1": (1, "s1", "Beach")}),
+            patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"})]),
+        ):
+            self.session.refresh_scene_marks()
+            first, second = self.session.state.uploaded_files
+            self.assertEqual((first.get("scene"), first.get("found_scene")), ((1, "s1", "Beach"), None))
+            self.assertEqual((second.get("scene"), second.get("found_scene")), (None, (2, 0, "Scene 2")))
+
+            self.session.state.active_roll_id = "roll-2"
+            self.session.refresh_scene_marks()
+
+        self.assertEqual(self.session.state.found_scenes, [])
+        self.assertNotIn("found_scene", self.session.state.uploaded_files[1])
+
     def test_a_color_vision_choice_is_saved_and_announced(self):
         heard = []
         self.session.color_vision_changed.connect(lambda: heard.append(1))
@@ -551,6 +571,63 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertEqual(seeded.geometry.distortion_k1, -0.05)
         self.assertEqual(kept.geometry.distortion_k1, 0.012)
+
+    def _flatfield_after_load(self, config, only_global, carried_rows=(), sticky=None):
+        settings = {"flatfield_active_profile": "ff-35", "sticky_config": sticky or {}, "sticky_rows": list(carried_rows)}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        with patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=SimpleNamespace(id="ff-35", k1=0.0)):
+            ff = self.session._apply_sticky_settings(config, only_global=only_global).flatfield
+        return ff.profile_id, ff.apply
+
+    @staticmethod
+    def _with_flatfield(profile_id: str, apply: bool) -> WorkspaceConfig:
+        base = WorkspaceConfig()
+        return replace(base, flatfield=replace(base.flatfield, profile_id=profile_id, apply=apply))
+
+    def test_a_saved_frame_keeps_its_own_flat_field_profile(self):
+        self.assertEqual(self._flatfield_after_load(self._with_flatfield("ff-120", True), only_global=True), ("ff-120", True))
+
+    def test_a_saved_frame_without_a_profile_takes_the_last_chosen_one(self):
+        self.assertEqual(self._flatfield_after_load(self._with_flatfield("", False), only_global=True), ("ff-35", False))
+
+    def test_a_new_file_takes_the_last_chosen_flat_field_profile(self):
+        self.assertEqual(self._flatfield_after_load(WorkspaceConfig(), only_global=False), ("ff-35", True))
+
+    def test_a_carried_flat_field_row_wins_on_a_new_file(self):
+        carried = self._flatfield_after_load(
+            WorkspaceConfig(), only_global=False, carried_rows=["flatfield.apply"], sticky={"apply": True, "profile_id": "ff-120"}
+        )
+        self.assertEqual(carried, ("ff-120", True))
+
+    def _load_with_profiles(self, config, only_global, profiles, carried_rows=(), sticky=None):
+        """Load *config* while this machine holds *profiles* (id -> k1) and ff-35 is the last chosen."""
+        settings = {"flatfield_active_profile": "ff-35", "sticky_config": sticky or {}, "sticky_rows": list(carried_rows)}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        get = lambda pid: SimpleNamespace(id=pid, k1=profiles[pid]) if pid in profiles else None  # noqa: E731
+        with patch("negpy.desktop.session.FlatFieldProfiles.get", side_effect=get):
+            return self.session._apply_sticky_settings(config, only_global=only_global)
+
+    def test_a_profile_this_machine_lacks_takes_the_last_chosen_one(self):
+        loaded = self._load_with_profiles(self._with_flatfield("from-elsewhere", True), True, {"ff-35": 0.0})
+        self.assertEqual((loaded.flatfield.profile_id, loaded.flatfield.apply), ("ff-35", True))
+
+    def test_a_carried_flat_field_row_with_a_missing_profile_takes_the_last_chosen_one(self):
+        loaded = self._load_with_profiles(
+            WorkspaceConfig(), False, {"ff-35": 0.0}, carried_rows=["flatfield.apply"], sticky={"apply": True, "profile_id": "deleted"}
+        )
+        self.assertEqual((loaded.flatfield.profile_id, loaded.flatfield.apply), ("ff-35", True))
+
+    def test_legacy_k1_comes_from_the_frames_own_profile(self):
+        profiles = {"ff-35": -0.05, "ff-120": 0.0}
+        own_120 = self._load_with_profiles(self._with_flatfield("ff-120", True), True, profiles)
+        own_35 = self._load_with_profiles(self._with_flatfield("ff-35", True), True, profiles)
+        self.assertEqual(own_120.geometry.distortion_k1, 0.0)
+        self.assertEqual(own_35.geometry.distortion_k1, -0.05)
+
+    def test_no_chosen_flat_field_profile_leaves_a_new_file_uncorrected(self):
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: default
+        ff = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False).flatfield
+        self.assertEqual((ff.profile_id, ff.apply), ("", False))
 
     def test_paper_black_carries_to_new_files(self):
         """Sticky must carry an explicit value over the file's base."""
@@ -1726,6 +1803,23 @@ class TestAssetListModelSceneSort(unittest.TestCase):
         self.model.set_filter("[bcd]", regex=True)
         self.assertEqual(self._names(), ["c.nef", "b.nef", "d.nef"])
         self.assertEqual(self.model.scene_runs(), [(1, 0, 0), (2, 1, 2)])
+
+    def test_found_scenes_follow_the_scenes_as_blocks(self):
+        self.state.uploaded_files[0]["found_scene"] = (3, 0, "Scene 3")
+        self.state.uploaded_files.append({"name": "f.nef", "path": "/r/f.nef", "hash": "h6", "found_scene": (3, 0, "Scene 3")})
+        self.model.refresh()
+
+        self.assertEqual(self._names(), ["c.nef", "e.nef", "b.nef", "d.nef", "a.nef", "f.nef"])
+        self.assertEqual(self.model.scene_runs(), [(1, 0, 1), (2, 2, 3), (3, 4, 5)])
+
+    def test_found_scenes_alone_sort_by_scene(self):
+        for f in self.state.uploaded_files:
+            f.pop("scene", None)
+        self.state.uploaded_files[3]["found_scene"] = (1, 0, "Scene 1")
+        self.model.refresh()
+
+        self.assertEqual(self.model.effective_sort_order, "scene")
+        self.assertEqual(self._names()[0], "d.nef")
 
     def test_no_blocks_under_other_orders_or_a_semantic_query(self):
         import numpy as np

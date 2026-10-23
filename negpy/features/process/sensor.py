@@ -1,4 +1,4 @@
-"""Sensor (CFA) crosstalk of a sensor+light pair for single-shot narrowband scans: calibrated from three
+"""Sensor (CFA) crosstalk of a sensor+light pair for single-exposure narrowband scans: calibrated from three
 bare-light exposures, corrected by a 3x3 unmix on the linear capture, before the log where film-dye crosstalk lives.
 Where the film passes almost none of a band, the subtraction falls below grain and the log turns it into maximum
 density; `SensorUnmix` picks how that case is handled.

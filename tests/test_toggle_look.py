@@ -285,12 +285,34 @@ def test_keyboard_focus_is_a_neutral_gray_edge(qapp):
         assert QColor(THEME.border_focus).name() in edge, type(widget).__name__
 
 
+def test_a_tab_focused_slider_takes_the_edge_round_its_row_and_a_click_leaves_none(qapp):
+    from negpy.desktop.view.widgets.sliders import CompactSlider
+
+    row = CompactSlider("Print Density", 0.0, 2.0, 1.0)
+    host, _image = _on_card(row)
+    host.activateWindow()
+
+    def edge() -> set:
+        QTest.qWait(20)
+        image = host.grab().toImage()
+        g = row.geometry()
+        return {image.pixelColor(g.left(), y).name() for y in range(g.top() + 4, g.bottom() - 4)}
+
+    # Activation hands the first focusable widget its focus; tabbing arrives from elsewhere.
+    row.slider.clearFocus()
+    row.slider.setFocus(Qt.FocusReason.TabFocusReason)
+    assert QColor(THEME.border_focus).name() in edge()
+    row.slider.clearFocus()
+    row.slider.setFocus(Qt.FocusReason.MouseFocusReason)
+    assert QColor(THEME.border_focus).name() not in edge()
+
+
 def test_no_theme_color_is_a_bright_red_but_errors_and_the_red_channel():
     """Selection, focus, hover and marks on the photo are muted or neutral; only an error and
     the red channel of RGB data stay bright red."""
     import dataclasses
 
-    allowed = {"error", "channel_red", "channel_red_text"}
+    allowed = {"error", "error_text", "channel_red", "channel_red_text"}
     bright = []
     for field in dataclasses.fields(THEME):
         value = getattr(THEME, field.name)

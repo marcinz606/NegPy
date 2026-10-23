@@ -126,12 +126,13 @@ class FlatFieldSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self._refresh_profiles()
-            idx = self.profile_combo.findData(conf.profile_id)
-            self.profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            # A profile this machine does not have reads as none; nothing renders from it.
+            idx = self.profile_combo.findData(conf.profile_id) if conf.profile_id else -1
+            self.profile_combo.setCurrentIndex(max(idx, 0))
 
-            self.enable_btn.setChecked(conf.apply)
-            self.enable_btn.setEnabled(bool(conf.profile_id))
-            self.hint.setVisible(not conf.profile_id)
+            self.enable_btn.setChecked(conf.apply and idx > 0)
+            self.enable_btn.setEnabled(idx > 0)
+            self.hint.setVisible(idx <= 0)
         finally:
             self.block_signals(False)
 

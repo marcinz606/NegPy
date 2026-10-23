@@ -4210,6 +4210,128 @@ class TestPresetExportSelected(unittest.TestCase):
 
         self.assertEqual(fired, [True])
 
+    def test_detect_scenes_measures_frames_outside_scenes_without_asking(self):
+        emitted = []
+        self.controller.normalization_requested.connect(emitted.append)
+        with (
+            patch.object(rolls, "scene_by_hash", return_value={"h2": (1, "s1", "Beach")}),
+            patch.object(self.controller, "_confirm_normalization") as mock_confirm,
+            patch.object(self.controller, "_waits_for_auto_crop", return_value=False),
+        ):
+            self.mock_session_manager.state.active_roll_id = "roll-1"
+            self.controller.request_detect_scenes()
+
+        mock_confirm.assert_not_called()
+        self.assertTrue(emitted[0].detect)
+        self.assertEqual([f.file_info["hash"] for f in emitted[0].frames], ["h1", "h3"])
+
+    def test_detect_scenes_reads_the_frames_in_scan_order_whatever_the_sort(self):
+        """Scan order counts in detection, so a Scene or Date sort must not reorder the frames."""
+        emitted = []
+        self.controller.normalization_requested.connect(emitted.append)
+        self.visible_indices = [2, 1, 0]
+        with (
+            patch.object(rolls, "scene_by_hash", return_value={}),
+            patch.object(self.controller, "_waits_for_auto_crop", return_value=False),
+        ):
+            self.mock_session_manager.state.active_roll_id = "roll-1"
+            self.controller.request_detect_scenes()
+
+        self.assertEqual([f.file_info["name"] for f in emitted[0].frames], ["IMG_0001.cr2", "IMG_0002.cr2", "scan.tif"])
+
+    def test_detected_groups_become_found_scenes_with_free_names(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        fired = []
+        self.controller.scenes_detected.connect(lambda: fired.append(True))
+        with (
+            patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Scene 1"})]),
+            patch.object(rolls, "create_scene") as mock_create,
+        ):
+            self.controller._on_scenes_detected([["h1", "h3"], ["h2"]])
+
+        self.assertEqual(
+            self.mock_session_manager.state.found_scenes,
+            [{"roll": "roll-1", "name": "Scene 2", "hashes": ["h1", "h3"]}, {"roll": "roll-1", "name": "Scene 3", "hashes": ["h2"]}],
+        )
+        mock_create.assert_not_called()
+        self.mock_session_manager.refresh_scene_marks.assert_called_once()
+        self.assertEqual(fired, [True])
+
+    def test_accepting_a_found_scene_groups_it_and_analyzes_it_at_once(self):
+        state = self.mock_session_manager.state
+        state.active_roll_id = "roll-1"
+        state.found_scenes = [
+            {"roll": "roll-1", "name": "Scene 2", "hashes": ["h1", "h3"]},
+            {"roll": "roll-1", "name": "Scene 3", "hashes": ["h2"]},
+        ]
+        emitted = []
+        self.controller.normalization_requested.connect(emitted.append)
+        with (
+            patch.object(rolls, "create_scene", return_value="s2") as mock_create,
+            patch.object(rolls, "scene_by_hash", return_value={"h1": (2, "s2", "Pool"), "h3": (2, "s2", "Pool")}),
+            patch.object(self.controller, "_confirm_normalization") as mock_confirm,
+        ):
+            self.controller.accept_found_scenes({0: "Pool"})
+
+        mock_create.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "Pool", ["h1", "h3"])
+        self.assertEqual([s["name"] for s in state.found_scenes], ["Scene 3"])
+        mock_confirm.assert_not_called()
+        self.assertEqual(self.controller._normalization_scope, "s2")
+        self.assertEqual([f.file_info["hash"] for f in emitted[0].frames], ["h1", "h3"])
+
+    def test_adding_frames_to_a_found_scene_moves_them_out_of_their_old_one(self):
+        state = self.mock_session_manager.state
+        state.found_scenes = [
+            {"roll": "roll-1", "name": "Scene 2", "hashes": ["h1", "h2"]},
+            {"roll": "roll-1", "name": "Scene 3", "hashes": ["h3"]},
+        ]
+        state.selected_indices = [1, 2]
+
+        self.controller.add_to_found_scene(1)
+
+        self.assertEqual([sorted(s["hashes"]) for s in state.found_scenes], [["h1"], ["h2", "h3"]])
+        self.mock_session_manager.refresh_scene_marks.assert_called_once()
+
+    def test_a_found_scene_left_empty_drops_out(self):
+        state = self.mock_session_manager.state
+        state.found_scenes = [
+            {"roll": "roll-1", "name": "Scene 2", "hashes": ["h1"]},
+            {"roll": "roll-1", "name": "Scene 3", "hashes": ["h3"]},
+        ]
+        state.selected_indices = [0]
+
+        self.controller.add_to_found_scene(1)
+
+        self.assertEqual([(s["name"], sorted(s["hashes"])) for s in state.found_scenes], [("Scene 3", ["h1", "h3"])])
+
+    def test_removing_frames_from_found_scenes_leaves_them_with_the_roll(self):
+        state = self.mock_session_manager.state
+        state.found_scenes = [
+            {"roll": "roll-1", "name": "Scene 2", "hashes": ["h1", "h2"]},
+            {"roll": "roll-1", "name": "Scene 3", "hashes": ["h3"]},
+        ]
+        state.selected_indices = [1, 2]
+
+        with patch.object(rolls, "remove_from_scenes") as mock_remove:
+            self.controller.remove_from_found_scene()
+
+        self.assertEqual(state.found_scenes, [{"roll": "roll-1", "name": "Scene 2", "hashes": ["h1"]}])
+        mock_remove.assert_not_called()
+
+    def test_discarding_found_scenes_forgets_them(self):
+        state = self.mock_session_manager.state
+        state.found_scenes = [
+            {"roll": "roll-1", "name": "Scene 2", "hashes": ["h1"]},
+            {"roll": "roll-1", "name": "Scene 3", "hashes": ["h2"]},
+        ]
+
+        with patch.object(rolls, "create_scene") as mock_create:
+            self.controller.discard_found_scenes([1])
+
+        self.assertEqual([s["name"] for s in state.found_scenes], ["Scene 2"])
+        mock_create.assert_not_called()
+        self.mock_session_manager.refresh_scene_marks.assert_called_once()
+
     def test_apply_normalization_roll_is_a_noop_for_an_unanalyzed_roll(self):
         with patch.object(rolls, "roll_normalization", return_value=None):
             self.controller.apply_normalization_roll("roll-1")
@@ -5820,6 +5942,39 @@ class TestFlatFieldPeek(unittest.TestCase):
         self._select(None)
         self.controller.toggle_flatfield_peek(force=True)
         self.assertFalse(self.controller.state.flatfield_peek)
+
+    def test_a_missing_profile_says_so_like_no_profile(self):
+        from dataclasses import replace
+
+        from negpy.features.flatfield.models import FlatFieldConfig
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
+        state = self.controller.state
+        state.config = replace(state.config, flatfield=FlatFieldConfig(apply=True, profile_id="deleted"))
+        self.controller.set_status = MagicMock()
+        with patch.object(FlatFieldProfiles, "get", return_value=None):
+            self.controller.toggle_flatfield_peek(force=True)
+        self.assertFalse(state.flatfield_peek)
+        self.assertIn("Choose a Flat Field profile", self.controller.set_status.call_args.args[0])
+
+    def test_deleting_the_frames_own_profile_gives_it_the_last_chosen_one(self):
+        from dataclasses import replace
+
+        from negpy.features.flatfield.models import FlatFieldConfig
+        from negpy.services.assets.flatfield import FlatFieldProfile, FlatFieldProfiles
+
+        state = self.controller.state
+        state.config = replace(state.config, flatfield=FlatFieldConfig(apply=True, profile_id="ff-120"))
+        self.mock_session_manager.repo.get_global_setting.side_effect = lambda key, default=None: (
+            "ff-35" if key == "flatfield_active_profile" else default
+        )
+        self.controller.set_roll_default = MagicMock()
+        with (
+            patch.object(FlatFieldProfiles, "delete"),
+            patch.object(FlatFieldProfiles, "get", return_value=FlatFieldProfile("ff-35", "35mm", 0.0, "")),
+        ):
+            self.controller.delete_flatfield_profile("ff-120")
+        self.controller.set_roll_default.assert_called_once_with("flatfield", profile_id="ff-35")
 
     def test_the_peeks_are_mutually_exclusive(self):
         self._select(self._stored())

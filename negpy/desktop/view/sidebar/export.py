@@ -31,6 +31,7 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import make_section
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
@@ -619,7 +620,8 @@ class ExportSidebar(BaseSidebar):
         else:
             self.linear_wb_btn.setToolTip(tr("Multiply by the as-shot WB gains before writing"))
 
-        has_flatfield = bool(self.state.config.flatfield.apply and self.state.config.flatfield.profile_id)
+        ff = self.state.config.flatfield
+        has_flatfield = bool(ff.apply and ff.profile_id and FlatFieldProfiles.get(ff.profile_id))
         self.linear_flatfield_btn.setEnabled(has_flatfield)
         if not has_flatfield:
             self.linear_flatfield_btn.setToolTip(tr("No Flat Field profile configured"))

@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 import qtawesome as qta
-from PyQt6.QtCore import QSize
+from PyQt6.QtCore import QRectF, QSize
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QMenu, QToolButton, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
@@ -9,6 +10,7 @@ from negpy.desktop.view.styles.theme import THEME
 class OverflowBar(QWidget):
     """A row of equal-width tabs filling the bar (the right panel's tab strips) that spills what
     doesn't fit into a » menu, so its minimum width is one tab rather than the sum of them. A
+    tab strip is a choice of one, so it sits on a segmented control's track. A
     fixed-width tab keeps its width; the rest share the room. Without this, every tab added to a
     panel widened that panel permanently.
 
@@ -67,6 +69,13 @@ class OverflowBar(QWidget):
     def resizeEvent(self, event) -> None:
         self._relayout()
         super().resizeEvent(event)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor(THEME.border_primary), 1))
+        p.setBrush(QColor(THEME.bg_input))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_lg, THEME.radius_lg)
 
     def _visible_items(self, avail: int) -> list[int]:
         count = len(self._items)

@@ -2,7 +2,7 @@
 
 The set is a user choice, held as a list of `SettingRow` ids, and the values come from a
 flat snapshot of the last persisted edit. Everything the picker can offer is a catalog
-row; the few carries that are not plain config values — the rig-global flat-field
+row; the few carries that are not plain config values — the last chosen flat-field
 profile, the Kelvin roll-locks — stay in `AppState._apply_sticky_settings`.
 """
 

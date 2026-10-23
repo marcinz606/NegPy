@@ -1,11 +1,19 @@
 from negpy.kernel.system.i18n import tr
 from typing import Optional
 
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
 
 from negpy.desktop.view.confirm import prompt_delete_scene
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, header_row, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    field_label,
+    header_row,
+    hint_label,
+    labeled_action,
+    section_subheader,
+    set_hint_kind,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.theme import THEME, scene_color
 from negpy.kernel.system.text import count_of
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
@@ -23,6 +31,7 @@ FROM_FRAME_TOOLTIP = tr("Use This Frame: make this frame's measurement the roll'
 FROM_FRAME_DISABLED_TOOLTIP = tr("Open this roll first, because the baseline goes onto the loaded files.")
 STALE_ROLL_HINT = tr("Baseline from an older analysis: run Reanalyze")
 STALE_SCENE_TOOLTIP = tr("Baseline from an older analysis: run Scene Analysis")
+DETECT_SCENES_TOOLTIP = tr("Detect Scenes: find the groups of frames under another light than the roll and show them on the Light Table.")
 
 
 class RollAnalysisSidebar(BaseSidebar):
@@ -52,7 +61,8 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addWidget(self.roll_status_hint)
 
         self.scenes_header = section_subheader(tr("SCENES"))
-        self.layout.addWidget(self.scenes_header)
+        self.detect_scenes_btn = self._icon_action("mdi6.lightbulb-group-outline", DETECT_SCENES_TOOLTIP)
+        self.layout.addLayout(header_row(self.scenes_header, self.detect_scenes_btn))
         self.scene_rows = QWidget()
         self._scene_rows_layout = QVBoxLayout(self.scene_rows)
         self._scene_rows_layout.setContentsMargins(0, 0, 0, 0)
@@ -60,8 +70,34 @@ class RollAnalysisSidebar(BaseSidebar):
         self.scenes_hint = hint_label(tr("Select frames in the Film Strip, then right-click › Scene › Group as Scene…"), "muted")
         self.layout.addWidget(self.scenes_hint)
 
+        self.found_header = section_subheader(tr("FOUND"))
+        self.layout.addWidget(self.found_header)
+        self.found_rows = QWidget()
+        self._found_rows_layout = QVBoxLayout(self.found_rows)
+        self._found_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.addWidget(self.found_rows)
+        self.found_hint = hint_label(
+            tr("Check each group on the Light Table. To change one, drag frames onto another group or right-click › Scene."),
+            "muted",
+        )
+        self.layout.addWidget(self.found_hint)
+        self.discard_all_btn = self._labeled_action(
+            "fa5s.times", tr("Discard All"), tr("Forget every group: their frames stay with the roll baseline.")
+        )
+        self.accept_all_btn = labeled_action(
+            "fa5s.check", tr("Accept All"), tr("Make every group a scene and give each one its own baseline."), primary=True
+        )
+        self.found_actions = QWidget()
+        actions_layout = QHBoxLayout(self.found_actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.addWidget(self.discard_all_btn)
+        actions_layout.addWidget(self.accept_all_btn)
+        self.layout.addWidget(self.found_actions)
+        self._found_edits: list[QLineEdit] = []
+
         self._roll_sync_key = None
         self._scene_sync_key = None
+        self._found_sync_key: Optional[str] = None
         self._refresh_rolls(force=True)
         self.layout.addStretch()
 
@@ -69,6 +105,9 @@ class RollAnalysisSidebar(BaseSidebar):
         self.roll_combo.selection_changed.connect(self._on_roll_picked)
         self.reanalyze_btn.clicked.connect(self.controller.request_batch_normalization)
         self.from_frame_btn.clicked.connect(self._on_from_frame_clicked)
+        self.detect_scenes_btn.clicked.connect(self.controller.request_detect_scenes)
+        self.discard_all_btn.clicked.connect(lambda: self.controller.discard_found_scenes(list(range(len(self._found_edits)))))
+        self.accept_all_btn.clicked.connect(lambda: self._accept_found(list(range(len(self._found_edits)))))
         self.controller.session.files_changed.connect(self._refresh_scenes)
         self.sync_ui()
 
@@ -128,6 +167,7 @@ class RollAnalysisSidebar(BaseSidebar):
         loaded = [f.get("scene") for f in self.controller.state.uploaded_files]
         key = (active_id, repr(scenes), repr(loaded))
         if key == self._scene_sync_key:
+            self._refresh_found(len(scenes))
             return
         self._scene_sync_key = key
         while self._scene_rows_layout.count():
@@ -169,8 +209,52 @@ class RollAnalysisSidebar(BaseSidebar):
             self._scene_rows_layout.addWidget(row)
         in_roll = active_id is not None
         self.scenes_header.setVisible(in_roll)
+        self.detect_scenes_btn.setVisible(in_roll)
         self.scene_rows.setVisible(bool(scenes))
         self.scenes_hint.setVisible(in_roll and not scenes)
+        self._refresh_found(len(scenes))
+
+    def _refresh_found(self, scene_count: int) -> None:
+        """One row per group Detect Scenes found: its mark, the name it takes as a scene, its frame
+        count, Accept and Discard. A name commits on Enter; Accept reads the field as it stands."""
+        found = self.controller.state.found_scenes
+        key = repr(found)
+        if key == self._found_sync_key:
+            return
+        self._found_sync_key = key
+        while self._found_rows_layout.count():
+            item = self._found_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._found_edits = []
+        for k, scene in enumerate(found):
+            ordinal = scene_count + 1 + k
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(
+                field_label(tr('<span style="color:{value}">◌</span> {ordinal}', value=scene_color(ordinal), ordinal=ordinal))
+            )
+            edit = QLineEdit(scene["name"])
+            edit.setToolTip(wrap_tooltip(tr("The name this group takes as a scene.")))
+            edit.returnPressed.connect(lambda k=k, e=edit: self.controller.rename_found_scene(k, e.text().strip()))
+            row_layout.addWidget(edit, 1)
+            row_layout.addWidget(hint_label(count_of(len(scene["hashes"]), "frame"), "muted"))
+            accept = self._icon_action("fa5s.check", tr("Accept: make this group a scene and give its frames their own baseline."))
+            accept.clicked.connect(lambda _=False, k=k: self._accept_found([k]))
+            discard = self._icon_action("fa5s.times", tr("Discard: forget this group, and its frames stay with the roll baseline."))
+            discard.clicked.connect(lambda _=False, k=k: self.controller.discard_found_scenes([k]))
+            row_layout.addWidget(accept)
+            row_layout.addWidget(discard)
+            self._found_rows_layout.addWidget(row)
+            self._found_edits.append(edit)
+        for widget in (self.found_header, self.found_rows, self.found_hint, self.found_actions):
+            widget.setVisible(bool(found))
+
+    def _accept_found(self, indices: list[int]) -> None:
+        found = self.controller.state.found_scenes
+        names = {k: self._found_edits[k].text().strip() or found[k]["name"] for k in indices if k < len(found)}
+        self.controller.accept_found_scenes(names)
 
     def _update_roll_status_hint(self, active_id: Optional[str], selected_id: str) -> None:
         """Flags a baseline picked from a roll other than the one loaded, or one from an older analysis."""

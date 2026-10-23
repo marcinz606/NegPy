@@ -411,13 +411,45 @@ def wrap_tooltip(text: str, footer: str = "") -> str:
     return text
 
 
+# A warning or an error leads with an icon, so it never rests on its hue alone.
+_HINT_ICONS = {"warning": ("mdi6.alert-outline", "warn_amber"), "error": ("mdi6.alert-circle-outline", "error_text")}
+
+
+class _HintLabel(QLabel):
+    """hint_label's label: a warning or an error paints its icon in a left margin it keeps for it."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self._icon: QIcon | None = None
+
+    def sync_icon(self) -> None:
+        self.ensurePolished()
+        spec = _HINT_ICONS.get(self.property("hint"))
+        self._icon = qta.icon(spec[0], color=getattr(THEME, spec[1]), color_disabled=THEME.text_muted) if spec else None
+        self.setContentsMargins(self.fontMetrics().ascent() + THEME.space_sm if spec else 0, 0, 0, 0)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._icon is None:
+            return
+        fm, size = self.fontMetrics(), self.fontMetrics().ascent()
+        flags = int(self.alignment().value) | (int(Qt.TextFlag.TextWordWrap.value) if self.wordWrap() else 0)
+        block = fm.boundingRect(self.contentsRect(), flags, self.text())
+        rect = QRect(block.left() - THEME.space_sm - size, block.top() + (fm.height() - size) // 2, size, size)
+        mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
+        p = QPainter(self)
+        self._icon.paint(p, rect, Qt.AlignmentFlag.AlignCenter, mode)
+
+
 def hint_label(text: str = "", kind: str = "muted") -> QLabel:
     """Small informational label under a control. kind: "muted" | "warning" | "success" |
     "error" — styled by the QLabel[hint=...] rules in modern_dark.qss. Change
     kind at runtime with set_hint_kind (a plain setProperty won't repolish)."""
-    lbl = QLabel(text)
+    lbl = _HintLabel(text)
     lbl.setWordWrap(True)
     lbl.setProperty("hint", kind)
+    lbl.sync_icon()
     return lbl
 
 
@@ -426,6 +458,8 @@ def set_hint_kind(lbl: QLabel, kind: str) -> None:
     style = lbl.style()
     style.unpolish(lbl)
     style.polish(lbl)
+    if isinstance(lbl, _HintLabel):
+        lbl.sync_icon()
 
 
 def caption_label(text: str) -> QLabel:

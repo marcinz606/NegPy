@@ -48,7 +48,8 @@ class SensorSidebar(BaseSidebar):
         self.sensor_combo.addItems(SensorProfiles.list_profiles())
         self.sensor_combo.setToolTip(
             tr(
-                "Sensor profile: removes the color leak between channels in single-shot narrowband scans; run Roll Analysis again after a change."
+                "Sensor crosstalk profile: removes the color leak between channels in a single exposure under narrowband light; "
+                "run Roll Analysis again after a change."
             )
         )
         self.calibrate_sensor_btn = self._icon_action(
@@ -74,10 +75,10 @@ class SensorSidebar(BaseSidebar):
         # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
         # explains the greyed controls rather than flagging a problem. Text and tooltip are set
         # per reason in _apply_gate.
-        self.sensor_hint = hint_label(tr("Requires Linear RAW."))
+        self.sensor_hint = hint_label("")
         narrowband_header, self.narrowband_fold = group_fold(
             "sensor_narrowband",
-            tr("Single-Shot Narrowband Calibration"),
+            tr("Sensor Crosstalk Profile"),
             row,
             unmix_row,
             self.sensor_hint,
@@ -167,8 +168,8 @@ class SensorSidebar(BaseSidebar):
     # the hint label rather than the combo it describes.
     _SENSOR_BLOCKED = {
         "linear_raw": (
-            tr("Requires Linear RAW."),
-            tr("Sensor profiles need Linear RAW, so the profile is skipped while it is off and your choice is kept."),
+            tr("Requires Linear RAW, for a Single Exposure under narrowband light."),
+            tr("A sensor crosstalk profile needs Linear RAW, so the profile is skipped while it is off and your choice is kept."),
         ),
         "triplet": (
             tr("Not used for a Trichrome triplet."),
@@ -185,21 +186,26 @@ class SensorSidebar(BaseSidebar):
 
         Display-only: conf.sensor_profile is left alone, so the selection comes back intact
         after a Linear RAW or film-process round-trip. Crosstalk and Hue Trim depend on
-        neither the decode basis nor the light, so they stay enabled.
+        neither the decode basis nor the light, so they stay enabled. Calibrate stays enabled too: it
+        reads its own three shots, not this frame.
         """
-        config = self.state.config
-        triplet = is_rgb_triplet(config.rgbscan) or stitch_has_triplets(config.stitch)
-        reason = ("triplet" if triplet else "") or unmix_block_reason(conf)  # the frame's own reason first: a decode change cannot lift it
+        reason = self._unmix_reason()
         available = not reason
         self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
         self.sensor_combo.setEnabled(available)
-        self.calibrate_sensor_btn.setEnabled(available)
         self.unmix_btn.setEnabled(available and conf.sensor_matrix is not None)
         self.sensor_hint.setVisible(bool(reason))
         if reason:
             text, tip = self._SENSOR_BLOCKED[reason]
             self.sensor_hint.setText(text)
             self.sensor_hint.setToolTip(wrap_tooltip(tip))
+
+    def _unmix_reason(self) -> str:
+        config = self.state.config
+        triplet = is_rgb_triplet(config.rgbscan) or stitch_has_triplets(config.stitch)
+        return ("triplet" if triplet else "") or unmix_block_reason(
+            config.process
+        )  # the frame's own reason first: a decode change cannot lift it
 
     def _connect_signals(self) -> None:
         self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
@@ -242,8 +248,12 @@ class SensorSidebar(BaseSidebar):
         dlg.exec()
 
     def _on_sensor_profile_saved(self, name: str) -> None:
-        self._on_sensor_profile_changed(name)
-        self.sync_ui()  # rebuild the combo (now includes the new profile) and select it
+        # Linear RAW off keeps the choice, as the gate does; a slide or a triplet never uses one.
+        if self.state.current_file_hash and self._unmix_reason() in ("", "linear_raw"):
+            self._on_sensor_profile_changed(name)
+        else:
+            self.controller.set_status(tr("Saved sensor profile “{name}”. Select it on a single-shot negative.", name=name), 6000)
+        self.sync_ui()  # rebuild the combo, which now lists the new profile
 
     def _on_crosstalk_profile_changed(self, name: str) -> None:
         # Bake the matrix into the config, so saved edits stay reproducible if the profile file is
@@ -382,7 +392,7 @@ class SensorSidebar(BaseSidebar):
 
             self.hue_trim_slider.setValue(conf.hue_trim)
 
-            # Only a single-shot narrowband camera rig leaks between bands or turns hues; a group
+            # Only a single-exposure narrowband camera rig leaks between bands or turns hues; a group
             # that holds a setting stays in view whatever the rig.
             camera_narrowband = resolved_rig(self.controller.session.repo, self.state) == ("camera", "narrowband")
             narrowband = camera_narrowband or conf.sensor_matrix is not None

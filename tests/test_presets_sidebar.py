@@ -156,3 +156,64 @@ def test_sync_ui_skips_rebuild_when_names_unchanged(qapp, tmp_path, monkeypatch)
     sb.preset_list.item(0).setData(Qt.ItemDataRole.UserRole, "keep")
     sb.sync_ui()
     assert sb.preset_list.item(0).data(Qt.ItemDataRole.UserRole) == "keep"
+
+
+def _preset_picker_labels(qapp, monkeypatch, open_dialog) -> set[str]:
+    from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
+
+    seen: set[str] = set()
+
+    def fake_exec(dlg):
+        seen.update(row.label for _box, row, _edited, _line in dlg._checks)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(GranularSettingsDialog, "exec", fake_exec)
+    open_dialog()
+    return seen
+
+
+def test_save_offers_the_rig_and_format_rows_but_not_one_frames_placement(qapp, tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path))
+    controller = SimpleNamespace(
+        state=SimpleNamespace(config=WorkspaceConfig(), current_file_hash="h0"), session=SimpleNamespace(repo=None)
+    )
+    sb = PresetsSidebar(controller)
+    labels = _preset_picker_labels(qapp, monkeypatch, sb._on_save_clicked)
+    assert {"Crop Ratio", "Crop Mode", "Crop Offset", "Rebate Trim", "Auto Crop", "Square First"} <= labels
+    assert {"Distortion Correction", "Embedded CA", "Flat Field"} <= labels
+    assert not labels & {"Crop", "Rotation", "Fine Rotation", "Tilt", "Swing", "Flip Horizontal", "Flip Vertical"}
+
+
+def test_a_rig_preset_round_trips_and_applies_to_the_roll(qapp, tmp_path, monkeypatch):
+    from negpy.desktop.settings_catalog import preset_config, selected_flat_dict
+
+    monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path))
+    base = WorkspaceConfig()
+    rig = replace(
+        base,
+        geometry=replace(base.geometry, distortion_k1=0.02, autocrop_ratio="6:7"),
+        flatfield=replace(base.flatfield, apply=True, profile_id="ff-120"),
+    )
+    rows = [r for r in all_rows() if r.label in ("Distortion Correction", "Crop Ratio", "Flat Field")]
+    Presets.save_preset("Camera rig", selected_flat_dict(rig, rows))
+    assert Presets.load_preset("Camera rig")["profile_id"] == "ff-120"
+
+    cfg = preset_config(Presets.load_preset("Camera rig"))
+    mgr = _session()
+    assert mgr.apply_preset_fields(cfg, rows, "roll") == 3
+    saved = {c.args[0]: c.args[1] for c in mgr.repo.save_file_settings.call_args_list}
+    for target in (saved["h1"], saved["h2"], mgr.state.config):
+        assert target.geometry.distortion_k1 == 0.02
+        assert target.geometry.autocrop_ratio == "6:7"
+        assert target.flatfield.apply is True
+        assert target.flatfield.profile_id == "ff-120"
+
+
+def test_the_preset_section_filters_name_real_catalog_sections():
+    from negpy.desktop.settings_catalog import CATALOG
+    from negpy.desktop.view.sidebar import presets
+
+    titles = {title for title, _rows in CATALOG}
+    assert presets._PRESET_EXCLUDED_SECTIONS <= titles
+    assert presets._REPLACE_KEPT_SECTIONS <= titles
+    assert "geometry.crop_rect" in {r.id for _title, rows in CATALOG for r in rows}

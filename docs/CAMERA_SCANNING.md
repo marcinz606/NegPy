@@ -8,13 +8,13 @@ into NegPy. It has two modes and picks one from the hardware it finds.
 **Normal camera scanning.** One exposure of the frame under any light, imported as an
 ordinary RAW. This needs only a supported camera.
 
-**Narrowband RGB scanning.** With an RGB [Scanlight](https://github.com/jackw01/scanlight)
+**Trichrome scanning.** With a [Scanlight](https://github.com/jackw01/scanlight)
 connected, the light flashes red, then green, then blue, and the camera takes one exposure
 per channel. NegPy's **Trichrome** merge sub-pixel-aligns the three RAWs into one frame
 before inversion. One narrow band at a time removes the crosstalk between dye layers, and
 each channel gets the full dynamic range of the sensor.
 
-**Single-capture narrowband scanning.** An RGB preset can instead light red, green and blue
+**Single Exposure scanning.** A narrowband preset can instead light red, green and blue
 together for one exposure: one shutter actuation per frame and no registration. The frame
 imports as an ordinary RAW, and its roll is recorded with Trichrome Mode off. The channels
 overlap on the sensor, so pair it with a [sensor calibration](#sensor-calibration) profile.
@@ -25,7 +25,7 @@ overlap on the sensor, so pair it with a [sensor calibration](#sensor-calibratio
 |---|---|
 | **Camera** | Any body [libgphoto2 can drive](http://gphoto.org/proj/libgphoto2/support.php) with live view and remote capture. A body missing from that list often works through the generic PTP driver (an a7C II does). |
 | **python-gphoto2** | Optional dependency, LGPL. `pip install gphoto2`. No vendor SDK is bundled, linked or required. |
-| **Scanlight** *(optional)* | Needed for narrowband RGB only. |
+| **Scanlight** *(optional)* | Needed for narrowband light only. |
 
 Without python-gphoto2, the Scan tab's Camera scanner shows a one-line setup hint and the rest
 of NegPy works as usual.
@@ -62,7 +62,7 @@ focus ring turns, and **Focus Magnif. Time** zooms back out after 2 s or 5 s (se
 meter reads **at peak**. It works on every body with live view.
 
 In white-light and camera-only scanning, set ISO, shutter and aperture live from the
-toolbar. A calibrated RGB preset hides and locks them (see **Presets**). A control the body
+toolbar. A calibrated narrowband preset hides and locks them (see **Presets**). A control the body
 cannot offer is grayed out, usually aperture on a lens with no electronic diaphragm (most
 enlarging and macro glass). A thin border marks the edge of the captured frame.
 
@@ -109,10 +109,10 @@ magnifier returns to the preview's zebras. The blue shadow hatching always comes
 preview. The map is used only when the first preview at the metered exposure has the same
 aspect as the probe and matches it by rank correlation of thumbnails. A body whose live
 view crops or reframes the RAW fails this check, and the status line says `RAW zebras off:`
-with the reason. Under a calibrated RGB preset the probe shoots under the scan light, and the
+with the reason. Under a calibrated narrowband preset the probe shoots under the scan light, and the
 metered shutter replaces the preset's until you pick the preset again.
 
-**Calibrate (RGB mode).** Set the ISO and the aperture you scan with. Press **+** beside the
+**Calibrate (narrowband light).** Set the ISO and the aperture you scan with. Press **+** beside the
 preset dropdown, pick **Calibrate on the Film Base…**, place the small rectangle on the clear film base (the rebate strip between
 frames is a good target), name the preset and run it. Calibration solves one shared
 shutter plus a per-channel LED level, so each channel lands just under clipping, and
@@ -120,12 +120,12 @@ records the ISO and the aperture. The clear base becomes the *black point* after
 so a clip guard checks the raw Bayer photosites and backs the exposure off if any channel
 saturates. Save the preset once per film stock and reuse it.
 
-The dropdown beside the name sets the capture mode. **Triplet** solves each channel under
-its own LED. **Single Capture** solves the three levels together for one exposure with all
+The dropdown beside the name sets the capture mode. **Trichrome** solves each channel under
+its own LED. **Single Exposure** solves the three levels together for one exposure with all
 three LEDs lit, measuring how much each sensor channel reads the neighboring LEDs. If no
-levels balance the channels, the run stops and says so; calibrate a triplet preset instead.
+levels balance the channels, the run stops and says so; calibrate a Trichrome preset instead.
 
-With **Create Sensor Profile** on, a Single Capture run also saves a
+With **Create Sensor Crosstalk Profile** on, a Single Exposure run also saves a
 [sensor calibration](#sensor-calibration) profile under the preset's name, from the same
 exposures. A roll scanned with the preset takes that profile and turns Linear RAW on. Turn
 the toggle off to keep a profile you made yourself.
@@ -139,10 +139,9 @@ aperture. The scan sets that exposure on the body before every frame. The dropdo
 own presets and the built-ins you have added from **+** › **Built-in Presets**; a built-in stays
 in the list until the trash removes it. To build a preset by hand, press **+** beside
 PRESET and pick **Set by Hand** to unlock the sliders and the exposure steppers. Set them and **Capture
-mode** (triplet or single capture); Scan uses them as they stand, and the save (floppy)
+mode** (Trichrome or Single Exposure); Scan uses them as they stand, and the save (floppy)
 button keeps them as a preset. Only the
-white-light presets use the White channel, because the Scanlight cannot light it together
-with RGB. The white-light presets differ only in film type: AUTO classifies each capture,
+white-light presets use the White channel, because the Scanlight cannot light it together with the red, green and blue LEDs. The white-light presets differ only in film type: AUTO classifies each capture,
 **B&W Negative**, **Color Negative** and **Slide** fix it, for the import and for Meter. **White
 Light + IR, Color Negative**, **White Light + IR, Slide**, **Trichrome, Color Negative** and **Trichrome + IR, Color Negative**
 need no calibration either: full LED power at the camera's shutter, which Meter sets, and
@@ -150,8 +149,7 @@ a **+ IR** preset ends each frame with an infrared exposure at **IR Shutter**. T
 **Infrared** toggle beside IR Shutter does the same for any preset.
 
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files go
-to an auto-numbered per-roll subfolder and are imported and merged automatically. A
-single-capture preset writes one file per frame. **Retake** shoots the current frame again
+to an auto-numbered per-roll subfolder and are imported and merged automatically. A Single Exposure preset writes one file per frame. **Retake** shoots the current frame again
 without advancing the counter. **Capture Delay** holds both for up to 10 s before the first
 exposure, so a table that shakes when you let go of the camera can settle; **Stop** ends the
 wait. **Delay between exposures** adds a pause between the red, green and blue captures, for
@@ -167,7 +165,7 @@ a full-spectrum or IR-converted body: a stock camera's IR-cut filter leaves the 
 frame at noise. Set the lens to manual focus: autofocus hunts on the dark infrared frame and
 times out. An `_IR` file stays its own frame in the Film Strip. Each scanned frame
 takes the decode its light implies: white light keeps the camera's white balance, Trichrome
-and Single Capture decode Linear RAW; a frame already edited keeps its own.
+and Single Exposure decode Linear RAW; a frame already edited keeps its own.
 
 **Narrowband light.** Narrowband LEDs separate the dye layers more cleanly than white light, so
 colors render more saturated. The *Digital (Adobe RGB)* print stock prints them through ideal
@@ -175,15 +173,15 @@ dyes; a paper or print film in **Print stock** prints them through that stock's 
 
 ### Sensor calibration
 
-A single-shot scan under a narrowband RGB source can have hues that no slider fixes, such
+A single-exposure scan under narrowband light can have hues that no slider fixes, such
 as yellows that drift orange. The cause is **sensor crosstalk**: the camera's color-filter
 passbands overlap the source's bands, so each channel reads some of the other LEDs. It is a
 fixed property of your sensor and light pair, independent of the film.
 
 Three ways to build a profile give near-identical corrections (see
-[Sensor profile workflows](#sensor-profile-workflows)):
+[Sensor Crosstalk Profile workflows](#sensor-crosstalk-profile-workflows)):
 
-- **With a preset.** A Single Capture preset calibrated with **Create Sensor Profile** on
+- **With a preset.** A Single Exposure preset calibrated with **Create Sensor Crosstalk Profile** on
   saves a profile measured through the film base (workflow A).
 - **Capture from Camera…** With the camera tethered, a Scanlight connected and no film in
   the holder, NegPy lights each LED in turn, sets the shutter and saves the profile. It
@@ -199,7 +197,7 @@ The profile unmixes every scan with a 3×3 matrix in the linear domain, before i
 Profiles are TOML files in the `NegPy/sensor` folder. Re-run **Roll Analysis** after you
 change the profile.
 
-### Sensor profile workflows
+### Sensor Crosstalk Profile workflows
 
 You build a profile in the preset calibration that **+** opens in the **Preset**
 panel, or in the **Calibration** panel on the Roll tab. A preset that made its own profile
@@ -212,11 +210,11 @@ assigns it on every scan. You assign a Calibration-panel profile yourself, once 
 | Tethered camera and Scanlight, manual preset | [C](#c-a-manual-preset) | Calibration panel | You |
 | Files shot without NegPy | [D](#d-files-not-scanned-with-negpy) | Calibration panel | You |
 
-All four apply to single-shot narrowband frames only. A Triplet preset needs no profile.
+All four apply to Single Exposure frames only. A Trichrome preset needs no profile.
 
 #### A. The preset makes the profile
 
-The default, for calibrated Single Capture presets.
+The default, for calibrated Single Exposure presets.
 
 Once per film stock:
 
@@ -224,7 +222,7 @@ Once per film stock:
    dropdown and pick **Calibrate on the Film Base…**. The calibration window opens with its own live view.
 2. Set the ISO and the aperture you scan with, click the clear film base and name the
    preset after the stock.
-3. Pick **Single Capture**, leave **Create Sensor Profile** on and press **Calibrate & Save**.
+3. Pick **Single Exposure**, leave **Create Sensor Crosstalk Profile** on and press **Calibrate & Save**.
 
 For every roll of that stock:
 
@@ -251,10 +249,10 @@ its exposures were too dim to measure one.
 
 1. Build the profile once for the rig. Take the film out of the holder. In the
    **Calibration** panel, turn **Linear RAW** on, press the calibrate button under
-   *Single-Shot Narrowband Calibration*, name the profile, press **Capture from Camera…**
+   *Sensor Crosstalk Profile*, name the profile, press **Capture from Camera…**
    and confirm. To use three bare-light files instead, pick them in the same dialog as in
    workflow D, step 1.
-2. Load the film. Calibrate the preset as in workflow A, with **Create Sensor Profile** off.
+2. Load the film. Calibrate the preset as in workflow A, with **Create Sensor Crosstalk Profile** off.
 3. Scan the first frame. In the **Calibration** panel, check that **Linear RAW** is on,
    pick the profile under **Profile**, and press **Roll** on the panel header.
 4. Scan the rest of the roll. New frames take the roll's profile.
@@ -271,12 +269,12 @@ Notes:
 
 #### C. A manual preset
 
-A manual preset meters nothing, so it cannot make a profile. A single-shot roll scanned
+A manual preset meters nothing, so it cannot make a profile. A single-exposure roll scanned
 with it has no correction until you pick one.
 
 1. Build the profile as in workflow B, step 1, or use one the rig already has.
 2. In the **Preset** panel, press **+** beside PRESET, pick **Set by Hand**,
-   set the levels and the exposure, set **Capture mode** to **Single Capture**
+   set the levels and the exposure, set **Capture mode** to **Single Exposure**
    and save the preset.
 3. Scan the first frame, then assign the profile to the roll as in workflow B, step 3.
 
@@ -285,8 +283,7 @@ shutter, so one profile serves a manual preset at any levels.
 
 #### D. Files not scanned with NegPy
 
-For single-shot RAW files shot to the card, with other tethering software, or under an RGB
-light NegPy cannot control.
+For single-exposure RAW files shot to the card, with other tethering software, or under a narrowband light NegPy cannot control.
 
 1. Build the profile for the camera and light that shot the files. If that rig is a
    camera NegPy can tether and a Scanlight, use **Capture from Camera…** as in workflow B.
@@ -307,7 +304,7 @@ Notes:
 
 ### When no profile applies
 
-RGB-triplet (trichrome) scans have no sensor crosstalk, and NegPy skips the correction for
+Trichrome scans have no sensor crosstalk, and NegPy skips the correction for
 triplet assets. A dedicated film scanner has none either (a Coolscan's mono CCD reads one
 LED at a time). Its remaining color error is film-dye crosstalk, which the density-domain
 **Crosstalk** matrix corrects (see [CROSSTALK.md](CROSSTALK.md)).

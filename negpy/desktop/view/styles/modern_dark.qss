@@ -439,9 +439,10 @@ QLabel[hint="warning"] {
     border: none;
 }
 
+/* An error asks the user to act, so it reads at body size. */
 QLabel[hint="error"] {
-    color: @error;
-    font-size: @font_size_smallpx;
+    color: @error_text;
+    font-size: @font_size_basepx;
     border: none;
 }
 
@@ -567,23 +568,23 @@ QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     color: @text_muted;
 }
 
-/* The right panel's main tab strip (see widgets/panel_tab.py). */
-OverflowBar#main_tabs {
-    background-color: @bg_header;
-    border-bottom: 1px solid @border_primary;
-}
-
 /* Collapsible section header (see widgets/collapsible.py). [overlay="true"] =
-   header stacked over a preview widget (Tone/Color histogram strip). */
+   header stacked over a preview widget (Tone/Color histogram strip). Its outline runs on into
+   the content frame's, so an open card has square bottom corners; only a collapsed one rounds them. */
 QPushButton#collapsible_header {
     text-align: left;
     background-color: @bg_header;
-    border: none;
-    border-bottom: 1px solid @border_primary;
+    border: 1px solid @border_primary;
+    border-radius: 0;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
     color: @text_on_accent;
     padding: 0;
+}
+
+QPushButton#collapsible_header[checkable="true"]:!checked {
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
 }
 
 QPushButton#collapsible_header:hover {
@@ -777,16 +778,6 @@ QDialogButtonBox {
    panel or a dialog footer moves an invisible cursor. Marked with a neutral gray edge. */
 QPushButton:focus, QToolButton:focus {
     border: 1px solid @border_focus;
-}
-
-/* The ring grows inward: a 2px border on a 12px content box would make the
-   handle 16px wide while the groove clamps its height, so it reads as an egg. */
-QSlider::handle:horizontal:focus {
-    border: 2px solid @text_on_accent;
-    width: 8px;
-    height: 8px;
-    margin: -4px 0;
-    border-radius: 6px;
 }
 
 /* Find (see widgets/command_palette.py). */

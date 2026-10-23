@@ -1189,17 +1189,106 @@ def pool_neutral_axis(axes: list, outliers: np.ndarray) -> Optional[tuple]:
     return (*pooled, weight)
 
 
+#: The Frontier's cast-hue strength (ez171autoc-nega.dat 0x4D18), piecewise linear in the cast's hue
+#: atan2(B - (R+G)/2, (R-G)·√3/2) in negative density: -30 red, 30 magenta, 90 blue, -90 yellow.
+_CAST_HUE_DEGREES = (-180.0, -120.0, -90.0, -30.0, 0.0, 30.0, 100.0, 140.0, 180.0)
+_CAST_HUE_STRENGTH = (0.3, 0.3, 0.6, 0.6, 0.0, 0.0, 1.0, 1.0, 0.3)
+
+
+def _cast_hue_strength(dr: float, db: float) -> float:
+    """Share of a frame's own cast that Cast Removal removes, from its (R, B) log offsets at equal green.
+    A magenta cast stays and a blue one goes, as on the Frontier."""
+    hue = np.degrees(np.arctan2(0.5 * dr - db, -0.5 * np.sqrt(3.0) * dr))
+    return float(np.interp(hue, _CAST_HUE_DEGREES, _CAST_HUE_STRENGTH))
+
+
 def blend_neutral_axis(own: Optional[tuple], pooled: tuple) -> tuple:
     """The pooled axis shifted by this frame's own midtone offset from the pooled curve, scaled
-    by the pool's offset weight and the frame's confidence: the roll's shape, this frame's
-    level. No own axis, or a zero weight, is the pooled axis itself."""
+    by the pool's offset weight, the frame's confidence and the offset's cast-hue strength: the
+    roll's shape, this frame's level. No own axis, or a zero weight, is the pooled axis itself."""
     weight = pooled[4] if len(pooled) > 4 else 0.0
     k = weight * own[3] if own is not None else 0.0
     if k <= 0.0:
         return pooled[:4]
     dr, db = _axis_curve_residuals(own, pooled)[0]
+    k *= _cast_hue_strength(dr, db)
     shift = lambda b: (b[0] + k * dr, b[1], b[2] + k * db) if b is not None else None  # noqa: E731
     return (shift(pooled[0]), shift(pooled[1]), shift(pooled[2]), pooled[3])
+
+
+#: Detect Scenes: two frames are under one light when their midtone grays, read at equal green,
+#: are within this many log D (about 8 CC) of each other.
+SCENE_LIGHT_DISTANCE = 0.08
+#: A frame's axis below this confidence has no trustworthy grays and joins no scene.
+SCENE_MIN_CONFIDENCE = 0.2
+#: A found scene keeps only frames whose own light is within this many log D of the scene's median.
+SCENE_MEMBER_RADIUS = 0.05
+#: Weights of the neighbours 1, 2 and 3 frames away in scan order.
+SCENE_ORDER_REACH = (1.5, 0.9, 0.45)
+
+
+def _smooth_along_scan_order(light: np.ndarray) -> np.ndarray:
+    """Each frame's light averaged with its scan-order neighbours under the same light, weighted by
+    how much more neighbours agree than any two frames: strips scanned out of order get no weight."""
+    n = len(light)
+    if n < 4:
+        return light
+    steps = np.linalg.norm(np.diff(light, axis=0), axis=1)
+    pairs = np.linalg.norm(light[:, None] - light[None, :], axis=-1)[np.triu_indices(n, 1)]
+    spread = float(np.median(pairs))
+    evidence = float(np.clip(1.0 - np.median(steps) / spread, 0.0, 1.0)) if spread > 0.0 else 0.0
+    out = light.copy()
+    for x in range(n):
+        total, weight = light[x].copy(), 1.0
+        for k, reach in enumerate(SCENE_ORDER_REACH, 1):
+            for y in (x - k, x + k):
+                if 0 <= y < n and np.linalg.norm(light[x] - light[y]) < SCENE_LIGHT_DISTANCE:
+                    total += evidence * reach * light[y]
+                    weight += evidence * reach
+        out[x] = total / weight
+    return out
+
+
+def _complete_linkage(points: np.ndarray, cut: float) -> list[list[int]]:
+    """Groups in which every pair of points is closer than *cut*, merged closest first."""
+    d = np.linalg.norm(points[:, None] - points[None, :], axis=-1)
+    np.fill_diagonal(d, np.inf)
+    groups: list[list[int]] = [[i] for i in range(len(points))]
+    while len(points) > 1:
+        i, j = np.unravel_index(int(np.argmin(d)), d.shape)
+        if d[i, j] >= cut:
+            break
+        groups[i] += groups[j]
+        groups[j] = []
+        d[i, :] = d[:, i] = np.maximum(d[i], d[j])
+        d[i, i] = np.inf
+        d[j, :] = d[:, j] = np.inf
+    return [g for g in groups if g]
+
+
+def detect_light_groups(axes: list) -> list[list[int]]:
+    """Detect Scenes: indices of each group of frames under one light other than the roll's own, two
+    frames or more, largest first. *axes* are the frames' neutral axes in scan order (None without
+    one). A frame's light is its midtone offset from the pooled axis at its own green, so the
+    subject's colors do not count; the largest group stays with the roll baseline."""
+    usable = [i for i, a in enumerate(axes) if a is not None and a[3] > SCENE_MIN_CONFIDENCE]
+    if len(usable) < 2:
+        return []
+    frames = [axes[i] for i in usable]
+    pooled = pool_neutral_axis(frames, np.zeros(len(frames), dtype=bool))
+    if pooled is None:
+        return []
+    light = np.array([_axis_curve_residuals(a, pooled)[0] for a in frames])
+    groups = _complete_linkage(_smooth_along_scan_order(light), SCENE_LIGHT_DISTANCE)
+    groups.sort(key=lambda g: (-len(g), min(g)))
+    found = []
+    for g in groups[1:]:
+        center = np.median(light[g], axis=0)
+        g = [j for j in g if np.linalg.norm(light[j] - center) < SCENE_MEMBER_RADIUS]
+        if len(g) >= 2:
+            found.append(g)
+    found.sort(key=lambda g: (-len(g), min(g)))
+    return [sorted(usable[j] for j in g) for g in found]
 
 
 def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:

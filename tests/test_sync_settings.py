@@ -144,7 +144,7 @@ def _metered_target():
         "Use Average Luma",
         "Use Average Color",
         "Crosstalk",
-        "Single-Shot Narrowband Calibration",
+        "Sensor Crosstalk Profile",
         "Crop",
     ],
 )
@@ -200,3 +200,11 @@ def test_source_effective_bounds_uses_roll_baseline_when_active():
 
 def test_source_effective_bounds_none_when_unanalysed():
     assert _source_effective_bounds(WorkspaceConfig().process) is None
+
+
+def test_flat_field_row_copies_the_toggle_with_its_profile():
+    c = WorkspaceConfig()
+    src = replace(c, flatfield=replace(c.flatfield, apply=True, profile_id="ff-35"))
+    tgt = replace(c, flatfield=replace(c.flatfield, profile_id="ff-120"))
+    out = apply_selected_fields(src, tgt, [_row("Flat Field")])
+    assert out.flatfield == src.flatfield

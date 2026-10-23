@@ -1370,7 +1370,7 @@ class TestLinearCorrections:
         assert wb_bake_block_reason(rgbscan, ProcessConfig()) == "trichrome"
 
     def test_wb_bake_block_reason_sensor_profile(self) -> None:
-        """A calibrated sensor matrix flags Single-Shot Narrowband."""
+        """A calibrated sensor crosstalk matrix flags a Single Exposure under narrowband light."""
         conf = ProcessConfig(sensor_matrix=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
         assert wb_bake_block_reason(RgbScanConfig(), conf) == "narrowband"
 

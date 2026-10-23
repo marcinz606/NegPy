@@ -18,41 +18,42 @@ class ThemeConfig:
     font_size_micro: int = 9
 
     # Colors. Surfaces, darkest first.
-    bg_dark: str = "#0D0D0D"
-    bg_panel: str = "#0D0D0D"
-    bg_input: str = "#0A0A0A"
-    bg_card: str = "#121212"
-    bg_header: str = "#161616"
-    bg_selected: str = "#222222"
-    bg_hover: str = "#262626"
-    bg_menu_selected: str = "#2E2E2E"
+    # bg_dark is also the macOS window background (view/mac_window.py): an alternate theme updates that fix.
+    bg_dark: str = "#252525"
+    bg_panel: str = "#252525"
+    bg_input: str = "#222222"
+    bg_card: str = "#2A2A2A"
+    bg_header: str = "#2E2E2E"
+    bg_selected: str = "#3A3A3A"
+    bg_hover: str = "#3E3E3E"
+    bg_menu_selected: str = "#464646"
     # A checked toggle and a segmented control's current choice; also the Scan button's tint
     # while it cannot start or while it reads Stop.
-    bg_checked: str = "#2A1D1D"
-    bg_checked_hover: str = "#351F1F"
-    border_checked: str = "#4A2424"
-    border_checked_hover: str = "#5E2A2A"
+    bg_checked: str = "#423535"
+    bg_checked_hover: str = "#4D3737"
+    border_checked: str = "#623C3C"
+    border_checked_hover: str = "#764242"
     # The primary action: the strongest button on a panel.
-    bg_primary: str = "#4A1C1C"
-    bg_primary_hover: str = "#5A2121"
+    bg_primary: str = "#623434"
+    bg_primary_hover: str = "#723939"
     # An edited card's frame-scope stripe and lit Frame icon; a roll-scope card takes border_checked_hover.
     border_scope_frame: str = "#5D4B24"
     # The dot on an edited control: red, a step below the R channel's red.
     mark_edited: str = "#9C3B3B"
-    bg_accent_muted: str = "#1A1414"
-    border_input: str = "#1A1A1A"
-    border_primary: str = "#262626"
-    border_color: str = "#333333"
-    border_hover: str = "#3A3A3A"
+    bg_accent_muted: str = "#322C2C"
+    border_input: str = "#323232"
+    border_primary: str = "#3E3E3E"
+    border_color: str = "#4B4B4B"
+    border_hover: str = "#525252"
     # Keyboard focus: a neutral edge, as hover and the arrow-key row are neutral.
-    border_focus: str = "#949494"
+    border_focus: str = "#7A7A7A"
     border_indicator: str = "#5A5A5A"
-    slider_disabled: str = "#555555"
+    slider_disabled: str = "#6D6D6D"
     text_on_accent: str = "#FFFFFF"
     text_primary: str = "#E4E4E4"
     text_secondary: str = "#B4B4B4"
-    # hint = readable secondary copy (6.4:1 on bg_panel); muted = disabled widgets only, and
-    # too dim (3.6:1) for text a user must read.
+    # hint = readable secondary copy (5.0:1 on bg_panel); muted = disabled widgets only, and
+    # too dim (2.9:1) for text a user must read.
     text_hint: str = "#949494"
     text_muted: str = "#6B6B6B"
     text_unit: str = "#7C7C7C"
@@ -61,8 +62,10 @@ class ThemeConfig:
     mark_photo: str = "#FFFFFF"
     # The dark edge or plate under a photo mark; each site sets its own alpha (templates.with_alpha).
     mark_shadow: str = "#000000"
-    # Errors and invalid input.
+    # Errors and invalid input. Error copy takes the lighter tier, as the channel colors do: error
+    # falls under 4.5:1 on a card, and a lighter error would dim the white mark on a failed-frame badge.
     error: str = "#D32F2F"
+    error_text: str = "#FF5A5A"
 
     # Spacing scale (px)
     space_xs: int = 2
@@ -80,13 +83,13 @@ class ThemeConfig:
     # Surface overlay tokens (rgba). Integer alpha where a widget sheet reads it.
     surface_scrim: str = "rgba(5, 5, 5, 115)"
     surface_pill: str = "rgba(0, 0, 0, 140)"
-    surface_reveal_flash: str = "rgba(94, 42, 42, 0.35)"  # border_checked_hover, faint
+    surface_reveal_flash: str = "rgba(118, 66, 66, 0.35)"  # border_checked_hover, faint
     surface_hover_faint: str = "#0CFFFFFF"  # #AARRGGBB: QColor reads it, not rgba()
-    surface_overlay: str = "rgba(13,13,13,0.88)"
+    surface_overlay: str = "rgba(37,37,37,0.88)"
     # A card header over its chart: light enough for the chart to read through.
-    header_veil: str = "rgba(26,26,26,0.55)"
-    header_veil_hover: str = "rgba(34,34,34,0.62)"
-    surface_overlay_hover: str = "rgba(34,34,34,0.88)"
+    header_veil: str = "rgba(50,50,50,0.55)"
+    header_veil_hover: str = "rgba(58,58,58,0.62)"
+    surface_overlay_hover: str = "rgba(58,58,58,0.88)"
     # Canvas toast / loading chip plate. Integer alpha: QSS float alpha is not reliably parsed.
     surface_toast: str = "rgba(10, 10, 10, 225)"
     border_toast: str = "rgba(255, 255, 255, 55)"

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +34,22 @@ from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 
 def _triplet(values) -> str:
     return " / ".join(f"{v:g}" for v in values)
+
+
+def _value_row(box: QPushButton, value: str = "") -> QWidget:
+    """A toggle and its value. Every row splits its width alike, so the toggles line up whatever the value."""
+    line = QWidget()
+    layout = QHBoxLayout(line)
+    layout.setContentsMargins(0, 0, 0, 0)
+    val = QLabel(value)
+    # A value too long for its third of the row shows its end; the tooltip holds all of it.
+    val.setToolTip(value)
+    val.setStyleSheet(f"color: {THEME.text_hint};")
+    val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    for widget, stretch in ((box, 2), (val, 1)):
+        widget.setSizePolicy(QSizePolicy.Policy.Ignored, widget.sizePolicy().verticalPolicy())
+        layout.addWidget(widget, stretch)
+    return line
 
 
 def build_scope_row(sel_count: int, roll_count: int, show_current: bool = False) -> tuple[QHBoxLayout, SegmentedChoice]:
@@ -219,21 +236,14 @@ class GranularSettingsDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_xs)
         for row, value, edited in rows:
-            # One widget per row (not a grid) so an unchanged row hides as a unit.
-            line = QWidget()
-            line_layout = QHBoxLayout(line)
-            line_layout.setContentsMargins(0, 0, 0, 0)
             label = tr(row.label)
             box = tool_toggle("", label, tr("Include {value}", value=label), align_left=True)
             box.setChecked(row.id in self._preselect_ids if self._preselect_ids is not None else edited)
             box.toggled.connect(self._update_apply_enabled)
             box.toggled.connect(self._refresh_section_states)
+            # One widget per row (not a grid) so an unchanged row hides as a unit.
+            line = _value_row(box, value)
             self._checks.append((box, row, edited, line))
-            val = QLabel(value)
-            val.setStyleSheet(f"color: {THEME.text_hint};")
-            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            line_layout.addWidget(box, 1)
-            line_layout.addWidget(val)
             col.addWidget(line)
         return body
 
@@ -245,24 +255,19 @@ class GranularSettingsDialog(QDialog):
         self._bounds_color = tool_toggle("", tr("Color Balance"), tr("Take the per-channel color balance from this frame"), align_left=True)
         for box in (self._bounds_luma, self._bounds_color):
             box.toggled.connect(self._update_apply_enabled)
-            col.addWidget(box)
+            col.addWidget(_value_row(box))
         return body
 
     def _build_local_bounds_row(self, process) -> QWidget:
         """The source frame's own metered bounds, as one opt-out row: they are not
         catalog fields, so they cannot be listed with the rest."""
-        body = QWidget()
-        row = QHBoxLayout(body)
-        row.setContentsMargins(0, 0, 0, 0)
         label = tr("Copied frame's bounds (locked)") if process.lock_bounds else tr("Copied frame's bounds")
         self._bounds_local = tool_toggle("", label, tr("Apply the copied frame's own metered bounds"), align_left=True)
         self._bounds_local.setChecked(True)
         self._bounds_local.toggled.connect(self._update_apply_enabled)
-        val = QLabel(tr("{value} → {value1}", value=_triplet(process.local_floors), value1=_triplet(process.local_ceils)))
-        val.setStyleSheet(f"color: {THEME.text_hint};")
-        row.addWidget(self._bounds_local, 1)
-        row.addWidget(val)
-        return body
+        return _value_row(
+            self._bounds_local, tr("{value} → {value1}", value=_triplet(process.local_floors), value1=_triplet(process.local_ceils))
+        )
 
     def _build_footer(self, ask_name: bool = False) -> QHBoxLayout:
         row = QHBoxLayout()

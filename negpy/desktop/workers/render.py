@@ -216,6 +216,8 @@ class NormalizationTask:
     override_analysis_buffer: float
     override_luma_range_clip: float
     override_color_range_clip: float
+    # Detect Scenes: the same per-frame pass, grouped by light instead of pooled into a baseline.
+    detect: bool = False
 
 
 @dataclass(frozen=True)
@@ -2016,6 +2018,8 @@ class NormalizationWorker(QObject):
     progress = pyqtSignal(int, int, str, bool)
     # floors, ceils, outlier hashes, pooled neutral axis (None when no frame has one).
     finished = pyqtSignal(tuple, tuple, list, object)
+    # Detect Scenes: the hashes of each group of frames under another light.
+    detected = pyqtSignal(list)
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -2046,6 +2050,7 @@ class NormalizationWorker(QObject):
         from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.normalization import (
             analyze_log_exposure_bounds,
+            detect_light_groups,
             effective_crosstalk_matrix,
             measure_neutral_axis_from_log,
             pool_frame_bounds,
@@ -2168,6 +2173,10 @@ class NormalizationWorker(QObject):
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:
                 raise RuntimeError("All files in batch failed analysis")
+            if task.detect:
+                groups = detect_light_groups([r[3] for r in valid_results])
+                self.detected.emit([[valid_results[i][2] for i in g] for g in groups])
+                return
 
             pooled, outliers = pool_frame_bounds(
                 np.array([r[0] for r in valid_results]),

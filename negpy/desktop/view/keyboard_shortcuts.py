@@ -589,6 +589,7 @@ class ShortcutManager:
             "toggle_tab_cards": lambda: _fire_tab_header(right, "cards"),
             "roll_batch_analysis": controller.request_batch_normalization,
             "analyze_all_scenes": controller.request_analyze_all_scenes,
+            "detect_scenes": controller.request_detect_scenes,
             "roll_settings": lambda: self.window.file_browser.roll_settings_btn.click(),
             "contact_sheet": lambda: right.export_sidebar.contact_sheet_btn.click(),
             "save_as_roll": lambda: self.window.file_browser.save_roll_action.trigger(),

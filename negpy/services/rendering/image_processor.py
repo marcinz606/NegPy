@@ -1789,22 +1789,22 @@ class ImageProcessor:
         exif_bytes, xmp_bytes = (embed_plan[0], embed_plan[1]) if embed_plan is not None else (None, None)
 
         if fmt == ExportFormat.TIFF:
+            from negpy.features.metadata.writer import attach_exif_ifd, tiff_metadata_kwargs
+
             meta_kwargs = {}
             if embed_plan is not None:
-                from negpy.features.metadata.writer import tiff_metadata_kwargs
-
                 plan_exif, plan_xmp, fold = embed_plan
                 meta_kwargs = tiff_metadata_kwargs(plan_exif, plan_xmp, fold_user_comment=fold)
-            return (
-                encode_tiff(
-                    img_out,
-                    icc=icc_bytes,
-                    resolution=_tiff_resolution(resolution, export_settings),
-                    compression=export_settings.tiff_compression,
-                    **meta_kwargs,
-                ),
-                "tiff",
+            tiff_bytes = encode_tiff(
+                img_out,
+                icc=icc_bytes,
+                resolution=_tiff_resolution(resolution, export_settings),
+                compression=export_settings.tiff_compression,
+                **meta_kwargs,
             )
+            if exif_bytes:
+                tiff_bytes = attach_exif_ifd(tiff_bytes, exif_bytes)
+            return tiff_bytes, "tiff"
         elif fmt == ExportFormat.PNG:
             return (
                 encode_png(

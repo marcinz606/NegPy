@@ -167,9 +167,6 @@ class RightPanel(QWidget):
 
         # Spills into a » menu when the panel is narrowed
         self.group_switcher = OverflowBar(height=58, min_item=PanelTab.min_width([spec[1] for spec in group_specs], stacked=True))
-        # The » button sits on the strip, not on the panel.
-        self.group_switcher.setObjectName("main_tabs")
-        self.group_switcher.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.group_stack = QStackedWidget()
         self.group_stack.setContentsMargins(0, 0, 0, 0)
 
@@ -219,6 +216,7 @@ class RightPanel(QWidget):
         self.analysis_section.expanded_changed.connect(self._resize_splitter_for_analysis)
 
         layout.addWidget(self.group_switcher)
+        layout.addSpacing(THEME.space_sm)
         layout.addWidget(self.splitter, 1)
 
         self.apply_shortcut_tooltips()

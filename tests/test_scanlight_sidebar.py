@@ -555,6 +555,7 @@ def test_the_body_changing_its_magnifier_restarts_the_focus_peak(tmp_path, monke
     p = tmp_path / "settings.json"
     monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     frame = np.random.default_rng(1).integers(0, 255, (48, 64)).astype(np.uint8)
 
     def publish(on: bool) -> None:
@@ -918,6 +919,7 @@ def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     w._refresh_camera_settings()
     assert w.lv_window.iso_stepper.count() == 2
     assert w.lv_window.iso_stepper.currentData() == 200  # reflects the camera's current value
@@ -948,6 +950,7 @@ def test_camera_setting_writes_are_debounced_to_the_final_value(tmp_path, monkey
     )
     monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     w._refresh_camera_settings()
     st = w.lv_window.shutter_stepper
     for raw in (1, 2):  # rapid stepping 1/5 → 1/60 → 1/125
@@ -1150,7 +1153,7 @@ def test_safe_roll_name_is_trimmed_consistently(tmp_path):
 
 def test_temp_label_hides_when_no_reading():
     w = _sidebar()
-    assert w.light_temp.isHidden()  # starts hidden — an empty label paints a dark #0D0D0D box
+    assert w.light_temp.isHidden()  # starts hidden — an empty label paints a dark bg_panel box
     w._on_light_temp(42.0)  # a reading arrives
     assert not w.light_temp.isHidden() and "42" in w.light_temp.text()
     w._on_light_temp(None)  # light unplugged / no telemetry
@@ -1281,6 +1284,7 @@ def test_calibration_steppers_are_populated_and_drive_the_camera(tmp_path, monke
     )
     monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     w._refresh_camera_settings()
     assert w.calib_window.iso_stepper.count() == 2 and w.calib_window.aperture_stepper.count() == 2
     w.calib_window.iso_stepper.setCurrentIndex(w.calib_window.iso_stepper.findData(200))
@@ -1453,6 +1457,7 @@ def test_applying_an_rgb_preset_drives_the_body_iso_and_aperture(tmp_path, monke
 
 def test_applying_rgb_preset_shows_and_stores_the_exposure(monkeypatch):
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))
     w.preset_combo.addItem("TestStock", "TestStock")
     idx = w.preset_combo.findData("TestStock")
@@ -1466,6 +1471,7 @@ def test_applying_rgb_preset_shows_and_stores_the_exposure(monkeypatch):
 
 def test_white_preset_clears_the_exposure_fields():
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     w._apply_preset_exposure("100", "f/8")  # leftover from a previous RGB preset
     idx = w.preset_combo.findData("White Light (B&W or Slide Film)")
     w.preset_combo.setCurrentIndex(idx)
@@ -1495,6 +1501,7 @@ def test_white_slider_is_locked_off_in_manual_mode():
 
 def test_selecting_a_preset_is_read_only(monkeypatch):
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))
     w.preset_combo.addItem("TestStock", "TestStock")
     idx = w.preset_combo.findData("TestStock")
@@ -1562,19 +1569,104 @@ def test_manual_stepper_edits_survive_a_periodic_refresh(tmp_path, monkeypatch):
     assert w._settings.iso == "200"
 
 
-def test_manual_preset_option_is_disabled_without_a_camera():
+def test_set_by_hand_sets_the_light_without_a_camera():
     w = _sidebar()  # no camera verified by default
-    assert not w.preset_manual_action.isEnabled()  # greyed — NegPy can't know a missing body's exposure choices
+    assert w.preset_manual_action.isEnabled()  # an untethered camera still needs the light set by hand
+    w._on_preset_manual()
+    assert w._manual_mode
+    assert all(s.isEnabled() for s in (w.r_slider, w.g_slider, w.b_slider)) and w.capture_btn.isEnabled()
+    assert not any(s.isEnabled() for s in (w.iso_stepper, w.shutter_stepper, w.aperture_stepper))
+    assert "Connect the camera" in w.preset_hint.text()
+    w.r_slider.setValue(90)
+    w._push_light()
+    assert w.controller.set_scanlight_color.call_args[0][0] == 90
+
+
+def test_set_by_hand_without_a_camera_saves_no_exposure(monkeypatch):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(iso="200", aperture="f/8"))  # leaves its exposure on the steppers
+    w._on_preset_manual()
+    assert [s.currentText() for s in (w.iso_stepper, w.shutter_stepper, w.aperture_stepper)] == ["", "", ""]
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    monkeypatch.setattr(w._presets, "get", lambda _n: None)
+    monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
+    monkeypatch.setattr(sl.QInputDialog, "getText", lambda *a, **k: ("Untethered", True))
+    w._on_preset_save()
+    preset = saved["preset"]
+    assert (preset.shutter_r, preset.iso, preset.aperture) == ("", "", "")  # a scan keeps the camera's own exposure
+    assert (preset.r_level, preset.g_level, preset.b_level) == (200, 100, 90)
+
+
+def test_a_camera_that_connects_during_set_by_hand_fills_the_exposure(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 2, "writable": True, "options": [{"raw": 2, "label": "100"}, {"raw": 3, "label": "200"}]},
+                "shutter": {"cur": 1, "writable": True, "options": [{"raw": 0, "label": "1/2"}, {"raw": 1, "label": "1/5"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._on_preset_manual()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Canon"))
+    assert all(s.isEnabled() for s in (w.iso_stepper, w.shutter_stepper, w.aperture_stepper))
+    assert (w._settings.iso, w._settings.shutter_r, w._settings.aperture) == ("100", "1/5", "f/8")
+    assert "Connect the camera" not in w.preset_hint.text()
+    w._on_poll_status(_poll(usb_ok=False))  # the camera goes away again
+    assert not w.iso_stepper.isEnabled() and w.iso_stepper.currentText() == ""
+    assert (w._settings.iso, w._settings.shutter_r, w._settings.aperture) == ("", "", "")  # Save bakes no stale exposure
+    assert "Connect the camera" in w.preset_hint.text()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Canon"))  # back: the body still holds the steps
+    assert (w._settings.iso, w._settings.shutter_r, w._settings.aperture) == ("100", "1/5", "f/8")
+
+
+def _exposure_labels(w):
+    return [s.currentText() for s in (w.iso_stepper, w.shutter_stepper, w.aperture_stepper)]
+
+
+def test_set_by_hand_blanks_a_previous_exposure_until_the_camera_publishes_its_own(tmp_path, monkeypatch):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(tmp_path / "missing.json"))  # not written yet
+    w = _sidebar()
     w._camera_verified = True
-    w._apply_gating()
-    assert w.preset_manual_action.isEnabled()  # a verified camera enables it
+    _select_stored(w, monkeypatch, _rgb_preset(iso="200", aperture="f/8"))
+    w._on_preset_manual()
+    assert _exposure_labels(w) == ["", "", ""]
+    assert (w._settings.iso, w._settings.shutter_r, w._settings.aperture) == ("", "", "")
 
 
-def test_selecting_manual_without_a_camera_is_refused():
+def test_a_built_in_preset_without_a_camera_locks_the_exposure():
+    w = _sidebar()
+    idx = w.preset_combo.findData("Trichrome, Color Negative")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert not any(s.isEnabled() for s in (w.iso_stepper, w.shutter_stepper, w.aperture_stepper))
+    assert w.iso_stepper.toolTip() == "Connect the camera to set the exposure."
+
+
+def test_a_settings_file_left_by_an_unplugged_camera_fills_nothing(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"iso": {"cur": 2, "writable": True, "options": [{"raw": 2, "label": "100"}]}}))
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
     w = _sidebar()  # no camera
     w._on_preset_manual()
-    assert not w._manual_mode  # refused — no body to source valid ISO/shutter/aperture from
-    assert w.preset_combo.currentData() is None  # reverted to "Select preset"
+    w._refresh_camera_settings()
+    assert _exposure_labels(w) == ["", "", ""] and w.lv_window.iso_stepper.count() == 0
 
 
 def _white_preset_item(w):
@@ -1769,6 +1861,7 @@ def test_calibration_pop_up_settings_poll_re_enables_iso_and_aperture(tmp_path, 
     monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
 
     w = _sidebar()
+    w._camera_verified = True  # the settings file stands in for a connected body
     w.calib_window.iso_stepper.setEnabled(False)  # camera-idle: greyed out
     w.calib_window.aperture_stepper.setEnabled(False)
     w._lv_target = w.calib_window.image  # the calibration pop-up is the streaming target
@@ -2142,7 +2235,7 @@ def test_single_capture_calibration_saves_a_sensor_profile_with_the_preset(monke
 
     assert saves == [("Portra 400", _UNMIX)]
     assert preset.sensor_profile == "Portra 400"
-    assert "sensor profile" in w.status_strip.message()
+    assert "sensor crosstalk profile" in w.status_strip.message()
 
 
 def test_sensor_profile_toggle_off_saves_the_preset_alone(monkeypatch):
@@ -2164,7 +2257,7 @@ def test_a_run_that_measured_no_unmix_saves_the_preset_and_says_so(monkeypatch):
     preset = _calibrate(w, monkeypatch, single_capture=True, sensor_matrix=None)
 
     assert saves == [] and preset.sensor_profile == ""
-    assert "no sensor profile" in w.status_strip.message()
+    assert "no sensor crosstalk profile" in w.status_strip.message()
 
 
 def test_scan_request_carries_the_single_capture_presets_sensor_profile(tmp_path, monkeypatch):
@@ -2546,10 +2639,7 @@ def test_the_plus_menu_offers_calibration_and_hand_setting():
     w = _sidebar()
     assert w.preset_combo.currentText() == "Select preset"  # the placeholder shows only for a hand-set recipe
     assert [a.text() for a in w.preset_new_btn.menu().actions()] == ["Calibrate on the Film Base…", "Set by Hand", "Built-in Presets"]
-    assert w.preset_new_btn.isEnabled() and not w.preset_manual_action.isEnabled()  # the built-ins need no camera
-    w._camera_verified = True
-    w._apply_gating()
-    assert w.preset_manual_action.isEnabled()
+    assert w.preset_new_btn.isEnabled() and w.preset_manual_action.isEnabled()  # neither needs a camera
     assert not w.preset_calibrate_action.isEnabled()  # calibration also needs the light
 
 

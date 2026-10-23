@@ -1,7 +1,7 @@
 """Calibrate the sensor-crosstalk matrix from three bare-light exposures.
 
 Red, green and blue captures with no film, at the scanning light and camera settings, measure
-each band; the inverted mix is saved as a named sensor profile. Files, or a tethered capture.
+each band; the inverted mix is saved as a named sensor crosstalk profile. Files, or a tethered capture.
 """
 
 from negpy.kernel.system.i18n import tr

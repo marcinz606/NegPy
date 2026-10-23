@@ -278,13 +278,11 @@ def wb_bake_block_reason(rgbscan: Optional[RgbScanConfig], process: Optional[Pro
     """Why baking the as-shot WB gains cannot apply — "trichrome", "narrowband", or "" when it can.
 
     The as-shot gains are the camera's correction for a broadband scene under some assumed
-    illuminant. A narrowband capture (Trichrome's three isolated exposures, or a Single-Shot
-    Narrowband profile) has no such scene: the gains are an artifact of whatever preset was
+    illuminant. A narrowband capture (Trichrome's three isolated exposures, or a Single Exposure with a sensor crosstalk profile) has no such scene: the gains are an artifact of whatever preset was
     dialed on the camera, not a correction the light or the film calls for. Channel separation
     for these captures comes from the triplet or the sensor unmix instead.
 
-    Single-Shot Narrowband is flagged by a calibrated sensor matrix (Single-Shot Narrowband
-    Calibration).
+    A Single Exposure under narrowband light is flagged by its calibrated sensor crosstalk matrix.
     """
     if rgbscan is not None and is_rgb_triplet(rgbscan):
         return "trichrome"

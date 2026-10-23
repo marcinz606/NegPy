@@ -327,6 +327,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_tab_cards": ShortcutEntry("", tr("Expand or collapse this tab's cards"), tr("Actions")),
     "roll_batch_analysis": ShortcutEntry("", tr("Roll Analysis (measure the roll's baseline)"), tr("Actions")),
     "analyze_all_scenes": ShortcutEntry("", tr("Analyze every scene of the roll"), tr("Actions")),
+    "detect_scenes": ShortcutEntry("", tr("Detect Scenes (find groups of frames under another light)"), tr("Actions")),
     "roll_settings": ShortcutEntry("", tr("Open Roll Settings"), tr("Actions")),
     "save_as_roll": ShortcutEntry("", tr("Save the loaded frames as a roll"), tr("Actions")),
     "import_roll": ShortcutEntry("", tr("Import a folder as a roll"), tr("Actions")),

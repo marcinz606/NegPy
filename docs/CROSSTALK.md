@@ -53,8 +53,8 @@ the camera in the linear capture. **Hue Trim** rotates hue for an odd light spec
 > - They model the **dyes only**. That is the full correction only when the capture reads
 >   each dye band cleanly: a **Narrowband Scanner** (a Coolscan's mono sensor reads one LED
 >   at a time, fully clean; a Pakon's trilinear array comes close, with slight residual
->   bleed), a **Trichrome** capture, or a Single-Shot Narrowband rig with
->   **Single-Shot Narrowband Calibration** applied. A broadband light and a Bayer sensor
+>   bleed), a **Trichrome** capture, or a Single Exposure rig with
+>   **Sensor Crosstalk Profile** applied. A broadband light and a Bayer sensor
 >   add mixing that a dyes-only matrix cannot model.
 > - Consumer datasheets usually publish one *aggregate* midscale-neutral curve, not
 >   separate C/M/Y curves. For the Kodak films, Kodak's Vision3 dye curves are fitted to
@@ -207,7 +207,7 @@ chroma difference, with lightness left out because the print curve sets it. Gree
 amber within 5, red beyond. Moving a dot clears them.
 
 A matrix measured on one stock under one light describes that pair only. The sensor unmix runs
-before Crosstalk, so the fit measures only what the frame's sensor profile leaves; measure again
+before Crosstalk, so the fit measures only what the frame's sensor crosstalk profile leaves; measure again
 if you change that profile.
 
 ## Contributing a matrix

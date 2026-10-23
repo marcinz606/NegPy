@@ -66,7 +66,7 @@ def test_panel_greys_out_with_linear_raw_off():
     w = _sidebar(linear_raw=False)
     assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
     assert not w.sensor_combo.isEnabled()
-    assert not w.calibrate_sensor_btn.isEnabled()
+    assert w.calibrate_sensor_btn.isEnabled()  # a profile is made from its own shots, not this frame
     assert not w.sensor_hint.isHidden()
 
 
@@ -170,7 +170,7 @@ def test_unmix_is_refused_on_a_transparency_whatever_linear_raw_says():
 
     assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
     assert not w.sensor_combo.isEnabled()
-    assert not w.calibrate_sensor_btn.isEnabled()
+    assert w.calibrate_sensor_btn.isEnabled()  # a profile is made from its own shots, not this frame
     assert not w.sensor_hint.isHidden()
     assert "transparency" in w.sensor_hint.text().lower()
 
@@ -208,3 +208,36 @@ def test_profile_is_greyed_out_on_a_trichrome_triplet():
 
     _to_rgbscan(w, enabled=False)
     assert w.sensor_combo.currentText() == _NAME and w.sensor_combo.isEnabled()
+
+
+@pytest.mark.parametrize(
+    ("file_hash", "process", "applied"),
+    [
+        ("abc", {}, True),
+        ("abc", {"linear_raw": False}, True),  # kept like any choice under Linear RAW off
+        ("abc", {"process_mode": ProcessMode.E6, "positive_source": True}, False),
+        ("", {}, False),
+    ],
+)
+def test_a_saved_profile_reaches_only_a_frame_that_can_keep_it(tmp_path, file_hash, process, applied):
+    """Calibration runs with no frame open or on a blocked frame; a slide or no frame only lists the profile."""
+    w = _sidebar(linear_raw=True, profile=SensorProfiles.NONE_NAME, sensor_matrix=None)
+    _to_mode(w, **process)
+    w.state.current_file_hash = file_hash
+    with open(os.path.join(tmp_path, "new_sensor.toml"), "w", encoding="utf-8") as f:
+        f.write('name = "New Sensor"\nmatrix = [[1.0, 0.0, 0.0], [-0.2, 1.0, 0.0], [0.0, 0.0, 1.0]]\n')
+    assert w.sensor_combo.findText("New Sensor") < 0
+    w.controller.reset_mock()
+
+    w._on_sensor_profile_saved("New Sensor")
+
+    assert w.sensor_combo.findText("New Sensor") >= 0  # the save rebuilds the list
+    if applied:
+        w.controller.set_roll_default.assert_called_once()
+        kwargs = w.controller.set_roll_default.call_args.kwargs
+        assert kwargs["sensor_profile"] == "New Sensor"
+        assert kwargs["sensor_matrix"] == (1.0, 0.0, 0.0, -0.2, 1.0, 0.0, 0.0, 0.0, 1.0)
+        assert not w.controller.set_status.called
+    else:
+        assert not w.controller.set_roll_default.called
+        assert "New Sensor" in w.controller.set_status.call_args.args[0]  # says it was saved

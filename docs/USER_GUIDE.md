@@ -170,7 +170,7 @@ The right-click menu also copies, pastes and resets settings, applies them to ot
 
 ### Scenes
 
-A scene is a group of frames shot in the same light. It gets its own Roll Analysis baseline, so its frames match each other. Select frames, then right-click → **Scene → Group as Scene…**. The same menu adds and removes frames, runs **Analyze Scene…**, and renames or deletes the scene. **Sort → Scene** groups them in the strip. Scenes need a roll.
+A scene is a group of frames shot in the same light. It gets its own Roll Analysis baseline, so its frames match each other. **Detect Scenes** in Roll Analysis finds these groups for you. To make one yourself, select frames, then right-click → **Scene → Group as Scene…**. The same menu adds and removes frames, runs **Analyze Scene…**, and renames or deletes the scene. **Sort → Scene** groups them in the strip. Scenes need a roll.
 
 ---
 
@@ -444,7 +444,7 @@ Your most-used sliders in one place. It is empty until you fill it: click **Edit
 Saved settings you can apply to other frames.
 
 *   **Apply** (or double-click a preset): applies the selected preset to this frame.
-*   **Save…**: choose which of the current settings to keep as a new preset.
+*   **Save…**: choose which of the current settings to keep as a new preset. A preset can hold the Crop and Optics settings with the Flat Field profile, but never one frame's crop, rotation or flips.
 *   **Pen** and **Trash**: edit or delete the selected preset.
 
 ---
@@ -480,7 +480,7 @@ What the film is and how you scanned it. These choices decide which cards and co
 *   **Color / B&W / Slide**: color negative (C-41), black-and-white negative, or slide (E-6 and similar).
 *   **Positive** (Slide only): for a file that is already a positive, such as a scanned print or another app's export. NegPy then skips inversion and metering.
 *   **Camera / Film Scanner**: what you scanned with. NegPy reads it from each file (a camera RAW is a camera) until you pick one. Your pick holds for every frame and sets the Scan tab's scanner.
-*   **White Light / Narrowband RGB** (not for B&W): the light behind the negative. White light is a lightbox or LED panel. Narrowband is a light with pure red, green and blue, such as a Scanlight.
+*   **White Light / Narrowband Light** (not for B&W): the light behind the negative. White light is a lightbox or LED panel. Narrowband is a light with pure red, green and blue, such as a Scanlight.
 
 The scanning choices are one setting for the whole app. They set how a RAW file is decoded and which digital print stock is used:
 
@@ -521,9 +521,9 @@ Right-click a half for **Adjust Split for This Frame…** and **Reset Split to R
 
 Corrects color errors that come from your light, camera and film.
 
-**Single-Shot Narrowband Calibration** (camera with narrowband light, Linear RAW): removes the color that leaks between the sensor's channels. Run **Roll Analysis** again after a change.
+**Sensor Crosstalk Profile** (a Single Exposure under narrowband light, Linear RAW): removes the color that leaks between the sensor's channels. Run **Roll Analysis** again after a change.
 
-*   **Profile**: the sensor profile. Your own `.toml` profiles go in `<Documents>/NegPy/sensor/`.
+*   **Profile**: the sensor crosstalk profile. Your own `.toml` profiles go in `<Documents>/NegPy/sensor/`.
 *   **Method**: **Two-Scale** (default) removes the leak and keeps very strong colors from speckling. **Linear** is exact, but strong colors can speckle. **Density** has no speckle, but strong colors are a little duller.
 *   **Calibrate**: makes a profile from three shots of the bare light (red, green and blue), from files or a tethered camera (see CAMERA_SCANNING.md).
 
@@ -533,7 +533,7 @@ Corrects color errors that come from your light, camera and film.
 *   **Strength**: how much of the matrix to apply.
 *   The swatch button opens **Measure from Chart** (color negatives): it measures a matrix from a ColorChecker 24 or SpyderCheckr 24 shot on the film. Drag the four dots onto the corner patches.
 
-**Hue Trim** (camera with narrowband light): turns all colors around the color wheel, for a light that makes yellows orange or greens olive. Keep 0 for white light. It also works on slides, where the sensor profile does not.
+**Hue Trim** (camera with narrowband light): turns all colors around the color wheel, for a light that makes yellows orange or greens olive. Keep 0 for white light. It also works on slides, where the sensor crosstalk profile does not.
 
 <!-- panel:process -->
 ### 10.4 Metering: negative → positive
@@ -559,10 +559,11 @@ Measures the whole roll once and shares the result, so the frames of one film pr
 
 *   **Reanalyze**: measures every loaded frame (except scene and locked frames) and saves the average as the roll's baseline. Frames very different from the rest keep their own. It first crops the frames that wait for Auto Crop.
 *   **Use This Frame**: makes this frame's measurement the roll's baseline.
-*   **Use average**: **Luma** uses the roll's black and white points, **Color** the roll's color balance, and **Cast** (color negatives) the roll's gray balance for Cast Removal. With Luma and Color on, the roll prints evenly; with both off, each frame is measured on its own.
+*   **Use average**: **Luma** uses the roll's black and white points, **Color** the roll's color balance, and **Cast** (color negatives) the roll's gray balance for Cast Removal. With Cast on, a frame shot under a different light keeps some of that light, as on a Frontier print. A magenta cast stays, a warm or green cast stays in part, and a blue cast goes. With Luma and Color on, the roll prints evenly; with both off, each frame is measured on its own.
 *   **Baseline**: says where the baseline came from (roll, scene or frame). It warns when there is none or when it is out of date.
 *   **Rolls**: pick another roll's saved baseline. A ticked roll has one.
 *   **Scenes**: groups of frames with their own baseline, such as one subject under one light ([Scenes](#scenes)). **Analyze** measures the scene, **Select** selects its frames and **Delete** removes the group.
+*   **Detect Scenes**: finds the groups of frames under another light than the roll, in any frame order, and shows them on the Light Table. Each group waits under **Found**. To change a group, drag frames onto another group, or onto a frame with no scene to leave them out; right-click › **Scene** does the same. Give it a name, then **Accept** it as a scene with its own baseline, or **Discard** it.
 
 <!-- panel:demosaic -->
 ### 10.6 Raw Decode
@@ -591,7 +592,7 @@ Removes uneven light, such as darker corners, with a shot of the bare light sour
 *   **Apply Flat Field**: applies the selected profile to this roll.
 *   **Check Flat Field**: shows how well the profile evens out its own shot. Even gray is good; a band or patch shows where it is off.
 
-A new profile becomes the default for the next roll.
+A frame keeps its own profile unless it follows its roll, so each light and film format can have one. A new frame, or a frame whose profile is missing, takes the last profile you chose.
 
 ---
 
@@ -803,10 +804,10 @@ Shown while a Scanlight is connected. A preset holds the light levels and the ca
 *   **Preset**: the light and exposure for each scan. **+** adds one in three ways:
     *   **Built-in Presets**: ready to use, with no calibration: **White Light**, **White Light + IR**, **Trichrome** and **Trichrome + IR**. They use the camera's exposure, which the meter sets. White Light needs a Scanlight with a white LED (v4, Big Scanlight).
     *   **Calibrate on the Film Base…**: place the rectangle on clear film and run it. NegPy finds the light levels and the shutter.
-    *   **Set by Hand**: set the sliders yourself, then save them as a preset.
+    *   **Set by Hand**: set the sliders yourself, then save them as a preset. With no camera connected, it saves no exposure, and a scan uses the camera's own.
 *   **Red**, **Green**, **Blue**, **White**: the light levels (0 to 255). **Light On** turns the light on to frame the film, or off.
-*   **Capture mode**: **Triplet** takes one exposure per color and joins them; **Single Capture** takes one exposure with all three colors on.
-*   **Create Sensor Profile** (Single Capture): also saves a sensor profile for this preset (see Calibration, §10.3).
+*   **Capture mode**: **Trichrome** takes one exposure per color and joins them; **Single Exposure** takes one exposure with all three colors on.
+*   **Create Sensor Crosstalk Profile** (Single Exposure): also saves a sensor crosstalk profile for this preset (see Calibration, §10.3).
 *   **ISO**, **Shutter**, **Aperture**: the preset's exposure. A change holds until you pick the preset again. The gauge button meters.
 *   **IR Shutter** and **Infrared** (lights with infrared LEDs): adds an infrared exposure to each scan for dust removal, saved as an `_IR` file. It needs a camera that sees infrared (full-spectrum or converted) and manual focus. Color film only.
 *   **Channel Delay**: a pause between the red, green and blue exposures, for cameras that need it.

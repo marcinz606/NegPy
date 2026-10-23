@@ -14,6 +14,7 @@ from PyQt6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QPersistentModelIndex,
+    QPoint,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -37,6 +38,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -402,6 +404,8 @@ class ThumbnailGridView(QListView):
     # several frames at a time in a single-column panel.
     WHEEL_ROWS_PER_NOTCH = 1.0
     SCROLL_ANIM_MS = 160
+    # A held press sweeps a range, or a box from empty space; off where a drag moves frames instead.
+    DRAG_SELECTS = True
 
     def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT):
         super().__init__(parent)
@@ -563,6 +567,8 @@ class ThumbnailGridView(QListView):
             self._begin_click_selection(pre_press_current)
 
     def mouseMoveEvent(self, event) -> None:
+        if not self.DRAG_SELECTS and event.buttons() & Qt.MouseButton.LeftButton:
+            return
         # Row read before super(): its own autoscroll-to-current can jump the viewport to fit
         # the cell under the cursor, and hitting this same screen point again afterward would
         # then resolve to whatever row the scroll left there instead of the one dragged to.
@@ -577,7 +583,7 @@ class ThumbnailGridView(QListView):
 
     def mouseReleaseEvent(self, event) -> None:
         row = (
-            self._row_near(event.position().toPoint())
+            (self._row_near(event.position().toPoint()) if self.DRAG_SELECTS else self._pending_click_row)
             if (self._pending_click_row is not None and event.button() == Qt.MouseButton.LeftButton)
             else None
         )
@@ -730,9 +736,19 @@ def justified_rows(aspects: list[float], width: int, height: int, gap: int) -> l
 _CHIP_RADIUS = 3
 
 
+def _scene_mark(index: QModelIndex) -> Optional[tuple]:
+    """A frame's scene, ``(ordinal, id, name, found)``: found is True for a group Detect Scenes
+    proposed that waits for Accept or Discard."""
+    data = index.data(Qt.ItemDataRole.UserRole) or {}
+    if data.get("scene"):
+        return (*data["scene"], False)
+    if data.get("found_scene"):
+        return (*data["found_scene"], True)
+    return None
+
+
 class _FilmDelegate(_ThumbnailDelegate):
-    """Each frame stands upright in a cell as wide as its picture, a thin rebate border around it,
-    and a scene colors the top border of its frames."""
+    """Each frame stands upright in a cell as wide as its picture, a thin rebate border around it."""
 
     _CACHE_LIMIT = 512
     # Every layout reads the picture bounds of every frame, so their small cache holds a long roll. The strip's
@@ -800,19 +816,18 @@ class _FilmDelegate(_ThumbnailDelegate):
     def picture_rect(self, cell: QRect, index: QModelIndex) -> QRect:
         return super().picture_rect(self._window(cell), index)
 
-    def _paint_scene_line(self, painter: QPainter, cell: QRect, index: QModelIndex) -> None:
-        scene = (index.data(Qt.ItemDataRole.UserRole) or {}).get("scene")
-        if scene:
-            band = self.band(cell)
-            painter.fillRect(band.left(), band.top(), band.width(), self._BORDER, QColor(scene_color(scene[0])))
-
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         cell = option.rect
         painter.fillRect(self.band(cell), QColor(*self._film[1]))
-        self._paint_scene_line(painter, cell, index)
         framed = QStyleOptionViewItem(option)
         framed.rect = self._window(cell)
         super().paint(painter, framed, index)
+
+
+class _LightTableDelegate(_FilmDelegate):
+    """The Light Table shows every picture at full strength; only a rejected frame dims."""
+
+    _IDLE_OPACITY = 1.0
 
 
 class _FilmGridView(ThumbnailGridView):
@@ -827,8 +842,15 @@ class _FilmGridView(ThumbnailGridView):
     cell_zoomed = pyqtSignal(int)
     # A layout that may change the frames to a row or their range: a zoom, a resize or a new film.
     columns_changed = pyqtSignal()
+    # Selected frames dropped on a found scene: its index, or -1 for a frame in no scene.
+    found_scene_drop = pyqtSignal(int)
+    # The Light Table's drag only moves found scenes' frames; the Film Strip keeps its drag selection.
+    DRAG_SELECTS = False
 
     def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT) -> None:
+        # A press held back from Qt while it may become a drag of found scenes' frames.
+        self._scene_move: Optional[dict] = None
+        self._move_was_click = False
         self._slim_cells: Optional[dict[int, QRect]] = None
         # Each row's picture shape as the layout read it, kept until the frames take new shapes.
         self._shown_aspects: dict[int, float] = {}
@@ -847,6 +869,7 @@ class _FilmGridView(ThumbnailGridView):
         self.set_table_color(table_color(AppState.canvas_bg_index))
 
     def set_table_color(self, color: str) -> None:
+        self._table_color = color
         # A new stylesheet lays every cell out again, even when it is the same.
         qss = self._table_qss(color)
         if qss != self.styleSheet():
@@ -1022,7 +1045,7 @@ class _FilmGridView(ThumbnailGridView):
         current = None
         for row in range(model.rowCount()):
             index = model.index(row, 0)
-            scene = (index.data(Qt.ItemDataRole.UserRole) or {}).get("scene")
+            scene = _scene_mark(index)
             rect = self.rectForIndex(index)
             if scene and current and current[0] == scene and current[3].top() == rect.top():
                 current = (scene, current[1], current[2], rect)
@@ -1033,6 +1056,180 @@ class _FilmGridView(ThumbnailGridView):
             else:
                 current = None
         return runs
+
+    def _starts_scene_move(self, event, index: QModelIndex) -> bool:
+        """A plain press on a frame while found scenes wait for review. Qt's own press would collapse the
+        selection to this frame, so the press waits until the gesture moves or not."""
+        return (
+            not self.DRAG_SELECTS
+            and event.button() == Qt.MouseButton.LeftButton
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and index.isValid()
+            and bool(getattr(self.model(), "has_found_scenes", False))
+        )
+
+    def _lift(self, move: dict) -> None:
+        """Starts a drag: the pressed frame alone unless it is selected, and pictures of the first two frames
+        to carry under the pointer."""
+        model, sel = self.model(), self.selectionModel()
+        pressed = model.index(move["row"], 0)
+        if not sel.isSelected(pressed):
+            sel.setCurrentIndex(pressed, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        rows = sorted(index.row() for index in sel.selectedIndexes())
+        carried = [move["row"], *(row for row in rows if row != move["row"])][:2]
+        move.update(
+            rows=rows, grab=move["press"] - self.visualRect(pressed).topLeft(), ghosts=[self._ghost(model.index(row, 0)) for row in carried]
+        )
+
+    def _ghost(self, index: QModelIndex) -> QPixmap:
+        """The frame as its cell shows it, unselected."""
+        size, ratio = self.visualRect(index).size(), self.devicePixelRatioF()
+        pixmap = QPixmap(size * ratio)
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        option = QStyleOptionViewItem()
+        self.initViewItemOption(option)
+        option.rect = QRect(0, 0, size.width(), size.height())
+        painter = QPainter(pixmap)
+        self.itemDelegate().paint(painter, option, index)
+        painter.end()
+        return pixmap
+
+    @staticmethod
+    def _drop_target(index: QModelIndex) -> Optional[int]:
+        """The found scene a drop on *index* adds to, -1 for a frame in no scene, None where nothing drops."""
+        if not index.isValid():
+            return None
+        mark = _scene_mark(index)
+        if mark is None:
+            return -1
+        return mark[1] if mark[3] else None
+
+    def mousePressEvent(self, event) -> None:
+        self._move_was_click = False
+        index = self.indexAt(event.position().toPoint())
+        if self._starts_scene_move(event, index):
+            self._scene_move = {"press": event.position().toPoint(), "row": index.row(), "dragging": False, "pos": None, "target": None}
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        move = self._scene_move
+        if move is None:
+            super().mouseMoveEvent(event)
+            return
+        pos = event.position().toPoint()
+        if move["dragging"] or (pos - move["press"]).manhattanLength() >= QApplication.startDragDistance():
+            if not move["dragging"]:
+                self._lift(move)
+            move.update(dragging=True, pos=pos, target=self._drop_target(self.indexAt(pos)))
+            self.viewport().update()
+
+    def mouseReleaseEvent(self, event) -> None:
+        move, self._scene_move = self._scene_move, None
+        if move is None:
+            super().mouseReleaseEvent(event)
+            return
+        if move["dragging"]:
+            self.viewport().update()
+            if move["target"] is not None:
+                self.found_scene_drop.emit(move["target"])
+            return
+        # It stayed put: a plain click, this frame alone selected.
+        self._move_was_click = True
+        self.selectionModel().setCurrentIndex(self.model().index(move["row"], 0), QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        # Qt never saw this double click's first press, so it would take the second for a new press.
+        index = self.indexAt(event.position().toPoint())
+        if self._move_was_click and index.isValid():
+            self._move_was_click = False
+            self.doubleClicked.emit(index)
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        super().focusOutEvent(event)
+        if self._scene_move is not None:
+            self._scene_move = None
+            self.viewport().update()
+
+    def _paint_scene_move(self, painter: QPainter) -> None:
+        """While frames are dragged: their places faded to the table, the target scene's frames outlined in
+        its color, the frames under the pointer, and a chip below them that says where the frames go."""
+        move, model = self._scene_move, self.model()
+        if move is None or not move["dragging"] or model is None:
+            return
+        delegate = self.itemDelegate()
+        painter.setPen(QPen(QColor(THEME.border_checked), 2, Qt.PenStyle.DashLine))
+        painter.setBrush(with_alpha(self._table_color, 215))
+        for row in move["rows"]:
+            painter.drawRoundedRect(QRectF(delegate._window(self.visualRect(model.index(row, 0)))), _CHIP_RADIUS, _CHIP_RADIUS)
+        target, name, color = move["target"], "", THEME.text_hint
+        lines: list[QRect] = []
+        last_row = None
+        for row in range(model.rowCount()):
+            index = model.index(row, 0)
+            if target is None or self._drop_target(index) != target:
+                continue
+            mark = _scene_mark(index)
+            if mark is not None:
+                name, color = mark[2], scene_color(mark[0])
+            rect = self.visualRect(index)
+            if last_row == row - 1 and lines and lines[-1].top() == rect.top():
+                lines[-1] = lines[-1].united(rect)
+            else:
+                lines.append(rect)
+            last_row = row
+        painter.setPen(QPen(QColor(color), 2))
+        painter.setBrush(with_alpha(color, 30))
+        for rect in lines:
+            painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), _CHIP_RADIUS, _CHIP_RADIUS)
+
+        scale, grab, pos = 0.9, move["grab"], move["pos"]
+        size = move["ghosts"][0].deviceIndependentSize()
+        for k in reversed(range(len(move["ghosts"]))):
+            painter.save()
+            painter.translate(pos + QPoint(THEME.space_md, THEME.space_sm) * k)
+            painter.rotate(3 if k else -2)
+            painter.scale(scale, scale)
+            painter.setOpacity(0.85 if k else 0.95)
+            painter.fillRect(QRectF(-grab.x(), THEME.space_sm - grab.y(), size.width(), size.height()), with_alpha(THEME.mark_shadow, 120))
+            painter.drawPixmap(-grab, move["ghosts"][k])
+            painter.restore()
+
+        frames = count_of(len(move["rows"]), "frame")
+        if target is None:
+            text = frames
+        elif target < 0:
+            text = tr("Remove {value} from the scene", value=frames)
+        else:
+            text = tr("Add {value} to {name}", value=frames, name=name)
+        font = painter.font()
+        font.setPixelSize(THEME.font_size_small)
+        font.setBold(True)
+        painter.setFont(font)
+        metrics, pad = painter.fontMetrics(), THEME.space_sm
+        if len(move["rows"]) > 1:
+            side = metrics.height() + pad
+            corner = QRectF(pos.x() + (size.width() - grab.x()) * scale - side / 2, pos.y() - grab.y() * scale - side / 2, side, side)
+            painter.setPen(QPen(QColor(THEME.border_checked_hover), 1))
+            painter.setBrush(QColor(THEME.bg_primary))
+            painter.drawEllipse(corner)
+            painter.setPen(QColor(THEME.text_primary))
+            painter.drawText(corner, Qt.AlignmentFlag.AlignCenter, str(len(move["rows"])))
+        chip = QRectF(
+            pos.x() + THEME.space_xl,
+            pos.y() + (size.height() - grab.y()) * scale + THEME.space_md,
+            metrics.horizontalAdvance(text) + 2 * pad,
+            metrics.height() + pad,
+        )
+        painter.setPen(QPen(with_alpha(THEME.mark_photo, 55), 1))
+        painter.setBrush(with_alpha(THEME.mark_shadow, 225))
+        painter.drawRoundedRect(chip, _CHIP_RADIUS, _CHIP_RADIUS)
+        painter.setPen(QColor(THEME.text_primary))
+        painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, text)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def selectionChanged(self, selected, deselected) -> None:  # noqa: N802
         super().selectionChanged(selected, deselected)
@@ -1047,14 +1244,18 @@ class _FilmGridView(ThumbnailGridView):
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        self._paint_scene_names(painter, delegate, event.rect())
+        # A scene's line and name chip lie on its frames' top border, over their selection mats.
         self._paint_marks(painter, delegate, event.rect())
+        self._paint_scenes(painter, delegate, event.rect())
+        self._paint_scene_move(painter)
         painter.end()
 
     def _paint_marks(self, painter: QPainter, delegate: _FilmDelegate, area: QRect) -> None:
         """A muted red mat over a selected frame's border, the lighter red on the open frame."""
         model, selection = self.model(), self.selectionModel()
         rows = {index.row() for index in selection.selectedIndexes()} if selection is not None else set()
+        if self._scene_move is not None and self._scene_move["dragging"]:
+            rows -= set(self._scene_move["rows"])
         # As wide on every side: the border around the picture, then one pixel at 90% and one at 80%; on
         # the left and right it reaches over the neighbors' border.
         rings = ((delegate._BORDER, 1.0), (delegate._BORDER + 1, 0.9), (delegate._BORDER + 2, 0.8))
@@ -1078,8 +1279,9 @@ class _FilmGridView(ThumbnailGridView):
                 painter.fillPath(edge.subtracted(inside), color)
                 inside = edge
 
-    def _paint_scene_names(self, painter: QPainter, delegate: _FilmDelegate, area: QRect) -> None:
-        """A chip with the scene's name on its line, at the start of each run of its frames on one row."""
+    def _paint_scenes(self, painter: QPainter, delegate: _FilmDelegate, area: QRect) -> None:
+        """A scene's line across the top border of each run of its frames on one row, its name in a chip at the run's
+        start. A found scene's line is dashed, its chip outlined with a dashed edge and a dot of its color."""
         font = painter.font()
         font.setPixelSize(THEME.font_size_small)
         font.setBold(True)
@@ -1090,9 +1292,31 @@ class _FilmGridView(ThumbnailGridView):
             if not first.united(last).adjusted(0, -height, 0, 0).intersects(area):
                 continue
             band = delegate.band(first)
-            name = metrics.elidedText(scene[2], Qt.TextElideMode.ElideRight, last.right() - first.left() - 2 * pad)
-            chip = QRectF(band.left(), band.top() - height / 2, metrics.horizontalAdvance(name) + 2 * pad, height)
             color = QColor(scene_color(scene[0]))
+            left, right = band.left(), delegate.band(last).right() + 1
+            if not scene[3]:
+                painter.fillRect(left, band.top(), right - left, delegate._BORDER, color)
+            else:
+                # Dashes on a fixed grid line up across the runs of a row.
+                dash, period = 2 * delegate._BORDER, 3 * delegate._BORDER
+                for x in range(left - left % period, right, period):
+                    start, end = max(x, left), min(x + dash, right)
+                    if end > start:
+                        painter.fillRect(start, band.top(), end - start, delegate._BORDER, color)
+            dot = height // 3 if scene[3] else 0
+            lead = dot + pad if scene[3] else 0
+            name = metrics.elidedText(scene[2], Qt.TextElideMode.ElideRight, last.right() - first.left() - 2 * pad - lead)
+            chip = QRectF(band.left(), band.top() - height / 2, metrics.horizontalAdvance(name) + 2 * pad + lead, height)
+            if scene[3]:
+                painter.setPen(QPen(color, 1, Qt.PenStyle.DashLine))
+                painter.setBrush(QColor(THEME.bg_dark))
+                painter.drawRoundedRect(chip.adjusted(0.5, 0.5, -0.5, -0.5), _CHIP_RADIUS, _CHIP_RADIUS)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(QRectF(chip.left() + pad, chip.center().y() - dot / 2, dot, dot))
+                painter.setPen(QColor(THEME.text_primary))
+                painter.drawText(chip.adjusted(pad + lead, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, name)
+                continue
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(color)
             painter.drawRoundedRect(chip, _CHIP_RADIUS, _CHIP_RADIUS)
@@ -1108,6 +1332,7 @@ class _FilmStripView(_FilmGridView):
     # The space above and below the film lies inside the cells, as the Light Table's row gap does,
     # so a scene's name chip on the film's top edge fits.
     STRIP_GAP = 2 * THEME.space_xl
+    DRAG_SELECTS = True
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1342,7 +1567,7 @@ class FileBrowser(QWidget):
             target_cell=int(self.session.repo.get_global_setting("light_table_cell") or THUMB_CELL_DEFAULT)
         )
         self.light_table_view.cell_zoomed.connect(lambda cell: self.session.repo.save_global_setting("light_table_cell", cell))
-        self._light_table_delegate = _FilmDelegate(self.light_table_view, state=self.session.state)
+        self._light_table_delegate = _LightTableDelegate(self.light_table_view, state=self.session.state)
         self._make_grid(self.light_table_view, self._light_table_delegate)
         self.light_table_view.setSelectionModel(self.list_view.selectionModel())
         self._film_key: Optional[tuple] = None
@@ -1455,6 +1680,7 @@ class FileBrowser(QWidget):
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
         self.light_table_view.doubleClicked.connect(self._open_from_light_table)
+        self.light_table_view.found_scene_drop.connect(self._on_found_scene_drop)
         open_key = QShortcut(QKeySequence(Qt.Key.Key_Return), self.light_table_view)
         open_key.setContext(Qt.ShortcutContext.WidgetShortcut)
         open_key.activated.connect(lambda: self._open_from_light_table(self.light_table_view.currentIndex()))
@@ -1470,6 +1696,7 @@ class FileBrowser(QWidget):
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.controller.first_scene_created.connect(lambda: self._apply_sort_order("scene"))
+        self.controller.scenes_detected.connect(lambda: self._apply_sort_order("scene"))
         self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
         self.controller.thumbnail_activity_changed.connect(self._light_table_delegate.set_activity)
         # Unloading the last frame leaves nothing to show, so fall back to the library rather
@@ -2238,8 +2465,19 @@ class FileBrowser(QWidget):
                 scene_menu.addAction(tr("Add to {value}", value=entry["name"])).triggered.connect(
                     lambda _=False, sid=scene_id: self.controller.request_add_to_scene(sid)
                 )
-        if of_frames - {None}:
-            scene_menu.addAction(tr("Remove from Scene")).triggered.connect(lambda: self.controller.request_remove_from_scene())
+        # Detect Scenes' groups waiting for review take the same two actions, after the scenes.
+        found = self.session.state.found_scenes
+        of_found = {(f.get("found_scene") or (0, None))[1] for f in frames}
+        if found and not scene_menu.isEmpty():
+            scene_menu.addSeparator()
+        for k, entry in enumerate(found):
+            if of_found != {k}:
+                scene_menu.addAction(tr("Add to {value}", value=entry["name"])).triggered.connect(
+                    lambda _=False, k=k: self.controller.add_to_found_scene(k)
+                )
+        in_scene, in_found = bool(of_frames - {None}), bool(of_found - {None})
+        if in_scene or in_found:
+            scene_menu.addAction(tr("Remove from Scene")).triggered.connect(lambda: self._remove_from_scene(in_scene, in_found))
         if len(of_frames) == 1 and None not in of_frames:
             (sid,) = of_frames
             scene_menu.addSeparator()
@@ -2247,6 +2485,22 @@ class FileBrowser(QWidget):
             scene_menu.addAction(tr("Rename Scene…")).triggered.connect(lambda: self._on_rename_scene(sid))
             scene_menu.addAction(tr("Delete Scene…")).triggered.connect(lambda: prompt_delete_scene(self, self.controller, sid))
         scene_menu.setEnabled(not scene_menu.isEmpty())
+
+    def _on_found_scene_drop(self, target: int) -> None:
+        # A drag can follow a click before the debounce commits it; the drop moves what the view shows.
+        if self.selection_timer.isActive():
+            self.selection_timer.stop()
+            self._commit_selection()
+        if target < 0:
+            self.controller.remove_from_found_scene()
+        else:
+            self.controller.add_to_found_scene(target)
+
+    def _remove_from_scene(self, in_scene: bool, in_found: bool) -> None:
+        if in_scene:
+            self.controller.request_remove_from_scene()
+        if in_found:
+            self.controller.remove_from_found_scene()
 
     def _on_group_as_scene(self) -> None:
         default = rolls.next_scene_name(self.session.repo, self.session.state.active_roll_id)
