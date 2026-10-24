@@ -15,7 +15,7 @@ _ZERO = [0.0, 0.0, 0.0]
 
 # Bounds the analysis measures on _synthetic_negative() at each (luma_range_clip, color_range_clip),
 # under BOUNDS_VERSION. A change to them needs a bump; then record the new values here.
-_RECORDED_VERSION = 1
+_RECORDED_VERSION = 2
 _RECORDED = {
     (0.0, 1.0): ([-1.135058, -1.168505, -1.038996], [-0.247402, -0.451715, -0.607022]),
     (-0.3, 0.5): ([-1.512205, -1.48816, -1.244211], [0.135708, -0.13491, -0.408953]),

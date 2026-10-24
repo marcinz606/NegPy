@@ -5,7 +5,7 @@ import struct
 import time
 from typing import Any, Dict, Optional, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 import wgpu  # type: ignore
 
@@ -153,7 +153,7 @@ def _downsample_for_analysis(img: np.ndarray, max_size: int) -> np.ndarray:
     scale = min(1.0, max_size / max(h, w))
     if scale >= 1.0:
         return img
-    return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    return negpy_core.resize_area(np.ascontiguousarray(img, dtype=np.float32), (int(w * scale), int(h * scale)))
 
 
 def _build_analysis_source(
@@ -2169,7 +2169,7 @@ class GPUEngine:
                 exp.highlight_yellow * cmy_m,
                 _sh3[2],
             )
-            # Asymmetric H&D print-curve scalars; mirrors _apply_print_curve_kernel.
+            # Asymmetric H&D print-curve scalars; mirrors negpy_core print_curve.rs.
             # Per-channel knee widths occupy the dead scalar toe/shoulder/
             # midtone_gamma slots and the former flare pad (see exposure.wgsl).
             + struct.pack(
@@ -2188,7 +2188,7 @@ class GPUEngine:
                 sep_damping,
                 pc["toe_height"],
                 pc["shoulder_height"],
-                pc["anchor_target_density"],
+                pc["reference_print_density"],
                 _sw3[1],
                 # Separation Damping's per-layer k, red (ex-surround_gamma slot). Green and
                 # blue ride the split_sh/split_hi w-lanes.
@@ -2825,7 +2825,7 @@ class GPUEngine:
             )
 
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
-        img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
+        img_small = negpy_core.resize_linear(np.ascontiguousarray(img, dtype=np.float32), (int(w * preview_scale), int(h * preview_scale)))
 
         # This render meters the whole frame for the tiles; the CLAHE CDF it leaves behind
         # is the one they share. Taken from here rather than from the last preview, which
@@ -3104,15 +3104,11 @@ class GPUEngine:
 
         # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
         shrinking = content_w < crop_w or content_h < crop_h
-        scaled_content = (
-            cv2.resize(
-                full_source_res,
-                (content_w, content_h),
-                interpolation=cv2.INTER_AREA if shrinking else cv2.INTER_LANCZOS4,
-            )
-            if (content_w != crop_w or content_h != crop_h)
-            else full_source_res
-        )
+        scaled_content = full_source_res
+        if content_w != crop_w or content_h != crop_h:
+            src = np.ascontiguousarray(full_source_res, dtype=np.float32)
+            size = (content_w, content_h)
+            scaled_content = negpy_core.resize_area(src, size) if shrinking else negpy_core.resize_kernel(src, size, lanczos=True)
         # No border means the paper buffer is a full-res allocation, fill and copy that
         # reproduces the content exactly.
         if (paper_w, paper_h, off_x, off_y) == (content_w, content_h, 0, 0):

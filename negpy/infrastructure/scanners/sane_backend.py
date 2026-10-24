@@ -4,7 +4,7 @@ import sys
 import threading
 from typing import Callable
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.kernel.system.text import count_of
@@ -688,7 +688,7 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
         return ir
     ref = rgb.astype(np.float32)
     if ref.ndim == 3:
-        ref = ref.mean(axis=2)
+        ref = negpy_core.mean_channels(ref) if ref.shape[2] == 3 else ref.mean(axis=2)
     mov = ir.astype(np.float32)
     if mov.ndim == 3:
         mov = mov[:, :, 0]
@@ -696,12 +696,11 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     scale = max(1.0, w / _IR_ALIGN_PROBE_WIDTH)
     if scale > 1.0:
         sz = (_IR_ALIGN_PROBE_WIDTH, max(1, round(h / scale)))
-        r = cv2.resize(ref, sz, interpolation=cv2.INTER_AREA)
-        m = cv2.resize(mov, sz, interpolation=cv2.INTER_AREA)
+        r = negpy_core.resize_area(np.ascontiguousarray(ref), sz)
+        m = negpy_core.resize_area(np.ascontiguousarray(mov), sz)
     else:
         r, m = ref, mov
-    win = cv2.createHanningWindow((r.shape[1], r.shape[0]), cv2.CV_32F)
-    (dx, dy), _resp = cv2.phaseCorrelate(np.ascontiguousarray(r), np.ascontiguousarray(m), win)
+    (dx, dy), _resp = negpy_core.phase_correlate(np.ascontiguousarray(r), np.ascontiguousarray(m))
     dx, dy = dx * scale, dy * scale
     if max(abs(dx), abs(dy)) > max(16.0, _IR_ALIGN_MAX_SHIFT_FRAC * w):
         return ir
@@ -722,14 +721,16 @@ def _resample_rows_to_dpi(array: np.ndarray, *, native_dpi: int, target_dpi: int
     caller): interpolating in more rows than the stepper actually moved is an honest resample
     of real data, never inventing detail a downsample would have thrown away.
 
-    Bilinear (cv2's default): plenty for reconciling a mechanically-limited stepper axis
+    Bilinear: plenty for reconciling a mechanically-limited stepper axis
     against a genuinely finer sensor axis. Not used anywhere IR is involved — see the
     capture_ir guard at the call site — since _align_ir_to_rgb documents that even
     interpolating IR data risks softening a thin dust defect's minimum.
     """
     target_rows = max(1, round(array.shape[0] * target_dpi / native_dpi))
     width = array.shape[1]
-    return cv2.resize(array, (width, target_rows), interpolation=cv2.INTER_LINEAR)
+    if array.dtype == np.float32:
+        return negpy_core.resize_linear(np.ascontiguousarray(array), (width, target_rows))
+    return negpy_core.resize_rows_linear(np.ascontiguousarray(array), target_rows)
 
 
 def _validate_inline_rgbi_parameters(

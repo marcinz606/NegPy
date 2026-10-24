@@ -127,10 +127,13 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.2,
     # Scales the density slider's effect on the exposure pivot.
     "density_multiplier": 0.2,
-    # Density the reference tone (assumed_anchor) prints at.
+    # Density the reference tone (assumed_anchor) prints at. The paper S-curve, the zone
+    # weights and the regional CMY split centre on it.
+    "reference_print_density": 0.75,
+    # Auto Density: density the metered anchor prints at (Print Density Target).
     "anchor_target_density": 0.75,
     # Zone Density (ΔD) weights: mid-sparing sigmoids centred in the three-quarter/
-    # quarter tones (offsets from anchor_target_density), so midtones get neither
+    # quarter tones (offsets from reference_print_density), so midtones get neither
     # offset. Mirrored as literals in exposure.wgsl: change both together.
     "zone_density_sharpness": 4.0,
     "zone_density_shadow_offset": 0.75,

@@ -1,11 +1,10 @@
 from dataclasses import FrozenInstanceError
 
+import negpy_core
 import numpy as np
 import pytest
 
 from negpy.features.geometry.logic import (
-    _FilmCandidate,
-    _select_consensus_cluster,
     apply_fine_rotation,
     detect_film_bounds_with_confidence,
 )
@@ -39,16 +38,16 @@ def _candidate(
     geometry_score=0.9,
     boundary_score=0.9,
 ):
-    return _FilmCandidate(
-        roi=roi,
-        correction_angle=0.0,
-        source=source,
-        threshold_index=threshold_index,
-        polarity="dark",
-        boundary_score=boundary_score,
-        geometry_score=geometry_score,
-        supported_sides=frozenset({"top", "bottom", "left", "right"}),
-        supported_corners=frozenset({"top_left", "top_right", "bottom_left", "bottom_right"}),
+    return (
+        roi,
+        0.0,
+        source,
+        threshold_index,
+        "dark",
+        boundary_score,
+        geometry_score,
+        ["top", "bottom", "left", "right"],
+        ["top_left", "top_right", "bottom_left", "bottom_right"],
     )
 
 
@@ -68,17 +67,18 @@ def test_consensus_rejects_a_high_scoring_single_source_outlier():
         boundary_score=1.0,
     )
 
-    consensus = _select_consensus_cluster([outlier, *stable], (360, 540))
+    consensus = negpy_core.select_consensus([outlier, *stable], 360, 540)
 
     assert consensus is not None
-    assert all(abs(actual - expected) <= 1 for actual, expected in zip(consensus.roi, (80, 300, 100, 440)))
-    assert "adaptive-dark" in consensus.evidence_sources
-    assert "edges" not in consensus.evidence_sources
+    roi, *_, sources, _ = consensus
+    assert all(abs(actual - expected) <= 1 for actual, expected in zip(roi, (80, 300, 100, 440)))
+    assert "adaptive-dark" in sources
+    assert "edges" not in sources
 
 
 def test_consensus_abstains_on_a_single_structural_mask():
     candidate = _candidate((80, 300, 100, 440), threshold_index=None, source="edges")
-    assert _select_consensus_cluster([candidate], (360, 540)) is None
+    assert negpy_core.select_consensus([candidate], 360, 540) is None
 
 
 def test_detects_dark_film_on_light_bed_and_returns_immutable_evidence():

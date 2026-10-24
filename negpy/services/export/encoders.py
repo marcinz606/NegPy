@@ -12,6 +12,7 @@ import zlib
 from typing import Any, Dict, Optional
 
 import imagecodecs
+import negpy_core
 import numpy as np
 import tifffile
 from PIL import Image, ImageFile, PngImagePlugin
@@ -22,7 +23,7 @@ from negpy.features.metadata.resolution import Resolution
 _PNG_METRE = 1  # pHYs unit specifier
 _INCH_PER_METRE = 39.3701
 
-# optimize and progressive make PIL encode the whole frame into one buffer sized
+# PIL's progressive encode holds the whole frame in one buffer sized
 # `w*h + ImageFile.MAXBLOCK`, which a large noisy scan overflows: the save then fails
 # with "broken data stream when writing image file". MAXBLOCK is module-global, so the
 # raise is serialised and restored around the encode.
@@ -98,7 +99,13 @@ def encode_jpeg(
     quality: int = 90,
     progressive: bool = False,
 ) -> bytes:
-    """Encode uint8 pixels as JPEG. Chroma subsampling stays 4:4:4 (#224)."""
+    """Encode uint8 pixels as JPEG. Chroma subsampling stays 4:4:4 (#224). A baseline file comes
+    from negpy_core, which encodes strips in parallel: its pixels are PIL's and only the restart
+    markers differ."""
+    if not progressive and arr.dtype == np.uint8 and (arr.ndim == 2 or (arr.ndim == 3 and arr.shape[2] == 3)):
+        # PIL writes a density only when both rounded values are positive.
+        dpi = None if resolution is None else (round(resolution.x_dpi), round(resolution.y_dpi))
+        return negpy_core.encode_jpeg(np.ascontiguousarray(arr), quality, icc or None, dpi if dpi and min(dpi) > 0 else None)
     buf = io.BytesIO()
     kwargs: Dict[str, Any] = {
         "format": "JPEG",

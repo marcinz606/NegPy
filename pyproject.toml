@@ -15,12 +15,10 @@ dependencies = [
     "imagecodecs==2026.6.6",
     "imageio==2.37.3",
     "jinja2==3.1.6",
-    "numba==0.65.1",
     "numpy==2.4.4",
     # Pinned below its latest release: 1.24.0+ dropped macOS x86_64 wheels entirely,
     # which breaks install on an Intel Mac. 1.23.2 is the last version with one.
     "onnxruntime==1.23.2",
-    "opencv-python-headless==4.13.0.92",
     "pillow==12.2.0",
     "pyqt6==6.11.0",
     "pyqt6-charts==6.11.0",
@@ -28,6 +26,7 @@ dependencies = [
     "qtawesome==1.4.2",
     "wgpu==0.31.1",
     "pyserial>=3.5",
+    "negpy-core",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -43,8 +42,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-nkscan = ["nkscan>=0.14.2"]
-plustek = ["pyopticfilm>=1.3.6"]
+nkscan = ["nkscan>=0.16"]
+# pyopticfilm aligns multi-pass and IR scans with cv2, and silently skips the alignment without it.
+plustek = ["pyopticfilm>=1.3.7", "opencv-python-headless==4.13.0.92"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
 
@@ -60,7 +60,8 @@ sane = [
     "python-sane>=2.9",
 ]
 plustek = [
-    "pyopticfilm>=1.3.6",
+    "pyopticfilm>=1.3.7",
+    "opencv-python-headless==4.13.0.92",
 ]
 camera = [
     # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the
@@ -72,7 +73,7 @@ pieusb = [
 ]
 nkscan = [
     # Nikon Coolscan over SCSI/USB. A Rust extension, shipped as wheels.
-    "nkscan>=0.15",
+    "nkscan>=0.16",
 ]
 
 [project.urls]
@@ -81,12 +82,18 @@ Documentation = "https://github.com/marcinz606/NegPy/docs"
 Repository = "https://github.com/marcinz606/NegPy.git"
 Issues = "https://github.com/marcinz606/NegPy/issues"
 
+[tool.uv.workspace]
+members = ["negpy_core"]
+
+[tool.uv.sources]
+negpy-core = { workspace = true }
+
 [build-system]
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["negpy*"]
+include = ["negpy", "negpy.*"]
 
 [tool.setuptools.package-data]
 negpy = ["translations/*.json", "translations/*.md"]

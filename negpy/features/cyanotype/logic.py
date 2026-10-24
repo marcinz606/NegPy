@@ -1,11 +1,11 @@
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.altprocess.models import Sensitizer
-from negpy.kernel.image.logic import _LAB_EPS, _LAB_KAPPA, lab_to_rgb_working
-from negpy.kernel.image.validation import ensure_image
+from negpy.kernel.image.logic import WORKING_LAB
 
 CYANOTYPE_CONSTANTS: Dict[str, Any] = {
     # Transfer.
@@ -52,14 +52,6 @@ def sensitizer_constants(sensitizer: str) -> Dict[str, Any]:
     return SENSITIZERS.get(Sensitizer(sensitizer), SENSITIZERS[Sensitizer.CLASSIC])
 
 
-def _hue_path(u: np.ndarray, path: Sequence[Sequence[float]]) -> Tuple[np.ndarray, np.ndarray]:
-    """(a*, b*) along the sensitizer's density hue path, clamped outside the anchors."""
-    xp = np.asarray(CYANOTYPE_CONSTANTS["path_u"], dtype=np.float32)
-    a = np.interp(u, xp, np.asarray([p[0] for p in path], dtype=np.float32)).astype(np.float32)
-    b = np.interp(u, xp, np.asarray([p[1] for p in path], dtype=np.float32)).astype(np.float32)
-    return a, b
-
-
 def apply_cyanotype(
     img: ImageBuffer,
     sensitizer: str = Sensitizer.CLASSIC,
@@ -94,33 +86,19 @@ def apply_cyanotype(
 
     c = CYANOTYPE_CONSTANTS
     sc = sensitizer_constants(sensitizer)
-    d_max = np.float32(sc["d_max"])
-
-    arr = np.clip(img.astype(np.float32), 1e-6, 1.0)
-    luma = arr[:, :, 0] * np.float32(0.2126) + arr[:, :, 1] * np.float32(0.7152) + arr[:, :, 2] * np.float32(0.0722)
-
-    base = -np.log10(np.clip(luma, 1e-6, 1.0))
-    t = np.clip((base + np.float32(0.301 * exposure)) / np.float32(max(scale, 0.1)), 0.0, 1.0).astype(np.float32)
-
-    m = np.float32(c["mid_compress"])
-    v = np.float32(2.0) * t - np.float32(1.0)
-    u0 = (np.float32(1.0) - m) * t + m * np.float32(0.5) * (np.float32(1.0) + v * np.abs(v))
-
-    b_amt = np.float32(bleach)
-    u_b = u0 * (np.float32(1.0) - b_amt * (np.float32(1.0) - np.float32(c["bleach_floor"]) * u0))
-
-    t_amt = np.float32(tannin)
-    u = u_b + t_amt * (u0 * np.float32(c["tannin_restore"]) - u_b)
-    dens = (d_max * (np.float32(1.0) + t_amt * np.float32(c["tannin_dmax_gain"])) * u).astype(np.float32)
-
-    frac = np.clip(u, 0.0, 1.0).astype(np.float32)
-    a_blue, b_blue = _hue_path(frac, sc["path"])
-    brown = c["brown_dir"]
-    a_star = a_blue + t_amt * (np.float32(brown[0]) * frac - a_blue)
-    b_star = b_blue + t_amt * (np.float32(brown[1]) * frac - b_blue)
-
-    grey = np.power(np.float32(10.0), -dens)
-    f = np.where(grey > np.float32(_LAB_EPS), np.cbrt(grey), np.float32(_LAB_KAPPA) * grey + np.float32(16.0 / 116.0))
-    lab = np.dstack([np.float32(116.0) * f - np.float32(16.0), a_star, b_star])
-
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    f32 = np.float32
+    scalars = [
+        f32(sc["d_max"]),
+        f32(0.301 * exposure),
+        f32(max(scale, 0.1)),
+        f32(c["mid_compress"]),
+        f32(bleach),
+        f32(c["bleach_floor"]),
+        f32(tannin),
+        f32(c["tannin_restore"]),
+        f32(c["tannin_dmax_gain"]),
+    ]
+    brown = (f32(c["brown_dir"][0]), f32(c["brown_dir"][1]))
+    path_u = [f32(v) for v in c["path_u"]]
+    anchors = [(f32(a), f32(b)) for a, b in sc["path"]]
+    return negpy_core.cyanotype(np.ascontiguousarray(img, dtype=np.float32), scalars, brown, path_u, anchors, WORKING_LAB)

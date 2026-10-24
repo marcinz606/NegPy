@@ -56,6 +56,9 @@ class ScannerCapabilities:
     #: is unavailable. Independent of `multi_exposure` — repeating a single exposure needs no
     #: long-exposure capability, so this is not gated on the same condition.
     max_n_passes: int = 1
+    #: Resolutions where `multi_exposure` and `max_n_passes` apply; empty means every `supported_dpi`.
+    multi_exposure_dpi: tuple[int, ...] = ()
+    multi_pass_dpi: tuple[int, ...] = ()
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
     can_eject: bool = False
@@ -78,6 +81,12 @@ class ScannerCapabilities:
     superfine: bool = False  # one line per pass, slower, owes the host no registration
     #: One metered exposure can be reused for every later scan (`ScanParams.exposures`).
     exposure_lock: bool = False
+
+    def multi_exposure_at(self, dpi: int) -> bool:
+        return self.multi_exposure and (not self.multi_exposure_dpi or int(dpi) in self.multi_exposure_dpi)
+
+    def multi_pass_at(self, dpi: int) -> bool:
+        return self.max_n_passes > 1 and (not self.multi_pass_dpi or int(dpi) in self.multi_pass_dpi)
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ under the shapes the user placed or Auto proposed."""
 import hashlib
 from typing import Optional, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.leak.estimate import estimate_leak
@@ -109,7 +109,7 @@ def _remove(img: np.ndarray, config) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     lifted = soft * np.logaddexp(0.0, (mean - leak) / soft)
     gain = np.where(mean > 1e-6, np.minimum(lifted / np.maximum(mean, 1e-6), 1.0), 1.0).astype(np.float32)
     h, w = img.shape[:2]
-    gain = cv2.resize(gain, (w, h), interpolation=cv2.INTER_LINEAR)
+    gain = negpy_core.resize_linear(gain, (w, h))
     out = img.copy()
     for y0 in range(0, h, _ROW_BLOCK):
         rows = slice(y0, min(h, y0 + _ROW_BLOCK))

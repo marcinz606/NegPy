@@ -140,27 +140,22 @@ class TestIncrementalSkipsUnchangedWork:
         assert seen_counts == [1, 1, 1], f"expected one new stroke scored per call, got {seen_counts}"
 
     def test_appending_a_stroke_only_fills_the_new_component(self):
-        """apply_score_repair does the actual pixel fill per connected component; a
-        previously-filled, untouched component must not be redone. repair_components
-        looks the name up in its own defining module (retouch.logic), not image_processor's
-        imported reference to it, so that is what has to be patched."""
+        """repair_components re-fills only the components that hold a dirty pixel; an
+        untouched one keeps what base_out already holds there."""
         from negpy.features.retouch import logic as retouch_logic
 
         img, strokes = _scene()
-        proc = ImageProcessor()
-        call_counts: list[int] = []
-        real = retouch_logic.apply_score_repair
-
-        def counting(*a, **k):
-            call_counts.append(1)
-            return real(*a, **k)
-
-        with patch.object(retouch_logic, "apply_score_repair", side_effect=counting):
-            for n in range(1, len(strokes) + 1):
-                call_counts.clear()
-                settings = _config(strokes[:n])
-                proc._manual_bake(img, settings, _source_key(settings))
-                assert call_counts == [1], f"expected exactly one fill for the new component at {n} strokes, got {len(call_counts)}"
+        score = retouch_logic.strokes_to_score(img, strokes, [])
+        assert score is not None
+        base = np.full_like(img, 7.0)
+        dirty = np.zeros(img.shape[:2], dtype=bool)
+        dirty[188:196, 58:66] = True  # the newest stroke only
+        out = np.asarray(retouch_logic.repair_components(img, score, floor=False, base_out=base, dirty=dirty))
+        fresh = np.asarray(retouch_logic.repair_components(img, score, floor=False))
+        for y, x in ((31, 31), (121, 121)):
+            np.testing.assert_array_equal(out[y, x], base[y, x])
+        np.testing.assert_array_equal(out[191, 61], fresh[191, 61])
+        assert not np.array_equal(out[191, 61], base[191, 61])
 
     def test_dust_removal_on_detects_once_and_stays_incremental(self):
         img, strokes = _scene()

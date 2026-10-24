@@ -1,140 +1,60 @@
 import hashlib
 import os
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
+import negpy_core
 import numpy as np
-from numba import njit, prange  # type: ignore
-from negpy.kernel.system.parallel import parallel_njit
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
-from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-@njit(cache=True, nogil=True, fastmath=True)
-def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
-    """
-    Rec. 709 luminance.
-    """
-    h, w, _ = img.shape
-    res = np.empty((h, w), dtype=np.float32)
-    for y in range(h):
-        for x in range(w):
-            res[y, x] = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
-    return res
-
-
-@njit(cache=True, nogil=True, fastmath=True)
 def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     """
-    Scale to uint16 (rounds to nearest, clips & handles NaNs).
+    Scale a float32 buffer to uint16: rounds to nearest, clips, NaN to 0.
 
     The +0.5 rounds. A bare cast truncates toward zero, which biases every sample down by
     half a level and doubles the quantisation error: the error distribution runs [-1, 0]
-    instead of [-0.5, +0.5]. The luma kernels below have always rounded; these did not.
+    instead of [-0.5, +0.5].
     """
-    res = np.empty_like(img, dtype=np.uint16)
-    img_flat = img.reshape(-1)
-    res_flat = res.reshape(-1)
-
-    for i in range(len(img_flat)):
-        val = img_flat[i]
-        if np.isnan(val):
-            v = 0.0
-        else:
-            v = val * 65535.0 + 0.5
-
-        if v < 0.0:
-            v = 0.0
-        elif v > 65535.0:
-            v = 65535.0
-
-        res_flat[i] = np.uint16(v)
-    return res
+    return negpy_core.to_uint16(np.ascontiguousarray(img, dtype=np.float32))
 
 
-@njit(cache=True, nogil=True, fastmath=True)
 def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     """
-    Scale to uint8 (rounds to nearest, clips & handles NaNs). See _to_uint16_jit.
+    Scale a float32 buffer to uint8: rounds to nearest, clips, NaN to 0. See _to_uint16_jit.
     """
-    res = np.empty_like(img, dtype=np.uint8)
-    img_flat = img.reshape(-1)
-    res_flat = res.reshape(-1)
-
-    for i in range(len(img_flat)):
-        val = img_flat[i]
-        if np.isnan(val):
-            v = 0.0
-        else:
-            v = val * 255.0 + 0.5
-
-        if v < 0.0:
-            v = 0.0
-        elif v > 255.0:
-            v = 255.0
-
-        res_flat[i] = np.uint8(v)
-    return res
+    return negpy_core.to_uint8(np.ascontiguousarray(img, dtype=np.float32))
 
 
-@njit(cache=True, nogil=True, fastmath=True)
 def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     """
-    Fast JIT conversion from uint8 to float32 [0.0, 1.0].
+    uint8 to float32 [0.0, 1.0].
     """
-    h, w, c = img.shape
-    res = np.empty((h, w, c), dtype=np.float32)
-    inv_255 = 1.0 / 255.0
-    for y in range(h):
-        for x in range(w):
-            for ch in range(c):
-                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_255
-    return res
+    return negpy_core.uint8_to_float32(np.ascontiguousarray(img, dtype=np.uint8))
 
 
-@njit(cache=True, nogil=True)
 def rgb_to_rgba_into(src: np.ndarray, dst: np.ndarray) -> None:
-    """Copies the three colour planes of ``src`` into the RGBA ``dst``; alpha is left as is.
-    numpy cannot vectorise a 3-of-4 strided copy, so a texture upload spent longer here than
-    on the GPU."""
-    h, w = src.shape[0], src.shape[1]
-    for y in range(h):
-        for x in range(w):
-            dst[y, x, 0] = src[y, x, 0]
-            dst[y, x, 1] = src[y, x, 1]
-            dst[y, x, 2] = src[y, x, 2]
+    """Copies the three color planes of float32 ``src`` into the RGBA ``dst``; alpha is left
+    as is. numpy cannot vectorize a 3-of-4 strided copy."""
+    negpy_core.rgb_to_rgba_into(np.asarray(src, dtype=np.float32), dst)
 
 
-@njit(cache=True, nogil=True)
 def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None:
-    """Writes the RGB of ``src[oy:oy+h, ox:ox+w]`` into the (h, w, 3) ``dst``."""
-    h, w = dst.shape[0], dst.shape[1]
-    for y in range(h):
-        for x in range(w):
-            dst[y, x, 0] = src[oy + y, ox + x, 0]
-            dst[y, x, 1] = src[oy + y, ox + x, 1]
-            dst[y, x, 2] = src[oy + y, ox + x, 2]
+    """Writes the RGB of float32 ``src[oy:oy+h, ox:ox+w]`` into the (h, w, 3) ``dst``."""
+    negpy_core.rgba_to_rgb_into(np.asarray(src, dtype=np.float32), dst, int(oy), int(ox))
 
 
-@njit(cache=True, nogil=True, fastmath=True)
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """
-    Fast JIT conversion from uint16 to float32 [0.0, 1.0].
+    uint16 to float32 [0.0, 1.0].
     """
-    h, w, c = img.shape
-    res = np.empty((h, w, c), dtype=np.float32)
-    inv_65535 = 1.0 / 65535.0
-    for y in range(h):
-        for x in range(w):
-            for ch in range(c):
-                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_65535
-    return res
+    return negpy_core.uint16_to_float32(np.ascontiguousarray(img, dtype=np.uint16))
 
 
 def srgb_to_linear(img: np.ndarray) -> np.ndarray:
     """Convert sRGB gamma-encoded float32 image to linear light (IEC 61966-2-1)."""
-    return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
+    return negpy_core.srgb_to_linear(np.ascontiguousarray(img, dtype=np.float32))
 
 
 # Working-space output transform: the Adobe RGB (1998) TRC, a pure 563/256 power with no
@@ -143,38 +63,23 @@ def srgb_to_linear(img: np.ndarray) -> np.ndarray:
 _WORKING_GAMMA = 563.0 / 256.0  # 2.19921875
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float) -> np.ndarray:
-    """Row-parallel working-space encode over a flattened buffer (shape-agnostic)."""
-    n = flat.shape[0]
-    out = np.empty(n, dtype=np.float32)
-    for i in prange(n):
-        x = flat[i]
-        if x < 0.0:
-            x = 0.0
-        elif x > 1.0:
-            x = 1.0
-        out[i] = x**inv_gamma
-    return out
+    """Working-space encode of a flat buffer: clamped to 0..1, raised to `inv_gamma`."""
+    return negpy_core.oetf_encode(np.ascontiguousarray(flat, dtype=np.float32), inv_gamma)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _oetf_decode_flat(flat: np.ndarray, gamma: float) -> np.ndarray:
     """Inverse of _oetf_encode_flat."""
-    n = flat.shape[0]
-    out = np.empty(n, dtype=np.float32)
-    for i in prange(n):
-        e = flat[i]
-        if e < 0.0:
-            e = 0.0
-        out[i] = e**gamma
-    return out
+    return negpy_core.oetf_decode(np.ascontiguousarray(flat, dtype=np.float32), gamma)
+
+
+WORKING_INV_GAMMA = np.float32(1.0 / _WORKING_GAMMA)
 
 
 def working_oetf_encode(img: np.ndarray) -> np.ndarray:
     """Scene-linear -> display-encoded code values [0,1] (Adobe RGB TRC)."""
     flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1)
-    return _oetf_encode_flat(flat, np.float32(1.0 / _WORKING_GAMMA)).reshape(img.shape)
+    return _oetf_encode_flat(flat, WORKING_INV_GAMMA).reshape(img.shape)
 
 
 def working_oetf_decode(img: np.ndarray) -> np.ndarray:
@@ -206,17 +111,9 @@ _LAB_EPS = 0.008856
 _LAB_KAPPA = 7.787
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _matmul_3x3_kernel(px: np.ndarray, m: np.ndarray) -> np.ndarray:
-    """Row-parallel 3x3 matrix multiply over an (N, 3) pixel array."""
-    n = px.shape[0]
-    out = np.empty((n, 3), dtype=np.float32)
-    for i in prange(n):
-        r, g, b = px[i, 0], px[i, 1], px[i, 2]
-        out[i, 0] = m[0, 0] * r + m[0, 1] * g + m[0, 2] * b
-        out[i, 1] = m[1, 0] * r + m[1, 1] * g + m[1, 2] * b
-        out[i, 2] = m[2, 0] * r + m[2, 1] * g + m[2, 2] * b
-    return out
+    """3x3 matrix multiply over an (N, 3) pixel array."""
+    return negpy_core.matmul_3x3(np.ascontiguousarray(px, dtype=np.float32), m)
 
 
 def apply_primaries_transform(img: np.ndarray, src_to_xyz: np.ndarray) -> np.ndarray:
@@ -237,156 +134,24 @@ def apply_primaries_transform(img: np.ndarray, src_to_xyz: np.ndarray) -> np.nda
     return working_oetf_encode(out)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
-    """Row-parallel linear working RGB -> CIELAB (D65) over an (N, 3) pixel list."""
-    n = px.shape[0]
-    out = np.empty((n, 3), dtype=np.float32)
-    c = np.float32(16.0 / 116.0)
-    for i in prange(n):
-        r = px[i, 0]
-        g = px[i, 1]
-        b = px[i, 2]
-        if r < 0.0:
-            r = 0.0
-        if g < 0.0:
-            g = 0.0
-        if b < 0.0:
-            b = 0.0
-        xr = (m[0, 0] * r + m[0, 1] * g + m[0, 2] * b) / white[0]
-        yr = (m[1, 0] * r + m[1, 1] * g + m[1, 2] * b) / white[1]
-        zr = (m[2, 0] * r + m[2, 1] * g + m[2, 2] * b) / white[2]
-        fx = xr ** (1.0 / 3.0) if xr > eps else kappa * xr + c
-        fy = yr ** (1.0 / 3.0) if yr > eps else kappa * yr + c
-        fz = zr ** (1.0 / 3.0) if zr > eps else kappa * zr + c
-        out[i, 0] = 116.0 * fy - 16.0
-        out[i, 1] = 500.0 * (fx - fy)
-        out[i, 2] = 200.0 * (fy - fz)
-    return out
+    """Linear working RGB -> CIELAB (D65) over an (N, 3) pixel list."""
+    return negpy_core.rgb_to_lab(np.ascontiguousarray(px, dtype=np.float32), m, white, eps, kappa)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _lab_to_rgb_kernel(lab: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
-    """Row-parallel inverse: CIELAB (D65) -> linear working RGB over an (N, 3) pixel list."""
-    n = lab.shape[0]
-    out = np.empty((n, 3), dtype=np.float32)
-    c = np.float32(16.0 / 116.0)
-    for i in prange(n):
-        fy = (lab[i, 0] + 16.0) / 116.0
-        fx = lab[i, 1] / 500.0 + fy
-        fz = fy - lab[i, 2] / 200.0
-        fx3 = fx * fx * fx
-        fy3 = fy * fy * fy
-        fz3 = fz * fz * fz
-        xr = (fx3 if fx3 > eps else (fx - c) / kappa) * white[0]
-        yr = (fy3 if fy3 > eps else (fy - c) / kappa) * white[1]
-        zr = (fz3 if fz3 > eps else (fz - c) / kappa) * white[2]
-        r = m[0, 0] * xr + m[0, 1] * yr + m[0, 2] * zr
-        g = m[1, 0] * xr + m[1, 1] * yr + m[1, 2] * zr
-        b = m[2, 0] * xr + m[2, 1] * yr + m[2, 2] * zr
-        out[i, 0] = r if r > 0.0 else 0.0
-        out[i, 1] = g if g > 0.0 else 0.0
-        out[i, 2] = b if b > 0.0 else 0.0
-    return out
+    """Inverse: CIELAB (D65) -> linear working RGB over an (N, 3) pixel list."""
+    return negpy_core.lab_to_rgb(np.ascontiguousarray(lab, dtype=np.float32), m, white, eps, kappa)
 
 
-@njit(inline="always")
-def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.ndarray, eps: float, kappa: float, c: float) -> bool:
-    """Whether (L, a, b) decodes to linear working RGB within [0,1] on all channels."""
-    fy = (l_val + 16.0) / 116.0
-    fx = a / 500.0 + fy
-    fz = fy - b / 200.0
-    fx3 = fx * fx * fx
-    fy3 = fy * fy * fy
-    fz3 = fz * fz * fz
-    xr = (fx3 if fx3 > eps else (fx - c) / kappa) * white[0]
-    yr = (fy3 if fy3 > eps else (fy - c) / kappa) * white[1]
-    zr = (fz3 if fz3 > eps else (fz - c) / kappa) * white[2]
-    r = m[0, 0] * xr + m[0, 1] * yr + m[0, 2] * zr
-    g = m[1, 0] * xr + m[1, 1] * yr + m[1, 2] * zr
-    bl = m[2, 0] * xr + m[2, 1] * yr + m[2, 2] * zr
-    tol = np.float32(1e-4)
-    one = np.float32(1.0)
-    return r >= -tol and r <= one + tol and g >= -tol and g <= one + tol and bl >= -tol and bl <= one + tol
-
-
-# Skin-tone mask for skin_chroma_rein: an axis-aligned reduction of the CIELAB skin locus.
-# Hue is the axis that stays put across the whole tonal range, chroma is bounded, and
-# lightness is free apart from the two ends where the hue angle turns to noise.
-#
-# The chroma window is the discriminator, and it is the measured skin locus, not a gamut
-# bound: sunset, terracotta and brick all sit inside the hue band. It cuts both ways. Skin
-# above the window keeps only partial weight, and warm objects at skin's own chroma (wood,
-# tan leather, sand) are the same color as skin. Neither is separable per pixel.
-_SKIN_HUE_CENTER_DEG = np.float32(52.0)
-_SKIN_HUE_WIDTH_DEG = np.float32(20.0)
-_SKIN_CHROMA_FULL = np.float32(35.0)
-_SKIN_CHROMA_ZERO = np.float32(60.0)
-_SKIN_L_LO = np.float32(15.0)
-_SKIN_L_HI = np.float32(95.0)
-
-# Chroma ceiling the rein pulls toward: _SKIN_CEIL_AT_FULL / strength, so the ceiling runs
-# past any reachable chroma as strength approaches 0 and the control fades out continuously.
-# A lerp to a finite "off" ceiling would step the moment the slider left 0. The knee starts
-# at a fraction of the ceiling, so ordinary skin below it passes through untouched.
-_SKIN_CEIL_AT_FULL = np.float32(22.0)
-_SKIN_KNEE_START_FRAC = np.float32(0.6)
-
-
-@njit(inline="always")
-def _smoothstep_scalar(e0: float, e1: float, x: float) -> float:
-    t = (x - e0) / (e1 - e0)
-    if t < 0.0:
-        t = 0.0
-    elif t > 1.0:
-        t = 1.0
-    return float(t * t * (np.float32(3.0) - np.float32(2.0) * t))
-
-
-@njit(inline="always")
 def _skin_weight(l_val: float, a: float, b: float) -> float:
-    """0 (not skin) to 1 (dead centre of the skin locus). Near-neutral pixels
-    have an undefined hue angle, so gate on chroma before trusting atan2."""
-    chroma = np.sqrt(a * a + b * b)
-    if chroma < np.float32(2.0):
-        return 0.0
-    hue_deg = np.degrees(np.arctan2(b, a))
-    dist = hue_deg - _SKIN_HUE_CENTER_DEG
-    # Wrap to [-180, 180], so 179 against -179 reads as 2 degrees apart, not 358.
-    dist = dist - np.float32(360.0) * np.round(dist / np.float32(360.0))
-    x = dist / _SKIN_HUE_WIDTH_DEG
-    w_hue = np.exp(np.float32(-0.5) * x * x)
-    w_chroma = np.float32(1.0) - _smoothstep_scalar(_SKIN_CHROMA_FULL, _SKIN_CHROMA_ZERO, chroma)
-    w_light = _smoothstep_scalar(np.float32(0.0), _SKIN_L_LO, l_val) * (
-        np.float32(1.0) - _smoothstep_scalar(_SKIN_L_HI, np.float32(100.0), l_val)
-    )
-    return float(w_hue * w_chroma * w_light)
+    """0 (not skin) to 1 (dead centre of the skin locus); 0 below a chroma of 2, where the hue is noise."""
+    return negpy_core.skin_weight(l_val, a, b)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _skin_chroma_rein_kernel(lab: np.ndarray, strength: float) -> np.ndarray:
-    """Soft chroma ceiling inside the skin mask -- see skin_chroma_rein."""
-    n = lab.shape[0]
-    out = np.empty((n, 3), dtype=np.float32)
-    one = np.float32(1.0)
-    ceiling = _SKIN_CEIL_AT_FULL / strength
-    start = _SKIN_KNEE_START_FRAC * ceiling
-    span = ceiling - start
-    for i in prange(n):
-        l_val = lab[i, 0]
-        a = lab[i, 1]
-        b = lab[i, 2]
-        chroma = np.sqrt(a * a + b * b)
-        scale = one
-        if chroma > start:
-            w = _skin_weight(l_val, a, b)
-            if w > 0.0:
-                knee = start + span * (one - np.exp(-(chroma - start) / span))
-                scale = (chroma + w * (knee - chroma)) / chroma
-        out[i, 0] = l_val
-        out[i, 1] = a * scale
-        out[i, 2] = b * scale
-    return out
+    """Soft chroma ceiling inside the skin mask over an (N, 3) Lab list -- see skin_chroma_rein."""
+    return negpy_core.skin_chroma_rein(np.ascontiguousarray(lab, dtype=np.float32), strength)
 
 
 def skin_chroma_rein(lab: np.ndarray, strength: float) -> np.ndarray:
@@ -412,7 +177,6 @@ def skin_chroma_rein(lab: np.ndarray, strength: float) -> np.ndarray:
     return out.reshape(arr.shape)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _gamut_aware_chroma_scale_kernel(
     lab: np.ndarray, saturation: float, m: np.ndarray, white: np.ndarray, eps: float, kappa: float, iters: int
 ) -> np.ndarray:
@@ -432,44 +196,7 @@ def _gamut_aware_chroma_scale_kernel(
     changes the R:G:B ratio the eye actually sees. This sidesteps that by
     never overshooting in the first place.
     """
-    n = lab.shape[0]
-    out = np.empty((n, 3), dtype=np.float32)
-    c = np.float32(16.0 / 116.0)
-    one = np.float32(1.0)
-    for i in prange(n):
-        l_val = lab[i, 0]
-        a = lab[i, 1]
-        b = lab[i, 2]
-        if saturation <= one:
-            # Desaturation never overshoots the gamut: moving toward the achromatic axis
-            # cannot push a channel further out of range.
-            eff = saturation
-        else:
-            if _in_gamut_lab(l_val, a * saturation, b * saturation, m, white, eps, kappa, c):
-                # The full push already lands in gamut, so use it directly. Without this,
-                # bisecting within [1, saturation] converges lo toward saturation itself, which
-                # is the search's own upper bound and not a real constraint, and the knee
-                # formula below then throttles pixels that were never going to clip.
-                eff = saturation
-            else:
-                lo = one
-                hi = saturation
-                still_ok = _in_gamut_lab(l_val, a, b, m, white, eps, kappa, c)
-                for _ in range(iters):
-                    mid = (lo + hi) / np.float32(2.0)
-                    if still_ok and _in_gamut_lab(l_val, a * mid, b * mid, m, white, eps, kappa, c):
-                        lo = mid
-                    else:
-                        hi = mid
-                s_max = lo
-                if s_max < one + np.float32(1e-4):
-                    s_max = one + np.float32(1e-4)
-                knee = s_max - one
-                eff = one + knee * (one - np.exp(-(saturation - one) / knee))
-        out[i, 0] = l_val
-        out[i, 1] = a * eff
-        out[i, 2] = b * eff
-    return out
+    return negpy_core.gamut_aware_chroma_scale(np.ascontiguousarray(lab, dtype=np.float32), saturation, m, white, eps, kappa, iters)
 
 
 def gamut_aware_chroma_scale(lab: np.ndarray, saturation: float, iters: int = 10) -> np.ndarray:
@@ -480,6 +207,10 @@ def gamut_aware_chroma_scale(lab: np.ndarray, saturation: float, iters: int = 10
         arr.reshape(-1, 3), np.float32(saturation), _XYZ_TO_WORKING, _WORKING_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA), iters
     )
     return out.reshape(arr.shape)
+
+
+# The working Lab constants, in the order negpy_core's Lab-stage kernels take them.
+WORKING_LAB = (_WORKING_TO_XYZ, _XYZ_TO_WORKING, _WORKING_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
 
 
 def rgb_to_lab_working(img: np.ndarray) -> np.ndarray:
@@ -498,86 +229,12 @@ def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
     return out.reshape(arr.shape)
 
 
-@njit(cache=True, nogil=True, fastmath=True)
-def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
-    """
-    Luminance -> uint8.
-    """
-    scale = 255.0
-    dtype = np.uint8
-
-    if img.ndim == 2:
-        h, w = img.shape
-        res = np.empty((h, w), dtype=dtype)
-        for y in range(h):
-            for x in range(w):
-                v = img[y, x] * scale + 0.5
-                if v < 0:
-                    v = 0
-                elif v > scale:
-                    v = scale
-                res[y, x] = dtype(v)
-        return res
-    else:
-        h, w, c = img.shape
-        res = np.empty((h, w), dtype=dtype)
-        for y in range(h):
-            for x in range(w):
-                lum = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
-                v = lum * scale + 0.5
-                if v < 0:
-                    v = 0
-                elif v > scale:
-                    v = scale
-                res[y, x] = dtype(v)
-        return res
-
-
-@njit(cache=True, nogil=True, fastmath=True)
-def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
-    """
-    Luminance -> uint16.
-    """
-    scale = 65535.0
-    dtype = np.uint16
-
-    if img.ndim == 2:
-        h, w = img.shape
-        res = np.empty((h, w), dtype=dtype)
-        for y in range(h):
-            for x in range(w):
-                v = img[y, x] * scale + 0.5
-                if v < 0:
-                    v = 0
-                elif v > scale:
-                    v = scale
-                res[y, x] = dtype(v)
-        return res
-    else:
-        h, w, c = img.shape
-        res = np.empty((h, w), dtype=dtype)
-        for y in range(h):
-            for x in range(w):
-                lum = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
-                v = lum * scale + 0.5
-                if v < 0:
-                    v = 0
-                elif v > scale:
-                    v = scale
-                res[y, x] = dtype(v)
-        return res
-
-
 def float_to_uint_luma(img: np.ndarray, bit_depth: int = 8) -> np.ndarray:
     """
-    Fuses luminance calculation and bit-depth conversion.
-    Dispatches to specialized JIT kernels based on bit_depth.
+    Fuses luminance calculation and bit-depth conversion: an HxWx3 float32 buffer (or an
+    HxW one, taken as luminance) to HxW uint8, or uint16 for ``bit_depth`` 16.
     """
-    if bit_depth == 16:
-        res_16: np.ndarray = _float_to_uint16_luma_jit(img)
-        return res_16
-    res_8: np.ndarray = _float_to_uint8_luma_jit(img)
-    return res_8
+    return negpy_core.luma_to_uint(np.ascontiguousarray(img, dtype=np.float32), 16 if bit_depth == 16 else 8)
 
 
 def float_to_uint16(img: np.ndarray) -> np.ndarray:
@@ -632,7 +289,7 @@ def get_luminance(img: np.ndarray) -> np.ndarray:
     Calculates relative luminance. Supports (H, W, 3) and (N, 3) arrays.
     """
     if img.ndim == 3:
-        return ensure_image(_get_luminance_jit(np.ascontiguousarray(img.astype(np.float32))))
+        return negpy_core.luminance(np.ascontiguousarray(img[..., :3], dtype=np.float32))
 
     return LUMA_R * img[..., 0] + LUMA_G * img[..., 1] + LUMA_B * img[..., 2]
 
@@ -720,17 +377,3 @@ def percentile_from_sorted(sorted_grid: np.ndarray, q: float) -> np.ndarray:
     a, b = sorted_grid[lo], sorted_grid[hi]
     diff = b - a
     return b - diff * (1 - t) if t >= 0.5 else a + diff * t
-
-
-def percentiles(values: np.ndarray, qs: Sequence[float]) -> tuple:
-    """`np.percentile(values, q)` for each q, bit for bit, from one partition instead of one per q."""
-    flat = values.ravel()
-    n = flat.size
-    if n == 0:
-        raise IndexError("percentiles of an empty array")
-    ranks = []
-    for q in qs:
-        lo = min(max(int(np.floor((n - 1) * np.true_divide(q, 100))), 0), n - 1)
-        ranks += [lo, min(lo + 1, n - 1)]
-    part = np.partition(flat, sorted(set(ranks)))
-    return tuple(percentile_from_sorted(part, q) for q in qs)

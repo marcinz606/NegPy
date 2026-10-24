@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import negpy_core
 import numpy as np
 
 #: Mean level (0..255) below which a frame carries no usable contrast: the light is off.
@@ -17,14 +18,10 @@ def sharpness(gray: np.ndarray) -> float:
 
     0.0 for a frame too dark or too small.
     """
-    img = np.asarray(gray, dtype=np.float32)
+    img = np.ascontiguousarray(gray, dtype=np.float32)
     if img.ndim != 2 or min(img.shape) < 3:
         return 0.0
-    mean = float(img.mean())
-    if mean < MIN_MEAN_LEVEL:
-        return 0.0
-    lap = 4.0 * img[1:-1, 1:-1] - img[:-2, 1:-1] - img[2:, 1:-1] - img[1:-1, :-2] - img[1:-1, 2:]
-    return float(np.mean(lap * lap)) / (mean * mean)
+    return negpy_core.sharpness(img, MIN_MEAN_LEVEL)
 
 
 class FocusMeter:

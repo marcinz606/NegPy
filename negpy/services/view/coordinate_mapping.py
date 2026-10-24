@@ -1,6 +1,14 @@
+import negpy_core
 import numpy as np
-import cv2
 from typing import Tuple, Optional
+
+
+def _invert_affine(m: np.ndarray) -> np.ndarray:
+    """cv2.invertAffineTransform in its operation order."""
+    d = m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0]
+    d = 1.0 / d if d != 0 else 0.0
+    a11, a22, a12, a21 = m[1, 1] * d, m[0, 0] * d, -m[0, 1] * d, -m[1, 0] * d
+    return np.array([[a11, a12, -a11 * m[0, 2] - a12 * m[1, 2]], [a21, a22, -a21 * m[0, 2] - a22 * m[1, 2]]])
 
 
 class CoordinateMapping:
@@ -49,7 +57,7 @@ class CoordinateMapping:
             # The grid is affine in pixel position, so the rotated grid is solved exactly. A
             # warpAffine fills the corner wedges with 0, which sends a click there to (0, 0).
             h_r, w_r = uv_grid.shape[:2]
-            m_inv = cv2.invertAffineTransform(cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0))
+            m_inv = _invert_affine(negpy_core.rotation_matrix((w_r / 2.0, h_r / 2.0), fine_rot, 1.0))
             o = uv_grid[0, 0].astype(np.float64)
             du = (uv_grid[0, -1] - o) / max(w_r - 1, 1)
             dv = (uv_grid[-1, 0] - o) / max(h_r - 1, 1)
@@ -96,7 +104,7 @@ class CoordinateMapping:
             ]
         )
         dst = np.float32([uv_grid[y0, x0], uv_grid[y0, x1], uv_grid[y1, x1], uv_grid[y1, x0]])
-        return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
+        return negpy_core.perspective_transform(src, dst).astype(np.float64)
 
     @staticmethod
     def _apply_homography(m: np.ndarray, nx: float, ny: float) -> Tuple[float, float]:

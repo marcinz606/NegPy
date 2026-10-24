@@ -2,7 +2,7 @@
 
 from typing import List, Optional, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.leak.bake import film_dmax, leak_scan, leak_unmix
@@ -64,8 +64,8 @@ def _excess_map(small: np.ndarray, film: np.ndarray, response: FilmResponse) -> 
         return np.zeros((gh, gw), np.float32), seen, cell
     excess = np.where(seen, np.log1p(np.maximum(floor, 0.0)) - float(np.nanpercentile(np.log1p(floor), _RADON_TYPICAL)), 0.0)
     mask = seen.astype(np.float32)
-    blur_v = cv2.GaussianBlur((excess * mask).astype(np.float32), (0, 0), _RADON_SMOOTH)
-    blur_m = cv2.GaussianBlur(mask, (0, 0), _RADON_SMOOTH)
+    blur_v = negpy_core.gaussian_blur((excess * mask).astype(np.float32), (0, 0), _RADON_SMOOTH)
+    blur_m = negpy_core.gaussian_blur(mask, (0, 0), _RADON_SMOOTH)
     return np.where(blur_m > 0.2, blur_v / np.maximum(blur_m, 1e-6), 0.0).astype(np.float32), blur_m > 0.2, cell
 
 
@@ -83,9 +83,9 @@ def _sinogram(excess: np.ndarray, valid: np.ndarray, angles: np.ndarray) -> Tupl
     sums = np.zeros((angles.size, diag), np.float32)
     counts = np.zeros((angles.size, diag), np.float32)
     for k, angle in enumerate(angles):
-        rot = cv2.getRotationMatrix2D(center, float(angle), 1.0)
-        sums[k] = cv2.warpAffine(pad_v, rot, (diag, diag), flags=cv2.INTER_LINEAR).sum(axis=0)
-        counts[k] = cv2.warpAffine(pad_m, rot, (diag, diag), flags=cv2.INTER_LINEAR).sum(axis=0)
+        rot = negpy_core.rotation_matrix(center, float(angle), 1.0)
+        sums[k] = negpy_core.warp_affine(pad_v, rot, (diag, diag), border="constant").sum(axis=0)
+        counts[k] = negpy_core.warp_affine(pad_m, rot, (diag, diag), border="constant").sum(axis=0)
     span = counts.max(axis=1, keepdims=True)
     means = np.where(counts >= _RADON_MIN_SPAN * np.maximum(span, 1.0), sums / np.maximum(counts, 1e-6), np.nan)
     return means, counts

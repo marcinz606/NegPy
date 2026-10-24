@@ -9,9 +9,10 @@ tone and the matrix should not bend to it.
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+import negpy_core
 import numpy as np
 
-from negpy.kernel.image.logic import rgb_to_lab_working, working_oetf_decode
+from negpy.kernel.image.logic import _WORKING_GAMMA, rgb_to_lab_working
 
 ROWS = 4
 COLS = 6
@@ -167,23 +168,27 @@ def sample_radius(corners: np.ndarray) -> float:
     return float(0.5 * _SAMPLE_FRACTION * min(pitch_x, pitch_y))
 
 
-def sample_patches(img: np.ndarray, corners_px: np.ndarray) -> np.ndarray:
-    """(24, 3) median of each patch box. Median, so dust on the card does not move it."""
+def _patch_medians(img: np.ndarray, corners_px: np.ndarray, gamma: Optional[float]) -> np.ndarray:
+    """(24, 3) median of each patch box; with `gamma`, of the clipped image decoded from the working encoding."""
     h, w = img.shape[:2]
     r = max(1, int(round(sample_radius(corners_px))))
-    out = np.empty((ROWS * COLS, 3), dtype=np.float64)
-    for i, (x, y) in enumerate(patch_centers(corners_px)):
-        x0, x1 = int(np.clip(round(x) - r, 0, w - 1)), int(np.clip(round(x) + r + 1, 1, w))
-        y0, y1 = int(np.clip(round(y) - r, 0, h - 1)), int(np.clip(round(y) + r + 1, 1, h))
-        out[i] = np.median(img[y0:y1, x0:x1, :3].reshape(-1, 3), axis=0)
-    return out
+    boxes = []
+    for x, y in patch_centers(corners_px):
+        cx, cy = int(round(x)), int(round(y))
+        boxes.append((min(max(cx - r, 0), w - 1), min(max(cx + r + 1, 1), w), min(max(cy - r, 0), h - 1), min(max(cy + r + 1, 1), h)))
+    return np.array(negpy_core.chart_patches(np.ascontiguousarray(img, dtype=np.float32), boxes, gamma), dtype=np.float64)
+
+
+def sample_patches(img: np.ndarray, corners_px: np.ndarray) -> np.ndarray:
+    """(24, 3) median of each patch box. Median, so dust on the card does not move it."""
+    return _patch_medians(img, corners_px, None)
 
 
 def measure_lab(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, order: np.ndarray) -> np.ndarray:
     """The chart's patches in printed order, as Lab, after one exposure gain that matches its mid grays.
 
     Exposure is the user's choice and the matrix keeps grays gray, so the gain is not a fit term."""
-    linear = sample_patches(np.asarray(working_oetf_decode(np.clip(encoded, 0.0, 1.0))), corners_px)
+    linear = _patch_medians(encoded, corners_px, float(np.float32(_WORKING_GAMMA)))
     rgb = np.empty_like(linear)
     rgb[order] = linear
     ref = reference_lab(chart)

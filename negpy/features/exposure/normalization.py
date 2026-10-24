@@ -1,13 +1,10 @@
-import os
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, TYPE_CHECKING, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
-from numba import njit  # type: ignore
 
-from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ROI, ImageBuffer
-from negpy.features.geometry.logic import AUTOCROP_DETECT_RES, _normalize_detection_input, film_and_picture
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
+from negpy.features.geometry.logic import AUTOCROP_DETECT_RES, _normalize_detection_input
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.logic import percentile_from_sorted
 from negpy.kernel.image.validation import ensure_image
@@ -17,10 +14,7 @@ if TYPE_CHECKING:
 
 # Bump in any change that alters the bounds a frame measures for unchanged settings. Saved
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
-BOUNDS_VERSION = 1
-
-# Above this size the block-median is threaded over row strips (np.median frees the GIL).
-_BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
+BOUNDS_VERSION = 2
 
 # Contrast-mask spacer, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Under the minimum the mask stops being
@@ -31,35 +25,6 @@ MASK_SPACER_MAX = 6.0
 # Diffusion's blur sigma in per-cent of the printed frame's short side: one diffuser at the
 # lens, whose spread a printer does not vary between prints.
 DIFFUSION_SPREAD = 2.0
-
-
-@njit(cache=True, nogil=True, fastmath=True)
-def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray) -> np.ndarray:
-    """
-    Log -> ~0.0-1.0 (Linear stretch, unclamped: out-of-bounds densities are
-    rolled off by the downstream characteristic curve).
-    Supports both f < c (Negative) and f > c (Positive) mapping.
-    """
-    h, w, c = img_log.shape
-    res = np.empty_like(img_log)
-    epsilon = 1e-6
-
-    for y in range(h):
-        for x in range(w):
-            for ch in range(3):
-                f = floors[ch]
-                c_val = ceils[ch]
-                delta = c_val - f
-
-                denom = delta
-                if abs(delta) < epsilon:
-                    if delta >= 0:
-                        denom = epsilon
-                    else:
-                        denom = -epsilon
-
-                res[y, x, ch] = (img_log[y, x, ch] - f) / denom
-    return res
 
 
 class LogNegativeBounds:
@@ -133,32 +98,8 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     b = int(np.ceil(max(h, w) / grid))
     if b <= 1 or h < b or w < b:
         return img_log
-
     hb, wb = (h // b) * b, (w // b) * b
-    arr = img_log[:hb, :wb]
-    grid_rows, c = hb // b, arr.shape[2]
-
-    def _median(rows: np.ndarray) -> np.ndarray:
-        v = rows.reshape(rows.shape[0] // b, b, wb // b, b, c)
-        if b == 2:
-            # Median of 4 = (sum - min - max) / 2; strided views, no partition.
-            p00, p01, p10, p11 = v[:, 0, :, 0], v[:, 0, :, 1], v[:, 1, :, 0], v[:, 1, :, 1]
-            s = p00.astype(np.float64) + p01 + p10 + p11
-            mn = np.minimum(np.minimum(p00, p01), np.minimum(p10, p11))
-            mx = np.maximum(np.maximum(p00, p01), np.maximum(p10, p11))
-            return ((s - mn - mx) * 0.5).astype(rows.dtype, copy=False)
-        return np.median(v, axis=(1, 3))
-
-    workers = min(os.cpu_count() or 1, grid_rows)
-    if workers < 2 or hb * wb < _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS:
-        return _median(arr)
-
-    # Block-aligned strips -> per-cell median identical to the single pass.
-    rows_per = -(-grid_rows // workers)
-    strips = [arr[i * b : min(grid_rows, i + rows_per) * b] for i in range(0, grid_rows, rows_per)]
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        parts = list(ex.map(_median, strips))
-    return np.concatenate(parts, axis=0)
+    return negpy_core.block_median_grid(np.ascontiguousarray(img_log[:hb, :wb], dtype=np.float32), b)
 
 
 def prefilter_log_grid(
@@ -193,17 +134,16 @@ def measure_clip_fractions(
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-    img = image
-    if roi:
-        y1, y2, x1, x2 = roi
-        img = img[y1:y2, x1:x2]
+    h, w = image.shape[:2]
+    y1, y2, x1, x2 = roi if roi else (0, h, 0, w)
+    y2, x2 = min(y2, h), min(x2, w)
+    y1, x1 = min(y1, y2), min(x1, x2)
     if analysis_buffer > 0:
-        img = get_analysis_crop(img, analysis_buffer)
-    # Stride-subsampled: a warning metric doesn't need every pixel.
-    img = img[::4, ::4]
+        b = min(max(analysis_buffer, 0.0), 0.3)
+        cut_h, cut_w = int((y2 - y1) * b), int((x2 - x1) * b)
+        y1, y2, x1, x2 = y1 + cut_h, y2 - cut_h, x1 + cut_w, x2 - cut_w
     level = float(EXPOSURE_CONSTANTS["scan_clip_level"])
-    clipped = np.mean(img >= level, axis=(0, 1))
-    return (float(clipped[0]), float(clipped[1]), float(clipped[2]))
+    return negpy_core.clip_fractions(np.ascontiguousarray(image, dtype=np.float32), (y1, y2, x1, x2), level)
 
 
 def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[str]) -> Optional[np.ndarray]:
@@ -259,41 +199,8 @@ def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:
 
 
 def to_log_density(image: ImageBuffer) -> ImageBuffer:
-    """
-    Linear scan -> log10 density, the domain every meter reads.
-
-    fmin/fmax rather than clip: they drop a NaN in favour of the bound, so one clamp covers
-    the NaN and infinity fixup as well.
-    """
-    epsilon = 1e-6
-    return np.log10(np.fmin(np.fmax(image, epsilon), 1.0))
-
-
-def _rms_chroma(triplets: np.ndarray) -> np.ndarray:
-    """Distance from the neutral axis in normalized-density space (pairwise RMS):
-    rotation-symmetric around grey, so the near-neutral ranking is hue-uniform
-    (max-min scores an opposed R/B split double a same-side deviation)."""
-    r, g, b = triplets[..., 0], triplets[..., 1], triplets[..., 2]
-    return np.sqrt(((r - g) ** 2 + (g - b) ** 2 + (r - b) ** 2) / 3.0)
-
-
-def _subject_cells(norm_f: np.ndarray) -> np.ndarray:
-    """Cells in the foliage or the sky sector. In a frame with no grays the lowest-chroma cells are
-    desaturated leaves or pale sky, and neutralizing them prints magenta or yellow (a printer's
-    subject failure)."""
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    c = EXPOSURE_CONSTANTS
-    dr = norm_f[:, 0] - norm_f[:, 1]
-    db = norm_f[:, 2] - norm_f[:, 1]
-    t, s = (dr + db) / 2.0, (dr - db) / 2.0
-    hue = np.degrees(np.arctan2(-s, t))
-    chroma = np.hypot(t, s)
-    cells = np.zeros(chroma.shape, dtype=bool)
-    for name in ("foliage", "sky"):
-        lo, hi = c[f"neutral_axis_{name}_hue"]
-        cells |= (chroma > float(c[f"neutral_axis_{name}_chroma"])) & (hue > float(lo)) & (hue < float(hi))
-    return cells
+    """Linear scan -> log10 density clamped to 1e-6..1 (NaN to 1e-6), the domain every meter reads."""
+    return negpy_core.to_log_density(np.ascontiguousarray(image, dtype=np.float32))
 
 
 def measure_neutral_axis_from_log(
@@ -317,97 +224,25 @@ def measure_neutral_axis_from_log(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    img_log = _block_median_grid(img_log)
-    norm = normalize_log_image(img_log, bounds)
-    luma = LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2]
-
-    flat_log = img_log.reshape(-1, 3)
-    norm_f = norm.reshape(-1, 3)
-    luma_f = luma.reshape(-1)
-    if exclude_subjects:
-        keep = ~_subject_cells(norm_f)
-        flat_log, norm_f, luma_f = flat_log[keep], norm_f[keep], luma_f[keep]
-    chroma_f = _rms_chroma(norm_f)
-
     c = EXPOSURE_CONSTANTS
-    q = float(c["neutral_axis_chroma_quantile"])
-    cap = float(c["neutral_axis_chroma_cap"])
-    pass1_cap = float(c["neutral_axis_first_pass_cap"])
-    min_px = int(c["neutral_axis_min_pixels"])
-    epsilon = 1e-6
-
-    def _band_refs(
-        lo: float, hi: float, chroma_vals: np.ndarray, cap_val: float
-    ) -> Optional[Tuple[Tuple[float, float, float], float, int, float]]:
-        band = (luma_f >= lo) & (luma_f <= hi)
-        if int(band.sum()) < min_px:
-            return None
-        band_chroma = chroma_vals[band]
-        thr = float(np.quantile(band_chroma, q))
-        keep = band_chroma <= thr
-        idx = np.nonzero(band)[0][keep]
-        near_neutral_chroma = float(np.median(band_chroma[keep])) if idx.size else cap_val
-        if idx.size < min_px or near_neutral_chroma > cap_val:
-            return None
-        # One gather for all three channels: the per-channel fancy index is the cost here.
-        sel = flat_log[idx]
-        # R and B are green plus the set's median offset from green. Independent channel
-        # medians can each fall in a different cluster of a set that holds two colors.
-        green = float(np.median(sel[:, 1]))
-        refs = (green + float(np.median(sel[:, 0] - sel[:, 1])), green, green + float(np.median(sel[:, 2] - sel[:, 1])))
-        offsets = (norm_f[idx][:, (0, 2)] - norm_f[idx][:, 1:2]).astype(np.float64)
-        p10, p90 = np.percentile(offsets, (10.0, 90.0), axis=0)
-        return (refs, near_neutral_chroma, int(idx.size), float(np.max(p90 - p10)))
-
-    def _norm_ref(refs: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        out = []
-        for ch in range(3):
-            denom = bounds.ceils[ch] - bounds.floors[ch]
-            if abs(denom) < epsilon:
-                denom = epsilon if denom >= 0 else -epsilon
-            out.append((refs[ch] - bounds.floors[ch]) / denom)
-        return (out[0], out[1], out[2])
-
-    hb = c["neutral_axis_highlight_band"]
-    mb = c["neutral_axis_mid_band"]
-    sb = c["neutral_axis_shadow_band"]
-    mid1 = _band_refs(float(mb[0]), float(mb[1]), chroma_f, pass1_cap)
-    sh1 = _band_refs(float(sb[0]), float(sb[1]), chroma_f, pass1_cap)
-    if mid1 is None or sh1 is None:
-        return None
-
-    nm, ns = _norm_ref(mid1[0]), _norm_ref(sh1[0])
-    corrected = norm_f.copy()
-    for ch in (0, 2):
-        du = nm[ch] - ns[ch]
-        if abs(du) < epsilon:
-            a, b = 1.0, nm[1] - nm[ch]
-        else:
-            a = (nm[1] - ns[1]) / du
-            b = nm[1] - a * nm[ch]
-        corrected[:, ch] = a * norm_f[:, ch] + b
-    chroma2_f = _rms_chroma(corrected)
-
-    mid = _band_refs(float(mb[0]), float(mb[1]), chroma2_f, cap)
-    shadow = _band_refs(float(sb[0]), float(sb[1]), chroma2_f, cap)
-    if mid is None or shadow is None:
-        return None
-    highlight = _band_refs(float(hb[0]), float(hb[1]), chroma2_f, cap)
-
-    # Confidence: the corrected tightness of the grey sets, times the midtone sample size,
-    # times the mid/shadow deviation agreement, where a dead zone passes plausible crossover.
-    n0 = float(c["neutral_axis_confidence_n0"])
-    dead = float(c["neutral_axis_agreement_deadzone"])
-    scale = float(c["neutral_axis_agreement_scale"])
-    tight = float(np.clip(1.0 - max(mid[1], shadow[1]) / cap, 0.0, 1.0))
-    size_term = mid[2] / (mid[2] + n0)
-    dm, ds = _norm_ref(mid[0]), _norm_ref(shadow[0])
-    spread = max(abs((dm[ch] - dm[1]) - (ds[ch] - ds[1])) for ch in (0, 2))
-    agree = 1.0 - min(max(spread - dead, 0.0) / scale, 1.0)
-    width = max(mid[3], shadow[3])
-    single = 1.0 - min(max(width - float(c["neutral_axis_width_deadzone"]), 0.0) / float(c["neutral_axis_width_scale"]), 1.0)
-    confidence = float(np.clip(tight * size_term * agree * single, 0.0, 1.0))
-    return (mid[0], shadow[0], highlight[0] if highlight is not None else None, confidence)
+    consts = (
+        float(c["neutral_axis_chroma_quantile"]),
+        float(c["neutral_axis_chroma_cap"]),
+        float(c["neutral_axis_first_pass_cap"]),
+        int(c["neutral_axis_min_pixels"]),
+        tuple(float(v) for v in c["neutral_axis_highlight_band"]),
+        tuple(float(v) for v in c["neutral_axis_mid_band"]),
+        tuple(float(v) for v in c["neutral_axis_shadow_band"]),
+        (float(c["neutral_axis_foliage_chroma"]), *(float(v) for v in c["neutral_axis_foliage_hue"])),
+        (float(c["neutral_axis_sky_chroma"]), *(float(v) for v in c["neutral_axis_sky_hue"])),
+        float(c["neutral_axis_confidence_n0"]),
+        (float(c["neutral_axis_agreement_deadzone"]), float(c["neutral_axis_agreement_scale"])),
+        (float(c["neutral_axis_width_deadzone"]), float(c["neutral_axis_width_scale"])),
+    )
+    grid = np.ascontiguousarray(_block_median_grid(img_log), dtype=np.float32)
+    floors = tuple(float(v) for v in bounds.floors)
+    ceils = tuple(float(v) for v in bounds.ceils)
+    return negpy_core.neutral_axis(grid, floors, ceils, exclude_subjects, consts)
 
 
 def measure_neutral_axis(
@@ -421,79 +256,19 @@ def measure_neutral_axis(
     return measure_neutral_axis_from_log(img_log, bounds, roi, analysis_buffer)
 
 
-#: The clear base is read from flat blocks in the film box's margin, grouped by brightness, the
-#: way negdensity.py reads it. The film box comes from the crop's detector at its own resolution,
-#: whose edge walk is calibrated there.
-_BASE_MARGIN = 0.15  # the band inside the film box, per side, that holds rebate, perforations and picture edge
-_BASE_BLOCK = 8  # block size at detection resolution
-_FLAT_CV = 0.03  # a block whose std over mean is under this is flat film, not edge print or a gradient
-_GROUP_GAP = 0.04  # decades between neighbouring blocks that split two brightness groups
 _OPEN_LIGHT_GAP = 0.08  # decades a brighter, smaller group must clear the base to be bare light
-_MIN_BASE_BLOCKS = 5
-_CLIP_LEVEL = 0.98  # a block with a pixel at sensor white is light the scan clipped, never film
-
-
-def _margin_band(shape: Tuple[int, int], film_roi: ROI) -> np.ndarray:
-    """Inside the film box, outside its central core: where the rebate and the perforations lie."""
-    fy1, fy2, fx1, fx2 = film_roi
-    band = np.zeros(shape, bool)
-    band[fy1:fy2, fx1:fx2] = True
-    my, mx = int((fy2 - fy1) * _BASE_MARGIN), int((fx2 - fx1) * _BASE_MARGIN)
-    band[fy1 + my : fy2 - my, fx1 + mx : fx2 - mx] = False
-    return band
-
-
-def _base_blocks(det: np.ndarray, band: np.ndarray) -> Optional[np.ndarray]:
-    """Per-channel means of the band's flat blocks that are clear base, or None without enough.
-
-    Flat blocks are grouped by brightness; the largest group is the base. A smaller group
-    well above it is bare light through a perforation or past the film's edge. A flat
-    picture region in the band that outnumbers the base is taken for it."""
-    b = _BASE_BLOCK
-    hb, wb = det.shape[0] // b, det.shape[1] // b
-    blocks = det[: hb * b, : wb * b].reshape(hb, b, wb, b, 3)
-    mean = blocks.mean(axis=(1, 3))
-    lum = mean.mean(axis=2)
-    inside = band[: hb * b, : wb * b].reshape(hb, b, wb, b).mean(axis=(1, 3)) >= 0.9
-    unclipped = blocks.max(axis=(1, 3, 4)) < _CLIP_LEVEL
-    flat = inside & unclipped & (lum > 1e-4) & (blocks.std(axis=(1, 3)).mean(axis=2) / np.maximum(lum, 1e-6) < _FLAT_CV)
-    if int(flat.sum()) < _MIN_BASE_BLOCKS:
-        return None
-    cand = mean[flat]
-    log_lum = np.log10(np.maximum(cand.mean(axis=1), 1e-6))
-    order = np.argsort(log_lum)[::-1]  # brightest first
-    groups: list[np.ndarray] = []
-    start = 0
-    for i in range(1, len(order) + 1):
-        if i == len(order) or log_lum[order[i - 1]] - log_lum[order[i]] > _GROUP_GAP:
-            groups.append(order[start:i])
-            start = i
-    min_n = max(_MIN_BASE_BLOCKS, int(0.02 * len(order)))
-    big = [g for g in groups if len(g) >= min_n]
-    if not big:
-        return None
-    return cand[max(big, key=len)]
 
 
 def measure_base_log(image: ImageBuffer) -> Optional[Tuple[float, float, float]]:
     """Per-channel log10 transmittance of the clear base: the median of the flat base blocks in
     the film box's margin on the uncropped frame. None when the scan shows no film box, the
     margin holds too few flat blocks, or the base is darker than the picture, because a
-    negative's base is its thinnest film."""
+    negative's base is its thinnest film. The blocks group by brightness, the way negdensity.py
+    reads the base; the film box comes from the crop's detector at its own resolution, whose
+    edge walk is calibrated there."""
     det, _ = _normalize_detection_input(image, AUTOCROP_DETECT_RES)
-    det = np.ascontiguousarray(det, dtype=np.float32)
-    film_roi, gate = film_and_picture(det)
-    if film_roi is None:
-        return None
-    base = _base_blocks(det, _margin_band(det.shape[:2], film_roi))
-    if base is None:
-        return None
-    gy1, gy2, gx1, gx2 = gate
-    picture = det[gy1:gy2, gx1:gx2].reshape(-1, 3)
-    if np.median(base.mean(axis=1)) <= np.median(picture.mean(axis=1)):
-        return None
-    r, g, b = (float(np.log10(max(float(v), 1e-6))) for v in np.median(base, axis=0))
-    return (r, g, b)
+    base = negpy_core.measure_base_log(np.ascontiguousarray(det, dtype=np.float32))
+    return None if base is None else (base[0], base[1], base[2])
 
 
 def log_from_val(val_rgb: Tuple[float, float, float], bounds: LogNegativeBounds) -> Tuple[float, float, float]:
@@ -520,7 +295,7 @@ def density_above_base(
     base = float(np.dot(w, np.asarray(base_rgb, dtype=np.float64)))
     thin = float(np.dot(w, np.asarray(bounds.ceils, dtype=np.float64)))
     dense = float(np.dot(w, np.asarray(bounds.floors, dtype=np.float64)))
-    median = float(np.median(np.asarray(prefiltered, dtype=np.float64).reshape(-1, 3) @ w))
+    median = negpy_core.luma_median(np.ascontiguousarray(prefiltered, dtype=np.float32))
     return (base - thin, base - median, base - dense)
 
 
@@ -546,43 +321,31 @@ def luminance_density_range(bounds: LogNegativeBounds) -> float:
     return float(LUMA_R * rr + LUMA_G * rg + LUMA_B * rb)
 
 
-def _textured_cells(lum: np.ndarray) -> np.ndarray:
-    """
-    Cells of the prefiltered luma grid that carry detail. The grid is tiled into
-    sectors of 2x2 blocks of activity_block cells; a sector votes when its four block
-    means span more than activity_gate_density (Boyack & Juenger, US 5,724,456). Block
-    means average grain out, and a flat sector beside a textured one stays out because
-    only its own blocks are compared. Falls back to every cell when too few pass.
-    """
+def _activity_gate() -> Tuple[int, float, float]:
+    """The activity gate shared by the anchor and textural-range meters: the grid is tiled into
+    sectors of 2x2 blocks of activity_block cells, and a sector votes when its four block means
+    span more than activity_gate_density (Boyack & Juenger, US 5,724,456). Block means average
+    grain out, and a flat sector beside a textured one stays out because only its own blocks are
+    compared. Every cell votes when fewer than activity_min_fraction of the sectors pass."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    b = int(c["activity_block"])
-    h, w = lum.shape
-    hs, ws = (h // (2 * b)) * 2 * b, (w // (2 * b)) * 2 * b
-    if hs == 0 or ws == 0:
-        return lum.ravel()
-    core = lum[:hs, :ws]
-    blocks = core.reshape(hs // b, b, ws // b, b).mean(axis=(1, 3))
-    sectors = blocks.reshape(hs // (2 * b), 2, ws // (2 * b), 2)
-    active = (sectors.max(axis=(1, 3)) - sectors.min(axis=(1, 3))) > float(c["activity_gate_density"])
-    if active.mean() < float(c["activity_min_fraction"]):
-        return lum.ravel()
-    mask = np.repeat(np.repeat(active, 2 * b, axis=0), 2 * b, axis=1)
-    return core[mask]
+    return int(c["activity_block"]), float(c["activity_gate_density"]), float(c["activity_min_fraction"])
 
 
-def _textured_norm_luma(grid: ImageBuffer, bounds: LogNegativeBounds) -> np.ndarray:
-    """Luma of the grid normalized against `bounds`, textured cells only."""
+def _meter_norm(bounds: LogNegativeBounds) -> list:
+    """Per channel (floor, span, and whether each is a float64 operand): NumPy normalizes in
+    float64 when the bounds hold NumPy float64 scalars, in float32 for Python floats."""
     epsilon = 1e-6
-    norm = np.empty_like(grid)
+    out = []
     for ch in range(3):
         f = bounds.floors[ch]
         denom = bounds.ceils[ch] - f
         if abs(denom) < epsilon:
             denom = epsilon if denom >= 0 else -epsilon
-        norm[:, :, ch] = (grid[:, :, ch] - f) / denom
-    return _textured_cells(LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2])
+        wide = (np.result_type(np.float32, f) == np.float64, np.result_type(np.float32, denom) == np.float64)
+        out.append((float(f), bool(wide[0]), float(denom), bool(wide[1])))
+    return out
 
 
 def measure_shadow_point_from_log(
@@ -600,8 +363,10 @@ def measure_shadow_point_from_log(
         img_log = img_log[y1:y2, x1:x2]
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
-    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
-    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["shadow_reach_percentile"])))
+    grid = np.ascontiguousarray(_block_median_grid(img_log), dtype=np.float32)
+    return float(
+        negpy_core.textured_percentile(grid, _meter_norm(bounds), _activity_gate(), float(EXPOSURE_CONSTANTS["shadow_reach_percentile"]))
+    )
 
 
 def measure_highlight_point_from_log(
@@ -619,8 +384,10 @@ def measure_highlight_point_from_log(
         img_log = img_log[y1:y2, x1:x2]
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
-    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
-    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["highlight_hold_percentile"])))
+    grid = np.ascontiguousarray(_block_median_grid(img_log), dtype=np.float32)
+    return float(
+        negpy_core.textured_percentile(grid, _meter_norm(bounds), _activity_gate(), float(EXPOSURE_CONSTANTS["highlight_hold_percentile"]))
+    )
 
 
 def measure_anchor_from_log(
@@ -657,11 +424,8 @@ def measure_anchor_from_log(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
-    clip = float(EXPOSURE_CONSTANTS["anchor_trim_clip"])
-    lo, hi = np.percentile(lum, [clip, 100.0 - clip])
-    inner = lum[(lum >= lo) & (lum <= hi)]
-    measured = 0.5 * (float(inner.mean()) + 0.5 * (float(lo) + float(hi)))
+    grid = np.ascontiguousarray(_block_median_grid(img_log), dtype=np.float32)
+    measured = negpy_core.textured_anchor(grid, _meter_norm(bounds), _activity_gate(), float(EXPOSURE_CONSTANTS["anchor_trim_clip"]))
 
     a = float(EXPOSURE_CONSTANTS["assumed_anchor"]) if assumed is None else float(assumed)
     strength = float(EXPOSURE_CONSTANTS["anchor_meter_strength"])
@@ -703,12 +467,8 @@ def measure_textural_range_from_log(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    img_log = _block_median_grid(img_log)
-
-    lum = _textured_cells(LUMA_R * img_log[:, :, 0] + LUMA_G * img_log[:, :, 1] + LUMA_B * img_log[:, :, 2])
-    clip = float(EXPOSURE_CONSTANTS["textural_range_clip"])
-    lo, hi = np.percentile(lum, [clip, 100.0 - clip])
-    return float(abs(hi - lo))
+    grid = np.ascontiguousarray(_block_median_grid(img_log), dtype=np.float32)
+    return negpy_core.textured_range(grid, _activity_gate(), float(EXPOSURE_CONSTANTS["textural_range_clip"]))
 
 
 def measure_textural_range(
@@ -770,7 +530,7 @@ def analysis_grid(
     grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
     if max(h, w) > grid:
         scale = grid / float(max(h, w))
-        image = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+        image = negpy_core.resize_area(np.ascontiguousarray(image, dtype=np.float32), (max(1, round(w * scale)), max(1, round(h * scale))))
 
     if rotation:
         image = np.rot90(image, k=rotation)
@@ -819,11 +579,9 @@ def contrast_mask_plane(
         return np.zeros(image.shape[:2], dtype=np.float32), 0.5
 
     val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
-    lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
-    sigma = min(max(spacer, MASK_SPACER_MIN), MASK_SPACER_MAX) * 0.01 * min(lum.shape[:2])
-    blurred = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)
-    centre = float(blurred.mean())
-    return blurred - centre, centre
+    sigma = min(max(spacer, MASK_SPACER_MIN), MASK_SPACER_MAX) * 0.01 * min(val.shape[:2])
+    plane, centre = negpy_core.contrast_mask_tail(np.ascontiguousarray(val, dtype=np.float32), sigma)
+    return plane, float(centre)
 
 
 def diffusion_grid(
@@ -841,9 +599,9 @@ def diffusion_grid(
     """The unmixed light blurred by `DIFFUSION_SPREAD`, as log density on `analysis_grid`. It takes no bounds:
     the print's normalization is a per-channel gain on that light."""
     image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
-    light = np.ascontiguousarray(10.0 ** unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), dtype=np.float32)
-    sigma = DIFFUSION_SPREAD * 0.01 * min(light.shape[:2])
-    return np.log10(cv2.GaussianBlur(light, (0, 0), sigma, borderType=cv2.BORDER_REPLICATE))
+    unmixed = np.ascontiguousarray(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), dtype=np.float32)
+    sigma = DIFFUSION_SPREAD * 0.01 * min(unmixed.shape[:2])
+    return negpy_core.diffusion_tail(unmixed, sigma)
 
 
 def diffusion_plane(grid: np.ndarray, bounds: LogNegativeBounds, panchromatic: bool = False) -> Optional[np.ndarray]:
@@ -853,19 +611,18 @@ def diffusion_plane(grid: np.ndarray, bounds: LogNegativeBounds, panchromatic: b
         return None
     val = normalize_log_image(grid, bounds)
     if panchromatic:
-        lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
-        val = np.dstack([lum, lum, lum])
+        val = negpy_core.luma_planes(np.ascontiguousarray(val, dtype=np.float32))
     return np.ascontiguousarray(val, dtype=np.float32)
 
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
-    Stretches log-data to fit [0, 1].
+    Log -> ~0.0-1.0 (linear stretch, unclamped: out-of-bounds densities are rolled off by
+    the downstream characteristic curve). Supports both f < c (negative) and f > c (positive).
     """
-    floors = np.ascontiguousarray(np.array(bounds.floors, dtype=np.float32))
-    ceils = np.ascontiguousarray(np.array(bounds.ceils, dtype=np.float32))
-
-    return ensure_image(_normalize_log_image_jit(np.ascontiguousarray(img_log.astype(np.float32)), floors, ceils))
+    floors = [float(v) for v in np.asarray(bounds.floors, dtype=np.float32)]
+    ceils = [float(v) for v in np.asarray(bounds.ceils, dtype=np.float32)]
+    return ensure_image(negpy_core.normalize_log_image(np.ascontiguousarray(img_log, dtype=np.float32), floors, ceils))
 
 
 def _sample_log_bounds(
@@ -889,13 +646,13 @@ def _sample_log_bounds(
         margin = -percentile_clip
     p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
 
-    def _pct(p) -> list:
-        if sorted_grid is not None:
-            return [float(v) for v in percentile_from_sorted(sorted_grid, p)]
-        return [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
-
-    floors = _pct(p_low)
-    ceils = _pct(p_high)
+    if sorted_grid is not None:
+        floors = [float(v) for v in percentile_from_sorted(sorted_grid, p_low)]
+        ceils = [float(v) for v in percentile_from_sorted(sorted_grid, p_high)]
+    else:
+        per_channel = negpy_core.channel_percentiles(np.ascontiguousarray(img_log, dtype=np.float32), [float(p_low), float(p_high)])
+        floors = [lo for lo, _ in per_channel]
+        ceils = [hi for _, hi in per_channel]
 
     if margin > 0.0:
         # Expand outward; per-channel sign handles both f < c and f > c.
@@ -931,53 +688,22 @@ def _same_pixel_color_floor_refs(
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    q = float(c["neutral_axis_chroma_quantile"])
-    cap = float(c["neutral_axis_chroma_cap"])
-    min_px = int(c["neutral_axis_min_pixels"])
-    width = float(c["color_bounds_band_width"])
-    epsilon = 1e-6
-
-    flat = img_log.reshape(-1, 3).astype(np.float64)
-    base = np.asarray(base_refs, dtype=np.float64)
-    norm = np.empty_like(flat)
-    for ch in range(3):
-        denom = luma_ceils[ch] - luma_floors[ch]
-        if abs(denom) < epsilon:
-            denom = epsilon if denom >= 0 else -epsilon
-        norm[:, ch] = (flat[:, ch] - luma_floors[ch]) / denom
-    luma = LUMA_R * norm[:, 0] + LUMA_G * norm[:, 1] + LUMA_B * norm[:, 2]
-
-    clip = max(0.00001, min(50.0 - width, float(color_clip)))
-    lo, hi = np.percentile(luma, [clip, clip + width])
-    band = (luma >= lo) & (luma <= hi)
-    if int(band.sum()) < min_px:
-        return None
-    d = flat[band] - base[None, :]
-
-    def _select(gamma: np.ndarray) -> Optional[Tuple[np.ndarray, float]]:
-        g = gamma.copy()
-        g[np.abs(g) < epsilon] = epsilon
-        chroma = _rms_chroma(d / g[None, :])
-        thr = float(np.quantile(chroma, q))
-        sel = chroma <= thr
-        if int(sel.sum()) < min_px:
-            return None
-        return sel, float(np.median(chroma[sel]))
-
-    spans = np.array([luma_floors[ch] - base_refs[ch] for ch in range(3)], dtype=np.float64)
-    first = _select(spans)
-    # Pass-1 loose cap: a homogeneous colored cluster would otherwise be self-normalized to
-    # zero chroma by pass 2 and read as neutral.
-    if first is None or first[1] > float(c["neutral_axis_first_pass_cap"]):
-        return None
-    provisional = np.median(d[first[0]], axis=0)
-    if np.any(np.abs(provisional) < epsilon):
-        return None
-    second = _select(provisional)
-    if second is None or second[1] > cap:
-        return None
-    refs = base + np.median(d[second[0]], axis=0)
-    return (float(refs[0]), float(refs[1]), float(refs[2]))
+    constants = (
+        float(c["neutral_axis_chroma_quantile"]),
+        float(c["neutral_axis_chroma_cap"]),
+        float(c["neutral_axis_first_pass_cap"]),
+        int(c["neutral_axis_min_pixels"]),
+        float(c["color_bounds_band_width"]),
+    )
+    refs = negpy_core.same_pixel_color_floor_refs(
+        np.ascontiguousarray(img_log, dtype=np.float32),
+        [float(v) for v in luma_floors],
+        [float(v) for v in luma_ceils],
+        [float(v) for v in base_refs],
+        float(color_clip),
+        constants,
+    )
+    return None if refs is None else (refs[0], refs[1], refs[2])
 
 
 def analyze_log_exposure_bounds(

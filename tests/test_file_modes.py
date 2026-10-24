@@ -3,6 +3,7 @@
 import os
 import pathlib
 import stat
+import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -35,6 +36,7 @@ def test_an_export_takes_the_umask_mode(tmp_path, monkeypatch):
     worker = export.ExportWorker.__new__(export.ExportWorker)
     worker._processor = SimpleNamespace(encode_export=lambda *a, **k: (b"jpeg bytes", ""))
     worker._written = set()
+    worker._names_lock = threading.Lock()
     monkeypatch.setattr(export, "_export_resolution", lambda task: None)
     monkeypatch.setattr(export, "resolve_export_naming", lambda task: (str(tmp_path), "frame", "jpg"))
     monkeypatch.setattr(export, "_export_target_is_a_source", lambda path, task: False)

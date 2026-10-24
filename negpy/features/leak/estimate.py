@@ -10,7 +10,7 @@ under it, so it never carves the picture cell by cell."""
 from dataclasses import replace
 from typing import List, NamedTuple, Optional, Sequence
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.leak.film import FilmResponse, Rect, read_film
@@ -353,8 +353,8 @@ def _slice_cap(
         return cap
     logs = np.log1p(np.where(known, cap, 0.0)).astype(np.float32)[:, None]
     mask = known.astype(np.float32)[:, None]
-    blur = cv2.GaussianBlur(logs * mask, (1, 0), sigmaX=0.1, sigmaY=_CAP_SMOOTH)[:, 0]
-    norm = cv2.GaussianBlur(mask, (1, 0), sigmaX=0.1, sigmaY=_CAP_SMOOTH)[:, 0]
+    blur = negpy_core.gaussian_blur(logs * mask, (1, 0), 0.1, _CAP_SMOOTH)[:, 0]
+    norm = negpy_core.gaussian_blur(mask, (1, 0), 0.1, _CAP_SMOOTH)[:, 0]
     # Smoothing must never lift a cell past its own reading.
     return np.where(known, np.minimum(np.expm1(blur / np.maximum(norm, 1e-6)), cap), _CAP_OPEN)
 
@@ -377,9 +377,9 @@ def _local_cap(u: np.ndarray, film: np.ndarray) -> np.ndarray:
             keep = film[r[0] : r[-1] + 1, c[0] : c[-1] + 1]
             if keep.mean() >= CAP_FILM_FRACTION:
                 cap[i, j] = np.percentile(u[r[0] : r[-1] + 1, c[0] : c[-1] + 1][keep], _CAP_PERCENTILE, axis=0)
-    log_cap = cv2.resize(np.log1p(np.maximum(cap, 0.0)), (w, h), interpolation=cv2.INTER_LINEAR)
+    log_cap = negpy_core.resize_linear(np.ascontiguousarray(np.log1p(np.maximum(cap, 0.0)), dtype=np.float32), (w, h))
     sigma = _LOCAL_CAP_SMOOTH * max(h, w) / float(_LOCAL_CAP_GRID)
-    return np.expm1(cv2.GaussianBlur(log_cap, (0, 0), sigma)).astype(np.float32)
+    return np.expm1(negpy_core.gaussian_blur(log_cap, (0, 0), sigma)).astype(np.float32)
 
 
 class ShapeReading(NamedTuple):
@@ -505,7 +505,7 @@ def _tip_fade(x: np.ndarray) -> np.ndarray:
 def _gap_detail(u: np.ndarray) -> np.ndarray:
     """Per pixel, the film's detail against a blur: rebate holds no scene and reads smooth."""
     lu = np.log1p(np.maximum(u, 0.0)).mean(axis=-1).astype(np.float32)
-    return np.abs(lu - cv2.GaussianBlur(lu, (0, 0), _GAP_DETAIL_SIGMA))
+    return np.abs(lu - negpy_core.gaussian_blur(lu, (0, 0), _GAP_DETAIL_SIGMA))
 
 
 def _gap_width(u: np.ndarray, detail: np.ndarray, step: np.ndarray, search: int, open_end: bool = False) -> int:
@@ -817,7 +817,7 @@ def _gap_strip(u: np.ndarray, along: np.ndarray, depth: np.ndarray, gap: int, ct
     strip = side & (depth < reach_in) & (depth >= -np.maximum(reach_out, 0.0))
     if not strip.any():
         return None
-    mean = cv2.GaussianBlur(np.maximum(u, 0.0).astype(np.float32), (0, 0), _MEAN_SIGMA)
+    mean = negpy_core.gaussian_blur(np.maximum(u, 0.0).astype(np.float32), (0, 0), _MEAN_SIGMA)
     return mean * strip.astype(np.float32)[..., None] * np.float32(_GAP_CLEAR * min(strength, 1.0))
 
 
@@ -855,7 +855,7 @@ def _tip_reading(u: np.ndarray, rows: EdgeRows, tip: np.ndarray, ctx: _Context, 
     weight = _tip_fade(depth / (np.interp(position, np.arange(n), extent).reshape(along.shape) * reach))
     near = ctx.film & rows.inside & (depth >= 0.0)
     ends = _taper_ends(along, rows.length, rows.taper)
-    mean = cv2.GaussianBlur(u, (0, 0), _MEAN_SIGMA)
+    mean = negpy_core.gaussian_blur(np.ascontiguousarray(u, dtype=np.float32), (0, 0), _MEAN_SIGMA)
     field = np.zeros(u.shape, np.float32)
     for c in range(3):
         level = np.interp(along, np.arange(tip.shape[0]) + 0.5, tip[:, c]).astype(np.float32)
@@ -979,7 +979,7 @@ def _steep_tip(
         known = np.isfinite(slopes[:, c])
         slope = np.interp(cells, np.arange(n)[known], slopes[known, c]) if known.any() else np.zeros(size)
         carried = np.interp(centers, centers[have], logs[have]) - slope * out_px
-        profile[:, c] = np.exp(cv2.GaussianBlur(carried.astype(np.float32)[:, None], (1, 0), sigmaX=0.1, sigmaY=_TIP_ALONG_BLUR)[:, 0])
+        profile[:, c] = np.exp(negpy_core.gaussian_blur(carried.astype(np.float32)[:, None], (1, 0), 0.1, _TIP_ALONG_BLUR)[:, 0])
     return amplitude, extent, profile, k
 
 
@@ -1200,8 +1200,8 @@ def _spot_reading(u: np.ndarray, spot: LeakShape, ctx: _Context) -> Optional[Sha
 
 def _spread(values: np.ndarray, known: np.ndarray, sigma: float) -> np.ndarray:
     """Normalized convolution: *values* where *known*, carried into the cells around them."""
-    weight = cv2.GaussianBlur(known.astype(np.float32), (0, 0), sigma)
-    total = cv2.GaussianBlur(np.where(known, values, 0.0).astype(np.float32), (0, 0), sigma)
+    weight = negpy_core.gaussian_blur(known.astype(np.float32), (0, 0), sigma)
+    total = negpy_core.gaussian_blur(np.where(known, values, 0.0).astype(np.float32), (0, 0), sigma)
     return np.where(weight > 1e-4, total / np.maximum(weight, 1e-6), np.nan)
 
 
@@ -1215,7 +1215,7 @@ def _lower_envelope(cells: np.ndarray) -> np.ndarray:
     filled = _spread(np.maximum(np.where(known, cells, 0.0), 0.0), known, _PAINT_SMOOTH)
     filled = np.where(np.isfinite(filled), filled, 0.0).astype(np.float32)
     window = np.ones((_PAINT_OPEN, _PAINT_OPEN), np.uint8)
-    return np.maximum(cv2.GaussianBlur(cv2.dilate(cv2.erode(filled, window), window), (0, 0), _PAINT_BLUR), 0.0)
+    return np.maximum(negpy_core.gaussian_blur(negpy_core.morphology_ex(filled, negpy_core.MORPH_OPEN, window), (0, 0), _PAINT_BLUR), 0.0)
 
 
 def _paint_reading(u: np.ndarray, paint: LeakShape, ctx: _Context) -> Optional[ShapeReading]:
@@ -1233,7 +1233,7 @@ def _paint_reading(u: np.ndarray, paint: LeakShape, ctx: _Context) -> Optional[S
     if inside.sum() < _SPIKE_MIN_PIXELS:
         return None
     cover = (weight > 0.0).astype(np.uint8)
-    ring = film & (cover == 0) & (cv2.distanceTransform(1 - cover, cv2.DIST_L2, 5) <= _PAINT_RING_PX)
+    ring = film & (cover == 0) & (negpy_core.distance_transform(1 - cover, 2, 5) <= _PAINT_RING_PX)
     h, w = shape
     gh, gw = max(1, h // _PAINT_CELL_PX), max(1, w // _PAINT_CELL_PX)
     rows = np.minimum(np.arange(h) * gh // h, gh - 1)
@@ -1283,7 +1283,7 @@ def _paint_reading(u: np.ndarray, paint: LeakShape, ctx: _Context) -> Optional[S
             cap.flat[index] = max(float(np.percentile(u[here][:, lead] / (k[lead] * weight[here]), _CAP_PERCENTILE)), 0.0)
     amplitude = np.where(np.isfinite(amplitude), amplitude, 0.0) * paint.strength
     amplitude = soft_min(amplitude, cap)
-    per_pixel = cv2.resize(amplitude.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+    per_pixel = negpy_core.resize_linear(amplitude.astype(np.float32), (w, h))
     field = (per_pixel * weight).astype(np.float32)[..., None] * k.astype(np.float32)
     return ShapeReading(k, field)
 
@@ -1351,7 +1351,7 @@ def estimate_leak(
         residual = np.maximum(residual - read.field - (0.0 if read.free is None else read.free), 0.0)
     if float((held + free).max()) < _MIN_LEAK:
         return None
-    mean = cv2.GaussianBlur(response.excess(small), (0, 0), _MEAN_SIGMA).astype(np.float32)
+    mean = negpy_core.gaussian_blur(np.ascontiguousarray(response.excess(small), dtype=np.float32), (0, 0), _MEAN_SIGMA)
     field = (soft_min(held, _local_cap(np.maximum(mean, 0.0), film)) + free).astype(np.float32)
     return LeakEstimate(response, field, mean, found)
 

@@ -5,12 +5,15 @@ PWM_MAX_SAFE. The injected demosaic scales by the camera's white level, never pe
 
 from __future__ import annotations
 
+import math
 import re
+import statistics
 import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 from negpy.features.process.sensor import build_sensor_matrix
@@ -151,6 +154,89 @@ def shutter_seconds(label: str) -> float:
             raise ValueError(f"invalid shutter label {label!r}: zero denominator")
         return float(num) / denominator
     return float(label)
+
+
+# Marked speeds, in seconds: what a camera's own display shows on a third- or half-stop ladder.
+_THIRD_STOP_SPEEDS = (
+    tuple(1 / d for d in (8000, 6400, 5000, 4000, 3200, 2500, 2000, 1600, 1250, 1000, 800, 640, 500, 400, 320, 250, 200, 160))
+    + tuple(1 / d for d in (125, 100, 80, 60, 50, 40, 30, 25, 20, 15, 13, 10, 8, 6, 5, 4))
+    + (
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.8,
+        1,
+        1.3,
+        1.6,
+        2,
+        2.5,
+        3.2,
+        4,
+        5,
+        6,
+        8,
+        10,
+        13,
+        15,
+        20,
+        25,
+        30,
+    )
+)
+_HALF_STOP_SPEEDS = tuple(
+    1 / d for d in (8000, 6000, 4000, 3000, 2000, 1500, 1000, 750, 500, 350, 250, 180, 125, 90, 60, 45, 30, 20, 15, 10, 8, 6, 4)
+) + (0.3, 0.5, 0.7, 1, 1.5, 2, 3, 4, 6, 8, 10, 15, 20, 30)
+# A body that publishes decimal seconds rounds them to four places (Nikon: "0.0333s" for 1/30).
+_DECIMAL_SLACK_S = 0.00005
+
+
+def _marked_speeds(ladder: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+    """The marked speeds to snap to, most likely first. Four-place decimals cannot tell 1/800
+    from 1/750, so the body's own step decides; an unknown spacing tries third stops first."""
+    rungs = sorted(set(shutter_seconds(label) for label in usable_ladder(tuple(ladder))))
+    if len(rungs) >= 3:
+        step = statistics.median(math.log2(b / a) for a, b in zip(rungs, rungs[1:]))
+        if abs(step - 1 / 3) < 0.08:
+            return (_THIRD_STOP_SPEEDS,)
+        if abs(step - 1 / 2) < 0.08:
+            return (_HALF_STOP_SPEEDS,)
+    return (_THIRD_STOP_SPEEDS, _HALF_STOP_SPEEDS)
+
+
+def shutter_display(label: str, ladder: Sequence[str] = ()) -> str:
+    """A shutter label as a camera shows it: '1/30' below 0.3 s, '0.4"' and '2"' from there up.
+    A '1/N' label stays as published. `ladder` is the body's list of labels, which tells a
+    third-stop body from a half-stop one.
+
+    Display only: the camera's own label is the value a write sends. A label that does not parse
+    (Bulb, Time) is returned as it is."""
+    return _display(label, _marked_speeds(ladder))
+
+
+def shutter_displays(ladder: Sequence[str]) -> list[str]:
+    """`shutter_display` of every label in the body's ladder."""
+    speeds = _marked_speeds(ladder)
+    return [_display(label, speeds) for label in ladder]
+
+
+def _display(label: str, marked_speeds: tuple[tuple[float, ...], ...]) -> str:
+    if re.fullmatch(r"\s*1/\d+\s*", label):
+        return label.strip()  # already as the camera marks it: a body may show 1/2 where another shows 0.5"
+    try:
+        seconds = shutter_seconds(label)
+    except (TypeError, ValueError):
+        return label
+    if seconds <= 0:
+        return label
+    for speeds in marked_speeds:
+        marked = min(speeds, key=lambda m: abs(m - seconds))
+        if abs(marked - seconds) <= _DECIMAL_SLACK_S + 0.02 * marked:
+            seconds = marked
+            break
+    if seconds < 0.29:
+        return f"1/{round(1 / seconds)}"
+    return f'{round(seconds, 1):g}"'
 
 
 def usable_ladder(candidates: tuple[str, ...]) -> tuple[str, ...]:
@@ -345,7 +431,7 @@ def meter_base(plane: np.ndarray, roi: Roi) -> float:
     patch = plane[y0:y1, x0:x1]
     if patch.size == 0:
         return 0.0
-    return float(np.percentile(patch, 99.9))
+    return negpy_core.patch_level_stats(np.ascontiguousarray(patch), 0.0, 99.9)[1]
 
 
 def clip_fraction(plane: np.ndarray, roi: Roi, saturation: float = SATURATION_VALUE) -> float:
@@ -359,7 +445,7 @@ def clip_fraction(plane: np.ndarray, roi: Roi, saturation: float = SATURATION_VA
     patch = plane[y0:y1, x0:x1]
     if patch.size == 0:
         return 0.0
-    return float(np.mean(patch >= saturation))
+    return negpy_core.patch_level_stats(np.ascontiguousarray(patch), float(saturation), 50.0)[0]
 
 
 def nearest_shutter(label: str, candidates: tuple[str, ...]) -> str:

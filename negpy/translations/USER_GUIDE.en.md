@@ -77,7 +77,7 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 
 ### Viewing
 
-*   **Before / After** (`\`, or the **Print** menu): splits the canvas between the default conversion and your edit. Hold `\` to see the default alone.
+*   **Before / After** (`\`, or the **Print** menu): splits the canvas between the default conversion and your edit. Hold `\` to see the default alone. To compare with an earlier version, right-click it in **History**.
 *   **Peeks**: hold `N` for the scan as loaded (the negative), `M` for the flat master, and `P` for the camera's own JPEG. The **Print** menu has them too.
 *   **Reference View** (`Shift+R`): pins this frame beside the canvas, to match other frames to it.
 *   **Probe at Cursor** (`Shift+I`, **Overlays** menu): shows the density and zone under the pointer.
@@ -458,13 +458,13 @@ A **work print** is a version of this frame that you keep under a name, like the
 
 *   **Save Work Print…** (`Ctrl+Shift+S`) keeps the current edit.
 *   **Click** a work print to use it. `Ctrl+Z` goes back.
-*   **⋮** or right-click: **Export This Version…**, **Rename…** or **Delete…**.
+*   **⋮** or right-click: **Compare With This Version**, **Export This Version…**, **Rename…** or **Delete…**. **Compare With This Version** opens **Before / After** with the work print on the left.
 *   **Load Metadata** (off at first): also restores the metadata saved with the work print.
 
 <!-- panel:edit_history -->
 ### Edit history
 
-Every change you made, newest on top (the last 100). **Now** marks the current state; after an undo, later steps show as **Undone** until your next edit. Click a step to go back to it. **⋮** or right-click → **Export This Version…** exports a past state.
+Every change you made, newest on top (the last 100). **Now** marks the current state; after an undo, later steps show as **Undone** until your next edit. Click a step to go back to it. **⋮** or right-click → **Export This Version…** exports a past state. **Compare With This Step** opens **Before / After** with that step on the left, on your current crop. Press `\` to close it.
 
 ---
 
@@ -717,11 +717,11 @@ On the **Alongside Exports** tab. A contact sheet shows the whole roll as film s
 *   **Contact Sheet…**: opens the sheet. Drag an edge of the paper to resize it.
 *   **Film format**: 35mm, 35mm Half Frame or 120 (with **Frame size** for 120).
 *   **Paper**, **Width**, **Height** and **DPI**: the sheet's size and resolution. The default paper holds a 36-exposure roll.
-*   **Order**: by date, or by scene with a new strip or row for each scene.
+*   **Order**: by file name, by date, or by scene with a new strip or row for each scene.
 *   **Print**: **As Edited**, or **Straight Proof**: the whole roll at one exposure and normal contrast, so you see which negatives are thin or dense.
 *   **Pick Frames**: click a frame to leave it out or put it back. Rejects start out.
 *   **Edge Print**: the film maker's markings along the edges, such as the film name and frame numbers.
-*   **Roll Label**: the roll name, film, camera and date above the strips.
+*   **Roll Label**: the roll name, film, camera and date above the strips. Type your own text in **Label text** to print it instead.
 *   **White Paper**: prints on white, which saves ink on a home printer.
 *   **Film Edges**: off prints the frames upright, each at its own shape, in rows as on the Light Table. The sheet then has no perforations and no **Edge Print**.
 
@@ -769,7 +769,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Film**: Color negative, B&W negative, Slide or Kodachrome. It sets frame detection, metering, and whether infrared is offered.
 *   **Film format**: the frame length (135, 66, 645 and others). **Auto** works where the holder sets it.
 *   **Resolution** and **Bit depth**: the scan's dpi and bits per channel.
-*   **Scan mode** (Plustek): **Multi-Pass** averages several scans for less noise; **Adaptive Multi-Exposure** combines a short and a long exposure for more range.
+*   **Scan mode** (Plustek): **Multi-Pass** averages several scans for less noise; **Adaptive Multi-Exposure** combines a short and a long exposure for more range. Plustek scanners do not offer them at 7200 dpi.
 *   **Samples** (Coolscan): reads each line several times, for less noise in the shadows. Slower.
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.
@@ -855,9 +855,8 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 ### Performance
 
 *   **GPU Acceleration**: renders on the graphics card. Off uses the slower CPU, with the same result. If the GPU fails at launch, an amber line here says so.
-*   **Multi-core CPU Rendering**: uses all CPU cores. It is off at first on macOS, where it can crash.
 *   **Search by Meaning**: find frames by description (§2).
-*   **Update Thumbnails Automatically**: after a change to many frames, renders their thumbnails again in the background. Off (the default), the frames get an amber dot until you use **Update Thumbnails**.
+*   **Update Thumbnails Automatically**: renders out-of-date thumbnails again in the background, when a roll opens and after a change to many frames. Off (the default), the frames get an amber dot until you use **Update Thumbnails**.
 *   **Preview size**: the canvas resolution. Higher is sharper and uses more memory.
 *   **Preview cache**, **HQ buffers**, **Rendered frames** and **GPU texture cap**: how much memory NegPy uses. Lower them on a computer with little memory, or if exports run out of GPU memory.
 *   **Reduce Export Memory Use**: exports in smaller pieces, for a computer where exports run out of GPU memory.
@@ -878,7 +877,6 @@ If NegPy crashes at launch or draws wrongly, edit `Documents/NegPy/override.toml
 | `display.qt_rhi_backend` | `"auto"`, `"vulkan"`, `"d3d12"`, `"metal"`, `"opengl"`, `"software"` | How the window is drawn. |
 | `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system (Linux only). |
 | `performance.force_hq_preview` | `true` / `false` | Turns HQ Preview on or off. |
-| `performance.cpu_parallel` | `true` / `false` | Multi-core CPU Rendering. |
 | `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | How much NegPy logs. Use `"debug"` for a bug report. |
 
 The memory rows of Preferences can be set here too (`max_texture_size`, `preview_render_size`, `preview_cache_max_bytes`, `preview_cache_max_entries`, `preview_cache_max_full_res_entries`, `render_memo_max_entries`).

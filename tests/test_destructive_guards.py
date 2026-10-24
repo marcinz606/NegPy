@@ -87,7 +87,7 @@ def test_deleting_a_work_print_asks_first(qapp):
 
     menu = MagicMock()
     delete_action = object()
-    menu.addAction.side_effect = [object(), object(), delete_action]
+    menu.addAction.side_effect = [object(), object(), object(), delete_action]
     menu.exec.return_value = delete_action
 
     with patch("negpy.desktop.view.sidebar.history.QMenu", return_value=menu):

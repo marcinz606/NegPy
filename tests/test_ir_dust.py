@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import cv2
+import negpy_core
 import numpy as np
 import pytest
 import tifffile
@@ -1043,14 +1044,14 @@ def test_downsample_ir_bounds_large_rgb_work_blocks(monkeypatch):
     plane[100:104, 40:320] = 0.2
     source_bytes = plane.nbytes
     seen = []
-    erode = cv2.erode
+    morphology = logic.negpy_core.morphology_ex
 
-    def tracked(source, kernel):
+    def tracked(source, op, kernel, *args):
         seen.append(source.nbytes)
-        return erode(source, kernel)
+        return morphology(source, op, kernel, *args)
 
     monkeypatch.setattr(logic, "_IR_DOWNSAMPLE_WORK_BYTES", 32 * 1024)
-    monkeypatch.setattr(logic.cv2, "erode", tracked)
+    monkeypatch.setattr(logic.negpy_core, "morphology_ex", tracked)
     result = logic.downsample_ir(plane, 90)
 
     assert result.shape == (60, 90, 3)
@@ -1165,7 +1166,7 @@ def test_ir_attenuation_is_the_upsampled_gain_product():
     img = _noisy_frame(64, 96, seed=4)
     rng = np.random.default_rng(5)
     gain_det = rng.uniform(1.0, 2.0, (16, 24, 3)).astype(np.float32)
-    expected = img * cv2.resize(gain_det, (96, 64), interpolation=cv2.INTER_LINEAR)
+    expected = img * negpy_core.resize_linear(gain_det, (96, 64))
     out = apply_ir_attenuation(img, gain_det)
     assert out.dtype == np.float32
     assert np.array_equal(out, expected.astype(np.float32))

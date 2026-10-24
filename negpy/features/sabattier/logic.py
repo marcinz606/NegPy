@@ -1,11 +1,10 @@
 from typing import Any, Dict
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import gaussian_kernel_1d
-from negpy.kernel.image.validation import ensure_image
 
 SABATTIER_CONSTANTS: Dict[str, Any] = {
     # Softness of the fold at the re-exposure density, in D. The softplus below turns the
@@ -35,22 +34,10 @@ def apply_sabattier(
         return img
 
     c = SABATTIER_CONSTANTS
-    arr = np.clip(img.astype(np.float32), 1e-6, 1.0)
-    luma = arr[:, :, 0] * np.float32(0.2126) + arr[:, :, 1] * np.float32(0.7152) + arr[:, :, 2] * np.float32(0.0722)
-    dens = -np.log10(np.clip(luma, 1e-6, 1.0))
-
-    re = np.float32(reexposure * d_max)
-    w = np.float32(c["fold_width"])
-    shortfall = w * np.log1p(np.exp(np.clip((re - dens) / w, -30.0, 30.0)))
-    reversal = np.float32(strength) * shortfall
-    if line_sigma_px > 0.0:
-        developed = 1.0 / (1.0 + np.exp(-np.clip((dens - re) / np.float32(c["edge_width"]), -30.0, 30.0)))
-        k = gaussian_kernel_1d(float(line_sigma_px))
-        bromide = cv2.sepFilter2D(developed.astype(np.float32), -1, k, k, borderType=cv2.BORDER_REPLICATE)
-        reversal = reversal * (np.float32(1.0) - bromide)
-
-    grey = np.power(np.float32(10.0), -np.minimum(dens + reversal, np.float32(d_max))).astype(np.float32)
-    return ensure_image(np.clip(np.dstack([grey, grey, grey]), 0.0, 1.0))
+    f32 = np.float32
+    scalars = (f32(reexposure * d_max), f32(c["fold_width"]), f32(c["edge_width"]), f32(strength), f32(d_max))
+    k = gaussian_kernel_1d(float(line_sigma_px)) if line_sigma_px > 0.0 else np.zeros(0, np.float32)
+    return negpy_core.sabattier(np.ascontiguousarray(img, dtype=np.float32), scalars, k)
 
 
 def line_sigma_px(agitation: float, shape: tuple) -> float:

@@ -1,5 +1,27 @@
 # Change Log
 
+## 0.66.0
+
+- New: **Interface redesign** — simpler panels with one shared look; fine-tune controls fold behind chevrons, and toggles replace checkboxes.
+- New: **Film Strip and Light Table** — the strip is one row of film under the canvas, the Light Table shows strips on a table, and the Library is the first tab on the right.
+- Change: **Panel layout** — Crop and Straighten cards on Geometry, one Setup card on Roll in place of the wizard and the film-process autodetect, and tabs for Export and Metadata, with Gear inside Metadata.
+- Change: **User Guide and tooltips** — shorter, plain-language guide panels, one-sentence tooltips and a shorter tour.
+- Change: **Rust core** — all CPU image work runs in a new Rust engine on every core, with the same results and faster tools; Numba and OpenCV are gone.
+- New: **Translations** — Simplified Chinese, Japanese and Korean. @Warth2033
+- New: **Digital (Frontier)** print stock; Digital (Pakon Minilab) is renamed Digital (Pakon).
+- New: **Detect Scenes** groups frames by light, and a scene can be dragged from any frame.
+- New: **Scan tab** — Meter, channel selections, infrared exposure, built-in presets and one name per capture type. @jondestoppeleire
+- New: **Scanlight** — a Light On toggle that holds its state, and Set by Hand with only the light connected. @seanharding @kurtwindisch
+- New: **Compare** with any history step or work print. @seanharding
+- New: **Presets** hold Optics, Flat Field and the crop shape. @kurtwindisch
+- New: **Film edge print** — real markings for the bundled stocks and KEYKODE for Kodak cine stocks.
+- Change: **Cast Removal** is a per-frame Filtration control.
+- Change: **IR Removal** — NegPy is the only method, improved and much faster; the OpenICE method is removed.
+- Fix: **Flat export** keeps the print stock's dye colors and the capture date. @thetalkingdrum @MbappeWU
+- Fix: **Edits** — each edit is its own undo step, Optics-pinned frames keep their flat-field profile, and Print Density Target acts only under Auto Density. @Warth2033 @MbappeWU
+- Fix: **Library and thumbnails** — collapsed folders are remembered, and thumbnails update on roll load. @kurtwindisch
+- Fix: **macOS and export** — window background, scaled-UI hairlines, and exported files take the umask's mode. @kurtwindisch @seanharding
+
 ## 0.65.0
 
 - New: **Print stocks** — color papers and print films print their dye colors through a LUT built from Kodak's datasheets and Fujifilm's Frontier profiles; new Kodak Portra, Supra and Ultra Endura, Fujicolor Crystal Archive HD and the Vision 2383 and Vision Premier 2393 print films for color, Digital (Pakon Minilab) for a minilab's colors, Polymax II RC and Polycontrast IV RC for B&W; the control is renamed Print stock, its list grouped Digital, Paper and Print film.

@@ -58,3 +58,26 @@ without warranties:
 Modified by NegPy: each four-digit DX number is split into the part 1 and part 2
 of the film edge barcode. NegPy distributes them under the GPL v3, which
 Creative Commons lists as a BY-SA compatible license.
+
+The negpy_core extension module links these Rust crates: PyO3 and rust-numpy
+(MIT OR Apache-2.0; rust-numpy BSD-2-Clause), rayon and crossbeam (MIT OR
+Apache-2.0), ndarray, num-traits, num-complex, num-integer, matrixmultiply and
+rawpointer (MIT OR Apache-2.0), libc, once_cell, either, portable-atomic and
+rustc-hash (MIT OR Apache-2.0), multiversion and target-features (MIT OR Apache-2.0), libm (MIT, a port of
+musl's math library), rustfft, realfft, primal-check, strength_reduce and transpose (MIT OR
+Apache-2.0).
+negpy_core/Cargo.lock lists the exact versions.
+
+negpy_core/src/resize.rs and negpy_core/src/filter.rs port OpenCV's float32 area
+resize, separable filter engine and bit-exact Gaussian kernel (including its
+softfloat exp table) so their results match cv2 bit for bit. negpy_core/src/lsd.rs
+ports OpenCV's line segment detector (`modules/imgproc/src/lsd.cpp`),
+negpy_core/src/inpaint.rs its Navier-Stokes inpaint, and
+negpy_core/src/seam.rs its dynamic-programming seam finder. OpenCV, Apache
+License 2.0. https://github.com/opencv/opencv
+
+negpy_core/src/sift.rs and negpy_core/src/register.rs port OpenCV 4.13's SIFT
+detector and descriptor (sift.dispatch.cpp, sift.simd.hpp), its RANSAC
+similarity estimate and Levenberg-Marquardt refinement (ptsetreg.cpp,
+levmarq.cpp). OpenCV, Apache License 2.0. SIFT is by David G. Lowe; its patent
+expired in March 2020.

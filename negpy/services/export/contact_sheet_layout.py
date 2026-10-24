@@ -328,6 +328,9 @@ def frame_turns(upright_aspect: Optional[float], geometry: FilmGeometry, rotatio
     return 3
 
 
+SHEET_ORDERS = ("name", "date", "scene")
+
+
 @dataclass(frozen=True)
 class ContactSheetSettings:
     """The film format is not stored: it is read from the frames each time."""
@@ -337,7 +340,7 @@ class ContactSheetSettings:
     dpi: int = DEFAULT_DPI
     roll_label: bool = True
     edge_print: bool = True
-    by_scene: bool = False
+    order: str = "name"  # one of SHEET_ORDERS
     white_paper: bool = False
     film_edges: bool = True  # off prints the frames upright in rows, as the Light Table shows them
 
@@ -364,7 +367,7 @@ class ContactSheetSettings:
             dpi=dpi if dpi in DPI_CHOICES and not isinstance(dpi, bool) else default.dpi,
             roll_label=flag("roll_label", default.roll_label),
             edge_print=flag("edge_print", default.edge_print),
-            by_scene=flag("by_scene", default.by_scene),
+            order=data.get("order") if data.get("order") in SHEET_ORDERS else default.order,
             white_paper=flag("white_paper", default.white_paper),
             film_edges=flag("film_edges", default.film_edges),
         )
@@ -376,7 +379,7 @@ class ContactSheetSettings:
             "dpi": self.dpi,
             "roll_label": self.roll_label,
             "edge_print": self.edge_print,
-            "by_scene": self.by_scene,
+            "order": self.order,
             "white_paper": self.white_paper,
             "film_edges": self.film_edges,
         }

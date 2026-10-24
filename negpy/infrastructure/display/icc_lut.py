@@ -9,11 +9,10 @@ per-sample fidelity is 8-bit (bounded by LUT size and profile non-linearity).
 """
 
 from typing import Any, Optional
-import numpy as np
-from numba import prange  # type: ignore
-from PIL import Image, ImageCms
 
-from negpy.kernel.system.parallel import parallel_njit
+import negpy_core
+import numpy as np
+from PIL import Image, ImageCms
 
 DEFAULT_LUT_SIZE = 33
 
@@ -45,115 +44,11 @@ def build_3d_lut(
     return np.ascontiguousarray(lut)
 
 
-@parallel_njit(cache=True, nogil=True, fastmath=True)
-def _apply_lut_u16_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
-    h = img.shape[0]
-    w = img.shape[1]
-    n = lut.shape[0]
-    scale = np.float32(n - 1) / np.float32(65535.0)
-    out = np.empty_like(img)
-    for y in prange(h):
-        for x in range(w):
-            rf = np.float32(img[y, x, 0]) * scale
-            gf = np.float32(img[y, x, 1]) * scale
-            bf = np.float32(img[y, x, 2]) * scale
-            r0 = int(rf)
-            g0 = int(gf)
-            b0 = int(bf)
-            if r0 >= n - 1:
-                r0 = n - 2
-            if g0 >= n - 1:
-                g0 = n - 2
-            if b0 >= n - 1:
-                b0 = n - 2
-            if r0 < 0:
-                r0 = 0
-            if g0 < 0:
-                g0 = 0
-            if b0 < 0:
-                b0 = 0
-            r1 = r0 + 1
-            g1 = g0 + 1
-            b1 = b0 + 1
-            dr = rf - r0
-            dg = gf - g0
-            db = bf - b0
-            for c in range(3):
-                c000 = lut[r0, g0, b0, c]
-                c001 = lut[r0, g0, b1, c]
-                c010 = lut[r0, g1, b0, c]
-                c011 = lut[r0, g1, b1, c]
-                c100 = lut[r1, g0, b0, c]
-                c101 = lut[r1, g0, b1, c]
-                c110 = lut[r1, g1, b0, c]
-                c111 = lut[r1, g1, b1, c]
-                c00 = c000 * (1.0 - db) + c001 * db
-                c01 = c010 * (1.0 - db) + c011 * db
-                c10 = c100 * (1.0 - db) + c101 * db
-                c11 = c110 * (1.0 - db) + c111 * db
-                c0 = c00 * (1.0 - dg) + c01 * dg
-                c1 = c10 * (1.0 - dg) + c11 * dg
-                v = c0 * (1.0 - dr) + c1 * dr
-                vi = int(v * 65535.0 + 0.5)
-                if vi < 0:
-                    vi = 0
-                elif vi > 65535:
-                    vi = 65535
-                out[y, x, c] = vi
-    return out
-
-
 def apply_lut_u16(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     """Trilinearly interpolate `lut` onto a uint16 RGB image."""
     img_c = np.ascontiguousarray(img)
     lut_c = np.ascontiguousarray(lut, dtype=np.float32)
-    return _apply_lut_u16_jit(img_c, lut_c)
-
-
-@parallel_njit(cache=True, nogil=True, fastmath=True)
-def _apply_lut_f32_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
-    h = img.shape[0]
-    w = img.shape[1]
-    n = lut.shape[0]
-    scale = np.float32(n - 1)
-    out = np.empty_like(img)
-    for y in prange(h):
-        for x in range(w):
-            rf = min(max(img[y, x, 0], np.float32(0.0)), np.float32(1.0)) * scale
-            gf = min(max(img[y, x, 1], np.float32(0.0)), np.float32(1.0)) * scale
-            bf = min(max(img[y, x, 2], np.float32(0.0)), np.float32(1.0)) * scale
-            r0 = int(rf)
-            g0 = int(gf)
-            b0 = int(bf)
-            if r0 >= n - 1:
-                r0 = n - 2
-            if g0 >= n - 1:
-                g0 = n - 2
-            if b0 >= n - 1:
-                b0 = n - 2
-            r1 = r0 + 1
-            g1 = g0 + 1
-            b1 = b0 + 1
-            dr = rf - r0
-            dg = gf - g0
-            db = bf - b0
-            for c in range(3):
-                c000 = lut[r0, g0, b0, c]
-                c001 = lut[r0, g0, b1, c]
-                c010 = lut[r0, g1, b0, c]
-                c011 = lut[r0, g1, b1, c]
-                c100 = lut[r1, g0, b0, c]
-                c101 = lut[r1, g0, b1, c]
-                c110 = lut[r1, g1, b0, c]
-                c111 = lut[r1, g1, b1, c]
-                c00 = c000 * (1.0 - db) + c001 * db
-                c01 = c010 * (1.0 - db) + c011 * db
-                c10 = c100 * (1.0 - db) + c101 * db
-                c11 = c110 * (1.0 - db) + c111 * db
-                c0 = c00 * (1.0 - dg) + c01 * dg
-                c1 = c10 * (1.0 - dg) + c11 * dg
-                out[y, x, c] = c0 * (1.0 - dr) + c1 * dr
-    return out
+    return negpy_core.apply_lut_u16(img_c, lut_c)
 
 
 def apply_lut_f32(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
@@ -161,7 +56,7 @@ def apply_lut_f32(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     # No copy when the input is already contiguous f32, on the hot display path
     img_c = np.ascontiguousarray(img, dtype=np.float32)
     lut_c = np.ascontiguousarray(lut, dtype=np.float32)
-    return _apply_lut_f32_jit(img_c, lut_c)
+    return negpy_core.apply_lut_f32(img_c, lut_c)
 
 
 def apply_icc_u16_rgb(
@@ -197,38 +92,6 @@ def apply_icc_u16_greyscale(
     full_lut = np.interp(np.arange(65536, dtype=np.float64), xs, diag.astype(np.float64))
     full_lut = np.clip(full_lut * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
     return full_lut[img_u16]
-
-
-@parallel_njit(cache=True, nogil=True, fastmath=True)
-def _matrix_trc_u8_jit(img: np.ndarray, dec_lut: np.ndarray, m: np.ndarray, enc_lut: np.ndarray) -> np.ndarray:
-    h = img.shape[0]
-    w = img.shape[1]
-    kmax = enc_lut.shape[1] - 1
-    out = np.empty_like(img)
-    for y in prange(h):
-        for x in range(w):
-            r = dec_lut[0, img[y, x, 0]]
-            g = dec_lut[1, img[y, x, 1]]
-            b = dec_lut[2, img[y, x, 2]]
-            for c in range(3):
-                v = m[c, 0] * r + m[c, 1] * g + m[c, 2] * b
-                if v < 0.0:
-                    v = 0.0
-                elif v > 1.0:
-                    v = 1.0
-                f = v * kmax
-                i0 = int(f)
-                if i0 >= kmax:
-                    i0 = kmax - 1
-                d = f - i0
-                e = enc_lut[c, i0] * (1.0 - d) + enc_lut[c, i0 + 1] * d
-                vi = int(e * 255.0 + 0.5)
-                if vi < 0:
-                    vi = 0
-                elif vi > 255:
-                    vi = 255
-                out[y, x, c] = vi
-    return out
 
 
 _ENC_LUT_SIZE = 65536
@@ -268,4 +131,4 @@ def apply_matrix_trc_u8(img_u8: np.ndarray, src_icc: bytes, dst_icc: bytes) -> O
     enc_lut = np.ascontiguousarray(np.stack(enc_rows).astype(np.float32))
     dec_lut = np.ascontiguousarray(np.clip(dec, 0.0, 1.0).astype(np.float32))
     m32 = np.ascontiguousarray(m.astype(np.float32))
-    return _matrix_trc_u8_jit(np.ascontiguousarray(img_u8), dec_lut, m32, enc_lut)
+    return negpy_core.matrix_trc_u8(np.ascontiguousarray(img_u8), dec_lut, m32, enc_lut)

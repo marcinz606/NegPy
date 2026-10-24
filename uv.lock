@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.13"
 
+[manifest]
+members = [
+    "negpy",
+    "negpy-core",
+]
+
 [[package]]
 name = "altgraph"
 version = "0.17.5"
@@ -266,26 +272,6 @@ wheels = [
 ]
 
 [[package]]
-name = "llvmlite"
-version = "0.47.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/01/88/a8952b6d5c21e74cbf158515b779666f692846502623e9e3c39d8e8ba25f/llvmlite-0.47.0.tar.gz", hash = "sha256:62031ce968ec74e95092184d4b0e857e444f8fdff0b8f9213707699570c33ccc", size = 193614, upload-time = "2026-03-31T18:29:53.497Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/6f/4615353e016799f80fa52ccb270a843c413b22361fadda2589b2922fb9b0/llvmlite-0.47.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:a3c6a735d4e1041808434f9d440faa3d78d9b4af2ee64d05a66f351883b6ceec", size = 37232771, upload-time = "2026-03-31T18:29:01.324Z" },
-    { url = "https://files.pythonhosted.org/packages/31/b8/69f5565f1a280d032525878a86511eebed0645818492feeb169dfb20ae8e/llvmlite-0.47.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2699a74321189e812d476a43d6d7f652f51811e7b5aad9d9bba842a1c7927acb", size = 56275178, upload-time = "2026-03-31T18:29:05.748Z" },
-    { url = "https://files.pythonhosted.org/packages/d6/da/b32cafcb926fb0ce2aa25553bf32cb8764af31438f40e2481df08884c947/llvmlite-0.47.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:6c6951e2b29930227963e53ee152441f0e14be92e9d4231852102d986c761e40", size = 55128632, upload-time = "2026-03-31T18:29:11.235Z" },
-    { url = "https://files.pythonhosted.org/packages/46/9f/4898b44e4042c60fafcb1162dfb7014f6f15b1ec19bf29cfea6bf26df90d/llvmlite-0.47.0-cp313-cp313-win_amd64.whl", hash = "sha256:c2e9adf8698d813a9a5efb2d4370caf344dbc1e145019851fee6a6f319ba760e", size = 38138695, upload-time = "2026-03-31T18:29:15.43Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/d4/33c8af00f0bf6f552d74f3a054f648af2c5bc6bece97972f3bfadce4f5ec/llvmlite-0.47.0-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:de966c626c35c9dff5ae7bf12db25637738d0df83fc370cf793bc94d43d92d14", size = 37232773, upload-time = "2026-03-31T18:29:19.453Z" },
-    { url = "https://files.pythonhosted.org/packages/64/1d/a760e993e0c0ba6db38d46b9f48f6c7dceb8ac838824997fb9e25f97bc04/llvmlite-0.47.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ddbccff2aeaff8670368340a158abefc032fe9b3ccf7d9c496639263d00151aa", size = 56275176, upload-time = "2026-03-31T18:29:24.149Z" },
-    { url = "https://files.pythonhosted.org/packages/84/3b/e679bc3b29127182a7f4aa2d2e9e5bea42adb93fb840484147d59c236299/llvmlite-0.47.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d4a7b778a2e144fc64468fb9bf509ac1226c9813a00b4d7afea5d988c4e22fca", size = 55128631, upload-time = "2026-03-31T18:29:29.536Z" },
-    { url = "https://files.pythonhosted.org/packages/be/f7/19e2a09c62809c9e63bbd14ce71fb92c6ff7b7b3045741bb00c781efc3c9/llvmlite-0.47.0-cp314-cp314-win_amd64.whl", hash = "sha256:694e3c2cdc472ed2bd8bd4555ca002eec4310961dd58ef791d508f57b5cc4c94", size = 39153826, upload-time = "2026-03-31T18:29:33.681Z" },
-    { url = "https://files.pythonhosted.org/packages/40/a1/581a8c707b5e80efdbbe1dd94527404d33fe50bceb71f39d5a7e11bd57b7/llvmlite-0.47.0-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:92ec8a169a20b473c1c54d4695e371bde36489fc1efa3688e11e99beba0abf9c", size = 37232772, upload-time = "2026-03-31T18:29:37.952Z" },
-    { url = "https://files.pythonhosted.org/packages/11/03/16090dd6f74ba2b8b922276047f15962fbeea0a75d5601607edb301ba945/llvmlite-0.47.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:fa1cbd800edd3b20bc141521f7fd45a6185a5b84109aa6855134e81397ffe72b", size = 56275178, upload-time = "2026-03-31T18:29:42.58Z" },
-    { url = "https://files.pythonhosted.org/packages/f5/cb/0abf1dd4c5286a95ffe0c1d8c67aec06b515894a0dd2ac97f5e27b82ab0b/llvmlite-0.47.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f6725179b89f03b17dabe236ff3422cb8291b4c1bf40af152826dfd34e350ae8", size = 55128632, upload-time = "2026-03-31T18:29:46.939Z" },
-    { url = "https://files.pythonhosted.org/packages/4f/79/d3bbab197e86e0ff4f9c07122895b66a3e0d024247fcff7f12c473cb36d9/llvmlite-0.47.0-cp314-cp314t-win_amd64.whl", hash = "sha256:6842cf6f707ec4be3d985a385ad03f72b2d724439e118fcbe99b2929964f0453", size = 39153839, upload-time = "2026-03-31T18:29:51.004Z" },
-]
-
-[[package]]
 name = "macholib"
 version = "1.16.4"
 source = { registry = "https://pypi.org/simple" }
@@ -365,10 +351,9 @@ dependencies = [
     { name = "imagecodecs" },
     { name = "imageio" },
     { name = "jinja2" },
-    { name = "numba" },
+    { name = "negpy-core" },
     { name = "numpy" },
     { name = "onnxruntime" },
-    { name = "opencv-python-headless" },
     { name = "piexif" },
     { name = "pillow" },
     { name = "pyqt6" },
@@ -388,6 +373,7 @@ nkscan = [
     { name = "nkscan" },
 ]
 plustek = [
+    { name = "opencv-python-headless" },
     { name = "pyopticfilm" },
 ]
 sane = [
@@ -412,6 +398,7 @@ pieusb = [
     { name = "pieusb" },
 ]
 plustek = [
+    { name = "opencv-python-headless" },
     { name = "pyopticfilm" },
 ]
 sane = [
@@ -424,14 +411,14 @@ requires-dist = [
     { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.14.2" },
-    { name = "numba", specifier = "==0.65.1" },
+    { name = "negpy-core", editable = "negpy_core" },
+    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.16" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "onnxruntime", specifier = "==1.23.2" },
-    { name = "opencv-python-headless", specifier = "==4.13.0.92" },
+    { name = "opencv-python-headless", marker = "extra == 'plustek'", specifier = "==4.13.0.92" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.6" },
+    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.7" },
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
@@ -452,45 +439,35 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-nkscan = [{ name = "nkscan", specifier = ">=0.15" }]
+nkscan = [{ name = "nkscan", specifier = ">=0.16" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
-plustek = [{ name = "pyopticfilm", specifier = ">=1.3.6" }]
+plustek = [
+    { name = "opencv-python-headless", specifier = "==4.13.0.92" },
+    { name = "pyopticfilm", specifier = ">=1.3.7" },
+]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
-name = "nkscan"
-version = "0.15.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8d/95/68168ea09af3472cfac9e070669c0a0d24bfe8ed6bf2f28b59a7770a86ef/nkscan-0.15.0.tar.gz", hash = "sha256:8971e833ceaa3ab06c3edca11a3a2c56659bb0f68c7ee79c2ef7bc3aea3ae4d9", size = 2851731, upload-time = "2026-10-19T18:19:36.082Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/c1/1b0c8c87bca4c9b55f58b54cda205065b8cc5c138743f4d641bfd1c027d6/nkscan-0.15.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:75f422654c290ead5927e7a209ae31f607302b7b56545df7ef968ec46e7ab85a", size = 3794471, upload-time = "2026-10-19T18:19:27.817Z" },
-    { url = "https://files.pythonhosted.org/packages/be/b2/29def5ef4059b8a6c3052b6706f830bfc177d8c0d00224e94dfb5d94900a/nkscan-0.15.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:8274820795dacb3d265e66a5b0c87915ddb0ddca97d899a8d758a4181aad23ec", size = 3795980, upload-time = "2026-10-19T18:19:30.163Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/c3/56d20aae225ec497cd0f1b9ee04140b0910fb5c6f83145e5e8ddf149e03d/nkscan-0.15.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4c83b5d6d7d0cd4105d9297d6c118f8961c5552ce740634fcefa4d91472ea37e", size = 3933008, upload-time = "2026-10-19T18:19:32.244Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/21/0836f4875f4448837b9d44e26ef57db4e646c2a78e17c4b1d0d1c207dad9/nkscan-0.15.0-cp313-abi3-win_amd64.whl", hash = "sha256:c3ab8dd6b6d074e688df4df3648b9fe1da1d064d6476cafafafa0b197ced8194", size = 3629610, upload-time = "2026-10-19T18:19:34.148Z" },
-]
-
-[[package]]
-name = "numba"
-version = "0.65.1"
-source = { registry = "https://pypi.org/simple" }
+name = "negpy-core"
+version = "0.1.0"
+source = { editable = "negpy_core" }
 dependencies = [
-    { name = "llvmlite" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/c5/db2ac3685833d626c0dcae6bd2330cd68433e1fd248d15f70998160d3ad7/numba-0.65.1.tar.gz", hash = "sha256:19357146c32fe9ed25059ab915e8465fb13951cf6b0aace3826b76886373ab23", size = 2765600, upload-time = "2026-04-24T02:02:56.551Z" }
+
+[package.metadata]
+requires-dist = [{ name = "numpy" }]
+
+[[package]]
+name = "nkscan"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/79/06765af3834eed4a3ab5548f6710b90f6dcf51599fe2f160ceb6a3cbd412/nkscan-0.16.0.tar.gz", hash = "sha256:9879c79301d7d0851f1f7c7a0eba6fe58b1aced38732dba75adc3245043ac737", size = 2855754, upload-time = "2026-10-21T19:20:20.112Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/37/14a4579049c1eb673afd0de0cb4842982acd55b9ce2643e763db858bcea0/numba-0.65.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:1735c15c1134a5108b4d6a5c77fc0947924ea066a738dc09a52008c13df9cad3", size = 2681344, upload-time = "2026-04-24T02:02:33.65Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/22/b8d873f6466b20aa563fc9b33acd48dec89a07803ddaa2f1c8ca1cd33126/numba-0.65.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c09f49117ef255e1f1c6dad0c7a1ed39868243862a73be5706793241a3755f1b", size = 3810619, upload-time = "2026-04-24T02:02:36.041Z" },
-    { url = "https://files.pythonhosted.org/packages/62/08/e16a8b5d9a018962ebb5c66be662317cde32b9f5dab08441f90bed5522fb/numba-0.65.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:594a8680b3fadac99e97e489b1fd89007177e5336713745c3b769528c635a464", size = 3509783, upload-time = "2026-04-24T02:02:38.245Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/a5/03c970d57f4c1741354837353ce39fb5206952ae1dba8922d29c86f64805/numba-0.65.1-cp313-cp313-win_amd64.whl", hash = "sha256:85be74c0d036842699a30058f82fb88fc5ffdc59f7615cab5792ea92914c9b62", size = 2750534, upload-time = "2026-04-24T02:02:39.903Z" },
-    { url = "https://files.pythonhosted.org/packages/4f/2e/8aed9b726d9ba5f11ad287645fd479e88278db3060a25cb1225d730eb2b7/numba-0.65.1-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:33f5eb68eb1c843511615d14663ce60258525d6a4c65ab040e2c2b0c4cf17450", size = 2681554, upload-time = "2026-04-24T02:02:41.812Z" },
-    { url = "https://files.pythonhosted.org/packages/87/96/f3eb235fafa82a34e2ab5dd7dc9ffff998ebf5f0bbc23fa56a96aeb44da6/numba-0.65.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:71e73029bf53a62cc6afcf96be4bd942290d8b4c55f0a454fb536158115790f7", size = 3779602, upload-time = "2026-04-24T02:02:43.726Z" },
-    { url = "https://files.pythonhosted.org/packages/09/90/b0f09b48752d23640b8284f22aa597737e8adaddc7fbfacc4708b7f73a4c/numba-0.65.1-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3a07635e0be926b9bdbffb09137c230fb13f6ec0e564914ba937cee12ce3eb35", size = 3479532, upload-time = "2026-04-24T02:02:45.427Z" },
-    { url = "https://files.pythonhosted.org/packages/56/46/3f7fc04fb853559e74b210e0b62c19974ec844cefec611f9e535f4da3761/numba-0.65.1-cp314-cp314-win_amd64.whl", hash = "sha256:2a20fcdabdefbdacf88d85caf70c3b18c4bcb7ebb8f82e6a19486383dd26ab63", size = 2752637, upload-time = "2026-04-24T02:02:47.664Z" },
-    { url = "https://files.pythonhosted.org/packages/81/7b/c1a341a9067367778f4152a5f01061cf281fb09582c92c510ec4918cabf6/numba-0.65.1-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:548dd4b3a4508d5062768d1514b2cd7b015f9a25ec7af651c50dee243965e652", size = 2684600, upload-time = "2026-04-24T02:02:49.653Z" },
-    { url = "https://files.pythonhosted.org/packages/03/36/98ddbcf3e4f04a6dd07e1c67249955920579ba4af6bb6868e3088f4ed282/numba-0.65.1-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:78abc28feff2c2ff8307fff3975b6438352759c9acb797ecd6b1fb6e7e39e31d", size = 3817198, upload-time = "2026-04-24T02:02:51.266Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/83/0dad21057ece5a835599f5d24099b091703995e23dbbf894f259e91c010b/numba-0.65.1-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ee7676cb389555805f9b9a1840cbcd1ea6c8bd5376ab6918e3a29c5ea1dbda20", size = 3533862, upload-time = "2026-04-24T02:02:52.987Z" },
-    { url = "https://files.pythonhosted.org/packages/32/36/8be7118ffd4c8440881046eac3d0982cc5ab42909508cf5d67024d62a2e4/numba-0.65.1-cp314-cp314t-win_amd64.whl", hash = "sha256:20609346e3bd75204950dcbbfe383a8d7dbf4902f442aedbf00f97fef4aa8f38", size = 2758237, upload-time = "2026-04-24T02:02:54.612Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/a1/3ed0ff453f6b16dcaa8a6a29d18d5169c2d935a62260f008802965f846c7/nkscan-0.16.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:360a7c1f49ea86bf41b7457d8b8ad0525cb2ead6966160a9bb560b50f6010a15", size = 3795942, upload-time = "2026-10-21T19:20:11.469Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/ed/23aa3668461caefcbccda3d80e087400a8339734a3d09600bcc84c65793a/nkscan-0.16.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:c04b51e10333bbeb929fa6b9ed86b2ce87d1143fc30fd6f5b0ae09568fcbd0a9", size = 3796727, upload-time = "2026-10-21T19:20:13.677Z" },
+    { url = "https://files.pythonhosted.org/packages/88/81/56a42279e874ce629e4df4ab3608bc02d34eb998a2778247265a755aa901/nkscan-0.16.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:470697558ca3557f05e8a8a3aaaa4bd331adc45b0325372937e56b0fbf846fb6", size = 3931472, upload-time = "2026-10-21T19:20:15.781Z" },
+    { url = "https://files.pythonhosted.org/packages/61/12/02d1ba39b6ac77b6ab58f8d2d737907e36d9fb1bd84e60f6be27a1085de3/nkscan-0.16.0-cp313-abi3-win_amd64.whl", hash = "sha256:df8879c280ca6b0497043eca78dab89d0cb937a61ecc262e99724e8fd4be6993", size = 3634833, upload-time = "2026-10-21T19:20:17.631Z" },
 ]
 
 [[package]]
@@ -767,16 +744,16 @@ wheels = [
 
 [[package]]
 name = "pyopticfilm"
-version = "1.3.6"
+version = "1.3.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package", marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/09/9e/0e3081c2771faff8a058b129b9711f3d8b557140a8b948ba2c0d0460d450/pyopticfilm-1.3.6.tar.gz", hash = "sha256:9707559228ecf573131f1153258c75715e7f3bfff7f15da6d06f9e53fcb2977d", size = 379163, upload-time = "2026-10-14T15:42:46.74Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/f6/c56a765b814d54e45ece097409b59cf18ec4c3235fba3dc16a60ee3f03ee/pyopticfilm-1.3.7.tar.gz", hash = "sha256:b55cdfdefdb7d3819d5c018b176001f14210b8cd056dd450fb3d412aec13b282", size = 386455, upload-time = "2026-10-23T04:55:54.672Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/7c/df03c34c53664b8fb2c6e4688f54d66e0e6c8163031cbd4f8397514fbc9f/pyopticfilm-1.3.6-py3-none-any.whl", hash = "sha256:89be852b5132312d138efca01d2b180c13c9c7120c672c58c5ab60d23e2fa2ef", size = 416699, upload-time = "2026-10-14T15:42:45.001Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/34/b6646f253923b6081231c9ac85763d7e403dfecf9d1d1bd22d58967fae05/pyopticfilm-1.3.7-py3-none-any.whl", hash = "sha256:d4eb98dd40c2d84487798e33b07278f4d4a7ff1cabe968c90381a18d35b511e0", size = 424539, upload-time = "2026-10-23T04:55:52.951Z" },
 ]
 
 [[package]]

@@ -5,6 +5,7 @@ from a raw linear scan, before any inversion or normalization.
 
 from typing import Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
@@ -191,14 +192,6 @@ def _downsample(img: ImageBuffer, max_dim: int) -> ImageBuffer:
     return img[::step, ::step]
 
 
-def _corr(a: np.ndarray, b: np.ndarray) -> float:
-    """Pearson correlation between two flattened channels."""
-    a = a.ravel() - float(a.mean())
-    b = b.ravel() - float(b.mean())
-    denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b))) + 1e-12
-    return float(np.sum(a * b) / denom)
-
-
 def _has_purple_mask(r_v: float, g_v: float, b_v: float) -> bool:
     """True iff a single (r,g,b) triplet shows the purple-mask pattern (R≈B>>G)."""
     deficit = (r_v + b_v) / 2 - g_v
@@ -214,23 +207,17 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
     if raw is None or raw.ndim != 3 or raw.shape[2] < 3:
         return ProcessMode.C41
 
-    img = get_analysis_crop(raw[:, :, :3].astype(np.float32), _ANALYSIS_BUFFER)
-    img = _downsample(img, _MAX_ANALYSIS_DIM)
+    img = _downsample(get_analysis_crop(raw[:, :, :3], _ANALYSIS_BUFFER), _MAX_ANALYSIS_DIM).astype(np.float32)
     img = np.clip(np.nan_to_num(img, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
     if img.size == 0:
         return ProcessMode.C41
 
-    r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
+    min_corr, (r_mean, b_mean, r_p25, b_p25, r_p98, g_p98, b_p98) = negpy_core.process_mode_stats(np.ascontiguousarray(img))
 
     # B&W: the channels stay near-perfectly correlated even with a color tint, while real
     # color (C41, E-6) has varied hues and lower correlation.
-    min_corr = min(_corr(r, g), _corr(g, b), _corr(r, b))
     if min_corr > _BW_CORR_THRESHOLD:
         return ProcessMode.BW
-
-    r_mean, b_mean = float(np.mean(r)), float(np.mean(b))
-    r_p25, b_p25 = float(np.percentile(r, 25)), float(np.percentile(b, 25))
-    r_p98, g_p98, b_p98 = float(np.percentile(r, 98)), float(np.percentile(g, 98)), float(np.percentile(b, 98))
 
     # Orange mask (standard C41): R much greater than B. Scanners sometimes correct the mask
     # only in bright areas, so check across density levels.

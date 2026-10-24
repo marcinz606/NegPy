@@ -17,6 +17,7 @@ from negpy.services.export.contact_sheet_roll import (
     FrameFacts,
     SheetFrame,
     creation_order,
+    name_order,
     cropped_aspect,
     infer_format,
     parse_frame_120,
@@ -54,7 +55,7 @@ class _Library:
 class TestOrder:
     def test_exif_time_when_every_frame_has_one(self):
         frames = [_frame("b.jpg", capture="2026-01-01 10:00:02", birth=1), _frame("a.jpg", capture="2026-01-01 10:00:01", birth=2)]
-        assert [f.name for f in creation_order(frames)] == ["a.jpg", "b.jpg"]
+        assert creation_order(frames) == [1, 0]
 
     def test_file_creation_time_when_any_frame_lacks_exif(self):
         frames = [
@@ -62,11 +63,15 @@ class TestOrder:
             _frame("b.jpg", capture="", birth=10),
             _frame("c.jpg", capture="2026-01-01 10:00:00", birth=20),
         ]
-        assert [f.name for f in creation_order(frames)] == ["b.jpg", "c.jpg", "a.jpg"]
+        assert creation_order(frames) == [1, 2, 0]
 
     def test_ties_break_by_name_then_half(self):
         frames = [_frame("x.tif", half=2, birth=5), _frame("x.tif", half=1, birth=5), _frame("a.tif", birth=5)]
-        assert [(f.name, f.half) for f in creation_order(frames)] == [("a.tif", 0), ("x.tif", 1), ("x.tif", 2)]
+        assert creation_order(frames) == [2, 1, 0]
+
+    def test_name_order_ignores_case_and_time(self):
+        frames = [_frame("b.tif", birth=1), _frame("x.tif", half=2), _frame("A.tif", birth=9), _frame("x.tif", half=1)]
+        assert [(f.name, f.half) for f in name_order(frames)] == [("A.tif", 0), ("b.tif", 0), ("x.tif", 1), ("x.tif", 2)]
 
 
 class TestFileFacts:

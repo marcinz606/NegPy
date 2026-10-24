@@ -188,15 +188,20 @@ def read_frame_facts(asset: dict) -> FrameFacts:
     )
 
 
-def creation_order(frames: Sequence[SheetFrame]) -> list[SheetFrame]:
-    """EXIF capture time when every frame has one, else file creation time: mixing them interleaves two clocks."""
+def name_order(frames: Sequence[SheetFrame]) -> list[SheetFrame]:
+    return sorted(frames, key=lambda frame: (frame.name.lower(), frame.half))
+
+
+def creation_order(frames: Sequence[SheetFrame]) -> list[int]:
+    """Indices by EXIF capture time when every frame has one, else by file creation time: mixing them interleaves two clocks."""
     by_exif = bool(frames) and all(f.facts.capture_time for f in frames)
 
-    def key(frame: SheetFrame) -> tuple[Any, ...]:
+    def key(index: int) -> tuple[Any, ...]:
+        frame = frames[index]
         when: Any = frame.facts.capture_time if by_exif else frame.facts.birth_time
         return (when, frame.name.lower(), frame.half)
 
-    return sorted(frames, key=key)
+    return sorted(range(len(frames)), key=key)
 
 
 def _crop_fractions(config: WorkspaceConfig) -> tuple[float, float]:

@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from negpy.kernel.system import timing
 from negpy.kernel.system.logging import get_logger
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import List, Optional, Any, Union
@@ -10,6 +11,7 @@ import os
 import tempfile
 import threading
 
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import (
@@ -38,6 +40,8 @@ from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import SheetFrame, SheetLook, tile_params, turns_for
 from negpy.services.export.encoders import encode_jpeg
 from negpy.kernel.system.paths import apply_umask_mode
+from negpy.kernel.system.memory import available_system_memory_bytes
+from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 
 logger = get_logger(__name__)
 
@@ -178,12 +182,14 @@ def _looks_border_crushed(buffer, task: "ExportTask") -> bool:
     if task.params.geometry.crop_rect is not None:
         return False
     arr = buffer[:: max(1, buffer.shape[0] // 512), :: max(1, buffer.shape[1] // 512)]
-    arr = arr if arr.ndim == 2 else arr[..., :3].mean(axis=2)
+    arr = np.ascontiguousarray(arr, dtype=np.float32)
+    arr = arr if arr.ndim == 2 else negpy_core.mean_channels(np.ascontiguousarray(arr[..., :3]))
     h, w = arr.shape[:2]
     m = max(2, int(0.04 * min(h, w)))
-    ring = np.concatenate([arr[:m].ravel(), arr[-m:].ravel(), arr[:, :m].ravel(), arr[:, -m:].ravel()])
-    inner = arr[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
-    return float(np.median(ring)) < 0.02 and float(np.median(inner)) < 0.12
+    if 2 * m >= min(h, w):
+        return False
+    ring, inner = negpy_core.ring_inner_medians(arr, m)
+    return float(ring) < 0.02 and float(inner) < 0.12
 
 
 def _companion_source_paths(task: "ExportTask") -> tuple:
@@ -269,6 +275,18 @@ def find_export_conflicts(tasks: List[ExportTask]) -> List[str]:
     return [path for task in tasks if os.path.exists(path := resolve_export_target_path(task))]
 
 
+# Each encode runs on one core; more than a few at once only multiplies the held renders.
+_ENCODE_WORKERS = max(1, min(3, (os.cpu_count() or 1) // 4))
+
+
+def encode_slots(nbytes: int, available: Optional[int]) -> int:
+    """Renders that may wait for or run an encode at once: each holds its buffer and about as much
+    again in encoded bytes, above the RAM reserve. Unknown RAM gives one."""
+    if available is None:
+        return 1
+    return max(1, min(_ENCODE_WORKERS, (available - MIN_RAM_RESERVE_BYTES) // max(1, 2 * nbytes)))
+
+
 class ExportWorker(QObject):
     """
     Background batch export orchestrator.
@@ -288,6 +306,7 @@ class ExportWorker(QObject):
         self._processor = ImageProcessor()
         self._cancel = threading.Event()
         self._written: set[str] = set()  # paths this batch wrote
+        self._names_lock = threading.Lock()  # finishers pick output names one at a time
 
     @pyqtSlot()
     def cancel(self) -> None:
@@ -301,14 +320,14 @@ class ExportWorker(QObject):
 
     @pyqtSlot(list)
     def run_batch(self, tasks: List[ExportTask]) -> None:
-        """Export the tasks pipelined: the next source prepares and the previous render encodes
-        while the current one renders, so at most two full-res buffers are held. A failed file
+        """Export the tasks pipelined: the next source prepares and earlier renders encode while
+        the current one renders. `encode_slots` bounds the renders held for encoding. A failed file
         never stops the batch, and every exit emits `finished` or `cancelled` to free the lane."""
         self._written = set()
         total = len(tasks)
-        finisher = ThreadPoolExecutor(max_workers=1)
+        finisher = ThreadPoolExecutor(max_workers=_ENCODE_WORKERS)
         prefetcher = ThreadPoolExecutor(max_workers=1)
-        pending: Optional[Future] = None
+        pending: deque[Future] = deque()
 
         def _drain(fut: Future) -> None:
             try:
@@ -385,15 +404,14 @@ class ExportWorker(QObject):
                         self.error.emit(status)
                         continue
 
-                    if pending is not None:
-                        _drain(pending)
-                    pending = finisher.submit(self._finish_task, task, buffer, status, embed_plan)
+                    while pending and len(pending) >= encode_slots(buffer.nbytes, available_system_memory_bytes()):
+                        _drain(pending.popleft())
+                    pending.append(finisher.submit(self._finish_task, task, buffer, status, embed_plan))
                 except Exception as e:
                     self.error.emit(tr("Export failed for {full_name}: {e}", full_name=full_name, e=e))
 
-            if pending is not None:
-                _drain(pending)
-                pending = None
+            while pending:
+                _drain(pending.popleft())
             if border_crushed:
                 self.warning.emit(
                     f"{border_crushed} of {len(tasks)} exports rendered almost black with no crop set: "
@@ -465,10 +483,11 @@ class ExportWorker(QObject):
 
         # Overwrite replaces files from before the batch, never another frame of it.
         counter = 2
-        while path in self._written or (not task.export_settings.overwrite and os.path.exists(path)):
-            path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
-            counter += 1
-        self._written.add(path)
+        with self._names_lock:
+            while path in self._written or (not task.export_settings.overwrite and os.path.exists(path)):
+                path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
+                counter += 1
+            self._written.add(path)
 
         if _export_target_is_a_source(path, task):
             return f"Export skipped for {task.file_info['name']}: it would overwrite the source file. Change the filename pattern or destination."

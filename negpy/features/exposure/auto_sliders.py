@@ -10,6 +10,8 @@ from negpy.features.exposure.logic import (
     auto_base_slope,
     auto_highlight_from_metrics,
     auto_shadow_from_metrics,
+    compute_pivot,
+    curve_params_from_metrics,
     effective_grade_range,
     effective_midtone_gamma,
     grade_to_slope,
@@ -28,12 +30,16 @@ def _paper(exposure: ExposureConfig, process_mode: Optional[str]) -> Tuple[Any, 
 
 
 def _density_shift(exposure: ExposureConfig, process_mode: Optional[str], metrics: Mapping[str, Any]) -> Optional[float]:
-    """Print Density the metered anchor is worth: compute_pivot's pivot is linear in both."""
+    """Print Density the metered anchor is worth: the gap between the metered and the
+    reference pivot at green's slope, as compute_pivot is linear in density."""
     anchor = metrics.get("metered_anchor")
     if not exposure.auto_exposure or anchor is None:
         return None
-    c = effective_constants(_paper(exposure, process_mode)[0])
-    return (float(anchor) - float(c["assumed_anchor"])) / float(c["density_multiplier"])
+    profile, d_min = _paper(exposure, process_mode)
+    slope = curve_params_from_metrics(exposure, process_mode, metrics)[0][1]
+    mg = effective_midtone_gamma(profile, exposure.midtone_gamma)
+    gap = compute_pivot(slope, 1.0, d_min, float(anchor), profile, mg) - compute_pivot(slope, 1.0, d_min, paper=profile)
+    return gap / float(effective_constants(profile)["density_multiplier"])
 
 
 def _auto_slope(exposure: ExposureConfig, process_mode: Optional[str], metrics: Mapping[str, Any]) -> Optional[float]:

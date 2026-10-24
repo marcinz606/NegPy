@@ -3,7 +3,7 @@ removal stretched, and the film it burned out in every layer."""
 
 from typing import Optional
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.leak.film import RATIO_FLOOR, SHOULDER_CEILING_PERCENTILE, SHOULDER_LIMIT, FilmResponse, film_mask, work_copy
@@ -58,7 +58,13 @@ def layer_saturation(small: np.ndarray, response: FilmResponse, leak: np.ndarray
     driven = leak >= _DRIVEN_SHARE * strength[..., None]
     saturated = inside[..., None] & driven & (density >= (1.0 - _BURNED_MARGIN) * ceiling)
     kernel = np.ones((3, 3), np.uint8)
-    return np.stack([cv2.morphologyEx(saturated[..., c].astype(np.uint8), cv2.MORPH_OPEN, kernel).astype(bool) for c in range(3)], axis=-1)
+    return np.stack(
+        [
+            negpy_core.morphology_ex(np.ascontiguousarray(saturated[..., c], dtype=np.uint8), negpy_core.MORPH_OPEN, kernel).astype(bool)
+            for c in range(3)
+        ],
+        axis=-1,
+    )
 
 
 def burned_mask(saturated: Optional[np.ndarray]) -> Optional[np.ndarray]:
@@ -69,8 +75,8 @@ def burned_mask(saturated: Optional[np.ndarray]) -> Optional[np.ndarray]:
 
 def _weighted_box(values: np.ndarray, weight: np.ndarray, size: int) -> tuple:
     """(weighted local mean, local weight) over a box of *size*."""
-    w = cv2.boxFilter(weight, -1, (size, size), normalize=True)
-    return cv2.boxFilter(values * weight, -1, (size, size), normalize=True) / np.maximum(w, 1e-6), w
+    w = negpy_core.box_filter(np.ascontiguousarray(weight, dtype=np.float32), (size, size))
+    return negpy_core.box_filter(np.ascontiguousarray(values * weight, dtype=np.float32), (size, size)) / np.maximum(w, 1e-6), w
 
 
 def recover_layers(out: np.ndarray, response: FilmResponse, saturated: np.ndarray, leak: np.ndarray) -> None:
@@ -112,7 +118,7 @@ def recover_layers(out: np.ndarray, response: FilmResponse, saturated: np.ndarra
             reach |= fits_here
         reach &= partial[..., c]
         if reach.any():
-            fits.append((c, others, slope, offset, cv2.GaussianBlur(reach.astype(np.float32), (0, 0), 1.0)))
+            fits.append((c, others, slope, offset, negpy_core.gaussian_blur(reach.astype(np.float32), (0, 0), 1.0)))
     if not fits:
         return
     # Only the rows a rebuilt layer reaches go to full size.
@@ -123,7 +129,7 @@ def recover_layers(out: np.ndarray, response: FilmResponse, saturated: np.ndarra
     for b0 in range(0, y1 - y0, _ROW_BLOCK):
         rows = slice(b0, min(y1 - y0, b0 + _ROW_BLOCK))
         full_logs[rows] = np.log1p(np.maximum(response.excess(out[y0 + rows.start : y0 + rows.stop, :, :3]), 0.0))
-    up = lambda a: cv2.resize(a.astype(np.float32), (full_w, full_h), interpolation=cv2.INTER_LINEAR)[y0:y1]  # noqa: E731
+    up = lambda a: negpy_core.resize_linear(np.ascontiguousarray(a, dtype=np.float32), (full_w, full_h))[y0:y1]  # noqa: E731
     touched = np.zeros((y1 - y0, full_w), dtype=bool)
     for c, others, slope, offset, blend in fits:
         share = up(blend)
@@ -140,11 +146,11 @@ def recover_layers(out: np.ndarray, response: FilmResponse, saturated: np.ndarra
 def _guided(guide: np.ndarray, radius: int, eps: float) -> np.ndarray:
     """He et al.'s guided filter of an image by itself: edges stay, grain flattens."""
     size = (2 * radius + 1, 2 * radius + 1)
-    mean = cv2.boxFilter(guide, -1, size)
-    var = cv2.boxFilter(guide * guide, -1, size) - mean * mean
+    mean = negpy_core.box_filter(guide, size)
+    var = negpy_core.box_filter(guide * guide, size) - mean * mean
     a = var / (var + eps)
     b = mean - a * mean
-    return cv2.boxFilter(a, -1, size) * guide + cv2.boxFilter(b, -1, size)
+    return negpy_core.box_filter(a, size) * guide + negpy_core.box_filter(b, size)
 
 
 def clean_up(before: np.ndarray, after: np.ndarray, base: np.ndarray, grain: float, contrast: float) -> None:
@@ -158,7 +164,7 @@ def clean_up(before: np.ndarray, after: np.ndarray, base: np.ndarray, grain: flo
     removed = -np.log10(np.maximum(before[..., :3].mean(axis=-1), RATIO_FLOOR)).astype(np.float32)
     removed -= d_after
     np.maximum(removed, 0.0, out=removed)
-    weight = cv2.GaussianBlur(removed, (0, 0), max(1.0, long_side * _CLEAN_WEIGHT_BLUR))
+    weight = negpy_core.gaussian_blur(removed, (0, 0), max(1.0, long_side * _CLEAN_WEIGHT_BLUR))
     del removed
     weight /= _CLEAN_FULL
     np.clip(weight, 0.0, 1.0, out=weight)
@@ -172,7 +178,7 @@ def clean_up(before: np.ndarray, after: np.ndarray, base: np.ndarray, grain: flo
     d = d_after.copy()
     if grain > 0.0:
         radius = max(_GRAIN_MIN_RADIUS, round(long_side * _GRAIN_RADIUS))
-        detail = cv2.boxFilter(d, -1, (2 * radius + 1, 2 * radius + 1))
+        detail = negpy_core.box_filter(d, (2 * radius + 1, 2 * radius + 1))
         np.subtract(d, detail, out=detail)
         detail -= np.median(detail)
         np.abs(detail, out=detail)
@@ -209,11 +215,11 @@ def _broad_blur(img: np.ndarray, sigma: float) -> np.ndarray:
     carries 4 sigma of reflected film past each side, so the reduced blur reflects at the true border."""
     f = int(sigma // _BROAD_SAMPLES)
     if f <= 1:
-        return cv2.GaussianBlur(img, (0, 0), sigma)
+        return negpy_core.gaussian_blur(img, (0, 0), sigma)
     h, w = img.shape[:2]
     r = int(np.ceil(4.0 * sigma))
-    padded = cv2.copyMakeBorder(img, r, r + (-(h + 2 * r) % f), r, r + (-(w + 2 * r) % f), cv2.BORDER_REFLECT_101)
+    padded = np.pad(img, ((r, r + (-(h + 2 * r) % f)), (r, r + (-(w + 2 * r) % f))), mode="reflect")
     ph, pw = padded.shape[:2]
     small = padded.reshape(ph // f, f, pw // f, f).mean(axis=(1, 3), dtype=np.float32)
-    blurred = cv2.resize(cv2.GaussianBlur(small, (0, 0), sigma / f), (pw, ph), interpolation=cv2.INTER_LINEAR)
+    blurred = negpy_core.resize_linear(negpy_core.gaussian_blur(small, (0, 0), sigma / f), (pw, ph))
     return blurred[r : r + h, r : r + w]

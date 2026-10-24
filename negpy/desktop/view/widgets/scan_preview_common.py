@@ -1,5 +1,6 @@
 """Shared display helpers for scan-preview dialogs (StripPreviewDialog, QuickScanPreviewDialog)."""
 
+import negpy_core
 import numpy as np
 
 from negpy.kernel.system.i18n import mark, tr
@@ -78,17 +79,7 @@ def preview_positive(rgb: np.ndarray, film_type: str = FilmType.NEGATIVE.value) 
     the stretch. Mirrors services.assets.thumbnails.preview_positive, which decides
     the same thing off the frame's stored process mode.
     """
-    a = rgb.astype(np.float32)
+    a = np.ascontiguousarray(rgb, dtype=np.float32)
     if a.ndim == 2:
         a = a[:, :, None]
-    positive = film_reads_positive(film_type)
-    out = np.empty_like(a)
-    for c in range(a.shape[2]):
-        ch = a[..., c]
-        lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
-        if hi <= lo:
-            out[..., c] = 0.0
-            continue
-        scaled = (ch - lo) if positive else (hi - ch)
-        out[..., c] = np.clip(scaled / (hi - lo), 0.0, 1.0) * 255.0
-    return out.astype(np.uint8)
+    return negpy_core.stretch_preview(a, "positive" if film_reads_positive(film_type) else "negative")

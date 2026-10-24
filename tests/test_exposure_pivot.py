@@ -21,12 +21,12 @@ def _density_at(x_ref, slope, pivot, d_min):
 
 class TestComputePivot(unittest.TestCase):
     def test_reference_tone_prints_at_target(self):
-        """The assumed reference tone must land on anchor_target_density."""
+        """The assumed reference tone must land on reference_print_density."""
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
         slope = grade_to_slope(110.0, 1.3)
         pivot = compute_pivot(slope, density=1.0)
         d = _density_at(x_ref, slope, pivot, 0.0)
-        self.assertAlmostEqual(d, EXPOSURE_CONSTANTS["anchor_target_density"], places=3)
+        self.assertAlmostEqual(d, EXPOSURE_CONSTANTS["reference_print_density"], places=3)
 
     def test_reference_tone_prints_at_target_with_dmin(self):
         """The Dmin floor must not shift the reference tone off target."""
@@ -35,7 +35,7 @@ class TestComputePivot(unittest.TestCase):
         slope = grade_to_slope(110.0, 1.3)
         pivot = compute_pivot(slope, density=1.0, d_min=d_min)
         d = _density_at(x_ref, slope, pivot, d_min)
-        self.assertAlmostEqual(d, EXPOSURE_CONSTANTS["anchor_target_density"], places=3)
+        self.assertAlmostEqual(d, EXPOSURE_CONSTANTS["reference_print_density"], places=3)
 
     def test_grade_does_not_shift_reference_tone(self):
         """Grade changes rotate around the assumed reference tone."""
@@ -74,7 +74,7 @@ class TestEndToEndExposure(unittest.TestCase):
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
         img = np.full((8, 8, 3), x_ref, dtype=np.float32)
         # Linear reflectance: reference tone lands at transmittance 10^-target.
-        expected = 10.0 ** -EXPOSURE_CONSTANTS["anchor_target_density"]
+        expected = 10.0 ** -EXPOSURE_CONSTANTS["reference_print_density"]
 
         for grade in (130.0, 110.0, 70.0):
             res = PhotometricProcessor(replace(config, grade=grade)).process(img, ctx)

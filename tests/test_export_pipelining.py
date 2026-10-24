@@ -470,3 +470,60 @@ def test_overwrite_never_replaces_another_frame_of_the_same_batch(tmp_path) -> N
     worker.run_batch([_task(src, "DSC_0001.NEF", preset), _task(src, "DSC_0001.JPG", preset)])
 
     assert sorted(p.read_bytes() for p in tmp_path.glob("*.jpg")) == [b"FIRST", b"SECOND"]
+
+
+def test_encode_slots_follow_known_ram_above_the_reserve() -> None:
+    from negpy.desktop.workers import export as export_worker
+
+    gib = 1 << 30
+    reserve = export_worker.MIN_RAM_RESERVE_BYTES
+    assert export_worker.encode_slots(gib, None) == 1
+    assert export_worker.encode_slots(gib, reserve) == 1
+    assert export_worker.encode_slots(gib, reserve + 4 * gib) == min(2, export_worker._ENCODE_WORKERS)
+    assert export_worker.encode_slots(gib, 1 << 50) == export_worker._ENCODE_WORKERS
+
+
+def _two_encoders(monkeypatch) -> None:
+    from negpy.desktop.workers import export as export_worker
+
+    monkeypatch.setattr(export_worker, "_ENCODE_WORKERS", 2)
+    monkeypatch.setattr(export_worker, "available_system_memory_bytes", lambda: 1 << 50)
+
+
+def test_two_encodes_at_once_never_share_an_output_name(tmp_path, monkeypatch) -> None:
+    _two_encoders(monkeypatch)
+    worker, proc = _worker()
+    both = threading.Barrier(2, timeout=10)
+    proc.encode_export.side_effect = lambda buffer, *_a, **_k: (both.wait(), (b"X", "jpg"))[1]
+    preset = _preset(tmp_path, overwrite=True)
+    src = tmp_path / "src"
+    src.mkdir()
+
+    worker.run_batch([_task(src, "DSC_0001.NEF", preset), _task(src, "DSC_0001.JPG", preset)])
+
+    assert len(list(tmp_path.glob("*.jpg"))) == 2
+
+
+def test_errors_of_parallel_encodes_keep_the_task_order(tmp_path, monkeypatch) -> None:
+    _two_encoders(monkeypatch)
+    worker, proc = _worker()
+    renders = iter(np.full((4, 4, 3), i, np.float32) for i in range(2))
+    proc.render_export.side_effect = lambda *_a, **_k: (next(renders), "sRGB")
+    second_done = threading.Event()
+
+    def _encode(buffer, *_a, **_k):
+        index = int(buffer[0, 0, 0])
+        if index == 0:
+            second_done.wait(timeout=10)
+        else:
+            second_done.set()
+        return None, f"boom {index}"
+
+    proc.encode_export.side_effect = _encode
+    errors: list[str] = []
+    worker.error.connect(errors.append)
+
+    worker.run_batch([_task(tmp_path, "a.cr2"), _task(tmp_path, "b.cr2")])
+
+    assert second_done.is_set()
+    assert errors == ["boom 0", "boom 1"]

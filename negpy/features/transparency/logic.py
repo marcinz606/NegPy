@@ -16,7 +16,7 @@ fixed constants, never metered — metering is what makes a bracketed set conver
 
 The paper H&D curve cannot serve this role. Its print character is structural, not
 parametric — `d_max` floors the blacks whatever the toe slider says,
-`anchor_target_density` places mid-grey at a print's mid-tone, and the midtone snap
+`reference_print_density` places mid-grey at a print's mid-tone, and the midtone snap
 and paper-white reference stay live at neutral settings. Neutralizing it is not
 reachable from a paper profile, so a positive gets its own curve.
 
@@ -39,7 +39,7 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
-    _fast_sigmoid_cached,
+    _fast_sigmoid,
     effective_grade_range,
     grade_to_slope,
     per_channel_dye_separation,
@@ -108,7 +108,7 @@ def zone_geometry() -> Tuple[float, float, float]:
     c = EXPOSURE_CONSTANTS
     d_min, d_max = float(c["d_min"]), float(c["d_max"])
     span = d_max - d_min
-    anchor = float(c["anchor_target_density"])
+    anchor = float(c["reference_print_density"])
     shadow = (anchor + float(c["zone_density_shadow_offset"]) - d_min) / span
     highlight = (anchor + float(c["zone_density_highlight_offset"]) - d_min) / span
     return (
@@ -129,7 +129,7 @@ def wb_split_geometry() -> Tuple[float, float]:
     c = EXPOSURE_CONSTANTS
     d_min, d_max = float(c["d_min"]), float(c["d_max"])
     span = d_max - d_min
-    anchor = float(c["anchor_target_density"])
+    anchor = float(c["reference_print_density"])
     centre = (anchor - d_min) / span * TRANSFER_DENSITY_RANGE
     sharpness = 3.0 * span / TRANSFER_DENSITY_RANGE
     return centre, sharpness
@@ -285,7 +285,7 @@ def transfer_auto_terms(
         d_highlight = pivot + (float(highlight_point) * R - offset - pivot) * contrast
         if d_highlight < target:
             _sh_c, hi_c, k_zone = zone_geometry()
-            w_hi = 1.0 - _fast_sigmoid_cached(k_zone * (d_highlight - hi_c))
+            w_hi = 1.0 - _fast_sigmoid(k_zone * (d_highlight - hi_c))
             highlight_auto = min((target - d_highlight) / max(w_hi, 1e-6), float(EXPOSURE_CONSTANTS["highlight_hold_max"]))
 
     # Shadow Hold: a partial shadow-zone lift on the same tail as Shadow Reach. Never burns.

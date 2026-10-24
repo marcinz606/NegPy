@@ -64,22 +64,15 @@ class TestSortedGridMeters(unittest.TestCase):
 
 
 class TestToLogDensity(unittest.TestCase):
-    def test_matches_the_nan_to_num_clip_it_replaces(self):
+    def test_is_the_correctly_rounded_log_of_the_clamped_value(self):
         eps = 1e-6
-        for dtype in (np.float32, np.float64):
-            x = (np.random.default_rng(1).random((97, 89, 3)) * 1.4 - 0.2).astype(dtype)
-            x[0, 0] = np.nan
-            x[1, 1] = np.inf
-            x[2, 2] = -np.inf
-            x[3, 3] = 0.0
-            x[4, 4] = 1.0
-            x[5, 5] = eps
-            x[6, 6] = -5.0
-            x[7, 7] = 1e30
-            expected = np.log10(np.clip(np.nan_to_num(x, nan=eps, posinf=1.0, neginf=eps), eps, 1.0))
-            got = to_log_density(x)
-            self.assertEqual(expected.dtype, got.dtype)
-            self.assertTrue(np.array_equal(expected, got), msg=f"{dtype.__name__} differs")
+        x = (np.random.default_rng(1).random((97, 89, 3)) * 1.4 - 0.2).astype(np.float32)
+        x[:8, :8] = np.array([np.nan, np.inf, -np.inf, 0.0, 1.0, eps, -5.0, 1e30], dtype=np.float32)[:, None, None]
+        clamped = np.clip(np.nan_to_num(x, nan=eps, posinf=1.0, neginf=eps), np.float32(eps), 1.0)
+        expected = np.log10(clamped.astype(np.float64)).astype(np.float32)
+        got = to_log_density(x)
+        self.assertEqual(got.dtype, np.float32)
+        self.assertTrue(np.array_equal(expected, got))
 
 
 if __name__ == "__main__":

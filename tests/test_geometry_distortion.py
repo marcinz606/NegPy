@@ -4,8 +4,10 @@ import math
 import numpy as np
 import pytest
 
+from core_oracle import cv2_oracle
+
 from negpy.features.geometry.logic import (
-    _radial_maps,
+    _radial_center,
     apply_radial_distortion,
     compute_distortion_scale,
     map_point_radial,
@@ -14,6 +16,30 @@ from negpy.infrastructure.gpu.device import GPUDevice
 
 # Slider range; the model must be well-behaved (no fold-over) across it.
 _K1_RANGE = [-0.1, -0.02, -0.001, 0.001, 0.02, 0.1]
+
+
+def _radial_maps(k1: float, w: int, h: int) -> tuple[np.ndarray, np.ndarray]:
+    """The cv2.remap source maps of the radial correction, built in NumPy."""
+    cx, cy, halfdiag = _radial_center(w, h)
+    s = compute_distortion_scale(k1, w, h)
+    inv_hd2 = 1.0 / (halfdiag * halfdiag)
+    ys, xs = np.meshgrid(np.arange(h, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij")
+    px = (xs - cx) * s
+    py = (ys - cy) * s
+    f = 1.0 + k1 * (px * px + py * py) * inv_hd2
+    return (cx + px * f).astype(np.float32), (cy + py * f).astype(np.float32)
+
+
+@cv2_oracle
+@pytest.mark.parametrize("k1", _K1_RANGE)
+@pytest.mark.parametrize("shape", [(60, 90, 3), (131, 77), (40, 50, 4)])
+def test_correction_is_cv2_remap_of_the_numpy_maps(k1, shape):
+    import cv2
+
+    img = np.random.default_rng(3).random(shape, dtype=np.float32)
+    map_x, map_y = _radial_maps(k1, shape[1], shape[0])
+    want = cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    assert apply_radial_distortion(img, k1).tobytes() == want.tobytes()
 
 
 def test_zero_k1_is_identity():
@@ -207,28 +233,6 @@ def test_mapping_many_points_solves_the_distortion_scale_once():
     for i in range(50):
         logic.map_point_radial(10.0 + i, 20.0, 0.07, 641, 479)
     assert logic.compute_distortion_scale.cache_info().misses == 1
-
-
-@pytest.mark.parametrize(
-    "warp",
-    [
-        lambda img: logic_mod().apply_fine_rotation(img, 0.7),
-        lambda img: logic_mod().apply_radial_distortion(img, -0.08),
-        lambda img: logic_mod().apply_keystone(img, 6.0, -4.0),
-    ],
-)
-def test_a_tiled_warp_matches_the_whole_frame_warp(warp, monkeypatch):
-    logic = logic_mod()
-    import cv2
-
-    # Smooth, so OpenCV's 1/32 px sample quantization cannot dominate the comparison.
-    noise = np.random.default_rng(2).uniform(0, 1, (210, 330, 3)).astype(np.float32)
-    img = cv2.GaussianBlur(noise, (0, 0), 4.0)
-    whole = warp(img)
-    monkeypatch.setattr(logic, "_CV_WARP_MAX", 100)
-    monkeypatch.setattr(logic, "_WARP_TILE", 64)
-    tiled = warp(img)
-    np.testing.assert_allclose(tiled, whole, atol=2e-3)
 
 
 def test_a_frame_past_the_opencv_size_limit_still_warps():

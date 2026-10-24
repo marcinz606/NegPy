@@ -18,7 +18,7 @@ from negpy.features.exposure.logic import (
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
 _ANCHOR = EXPOSURE_CONSTANTS["assumed_anchor"]
-_TARGET = EXPOSURE_CONSTANTS["anchor_target_density"]
+_TARGET = EXPOSURE_CONSTANTS["reference_print_density"]
 
 
 def _densities(value: float, slopes, pivots, curvatures) -> np.ndarray:

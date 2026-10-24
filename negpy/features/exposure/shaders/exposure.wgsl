@@ -249,8 +249,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let eps = 1e-6;
-    // Asymmetric H&D print curve (toe-linear-shoulder); mirrors the CPU
-    // _apply_print_curve_kernel. toe -> shadow (paper-black) bound, shoulder ->
+    // Asymmetric H&D print curve (toe-linear-shoulder); mirrors the CPU print curve
+    // (negpy_core print_curve.rs). toe -> shadow (paper-black) bound, shoulder ->
     // highlight (paper-white) bound. a_toe_base/a_sh_base carry shadow/highlight
     // sharpness; width sets gentleness, slider sets roll-off height.
     let toe_w3 = vec3<f32>(params.toe_width_r, params.toe_width_g, params.toe_width_b);
@@ -374,7 +374,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // Separation Damping: chroma-selective dye separation, in place of the
-    // frame-wide saturation matrix. Mirrors _apply_print_curve_kernel.
+    // frame-wide saturation matrix. Mirrors negpy_core print_curve.rs.
     if (params.sep_damping > 0.0) {
         let s = dens - d_min_rgb;
         let s_mean = (s.x + s.y + s.z) / 3.0;

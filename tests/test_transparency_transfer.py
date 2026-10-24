@@ -374,7 +374,7 @@ class TestControlsStayLive(unittest.TestCase):
 
         sh_c, hi_c, k = zone_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
-        anchor = float(C["anchor_target_density"])
+        anchor = float(C["reference_print_density"])
         for got, print_density in (
             (sh_c, anchor + float(C["zone_density_shadow_offset"])),
             (hi_c, anchor + float(C["zone_density_highlight_offset"])),
@@ -448,7 +448,7 @@ class TestControlsStayLive(unittest.TestCase):
 
         centre, k = wb_split_geometry()
         d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
-        anchor = float(C["anchor_target_density"])
+        anchor = float(C["reference_print_density"])
         self.assertAlmostEqual(centre / TRANSFER_DENSITY_RANGE, (anchor - d_min) / span, places=6)
         self.assertAlmostEqual(k * TRANSFER_DENSITY_RANGE / span, 3.0, places=6)
 

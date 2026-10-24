@@ -346,10 +346,10 @@ class TestHoldBlack(unittest.TestCase):
 
 class TestPivotAndGrade(unittest.TestCase):
     def test_reference_prints_at_target_grade_invariant(self):
-        """Reference tone lands on anchor_target_density for any grade (rotation center)."""
+        """Reference tone lands on reference_print_density for any grade (rotation center)."""
         d_min = EXPOSURE_CONSTANTS["d_min"]
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
-        target = EXPOSURE_CONSTANTS["anchor_target_density"]
+        target = EXPOSURE_CONSTANTS["reference_print_density"]
         ref_img = np.full((4, 4, 3), x_ref, dtype=np.float32)
         for grade in (60.0, 115.0, 170.0):
             slope = grade_to_slope(grade, 1.3)

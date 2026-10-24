@@ -69,11 +69,3 @@ def test_the_render_runs_the_wedges_print_stages() -> None:
     with patch.object(engine, "print_stages", wraps=engine.print_stages) as spy:
         DarkroomEngine().process(np.ascontiguousarray(frame), _bw(), source_hash="print-stages")
     assert spy.called
-
-
-def test_the_wedge_strip_stays_on_the_serial_kernels() -> None:
-    """The wedge runs on the GUI thread, where the parallel kernels' lock would make it wait behind a render."""
-    from negpy.features.exposure.analysis import WEDGE_STEPS
-    from negpy.kernel.system.parallel import SERIAL_MAX_ELEMENTS
-
-    assert engine._WEDGE_PATCH_PX**2 * WEDGE_STEPS * 3 < SERIAL_MAX_ELEMENTS

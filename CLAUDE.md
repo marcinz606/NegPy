@@ -15,22 +15,23 @@ Guidance for Claude Code in this repository. It holds rules and traps the code d
 ```bash
 make run          # Launch the desktop app
 make run-sim      # Launch with a simulated camera, Scanlight and film scanners
-make all          # lint + type check + tests (run before committing)
+make all          # format + Rust checks + lint + type check + tests (run before committing)
+make rust         # cargo fmt --check + clippy -D warnings + cargo test for negpy_core
 make test         # pytest only
 make lint         # ruff check
 make type         # ty check (not mypy)
-make format       # ruff format + autofix
+make format       # cargo fmt + ruff format + autofix
 make translations # Extract translation sources and preserve existing translations
 
 # Single test
 uv run pytest tests/test_exposure_logic.py::test_name -v
 ```
 
-All commands run through `uv run`; never invoke pytest/ruff/ty directly. Run `make format` before committing; if it reformats unrelated files, commit those as lint fixes.
+All commands run through `uv run`; never invoke pytest/ruff/ty directly. `uv run` compiles `negpy_core` again after a Rust file changes (`tool.uv.cache-keys`). Run `make format` before committing; if it reformats unrelated files, commit those as lint fixes.
 
 ## Architecture
 
-NegPy is a film-negative processing desktop app (PyQt6 + WebGPU). Images flow through a multi-stage pipeline implemented twice, CPU (numpy/Numba) and GPU (WGSL via `wgpu`), which must stay in numerical parity.
+NegPy is a film-negative processing desktop app (PyQt6 + WebGPU). Images flow through a multi-stage pipeline implemented twice, CPU (numpy and `negpy_core`) and GPU (WGSL via `wgpu`), which must stay in numerical parity.
 
 ### Data model
 
@@ -49,6 +50,23 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 **Roll-scoped edit fork**: a photo in more than one Roll has one edit, unless a per-frame fork gives it its own edit for one Roll. A fork is the content hash suffixed `#roll:<id>` (`roll_edit_hash`), like a half-frame's `#N`. Triage marks and legacy-hash migration strip the suffix (`unforked_hash`), because they belong to the physical scan.
 
 **Film edge print** (`services/film_edge/`): a stock's own marks, DX number and respool source (`prints_as`) are the `edge` object in `gear/film_stocks.json`, and each entry names its `source`. The `edge-print-from-photo` skill adds a stock from a photo of the film.
+
+### negpy_core (Rust)
+
+`negpy_core/` is a PyO3 extension (abi3-py313, maturin, a `uv` workspace member) that holds every CPU kernel. It is the source of truth for CPU pixels; the GPU shaders follow it through the parity tests.
+
+- A kernel's Python entry point keeps its NumPy-style signature and calls into `negpy_core`. No Python implementation, runtime switch or fallback sits beside it.
+- Core code in `src/<area>.rs` takes slices or `ndarray` views and plain numbers, never config. `src/py/<area>.rs` holds only the wrappers: dtype, shape and contiguity checks, `py::detach` around the work, errors as Python exceptions. No panic crosses into Python.
+- `cargo test` builds without Python: PyO3 is behind the `python` feature, which maturin turns on.
+- Pure Rust: no dependency compiles C or C++ (`deny.toml` bans `cc`, `cmake`, `pkg-config`, `bindgen`). Codecs that need C stay on their Python wheels. A new crate's license goes in `NOTICE.md`.
+- No `unsafe` except SIMD, each with a reason. Names mirror the Python names.
+- `mul_add` is one instruction only on a CPU with FMA; the release baseline has none, so a loop that uses it takes `#[multiversion(targets("x86_64+avx2+fma", "aarch64+neon"))]`. `mul_add` is exactly fused on every path, so the bits never depend on the CPU.
+- Hot loops: an element-wise pass goes through `par_zip` (rayon blocks; `par_iter_mut().zip` makes a task per element), and its closure is `move`. A capture read through a reference can alias the output, so LLVM reloads it per element and does not vectorize.
+- A float-to-int `as` cast saturates, and LLVM leaves such a loop scalar. Clamp first, then take the integer part as `convert.rs::trunc_bits` does (add 2^52, read the low bits).
+- **Pinned output**: a kernel's output is deterministic and the same on every release OS. `tests/test_core_same_bits.py` (run on each OS by `ci.yml` job `native`) and the pins in `tests/test_core_*.py` hold output hashes (`tests/core_pin.py`). A change that moves the bits updates its pins in the same change and follows the `BOUNDS_VERSION` and `THUMBNAIL_RENDER_VERSION` rules. Direct oracles against one `cv2` or NumPy call stay where a kernel copies a library primitive; the `cv2` ones run on Linux x86-64 only (`tests/core_oracle.py`). Kernels that replaced NumPy code keep its arithmetic, so keep it when editing them: the linear percentile (virtual index in f64, interpolation in f32, the `t >= 0.5` branch from the upper value), float32 sums in NumPy's order, NEP 50 promotion (a Python float joins float32 math as float32), Python `round` ties to even. No fast-math. Threads only over independent outputs, or integer reductions, so the core count never changes a result. A reduction with a large accumulator takes one chunk per thread (rayon's `fold` makes one per split job) and enough work per chunk to repay clearing and merging it.
+- `negpy_core` holds every CPU kernel; NegPy has no Numba and imports no `cv2` (`tests/test_no_cv2.py`). opencv-python is only a dependency of the plustek extra and group, for pyopticfilm's pass alignment; the tests use it as their oracle through the plustek group. Every binding runs its work through `py::detach(py, n, f)`, never `py.detach`: it releases the GIL, keeps work under 64K elements on the calling thread and enters the all-core pool once per call (`tests/test_core_ir.py` checks). A thread marked by `negpy_core.set_background_thread(True)` (the thumbnail refresh) enters a pool of a quarter of the cores (at least two) instead, so the live preview keeps the rest. The app has no single-core mode.
+- Transcendental functions (`log10`, `exp`, `pow`, ...) in array loops come from `src/mathf.rs` (branch-free, so they vectorize; `libm` is too slow there), scalar ones from the `libm` crate. Both give the same bits on every CPU.
+- A speed change keeps the output pins and is never slower with every core in use, as users run the app.
 
 ### Pipeline
 

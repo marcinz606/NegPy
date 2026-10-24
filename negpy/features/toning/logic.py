@@ -1,12 +1,11 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
-from numba import prange  # type: ignore
+import negpy_core
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
+from negpy.kernel.image.logic import WORKING_LAB
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.system.parallel import parallel_njit
 
 TONING_CONSTANTS: Dict[str, Any] = {
     # Selenium (silver -> silver selenide, densest silver first).
@@ -87,7 +86,6 @@ LITH_TONING_CONSTANTS: Dict[str, Any] = {
 }
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _apply_chemical_toning_jit(
     img: np.ndarray,
     sel_strength: float,
@@ -133,121 +131,35 @@ def _apply_chemical_toning_jit(
     conversion — how it behaves on a lith print, where it "attacks all densities
     evenly" instead of starting in the highlights.
     """
-    h, w, c = img.shape
-    res = np.empty_like(img)
-    eps = 1e-6
-
-    for y in prange(h):
-        d3 = np.empty(3, dtype=np.float64)
-        for x in range(w):
-            d0 = 0.0
-            for ch in range(3):
-                t = img[y, x, ch]
-                if t < eps:
-                    t = eps
-                elif t > 1.0:
-                    t = 1.0
-                d3[ch] = -np.log10(t)
-                d0 += d3[ch]
-            d0 /= 3.0
-
-            # Conversion caps at 1: all the remaining silver is toned
-            # (slider > 1 = longer bath).
-            c_sel = 0.0
-            if sel_strength > 0.0:
-                frac = d0 / sel_d_ref
-                if frac > 1.0:
-                    frac = 1.0
-                c_sel = sel_strength * frac**sel_power
-                if c_sel > 1.0:
-                    c_sel = 1.0
-
-            c_sep = 0.0
-            if sep_strength > 0.0:
-                frac = d0 / sep_d_bleach
-                if frac > 1.0:
-                    frac = 1.0
-                c_sep = sep_strength * (1.0 - frac) ** sep_power
-                if c_sep > 1.0:
-                    c_sep = 1.0
-
-            c_au = 0.0
-            if gold_strength > 0.0:
-                if gold_flat > 0.5:
-                    c_au = gold_strength
-                else:
-                    frac = d0 / gold_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_au = gold_strength * (1.0 - frac) ** gold_power
-                if c_au > 1.0:
-                    c_au = 1.0
-
-            c_blue = 0.0
-            if blue_strength > 0.0:
-                frac = d0 / blue_d_ref
-                if frac > 1.0:
-                    frac = 1.0
-                c_blue = blue_strength * frac**blue_power
-                if c_blue > 1.0:
-                    c_blue = 1.0
-
-            c_cu = 0.0
-            if copper_strength > 0.0:
-                frac = d0 / copper_d_ref
-                if frac > 1.0:
-                    frac = 1.0
-                c_cu = copper_strength * frac**copper_power
-                if c_cu > 1.0:
-                    c_cu = 1.0
-
-            c_van = 0.0
-            if van_strength > 0.0:
-                frac = d0 / van_d_ref
-                if frac > 1.0:
-                    frac = 1.0
-                c_van = van_strength * (1.0 - frac) ** van_power
-                if c_van > 1.0:
-                    c_van = 1.0
-
-            a = 1.0
-            f_sel = a * c_sel
-            a -= f_sel
-            f_sep = a * c_sep
-            a -= f_sep
-            f_au = a * c_au
-            a -= f_au
-            f_ausp = f_sep * c_au
-            f_sep -= f_ausp
-            f_blue = a * c_blue
-            a -= f_blue
-            f_cu = a * c_cu
-            a -= f_cu
-            f_van = a * c_van
-            a -= f_van
-
-            for ch in range(3):
-                # Covering power rides each channel's OWN density, not the mean. The
-                # mean is the silver reservoir above, but rebuilding the output from it
-                # would throw away the color a lith print hands this stage. Identical
-                # for a normal grey B&W print, where d3[ch] == d0.
-                d = d3[ch] * (
-                    a
-                    + f_sel * sel_gain[ch]
-                    + f_sep * sep_gain[ch]
-                    + f_au * gold_gain[ch]
-                    + f_ausp * sep_gain[ch] * gold_sepia_gain[ch]
-                    + f_blue * blue_gain[ch]
-                    + f_cu * copper_gain[ch]
-                    + f_van * van_gain[ch]
-                )
-                pixel = 10.0**-d
-                if pixel < 0.0:
-                    pixel = 0.0
-                elif pixel > 1.0:
-                    pixel = 1.0
-                res[y, x, ch] = pixel
-    return res
+    return negpy_core.apply_chemical_toning(
+        img,
+        sel_strength,
+        sep_strength,
+        gold_strength,
+        sel_d_ref,
+        sel_power,
+        sel_gain,
+        sep_d_bleach,
+        sep_power,
+        sep_gain,
+        gold_d_ref,
+        gold_power,
+        gold_gain,
+        gold_sepia_gain,
+        blue_strength,
+        blue_d_ref,
+        blue_power,
+        blue_gain,
+        copper_strength,
+        copper_d_ref,
+        copper_power,
+        copper_gain,
+        van_strength,
+        van_d_ref,
+        van_power,
+        van_gain,
+        gold_flat,
+    )
 
 
 def apply_split_toning(
@@ -264,25 +176,13 @@ def apply_split_toning(
     if shadow_strength == 0.0 and highlight_strength == 0.0:
         return img
 
-    lab = rgb_to_lab_working(img.astype(np.float32))
-    L = lab[:, :, 0]  # 0–100 CIELAB (Adobe RGB working space)
+    def tint(hue: float, strength: float) -> Optional[Tuple[float, float]]:
+        rad = np.radians(hue)
+        return (float(np.cos(rad) * 20.0 * strength), float(np.sin(rad) * 20.0 * strength)) if strength > 0.0 else None
 
-    # Smoothstep masks, as toning.wgsl.
-    if shadow_strength > 0.0:
-        t = np.clip(1.0 - L / 50.0, 0.0, 1.0)
-        s_mask = t * t * (3.0 - 2.0 * t)
-        rad = np.radians(shadow_hue)
-        lab[:, :, 1] += np.cos(rad) * 20.0 * shadow_strength * s_mask
-        lab[:, :, 2] += np.sin(rad) * 20.0 * shadow_strength * s_mask
-
-    if highlight_strength > 0.0:
-        t = np.clip((L - 50.0) / 50.0, 0.0, 1.0)
-        h_mask = t * t * (3.0 - 2.0 * t)
-        rad = np.radians(highlight_hue)
-        lab[:, :, 1] += np.cos(rad) * 20.0 * highlight_strength * h_mask
-        lab[:, :, 2] += np.sin(rad) * 20.0 * highlight_strength * h_mask
-
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    # Smoothstep masks of L* below and above 50, as toning.wgsl.
+    shadow, highlight = tint(shadow_hue, shadow_strength), tint(highlight_hue, highlight_strength)
+    return negpy_core.split_toning(np.ascontiguousarray(img, dtype=np.float32), shadow, highlight, *WORKING_LAB)
 
 
 def apply_chemical_toning(

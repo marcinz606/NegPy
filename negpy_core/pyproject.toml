@@ -1,0 +1,18 @@
+[project]
+name = "negpy-core"
+version = "0.1.0"
+description = "NegPy's native CPU and I/O kernels."
+license = "GPL-3.0"
+requires-python = ">=3.13"
+dependencies = ["numpy"]
+
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+features = ["python"]
+module-name = "negpy_core"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }, { file = "src/**/*.rs" }]

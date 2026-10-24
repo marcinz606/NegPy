@@ -3,8 +3,9 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from PIL import Image
 import rawpy
 from negpy.kernel.system.config import APP_CONFIG
+import negpy_core
 import numpy as np
-from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, float_to_uint8, prepare_thumbnail, srgb_to_linear, uint8_to_float32
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, prepare_thumbnail, srgb_to_linear, uint8_to_float32
 from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, embedded_preview
@@ -173,20 +174,9 @@ def preview_positive(img: Image.Image, process_mode: str = "") -> Image.Image:
         return img
 
     # A lone narrowband exposure carries its picture in one channel, and the other two hold
-    # only near-black noise that the log below would stretch into a solid color cast.
-    # Borrowing the channel that has the signal renders it as the monochrome it is.
-    peaks = np.percentile(linear, 99.0, axis=(0, 1))
-    strongest = int(np.argmax(peaks))
-    empty = peaks < peaks[strongest] * 0.05
-    if empty.any():
-        linear = linear.copy()
-        linear[:, :, empty] = linear[:, :, strongest : strongest + 1]
-
-    density = -np.log10(np.clip(linear, 1e-4, None))
-    lo = np.percentile(density, 1.0, axis=(0, 1))
-    hi = np.percentile(density, 99.0, axis=(0, 1))
-    positive = (density - lo) / np.maximum(hi - lo, 1e-6)
-    return Image.fromarray(float_to_uint8(np.clip(positive, 0.0, 1.0)))
+    # only near-black noise that the log would stretch into a solid color cast; negpy_core
+    # borrows the channel that has the signal, so it renders as the monochrome it is.
+    return Image.fromarray(negpy_core.log_stretch_u8(np.ascontiguousarray(linear, dtype=np.float32)))
 
 
 def get_thumbnail_worker(

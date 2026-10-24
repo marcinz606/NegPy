@@ -47,14 +47,14 @@ def paint_weight(paint: LeakShape, shape: Tuple[int, int]) -> Optional[np.ndarra
     """(h, w) share of a painted leak at each work pixel: 1 deep inside the brushed region, fading to
     0 at its edge over its Falloff's share of the region's own depth, its deepest pixel's distance
     from the edge; None with nothing painted on the frame."""
-    import cv2
+    import negpy_core
 
     from negpy.features.retouch.logic import exclusion_cover
 
     cover = exclusion_cover([(points, size) for points, size in paint.strokes], shape)
     if not cover.any():
         return None
-    inside = cv2.distanceTransform(cover, cv2.DIST_L2, 5)
+    inside = negpy_core.distance_transform(np.ascontiguousarray(cover, dtype=np.uint8), 2, 5)
     reach = max(float(inside.max()) * float(np.clip(paint.falloff, 0.0, 1.0)), 1.0)
     t = np.clip(inside / reach, 0.0, 1.0)
     return (t * t * (3.0 - 2.0 * t)).astype(np.float32)

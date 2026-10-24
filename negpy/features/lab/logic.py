@@ -1,11 +1,13 @@
 import math
 from typing import Callable
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import (
+    WORKING_INV_GAMMA,
+    WORKING_LAB,
     gamut_aware_chroma_scale,
     lab_to_rgb_working,
     rgb_to_lab_working,
@@ -14,45 +16,6 @@ from negpy.kernel.image.logic import (
     working_oetf_encode,
 )
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.system.parallel import SERIAL_MAX_ELEMENTS
-
-
-CLAHE_GRID = 8
-CLAHE_BINS = 256
-
-
-def _clahe_cdfs(bins: np.ndarray, clip_limit: float) -> np.ndarray:
-    """
-    Per-tile clipped CDFs, (64, 256) float32. Mirrors clahe_hist.wgsl /
-    clahe_cdf.wgsl exactly (integer counts, f32-truncated limit, excess
-    redistributed evenly with the remainder going to the first bins).
-    """
-    h, w = bins.shape
-    tsy, tsx = (h + CLAHE_GRID - 1) // CLAHE_GRID, (w + CLAHE_GRID - 1) // CLAHE_GRID
-    ty = (np.arange(h) // tsy).astype(np.int32)
-    tx = (np.arange(w) // tsx).astype(np.int32)
-    comb = (ty[:, None] * CLAHE_GRID + tx[None, :]) * CLAHE_BINS + bins
-    hist = np.bincount(comb.ravel(), minlength=CLAHE_GRID * CLAHE_GRID * CLAHE_BINS)
-    hist = hist.reshape(CLAHE_GRID * CLAHE_GRID, CLAHE_BINS)
-
-    total = hist.sum(axis=1)
-    limit = np.maximum(1, (np.float32(clip_limit) * total.astype(np.float32) / np.float32(CLAHE_BINS)).astype(np.int64))
-    clipped = np.minimum(hist, limit[:, None])
-    excess = (hist - clipped).sum(axis=1)
-    inc, rem = excess // CLAHE_BINS, excess % CLAHE_BINS
-    counts = clipped + inc[:, None] + (np.arange(CLAHE_BINS)[None, :] < rem[:, None])
-    return np.cumsum(counts, axis=1).astype(np.float32) / np.maximum(total, 1)[:, None].astype(np.float32)
-
-
-def _clahe_axis(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # tile_pos = pos/dims*8 - 0.5, smoothstep frac; true floor (can be -1), clamp 0..7.
-    tp = np.arange(n, dtype=np.float32) / np.float32(n) * np.float32(CLAHE_GRID) - np.float32(0.5)
-    tf = np.floor(tp)
-    rf = tp - tf
-    fr = rf * rf * (np.float32(3.0) - np.float32(2.0) * rf)
-    lo = np.maximum(tf.astype(np.int32), 0)
-    hi = np.minimum(tf.astype(np.int32) + 1, CLAHE_GRID - 1)
-    return lo, hi, fr
 
 
 def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
@@ -63,37 +26,11 @@ def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     if strength <= 0:
         return img
-
-    lab = rgb_to_lab_working(img)
-    l_chan = lab[..., 0]
-    h, w = l_chan.shape
-    bins = np.clip(l_chan / np.float32(100.0) * np.float32(255.0), 0.0, 255.0).astype(np.int32)
-    cdfs = _clahe_cdfs(bins, strength * 2.5).reshape(-1)
-
-    y0, y1, fy = _clahe_axis(h)
-    x0, x1, fx = _clahe_axis(w)
-    v00 = cdfs[(y0[:, None] * CLAHE_GRID + x0[None, :]) * CLAHE_BINS + bins]
-    v10 = cdfs[(y0[:, None] * CLAHE_GRID + x1[None, :]) * CLAHE_BINS + bins]
-    v01 = cdfs[(y1[:, None] * CLAHE_GRID + x0[None, :]) * CLAHE_BINS + bins]
-    v11 = cdfs[(y1[:, None] * CLAHE_GRID + x1[None, :]) * CLAHE_BINS + bins]
-    top = v00 + (v10 - v00) * fx[None, :]
-    bot = v01 + (v11 - v01) * fx[None, :]
-    cdf_l = top + (bot - top) * fy[:, None]
-
-    lab[..., 0] = l_chan + (cdf_l * np.float32(100.0) - l_chan) * np.float32(strength)
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    return negpy_core.clahe(np.ascontiguousarray(img, dtype=np.float32), strength, *WORKING_LAB)
 
 
-# Sharpen constants, mirrored as WGSL consts in shaders/lab.wgsl.
-# Gate separating grain from detail in L*, sized against |L - blur| at a 1 px radius,
-# which tops out near 1.0.
-SHARPEN_GATE_LO = 0.25
-SHARPEN_GATE_HI = 0.33
-# L*-domain USM exaggerates light halos, so overshoot above the local max is clamped
-# tighter than undershoot below the local min.
-SHARPEN_OVERSHOOT_LIGHT = 1.0
-SHARPEN_OVERSHOOT_DARK = 2.0
-SHARPEN_MASK_T_HI = 10.0
+# Sharpen constants, mirrored as WGSL consts in shaders/lab.wgsl; the USM gate, overshoot and
+# edge-mask limits live in negpy_core/src/lab.rs.
 # Gain rolls off toward paper black, where the thin negative's grain lives: floor at
 # L* 0, full gain from SHARPEN_SHADOW_L_HI up (Gallagher & Gindele, US 7,228,004).
 SHARPEN_SHADOW_FLOOR = 1.0 / 3.0
@@ -123,24 +60,6 @@ def _smoothstep(e0: float, e1: float, x: np.ndarray) -> np.ndarray:
     return t * t * (np.float32(3.0) - np.float32(2.0) * t)
 
 
-def _lab_l_from_y(y: np.ndarray) -> np.ndarray:
-    """CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors lab_l_from_y in the shaders."""
-    y = np.maximum(y, 0.0)
-    f = np.where(y > 0.008856, np.cbrt(y), np.float32(7.787) * y + np.float32(16.0 / 116.0))
-    return (np.float32(116.0) * f - np.float32(16.0)).astype(np.float32)
-
-
-def _edge_mask(l_chan: np.ndarray, masking: float) -> np.ndarray:
-    """Boxed |∇L*| edge mask (smoothstep over 0.5t..t, t=10·masking); shared by
-    both sharpen methods. Mirrors the WGSL boxed-gradient loop."""
-    lp = np.pad(l_chan, 1, mode="edge")
-    gx = (lp[1:-1, 2:] - lp[1:-1, :-2]) * np.float32(0.5)
-    gy = (lp[2:, 1:-1] - lp[:-2, 1:-1]) * np.float32(0.5)
-    grad = cv2.blur(np.hypot(gx, gy).astype(np.float32), (3, 3), borderType=cv2.BORDER_REPLICATE)
-    t = SHARPEN_MASK_T_HI * masking
-    return _smoothstep(0.5 * t, t, grad)
-
-
 def sharpen_shadow_gain(l_chan: np.ndarray) -> np.ndarray:
     """Per-pixel sharpen gain multiplier from L*; mirrors sharpen_shadow_gain in lab.wgsl."""
     f = np.float32(SHARPEN_SHADOW_FLOOR)
@@ -158,12 +77,9 @@ def _map_row_blocks(img: ImageBuffer, fn: Callable[[ImageBuffer], ImageBuffer], 
     if img.shape[0] <= rows:
         return fn(img)
     output = np.empty(img.shape, dtype=np.float32)
-    min_rows = math.ceil(SERIAL_MAX_ELEMENTS / img[0].size)
     for start in range(0, img.shape[0], rows):
         end = min(start + rows, img.shape[0])
         low, high = max(0, start - halo), min(img.shape[0], end + halo)
-        # Keep a short tail on the full frame's Numba dispatch path.
-        low = min(low, max(0, high - min_rows))
         block = fn(img[low:high])
         output[start:end] = block[start - low : end - low]
     return output
@@ -211,31 +127,8 @@ def _usm_sharpening_block(
     lab_sharpen_h/v.wgsl and lab.wgsl mirror this."""
     if amount <= 0:
         return img
-
-    lab = rgb_to_lab_working(img.astype(np.float32))
-    l_chan, a, b = cv2.split(lab)
-
     k = gaussian_kernel_1d(radius)
-    l_blur = cv2.sepFilter2D(l_chan, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
-
-    diff = l_chan - l_blur
-    gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff)) * sharpen_shadow_gain(l_chan)
-
-    if masking > 0.0:
-        gain = gain * _edge_mask(l_chan, masking)
-
-    kern3 = np.ones((3, 3), np.uint8)
-    l_min = cv2.erode(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
-    l_max = cv2.dilate(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
-
-    l_new = l_chan + diff * gain
-    l_new = np.clip(l_new, l_min - np.float32(SHARPEN_OVERSHOOT_DARK), l_max + np.float32(SHARPEN_OVERSHOOT_LIGHT))
-    l_new = np.clip(l_new, 0.0, 100.0)
-
-    res_lab = cv2.merge([l_new.astype(np.float32), a, b])
-    res_rgb = lab_to_rgb_working(res_lab)
-
-    return ensure_image(np.clip(res_rgb, 0.0, 1.0))
+    return negpy_core.usm_sharpen(np.ascontiguousarray(img, dtype=np.float32), np.float32(amount * 2.5), masking, k, *WORKING_LAB)
 
 
 def apply_rl_sharpening(
@@ -249,30 +142,11 @@ def apply_rl_sharpening(
     rl_*.wgsl mirrors this."""
     if amount <= 0:
         return img
-
-    rgb = img.astype(np.float32)
-    obs = (
-        np.maximum(rgb[..., 0], 0.0) * np.float32(LUM_R)
-        + np.maximum(rgb[..., 1], 0.0) * np.float32(LUM_G)
-        + np.maximum(rgb[..., 2], 0.0) * np.float32(LUM_B)
-    ).astype(np.float32)
-
+    lum = (np.float32(LUM_R), np.float32(LUM_G), np.float32(LUM_B))
     k = gaussian_kernel_1d(radius)
-    est = obs.copy()
-    for _ in range(rl_iterations(radius)):
-        blurred = cv2.sepFilter2D(est, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
-        corr = cv2.sepFilter2D(obs / np.maximum(blurred, np.float32(RL_EPS)), -1, k, k, borderType=cv2.BORDER_REFLECT_101)
-        est = est * corr
-
-    ratio = est / np.maximum(obs, np.float32(RL_EPS))
-    l_obs = _lab_l_from_y(obs)
-    gain = np.float32(amount) * sharpen_shadow_gain(l_obs)
-    if masking > 0.0:
-        gain = gain * _edge_mask(l_obs, masking)
-
-    factor = np.maximum(np.float32(1.0) + (ratio - np.float32(1.0)) * gain, 0.0)
-    out = rgb * factor[..., np.newaxis]
-    return ensure_image(np.clip(out, 0.0, 1.0))
+    return negpy_core.rl_sharpen(
+        np.ascontiguousarray(img, dtype=np.float32), np.float32(amount), masking, k, rl_iterations(radius), lum, np.float32(RL_EPS)
+    )
 
 
 def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
@@ -302,38 +176,18 @@ def _saturation_block(img: ImageBuffer, saturation: float, skin_protection: floa
     if saturation == 1.0 and skin_protection <= 0.0:
         return img
 
-    lab = rgb_to_lab_working(img.astype(np.float32))
+    lab = rgb_to_lab_working(np.ascontiguousarray(img, dtype=np.float32))
     if saturation != 1.0:
         lab = gamut_aware_chroma_scale(lab, saturation)
     if skin_protection > 0.0:
         lab = skin_chroma_rein(lab, skin_protection)
-    res_rgb = lab_to_rgb_working(lab)
-    return ensure_image(np.clip(res_rgb, 0.0, 1.0))
+    res_rgb = np.ascontiguousarray(lab_to_rgb_working(lab), dtype=np.float32)
+    negpy_core.clip_unit(res_rgb)
+    return ensure_image(res_rgb)
 
 
-# Chroma Denoise edge test: the low band's gradient times sigma, in CIELAB a*/b* units. Chroma
-# above the cutoff is kept from LO, fully from HI. Mirrored as WGSL literals in lab.wgsl.
-CHROMA_EDGE_LO = 1.0
-CHROMA_EDGE_HI = 2.5
 # Below this blur sigma (px) both engines skip the stage.
 CHROMA_DENOISE_MIN_SIGMA = 0.25
-
-
-def chroma_edge_keep(low_ab: np.ndarray, sigma: float) -> np.ndarray:
-    """How much of the chroma above the cutoff a pixel keeps (0 to 1). Central differences on the
-    edge-replicated low band, as the shader reads it with clamped coordinates."""
-    gx = cv2.filter2D(low_ab, -1, _CENTRAL_DIFF, borderType=cv2.BORDER_REPLICATE)
-    gy = cv2.filter2D(low_ab, -1, _CENTRAL_DIFF.T, borderType=cv2.BORDER_REPLICATE)
-    sq = gx * gx
-    sq += gy * gy
-    g = np.sqrt(sq[:, :, 0] + sq[:, :, 1])
-    g *= np.float32(sigma / (CHROMA_EDGE_HI - CHROMA_EDGE_LO))
-    g -= np.float32(CHROMA_EDGE_LO / (CHROMA_EDGE_HI - CHROMA_EDGE_LO))
-    t = np.clip(g, 0.0, 1.0, out=g)
-    return t * t * (3.0 - 2.0 * t)
-
-
-_CENTRAL_DIFF = np.array([[-0.5, 0.0, 0.5]], dtype=np.float32)
 
 
 def chroma_denoise_sigma(radius: float, scale_factor: float) -> float:
@@ -351,16 +205,8 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     if sigma == 0.0:
         return img
 
-    lab = rgb_to_lab_working(img.astype(np.float32))
-    ab = np.ascontiguousarray(lab[:, :, 1:3])
     k = gaussian_kernel_1d(sigma)
-    low = cv2.sepFilter2D(ab, -1, k, k)
-    ab -= low
-    ab *= chroma_edge_keep(low, sigma)[:, :, None]
-    ab += low
-    lab[:, :, 1:3] = ab
-
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    return negpy_core.chroma_denoise(np.ascontiguousarray(img, dtype=np.float32), sigma, k, *WORKING_LAB)
 
 
 # Halation mask threshold in LINEAR reflectance: the regions the negative rendered dense,
@@ -385,33 +231,13 @@ def apply_glow_and_halation(
     if glow_amount == 0.0 and halation_strength == 0.0:
         return img
 
-    result = img.copy().astype(np.float32)
-
+    glow = halation = None
     if glow_amount > 0.0:
         # Highlight mask in the display domain (keeps the 0.5 threshold); bloom is linear.
-        enc = working_oetf_encode(img)
-        luma = enc[:, :, 0] * np.float32(LUM_R) + enc[:, :, 1] * np.float32(LUM_G) + enc[:, :, 2] * np.float32(LUM_B)
-        threshold = 0.5
-        glow_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0)
         base_r = max(3, int(15 * scale_factor))
-        k = min((base_r * 2 + 1) | 1, 201)
-        sigma = base_r * 0.5
-        highlights = (img * glow_mask[:, :, np.newaxis]).astype(np.float32)
-        glow_blur = cv2.GaussianBlur(highlights, (k, k), sigma)
-        result = result + glow_blur * glow_amount
-
+        glow = (np.float32(glow_amount), min((base_r * 2 + 1) | 1, 201), base_r * 0.5, 0.5)
     if halation_strength > 0.0:
-        lin_luma = img[:, :, 0] * np.float32(LUM_R) + img[:, :, 1] * np.float32(LUM_G) + img[:, :, 2] * np.float32(LUM_B)
-        t = HALATION_THRESHOLD_LINEAR
-        hal_mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0)
         base_r = max(5, int(25 * scale_factor))
-        k = min((base_r * 2 + 1) | 1, 301)
-        sigma = base_r * 0.5
-        red_hl = np.zeros_like(img, dtype=np.float32)
-        red_hl[:, :, 0] = img[:, :, 0] * hal_mask
-        red_hl[:, :, 1] = img[:, :, 0] * hal_mask * 0.3
-        red_hl[:, :, 2] = img[:, :, 0] * hal_mask * 0.05
-        hal_blur = cv2.GaussianBlur(red_hl, (k, k), sigma)
-        result = result + hal_blur * halation_strength
-
-    return ensure_image(np.clip(result, 0.0, 1.0))
+        halation = (np.float32(halation_strength), min((base_r * 2 + 1) | 1, 301), base_r * 0.5, HALATION_THRESHOLD_LINEAR)
+    lum = (np.float32(LUM_R), np.float32(LUM_G), np.float32(LUM_B))
+    return negpy_core.glow_and_halation(np.ascontiguousarray(img, dtype=np.float32), glow, halation, lum, WORKING_INV_GAMMA)

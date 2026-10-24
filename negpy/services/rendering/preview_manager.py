@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Optional, Sequence, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 
 import rawpy
@@ -21,7 +21,7 @@ from negpy.infrastructure.loaders.helpers import (
     is_xtrans,
 )
 from negpy.infrastructure.gpu.device import GPUDevice
-from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32, working_oetf_decode, working_oetf_encode
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.override import effective_max_texture_size
@@ -71,15 +71,6 @@ def _output_dimensions_from_raw(raw: Any, postprocessed_h: int, postprocessed_w:
     except Exception:
         pass
     return (postprocessed_h, postprocessed_w)
-
-
-# Pre-warm the Numba JIT so the first actual preview load doesn't pay the compile cost. The
-# small-array OETF calls take the serial variant, which has no disk cache, so the Analysis
-# chart's first paint would otherwise compile it on the GUI thread.
-_warmup = np.zeros((2, 2, 3), dtype=np.uint16)
-uint16_to_float32(_warmup)
-working_oetf_decode(working_oetf_encode(np.zeros(4, dtype=np.float32)))
-del _warmup
 
 
 def _linear_preview_key(
@@ -279,7 +270,7 @@ class PreviewManager:
         if max(h, w) > APP_CONFIG.preview_render_size:
             scale = APP_CONFIG.preview_render_size / max(h, w)
             tw, th = int(w * scale), int(h * scale)
-            arr = ensure_image(cv2.resize(arr, (tw, th), interpolation=cv2.INTER_AREA).astype(np.float32))
+            arr = ensure_image(negpy_core.resize_area(np.ascontiguousarray(arr, dtype=np.float32), (tw, th)))
         logger.debug("preview _try_splash_from_open_raw ok %.3fs for %s", time.perf_counter() - t0, file_path)
         return ensure_image(arr), full_dims
 
@@ -467,26 +458,14 @@ class PreviewManager:
             scale = vram_cap / max(h_p, w_p)
             target_w = int(w_p * scale)
             target_h = int(h_p * scale)
-            preview_raw = ensure_image(
-                cv2.resize(
-                    full_linear,
-                    (target_w, target_h),
-                    interpolation=cv2.INTER_AREA,
-                )
-            )
+            preview_raw = ensure_image(negpy_core.resize_area(np.ascontiguousarray(full_linear, dtype=np.float32), (target_w, target_h)))
             metadata["vram_capped_long_edge"] = vram_cap
             log("preview vram_cap applied: %dx%d -> %dx%d", w_p, h_p, target_w, target_h)
         elif max(h_p, w_p) > max_res and not full_resolution:
             scale = max_res / max(h_p, w_p)
             target_w = int(w_p * scale)
             target_h = int(h_p * scale)
-            preview_raw = ensure_image(
-                cv2.resize(
-                    full_linear,
-                    (target_w, target_h),
-                    interpolation=cv2.INTER_AREA,
-                )
-            )
+            preview_raw = ensure_image(negpy_core.resize_area(np.ascontiguousarray(full_linear, dtype=np.float32), (target_w, target_h)))
         else:
             # Full-res, or already preview-sized: hand the decoded buffer through as it is. A
             # defensive copy doubles peak RSS on HQ loads of large scans for no benefit, since
@@ -769,7 +748,7 @@ class PreviewManager:
         def _match(buf: ImageBuffer) -> np.ndarray:
             arr = np.asarray(buf, dtype=np.float32)
             if arr.shape[:2] != red.shape[:2]:
-                arr = cv2.resize(arr, (red.shape[1], red.shape[0]), interpolation=cv2.INTER_AREA)
+                arr = negpy_core.resize_area(np.ascontiguousarray(arr, dtype=np.float32), (red.shape[1], red.shape[0]))
             return arr
 
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
@@ -877,7 +856,7 @@ class PreviewManager:
                 # at stake.
                 if abs(arr.shape[1] * ref.shape[0] - arr.shape[0] * ref.shape[1]) > 0.02 * ref.shape[1] * arr.shape[0]:
                     raise ValueError(f"bracket frames differ in shape: {arr.shape}, {ref.shape}")
-                arr = cv2.resize(arr, (ref.shape[1], ref.shape[0]), interpolation=cv2.INTER_AREA)
+                arr = negpy_core.resize_area(np.ascontiguousarray(arr, dtype=np.float32), (ref.shape[1], ref.shape[0]))
             return arr
 
         providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]

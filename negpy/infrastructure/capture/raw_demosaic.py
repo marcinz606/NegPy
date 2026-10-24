@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 
@@ -116,40 +117,6 @@ _PLATEAU_DENSITY_RATIO = 6.0
 _MIN_PLATEAU_SITES = 4  # a plateau is a pile, never a handful of photosites on a small ROI
 
 
-def _plateau_clip_fraction(values: np.ndarray, dark_frame_guard: int) -> float:
-    """Fraction of photosites pinned on a saturation plateau, found from the data's shape alone.
-
-    A sensor can saturate below the white level its metadata publishes — or on a body with no
-    metadata at all. Saturation still has a shape: photosites pile up against the highest level
-    the sensor reaches, while noise above that pile falls off smoothly. The pile is not always the
-    ROI's own maximum — a handful of noise-elevated sites (dust, a hot pixel, ordinary shot noise)
-    routinely sit a few dozen counts above the true plateau, so anchoring on `values.max()` itself
-    can land in that sparse tail and miss the pile beneath it. Scanning the top `_PLATEAU_WINDOW`
-    counts for the densest bin, rather than assuming the maximum sample instead, finds it either
-    way. `dark_frame_guard` (typically the raw white level, loosely, or 0 to skip the guard) keeps
-    a frame nowhere near saturation from having its noise floor mistaken for a plateau.
-    """
-    top = int(values.max())
-    if dark_frame_guard > 0 and top * 2 < dark_frame_guard:
-        return 0.0
-    lo = max(0, top - _PLATEAU_WINDOW)
-    counts = np.bincount(values[values >= lo] - lo, minlength=_PLATEAU_WINDOW + 1)
-    # Only codes the file holds count: a lossy raw encoding (Nikon compressed NEF) stores a sparse
-    # set of codes, and the gaps between them are not a falling tail.
-    populated = np.flatnonzero(counts)
-    peak_at = int(np.argmax(counts[populated]))
-    peak_bin = int(populated[peak_at])
-    peak = int(counts[peak_bin])
-    if peak < _MIN_PLATEAU_SITES:
-        return 0.0
-    neighbors = counts[populated[peak_at + 1 : peak_at + 1 + _PLATEAU_NEIGHBOR_BINS]]
-    neighbor_density = float(neighbors.max()) if neighbors.size else 0.0
-    if peak < _PLATEAU_DENSITY_RATIO * max(neighbor_density, 1.0):
-        return 0.0
-    anchor = lo + peak_bin
-    return float(np.count_nonzero(values >= anchor)) / values.size
-
-
 def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_margin: int = 16) -> tuple[float, float]:
     """Fraction of *raw Bayer* photosites for one channel past two independent points, inside the
     ROI: (linearity_fraction, plateau_fraction).
@@ -161,7 +128,7 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
     number here: `linearity_fraction` (`_linearity_limit`, when the body publishes a calibrated
     ceiling) can overstate real clipping — a body's calibrated ceiling is often a conservative
     linearity limit, not where it actually saturates, so a channel legitimately using the top of
-    its range reads as partly "past" it. `plateau_fraction` (`_plateau_clip_fraction`) finds the
+    its range reads as partly "past" it. `plateau_fraction` (`negpy_core.raw_clip_fractions`) finds the
     true saturation pile from the data's shape, needs no metadata, and is what should gate a hard
     abort; the caller is expected to budget the two separately. `roi` is any object with a
     `.pixels(w, h)` method (duck-typed to avoid an infra→services import). channel_index: R=0,
@@ -178,18 +145,17 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
             return 0.0, 0.0
         h, w = img.shape[:2]
         x0, y0, x1, y1 = roi.pixels(w, h)
-        sub_img = img[y0:y1, x0:x1]
-        mask = np.isin(colors[y0:y1, x0:x1], wanted)
-        if not mask.any():
-            return 0.0, 0.0
-        values = sub_img[mask]
-
-        linearity_fraction = 0.0
         # raw_image_visible is absolute ADC counts (black not subtracted), matching the limit's scale.
         limit = _linearity_limit(raw, wanted)
-        if limit > 0:
-            threshold = max(0, limit - saturation_margin)
-            linearity_fraction = float(np.mean(values >= threshold))
-
-        plateau_fraction = _plateau_clip_fraction(values, int(raw.white_level or 0))
-        return linearity_fraction, plateau_fraction
+        found = negpy_core.raw_clip_fractions(
+            np.ascontiguousarray(img[y0:y1, x0:x1], dtype=np.uint16),
+            np.ascontiguousarray(colors[y0:y1, x0:x1], dtype=np.uint8),
+            wanted,
+            max(0, limit - saturation_margin) if limit > 0 else None,
+            int(raw.white_level or 0),
+            _PLATEAU_WINDOW,
+            _MIN_PLATEAU_SITES,
+            _PLATEAU_NEIGHBOR_BINS,
+            _PLATEAU_DENSITY_RATIO,
+        )
+        return (0.0, 0.0) if found is None else found

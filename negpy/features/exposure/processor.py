@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
@@ -62,10 +63,9 @@ class NormalizationProcessor:
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        epsilon = 1e-6
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
         # above 1.0 occur only with flat-field gain and must match the GPU.
-        img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
+        img_log = negpy_core.log_density_open(np.ascontiguousarray(image, dtype=np.float32))
         # Shared prefilter, once for all five meters, with the ROI and buffer applied here. A
         # freehand analysis_rect overrides the crop ROI and centered buffer for the metered region.
         an_roi, an_buffer = resolve_analysis_region(
@@ -303,11 +303,12 @@ class PhotometricProcessor:
         if context.process_mode == ProcessMode.BW:
             # Panchromatic response: collapse to a single density BEFORE the curve, so the curve
             # shapes one channel instead of mixing three.
-            lum = get_luminance(image)
-            image = np.stack([lum, lum, lum], axis=-1)
+            image = negpy_core.gray_to_rgb(get_luminance(image))
 
         local_maps = self._build_local_maps(image, context)
-        ev_map = None if local_maps is None else np.ascontiguousarray(local_maps[:, :, 0])
+        if local_maps is not None:
+            local_maps = np.ascontiguousarray(local_maps, dtype=np.float32)
+        ev_map = None if local_maps is None else negpy_core.extract_channel(local_maps, 0)
         # The mask is a print-exposure input like a dodge, so it rides the same map.
         mask_ev = contrast_mask_ev(
             context.metrics.get("contrast_mask_plane"),
@@ -317,13 +318,13 @@ class PhotometricProcessor:
             context.metrics.get("contrast_mask_roi"),
         )
         if mask_ev is not None:
-            ev_map = mask_ev if ev_map is None else np.ascontiguousarray(ev_map + mask_ev)
+            ev_map = mask_ev if ev_map is None else negpy_core.add(ev_map, mask_ev)
         grade_map = None
-        if local_maps is not None and local_maps[:, :, 1].any():
-            grade_map = local_grade_factor_map(np.ascontiguousarray(local_maps[:, :, 1]), self.config.grade)
+        if local_maps is not None and negpy_core.channel_any(local_maps, 1):
+            grade_map = local_grade_factor_map(negpy_core.extract_channel(local_maps, 1), self.config.grade)
         flash_map = None
-        if local_maps is not None and local_maps[:, :, 2].any():
-            flash_map = np.ascontiguousarray(local_maps[:, :, 2])
+        if local_maps is not None and negpy_core.channel_any(local_maps, 2):
+            flash_map = negpy_core.extract_channel(local_maps, 2)
         diff_kw: Dict[str, Any] = {}
         diff_plane = context.metrics.get("diffusion_plane")
         if self.config.diffusion > 0.0 and diff_plane is not None:
@@ -405,9 +406,7 @@ class PhotometricProcessor:
         )
 
         if context.process_mode == ProcessMode.BW:
-            res = get_luminance(img_pos)
-            res = np.stack([res, res, res], axis=-1)
-            return res
+            return negpy_core.gray_to_rgb(get_luminance(img_pos))
 
         return img_pos
 
@@ -432,14 +431,12 @@ class PhotometricProcessor:
         is_bw = context.process_mode == ProcessMode.BW
 
         if is_bw:
-            lum = get_luminance(image)
-            image = np.stack([lum, lum, lum], axis=-1)
+            image = negpy_core.gray_to_rgb(get_luminance(image))
 
         stock_matrix = None if is_bw else resolve_flat_matrix(effective_paper_profile(self.config.paper_profile, context.process_mode))
         img_pos = apply_flat_curve(image, gain, lift, cmy_offsets=cmy_offsets, stock_matrix=stock_matrix)
 
         if is_bw:
-            res = get_luminance(img_pos)
-            return np.stack([res, res, res], axis=-1)
+            return negpy_core.gray_to_rgb(get_luminance(img_pos))
 
         return img_pos

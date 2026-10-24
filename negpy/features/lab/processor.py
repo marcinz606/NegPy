@@ -1,3 +1,4 @@
+import negpy_core
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
@@ -40,4 +41,4 @@ class PhotoLabProcessor:
         if self.config.glow_amount > 0 or self.config.halation_strength > 0:
             img = apply_glow_and_halation(img, self.config.glow_amount, self.config.halation_strength, context.scale_factor)
 
-        return np.clip(img, 0, 1)
+        return negpy_core.clip01(np.ascontiguousarray(img, dtype=np.float32))

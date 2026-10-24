@@ -7,7 +7,6 @@ from negpy.features.lab.logic import (
     _usm_sharpening_block,
     _saturation_block,
 )
-from negpy.kernel.system import parallel
 
 
 @pytest.mark.parametrize("radius,mask", [(0.1, 0.0), (1.0, 0.0), (3.0, 0.6)])
@@ -20,11 +19,9 @@ def test_sharpen_blocks_match_full_frame(radius, mask):
     np.testing.assert_array_equal(image, original)
 
 
-@pytest.mark.parametrize("parallel_enabled", [False, True])
 @pytest.mark.parametrize("tail_rows", [1, 21, 22])
 @pytest.mark.parametrize("saturation,skin", [(1.0, 1.0), (0.6, 0.7)])
-def test_saturation_short_tail_matches_full_frame(monkeypatch, parallel_enabled, tail_rows, saturation, skin):
-    monkeypatch.setattr(parallel, "_parallel_enabled", parallel_enabled)
+def test_saturation_short_tail_matches_full_frame(tail_rows, saturation, skin):
     image = np.random.default_rng(991).uniform(0.001, 0.999, (3072 + tail_rows, 1024, 3)).astype(np.float32)
     image[::7] = 0.0
     image[1::11] = 1.0

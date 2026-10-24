@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from negpy.kernel.system.i18n import tr
 
+import negpy_core
 import numpy as np
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -26,19 +27,10 @@ from negpy.infrastructure.scanners.result import ScanResult
 
 def _preview_u8(rgb: np.ndarray) -> np.ndarray:
     """Scale scan RGB to uint8 for the crop widget (percentile stretch)."""
-    a = np.asarray(rgb, dtype=np.float32)
+    a = np.ascontiguousarray(rgb, dtype=np.float32)
     if a.ndim == 2:
         a = a[:, :, None]
-    out = np.empty(a.shape[:2] + (3,), dtype=np.uint8)
-    channels = a.shape[2]
-    for c in range(3):
-        ch = a[..., min(c, channels - 1)]
-        lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
-        if hi <= lo:
-            out[..., c] = 0
-        else:
-            out[..., c] = np.clip((ch - lo) / (hi - lo) * 255.0, 0, 255).astype(np.uint8)
-    return out
+    return negpy_core.stretch_preview(a, "prescan")
 
 
 class PrescanCropDialog(QDialog):

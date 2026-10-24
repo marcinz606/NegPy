@@ -47,7 +47,7 @@ def _band_frame(fill: list[tuple[float, float, float]]) -> tuple[np.ndarray, np.
 
 def test_the_largest_flat_group_is_the_base():
     """A flat sliver of bare light, brighter than the rebate, is the smaller group."""
-    from negpy.features.exposure.normalization import _base_blocks
+    from negpy_core import base_blocks as _base_blocks
 
     det, band = _band_frame([(0.84, 0.002, 0.30), (0.47, 0.004, 0.70)])
 
@@ -58,7 +58,7 @@ def test_the_largest_flat_group_is_the_base():
 
 
 def test_clipped_light_is_never_the_base():
-    from negpy.features.exposure.normalization import _base_blocks
+    from negpy_core import base_blocks as _base_blocks
 
     det, band = _band_frame([(0.995, 0.001, 0.70), (0.60, 0.004, 0.30)])  # holes at sensor white
 
@@ -69,7 +69,7 @@ def test_clipped_light_is_never_the_base():
 
 
 def test_a_band_with_no_flat_film_reads_nothing():
-    from negpy.features.exposure.normalization import _base_blocks
+    from negpy_core import base_blocks as _base_blocks
 
     det, band = _band_frame([(0.5, 0.2, 1.0)])  # texture everywhere, no flat block
 

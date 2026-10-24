@@ -5,7 +5,7 @@ and structural parts (process bounds + mode, geometry/crop) so the inversion sta
 
 from dataclasses import replace
 
-from negpy.desktop.controller import baseline_compare_config
+from negpy.desktop.controller import baseline_compare_config, reference_compare_config
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.altprocess.models import AltProcess, AltProcessConfig
 from negpy.features.finish.models import FinishConfig
@@ -76,3 +76,18 @@ def test_baseline_exposure_is_the_shipped_default_on_transparency() -> None:
     untouched slide must carry it, not the bare dataclass default."""
     cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.E6))
     assert baseline_compare_config(cfg).exposure.grade == DEFAULT_WORKSPACE_CONFIG.exposure.grade
+
+
+def test_reference_keeps_its_look_on_the_current_framing() -> None:
+    edited = _edited_config()
+    reference = replace(
+        WorkspaceConfig(),
+        exposure=replace(edited.exposure, density=0.2),
+        geometry=replace(edited.geometry, fine_rotation=-4.0),
+    )
+    before = reference_compare_config(reference, edited)
+    assert before.exposure == reference.exposure
+    assert before.lab == reference.lab
+    assert before.process == reference.process
+    assert before.geometry == edited.geometry
+    assert before.export == edited.export

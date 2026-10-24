@@ -4,7 +4,6 @@ from negpy.features.finish.logic import (
     CARRIER_SAMPLES,
     apply_carrier,
     apply_vignette,
-    carrier_noise,
     carrier_profiles,
     linear_carrier_tone,
 )
@@ -258,16 +257,6 @@ class TestCarrier(unittest.TestCase):
         a = apply_carrier(img, width_px=8.0, rough=1.0, flare=0.7)
         b = apply_carrier(img, width_px=8.0, rough=1.0, flare=0.7)
         np.testing.assert_array_equal(a, b)
-
-    def test_noise_is_two_dimensional_and_bounded(self) -> None:
-        x = np.linspace(0.0, 12.0, 64, dtype=np.float32)[None, :]
-        y = np.linspace(0.0, 12.0, 48, dtype=np.float32)[:, None]
-        n = carrier_noise(x, y)
-        self.assertEqual(n.shape, (48, 64))
-        self.assertLessEqual(float(np.abs(n).max()), 1.0)
-        np.testing.assert_array_equal(n, carrier_noise(x, y))
-        # Genuinely 2-D: rows differ, so the field is not a function of x alone.
-        self.assertGreater(float(np.abs(n[0] - n[20]).max()), 0.05)
 
     def test_filed_edge_is_not_a_height_field(self) -> None:
         """The 2-D field must be able to overhang and shed flecks — a 1-D edge cannot."""

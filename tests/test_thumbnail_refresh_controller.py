@@ -532,8 +532,8 @@ class TestThumbnailRefreshController:
         self.controller.refresh_thumbnails_for(["other", "third"])
         self.controller._thumbnail_render_timing = [4.0, 6.0, 2]
         self.controller._on_thumbnail_render_frame_started(3, 5, "c.dng")
-        # Frames 3, 4 and 5 are left at 5 s each.
-        assert lines[-1] == "Thumbnails 3/5 · ~15 s left"
+        # Frames 3, 4 and 5 are left at 5 s each, two at a time.
+        assert lines[-1] == "Thumbnails 3/5 · ~8 s left"
         self.controller._on_thumbnail_render_cancelled()
 
     def test_a_cancelled_refresh_clears_its_progress(self) -> None:
@@ -940,6 +940,81 @@ class TestThumbnailRefreshController:
         gone = self.files.pop(1)
         assert self._seed([gone]) == set()
 
+    def _refreshed_on_seed(self) -> list:
+        with patch.object(self.controller, "refresh_thumbnails_for") as refresh:
+            self._seed()
+        return [sorted(c.args[0]) for c in refresh.call_args_list]
+
+    def test_a_seed_renders_flagged_thumbnails_while_automatic_updates_are_on(self) -> None:
+        self.controller.state.auto_thumbnail_refresh = True
+        self._save("other", "some-older-render")
+        assert self._refreshed_on_seed() == [["other"]]
+
+    def test_a_seed_only_flags_thumbnails_while_automatic_updates_are_off(self) -> None:
+        self._save("other", "some-older-render")
+        assert self._refreshed_on_seed() == []
+        assert self._seed() == {"other"}
+
+    def test_a_seed_over_many_chunks_renders_once_at_the_end(self) -> None:
+        from negpy.desktop.controller import _STALE_SEED_CHUNK
+
+        self.controller.state.auto_thumbnail_refresh = True
+        self.files.extend(
+            {"name": f"f{i}.dng", "path": f"/roll/f{i}.dng", "hash": f"f{i}", "diptych": False} for i in range(_STALE_SEED_CHUNK * 2)
+        )
+        self._save("f0", "some-older-render")
+        self._save(f"f{_STALE_SEED_CHUNK * 2 - 1}", "some-older-render")
+        assert self._refreshed_on_seed() == [sorted(["f0", f"f{_STALE_SEED_CHUNK * 2 - 1}"])]
+
+    def test_a_restart_seed_renders_a_frame_flagged_before_it(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.controller.state.auto_thumbnail_refresh = True
+        self.controller.state.stale_thumbnails.add(asset_thumbnail_key(self.files[1]))
+        assert self._refreshed_on_seed() == [["other"]]
+
+    def test_a_seed_that_flags_nothing_renders_nothing(self) -> None:
+        self.controller.state.auto_thumbnail_refresh = True
+        assert self._refreshed_on_seed() == []
+
+    def test_turning_automatic_updates_on_renders_dotted_thumbnails_only(self) -> None:
+        from negpy.services.assets.thumbnail_fingerprint import QUICK
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.controller.state.stale_thumbnails.add(asset_thumbnail_key(self.files[1]))
+        self._save("third", QUICK)
+        with patch.object(self.controller, "refresh_thumbnails_for") as refresh:
+            self.controller._on_auto_thumbnail_refresh_changed(False)
+            refresh.assert_not_called()
+            self.controller._on_auto_thumbnail_refresh_changed(True)
+        refresh.assert_called_once_with(["other"])
+
+    def test_a_dotted_refresh_leaves_out_frames_already_in_flight(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.controller.state.stale_thumbnails |= {asset_thumbnail_key(f) for f in self.files[1:]}
+        self.controller._thumbnail_render_running = True
+        self.controller._thumbnail_render_pending = {"other"}
+        with patch.object(self.controller, "refresh_thumbnails_for") as refresh:
+            self.controller._refresh_dotted_thumbnails()
+        refresh.assert_called_once_with(["third"])
+
+    def test_a_dotted_refresh_waits_for_the_first_thumbnails(self) -> None:
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.controller.state.stale_thumbnails.add(asset_thumbnail_key(self.files[1]))
+        self.controller._thumbnail_queue_active = True
+        with (
+            patch.object(self.controller, "refresh_thumbnails_for") as refresh,
+            patch.object(self.controller, "generate_missing_embeddings"),
+        ):
+            self.controller._on_auto_thumbnail_refresh_changed(True)
+            refresh.assert_not_called()
+            self.controller._on_thumbnail_activity("")
+            refresh.assert_called_once_with(["other"])
+            self.controller._on_thumbnail_activity("")
+        refresh.assert_called_once()
+
 
 def test_progress_text_has_no_time_left_after_one_frame() -> None:
     assert thumbnail_refresh_progress_text(1, 49, 1.0, 1.0) == "Thumbnails 1/49"
@@ -948,6 +1023,10 @@ def test_progress_text_has_no_time_left_after_one_frame() -> None:
 def test_progress_text_formats_seconds_and_minutes() -> None:
     assert thumbnail_refresh_progress_text(2, 5, 1.0, 1.0) == "Thumbnails 2/5 · ~6 s left"
     assert thumbnail_refresh_progress_text(2, 49, 1.0, 1.0) == "Thumbnails 2/49 · ~2 min left"
+
+
+def test_progress_text_divides_the_time_left_by_the_frames_at_once() -> None:
+    assert thumbnail_refresh_progress_text(2, 5, 1.0, 1.0, frames_at_once=2) == "Thumbnails 2/5 · ~3 s left"
 
 
 def test_progress_text_has_no_time_left_on_the_last_frame() -> None:

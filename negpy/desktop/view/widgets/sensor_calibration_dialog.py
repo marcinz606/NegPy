@@ -6,6 +6,7 @@ each band; the inverted mix is saved as a named sensor crosstalk profile. Files,
 
 from negpy.kernel.system.i18n import tr
 
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -165,7 +166,7 @@ class SensorCalibrationDialog(QDialog):
             for band in ("R", "G", "B"):
                 img = self._decode(self._paths[band])
                 measured[band] = measure_capture(img)
-                if float(np.mean(np.any(np.asarray(img[:, :, :3]) >= _CLIP_LEVEL, axis=2))) > _CLIP_FRACTION:
+                if negpy_core.any_channel_at_least(np.ascontiguousarray(img, dtype=np.float32), _CLIP_LEVEL) > _CLIP_FRACTION:
                     clipped.append(band)
             matrix = build_sensor_matrix(measured["R"], measured["G"], measured["B"])
         except Exception as exc:

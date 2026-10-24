@@ -1,6 +1,7 @@
 """The slide renders: a Slide as captured and a Positive frame. The engine routes here by
 process.path.render_path."""
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
@@ -66,9 +67,9 @@ class TransparencyBaseProcessor:
         # continuous-spectrum scene, and there is no such scene to describe (see
         # should_fold_camera_wb).
         matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
-        linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
-
-        img_log = np.log10(np.clip(linear, epsilon, None))
+        image = np.ascontiguousarray(image, dtype=np.float32)
+        linear = image if matrix is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), matrix)
+        img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.

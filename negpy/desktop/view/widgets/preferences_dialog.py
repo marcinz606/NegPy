@@ -34,7 +34,6 @@ from negpy.kernel.system.override import (
     load_or_create,
     toml_pinned_keys,
 )
-from negpy.kernel.system.parallel import parallel_enabled, set_parallel_enabled
 from negpy.services.assets import semantic_model
 
 UI_SCALES: tuple[int, ...] = (80, 90, 100, 110, 120)
@@ -326,14 +325,7 @@ class PreferencesDialog(QDialog):
             self.session.state.gpu_enabled and self._gpu_available,
             tr("Render the pipeline on the GPU"),
         )
-        self.parallel_box = labeled_toggle(
-            "mdi6.cpu-64-bit",
-            tr("Multi-core CPU Rendering"),
-            parallel_enabled(),
-            tr("Render on all CPU cores, an experimental mode that can close the app without warning."),
-        )
-        self.parallel_box.toggled.connect(self._on_parallel_changed)
-        self._add_toggles(grid, row, self.gpu_box, self.parallel_box)
+        self._add_toggles(grid, row, self.gpu_box)
         row += 1
         if self._gpu_available:
             self.gpu_box.toggled.connect(self._on_gpu_changed)
@@ -362,7 +354,7 @@ class PreferencesDialog(QDialog):
             "mdi6.image-sync-outline",
             tr("Update Thumbnails Automatically"),
             self.session.state.auto_thumbnail_refresh,
-            tr("Render thumbnails again in the background after a change to many frames"),
+            tr("Render out-of-date thumbnails again in the background"),
         )
         self.auto_thumbnails_box.toggled.connect(self.session.set_auto_thumbnail_refresh)
         self._add_toggles(grid, row, self.semantic_box, self.auto_thumbnails_box)
@@ -510,18 +502,6 @@ class PreferencesDialog(QDialog):
                 return
         if checked != self.session.state.semantic_search_enabled:
             self.session.set_semantic_search_enabled(checked)
-
-    def _on_parallel_changed(self, checked: bool) -> None:
-        """Takes effect at once: every kernel is compiled both ways and dispatched per
-        call, so there is nothing to recompile and no restart to wait for."""
-        set_parallel_enabled(bool(checked))
-        self.repo.save_global_settings({"cpu_parallel": bool(checked), "cpu_parallel_active": bool(checked)})
-        self.controller.set_status(
-            tr("Multi-core CPU rendering is on. Turn it off if the app closes unexpectedly.")
-            if checked
-            else tr("Multi-core CPU rendering off"),
-            5000,
-        )
 
     def _on_low_vram_tiling_changed(self, checked: bool) -> None:
         APP_CONFIG.low_vram_export_tiling = bool(checked)

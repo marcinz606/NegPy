@@ -20,9 +20,9 @@ class TestPaperSCurve(unittest.TestCase):
         return slope, pivot
 
     def test_anchor_preserved(self):
-        # The reference tone must still print at anchor_target_density with the
+        # The reference tone must still print at reference_print_density with the
         # S-curve on (it is centred on the reference value, shape(0)=0).
-        target = EXPOSURE_CONSTANTS["anchor_target_density"]
+        target = EXPOSURE_CONSTANTS["reference_print_density"]
         slope, pivot = self._slope_pivot()
         curve = CharacteristicCurve(contrast=slope, pivot=pivot)
         anchor = EXPOSURE_CONSTANTS["assumed_anchor"]

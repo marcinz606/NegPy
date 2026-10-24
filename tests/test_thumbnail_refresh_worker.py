@@ -1,6 +1,10 @@
+import threading
 from dataclasses import replace
 
 import numpy as np
+import pytest
+
+import negpy_core
 
 import negpy.desktop.workers.render as render_workers
 from negpy.desktop.workers.render import (
@@ -12,6 +16,17 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.lens.models import LensCorrections
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
+
+
+@pytest.fixture(autouse=True)
+def _one_worker(monkeypatch):
+    """Frame order and timing ticks are exact with one worker; the parallel tests set two."""
+    monkeypatch.setattr(render_workers, "_THUMBNAIL_WORKERS", 1)
+
+
+def _two_workers(monkeypatch, room: bool = True) -> None:
+    monkeypatch.setattr(render_workers, "_THUMBNAIL_WORKERS", 2)
+    monkeypatch.setattr(render_workers, "_room_for_another_frame", lambda _frame: room)
 
 
 def _meta(tag: str) -> dict:
@@ -420,3 +435,94 @@ def test_thumbnail_render_skips_the_live_peek_for_a_stitch(qapp, monkeypatch) ->
 
     assert live.peek_calls == []
     assert len(private.stitch_calls) == 1
+
+
+def _counting_decode(monkeypatch, wait: threading.Barrier | None = None) -> dict:
+    """Wraps the decode to record the most decodes at once and the pool size each one sees."""
+    seen = {"now": 0, "most": 0, "pool": set()}
+    lock = threading.Lock()
+    real_decode = render_workers._decode_asset_preview_with_meta
+
+    def _decode(*args):
+        with lock:
+            seen["now"] += 1
+            seen["most"] = max(seen["most"], seen["now"])
+            seen["pool"].add(negpy_core.pool_threads())
+        try:
+            if wait is not None:
+                wait.wait()
+            return real_decode(*args)
+        finally:
+            with lock:
+                seen["now"] -= 1
+
+    monkeypatch.setattr(render_workers, "_decode_asset_preview_with_meta", _decode)
+    return seen
+
+
+def test_thumbnail_render_runs_two_frames_at_once_on_the_background_pool(qapp, monkeypatch) -> None:
+    _two_workers(monkeypatch)
+    worker, _processor = _worker(monkeypatch)
+    seen = _counting_decode(monkeypatch, threading.Barrier(2, timeout=10))
+    rendered: list[str] = []
+    progress: list[int] = []
+    finished: list[int] = []
+    worker.rendered.connect(lambda frame, _buf: rendered.append(frame.thumbnail_key))
+    worker.progress.connect(lambda done, *_rest: progress.append(done))
+    worker.finished.connect(finished.append)
+    base = WorkspaceConfig()
+
+    worker.process(_task(_input("a", base), _input("b", base)))
+
+    assert seen["most"] == 2
+    cores = negpy_core.pool_threads()
+    assert seen["pool"] == {min(cores, max(2, cores // 4))}
+    assert rendered == ["key-a", "key-b"]
+    assert progress == [1, 2]
+    assert finished == [2]
+
+
+def test_thumbnail_render_without_room_keeps_one_frame_in_flight(qapp, monkeypatch) -> None:
+    _two_workers(monkeypatch, room=False)
+    worker, _processor = _worker(monkeypatch)
+    seen = _counting_decode(monkeypatch)
+    finished: list[int] = []
+    worker.finished.connect(finished.append)
+    base = WorkspaceConfig()
+
+    worker.process(_task(_input("a", base), _input("b", base), _input("c", base)))
+
+    assert seen["most"] == 1
+    assert finished == [3]
+
+
+def test_thumbnail_render_cancel_stops_frames_not_yet_started(qapp, monkeypatch) -> None:
+    _two_workers(monkeypatch)
+    worker, processor = _worker(monkeypatch)
+    rendered: list[str] = []
+    cancelled: list[bool] = []
+    worker.rendered.connect(lambda frame, _buf: (rendered.append(frame.thumbnail_key), worker.cancel()))
+    worker.cancelled.connect(lambda: cancelled.append(True))
+    base = WorkspaceConfig()
+
+    worker.process(_task(*(_input(name, base) for name in "abcd")))
+
+    assert rendered == ["key-a"]
+    assert len(processor.run_calls) <= 2
+    assert cancelled == [True]
+
+
+def test_room_for_another_frame_needs_known_ram_above_the_reserve(monkeypatch) -> None:
+    estimate = render_workers.loader_factory.estimate_preview_memory("/missing.dng", 100)
+    need = render_workers.MIN_RAM_RESERVE_BYTES + estimate.temporary_bytes + estimate.cached_bytes
+    monkeypatch.setattr(render_workers.loader_factory, "estimate_linear_preview_prefetch_memory", lambda *_args: estimate)
+    frame = _input("a", WorkspaceConfig())
+
+    monkeypatch.setattr(render_workers, "available_system_memory_bytes", lambda: None)
+    assert not render_workers._room_for_another_frame(frame)
+    monkeypatch.setattr(render_workers, "available_system_memory_bytes", lambda: need - 1)
+    assert not render_workers._room_for_another_frame(frame)
+    monkeypatch.setattr(render_workers, "available_system_memory_bytes", lambda: need)
+    assert render_workers._room_for_another_frame(frame)
+    stitch = replace(WorkspaceConfig(), stitch=StitchConfig(stitch_enabled=True, stitch_paths=("/a.dng", "/b.dng")))
+    assert not render_workers._room_for_another_frame(_input("pano", stitch))

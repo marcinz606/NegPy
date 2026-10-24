@@ -244,6 +244,54 @@ class TestControllerKeepsTheSplit(unittest.TestCase):
         self.assertFalse(self.controller.state.compare_mode)
         self.assertIsNone(self.controller.state.compare_before)
 
+    def _step_config(self) -> WorkspaceConfig:
+        from dataclasses import replace
+
+        config = self.controller.state.config
+        return replace(config, exposure=replace(config.exposure, density=config.exposure.density + 0.3))
+
+    def test_a_history_step_is_the_before_half(self):
+        step = self._step_config()
+        self.controller.state.current_file_hash = "abc"
+        self.controller.state.undo_index = 3
+        self.controller.session.repo.load_history_step.return_value = step
+
+        self.controller.compare_with_history_step(1)
+
+        self.controller.session.repo.load_history_step.assert_called_once_with("abc", 1)
+        self.assertTrue(self.controller.state.compare_mode)
+        self.assertTrue(self.tasks[-1].compare)
+        self.assertEqual(self.tasks[-1].config.exposure, step.exposure)
+        self.assertEqual(self.controller.state.compare_reference_label, "STEP 1")
+
+    def test_a_new_reference_re_captures_the_open_split(self):
+        self.controller.state.current_file_hash = "abc"
+        self.controller.toggle_compare()
+        self._finish(self.tasks[-1])
+        self._finish(self.tasks[-1])  # the repaint of the edit
+
+        step = self._step_config()
+        self.controller.session.repo.load_work_print.return_value = step
+        self.controller.compare_with_work_print("Warm")
+
+        self.assertTrue(self.controller.state.compare_mode)
+        self.assertIsNone(self.controller.state.compare_before)
+        self.assertTrue(self.tasks[-1].compare)
+        self.assertEqual(self.tasks[-1].config.exposure, step.exposure)
+        self.assertEqual(self.controller.state.compare_reference_label, "WARM")
+
+    def test_leaving_the_split_forgets_the_reference(self):
+        self.controller.state.current_file_hash = "abc"
+        self.controller.session.repo.load_work_print.return_value = self._step_config()
+        self.controller.compare_with_work_print("Warm")
+
+        self.controller.toggle_compare()
+        self.assertIsNone(self.controller.state.compare_reference)
+        self.assertEqual(self.controller.state.compare_reference_label, "")
+        from negpy.desktop.controller import baseline_compare_config
+
+        self.assertEqual(self.controller._baseline_compare_config(), baseline_compare_config(self.controller.state.config))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ Its hash is the file hash plus ``#<half>``, so hash-keyed stores are per frame; 
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 from negpy.kernel.system.logging import get_logger
@@ -363,6 +364,9 @@ def diptych_configs(repo: Any, file_hash: Optional[str]) -> Optional[tuple[Any, 
 
 def _luma(buf: np.ndarray) -> np.ndarray:
     a = np.asarray(buf)
+    if a.ndim == 3 and a.shape[2] == 3 and a.dtype in (np.uint8, np.uint16, np.float32):
+        # Integer channel sums are exact in float32, so the float32 mean matches NumPy's.
+        return negpy_core.mean_channels(np.ascontiguousarray(a, dtype=np.float32))
     if a.ndim == 3:
         a = a.mean(axis=2)
     return a.astype(np.float32, copy=False)
@@ -403,8 +407,8 @@ def _gutter_scan(a: np.ndarray) -> tuple[float, float, float]:
     peak_val = float(a.max())
     if peak_val <= 0:
         return 0.5, 0.0, 0.0
-    sub = a[:: max(1, h // 512)] / peak_val
-    col = sub.mean(axis=0)
+    step = max(1, h // 512)
+    col = negpy_core.column_means(np.ascontiguousarray(a, dtype=np.float32), step, peak_val)
     k = max(3, w // 150)
     sm = np.convolve(col, np.ones(k, np.float32) / k, mode="same")
     win = max(9, (w // 8) | 1)
@@ -435,7 +439,7 @@ def _gutter_scan(a: np.ndarray) -> tuple[float, float, float]:
     if min(abs(d1), abs(d2)) < 0.04 or d1 * d2 <= 0:
         return 0.5, 0.0, 0.0
     # Unexposed film is uniform top to bottom; a bright/dark in-scene feature isn't.
-    if float(sub[:, center].std()) > 0.10:
+    if float((a[::step, center] / peak_val).std()) > 0.10:
         return 0.5, 0.0, 0.0
     thickness = min(_MAX_GUTTER_THICKNESS, max(0.0, (right_edge - left_edge) / w))
     return float(center_f / w), float(thickness), min(abs(d1), abs(d2))

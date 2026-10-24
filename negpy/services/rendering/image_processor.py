@@ -2,9 +2,9 @@ import hashlib
 import os
 import ctypes
 import threading
-import cv2
 import rawpy
 import imagecodecs
+import negpy_core
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as dc_replace
@@ -289,7 +289,7 @@ def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
     if long_px <= 0 or long_edge <= long_px:
         return buf
     s = long_px / long_edge
-    return cv2.resize(buf, (max(1, int(round(w * s))), max(1, int(round(h * s)))), interpolation=cv2.INTER_AREA)
+    return negpy_core.resize_area(np.ascontiguousarray(buf, dtype=np.float32), (max(1, int(round(w * s))), max(1, int(round(h * s)))))
 
 
 def _detection_downsample(buf: np.ndarray) -> np.ndarray:
@@ -318,7 +318,7 @@ def _without_ir(score: Optional[np.ndarray], hairs: List[np.ndarray], ir_mask: n
 def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
     if mask.shape[:2] == tuple(shape):
         return mask > 0
-    return cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) > 0
+    return negpy_core.resize_nearest(mask.astype(np.uint8), (shape[1], shape[0])) > 0
 
 
 def preview_takes_unmix(params: WorkspaceConfig) -> bool:
@@ -1930,7 +1930,7 @@ class ImageProcessor:
             f32_buffer = _downsample_to_long_edge(f32_buffer, target_long_px)
             if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
                 th, tw = f32_buffer.shape[:2]
-                ir_full = cv2.resize(ir_full, (tw, th), interpolation=cv2.INTER_AREA)
+                ir_full = negpy_core.resize_area(np.ascontiguousarray(ir_full, dtype=np.float32), (tw, th))
             # Keep the decode only for the other half of the same scan, rendered next; else it pins memory across the next decode.
             if not keep_source:
                 self._source_cache_key = None

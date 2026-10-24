@@ -55,18 +55,6 @@ class TestLabLogic(unittest.TestCase):
         res = apply_clahe(img, 1.0)
         np.testing.assert_allclose(res, img, atol=0.02)
 
-    def test_clahe_cdf_invariants(self) -> None:
-        """Per-tile CDFs are monotone and end exactly at 1.0 — the excess
-        redistribution conserves the tile total, mirroring clahe_cdf.wgsl."""
-        from negpy.features.lab.logic import _clahe_cdfs
-
-        rng = np.random.default_rng(7)
-        bins = rng.integers(0, 256, (128, 128)).astype(np.int32)
-        cdfs = _clahe_cdfs(bins, 2.5)
-        self.assertEqual(cdfs.shape, (64, 256))
-        self.assertTrue(np.all(np.diff(cdfs, axis=1) >= 0))
-        self.assertTrue(np.all(cdfs[:, -1] == 1.0))
-
     def test_output_sharpening(self) -> None:
         """Sharpening should increase local variance."""
         # Create a simple square

@@ -9,7 +9,7 @@ unmix, when set, turns channel density into layer density first."""
 from dataclasses import dataclass
 from typing import Dict, NamedTuple, Optional
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.process.sensor import film_base
@@ -64,7 +64,7 @@ def work_copy(img: np.ndarray) -> np.ndarray:
     rgb = np.ascontiguousarray(img[..., :3], dtype=np.float32)
     if scale >= 1.0:
         return rgb
-    return cv2.resize(rgb, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    return negpy_core.resize_area(rgb, (max(1, round(w * scale)), max(1, round(h * scale))))
 
 
 def film_mask(small: np.ndarray, base: np.ndarray) -> np.ndarray:

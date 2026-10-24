@@ -2,7 +2,7 @@ import threading
 from dataclasses import dataclass, replace
 from typing import Optional
 
-import cv2
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -64,7 +64,8 @@ class ChartFitWorker(QThread):
         buf = np.asarray(source.buffer, dtype=np.float32)
         scale = FIT_LONG_EDGE / max(buf.shape[:2])
         if scale < 1.0:
-            buf = cv2.resize(buf, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            h, w = buf.shape[:2]
+            buf = negpy_core.resize_area(np.ascontiguousarray(buf), (max(1, round(w * scale)), max(1, round(h * scale))))
         self._buffer = buf
         self._source = source
         self._processor = ImageProcessor(use_gpu=False)

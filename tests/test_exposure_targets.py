@@ -1,10 +1,11 @@
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure import models as exposure_models
-from negpy.features.exposure.logic import effective_grade_range
+from negpy.features.exposure.logic import CharacteristicCurve, compute_pivot, effective_grade_range, grade_to_slope
 from negpy.features.exposure.models import (
     DEFAULT_TARGETS,
     EXPOSURE_CONSTANTS,
@@ -82,6 +83,23 @@ class TestDensityTargetsTakeEffect(TargetsTestCase):
         apply_targets({"anchor_meter_strength": 1.0, "anchor_meter_band": band})
         assumed = float(EXPOSURE_CONSTANTS["assumed_anchor"])
         self.assertLessEqual(abs(self._anchor() - assumed), band + 1e-6)
+
+    def test_print_density_target_moves_the_metered_anchor(self):
+        apply_targets({"anchor_target_density": 0.95})
+        slope = grade_to_slope(115.0, 1.3)
+        for anchor in (0.40, 0.52):
+            curve = CharacteristicCurve(contrast=slope, pivot=compute_pivot(slope, 1.0, anchor=anchor))
+            self.assertAlmostEqual(float(curve(np.array([[anchor]], dtype=np.float32))[0, 0]), 0.95, places=3)
+
+    def test_print_density_target_is_inert_without_auto_density(self):
+        engine = DarkroomEngine()
+        rng = np.random.default_rng(0)
+        img = rng.random((64, 64, 3), dtype=np.float32) * 0.5 + 0.25
+        settings = WorkspaceConfig()
+        settings = replace(settings, exposure=replace(settings.exposure, auto_exposure=False))
+        before = engine.process(img, settings, source_hash="manual")
+        apply_targets({"anchor_target_density": DEFAULT_TARGETS["anchor_target_density"] + 0.25})
+        np.testing.assert_array_equal(engine.process(img, settings, source_hash="manual"), before)
 
 
 class TestRenderCacheInvalidation(TargetsTestCase):

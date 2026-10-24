@@ -1659,7 +1659,7 @@ def test_edge_walk_reads_a_wide_scanner_rebate_the_same_as_the_ring():
 
 
 def test_film_surround_must_be_near_clipping_to_read_as_bed():
-    from negpy.features.geometry.logic import _film_surround_is_plausible
+    from negpy_core import film_surround_is_plausible as _film_surround_is_plausible
 
     # A blown region on a thin negative clears the brightness bar but not the histogram
     # top, where the light bed sits. Accepting it cropped a frame to a third of itself.
@@ -1673,7 +1673,7 @@ def test_film_surround_must_be_near_clipping_to_read_as_bed():
 
 
 def test_a_film_box_must_cover_a_quarter_of_the_frame():
-    from negpy.features.geometry.logic import _film_box_covers_enough
+    from negpy_core import film_box_covers_enough as _film_box_covers_enough
 
     # A positive whose bed clips to white leaves a dark subject satisfying every other
     # check on its own geometry. Film fills most of a scan, so a box this small is not it.

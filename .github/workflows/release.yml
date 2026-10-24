@@ -17,6 +17,11 @@ on:
           - windows
           - linux
           - macos
+      publish:
+        description: 'Create the GitHub release (off for a test build)'
+        required: true
+        default: true
+        type: boolean
 
 jobs:
   setup:
@@ -24,14 +29,16 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      # Linux builds on a fixed Ubuntu: the AppImage needs the oldest glibc it can get, and
+      # ubuntu-latest moves to a newer release on its own.
       - id: set-matrix
         run: |
           if [ "${{ github.event.inputs.platform }}" == "all" ]; then
-            echo 'matrix=[{"os":"ubuntu-latest"},{"os":"windows-latest"},{"os":"macos-14","arch":"arm64"},{"os":"macos-15-intel","arch":"x86_64"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"ubuntu-24.04"},{"os":"windows-latest"},{"os":"macos-14","arch":"arm64"},{"os":"macos-15-intel","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "windows" ]; then
             echo 'matrix=[{"os":"windows-latest"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "linux" ]; then
-            echo 'matrix=[{"os":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"ubuntu-24.04"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "macos" ]; then
             echo 'matrix=[{"os":"macos-14","arch":"arm64"},{"os":"macos-15-intel","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           fi
@@ -45,10 +52,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -56,8 +63,17 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Set up Rust
+        # uv sync builds negpy_core with the toolchain pinned in negpy_core/rust-toolchain.toml.
+        working-directory: negpy_core
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: negpy_core
+
       - name: Install System Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 patchelf libsane-dev
@@ -66,7 +82,7 @@ jobs:
 
       - name: Install System Dependencies (macOS)
         if: startsWith(matrix.os, 'macos-')
-        run: brew install sane-backends llvm@20
+        run: brew install sane-backends
 
       - name: Install Packaging Tools (Windows)
         if: matrix.os == 'windows-latest'
@@ -80,17 +96,8 @@ jobs:
           }
 
       - name: Install Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: uv sync --all-groups
-
-      - name: Configure LLVM for llvmlite (macOS x86_64)
-        if: matrix.arch == 'x86_64'
-        shell: bash
-        run: |
-          LLVM20="$(brew --prefix llvm@20)"
-          echo "PATH=/usr/local/bin:${LLVM20}/bin:${PATH}" >> "$GITHUB_ENV"
-          echo "LLVM_CONFIG=${LLVM20}/bin/llvm-config" >> "$GITHUB_ENV"
-          echo "CMAKE_ARGS=-DLLVM_DIR=${LLVM20}/lib/cmake/llvm -DCMAKE_PREFIX_PATH=${LLVM20}" >> "$GITHUB_ENV"
 
       - name: Install Dependencies (macOS)
         if: startsWith(matrix.os, 'macos-')
@@ -121,7 +128,7 @@ jobs:
         run: ls -R dist/
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: negpy-${{ matrix.os }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}-${{ github.event.inputs.version }}
           if-no-files-found: error
@@ -133,20 +140,20 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    if: success()
+    if: success() && inputs.publish
     environment: production
     permissions:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: all-binaries
           pattern: negpy-*
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: NegPy ${{ github.event.inputs.version }}

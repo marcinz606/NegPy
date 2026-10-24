@@ -205,6 +205,11 @@ class TestSettings:
         assert ContactSheetSettings.from_dict(settings.to_dict()).film_edges is False
         assert ContactSheetSettings.from_dict({"film_edges": "no"}).film_edges is True
 
+    def test_order_round_trips_and_defaults_to_name(self):
+        assert ContactSheetSettings.from_dict(ContactSheetSettings(order="date").to_dict()).order == "date"
+        assert ContactSheetSettings.from_dict({"order": "size"}).order == "name"
+        assert ContactSheetSettings.from_dict({"by_scene": True}).order == "name"
+
     def test_edge_print_defaults_on_for_records_without_it(self):
         assert ContactSheetSettings.from_dict({"dpi": 600}).edge_print is True
 

@@ -3,7 +3,7 @@
 from dataclasses import replace
 from functools import lru_cache
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
@@ -130,7 +130,7 @@ def apply_lens(
             for start in range(0, h, 256):
                 stop = min(start + 256, h)
                 mx, my = warp.remap(warp_lens, source.shape, start, stop, channel, corrections)
-                result[start:stop, :, channel] = cv2.remap(plane, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                result[start:stop, :, channel] = negpy_core.remap(plane, mx, my, "cubic")
         # Flat-field gains can exceed white before sensor unmix.
         source = np.maximum(result, 0.0, out=result)
     return np.ascontiguousarray(apply_exif_orientation(source, orientation))

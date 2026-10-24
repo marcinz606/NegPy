@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # mz/core runs on demand: gh workflow run ci.yml --ref mz/core
+  workflow_dispatch:
 
 jobs:
   test:
@@ -12,16 +14,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Set up Python
         run: uv python install 3.13
+
+      - name: Set up Rust
+        # Installs the toolchain pinned in negpy_core/rust-toolchain.toml.
+        working-directory: negpy_core
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: negpy_core
+
+      - name: Rust licenses and bans (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: negpy_core/Cargo.toml
 
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -33,6 +49,10 @@ jobs:
         # pieusb / plustek are pure Python (+ bundled libusb where needed); without
         # them those backend tests importorskip away.
         run: uv sync --group dev --group plustek --group pieusb
+
+      - name: Rust checks (fmt, clippy, test)
+        # Under uv run, PyO3's build script finds the project's Python 3.13, not the runner's.
+        run: uv run --no-sync make rust
 
       - name: Run Linting (Ruff)
         run: uv run ruff check .
@@ -58,8 +78,55 @@ jobs:
         run: uv run pytest tests/ --cov=negpy --cov-report=term-missing --cov-report=xml
 
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
           retention-days: 7
+
+  native:
+    # negpy_core must give the same bits on every release platform: run the Rust tests and
+    # the pytest oracles of the ported functions on each one.
+    name: Native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Set up Rust
+        working-directory: negpy_core
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: negpy_core
+
+      - name: Rust tests
+        working-directory: negpy_core
+        run: cargo test
+
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 x11-utils libgl1
+
+      - name: Install Dependencies
+        # The plustek group brings opencv, which the direct cv2 oracles compare against.
+        run: uv sync --group dev --group plustek
+
+      - name: negpy_core pins and oracles
+        run: uv run pytest tests/test_percentiles.py tests/test_core_same_bits.py tests/test_core_resize.py tests/test_core_filter.py tests/test_core_morph.py tests/test_core_gray.py tests/test_core_contours.py tests/test_core_shapes.py tests/test_core_components.py tests/test_core_color.py tests/test_core_warp.py tests/test_core_lab.py tests/test_core_altprocess.py

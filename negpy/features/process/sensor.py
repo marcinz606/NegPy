@@ -6,14 +6,12 @@ density; `SensorUnmix` picks how that case is handled.
 
 from typing import Optional
 
-import cv2
+import negpy_core
 import numpy as np
-from numba import prange
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.models import ProcessConfig, ProcessMode, SensorUnmix
-from negpy.kernel.system.parallel import parallel_njit
 
 _EPS = 1e-4
 # Three captures whose normalized responses are this ill-conditioned are one light three times.
@@ -86,7 +84,7 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str
     if matrix is None:
         return img
     m = np.asarray(matrix, dtype=np.float32).reshape(3, 3)
-    x = img[:, :, :3].astype(np.float32, copy=False)
+    x = np.ascontiguousarray(img[:, :, :3], dtype=np.float32)
     mode = SensorUnmix(mode)
     if mode in (SensorUnmix.DENSITY, SensorUnmix.TWO_SCALE):
         out = _density_unmix(x, m) if mode == SensorUnmix.DENSITY else _two_scale_unmix(x, m)
@@ -97,31 +95,16 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple], mode: str
     return out
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _unmix_kernel(x: np.ndarray, m: np.ndarray, out: np.ndarray) -> None:
     """The unmix, clipped at zero."""
-    h, w = x.shape[0], x.shape[1]
-    for i in prange(h):
-        for j in range(w):
-            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
-            for c in range(3):
-                out[i, j, c] = max(m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2, 0.0)
+    negpy_core.sensor_unmix(x, m, out)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _log_unmix_kernel(x: np.ndarray, c: np.ndarray, offset: np.ndarray, floor: np.ndarray, out: np.ndarray) -> None:
     """exp(c @ ln x + offset) per pixel, with each channel held at its ``floor`` or above."""
-    h, w = x.shape[0], x.shape[1]
-    for i in prange(h):
-        for j in range(w):
-            l0 = np.log(max(x[i, j, 0], floor[0]))
-            l1 = np.log(max(x[i, j, 1], floor[1]))
-            l2 = np.log(max(x[i, j, 2], floor[2]))
-            for k in range(3):
-                out[i, j, k] = np.exp(c[k, 0] * l0 + c[k, 1] * l1 + c[k, 2] * l2 + offset[k])
+    negpy_core.sensor_log_unmix(x, c, offset, floor, out)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _two_scale_layer_kernel(
     blurred: np.ndarray,
     m: np.ndarray,
@@ -136,22 +119,9 @@ def _two_scale_layer_kernel(
     """Soft-floored unmix of the blurred capture, and the blend weight: a smoothstep on the
     largest ratio of a channel's unmix gain to its gain at the film base (``own``). The gain
     is the unfloored unmix's, so a channel the floor holds up still reads as amplified."""
-    h, w = blurred.shape[0], blurred.shape[1]
-    for i in prange(h):
-        for j in range(w):
-            x0, x1, x2 = blurred[i, j, 0], blurred[i, j, 1], blurred[i, j, 2]
-            ratio = 0.0
-            for c in range(3):
-                u = m[c, 0] * x0 + m[c, 1] * x1 + m[c, 2] * x2
-                ratio = max(ratio, blurred[i, j, c] * own[c] / max(u, log_floor))
-                f = floor * m[c, c] * blurred[i, j, c]
-                d = u - f
-                color[i, j, c] = max(0.5 * (u + f + np.sqrt(d * d + f * f)), log_floor)
-            t = min(max((ratio - start) / (full - start), 0.0), 1.0)
-            weight[i, j] = t * t * (3.0 - 2.0 * t)
+    negpy_core.sensor_two_scale_layer(blurred, m, own, floor, log_floor, start, full, color, weight)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _two_scale_kernel(
     x: np.ndarray,
     blurred: np.ndarray,
@@ -165,24 +135,7 @@ def _two_scale_kernel(
 ) -> None:
     """Linear, blended by ``weight`` toward ``color`` carrying the detail x / blurred through c.
     A channel whose detail sits ``log_defect`` below both others takes their mean instead."""
-    h, w = x.shape[0], x.shape[1]
-    for i in prange(h):
-        for j in range(w):
-            x0, x1, x2 = x[i, j, 0], x[i, j, 1], x[i, j, 2]
-            wt = weight[i, j]
-            if wt > 0.0:
-                e0 = np.log(max(x0, floor) / max(blurred[i, j, 0], floor))
-                e1 = np.log(max(x1, floor) / max(blurred[i, j, 1], floor))
-                e2 = np.log(max(x2, floor) / max(blurred[i, j, 2], floor))
-                d0 = 0.5 * (e1 + e2) if e0 < log_defect + min(e1, e2) else e0
-                d1 = 0.5 * (e0 + e2) if e1 < log_defect + min(e0, e2) else e1
-                d2 = 0.5 * (e0 + e1) if e2 < log_defect + min(e0, e1) else e2
-            for k in range(3):
-                lin = max(m[k, 0] * x0 + m[k, 1] * x1 + m[k, 2] * x2, 0.0)
-                if wt > 0.0:
-                    capped = color[i, j, k] * np.exp(c[k, 0] * d0 + c[k, 1] * d1 + c[k, 2] * d2)
-                    lin += wt * (capped - lin)
-                out[i, j, k] = lin
+    negpy_core.sensor_two_scale(x, blurred, color, weight, m, c, floor, log_defect, out)
 
 
 def density_unmix_matrix(matrix, base) -> np.ndarray:
@@ -197,17 +150,9 @@ def film_base(x: np.ndarray) -> Optional[np.ndarray]:
     together. One shared cell set, so a colored object cannot pass for the base in a single
     channel. Only the color is meaningful. None when the thin end is clipped in the capture."""
     sample = np.ascontiguousarray(get_analysis_crop(x[::4, ::4, :3], _BASE_BUFFER), dtype=np.float32)
-    flat = sample.reshape(-1, 3)
-    if flat.shape[0] == 0 or np.any(np.percentile(flat, _BASE_PERCENTILE, axis=0) >= _CLIP_PLATEAU * flat.max(axis=0)):
-        return None
-    h, w = sample.shape[:2]
-    scale = _BASE_GRID_EDGE / max(h, w)
-    if scale < 1.0:
-        sample = cv2.resize(sample, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
-    logs = np.log(np.maximum(sample.reshape(-1, 3), _LOG_FLOOR)).astype(np.float64)
     # A cell is as thin as its least-thin channel, each channel against its own thin end.
-    thin = (logs - np.percentile(logs, _BASE_PERCENTILE, axis=0)).min(axis=1)
-    return np.exp(np.median(logs[thin >= np.quantile(thin, 1.0 - _BASE_SHARE)], axis=0))
+    base = negpy_core.film_base(sample, (_BASE_PERCENTILE, _CLIP_PLATEAU, float(_BASE_GRID_EDGE), _LOG_FLOOR, _BASE_SHARE))
+    return None if base is None else np.array(base)
 
 
 def _density_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
@@ -239,13 +184,13 @@ def _two_scale_unmix(x: np.ndarray, m: np.ndarray) -> Optional[np.ndarray]:
     sigma = max(1.0, max(h, w) * _TWO_SCALE_SIGMA)
     # The color layer and the weight are smooth by construction, so they are built small.
     step = max(1, int(sigma // 2))
-    small = x if step == 1 else cv2.resize(x, (-(-w // step), -(-h // step)), interpolation=cv2.INTER_AREA)
-    small = cv2.GaussianBlur(small, (0, 0), sigma / step)
+    small = x if step == 1 else negpy_core.resize_area(np.ascontiguousarray(x, dtype=np.float32), (-(-w // step), -(-h // step)))
+    small = negpy_core.gaussian_blur(np.ascontiguousarray(small, dtype=np.float32), (0, 0), sigma / step)
     color = np.empty_like(small)
     weight = np.empty(small.shape[:2], np.float32)
     _two_scale_layer_kernel(small, m, own, COLOR_FLOOR, _LOG_FLOOR, TWO_SCALE_START, TWO_SCALE_FULL, color, weight)
     if step > 1:
-        small, color, weight = (cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in (small, color, weight))
+        small, color, weight = (negpy_core.resize_linear(np.ascontiguousarray(a, dtype=np.float32), (w, h)) for a in (small, color, weight))
     out = np.empty_like(x)
     _two_scale_kernel(x, small, color, weight, m, c, _LOG_FLOOR, float(np.log(_DEFECT_RATIO)), out)
     return out

@@ -203,6 +203,16 @@ def test_roll_label_toggle_reaches_the_settings(dialog):
     d.label_btn.setChecked(False)
     assert d.settings().roll_label is False
     assert d.look().label == ""
+    assert not d.label_edit.isEnabled()
+
+
+def test_label_text_replaces_the_roll_label(dialog):
+    d = dialog()
+    assert d.label_edit.placeholderText() == "ROLL 1"
+    d.label_edit.setText("  Summer in Lisbon ")
+    assert d.look().label == "Summer in Lisbon"
+    d.label_edit.setText("")
+    assert d.look().label == "ROLL 1"
 
 
 def test_rejected_frames_start_left_out(dialog):
@@ -295,18 +305,28 @@ def _scened(frames, scenes):
 
 def test_scene_order_needs_scenes(dialog):
     d = dialog(n=4)
-    assert not d.order_btn.is_item_enabled(1)
+    assert not d.order_btn.is_item_enabled(2)
+    assert dialog(n=4, settings=ContactSheetSettings(order="scene")).order_btn.currentIndex() == 0
+
+
+def test_date_order_follows_the_capture_time_and_keeps_roll_numbers(dialog):
+    frames = [replace(f, facts=FrameFacts(scan_size=f.facts.scan_size, birth_time=t)) for f, t in zip(_frames(3), (30, 10, 20))]
+    d = dialog(frames=frames)
+    assert d.order_btn.currentIndex() == 0 and d.numbers() == (0, 1, 2)
+    d.order_btn.setCurrentIndex(1)
+    assert d.numbers() == (1, 2, 0)
+    assert d.settings().order == "date"
 
 
 def test_scene_order_groups_frames_and_starts_each_scene_on_a_new_strip(dialog):
     frames = _scened(_frames(8), [2, 1, 1, 0, 2, 1, 0, 2])
     d = dialog(frames=frames)
-    d.order_btn.setCurrentIndex(1)
+    d.order_btn.setCurrentIndex(2)
     assert d.numbers() == (1, 2, 5, 0, 4, 7, 3, 6)
     assert d.breaks() == (3, 6)
     assert [(s.first, s.count) for s in d.plan().pages[0].strips] == [(0, 3), (3, 3), (6, 2)]
     assert [f.name for f in d.kept_frames()] == ["1.tif", "2.tif", "5.tif", "0.tif", "4.tif", "7.tif", "3.tif", "6.tif"]
-    assert d.settings().by_scene is True
+    assert d.settings().order == "scene"
     d.order_btn.setCurrentIndex(0)
     assert d.numbers() == tuple(range(8)) and d.breaks() == ()
 
@@ -324,7 +344,7 @@ def test_scene_order_proofs_each_scene_at_its_own_metering(dialog):
     )
     d.print_btn.setCurrentIndex(1)
     assert d.kept_frames()[0].config.process.locked_floors == (-2.0,) * 3
-    d.order_btn.setCurrentIndex(1)
+    d.order_btn.setCurrentIndex(2)
     assert d.kept_frames()[0].config.process.locked_floors == (-3.0,) * 3
     assert tiles.requests[-1] == scene_proofed
     assert "own metering" in d.proof_label.text()
@@ -335,7 +355,7 @@ def test_a_proof_unavailable_in_scene_order_falls_back_to_as_edited(dialog):
     roll_proof = tuple(replace(f, config=straight_proof_config(f.config, (-2.0,) * 3, (-0.5,) * 3)) for f in frames)
     d = dialog(frames=frames, proof=StraightProof(roll_proof, "", "roll"), scene_proof=StraightProof(reason="Run Scene Analysis first."))
     d.print_btn.setCurrentIndex(1)
-    d.order_btn.setCurrentIndex(1)
+    d.order_btn.setCurrentIndex(2)
     assert d.print_btn.currentIndex() == 0 and not d.straight_proof()
     assert "Scene Analysis" in d.proof_label.text()
 

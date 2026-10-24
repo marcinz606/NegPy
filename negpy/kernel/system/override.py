@@ -53,10 +53,6 @@ qt_platform = "auto"
 # Override HQ preview on startup. Uncomment to force a value.
 # force_hq_preview = false
 
-# Multi-core CPU rendering kernels. Defaults to true except on macOS, where it
-# defaults to false while crash reports are investigated. Uncomment to force.
-# cpu_parallel = true
-
 # Smaller tiles and no readback pipelining during export, at some cost to export speed.
 # Off by default. Turn on if exporting crashes on your GPU (typically an older or
 # memory-constrained integrated one) -- also available in Preferences.
@@ -104,7 +100,6 @@ class OverrideConfig:
     qt_rhi_backend: str = "auto"
     qt_platform: str = "auto"
     force_hq_preview: bool | None = None
-    cpu_parallel: bool | None = None
     low_vram_export_tiling: bool | None = None
     max_texture_size: int | None = None
     preview_render_size: int | None = None
@@ -170,9 +165,6 @@ def _parse(data: dict) -> OverrideConfig:
     raw_hq = performance.get("force_hq_preview")
     force_hq: bool | None = bool(raw_hq) if isinstance(raw_hq, bool) else None
 
-    raw_par = performance.get("cpu_parallel")
-    cpu_parallel: bool | None = bool(raw_par) if isinstance(raw_par, bool) else None
-
     raw_low_vram = performance.get("low_vram_export_tiling")
     low_vram_tiling: bool | None = bool(raw_low_vram) if isinstance(raw_low_vram, bool) else None
 
@@ -203,7 +195,6 @@ def _parse(data: dict) -> OverrideConfig:
         qt_rhi_backend=qt_rhi,
         qt_platform=qt_platform,
         force_hq_preview=force_hq,
-        cpu_parallel=cpu_parallel,
         low_vram_export_tiling=low_vram_tiling,
         max_texture_size=max_tex,
         preview_render_size=prev_size,
@@ -267,9 +258,6 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.force_hq_preview is not None:
         app_config.force_hq_preview = cfg.force_hq_preview
-
-    if cfg.cpu_parallel is not None:
-        app_config.cpu_parallel = cfg.cpu_parallel
 
     if cfg.low_vram_export_tiling is not None:
         app_config.low_vram_export_tiling = cfg.low_vram_export_tiling

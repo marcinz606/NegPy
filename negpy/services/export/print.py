@@ -1,5 +1,5 @@
 from PIL import Image
-import cv2
+import negpy_core
 import numpy as np
 from typing import Optional, Tuple
 from negpy.domain.models import ExportConfig, AspectRatio, ExportResolutionMode
@@ -253,11 +253,9 @@ class PrintService:
             # OpenCV gives INTER_LANCZOS4 no prefilter on a shrink, so it degrades to bilinear and
             # aliases. INTER_AREA is the only area-correct downscale here.
             shrinking = target_w < img_w or target_h < img_h
-            img_scaled = cv2.resize(
-                img,
-                (target_w, target_h),
-                interpolation=cv2.INTER_AREA if shrinking else cv2.INTER_LANCZOS4,
-            )
+            src = np.ascontiguousarray(img, dtype=np.float32)
+            size = (target_w, target_h)
+            img_scaled = negpy_core.resize_area(src, size) if shrinking else negpy_core.resize_kernel(src, size, lanczos=True)
 
         offset_x = (paper_w - target_w) // 2
         offset_y = PrintService.weighted_offset_y(paper_h, target_h, border_px, border_bottom_px)

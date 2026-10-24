@@ -4,7 +4,7 @@ import math
 from dataclasses import replace
 from typing import Optional, Sequence
 
-import cv2
+import negpy_core
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -54,8 +54,7 @@ def _place_tile(canvas: np.ndarray, tile: np.ndarray, box: tuple[int, int, int, 
     cover = abs(math.log(tile_aspect / window_aspect)) <= math.log(1 + COVER_TOLERANCE)
     scale = max(ww / tw, wh / th) if cover else min(ww / tw, wh / th)
     rw, rh = max(1, int(round(tw * scale))), max(1, int(round(th * scale)))
-    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC
-    resized = cv2.resize(np.ascontiguousarray(tile[..., :3]), (rw, rh), interpolation=interp)
+    resized = negpy_core.resize_u8(np.ascontiguousarray(tile[..., :3], dtype=np.uint8), (rw, rh), cubic=scale >= 1)
     if cover:
         cx, cy = (rw - ww) // 2, (rh - wh) // 2
         resized = resized[max(0, cy) : max(0, cy) + wh, max(0, cx) : max(0, cx) + ww]

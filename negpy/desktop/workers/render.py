@@ -1,10 +1,13 @@
+import queue
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterator, Optional
 
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
@@ -30,6 +33,7 @@ from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
 from negpy.features.process.logic import effective_highlight_reconstruction, effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.features.process.models import DemosaicMode
+from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
@@ -40,8 +44,10 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
+from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system import timing
 from negpy.services.rendering.image_processor import ImageProcessor, preview_takes_unmix, read_source_base
+from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 
 logger = get_logger(__name__)
 
@@ -1841,6 +1847,22 @@ class BatchAutoCropWorker(QObject):
             self.error.emit(str(exc))
 
 
+_THUMBNAIL_WORKERS = 2
+
+
+def _room_for_another_frame(frame: ThumbnailRenderInput) -> bool:
+    """True when RAM holds this frame's preview decode beside the one already in flight. A composite
+    reads several files, and an unknown RAM size gives no margin, so both wait their turn."""
+    config = frame.config
+    if stitch_active(config.stitch) or hdr_active(config.hdr) or is_rgb_triplet(config.rgbscan):
+        return False
+    available = available_system_memory_bytes()
+    if available is None:
+        return False
+    estimate = loader_factory.estimate_linear_preview_prefetch_memory(frame.file_info["path"], APP_CONFIG.preview_render_size)
+    return available >= MIN_RAM_RESERVE_BYTES + estimate.temporary_bytes + estimate.cached_bytes
+
+
 class ThumbnailRenderWorker(QObject):
     """Re-render frames a bulk settings write touched but did not open, off the live render
     path. Its own CPU-only ImageProcessor never contends with the live render's GPU texture
@@ -1859,7 +1881,11 @@ class ThumbnailRenderWorker(QObject):
         super().__init__()
         self._preview_service = preview_service
         self._live_preview_service = live_preview_service
-        self._processor = ImageProcessor(use_gpu=False)
+        # One processor per pool thread: its caches hold one frame each.
+        self._all_processors = [ImageProcessor(use_gpu=False) for _ in range(_THUMBNAIL_WORKERS)]
+        self._processors: queue.SimpleQueue[ImageProcessor] = queue.SimpleQueue()
+        for processor in self._all_processors:
+            self._processors.put(processor)
         self._cancel_lock = threading.RLock()
         self._cancelled_generations: set[int] = set()
         self._active_generation: int | None = None
@@ -1939,8 +1965,8 @@ class ThumbnailRenderWorker(QObject):
 
     @pyqtSlot(ThumbnailRenderTask)
     def process(self, task: ThumbnailRenderTask) -> None:
-        """Render each frame sequentially: the CPU engine is already multi-core via numba,
-        and one frame at a time keeps the live UI responsive while the user keeps editing."""
+        """Render up to `_THUMBNAIL_WORKERS` frames at once on negpy_core's background pool, so the
+        live preview keeps the other cores. Signals leave this thread in frame order."""
         generation = int(task.generation)
         with self._cancel_lock:
             self._active_generation = generation
@@ -1948,56 +1974,37 @@ class ThumbnailRenderWorker(QObject):
             return
         total = len(task.frames)
         rendered_count = 0
+        pending: deque[tuple[int, str, ThumbnailRenderInput, Future]] = deque()
         try:
-            for done, frame in enumerate(task.frames, 1):
-                if self._cancel_requested(generation):
-                    break
-                name = str(frame.file_info.get("name") or frame.file_info.get("path") or done)
-                self.frame_started.emit(done, total, name)
-                decode_s = render_s = 0.0
-                decoding = True
-                started = time.perf_counter()
-                try:
-                    buffer, meta = self._decode(frame, task.workspace_color_space)
-                    decode_s = time.perf_counter() - started
-                    decoding = False
-                    cam_xyz = meta.get("cam_xyz")
-                    if frame.icc_input_active:
-                        cam_xyz = wb_only_cam_xyz(cam_xyz)
-                    if not self._cancel_requested(generation):
-                        started = time.perf_counter()
-                        result, _metrics = self._processor.run_pipeline(
-                            buffer,
-                            frame.config,
-                            frame.file_info["hash"],
-                            render_size_ref=float(APP_CONFIG.preview_render_size),
-                            prefer_gpu=False,
-                            readback_metrics=False,
-                            wants_uv_grid=False,
-                            cache_stages=False,
-                            ir_buffer=meta.get("ir_preview"),
-                            detect_buffer=meta.get("detect_preview"),
-                            cam_xyz=cam_xyz,
-                            camera_wb=meta.get("camera_wb"),
-                            gain_slices=gain_slices_for_asset(frame.file_info),
-                            source_orientation=meta.get("orientation", 1),
-                        )
-                        render_s = time.perf_counter() - started
-                        if isinstance(result, np.ndarray) and not self._cancel_requested(generation):
-                            self.rendered.emit(frame, np.ascontiguousarray(result[:, :, :3]))
-                            rendered_count += 1
-                except Exception:
-                    if self._cancel_requested(generation):
+            with ThreadPoolExecutor(_THUMBNAIL_WORKERS, initializer=negpy_core.set_background_thread, initargs=(True,)) as pool:
+                frames = iter(enumerate(task.frames, 1))
+                nxt = next(frames, None)
+                while nxt is not None or pending:
+                    if (
+                        nxt is not None
+                        and not self._cancel_requested(generation)
+                        and (not pending or (len(pending) < _THUMBNAIL_WORKERS and _room_for_another_frame(nxt[1])))
+                    ):
+                        done, frame = nxt
+                        name = str(frame.file_info.get("name") or frame.file_info.get("path") or done)
+                        self.frame_started.emit(done, total, name)
+                        future = pool.submit(self._render_one, frame, task.workspace_color_space, generation)
+                        pending.append((done, name, frame, future))
+                        nxt = next(frames, None)
+                        continue
+                    if not pending:
                         break
-                    # A failed read costs time too; the time-left estimate counts it.
-                    if decoding:
-                        decode_s = time.perf_counter() - started
-                    else:
-                        render_s = time.perf_counter() - started
-                    logger.exception("Background thumbnail refresh skipped failed frame %s", name)
-                self.progress.emit(done, total, name, decode_s, render_s)
+                    done, name, frame, future = pending.popleft()
+                    result, decode_s, render_s = future.result()
+                    if self._cancel_requested(generation):
+                        continue
+                    if result is not None:
+                        self.rendered.emit(frame, result)
+                        rendered_count += 1
+                    self.progress.emit(done, total, name, decode_s, render_s)
 
-            self._processor.cleanup(release_source_cache=True, collect=False)
+            for processor in self._all_processors:
+                processor.cleanup(release_source_cache=True, collect=False)
             self._emit_finished_unless_cancelled(generation, rendered_count)
         except Exception as exc:
             if self._emit_cancelled_if_requested(generation):
@@ -2007,6 +2014,52 @@ class ThumbnailRenderWorker(QObject):
                     self._active_generation = None
             logger.exception("Background thumbnail refresh worker failure")
             self.error.emit(str(exc))
+
+    def _render_one(self, frame: ThumbnailRenderInput, color_space: str, generation: int) -> tuple[Optional[np.ndarray], float, float]:
+        """Decode and render one frame on a pool thread: the RGB result (None when skipped or
+        failed), decode seconds and render seconds. A failed frame counts its time too."""
+        decode_s = render_s = 0.0
+        decoding = True
+        started = time.perf_counter()
+        processor = self._processors.get()
+        try:
+            buffer, meta = self._decode(frame, color_space)
+            decode_s = time.perf_counter() - started
+            decoding = False
+            cam_xyz = meta.get("cam_xyz")
+            if frame.icc_input_active:
+                cam_xyz = wb_only_cam_xyz(cam_xyz)
+            if self._cancel_requested(generation):
+                return None, decode_s, render_s
+            started = time.perf_counter()
+            result, _metrics = processor.run_pipeline(
+                buffer,
+                frame.config,
+                frame.file_info["hash"],
+                render_size_ref=float(APP_CONFIG.preview_render_size),
+                prefer_gpu=False,
+                readback_metrics=False,
+                wants_uv_grid=False,
+                cache_stages=False,
+                ir_buffer=meta.get("ir_preview"),
+                detect_buffer=meta.get("detect_preview"),
+                cam_xyz=cam_xyz,
+                camera_wb=meta.get("camera_wb"),
+                gain_slices=gain_slices_for_asset(frame.file_info),
+                source_orientation=meta.get("orientation", 1),
+            )
+            render_s = time.perf_counter() - started
+            return (np.ascontiguousarray(result[:, :, :3]) if isinstance(result, np.ndarray) else None), decode_s, render_s
+        except Exception:
+            if decoding:
+                decode_s = time.perf_counter() - started
+            else:
+                render_s = time.perf_counter() - started
+            if not self._cancel_requested(generation):
+                logger.exception("Background thumbnail refresh skipped failed frame %s", frame.file_info.get("name"))
+            return None, decode_s, render_s
+        finally:
+            self._processors.put(processor)
 
 
 class NormalizationWorker(QObject):

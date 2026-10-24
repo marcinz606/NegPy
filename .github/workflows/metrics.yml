@@ -48,10 +48,10 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
 
@@ -65,7 +65,7 @@ jobs:
 
       - name: Restore perf fixture cache
         id: cache-fixture
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/negpy-metrics
           key: negpy-perf-raw-rawsamples-v1
@@ -105,7 +105,7 @@ jobs:
           test -f "$NEGPY_METRICS_OUT" && cat "$NEGPY_METRICS_OUT" || true
 
       - name: Upload metrics JSON
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: preview-metrics
           path: metrics-artifacts/preview_metrics.json
@@ -114,7 +114,7 @@ jobs:
       - name: Post PR comment
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

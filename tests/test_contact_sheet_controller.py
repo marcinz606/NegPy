@@ -100,11 +100,11 @@ class TestContactSheetRequest(unittest.TestCase):
         self.controller.request_contact_sheet()
         self.controller.contact_sheet_preview.prepare.assert_not_called()
 
-    def test_accepted_dialog_queues_the_frames_in_creation_order_with_their_own_edits(self):
+    def test_accepted_dialog_queues_the_frames_in_name_order_with_their_own_edits(self):
         mock_cls = self._dialog()
         self.controller.request_contact_sheet()
         self.controller.contact_sheet_preview.prepare.assert_called_once()
-        self._prepared(birth_a=10.0, birth_b=20.0)
+        self._prepared(birth_a=20.0, birth_b=10.0)
 
         frames = mock_cls.call_args.args[0]
         self.assertEqual([f.name for f in frames], ["a.tif", "b.tif"])

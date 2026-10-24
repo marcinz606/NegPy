@@ -11,10 +11,12 @@ A 👀 reaction on your comment confirms that the command ran.
 
 ## Development Setup
 
-NegPy requires Python 3.13+ and `uv`.
+NegPy requires Python 3.13+, `uv` and a Rust toolchain.
 
 ### 1. Prerequisites
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [rustup](https://rustup.rs/). `rustup` reads the toolchain version from `negpy_core/rust-toolchain.toml`.
+
+The `negpy_core/` folder is a Rust library with NegPy's CPU kernels. The first `uv sync` compiles it. After you edit a Rust file, the next `uv run` or `make test` compiles it again. `negpy_core` builds no C or C++ code: `cargo-deny` (`negpy_core/deny.toml`) rejects a dependency that does. Its tests compare against opencv, which only the `plustek` group installs; `make install` (`uv sync --all-groups`) brings it.
 
 Scanner support (optional):
 
@@ -29,7 +31,7 @@ Scanner support (optional):
     brew install sane-backends
     ```
 
-- **Plustek USB** (Windows/macOS/Linux): the [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (**1.3.6** or later): `uv sync --group plustek` or `pip install negpy[plustek]`. On Windows, pyopticfilm installs `libusb-package`, and the scanner needs WinUSB bound with Zadig in place of the vendor/SilverFast driver (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1). See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
+- **Plustek USB** (Windows/macOS/Linux): the [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (**1.3.7** or later): `uv sync --group plustek` or `pip install negpy[plustek]`. On Windows, pyopticfilm installs `libusb-package`, and the scanner needs WinUSB bound with Zadig in place of the vendor/SilverFast driver (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1). See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
 
 - **Nikon Coolscan** (Windows/macOS/Linux): [nkscan](https://github.com/activexray/nkscan) 0.14 or newer, shipped as wheels: `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux, USB needs a udev rule for vendor `04b0`, and FireWire/SCSI needs the `sg` module.
 
@@ -108,6 +110,7 @@ backend are fake.
 - `negpy/kernel/`: core system services (Logging, Config, caching).
 - `negpy/services/`: high-level orchestration (Rendering engine, Export service).
 - `negpy/desktop/`: PyQt6 UI (View, Controller, Workers).
+- `negpy_core/`: Rust library for CPU kernels (`src/<area>.rs`), with its PyO3 wrappers in `src/py/`.
 - `tests/`: unit and integration tests.
 
 ## Coding Standards
@@ -149,8 +152,9 @@ Every developer command runs through `uv run`:
 - `make lint`: Ruff checks.
 - `make type`: `ty` type checks.
 - `make test`: unit tests.
-- `make format`: auto-format with Ruff.
-- `make all`: lint, type and test in sequence.
+- `make format`: auto-format with `cargo fmt` and Ruff.
+- `make rust`: `cargo fmt --check`, `cargo clippy` (warnings fail) and `cargo test` for `negpy_core`.
+- `make all`: format, Rust checks, lint, type and test in sequence.
 - `make clean`: remove cache and build artifacts.
 - `make run-sim`: run with simulated scanning hardware (see [above](#running-without-scanning-hardware)).
 - `make clear-devhome`: delete the development user directory (see [above](#a-separate-user-directory-for-development)).

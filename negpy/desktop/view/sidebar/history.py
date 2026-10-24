@@ -218,9 +218,14 @@ class HistoryPanel(BaseSidebar):
         if item is None:
             return
         menu = QMenu(self)
+        # The current step is the After half, so comparing against it shows nothing.
+        compare_action = None if item.data(_TAG_ROLE) == "now" else menu.addAction(tr("Compare With This Step"))
         export_action = menu.addAction(tr("Export This Version…"))
-        if menu.exec(self.list.mapToGlobal(pos)) is export_action:
+        chosen = menu.exec(self.list.mapToGlobal(pos))
+        if chosen is export_action:
             self.controller.export_history_step(item.data(_INDEX_ROLE))
+        elif chosen is not None and chosen is compare_action:
+            self.controller.compare_with_history_step(item.data(_INDEX_ROLE))
 
     def _on_work_print_menu(self, pos) -> None:
         item = self.work_prints.itemAt(pos)
@@ -228,11 +233,14 @@ class HistoryPanel(BaseSidebar):
             return
         name = item.text()
         menu = QMenu(self)
+        compare_action = menu.addAction(tr("Compare With This Version"))
         export_action = menu.addAction(tr("Export This Version…"))
         rename_action = menu.addAction(tr("Rename…"))
         delete_action = menu.addAction(tr("Delete…"))
         chosen = menu.exec(self.work_prints.mapToGlobal(pos))
-        if chosen is export_action:
+        if chosen is compare_action:
+            self.controller.compare_with_work_print(name)
+        elif chosen is export_action:
             self.controller.export_work_print(name)
         elif chosen is rename_action:
             new_name, ok = QInputDialog.getText(self, tr("Rename Work Print"), tr("Name:"), text=name)

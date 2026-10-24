@@ -10,6 +10,7 @@
 
 from typing import Tuple
 
+import negpy_core
 import numpy as np
 
 _M_LN2 = 0.69314718055994530942
@@ -322,12 +323,7 @@ def normalize_linear(lin: np.ndarray) -> np.ndarray:
     per channel, correcting the per-channel black/gain offset inherent in
     Flextight CCD data (worst on red — weak CCD response, shallow C-41 cyan).
     """
-    flat = lin.reshape(-1, lin.shape[-1])
-    lo = np.percentile(flat, 0.2, axis=0)
-    hi = np.percentile(flat, 99.8, axis=0)
-    denom = hi - lo
-    denom = np.where(denom > 0, denom, 1.0)
-    return np.clip((lin - lo) / denom, 0.0, 1.0)
+    return negpy_core.normalize_linear(np.ascontiguousarray(lin, dtype=np.float64))
 
 
 def xyz_to_linear_rgb(xyz: np.ndarray) -> np.ndarray:

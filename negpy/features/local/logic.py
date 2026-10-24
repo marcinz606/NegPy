@@ -1,7 +1,7 @@
 import math
 from typing import List, Sequence, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.local.models import MAX_KEYED_MASKS, LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
@@ -40,17 +40,19 @@ def outline_points(shape: MaskShape, pts: Sequence[Point]) -> List[Point]:
     return smooth_polyline(list(pts), closed=True)
 
 
-def _rasterise_ramp(a: Point, b: Point, h: int, w: int) -> np.ndarray:
-    """The card-edge ramp. Alpha is 1 at `a` and 0 at `b`, and constant beyond each."""
-    ax, ay = a[0] * w, a[1] * h
-    dx, dy = b[0] * w - ax, b[1] * h - ay
-    denom = dx * dx + dy * dy
-    if denom <= 1e-9:
-        return np.zeros((h, w), dtype=np.float32)
-    xs = (np.arange(w, dtype=np.float32) - ax) * (dx / denom)
-    ys = (np.arange(h, dtype=np.float32) - ay) * (dy / denom)
-    t = np.clip(xs[None, :] + ys[:, None], 0.0, 1.0)
-    return (1.0 - t * t * (3.0 - 2.0 * t)).astype(np.float32)
+def _mask_spec(shape: MaskShape, pts: Sequence[Point], h: int, w: int, feather_sigma: float) -> tuple:
+    """The alpha half of a negpy_core mask spec: ("fill", outline px, (sigma, ...)) or a gradient's
+    card-edge ramp, 1 at the first point and 0 at the second, constant beyond each."""
+    if shape == MaskShape.GRADIENT:
+        (a, b) = pts[0], pts[1]
+        ax, ay = a[0] * w, a[1] * h
+        dx, dy = b[0] * w - ax, b[1] * h - ay
+        denom = dx * dx + dy * dy
+        if denom <= 1e-9:
+            return ("empty", None, (0.0, 0.0, 0.0, 0.0, 0.0))
+        return ("ramp", None, (0.0, ax, ay, dx / denom, dy / denom))
+    outline = np.array([[x * w, y * h] for x, y in outline_points(shape, pts)], dtype=np.float32)
+    return ("fill", outline.astype(np.int32), (float(feather_sigma), 0.0, 0.0, 0.0, 0.0))
 
 
 def rasterise(
@@ -63,28 +65,18 @@ def rasterise(
 ) -> np.ndarray:
     """Rasterise the control points, normalised to [0,1], to a float32 alpha [h, w].
 
-    `feather_sigma` is a Gaussian sigma in pixels on the hard fill. A gradient ignores
-    it, because the distance between its two points sets the softness.
+    `feather_sigma` is a Gaussian sigma in pixels on the hard fill, over a kernel of about 3
+    sigma. A gradient ignores it, because the distance between its two points sets the softness.
     """
-    if shape == MaskShape.GRADIENT:
-        alpha = _rasterise_ramp(pts[0], pts[1], h, w)
-    else:
-        outline = np.array([[x * w, y * h] for x, y in outline_points(shape, pts)], dtype=np.float32)
-        filled = np.zeros((h, w), dtype=np.uint8)
-        cv2.fillPoly(filled, [outline.astype(np.int32)], 255)
-        alpha = filled.astype(np.float32) / 255.0
-        if feather_sigma > 1e-3:
-            k = int(feather_sigma * 3) | 1  # odd kernel covering ~3 sigma
-            alpha = cv2.GaussianBlur(alpha, (k, k), feather_sigma)
-    return 1.0 - alpha if invert else alpha
+    kind, outline, params = _mask_spec(shape, pts, h, w, feather_sigma)
+    return negpy_core.rasterise_mask((h, w), (kind, outline, params, bool(invert), -1, (0.0, 0.0, 0.0)))
 
 
 def _tinted_area(mask, grid: int) -> np.ndarray | None:
-    """The mask's alpha above the faint-tail threshold, or None if it has too few points."""
+    """The mask's alpha on the overlap grid, or None if it has too few points."""
     if len(mask.vertices) < min_points(mask.shape):
         return None
-    alpha = rasterise(mask.shape, mask.vertices, grid, grid, mask.feather * grid, mask.invert)
-    return alpha > _OVERLAP_ALPHA
+    return rasterise(mask.shape, mask.vertices, grid, grid, mask.feather * grid, mask.invert)
 
 
 def overlapping_masks(config: LocalAdjustmentsConfig, index: int, grid: int = _OVERLAP_GRID) -> frozenset:
@@ -106,7 +98,7 @@ def overlapping_masks(config: LocalAdjustmentsConfig, index: int, grid: int = _O
         if i == index:
             continue
         other = _tinted_area(mask, grid)
-        if other is not None and bool((target & other).any()):
+        if other is not None and negpy_core.alphas_overlap(target, other, _OVERLAP_ALPHA):
             hits.add(i)
     return frozenset(hits)
 
@@ -133,6 +125,7 @@ def compute_local_maps(
         return maps
 
     short_side = float(min(h, w))
+    specs = []
     for i, mask in enumerate(config.masks):
         if not mask.enabled or len(mask.vertices) < min_points(mask.shape):
             continue
@@ -152,18 +145,10 @@ def compute_local_maps(
             )
             for rx, ry in mask.vertices
         ]
-
-        alpha = rasterise(mask.shape, transformed, h, w, mask.feather * short_side, mask.invert)
-        if i in limited:
-            maps[:, :, 3 + limited.index(i)] = alpha
-            continue
-        maps[:, :, 0] += mask.stops * alpha
-        if mask.grade:
-            maps[:, :, 1] += mask.grade * alpha
-        if mask.flash:
-            maps[:, :, 2] += mask.flash * alpha
-
-    return maps
+        kind, outline, params = _mask_spec(mask.shape, transformed, h, w, mask.feather * short_side)
+        plane = limited.index(i) if i in limited else -1
+        specs.append((kind, outline, params, bool(mask.invert), plane, (float(mask.stops), float(mask.grade), float(mask.flash))))
+    return negpy_core.local_maps((h, w, 3 + len(limited)), specs)
 
 
 def limited_indices(config: LocalAdjustmentsConfig) -> List[int]:

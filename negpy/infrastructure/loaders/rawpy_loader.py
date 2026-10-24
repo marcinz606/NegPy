@@ -2,7 +2,7 @@ import os
 from collections.abc import Callable
 from typing import Any, ContextManager, Optional, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 import rawpy
 import tifffile
@@ -115,7 +115,7 @@ def _stream_linearraw_preview(
     if min_preserve_ir and samples == 4 and scale < 1.0:
         size = max(1, int(round(1.0 / scale)) | 1)
         if size > 1:
-            ir_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+            ir_kernel = negpy_core.ellipse_kernel((size, size))
 
     for decoded, position, _shape in page.segments(maxworkers=1):
         if should_cancel is not None and should_cancel():
@@ -150,14 +150,14 @@ def _stream_linearraw_preview(
             continue
         target = (right - left, bottom - top)
         if min_preserve_ir and samples == 4:
-            output[top:bottom, left:right, :3] = cv2.resize(data[:, :, :3], target, interpolation=cv2.INTER_AREA)
-            ir = data[:, :, 3]
+            output[top:bottom, left:right, :3] = negpy_core.resize_area(np.ascontiguousarray(data[:, :, :3], dtype=np.float32), target)
+            ir = np.ascontiguousarray(data[:, :, 3], dtype=np.float32)
             if ir_kernel is not None:
                 # A boundary defect needs its inward footprint without decoding adjacent segments.
-                ir = cv2.erode(ir, ir_kernel, borderType=cv2.BORDER_REPLICATE)
-            output[top:bottom, left:right, 3] = cv2.resize(ir, target, interpolation=cv2.INTER_AREA)
+                ir = negpy_core.morphology_ex(ir, negpy_core.MORPH_ERODE, ir_kernel, border_type=negpy_core.BORDER_REPLICATE)
+            output[top:bottom, left:right, 3] = negpy_core.resize_area(ir, target)
         else:
-            output[top:bottom, left:right] = cv2.resize(data, target, interpolation=cv2.INTER_AREA)
+            output[top:bottom, left:right] = negpy_core.resize_area(np.ascontiguousarray(data, dtype=np.float32), target)
 
     full_dims = (height, width)
     if normalize_tags:

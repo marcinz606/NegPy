@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple, Union
 
-import cv2
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QTransform
@@ -43,6 +43,7 @@ from negpy.desktop.workers.export import (
     resolve_output_dir,
 )
 from negpy.desktop.workers.render import (
+    _THUMBNAIL_WORKERS,
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
     AutoDetectAllSplitsTask,
@@ -117,7 +118,7 @@ from negpy.services.export.contact_sheet_layout import ContactSheetSettings
 from negpy.services.export.contact_sheet_roll import (
     FrameFacts,
     SheetFrame,
-    creation_order,
+    name_order,
     infer_format,
     roll_label_text,
     sheet_look,
@@ -295,7 +296,7 @@ def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
         return None
     scale = APP_CONFIG.preview_render_size / float(long_edge)
     w, h = max(1, round(raw.shape[1] * scale)), max(1, round(raw.shape[0] * scale))
-    return cv2.resize(raw, (w, h), interpolation=cv2.INTER_AREA)
+    return negpy_core.resize_area(np.ascontiguousarray(raw, dtype=np.float32), (w, h))
 
 
 def _interactive_ir_proxy(ir: Optional[Any], proxy: Optional[Any]) -> Optional[Any]:
@@ -415,6 +416,24 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     )
 
 
+def reference_compare_config(reference: WorkspaceConfig, config: WorkspaceConfig) -> WorkspaceConfig:
+    """
+    The 'before' config for a split against a history step or work print: its look on the
+    current framing, composite, flat field and output settings, so both halves line up.
+    The preview source is not decoded again, so a step's other source settings take no effect.
+    """
+    return replace(
+        reference,
+        geometry=config.geometry,
+        stitch=config.stitch,
+        hdr=config.hdr,
+        flatfield=config.flatfield,
+        rgbscan=config.rgbscan,
+        metadata=config.metadata,
+        export=config.export,
+    )
+
+
 # Solved knee fields under their slider names (sidebar/tone.py).
 _KNEE_LABELS = {
     "shadow_grade": tr("Shadows Grade"),
@@ -438,13 +457,15 @@ def thumbnail_refresh_progress_text(
     mean_render_s: float,
     *,
     in_flight: bool = False,
+    frames_at_once: int = 1,
 ) -> str:
-    """With ``in_flight`` the ``index``-th frame is still decoding; otherwise ``index`` frames are done."""
+    """With ``in_flight`` the ``index``-th frame is still decoding; otherwise ``index`` frames are done.
+    The time left divides by ``frames_at_once``, the frames the worker renders side by side."""
     text = tr("Thumbnails {index}/{total}", index=index, total=total)
     samples = index - 1 if in_flight else index
     left = total - samples if in_flight else total - index
     if samples >= 2 and left > 0:
-        seconds = (mean_decode_s + mean_render_s) * left
+        seconds = (mean_decode_s + mean_render_s) * left / frames_at_once
         left_text = (
             tr("~{value} min left", value=round(seconds / 60)) if seconds >= 60 else tr("~{value} s left", value=max(1, round(seconds)))
         )
@@ -730,6 +751,7 @@ class AppController(QObject):
         # Hashes a pre-emption cut short, retried once the pre-empting batch is done.
         self._thumbnail_render_resume: set[str] = set()
         self._stale_seed_pending: list[dict] = []
+        self._dotted_refresh_waiting = False
         # True between cancel_thumbnail_refresh() and the worker's cancelled signal
         # landing — marks that cancellation as a user stop, not a pre-emption, so the
         # cancelled handler discards the backlog instead of resuming it.
@@ -1118,6 +1140,7 @@ class AppController(QObject):
         self.thumbnail_render_worker.cancelled.connect(self._on_thumbnail_render_cancelled)
         self.thumbnail_render_worker.error.connect(self._on_thumbnail_render_error)
         self.session.frames_edited_offscreen.connect(self._on_frames_edited_offscreen)
+        self.session.auto_thumbnail_refresh_changed.connect(self._on_auto_thumbnail_refresh_changed)
 
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
@@ -1384,6 +1407,8 @@ class AppController(QObject):
             # Thumbnails first: each file's preview is on disk by now, so the embedding
             # pass reuses it instead of decoding the RAW a second time.
             self.generate_missing_embeddings()
+            if self._dotted_refresh_waiting:
+                self._refresh_dotted_thumbnails()
 
     def embed_search_query(self, text: str) -> Optional[np.ndarray]:
         """Embeds free text for search-by-meaning ranking. None if the model is not
@@ -4670,6 +4695,25 @@ class AppController(QObject):
             self.session.asset_model.refresh()
         if self._stale_seed_pending:
             QTimer.singleShot(0, self._seed_stale_chunk)
+        elif self.state.auto_thumbnail_refresh:
+            self._refresh_dotted_thumbnails()
+
+    def _on_auto_thumbnail_refresh_changed(self, on: bool) -> None:
+        if on:
+            self._refresh_dotted_thumbnails()
+
+    def _refresh_dotted_thumbnails(self) -> None:
+        """Renders every loaded frame that shows a stale dot, except frames already in flight.
+        Waits for the first-thumbnail queue to go idle, so a roll's load decodes come first."""
+        if self._thumbnail_queue_active:
+            self._dotted_refresh_waiting = True
+            return
+        self._dotted_refresh_waiting = False
+        stale = self.state.stale_thumbnails
+        in_flight = self._thumbnail_render_pending if self._thumbnail_render_running else set()
+        hashes = [a["hash"] for a in self.state.uploaded_files if asset_thumbnail_key(a) in stale and a["hash"] not in in_flight]
+        if hashes:
+            self.refresh_thumbnails_for(hashes)
 
     def _on_frames_edited_offscreen(self, hashes: list[str]) -> None:
         if self.state.auto_thumbnail_refresh:
@@ -4756,7 +4800,11 @@ class AppController(QObject):
     def _on_thumbnail_render_frame_started(self, index: int, total: int, name: str) -> None:
         if not self._thumbnail_render_running:
             return
-        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(index, total, *self._thumbnail_render_means(), in_flight=True))
+        self.thumbnail_refresh_progress.emit(
+            thumbnail_refresh_progress_text(
+                index, total, *self._thumbnail_render_means(), in_flight=True, frames_at_once=_THUMBNAIL_WORKERS
+            )
+        )
 
     def _on_thumbnail_render_progress(self, current: int, total: int, name: str, decode_s: float, render_s: float) -> None:
         if not self._thumbnail_render_running:
@@ -4766,7 +4814,9 @@ class AppController(QObject):
         timing[1] += render_s
         timing[2] += 1
         self.status_progress_requested.emit(current, total)
-        self.thumbnail_refresh_progress.emit(thumbnail_refresh_progress_text(current, total, *self._thumbnail_render_means()))
+        self.thumbnail_refresh_progress.emit(
+            thumbnail_refresh_progress_text(current, total, *self._thumbnail_render_means(), frames_at_once=_THUMBNAIL_WORKERS)
+        )
 
     def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
         if not self._thumbnail_render_running:
@@ -7666,6 +7716,9 @@ class AppController(QObject):
         self.render_requested.emit(task)
 
     def _baseline_compare_config(self) -> WorkspaceConfig:
+        reference = self.state.compare_reference
+        if reference is not None:
+            return reference_compare_config(reference, self.state.config)
         return baseline_compare_config(self.state.config)
 
     def _compare_before_key(self) -> str:
@@ -7701,9 +7754,41 @@ class AppController(QObject):
         self.state.compare_before = None
         self.state.compare_before_rect = None
         self.state.compare_before_key = ""
+        self.state.compare_reference = None
+        self.state.compare_reference_label = ""
         if self.state.compare_mode:
             self.state.compare_mode = False
             self.compare_changed.emit(False)
+
+    def compare_with_history_step(self, index: int) -> None:
+        """Open the split against a history step instead of the default conversion."""
+        file_hash = self.state.current_file_hash
+        if not file_hash:
+            return
+        # The live top step may not be persisted yet: it lives in state.config.
+        config = self.state.config if index == self.state.undo_index else self.session.repo.load_history_step(file_hash, index)
+        self._compare_with(config, tr("STEP {number}", number=index))
+
+    def compare_with_work_print(self, name: str) -> None:
+        """Open the split against a work print instead of the default conversion."""
+        file_hash = self.state.current_file_hash
+        if not file_hash:
+            return
+        self._compare_with(self.session.repo.load_work_print(file_hash, name), name.upper())
+
+    def _compare_with(self, config: Optional[WorkspaceConfig], label: str) -> None:
+        if config is None or self.state.preview_raw is None:
+            return
+        self.state.compare_reference = config
+        self.state.compare_reference_label = label
+        if not self.state.compare_mode:
+            self.toggle_compare()
+            return
+        # Drop the old reference's pixels, or they show under the new badge until the render lands.
+        self.state.compare_before = None
+        self.state.compare_before_key = ""
+        self.compare_frame_ready.emit()
+        self._request_compare_baseline()
 
     def begin_compare_hold(self) -> None:
         """Show the baseline over the whole picture until end_compare_hold. Only over the print:
@@ -7731,7 +7816,8 @@ class AppController(QObject):
             self.compare_hold_changed.emit(False)
 
     def toggle_compare(self) -> None:
-        """Toggle the before/after split between the edit and the auto baseline."""
+        """Toggle the before/after split between the edit and the auto baseline, or the
+        history step or work print set by _compare_with."""
         if self.state.preview_raw is None:
             return
         if self.state.compare_mode:
@@ -8037,7 +8123,6 @@ class AppController(QObject):
         """Paint the selected profile's reference times its gain, ±EVENNESS_RANGE as black..white:
         a good profile shows gray. With no stored reference, show the light its gain corrects.
         A sensor-layout profile takes the frame's EXIF orientation, quarter turns and flips only."""
-        import cv2
 
         from negpy.features.flatfield.logic import EVENNESS_RANGE, GAIN_VIEW_RANGE, evenness_view, self_corrected
         from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -8082,7 +8167,7 @@ class AppController(QObject):
         view = np.ascontiguousarray(view)
         h, w = view.shape[:2]
         scale = APP_CONFIG.preview_render_size / max(h, w)
-        view = cv2.resize(view, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_LINEAR)
+        view = negpy_core.resize_linear(np.ascontiguousarray(view, dtype=np.float32), (round(w * scale), round(h * scale)))
         # Display-ready: the map is already black..white, so no working OETF.
         self._store_peek_frame(view, splash=False, crop_preview_full=False)
         self.set_status(message, 10000)
@@ -8771,7 +8856,7 @@ class AppController(QObject):
             return
         self._contact_sheet_pending = None
         self.set_status("", 0)
-        frames = creation_order(
+        frames = name_order(
             [SheetFrame(asset, config, fact or FrameFacts()) for asset, config, fact in zip(pending["assets"], pending["configs"], facts)]
         )
         try:

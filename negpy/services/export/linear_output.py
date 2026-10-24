@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 import imagecodecs
+import negpy_core
 import numpy as np
 import rawpy
 import tifffile as _tifffile
@@ -307,10 +308,8 @@ def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.nd
     ir_det = downsample_ir(np.ascontiguousarray(ir, dtype=np.float32), target)
     h, w = rgb.shape[:2]
     if max(h, w) > target:
-        import cv2
-
         s = target / max(h, w)
-        rgb_det = cv2.resize(rgb, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA)
+        rgb_det = negpy_core.resize_area(np.ascontiguousarray(rgb, dtype=np.float32), (max(1, round(w * s)), max(1, round(h * s))))
     else:
         rgb_det = rgb
     ratio_det, gain_det, degenerate, _ = ir_ratio_and_gain(ir_det, rgb_det)

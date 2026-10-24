@@ -43,7 +43,6 @@ params = [
     "--hidden-import=rawpy",
     "--hidden-import=cv2",
     "--hidden-import=numpy",
-    "--hidden-import=numba",
     "--hidden-import=PIL",
     "--hidden-import=PIL.Image",
     "--hidden-import=PIL.ImageCms",
@@ -435,9 +434,8 @@ def check_bundled_dylib_collisions():
     bump that silently drops a symbol fails the build instead of shipping
     broken silently.
 
-    Does not check libraries PyInstaller fails to bundle at all (e.g. numba's
-    optional libomp.dylib) -- that is a different failure mode (absence, not
-    a collision) with no evidence of user impact; see LIBLCMS2_DYLIB_COLLISION.md.
+    Does not check libraries PyInstaller fails to bundle at all -- that is a
+    different failure mode (absence, not a collision); see LIBLCMS2_DYLIB_COLLISION.md.
     """
     frameworks = os.path.join("dist", f"{APP_NAME}.app", "Contents", "Frameworks")
     all_files = [

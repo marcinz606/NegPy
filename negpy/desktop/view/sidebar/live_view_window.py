@@ -33,6 +33,7 @@ from negpy.desktop.view.widgets.charts import MiniRGBHistogramWidget
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.services.capture.calibration import shutter_displays
 
 #: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
 #: because the capture holds the camera without gaps, so the bar shows the R to G to B switch.
@@ -42,14 +43,19 @@ _FLASH_MS = 1500
 _FOCUS_AT_PEAK = 0.99
 
 
+# The camera's own label of an item, which a write sends; the item text is only its display.
+_LABEL_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
 class SettingStepper(StepCombo):
     """StepCombo for a camera setting, with no list: every ISO, shutter or aperture step would
     fill the screen. The arrows stop at the ends, so a step never wraps from the slowest
-    shutter to the fastest."""
+    shutter to the fastest. `shutter=True` shows each label as a camera shows it ('1/30')."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, shutter: bool = False) -> None:
         super().__init__(parent)
         self.setPlaceholderText(tr("—"))
+        self._shutter = shutter
         self._last_step = 0.0  # monotonic time of the last step (see stepping)
         self.activated.connect(self._on_stepped)
 
@@ -59,8 +65,23 @@ class SettingStepper(StepCombo):
     def addItem(self, label: str, raw=None) -> None:  # noqa: N802
         """A placeholder keeps QComboBox at no choice; the first option is the shown value."""
         super().addItem(label, raw)
+        self.setItemData(self.count() - 1, label, _LABEL_ROLE)
+        if self._shutter:
+            # Every item, because the whole ladder decides third or half stops.
+            ladder = [self.label_at(i) for i in range(self.count())]
+            for i, text in enumerate(shutter_displays(ladder)):
+                self.setItemText(i, text)
         if self.currentIndex() < 0:
             self.setCurrentIndex(0)
+
+    def label_at(self, index: int) -> str:
+        return str(self.itemData(index, _LABEL_ROLE) or "")
+
+    def current_label(self) -> str:
+        return self.label_at(self.currentIndex()) if self.currentIndex() >= 0 else ""
+
+    def find_label(self, label: str) -> int:
+        return next((i for i in range(self.count()) if self.label_at(i) == label), -1)
 
     def _step_target(self, step: int) -> int:
         target = self.currentIndex() + step
@@ -200,7 +221,7 @@ class LiveViewWindow(QDialog):
         settings_row = QHBoxLayout(self.settings_widget)
         settings_row.setContentsMargins(0, 0, 0, 0)
         self.iso_stepper = SettingStepper()
-        self.shutter_stepper = SettingStepper()
+        self.shutter_stepper = SettingStepper(shutter=True)
         self.aperture_stepper = SettingStepper()
         # No white-balance control: the scan decodes RAW with a fixed neutral WB, so the camera's
         # WB only tints the preview, never the result.

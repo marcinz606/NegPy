@@ -10,10 +10,11 @@ defect like the sensor unmix, not a look.
 
 from __future__ import annotations
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
+from negpy.kernel.image.logic import WORKING_LAB
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -21,11 +22,6 @@ def apply_hue_trim(img: ImageBuffer, degrees: float) -> ImageBuffer:
     """Rotate every hue by `degrees` in the working CIELAB a*b* plane. Identity at 0."""
     if degrees == 0.0:
         return img
-    lab = rgb_to_lab_working(np.asarray(img[:, :, :3], dtype=np.float32))
     rad = float(np.radians(degrees))
-    cos, sin = float(np.cos(rad)), float(np.sin(rad))
-    a = lab[:, :, 1].copy()
-    b = lab[:, :, 2].copy()
-    lab[:, :, 1] = a * cos - b * sin
-    lab[:, :, 2] = a * sin + b * cos
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    rotation = (float(np.cos(rad)), float(np.sin(rad)))
+    return ensure_image(negpy_core.hue_trim(np.ascontiguousarray(img[:, :, :3], dtype=np.float32), rotation, *WORKING_LAB))

@@ -7,8 +7,8 @@ import functools
 import io
 from typing import Optional
 
-import cv2
 import numpy as np
+from PIL import Image
 import tifffile
 
 from negpy.infrastructure.capture.base import CAPTURE_ORDER
@@ -221,8 +221,9 @@ class SimGphoto:
 
     def preview_jpeg(self) -> bytes:
         display = np.clip(self._signal(*_film(*_PREVIEW_HW, self._frame)), 0.0, 1.0) ** (1 / 2.2)
-        _ok, jpeg = cv2.imencode(".jpg", cv2.cvtColor((display * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
-        return jpeg.tobytes()
+        out = io.BytesIO()
+        Image.fromarray((display * 255).astype(np.uint8)).save(out, "JPEG", quality=95)
+        return out.getvalue()
 
 
 @functools.lru_cache(maxsize=4)

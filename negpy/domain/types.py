@@ -43,9 +43,6 @@ class AppConfig:
     override_toml_path: str = ""
     max_texture_size: int | None = None
     force_hq_preview: bool | None = None
-    # Multi-core Numba kernels on the CPU pipeline. None = the platform default, on
-    # everywhere except macOS. True/False = an explicit override.toml choice.
-    cpu_parallel: bool | None = None
     # Smaller tiles and no readback pipelining in the tiled export path, at the cost of
     # export speed. Off by default -- a user opts in from Preferences or override.toml
     # when their specific GPU (typically an older/weaker integrated one) needs it.

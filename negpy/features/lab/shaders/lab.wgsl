@@ -24,7 +24,7 @@ struct LabUniforms {
 // (low-pass a*, low-pass b*) from chroma_lowpass_h/v.wgsl. 1x1 dummy when Chroma Denoise is off.
 @group(0) @binding(4) var chroma_tex: texture_2d<f32>;
 
-// Sharpen constants — mirrored from features/lab/logic.py.
+// Sharpen constants — mirrored from negpy_core/src/lab.rs.
 const SHARPEN_GATE_LO = 0.25;
 const SHARPEN_GATE_HI = 0.33;
 const SHARPEN_OVERSHOOT_LIGHT = 1.0;
@@ -38,7 +38,7 @@ const RL_EPS = 1e-6;
 // logic.py and the y row in rgb_to_lab below.
 const WORKING_LUMA_COEFFS = vec3<f32>(0.2973769, 0.6273491, 0.0752741);
 
-// CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors _lab_l_from_y in logic.py.
+// CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors lab_l_from_y in negpy_core/src/lab.rs.
 // Mirrors sharpen_shadow_gain in logic.py: gain rolls off toward paper black.
 fn sharpen_shadow_gain(l: f32) -> f32 {
     return SHARPEN_SHADOW_FLOOR + (1.0 - SHARPEN_SHADOW_FLOOR) * smoothstep(0.0, SHARPEN_SHADOW_L_HI, l);
@@ -122,7 +122,7 @@ const FIBONACCI_64 = array<vec2<f32>, 64>(
 // accumulator the same way a Gaussian convolution kernel is normalized (sum=1).
 const BLOOM_GAUSS_SUM = 27.668145;
 
-// Chroma Denoise edge test — mirrors CHROMA_EDGE_LO/HI in lab/logic.py.
+// Chroma Denoise edge test — mirrors CHROMA_EDGE_LO/HI in negpy_core/src/lab.rs.
 const CHROMA_EDGE_LO = 1.0;
 const CHROMA_EDGE_HI = 2.5;
 

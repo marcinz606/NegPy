@@ -9,7 +9,7 @@ from negpy.features.exposure.logic import (
     auto_shadow_from_metrics,
     curve_params_from_metrics,
 )
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import DEFAULT_TARGETS, ExposureConfig, apply_targets
 from negpy.features.exposure.normalization import LogNegativeBounds
 from negpy.features.process.models import ProcessMode
 from negpy.features.transparency.logic import (
@@ -50,6 +50,13 @@ def _printed(exposure, metrics):
     return np.array([*slopes, *pivots, *curvs, hl, sh])
 
 
+@pytest.fixture
+def retuned_target():
+    apply_targets({"anchor_target_density": 0.95})
+    yield
+    apply_targets(DEFAULT_TARGETS)
+
+
 @pytest.mark.parametrize("shadow_point", [None, 0.93, 0.99])
 def test_shown_values_are_what_prints(shadow_point):
     metrics = _metrics(shadow_point=shadow_point)
@@ -60,6 +67,12 @@ def test_shown_values_are_what_prints(shadow_point):
     np.testing.assert_allclose(_printed(manual, metrics), _printed(exposure, metrics), atol=1e-9)
     expected = {"density", "grade", "highlight_density"} | ({"shadow_density"} if shadow_point is not None else set())
     assert set(shown) == expected
+
+
+@pytest.mark.usefixtures("retuned_target")
+@pytest.mark.parametrize("shadow_point", [None, 0.93])
+def test_shown_values_are_what_prints_at_a_retuned_target(shadow_point):
+    test_shown_values_are_what_prints(shadow_point)
 
 
 def test_shown_values_follow_the_meter():

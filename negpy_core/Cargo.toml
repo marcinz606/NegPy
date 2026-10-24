@@ -1,0 +1,22 @@
+[package]
+name = "negpy_core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+name = "negpy_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+python = ["dep:pyo3", "dep:numpy"]
+
+[dependencies]
+rayon = "1.12"
+pyo3 = { version = "0.30", features = ["abi3-py313"], optional = true }
+numpy = { version = "0.30", optional = true }
+multiversion = "0.8"
+libm = "0.2"
+rustfft = "6"
+realfft = "3"

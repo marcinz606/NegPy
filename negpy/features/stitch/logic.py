@@ -5,9 +5,10 @@ EXIF-oriented and flat-fielded — transforms estimated here are only valid on
 buffers decoded the same way.
 """
 
+import math
 from typing import Callable, List, Optional, Sequence, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.stitch.models import StitchConfig
@@ -35,10 +36,8 @@ def build_proxy(rgb: np.ndarray) -> Tuple[np.ndarray, float]:
     scale = min(1.0, PROXY_MAX_EDGE / max(gray.shape))
     if scale < 1.0:
         size = (max(1, round(gray.shape[1] * scale)), max(1, round(gray.shape[0] * scale)))
-        gray = cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
-    lo, hi = np.percentile(gray, (1.0, 99.0))
-    gray = np.clip((gray - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
-    return (gray ** (1.0 / 2.2) * 255.0).astype(np.uint8), scale
+        gray = negpy_core.resize_area(np.ascontiguousarray(gray, dtype=np.float32), size)
+    return negpy_core.proxy_stretch(np.ascontiguousarray(gray, dtype=np.float32)), scale
 
 
 def register_pair(ref_proxy: np.ndarray, mov_proxy: np.ndarray, min_inliers: int = MIN_INLIERS) -> Tuple[np.ndarray, int]:
@@ -47,24 +46,13 @@ def register_pair(ref_proxy: np.ndarray, mov_proxy: np.ndarray, min_inliers: int
     SIFT + ratio test + RANSAC; ORB and phase correlation both fail on film
     negatives (feature-poor orange-mask content, sub-degree rotations).
     """
-    sift = cv2.SIFT_create(nfeatures=6000)
-    ref_kp, ref_desc = sift.detectAndCompute(ref_proxy, None)
-    mov_kp, mov_desc = sift.detectAndCompute(mov_proxy, None)
-    if ref_desc is None or mov_desc is None or len(ref_kp) < 2 or len(mov_kp) < 2:
+    found = negpy_core.register_pair(
+        np.ascontiguousarray(ref_proxy, dtype=np.uint8), np.ascontiguousarray(mov_proxy, dtype=np.uint8), min_inliers
+    )
+    if found is None:
         raise StitchError(_NO_OVERLAP_MSG)
-
-    pairs = cv2.BFMatcher().knnMatch(mov_desc, ref_desc, k=2)
-    good = [m for m, n in (p for p in pairs if len(p) == 2) if m.distance < 0.75 * n.distance]
-    if len(good) < min_inliers:
-        raise StitchError(_NO_OVERLAP_MSG)
-
-    mov_pts = np.float32([mov_kp[m.queryIdx].pt for m in good])
-    ref_pts = np.float32([ref_kp[m.trainIdx].pt for m in good])
-    matrix, inlier_mask = cv2.estimateAffinePartial2D(mov_pts, ref_pts, method=cv2.RANSAC, ransacReprojThreshold=3.0)
-    inliers = int(inlier_mask.sum()) if inlier_mask is not None else 0
-    if matrix is None or inliers < min_inliers:
-        raise StitchError(_NO_OVERLAP_MSG)
-    return matrix.astype(np.float64), inliers
+    matrix, inliers = found
+    return np.array(matrix, np.float64).reshape(2, 3), inliers
 
 
 def scale_affine(matrix: np.ndarray, ref_scale: float, mov_scale: float) -> np.ndarray:
@@ -86,8 +74,9 @@ def compute_canvas(sizes: Sequence[Tuple[int, int]], transforms: Sequence[np.nda
     """Union bounding box of the warped parts. Returns ((W, H), transforms shifted to it)."""
     corners = []
     for (w, h), matrix in zip(sizes, transforms):
-        box = np.array([[[0, 0], [w, 0], [w, h], [0, h]]], np.float64)
-        corners.append(cv2.transform(box, matrix)[0])
+        # cv2.transform's order: its dispatched build fuses the first product.
+        m = matrix.tolist()
+        corners.append([[math.fma(r[0], x, r[1] * y) + r[2] for r in m] for x, y in ((0, 0), (w, 0), (w, h), (0, h))])
     points = np.vstack(corners)
     lo = np.floor(points.min(axis=0))
     hi = np.ceil(points.max(axis=0))
@@ -142,13 +131,16 @@ def warp_into_canvas(
     img: np.ndarray,
     transform: np.ndarray,
     canvas_wh: Tuple[int, int],
-    interpolation: int = cv2.INTER_CUBIC,
+    interpolation: str = "cubic",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Warp a part and its validity mask into the canvas. The mask is eroded by the
     >0.999 threshold so resampled border pixels never bleed into the blend."""
-    warped = cv2.warpAffine(img, transform.astype(np.float32), canvas_wh, flags=interpolation)
+    m = transform.astype(np.float32).astype(np.float64)
+    warped = negpy_core.warp_affine(
+        np.ascontiguousarray(img, dtype=np.float32), m, canvas_wh, interpolation=interpolation, border="constant"
+    )
     ones = np.ones(img.shape[:2], np.float32)
-    mask = cv2.warpAffine(ones, transform.astype(np.float32), canvas_wh, flags=cv2.INTER_LINEAR)
+    mask = negpy_core.warp_affine(ones, m, canvas_wh, border="constant")
     return warped, mask > 0.999
 
 
@@ -158,16 +150,17 @@ _MIN_OVERLAP_PX = 1000
 def gain_compensate(ref: np.ndarray, ref_mask: np.ndarray, mov: np.ndarray, mov_mask: np.ndarray) -> np.ndarray:
     """Scale ``mov`` (in place) so its overlap with ``ref`` matches per channel —
     removes light-source drift between shots. No-op on tiny overlap."""
-    overlap = ref_mask & mov_mask
-    if int(overlap.sum()) < _MIN_OVERLAP_PX:
-        return mov
-    # float64: a full-res overlap is tens of millions of rows, and a float32 axis-0 sum
+    # The means are float64: a full-res overlap is tens of millions of rows, and a float32 sum
     # drifts per channel, so export gains would differ from the preview's.
-    ref_mean = ref[overlap].mean(axis=0, dtype=np.float64)
-    mov_mean = mov[overlap].mean(axis=0, dtype=np.float64)
-    if np.any(mov_mean < 1e-6):
-        return mov
-    mov *= (ref_mean / mov_mean).astype(np.float32)
+    gains = negpy_core.compensation_gains(
+        np.ascontiguousarray(ref, dtype=np.float32),
+        np.ascontiguousarray(ref_mask),
+        np.ascontiguousarray(mov, dtype=np.float32),
+        np.ascontiguousarray(mov_mask),
+        _MIN_OVERLAP_PX,
+    )
+    if gains is not None:
+        negpy_core.scale_channels(mov, gains)
     return mov
 
 
@@ -177,13 +170,11 @@ def feather_blend(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray]) -> 
     Averaging draws misregistered detail twice, so this is the fallback for when a
     seam cannot be cut, not the normal path. See ``seam_blend``.
     """
-    acc = np.zeros_like(warped[0])
-    weight_sum = np.zeros(warped[0].shape[:2], np.float32)
-    for img, mask in zip(warped, masks):
-        weight = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 3)
-        acc += img * weight[..., None]
-        weight_sum += weight
-    return acc / np.maximum(weight_sum, 1e-6)[..., None]
+    return negpy_core.feather_blend(_contiguous(warped, np.float32), _contiguous(masks, bool))
+
+
+def _contiguous(arrays: Sequence[np.ndarray], dtype) -> List[np.ndarray]:
+    return [np.ascontiguousarray(a, dtype=dtype) for a in arrays]
 
 
 _SEAM_MAX_EDGE = 1024
@@ -218,11 +209,10 @@ def find_seams(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray], canvas
     # this is where an export tight on memory fails, and it has to degrade to the
     # average rather than end the export.
     try:
-        small = [_seam_cost_image(cv2.resize(img, size, interpolation=cv2.INTER_AREA)) for img in warped]
-        small_masks = [cv2.resize(m.astype(np.uint8), size, interpolation=cv2.INTER_NEAREST) for m in masks]
-        corners = [(0, 0)] * len(small)
-        cut = cv2.detail_DpSeamFinder("COLOR").find(small, corners, [cv2.UMat(m) for m in small_masks])
-        seams = [(cv2.resize(cv2.UMat.get(m), (w, h), interpolation=cv2.INTER_NEAREST) > 0) & valid for m, valid in zip(cut, masks)]
+        small = [_seam_cost_image(negpy_core.resize_area(np.ascontiguousarray(img, dtype=np.float32), size)) for img in warped]
+        small_masks = [negpy_core.resize_nearest(m.astype(np.uint8), size) for m in masks]
+        cut = negpy_core.dp_seams(small, small_masks)
+        seams = [(negpy_core.resize_nearest(m, (w, h)) > 0) & valid for m, valid in zip(cut, masks)]
         # Nearest-neighbour upscaling can leave a covered pixel assigned to no part, and
         # an unassigned pixel has no weight to normalize against. Give each one back to a
         # part that actually covers it.
@@ -236,7 +226,7 @@ def find_seams(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray], canvas
                 claim = orphan & mask
                 seam |= claim
                 orphan &= ~claim
-    except (cv2.error, MemoryError):
+    except (ValueError, MemoryError):
         return None
     return seams
 
@@ -252,44 +242,11 @@ def seam_blend(
     Weight ramps on the *signed* distance to the cut, so it reaches across into the
     neighbour's side and the two parts actually mix there. A weight that only ramped
     inside a part's own side would leave the halves disjoint and the cut hard.
+
+    Each part's weight is damped to zero at its own coverage edge, so an overlap narrower
+    than the band does not end on a step in the weight sum.
     """
-    acc = np.zeros_like(warped[0])
-    weight_sum = np.zeros(warped[0].shape[:2], np.float32)
-    for img, seam, valid in zip(warped, seams, masks):
-        weight = _seam_weight(seam, valid, max(feather_px, 1.0))
-        acc += img * weight[..., None]
-        weight_sum += weight
-    return acc / np.maximum(weight_sum, 1e-6)[..., None]
-
-
-def _seam_weight(seam: np.ndarray, valid: np.ndarray, feather_px: float) -> np.ndarray:
-    """Cross-fade weight for one part: a ramp across the cut, damped to zero at the
-    part's own coverage edge.
-
-    The damping is what keeps an overlap narrower than the band from ending on a step:
-    truncating the ramp at the coverage edge instead leaves the two parts' weights
-    summing to a discontinuity there. Each distance transform is released before the
-    next is taken, because at export these are full-canvas float32 planes.
-    """
-    span = 2.0 * feather_px
-    owned = seam.astype(np.uint8)
-    weight = cv2.distanceTransform(owned, cv2.DIST_L2, 3)
-    weight /= span
-    weight += 0.5
-    np.clip(weight, 0.0, 1.0, out=weight)
-
-    beyond = cv2.distanceTransform(1 - owned, cv2.DIST_L2, 3)
-    beyond /= span
-    np.subtract(0.5, beyond, out=beyond)
-    np.clip(beyond, 0.0, 1.0, out=beyond)
-    np.copyto(weight, beyond, where=~seam)
-    del beyond
-
-    edge = cv2.distanceTransform(valid.astype(np.uint8), cv2.DIST_L2, 3)
-    edge /= feather_px
-    np.clip(edge, 0.0, 1.0, out=edge)
-    weight *= edge
-    return weight
+    return negpy_core.seam_blend(_contiguous(warped, np.float32), _contiguous(masks, bool), _contiguous(seams, bool), max(feather_px, 1.0))
 
 
 def blend_ir(
@@ -310,13 +267,10 @@ def blend_ir(
     w, h = canvas_wh
     acc = np.full((h, w), -1.0, np.float32)
     for i, (ir, transform) in enumerate(zip(irs, transforms)):
-        warped, mask = warp_into_canvas(ir, transform, canvas_wh, interpolation=cv2.INTER_LINEAR)
-        if seams is not None:
-            owned = seams[i]
-            acc[owned] = warped[owned]
-        else:
-            acc[mask] = np.maximum(acc[mask], warped[mask])
-    acc[acc < 0.0] = 1.0
+        warped, mask = warp_into_canvas(ir, transform, canvas_wh, interpolation="linear")
+        sel = mask if seams is None else seams[i]
+        negpy_core.ir_blend_into(acc, np.ascontiguousarray(warped, dtype=np.float32), np.ascontiguousarray(sel, dtype=bool), seams is None)
+    negpy_core.ir_finish(acc)
     return acc
 
 
@@ -337,7 +291,7 @@ def stitch_composite(
         img, mask = warp_into_canvas(parts[i], transforms[i], canvas)
         parts[i] = None  # type: ignore[call-overload]
         for j in range(len(warped)):
-            if (masks[j] & mask).sum() >= _MIN_OVERLAP_PX:
+            if negpy_core.mask_overlap(masks[j], mask) >= _MIN_OVERLAP_PX:
                 gain_compensate(warped[j], masks[j], img, mask)
                 break
         warped.append(img)
@@ -348,7 +302,8 @@ def stitch_composite(
     else:
         decoded_scale = canvas[0] / max(config.stitch_canvas[0], 1)
         blended = seam_blend(warped, masks, seams, _SEAM_FEATHER_PX * decoded_scale)
-    rgb = np.clip(blended, 0.0, 1.0)
+    rgb = np.ascontiguousarray(blended, dtype=np.float32)
+    negpy_core.clip_unit(rgb)
     ir = None
     if irs and all(x is not None for x in irs):
         ir = blend_ir(irs, transforms, canvas, seams)  # type: ignore[arg-type]

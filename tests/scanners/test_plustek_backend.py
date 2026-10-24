@@ -114,7 +114,6 @@ def _fake_scanner(
     scanner.model = MODEL_8200I_SE
     scanner.asic._initialized = True
     scanner.asic.is_at_home.return_value = True
-    scanner.asic.image_usb_pace_s = 0.0
 
     def scan(**kwargs):
         cancel = kwargs.get("cancel")
@@ -641,26 +640,62 @@ def test_non_me_scan_skips_me_progress_phases(monkeypatch):
     assert "Merging exposures" not in phases
 
 
-def test_open_applies_quiet_usb_drain(monkeypatch):
+def test_cold_calib_enters_scan_clock_first(monkeypatch):
     _patch_enum(monkeypatch)
     scanner = _fake_scanner()
-    scanner.asic.image_usb_pace_s = 0.0
-    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", lambda *a, **k: scanner)
-    from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
-
-    PlustekBackend().open_session(_DEVICE_ID).close()
-    assert scanner.asic.image_usb_pace_s == DEFAULT_IMAGE_USB_PACE_S
-
-
-def test_scan_applies_quiet_usb_drain(monkeypatch):
-    _patch_enum(monkeypatch)
-    scanner = _fake_scanner()
-    scanner.asic.image_usb_pace_s = 0.0
+    order: list[str] = []
+    scanner.asic.enter_scan_clock.side_effect = lambda: order.append("clock")
+    scanner.calibrator.ensure_colour_asic_shading.side_effect = lambda *_a, **_k: (
+        order.append("ensure") or MagicMock(asic_shading=True, has_asic_blob=True)
+    )
     monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
-    from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
-
     PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
-    assert scanner.asic.image_usb_pace_s == DEFAULT_IMAGE_USB_PACE_S
+    assert order == ["clock", "ensure"]
+
+
+@pytest.mark.parametrize("model_name", ["MODEL_8200I_SE", "MODEL_8100_V2", "MODEL_8300I_SE"])
+def test_gl128_caps_drop_multi_modes_at_7200(monkeypatch, model_name):
+    import pyopticfilm.device.model_8100_v2 as v2
+    import pyopticfilm.device.model_8200i_se as se
+    import pyopticfilm.device.model_8300i_se as se3
+
+    model = getattr({"MODEL_8200I_SE": se, "MODEL_8100_V2": v2, "MODEL_8300I_SE": se3}[model_name], model_name)
+    _patch_enum(monkeypatch)
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: model)
+    caps = PlustekBackend().list_devices()[0].capabilities
+    assert 7200 not in caps.multi_exposure_dpi and 3600 in caps.multi_exposure_dpi
+    assert 7200 not in caps.multi_pass_dpi and 3600 in caps.multi_pass_dpi
+    assert not caps.multi_exposure_at(7200) and not caps.multi_pass_at(7200)
+    assert caps.multi_exposure_at(3600) and caps.multi_pass_at(3600)
+
+
+def test_7600i_v1_caps_have_no_multi_mode_resolutions(monkeypatch):
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
+
+    _patch_enum(monkeypatch)
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: MODEL_7600I_V1)
+    caps = PlustekBackend().list_devices()[0].capabilities
+    assert caps.multi_exposure_dpi == () and caps.multi_pass_dpi == ()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [dict(multi_exposure_mode=MultiExposureMode.ADAPTIVE), dict(n_passes=3)],
+)
+def test_validate_rejects_multi_modes_at_7200(kwargs):
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+
+    with pytest.raises(RuntimeError, match="7200 dpi"):
+        _validate_params(_params(dpi=7200, **kwargs), model=MODEL_8200I_SE)
+    _validate_params(_params(dpi=3600, **kwargs), model=MODEL_8200I_SE)
+
+
+def test_validate_accepts_single_pass_at_7200():
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+
+    _validate_params(_params(dpi=7200), model=MODEL_8200I_SE)
 
 
 def test_scan_ensures_colour_calib_before_scan(monkeypatch):

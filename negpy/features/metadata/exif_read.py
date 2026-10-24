@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Optional
 import xml.etree.ElementTree as ET
 
@@ -37,6 +38,19 @@ def rational_to_int(value: Any) -> Optional[int]:
     return int(round(f)) if f is not None else None
 
 
+def _format_exposure_time(num: int, den: int) -> str:
+    """An EXIF exposure rational as a camera marks it ('1/30s', '1/2.5s', '0.4s'). A body
+    may store 1/30 as 10/300, so the fraction is reduced first."""
+    if not num or not den:
+        return ""
+    t = Fraction(num, den)
+    if t.numerator == 1:
+        return f"1/{t.denominator}s"
+    if t < Fraction(29, 100):
+        return f"1/{round(t.denominator / t.numerator, 1):g}s"
+    return f"{round(float(t), 1):g}s"
+
+
 def format_exposure(exif_tags: dict) -> str:
     """Format scan exposure time, f-number, and ISO from an Exif IFD dict."""
     parts: list[str] = []
@@ -44,11 +58,9 @@ def format_exposure(exif_tags: dict) -> str:
     exposure_time = exif_tags.get(piexif.ExifIFD.ExposureTime)
     if exposure_time is not None:
         if isinstance(exposure_time, tuple) and len(exposure_time) == 2:
-            num, den = exposure_time
-            if num == 1:
-                parts.append(f"1/{den}s")
-            elif num:
-                parts.append(f"{num}/{den}s")
+            text = _format_exposure_time(*exposure_time)
+            if text:
+                parts.append(text)
         elif isinstance(exposure_time, (int, float)):
             parts.append(f"{exposure_time}s")
 

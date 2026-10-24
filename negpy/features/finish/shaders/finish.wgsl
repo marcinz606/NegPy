@@ -23,7 +23,7 @@ struct FinishUniforms {
 // (CARRIER_TONE_SAMPLES, 3) from rebate_tone().
 @group(0) @binding(4) var<storage, read> carrier_tone: array<f32>;
 
-// Every CARRIER_* below mirrors logic.py — keep in sync or preview drifts from export.
+// Every CARRIER_* below mirrors negpy_core/src/finish.rs — keep in sync or preview drifts from export.
 const CARRIER_SAMPLES: i32 = 2048;
 const CARRIER_JITTER: f32 = 0.24;
 const CARRIER_INNER_ROUGH: f32 = 0.2;
@@ -152,7 +152,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = color * exp2(-params.vignette_stops * factor);
     }
 
-    // Filed-carrier rebate, mirroring apply_carrier() in logic.py.
+    // Filed-carrier rebate, mirroring apply_carrier() in negpy_core/src/finish.rs.
     if (params.carrier_width_px > 0.0) {
         let soft = max(1.0, params.carrier_width_px * CARRIER_SOFT);
         let sx = (px.x + 0.5) / full.x;

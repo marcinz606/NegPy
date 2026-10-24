@@ -18,13 +18,11 @@ separate choice, nominated by the user rather than measured — see `output_scal
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
 
-import cv2
+import negpy_core
 import numpy as np
-from numba import prange  # type: ignore
 
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig
 from negpy.features.rgbscan.logic import estimate_shift
-from negpy.kernel.system.parallel import parallel_njit
 
 #: A sample at or above this is saturated and carries no information.
 SATURATION = 0.995
@@ -66,24 +64,18 @@ def subsample(frame: np.ndarray) -> np.ndarray:
     A stride, not a resize: averaging neighbours would blend back in the very samples
     these measurements exclude — saturated ones, noise-floor ones.
     """
-    step = int(np.sqrt(frame.shape[0] * frame.shape[1] / MEASURE_PIXELS))
+    step = _step(frame)
     return frame[::step, ::step] if step > 1 else frame
 
 
-@parallel_njit(cache=True, fastmath=True)
+def _step(frame: np.ndarray) -> int:
+    """The stride that leaves about MEASURE_PIXELS pixels."""
+    return max(1, int(np.sqrt(frame.shape[0] * frame.shape[1] / MEASURE_PIXELS)))
+
+
 def _count_clipped_rows(values: np.ndarray, out: np.ndarray) -> None:
-    """Saturated-pixel count per row. Per row rather than one total: numba's parfor pass
-    cannot analyse a reduction whose addend is itself computed by a loop."""
-    height, width, channels = values.shape
-    for y in prange(height):
-        n = 0
-        for x in range(width):
-            hit = 0
-            for c in range(channels):
-                if values[y, x, c] >= SATURATION:
-                    hit = 1
-            n += hit
-        out[y] = n
+    """Saturated-pixel count per row."""
+    negpy_core.count_clipped_rows(np.ascontiguousarray(values, dtype=np.float32), SATURATION, out)
 
 
 def clipped_fraction(values: np.ndarray) -> float:
@@ -104,8 +96,8 @@ def measure_exposure(frame: np.ndarray) -> Tuple[float, float]:
     It saturates too, only later: a frame clipping more than 1% has level exactly 1.0,
     so level alone cannot order the long end of a bracket. Use `exposure_order_key`.
     """
-    f = to_float(frame)
-    return float(np.percentile(subsample(f), 99.0)), float(clipped_fraction(f))
+    f = np.ascontiguousarray(to_float(frame), dtype=np.float32)
+    return float(negpy_core.exposure_level(f, _step(f), 99.0)), float(clipped_fraction(f))
 
 
 def exposure_order_key(level: float, clipped: float) -> Tuple[float, float]:
@@ -159,12 +151,8 @@ def pair_ratio(short: np.ndarray, long_: np.ndarray) -> Optional[float]:
     s, lo = to_float(short), to_float(long_)
     if s.shape != lo.shape:
         raise ValueError(f"bracket frames differ in shape: {s.shape}, {lo.shape}")
-    s, lo = subsample(s), subsample(lo)
-    valid = (s >= RATIO_FLOOR) & (lo < SATURATION)
-    if int(valid.sum()) < 1000:
-        return None
-    ratio = float(np.median(lo[valid] / s[valid]))
-    return ratio if np.isfinite(ratio) and ratio > 0.0 else None
+    s, lo = (np.ascontiguousarray(a, dtype=np.float32) for a in (s, lo))
+    return negpy_core.pair_ratio(s, lo, _step(s), (RATIO_FLOOR, SATURATION))
 
 
 def solve_ratios(frames: Sequence[np.ndarray], reference: int) -> Tuple[float, ...]:
@@ -314,7 +302,6 @@ def seed_shadow_density(ratios: Sequence[float], anchor: Optional[float] = None)
     return -min(SEED_SHADOW_PER_STOP * stops, SEED_SHADOW_LIMIT)
 
 
-@parallel_njit(cache=True, fastmath=True)
 def _accumulate(num: np.ndarray, den: np.ndarray, values: np.ndarray, ratio: float) -> None:
     """Add one frame to the weighted sums, in reference units. One fused pass: the numpy
     form cost more than the RAW decode it follows, mostly in full-size temporaries.
@@ -330,22 +317,7 @@ def _accumulate(num: np.ndarray, den: np.ndarray, values: np.ndarray, ratio: flo
     still carry signal — and is gradual so the frame a pixel is drawn from changes
     smoothly. A hard switch prints as banding across a gradient.
     """
-    inv_span = np.float32(1.0) / np.float32(SATURATION - ROLLOFF_START)
-    weight = np.float32(ratio) ** 2
-    scale = np.float32(max(ratio, 1e-9))
-    height, width, channels = values.shape
-    for y in prange(height):
-        for x in range(width):
-            for c in range(channels):
-                v = values[y, x, c]
-                rolloff = (np.float32(SATURATION) - v) * inv_span
-                if rolloff < np.float32(0.0):
-                    rolloff = np.float32(0.0)
-                elif rolloff > np.float32(1.0):
-                    rolloff = np.float32(1.0)
-                w = weight * rolloff
-                num[y, x, c] += w * (v / scale)
-                den[y, x, c] += w
+    negpy_core.hdr_accumulate(num, den, np.ascontiguousarray(values, dtype=np.float32), ratio, SATURATION, ROLLOFF_START)
 
 
 def merge_providers(
@@ -378,7 +350,7 @@ def merge_providers(
         raise ValueError("no frames to merge")
 
     ref = to_float(providers[reference]())
-    ref_gray = ref.mean(axis=2)
+    ref_gray = negpy_core.mean_channels(np.ascontiguousarray(ref, dtype=np.float32))
     max_shift = max(16.0, 0.02 * ref.shape[1])
     num = np.zeros_like(ref)
     den = np.zeros_like(ref)
@@ -395,11 +367,7 @@ def merge_providers(
 
     # Every frame saturated in a channel leaves no measurement there. It is a genuine
     # highlight, so take the reference's own clipped value rather than a hole.
-    empty = den <= 0.0
-    if empty.any():
-        num[empty] = ref[empty]
-        den[empty] = 1.0
-    return np.ascontiguousarray(num / den, dtype=np.float32)
+    return negpy_core.finish_merge(num, den, np.ascontiguousarray(ref, dtype=np.float32))
 
 
 def apply_render_exposure(merged: np.ndarray, ratios: Sequence[float], anchor: Optional[float] = None) -> np.ndarray:
@@ -408,20 +376,20 @@ def apply_render_exposure(merged: np.ndarray, ratios: Sequence[float], anchor: O
     Split from the merge because it is cheap and the merge is not: one full-res multiply
     against seconds of decode. That is what lets the render exposure be dragged.
     """
-    scale = np.float32(output_scale(ratios, anchor))
-    return np.clip(merged * scale, 0.0, 1.0).astype(np.float32)
+    scale = float(np.float32(output_scale(ratios, anchor)))
+    return negpy_core.render_exposure(np.ascontiguousarray(merged, dtype=np.float32), scale)
 
 
 def _align(ref_gray: np.ndarray, mov: np.ndarray, max_shift: float) -> np.ndarray:
     """Register `mov` to the reference by sub-pixel translation; no-op on an implausible
     estimate. Translation only: the camera does not move between bracket frames, so a
     richer model would only fit noise."""
-    dx, dy = estimate_shift(ref_gray, mov.mean(axis=2))
+    dx, dy = estimate_shift(ref_gray, negpy_core.mean_channels(np.ascontiguousarray(mov, dtype=np.float32)))
     if max(abs(dx), abs(dy)) > max_shift:
         return mov
     h, w = mov.shape[:2]
     matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32)
-    return cv2.warpAffine(mov, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return negpy_core.warp_affine(np.ascontiguousarray(mov, dtype=np.float32), matrix.astype(np.float64), (w, h), interpolation="cubic")
 
 
 def merge_frames(

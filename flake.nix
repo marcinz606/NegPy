@@ -40,8 +40,22 @@
       sourcePreference = "wheel";
     };
 
+    # negpy-core stays a normal build: a Rust edit needs a new `nix develop`.
     editableOverlay = workspace.mkEditablePyprojectOverlay {
       root = "$REPO_ROOT";
+      members = ["negpy"];
+    };
+
+    # The Rust extension builds with maturin from the vendored Cargo.lock; nothing is
+    # downloaded at build time.
+    rustOverlay = pkgs: final: prev: {
+      negpy-core = prev.negpy-core.overrideAttrs (old: {
+        cargoDeps = pkgs.rustPlatform.importCargoLock {lockFile = ./negpy_core/Cargo.lock;};
+        nativeBuildInputs =
+          (old.nativeBuildInputs or [])
+          ++ [pkgs.rustPlatform.cargoSetupHook pkgs.cargo pkgs.rustc]
+          ++ final.resolveBuildSystem {maturin = [];};
+      });
     };
 
     # Packages that need system Qt6/Vulkan/LLVM rather than what autoPatchelf can wire
@@ -55,8 +69,6 @@
         };
     in {
       numpy = fromNixpkgs "numpy" prev.numpy;
-      llvmlite = fromNixpkgs "llvmlite" prev.llvmlite;
-      numba = fromNixpkgs "numba" prev.numba;
       # nixpkgs' own "opencv-python-headless" is a metapackage that only propagates
       # "opencv4" (where cv2 actually lives); nixpkgsPrebuilt strips propagation, so
       # point straight at opencv4 or the venv ends up without a cv2 module.
@@ -141,6 +153,7 @@
           pyproject-build-systems.overlays.wheel
           overlay
           (nixpkgsFallbackOverlay pkgs pkgs.python313Packages)
+          (rustOverlay pkgs)
           (dataFixupOverlay python)
         ]
       );
@@ -254,6 +267,10 @@
             virtualenv
             pkgs.uv
             pkgs.qt6.qtbase
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.rustfmt
+            pkgs.clippy
           ];
           env = {
             UV_NO_SYNC = "1";

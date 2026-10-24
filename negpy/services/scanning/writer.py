@@ -1,6 +1,7 @@
 import os
 import tempfile
 
+import negpy_core
 import numpy as np
 import tifffile
 
@@ -36,7 +37,7 @@ def _to_grey(rgb: np.ndarray) -> np.ndarray:
     """
     if rgb.ndim == 2:
         return rgb
-    return ((np.sum(rgb, axis=-1, dtype=np.uint32) + 1) // 3).astype(rgb.dtype)
+    return negpy_core.to_grey(np.ascontiguousarray(rgb))
 
 
 def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> str:

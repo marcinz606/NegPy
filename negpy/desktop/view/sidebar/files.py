@@ -3,6 +3,7 @@ import math
 import os
 from typing import Any, List, Optional
 
+import negpy_core
 import numpy as np
 
 import qtawesome as qta
@@ -682,13 +683,8 @@ def _rgb_pixels(image: QImage) -> np.ndarray:
 
 def print_dmax(image: QImage) -> Optional[tuple[int, int, int]]:
     """A print's D-max tone: the mean color of the darkest pixels of a thumbnail, its padding left out."""
-    pixels = _rgb_pixels(image.copy(picture_in_thumbnail(image))).reshape(-1, 3).astype(np.float32)
-    if not len(pixels):
-        return None
-    luma = pixels @ np.array([0.2126, 0.7152, 0.0722], np.float32)
-    darkest = pixels[luma <= np.quantile(luma, _DMAX_SHARE)]
-    red, green, blue = (int(round(v)) for v in darkest.mean(axis=0))
-    return red, green, blue
+    pixels = np.ascontiguousarray(_rgb_pixels(image.copy(picture_in_thumbnail(image))))
+    return negpy_core.print_dmax(pixels, _DMAX_SHARE)
 
 
 def picture_in_thumbnail(image: QImage) -> QRect:

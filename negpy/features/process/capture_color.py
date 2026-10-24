@@ -21,6 +21,7 @@ magenta cast that reads like wildly excessive saturation.
 
 from typing import Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 # Adobe RGB (1998) D65, the working space (see infrastructure.display.color_spaces).
@@ -106,8 +107,7 @@ def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.nda
     """
     if matrix is None:
         return img
-    flat = img.reshape(-1, 3).astype(np.float32, copy=False)
-    return (flat @ np.asarray(matrix, dtype=np.float32).T).reshape(img.shape)
+    return negpy_core.matmul_3x3(np.ascontiguousarray(img, dtype=np.float32), np.asarray(matrix, dtype=np.float32))
 
 
 # Percentile of the whole frame taken as the light, and where it lands in the working
@@ -126,12 +126,10 @@ def lightbox_level(img: np.ndarray, matrix: Optional[np.ndarray]) -> Optional[fl
     olive. ``img`` is the whole frame before ``matrix`` and before any crop, so framing does
     not move the reference. None when there is no signal.
     """
-    flat = img.reshape(-1, 3)
+    flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1, 1, 3)
     step = max(1, flat.shape[0] // 200_000)
-    sample = flat[::step].astype(np.float64)
-    if matrix is not None:
-        sample = sample @ np.asarray(matrix, dtype=np.float64).T
-    white = float(np.percentile(sample, _LIGHTBOX_PCT))
+    m = None if matrix is None else np.asarray(matrix, dtype=np.float64).reshape(3, 3).tolist()
+    white = negpy_core.lightbox_white(flat, step, m, _LIGHTBOX_PCT)
     if not np.isfinite(white) or white <= 1e-6:
         return None
     return _LIGHTBOX_TARGET / white

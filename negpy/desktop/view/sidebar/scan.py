@@ -316,6 +316,11 @@ class ScanSidebar(QWidget):
             self.mode_btn.set_item_tooltip(i, tip)
         self.mode_widget = self._row_widget(field_row(tr("Scan mode"), self.mode_btn))
         quality.addWidget(self.mode_widget)
+        # The mode the user picked; the combo shows it masked by what the device does at this resolution.
+        self._wanted_capture_mode = ScanCaptureMode.SINGLE_PASS
+        self.mode_hint = hint_label("")
+        self.mode_hint.setVisible(False)
+        quality.addWidget(self.mode_hint)
         self.passes_slider = CompactSlider(tr("Passes"), MIN_PASSES_UI, MAX_N_PASSES, DEFAULT_N_PASSES, step=1, precision=1)
         self.passes_slider.setToolTip(tr("Number of exposures to stack, where each extra pass adds about one scan pass per exposure."))
         self.passes_rail = SliderGroup(self.passes_slider)
@@ -453,7 +458,7 @@ class ScanSidebar(QWidget):
         self.scan_btn.clicked.connect(self._on_scan)
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.fmt_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
-        self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
+        self.dpi_combo.currentTextChanged.connect(self._on_dpi_changed)
         self.depth_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_btn.toggled.connect(self._on_ir_toggled)
         self.mode_btn.currentIndexChanged.connect(self._on_mode_changed)
@@ -639,6 +644,7 @@ class ScanSidebar(QWidget):
             self.depth_widget.setVisible(False)
             self.ir_btn.setVisible(False)
             self.mode_widget.setVisible(False)
+            self.mode_hint.setVisible(False)
             self.passes_rail.setVisible(False)
             self.ir_btn.setEnabled(False)
             self.mode_btn.setEnabled(False)
@@ -751,25 +757,13 @@ class ScanSidebar(QWidget):
         show_mode = bool(caps.multi_exposure) or caps.max_n_passes > 1
         self.mode_widget.setVisible(show_mode)
         self.mode_btn.setEnabled(show_mode)
-        for capture_mode, _label, _tooltip in _CAPTURE_MODE_LABELS:
-            idx = self.mode_btn.findData(capture_mode.value)
-            enabled = (
-                True
-                if capture_mode == ScanCaptureMode.SINGLE_PASS
-                else bool(caps.multi_exposure)
-                if capture_mode == ScanCaptureMode.ADAPTIVE_ME
-                else caps.max_n_passes > 1
-                if capture_mode == ScanCaptureMode.MULTI_PASS
-                else bool(caps.multi_exposure) and caps.max_n_passes > 1  # ADAPTIVE_MULTI_PASS
-            )
-            self.mode_btn.set_item_enabled(idx, enabled)
-        saved_mode = _capture_mode_from_params(
+        self._wanted_capture_mode = _capture_mode_from_params(
             MultiExposureMode(self._settings.multi_exposure_mode)
             if self._settings.multi_exposure_mode in set(MultiExposureMode)
             else MultiExposureMode.OFF,
             self._settings.n_passes,
         )
-        self._set_capture_mode(_valid_capture_mode(saved_mode, has_me=bool(caps.multi_exposure), has_stack=caps.max_n_passes > 1))
+        self._sync_capture_modes()
         # IR and Multi-Pass stacking cannot combine (see _on_ir_toggled) — a settings blob
         # saved with both set (signals are blocked through this whole method, so the toggle
         # handlers that normally resolve this never fire) must self-heal here the same way,
@@ -956,13 +950,45 @@ class ScanSidebar(QWidget):
         # outright (each repeat is its own motor cycle; IR stacking is unvalidated). Drop the
         # mode to its non-stacking equivalent rather than silently discarding a hidden slider
         # value, so the visible mode reflects what actually happens.
+        self._wanted_capture_mode = _valid_capture_mode(self._wanted_capture_mode, has_me=True, has_stack=False)
         mode = self._capture_mode()
         if mode == ScanCaptureMode.MULTI_PASS:
             self._set_capture_mode(ScanCaptureMode.SINGLE_PASS)
         elif mode == ScanCaptureMode.ADAPTIVE_MULTI_PASS:
             self._set_capture_mode(ScanCaptureMode.ADAPTIVE_ME)
 
+    def _on_dpi_changed(self) -> None:
+        self._sync_capture_modes()
+        self._update_settings_from_ui()
+
+    def _sync_capture_modes(self) -> None:
+        """Enable the modes the device runs at the current resolution and show the wanted mode,
+        masked to those."""
+        device = self._current_device()
+        if device is None:
+            return
+        caps = device.capabilities
+        dpi = self._dpi()
+        has_me = caps.multi_exposure_at(dpi)
+        has_stack = caps.multi_pass_at(dpi)
+        enabled = {
+            ScanCaptureMode.SINGLE_PASS: True,
+            ScanCaptureMode.MULTI_PASS: has_stack,
+            ScanCaptureMode.ADAPTIVE_ME: has_me,
+            ScanCaptureMode.ADAPTIVE_MULTI_PASS: has_me and has_stack,
+        }
+        for capture_mode, _label, _tooltip in _CAPTURE_MODE_LABELS:
+            self.mode_btn.set_item_enabled(self.mode_btn.findData(capture_mode.value), enabled[capture_mode])
+        blocked = self.mode_btn.blockSignals(True)
+        self._set_capture_mode(_valid_capture_mode(self._wanted_capture_mode, has_me=has_me, has_stack=has_stack))
+        self.mode_btn.blockSignals(blocked)
+        limited = (caps.multi_exposure and not has_me) or (caps.max_n_passes > 1 and not has_stack)
+        self.mode_hint.setText(tr("Multi-Exposure and Multi-Pass are not available at {dpi} dpi.", dpi=dpi))
+        self.mode_hint.setVisible(limited)
+        self._sync_passes_visibility()
+
     def _on_mode_changed(self) -> None:
+        self._wanted_capture_mode = self._capture_mode()
         self._sync_passes_visibility()
         if self._capture_mode() in _STACKING_CAPTURE_MODES:
             self._drop_ir()

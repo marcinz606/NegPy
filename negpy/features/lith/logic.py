@@ -1,10 +1,10 @@
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict, Sequence
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import _LAB_EPS, _LAB_KAPPA, lab_to_rgb_working
-from negpy.kernel.image.validation import ensure_image
+from negpy.kernel.image.logic import WORKING_LAB
 
 LITH_CONSTANTS: Dict[str, Any] = {
     # Highlight branch (first development phase).
@@ -38,14 +38,6 @@ LITH_CONSTANTS: Dict[str, Any] = {
 }
 
 
-def _hue_path(u: np.ndarray, path: Sequence[Sequence[float]]) -> Tuple[np.ndarray, np.ndarray]:
-    """(a*, b*) along the paper's density hue path, clamped outside the anchors."""
-    xp = np.asarray(LITH_CONSTANTS["path_u"], dtype=np.float32)
-    a = np.interp(u, xp, np.asarray([p[0] for p in path], dtype=np.float32)).astype(np.float32)
-    b = np.interp(u, xp, np.asarray([p[1] for p in path], dtype=np.float32)).astype(np.float32)
-    return a, b
-
-
 def apply_lith(
     img: ImageBuffer,
     path: Sequence[Sequence[float]],
@@ -74,26 +66,16 @@ def apply_lith(
         return img
 
     c = LITH_CONSTANTS
-    arr = np.clip(img.astype(np.float32), 1e-6, 1.0)
-    luma = arr[:, :, 0] * np.float32(0.2126) + arr[:, :, 1] * np.float32(0.7152) + arr[:, :, 2] * np.float32(0.0722)
-
-    base = -np.log10(np.clip(luma, 1e-6, 1.0))
-    over = np.float32(0.301 * exposure)
-    d0 = base + over
-
-    foot_max = np.float32(c["foot_max"])
-    d_foot = base + over * np.float32(c["foot_veil"])
-    d_h = foot_max * (np.float32(1.0) - np.exp(-np.float32(c["foot_rate"]) * d_foot / foot_max))
-
-    knee = np.float32(d_max * (c["knee_lo"] - c["knee_span"] * snatch))
-    width = np.float32(max(c["abrupt_lo"] - c["abrupt_span"] * abruptness, 0.01))
-
-    g = 1.0 / (1.0 + np.exp(-np.clip((d0 - knee) / width, -30.0, 30.0)))
-    dens = (d_h + (np.float32(d_max) - d_h) * g).astype(np.float32)
-
-    grey = np.power(np.float32(10.0), -dens)
-    a_star, b_star = _hue_path(np.clip(dens / np.float32(d_max), 0.0, 1.0), path)
-    f = np.where(grey > np.float32(_LAB_EPS), np.cbrt(grey), np.float32(_LAB_KAPPA) * grey + np.float32(16.0 / 116.0))
-    lab = np.dstack([np.float32(116.0) * f - np.float32(16.0), a_star, b_star])
-
-    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
+    f32 = np.float32
+    scalars = [
+        f32(d_max),
+        f32(0.301 * exposure),
+        f32(c["foot_max"]),
+        f32(c["foot_veil"]),
+        f32(c["foot_rate"]),
+        f32(d_max * (c["knee_lo"] - c["knee_span"] * snatch)),
+        f32(max(c["abrupt_lo"] - c["abrupt_span"] * abruptness, 0.01)),
+    ]
+    path_u = [f32(v) for v in c["path_u"]]
+    anchors = [(f32(a), f32(b)) for a, b in path]
+    return negpy_core.lith(np.ascontiguousarray(img, dtype=np.float32), scalars, path_u, anchors, WORKING_LAB)

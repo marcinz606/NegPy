@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 from negpy.desktop.view.sidebar.scan import ScanCaptureMode, ScanSidebar, estimated_frame_bytes
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
-from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode
+from negpy.infrastructure.scanners.params import FILM_TYPES, MultiExposureMode, ScanMode
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -304,6 +304,58 @@ def test_ir_toggle_drops_adaptive_multi_pass_to_adaptive_me() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "n_passes": 3})
     sidebar._set_capture_mode(ScanCaptureMode.ADAPTIVE_MULTI_PASS)
     sidebar.ir_btn.setChecked(True)
+    assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_ME
+    assert sidebar.ir_btn.isChecked() is True
+
+
+# The GL128 rule from pyopticfilm: no multi-exposure or Multi-Pass at native 7200 dpi.
+SE_7200_DEVICE = replace(
+    SE_DEVICE,
+    capabilities=replace(
+        SE_CAPS,
+        supported_dpi=(1200, 1800, 3600, 7200),
+        multi_exposure_dpi=(1200, 1800, 3600),
+        multi_pass_dpi=(1200, 1800, 3600),
+    ),
+)
+
+
+def _pick_dpi(sidebar, dpi: int) -> None:
+    sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(dpi))
+
+
+def test_7200_dpi_disables_multi_modes_and_restores_them_below() -> None:
+    sidebar, _ = _sidebar(SE_7200_DEVICE, settings={"backend": "plustek", "dpi": 3600, "n_passes": 3})
+    sidebar._set_capture_mode(ScanCaptureMode.ADAPTIVE_MULTI_PASS)
+    assert sidebar.mode_hint.isVisibleTo(sidebar) is False
+
+    _pick_dpi(sidebar, 7200)
+    enabled = {mode: sidebar.mode_btn.is_item_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
+    assert enabled == {
+        ScanCaptureMode.SINGLE_PASS: True,
+        ScanCaptureMode.MULTI_PASS: False,
+        ScanCaptureMode.ADAPTIVE_ME: False,
+        ScanCaptureMode.ADAPTIVE_MULTI_PASS: False,
+    }
+    assert sidebar._capture_mode() == ScanCaptureMode.SINGLE_PASS
+    assert sidebar.mode_hint.isVisibleTo(sidebar) is True
+    assert "7200" in sidebar.mode_hint.text()
+    assert sidebar.passes_rail.isVisibleTo(sidebar) is False
+    assert sidebar.settings.multi_exposure_mode == MultiExposureMode.OFF.value
+    assert sidebar.settings.n_passes == 1
+
+    _pick_dpi(sidebar, 3600)
+    assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_MULTI_PASS
+    assert sidebar.mode_hint.isVisibleTo(sidebar) is False
+    assert sidebar.passes_rail.isVisibleTo(sidebar) is True
+
+
+def test_ir_at_7200_keeps_stacking_off_when_returning_below() -> None:
+    sidebar, _ = _sidebar(SE_7200_DEVICE, settings={"backend": "plustek", "dpi": 3600, "n_passes": 3})
+    sidebar._set_capture_mode(ScanCaptureMode.ADAPTIVE_MULTI_PASS)
+    _pick_dpi(sidebar, 7200)
+    sidebar.ir_btn.setChecked(True)
+    _pick_dpi(sidebar, 3600)
     assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_ME
     assert sidebar.ir_btn.isChecked() is True
 

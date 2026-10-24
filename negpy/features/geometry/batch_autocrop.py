@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Sequence
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ROI, ImageBuffer
@@ -38,7 +38,6 @@ logger = get_logger(__name__)
 _TRUSTED_CONFIDENCE = 0.58
 _MAX_AUTOMATIC_DESKEW = 8.0
 _DEFAULT_SAFETY_BORDER = 0.01
-_MIN_PROFILE_CONTRAST = 0.06
 # The rebate width is a roll property, so require enough agreeing frames that a few
 # bright frame edges cannot move the median.
 _MIN_BORDER_SAMPLES = 5
@@ -52,11 +51,6 @@ _MIN_FITTED_ANGLES = 3
 # because a fit can still lock onto the wrong edge, and one that disagrees with every other
 # frame by more than this probably has.
 _CONFIRMED_ANGLE_TOL = 2.5
-# How near the roll's film width a pair of edge-profile peaks must span before their
-# agreement replaces raw peak strength. Both peaks are already constrained to a window around
-# where the roll puts each edge, so this is a second, independent check: they must also be
-# the right distance apart.
-_EDGE_PAIR_WIDTH_TOL = 0.02
 # Confidence given to a frame whose rect is the threshold box rather than a detected film
 # box. Low: the box is the frame, and every real measurement on it came from the border walk.
 _FALLBACK_CONFIDENCE = 0.30
@@ -143,76 +137,17 @@ class ResolvedCrop:
 
 
 def _vertical_edge_profile(img: ImageBuffer) -> tuple[np.ndarray, float]:
-    """Return a contrast-normalized vertical-edge profile for template fallback."""
-    arr = np.asarray(img, dtype=np.float32)
-    if arr.ndim == 3:
-        gray = arr[..., :3].mean(axis=2)
-    else:
-        gray = arr
-    finite = gray[np.isfinite(gray)]
-    if finite.size == 0 or gray.shape[1] < 2:
-        return np.zeros(gray.shape[1], dtype=np.float32), 0.0
-
-    low, high = np.percentile(finite, (2.0, 98.0))
-    span = max(float(high - low), 1e-6)
-    normalized = np.clip((gray - low) / span, 0.0, 1.0).astype(np.float32)
-    grad = np.abs(cv2.Sobel(normalized, cv2.CV_32F, 1, 0, ksize=3))
-    profile = np.percentile(grad, 80, axis=0).astype(np.float32)
-    window = max(5, int(round(profile.size * 0.012)))
-    if window % 2 == 0:
-        window += 1
-    profile = cv2.GaussianBlur(profile.reshape(1, -1), (window, 1), 0).ravel()
-    peak = float(np.max(profile)) if profile.size else 0.0
-    contrast = max(0.0, float(np.percentile(profile, 99.5)) - float(np.percentile(profile, 50.0))) if profile.size else 0.0
-    if peak > 0.0:
-        profile /= peak
-    return profile.astype(np.float32), contrast
+    """Return a contrast-normalized vertical-edge profile for template fallback; negpy_core
+    holds the rules."""
+    profile, contrast = negpy_core.batch_edge_profile(np.ascontiguousarray(img, dtype=np.float32))
+    return profile, contrast
 
 
 def _top_edge_slope(lum: np.ndarray, roi: ROI) -> float | None:
-    """Residual tilt of the film box's top edge, in degrees, or None when unreadable.
-
-    Sign matches _correction_angle_from_quad: the measured image-coordinate residual is
-    already the additive fix.
-    """
-    y1, _, x1, x2 = roi
-    height = lum.shape[0]
-    left, right = x1 + 20, x2 - 20
-    columns = np.arange(left, right, 3)
-    min_points = max(20, round((right - left) * 0.08))
-    if columns.size < min_points:
-        return None
-
-    radius = max(12, round(height * 0.035))
-    low, high = max(0, y1 - radius), min(height, y1 + radius)
-    if high - low < 4:
-        return None
-
-    gradient = np.abs(cv2.Sobel(cv2.GaussianBlur(lum.astype(np.float32), (0, 0), 1.5), cv2.CV_32F, 0, 1, ksize=3))
-    band = gradient[low:high, columns]
-    rows = low + np.argmax(band, axis=0)
-    strength = band.max(axis=0)
-    # With no edge under the band every column peaks on noise and the fit still comes back
-    # clean: a straight line through nothing, reported as a confident zero.
-    if float(np.median(strength)) < max(1e-6, 3.0 * float(np.median(band))):
-        return None
-    points = np.column_stack([columns, rows])[strength >= np.quantile(strength, 0.60)]
-    if len(points) < min_points:
-        return None
-
-    residuals = np.zeros(len(points))
-    slope = 0.0
-    for _ in range(5):
-        slope, intercept = np.polyfit(points[:, 0], points[:, 1], 1)
-        residuals = np.abs(points[:, 1] - (slope * points[:, 0] + intercept))
-        keep = residuals <= max(2.0, float(np.median(residuals)) * 2.5)
-        if keep.all() or keep.sum() < min_points:
-            break
-        points = points[keep]
-
-    if float(np.median(residuals)) > 2.0:
-        return None
-    return float(np.degrees(np.arctan(slope)))
+    """Residual tilt of the film box's top edge, in degrees, or None when unreadable; negpy_core
+    holds the fit. Sign matches the film detector's quad angle: the measured image-coordinate
+    residual is already the additive fix."""
+    return negpy_core.top_edge_slope(np.ascontiguousarray(lum, dtype=np.float32), tuple(int(v) for v in roi))
 
 
 def _side_border(lum: np.ndarray, roi: ROI) -> dict[str, float]:
@@ -594,7 +529,7 @@ def _map_rect_between_rotations(
         ],
         dtype=np.float64,
     )
-    matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), delta, 1.0)
+    matrix = negpy_core.rotation_matrix((w / 2.0, h / 2.0), delta, 1.0)
     mapped = points @ matrix[:, :2].T + matrix[:, 2]
     # Quantize outward before normalizing. Later conversion back to a half-open
     # pixel ROI must not round an extremum inward, especially when one edge touches
@@ -653,62 +588,20 @@ def _calibrate_detected_rect(
     return _clamp_rect((x1, y1, x2, y2)), calibrated
 
 
-def _peak_near(profile: np.ndarray, expected: float, radius: float) -> tuple[float, float]:
-    if profile.size == 0:
-        return expected, 0.0
-    center = int(round(expected * (profile.size - 1)))
-    half = max(2, int(round(radius * profile.size)))
-    lo, hi = max(0, center - half), min(profile.size, center + half + 1)
-    if hi <= lo:
-        return expected, 0.0
-    local = profile[lo:hi]
-    offset = int(np.argmax(local))
-    idx = lo + offset
-    return idx / max(profile.size - 1, 1), float(local[offset])
-
-
 def _rect_from_edge_profile(item: CropEvidence, template: RollCropTemplate) -> tuple[float, float, float, float] | None:
-    profile = np.asarray(item.vertical_edge_profile, dtype=np.float32)
-    if item.vertical_edge_contrast < _MIN_PROFILE_CONTRAST or profile.size < 8 or not np.any(np.isfinite(profile)):
-        return None
-
-    baseline_level = float(np.percentile(profile, 50))
-    peak_level = float(np.percentile(profile, 99.5))
-    if peak_level - baseline_level < 0.20 or peak_level < 1.35 * max(baseline_level, 0.05):
-        return None
-
-    left_expected = template.center_x - template.width * 0.5
-    right_expected = template.center_x + template.width * 0.5
-    radius = max(0.045, 4.0 * template.center_mad + 2.0 * template.width_mad)
-    left, left_strength = _peak_near(profile, left_expected, radius)
-    right, right_strength = _peak_near(profile, right_expected, radius)
-
-    baseline = float(np.percentile(profile, 70))
-    spread = float(np.percentile(profile, 90) - np.percentile(profile, 50))
-    threshold = max(0.24, baseline + 0.55 * spread)
-    left_ok, right_ok = left_strength >= threshold, right_strength >= threshold
-
-    # Strength is measured against the frame's own edges, so a busy picture raises the bar
-    # above the film edge that is plainly there. Where both peaks land on the width the roll
-    # expects, that agreement stands in for it: a profile with no film edge in it does not
-    # produce two independently located edges spanning the right distance.
-    if not (left_ok and right_ok) and abs((right - left) - template.width) <= _EDGE_PAIR_WIDTH_TOL:
-        left_ok = right_ok = True
-
-    if not left_ok and not right_ok:
-        return None
-    if left_ok and right_ok:
-        if right - left < 0.65 * template.width or right - left > 1.35 * template.fallback_width:
-            return None
-        x1, x2 = left, right
-    elif left_ok and left_strength >= threshold + 0.12:
-        x1, x2 = left, left + template.fallback_width
-    elif right_ok and right_strength >= threshold + 0.12:
-        x1, x2 = right - template.fallback_width, right
-    else:
-        return None
-
-    return _clamp_rect((x1, template.top, x2, template.top + template.height))
+    """A film box from the frame's vertical-edge profile where the roll puts the edges; negpy_core
+    holds the rules."""
+    fields = (
+        template.center_x,
+        template.width,
+        template.fallback_width,
+        template.top,
+        template.height,
+        template.center_mad,
+        template.width_mad,
+    )
+    profile = np.ascontiguousarray(item.vertical_edge_profile, dtype=np.float32).ravel()
+    return negpy_core.rect_from_edge_profile(profile, float(item.vertical_edge_contrast), fields)
 
 
 def _resolve_border(

@@ -1,8 +1,9 @@
 """Inverse lens maps in unrotated sensor coordinates."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 
-import cv2
+import negpy_core
 import numpy as np
 
 from negpy.features.lens.models import LensCorrections, LensMetadata
@@ -10,23 +11,16 @@ from negpy.features.lens.models import LensCorrections, LensMetadata
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
-def _rectilinear_xy(x: np.ndarray, y: np.ndarray, coefficients: tuple[float, ...]) -> tuple[np.ndarray, np.ndarray]:
-    k0, k1, k2, k3, t0, t1 = coefficients
-    r2 = x * x + y * y
-    factor = k0 + r2 * (k1 + r2 * (k2 + r2 * k3))
-    return x * factor + 2 * t0 * x * y + t1 * (r2 + 2 * x * x), y * factor + 2 * t1 * x * y + t0 * (r2 + 2 * y * y)
-
-
-def _coordinates(lens: LensMetadata, shape: tuple[int, ...], start: int, stop: int, center: tuple[float, float]) -> tuple:
+@lru_cache(maxsize=64)
+def _frame(lens: LensMetadata, shape: tuple[int, ...], center: tuple[float, float]) -> tuple:
+    """(buffer origin, buffer-to-image scale, warp center, radius, fill scale) of the frame."""
     h, w = shape[:2]
     t, left, b, r = lens.active_area or (0, 0, h, w)
     bt, bl, bb, br = lens.buffer_area or (t, left, b, r)
     sx, sy = (br - bl) / w, (bb - bt) / h
     cx, cy = left + center[0] * (r - left - 1), t + center[1] * (b - t - 1)
     radius = np.hypot(max(cx - left, r - 1 - cx), max(cy - t, b - 1 - cy))
-    x = (bl + (np.arange(w, dtype=np.float32)[None, :] + 0.5) * sx - 0.5 - cx) / radius * lens.fill_scale
-    y = (bt + (np.arange(start, stop, dtype=np.float32)[:, None] + 0.5) * sy - 0.5 - cy) / radius * lens.fill_scale
-    return x, y, cx, cy, radius, sx, sy, bl, bt
+    return (float(bl), float(bt)), (sx, sy), (cx, cy), float(radius), float(lens.fill_scale)
 
 
 @dataclass(frozen=True)
@@ -53,37 +47,19 @@ class RectilinearWarp:
         channel: int,
         corrections: LensCorrections = LensCorrections(True, True),
     ) -> tuple[np.ndarray, np.ndarray]:
-        x, y, cx, cy, radius, sx, sy, left, top = _coordinates(lens, shape, start, stop, self.center)
         common = self.coefficients[0 if len(self.coefficients) == 1 else 1]
         selected = self.coefficients[channel] if corrections.ca and len(self.coefficients) == 3 else common
-        target_x, target_y = x, y
-        if not corrections.distortion:
-            if selected == common:
-                my, mx = np.mgrid[start:stop, : shape[1]].astype(np.float32)
-                return mx, my
-            # CA-only maps to the original green geometry: channel(green_inverse(x, y)).
-            g0, g1, g2, g3, t0, t1 = common
-            points = np.stack(np.broadcast_arrays(x, y), axis=-1)
-            unwarped = cv2.undistortPointsIter(
-                points.reshape(-1, 1, 2),
-                np.diag([g0, g0, 1.0]),
-                np.array([g1, g2, t0, t1, g3]) / g0,
-                None,
-                None,
-                (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 50, 1e-8),
-            ).reshape(points.shape)
-            x, y = unwarped[..., 0], unwarped[..., 1]
-            # Outside the calibrated radius, extend the edge's relative CA displacement.
-            limit = np.maximum(np.hypot(x, y), 1.0)
-            x, y = x / limit, y / limit
-        wx, wy = _rectilinear_xy(x, y, selected)
-        if not corrections.distortion:
-            gx, gy = _rectilinear_xy(x, y, common)
-            scale = np.hypot(target_x, target_y) / np.maximum(np.hypot(gx, gy), 1e-8)
-            wx, wy = target_x + (wx - gx) * scale, target_y + (wy - gy) * scale
-        mx = (cx + radius * wx - left + 0.5) / sx - 0.5
-        my = (cy + radius * wy - top + 0.5) / sy - 0.5
-        return mx.astype(np.float32), my.astype(np.float32)
+        if corrections.distortion:
+            frame = _frame(lens, tuple(shape[:2]), self.center)
+            return negpy_core.rectilinear_map(int(shape[1]), (start, stop), [float(v) for v in selected], frame)
+        if selected == common:
+            my, mx = np.mgrid[start:stop, : shape[1]].astype(np.float32)
+            return mx, my
+        # CA-only maps to the original green geometry: channel(green_inverse(x, y)); outside the
+        # calibrated radius the edge's relative CA displacement extends.
+        frame = _frame(lens, tuple(shape[:2]), self.center)
+        coefficients = ([float(v) for v in selected], [float(v) for v in common])
+        return negpy_core.rectilinear_ca_map(int(shape[1]), (start, stop), coefficients, frame)
 
 
 @dataclass(frozen=True)
@@ -112,25 +88,12 @@ class PanasonicWarp:
     ) -> tuple[np.ndarray, np.ndarray]:
         # Model from darktable's embedded-metadata reader (GPL-3.0+) and https://github.com/trou/panasonic-rw2:
         # Ru = Rd + scale*(a*Rd^3 + b*Rd^5 + c*Rd^7), Rd (source) and Ru (corrected) normalized to the half-diagonal.
-        h, w = shape[:2]
-        x = (np.arange(w, dtype=np.float32)[None, :] - w * 0.5) * lens.fill_scale
-        y = (np.arange(start, stop, dtype=np.float32)[:, None] - h * 0.5) * lens.fill_scale
-        ru = np.hypot(x, y) / np.hypot(w * 0.5, h * 0.5)
         if not corrections.distortion:
             my, mx = np.mgrid[start:stop, : shape[1]].astype(np.float32)
             return mx, my
-        # Invert Ru -> Rd by fixed-point iteration; dr = Rd/Ru is the source-sampling multiplier.
-        rd = ru
-        for _ in range(8):
-            r2 = rd * rd
-            f = 1.0 + self.scale * (self.a * r2 + self.b * r2 * r2 + self.c * r2 * r2 * r2)
-            f = np.where(f > 0.0, f, 1.0)
-            new = ru / f
-            if np.abs(new - rd).max() < 1e-7:
-                break
-            rd = new
-        dr = np.divide(rd, ru, out=np.ones_like(ru), where=ru > 0.0)
-        return (x * dr + w * 0.5).astype(np.float32), (y * dr + h * 0.5).astype(np.float32)
+        # Ru -> Rd by fixed-point iteration; Rd/Ru is the source-sampling multiplier.
+        model = (float(self.scale), float(self.a), float(self.b), float(self.c))
+        return negpy_core.panasonic_map((int(shape[0]), int(shape[1])), (start, stop), model, float(lens.fill_scale))
 
 
 @dataclass(frozen=True)
@@ -158,17 +121,11 @@ class SonyWarp:
     ) -> tuple[np.ndarray, np.ndarray]:
         # Sony's knot positions and units follow darktable's embedded-metadata model (GPL-3.0+).
         # https://github.com/darktable-org/darktable/blob/master/src/iop/lens.cc
-        h, w = shape[:2]
-        x = (np.arange(w, dtype=np.float32)[None, :] - w * 0.5) * lens.fill_scale
-        y = (np.arange(start, stop, dtype=np.float32)[:, None] - h * 0.5) * lens.fill_scale
-        radius = np.hypot(x, y) / np.hypot(w * 0.5, h * 0.5)
         n = len(self.distortion) or len(self.ca_red) or len(self.ca_blue)
-        knots = (np.arange(n) + 0.5) / (n - 1)
         factors = np.ones(n)
         if corrections.distortion and self.distortion:
             factors += np.asarray(self.distortion) / 16384.0
         ca = self.ca_red if channel == 0 else self.ca_blue if channel == 2 else ()
         if corrections.ca and ca:
             factors *= 1 + np.asarray(ca) / 2097152.0
-        factor = np.interp(radius, knots, factors).astype(np.float32)
-        return (x * factor + w * 0.5).astype(np.float32), (y * factor + h * 0.5).astype(np.float32)
+        return negpy_core.sony_map((int(shape[0]), int(shape[1])), (start, stop), factors.tolist(), float(lens.fill_scale))

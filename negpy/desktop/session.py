@@ -337,6 +337,10 @@ class AppState:
     compare_split: float = 0.5
     # True while the compare key is held: the whole picture shows the baseline.
     compare_hold: bool = False
+    # A history step or work print the split compares against instead of the default
+    # conversion, and its badge text. Held as a config: a later edit can delete the step.
+    compare_reference: Optional[Any] = None
+    compare_reference_label: str = ""
 
     # Export presets (globally managed, not per-file)
     export_presets: List[ExportPreset] = field(default_factory=list)
@@ -877,6 +881,7 @@ class DesktopSessionManager(QObject):
     settings_pasted = pyqtSignal()
     # A view that reads styles.color_vision repaints on this.
     color_vision_changed = pyqtSignal()
+    auto_thumbnail_refresh_changed = pyqtSignal(bool)
     canvas_bg_changed = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     frames_edited_offscreen = pyqtSignal(list)  # hashes whose saved edits changed without a render
@@ -1131,6 +1136,7 @@ class DesktopSessionManager(QObject):
         if self.state.auto_thumbnail_refresh != on:
             self.state.auto_thumbnail_refresh = on
             self.repo.save_global_setting("auto_thumbnail_refresh", on)
+            self.auto_thumbnail_refresh_changed.emit(on)
 
     def set_color_vision(self, key: str) -> None:
         if self.state.color_vision != key:

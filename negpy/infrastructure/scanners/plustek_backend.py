@@ -26,7 +26,6 @@ from negpy.infrastructure.scanners.params import (
     ScanMode,
     ScanParams,
 )
-from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.device.select import model_for_device, model_is_scan_ready
 from pyopticfilm.exceptions import (
     DeviceNotFoundError,
@@ -43,18 +42,13 @@ from negpy.infrastructure.scanners.result import ScanResult
 logger = get_logger(__name__)
 
 
-def _ensure_quiet_usb_drain(scanner: Scanner) -> None:
-    asic = scanner.asic
-    if hasattr(asic, "image_usb_pace_s"):
-        asic.image_usb_pace_s = DEFAULT_IMAGE_USB_PACE_S
-
-
 def _caps_for(model: Any) -> ScannerCapabilities:
     from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm, is_gl128_opticfilm
 
     # Prescan and Multi-Pass are GL128 session features. Other scan-ready leaves (e.g. 7600i
     # v1) report scan_ready but raise on those paths.
     gl128 = is_gl128_opticfilm(model)
+    multi_exposure = bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None))
     return ScannerCapabilities(
         ir_channel=model.supports_infrared,
         supported_dpi=tuple(sorted(model.resolutions_dpi)),
@@ -67,9 +61,11 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         prescan_dpi=PRESCAN_DPI if gl128 else 0,
         prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if gl128 else False,
         prescan_default_crop=default_frame_crop_norm(model) if gl128 else None,
-        multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
+        multi_exposure=multi_exposure,
         # Multi-Pass needs no long-exposure register; it is GL128-only in pyopticfilm.
         max_n_passes=MAX_N_PASSES if gl128 else MIN_N_PASSES,
+        multi_exposure_dpi=tuple(getattr(model, "multi_exposure_resolutions_dpi", ())) if multi_exposure else (),
+        multi_pass_dpi=tuple(getattr(model, "multi_pass_resolutions_dpi", ())) if gl128 else (),
         adapter_frame_capacity=None,
         adapter_frame_control=False,
         can_eject=False,
@@ -190,6 +186,14 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
             raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Multi-Pass")
         if params.capture_ir:
             raise RuntimeError("IR and Multi-Pass cannot be combined yet — scan IR separately, or set Passes to 1.")
+    if (mode != MultiExposureMode.OFF or params.n_passes > 1) and model is not None:
+        from pyopticfilm.scan.session_gl128 import gl128_multi_pass_allowed
+
+        if not gl128_multi_pass_allowed(model, dpi):
+            raise RuntimeError(
+                f"Multi-Exposure and Multi-Pass are not available at {dpi} dpi on "
+                f"{getattr(model, 'model', 'this device')}. Choose a lower resolution."
+            )
 
 
 class PlustekSession:
@@ -273,7 +277,6 @@ class PlustekBackend:
             scanner = Scanner.open(device_id, calib_cache=self._calib_cache)
             if not scanner.asic._initialized:
                 scanner.asic.init()
-            _ensure_quiet_usb_drain(scanner)
             if not scanner.asic.is_at_home():
                 scanner.home()
         except DriverBindingError as exc:
@@ -304,7 +307,6 @@ class PlustekBackend:
             with Scanner.open(device_id, calib_cache=self._calib_cache) as scanner:
                 if not scanner.asic._initialized:
                     scanner.asic.init()
-                _ensure_quiet_usb_drain(scanner)
                 if not scanner.asic.is_at_home():
                     scanner.home()
                 return self._scan_on_scanner(scanner, params, progress, cancel)
@@ -472,6 +474,8 @@ class PlustekBackend:
             try:
                 if getattr(scanner.model, "asic", "") == "GL128":
                     scanner.disarm_bringup_motor()
+                    # Calibration measured on the power-up clock clips the white strip.
+                    asic.enter_scan_clock()
                 calibrator.ensure_colour_asic_shading(geo)
             finally:
                 if was_armed:

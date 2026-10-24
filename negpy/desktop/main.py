@@ -35,7 +35,6 @@ from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
 from negpy.kernel.system.override import apply_stored as apply_stored_override
 from negpy.kernel.system.override import load_or_create as load_override
-from negpy.kernel.system.parallel import configure_cpu_parallel, parallel_enabled, resolve_cpu_parallel, set_parallel_enabled
 from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
@@ -222,35 +221,6 @@ def _bootstrap_environment() -> None:
     GearProfiles.ensure_user_dir()
 
 
-def _offer_to_disable_cpu_parallel(repo, parent) -> None:
-    """The previous run had multi-core kernels on and did not exit cleanly. Say so.
-
-    Numba's workqueue threading layer terminates the process on concurrent entry, with no
-    Python exception to catch and nothing written to the log, so the app cannot report the
-    crash as it happens — only notice afterwards that the last run never finished. Without
-    this the setting is un-diagnosable: a user turns it on, hits an abort weeks later, and
-    reports a crash nobody can connect to it.
-    """
-    from PyQt6.QtWidgets import QMessageBox
-
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Warning)
-    box.setWindowTitle(tr("NegPy Closed Unexpectedly"))
-    box.setText(tr("The last session ended unexpectedly with multi-core CPU rendering turned on."))
-    box.setInformativeText(
-        tr(
-            "That setting is the most likely cause. Turning it off costs some speed on merges "
-            "and exports, and is the safe setting.\n\nTurn multi-core CPU rendering off?"
-        )
-    )
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-    box.setDefaultButton(QMessageBox.StandardButton.Yes)
-    if box.exec() == QMessageBox.StandardButton.Yes:
-        repo.save_global_setting("cpu_parallel", False)
-        set_parallel_enabled(False)
-        logger.warning("CPU parallel kernels disabled after an unclean shutdown")
-
-
 def main() -> None:
     """
     Desktop entry point.
@@ -260,8 +230,6 @@ def main() -> None:
     _install_exception_hook()  # log unhandled slot exceptions to negpy.log instead of aborting
 
     try:
-        os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-
         apply_override(override_cfg, APP_CONFIG)
 
         try:
@@ -295,18 +263,6 @@ def main() -> None:
         # skips bool values (see its docstring).
         if override_cfg.low_vram_export_tiling is None:
             APP_CONFIG.low_vram_export_tiling = bool(repo.get_global_setting("low_vram_export_tiling", False))
-
-        # Multi-core Numba kernels: override.toml, then the saved setting, then the platform
-        # default (off on macOS). Read before the flags below are overwritten.
-        prev_clean_exit = bool(repo.get_global_setting("clean_shutdown", True))
-        prev_run_parallel = bool(repo.get_global_setting("cpu_parallel_active", False))
-        stored_parallel = repo.get_global_setting("cpu_parallel", None)
-        configure_cpu_parallel(resolve_cpu_parallel(APP_CONFIG.cpu_parallel, None if stored_parallel is None else bool(stored_parallel)))
-        # Numba's workqueue layer aborts the process outright on concurrent entry, with no
-        # exception, no dialog and nothing in the log. A marker is the only way an abort can
-        # later be attributed to this setting rather than reported as a mystery.
-        repo.save_global_setting("clean_shutdown", False)
-        repo.save_global_setting("cpu_parallel_active", parallel_enabled())
 
         # Resolve flat-field gains by profile id from the on-disk store, which keeps the numpy
         # logic layer free of any storage dependency, then migrate any legacy DB-backed profiles
@@ -358,13 +314,10 @@ def main() -> None:
         controller = AppController(session_manager)
 
         window = MainWindow(controller)
-        if prev_clean_exit is False and prev_run_parallel:
-            _offer_to_disable_cpu_parallel(repo, window)
         window.show()
 
         exit_code = app.exec()
         controller.cleanup()
-        repo.save_global_setting("clean_shutdown", True)
         # PyQt's at-exit cleanup walks sip's wrapper map while it deletes these, and the Python
         # code their destructors run (event filters, the proxy style) can reallocate the map.
         for widget in [w for w in app.topLevelWidgets() if w.parent() is None and sip.ispyowned(w)]:

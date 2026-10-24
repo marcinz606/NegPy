@@ -670,3 +670,41 @@ def test_sensor_response_refuses_a_light_too_dim_to_measure():
 
 def test_scan_ladder_keeps_a_body_inside_the_built_in_span():
     assert scan_ladder(["1/8000", "Bulb", " 1/60 ", "1/250", "30", "2", "1/0"]) == ("1/250", "1/60", "2")
+
+
+_NIKON_THIRDS = [f"{1 / d:.4f}s" for d in (1000, 800, 640, 500, 250, 125, 60, 30, 15, 13, 8, 4)] + [
+    f"{s:.4f}s" for s in (0.3, 0.4, 1, 1.3, 2.5, 30)
+]
+_NIKON_HALVES = [f"{1 / d:.4f}s" for d in (1000, 750, 500, 350, 250, 180, 125, 90, 60, 45, 30)] + [f"{s:.4f}s" for s in (0.7, 1.5)]
+
+
+def test_shutter_display_shows_a_decimal_ladder_as_the_camera_marks_it():
+    from negpy.services.capture.calibration import shutter_displays
+
+    assert shutter_displays(_NIKON_THIRDS) == [
+        "1/1000", "1/800", "1/640", "1/500", "1/250", "1/125", "1/60", "1/30", "1/15", "1/13", "1/8", "1/4",
+        '0.3"', '0.4"', '1"', '1.3"', '2.5"', '30"',
+    ]  # fmt: skip
+    assert shutter_displays(_NIKON_HALVES) == [
+        "1/1000", "1/750", "1/500", "1/350", "1/250", "1/180", "1/125", "1/90", "1/60", "1/45", "1/30", '0.7"', '1.5"',
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("label", "shown"),
+    [
+        ("1/30", "1/30"),
+        ("1/2", "1/2"),
+        ("4/10", '0.4"'),
+        ("0.4", '0.4"'),
+        ("1", '1"'),
+        ("0.0013s", "1/800"),
+        ("Bulb", "Bulb"),
+        ("1/0", "1/0"),
+        ("", ""),
+    ],
+)
+def test_shutter_display_of_one_label(label, shown):
+    from negpy.services.capture.calibration import shutter_display
+
+    assert shutter_display(label) == shown

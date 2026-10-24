@@ -387,3 +387,20 @@ def test_preserve_embed_plan_keeps_source_xmp_packet() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.parametrize(
+    ("rational", "shown"),
+    [((10, 300), "1/30s"), ((1, 30), "1/30s"), ((10, 25), "0.4s"), ((13, 10), "1.3s"), ((10, 75), "1/7.5s"), ((5, 0), "")],
+)
+def test_the_exposure_time_shows_as_the_camera_marks_it_and_parses_back(rational, shown):
+    from fractions import Fraction
+
+    from negpy.features.metadata.exif_read import format_exposure
+    from negpy.features.metadata.writer import _parse_exposure_str
+
+    text = format_exposure({piexif.ExifIFD.ExposureTime: rational})
+
+    assert text == shown
+    if shown:
+        assert Fraction(*_parse_exposure_str(text)[piexif.ExifIFD.ExposureTime]) == Fraction(*rational)
