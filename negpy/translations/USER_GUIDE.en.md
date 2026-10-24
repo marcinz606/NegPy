@@ -26,7 +26,7 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 *   **Canvas** (center): the picture. Scroll or pinch to zoom, drag to pan, and double-click to switch between fit and 100%. Right-click for view options, copy and paste of settings, resets and **Unload**.
 *   **Film Strip** (under the canvas): the open frames in one row. Drag its top edge to resize it; `Ctrl+[` folds it away.
-*   **Toolbar** (bottom): **Photo** holds navigation, zoom, rotate, **Tools** (crop, pickers, masks, retouching), undo, the **Print** menu (Before / After and the peeks) and **Overlays**. **Roll** holds the Film Strip's import, filter, sort and roll actions. The **⋯** menu holds every action, **Preferences…** included.
+*   **Toolbar** (bottom): **Photo** holds navigation, zoom, rotate, **Tools** (crop, pickers, masks, light leaks, retouching), undo, the **Print** menu (Before / After and the peeks) and **Overlays**. **Roll** holds the Film Strip's import, filter, sort and roll actions. The **⋯** menu holds every action, **Preferences…** included.
 *   **Controls** (right): the tabs **Library**, **Roll**, **Frame**, **Metadata**, **Export** and **Scan**. Only Roll and Frame change the picture. Drag the panel by its top edge to float it.
 *   **Frame Info** (`I`): the file name, film and size in the corners of the canvas.
 
@@ -391,8 +391,25 @@ On a lith print only Selenium and Gold work. On a cyanotype no toner works.
 
 ## 7. Finish tab
 
+<!-- panel:leak -->
+### 7.1 Light Leak
+
+Reduces the glow a light leak adds to a negative or a slide, before any dust repair, only under the leaks you place. Burned-out film stays: heal or clone it. Not available on Positive frames and composites.
+
+*   **Reduce Light Leak** turns the correction on. **Auto** (magic) places a shape on each leak the film supports: an edge where lit rebate carries on into the picture, a band along a straight leak. Glow that stops at the frame line is edge fog or edge print, and Auto leaves it.
+*   **From Roll** (film icon): with other frames selected, carries this frame's leaks to each, and each frame reads the leak's strength and color itself. With none selected, it selects the frames Auto finds a leak on.
+*   **Film Dmax** (Off, or 0.05 to 4.0 D): the film's maximum density, for a film whose dense end is saturated.
+*   **Recover Layers**: rebuilds a color layer the leak drove to its densest from the layers that still hold the picture.
+*   **Grain** and **Contrast** act only where leak came off: Grain calms stretched grain, Contrast restores flattened contrast.
+*   **Band**: drag along the leak's strongest line, then drag each dashed edge to where it fades out.
+*   **Edge**: drag along the side the leak comes in from; the line snaps to it. Where the crop takes in the lit gap between frames, the edge clears it along the whole side.
+*   **Spot**: drag out an oval over a round leak.
+*   **Paint**: brush over a leak with no line or center, wider than the leak.
+*   **Selected leak**: **Strength** (0 to 400%) sets how much of the leak comes off; **Falloff** how a band, spot or painted region fades toward its edge; **Color** where its color comes from (**Auto**, **Back** for light through the base, **Front** for light on the emulsion side); **Color Trim** takes out more or less of its leading color. Color and Color Trim are hidden on B&W film.
+*   **Show Burned** (flame) marks film the leak burned out in every layer.
+
 <!-- panel:retouch -->
-### 7.1 Retouch: dust, hairs, scratches
+### 7.2 Retouch: dust, hairs, scratches
 
 Removes dust, hairs and scratches. Each repair is rebuilt from the clean film around it.
 
@@ -407,7 +424,7 @@ Removes dust, hairs and scratches. Each repair is rebuilt from the clean film ar
 *   **Undo Last** and **Clear All** remove manual repairs; right-click one on the picture to delete it.
 
 <!-- panel:finish -->
-### 7.2 Finishing: vignette, carrier, border
+### 7.3 Finishing: vignette, carrier, border
 
 How the print is presented. The other sliders of each effect show once its first slider is not 0.
 
@@ -661,7 +678,7 @@ The **Export** button is at the bottom of the tab. Above it, **File** holds the 
 ### Output intent
 
 *   **Print** (default): the picture as you see it.
-*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. Run **Roll Analysis** first so the masters of a roll match.
+*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps light leak reduction and a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. Run **Roll Analysis** first so the masters of a roll match.
 *   **Linear**: the raw scan data before NegPy's processing, as a 16-bit TIFF or JPEG XL, for a raw workflow in another app. It reads camera RAW, LinearRaw DNG, Coolscan NEF, Flextight, Noritsu and Pakon files and TIFF scans. Options for infrared, white balance, flat field, sensor and lens correction are off at first. File names get `_linear`, so a source is never overwritten.
 
 ### File settings

@@ -83,6 +83,7 @@ class TestAppController(unittest.TestCase):
             self.controller.preview_load_thread,
             self.controller.prefetch_load_thread,
             self.controller.scan_thread,
+            self.controller.leak_auto_thread,
         ]:
             if thread is not None and thread.isRunning():
                 thread.quit()
@@ -3108,6 +3109,256 @@ class TestAppController(unittest.TestCase):
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(len(saved_config.local.masks), 1)
         self.assertEqual(saved_config.local.masks[0].shape, MaskShape.GRADIENT)
+
+    def _identity_uv(self):
+        import numpy as np
+
+        u, v = np.meshgrid(np.linspace(0, 1, 64, dtype=np.float32), np.linspace(0, 1, 64, dtype=np.float32))
+        return np.stack([u, v], axis=-1)
+
+    def test_a_drawn_leak_band_is_stored_raw_and_turns_removal_on(self):
+        import numpy as np
+
+        from negpy.features.leak.shapes import NEW_BAND_WIDTH
+
+        self.controller.state.active_tool = ToolMode.LEAK_BAND
+        self.controller.state.last_metrics["uv_grid"] = self._identity_uv()
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_leak_shape_created("band", [(0.7, 0.1), (0.7, 0.9)])
+
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertTrue(saved.leak_remove)
+        np.testing.assert_allclose(saved.leak_shapes[0].points, ((0.7, 0.1), (0.7, 0.9)), atol=0.02)
+        self.assertEqual(saved.leak_shapes[0].width, (NEW_BAND_WIDTH, NEW_BAND_WIDTH))
+        self.assertEqual(self.controller.state.active_tool, ToolMode.LEAK_BAND)
+
+    def test_a_drawn_edge_leak_snaps_to_the_nearest_picture_side(self):
+        import numpy as np
+
+        from negpy.features.geometry.models import GeometryConfig
+        from negpy.features.leak.models import LeakKind
+
+        self.controller.state.config = replace(self.controller.state.config, geometry=GeometryConfig(crop_rect=(0.1, 0.2, 0.9, 0.8)))
+        self.controller.state.preview_raw = np.full((300, 400, 3), 0.5, dtype=np.float32)
+        self.controller.state.last_metrics["uv_grid"] = self._identity_uv()
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_leak_shape_created("edge", [(0.3, 0.17), (0.6, 0.22)])
+
+        edge = self.mock_session_manager.update_config.call_args.args[0].leak.leak_shapes[-1]
+        self.assertIs(edge.kind, LeakKind.EDGE)
+        (x0, y0), (x1, y1) = edge.points
+        self.assertAlmostEqual(y0, 0.2, delta=0.01)
+        self.assertAlmostEqual(y1, 0.2, delta=0.01)
+        self.assertLess(x0, x1, "the picture lies left of the line's direction, below a top edge")
+
+    def _with_leaks(self, *shapes):
+        self.controller.state.config = replace(
+            self.controller.state.config, leak=replace(self.controller.state.config.leak, leak_shapes=tuple(shapes))
+        )
+        self.controller.request_render = MagicMock()
+
+    def test_an_edited_leak_shape_replaces_only_its_own(self):
+        from negpy.features.leak.shapes import new_band
+
+        first, second = new_band((0.7, 0.1), (0.7, 0.9), 0.05, 0.05), new_band((0.1, 0.2), (0.3, 0.2), 0.04, 0.04)
+        self._with_leaks(first, second)
+        moved = new_band((0.1, 0.2), (0.4, 0.25), 0.06, 0.02)
+
+        self.controller.handle_leak_shape_edited(1, moved)
+
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, (first, moved))
+
+    def test_undo_last_leak_drops_only_the_newest(self):
+        from negpy.features.leak.shapes import new_band
+
+        first, second = new_band((0.7, 0.1), (0.7, 0.9)), new_band((0.1, 0.2), (0.3, 0.2))
+        self._with_leaks(first, second)
+
+        self.controller.undo_last_leak()
+
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, (first,))
+
+    def _auto_found(self, found):
+        self.controller.state.current_file_hash = "h"
+        self.controller._on_leak_auto_finished({"hash": "h", "found": list(found), "shape": (40, 60)})
+
+    def test_auto_leaks_sends_the_open_frame_to_its_thread_once(self):
+        import numpy as np
+
+        self.controller.state.current_file_hash = "h"
+        self.controller.state.preview_raw = np.full((40, 60, 3), 0.5, dtype=np.float32)
+        self.controller._leak_auto_started = True
+        sent = []
+        self.controller.leak_auto_requested.connect(sent.append)
+        self.controller.auto_leaks()
+        self.controller.auto_leaks()
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0].file_hash, "h")
+        self.assertIs(sent[0].config, self.controller.state.config)
+        self.assertIsNot(sent[0].img, self.controller.state.preview_raw)
+
+    def test_auto_leaks_adds_what_it_finds_and_arms_the_tool(self):
+        from negpy.features.leak.shapes import new_band
+
+        self.controller.request_render = MagicMock()
+        found = [new_band((0.7, 0.05), (0.7, 0.95), 0.1, 0.1)]
+        self._auto_found(found)
+
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertTrue(saved.leak_remove)
+        self.assertEqual(saved.leak_shapes, tuple(found))
+        self.assertEqual(self.controller.state.active_tool, ToolMode.LEAK_BAND)
+
+    def test_auto_leaks_drops_a_result_for_a_frame_no_longer_open(self):
+        from negpy.features.leak.shapes import new_band
+
+        self.controller.state.current_file_hash = "other"
+        self.mock_session_manager.update_config.reset_mock()
+        self.controller._on_leak_auto_finished({"hash": "h", "found": [new_band((0.7, 0.05), (0.7, 0.95))], "shape": (40, 60)})
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_auto_leaks_skips_a_leak_that_already_has_a_band(self):
+        from negpy.features.leak.shapes import new_band
+
+        have = new_band((0.7, 0.05), (0.7, 0.95), 0.1, 0.1)
+        same = new_band((0.71, 0.04), (0.69, 0.96), 0.09, 0.11)
+        other = new_band((0.2, 0.05), (0.25, 0.95), 0.05, 0.05)
+        self._with_leaks(have)
+        self.controller.set_status = MagicMock()
+        self._auto_found([same])
+        self.assertEqual(self.controller.set_status.call_args.args[0], "This leak already has a shape")
+        self.assertEqual(self.controller.state.active_tool, ToolMode.LEAK_BAND)
+
+        self.mock_session_manager.update_config.reset_mock()
+        self._auto_found([same, other])
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, (have, other))
+
+    def test_auto_leaks_arms_the_edge_tool_for_an_edge(self):
+        from negpy.features.leak.shapes import new_band, new_edge
+
+        self.controller.request_render = MagicMock()
+        edge = new_edge((0.1, 0.1), (0.9, 0.1), 0.2)
+        band = new_band((0.5, 0.1), (0.5, 0.9), 0.05, 0.05)
+        self._auto_found([edge, band])
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, (edge, band))
+        self.assertEqual(self.controller.state.active_tool, ToolMode.LEAK_EDGE)
+
+    def test_a_drawn_spot_is_stored_raw_and_selected(self):
+        from negpy.features.leak.models import LeakKind
+
+        self.controller.state.last_metrics["uv_grid"] = self._identity_uv()
+        self.controller.request_render = MagicMock()
+        self.controller.handle_leak_shape_created("spot", [(0.5, 0.5), (0.6, 0.5), (0.5, 0.65)])
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertIs(saved.leak_shapes[-1].kind, LeakKind.SPOT)
+        self.assertEqual(len(saved.leak_shapes[-1].points), 3)
+        self.assertEqual(self.controller.state.leak_selected, len(saved.leak_shapes) - 1)
+
+    def test_selected_leak_edits_reach_only_that_leak(self):
+        from negpy.features.leak.shapes import new_band
+
+        first, second = new_band((0.7, 0.1), (0.7, 0.9)), new_band((0.1, 0.2), (0.3, 0.2))
+        self._with_leaks(first, second)
+        self.controller.select_leak(1)
+        self.controller.update_selected_leak(strength=2.0)
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, (first, replace(second, strength=2.0)))
+        self.controller.set_leak_enabled(0, False)
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertFalse(saved.leak_shapes[0].enabled)
+
+    def test_deleting_a_leak_keeps_the_selection_on_its_shape(self):
+        from negpy.features.leak.shapes import new_band
+
+        shapes = tuple(new_band((x, 0.1), (x, 0.9)) for x in (0.2, 0.5, 0.8))
+        self._with_leaks(*shapes)
+        self.controller.state.leak_selected = 2
+        with patch("negpy.desktop.view.confirm.confirm_delete_leak", return_value=True):
+            self.controller.delete_leak(0)
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(saved.leak_shapes, shapes[1:])
+        self.assertEqual(self.controller.state.leak_selected, 1)
+
+    def _roll(self):
+        self.controller.state.uploaded_files = [
+            {"name": "a.nef", "path": "/roll/a.nef", "hash": "ha"},
+            {"name": "b.nef", "path": "/roll/b.nef", "hash": "hb"},
+            {"name": "c.nef", "path": "/roll/c.nef", "hash": "hc"},
+        ]
+        self.controller.state.current_file_hash = "ha"
+        self.controller.request_render = MagicMock()
+        self.controller.set_status = MagicMock()
+        self.controller._end_batch = MagicMock()
+
+    def test_from_roll_saves_the_carried_leak_on_each_frame(self):
+        from negpy.features.leak.shapes import new_band
+
+        self._roll()
+        own = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, density=1.3))
+        self.mock_session_manager.config_for_asset.return_value = own
+        carried = (new_band((0.5, 0.1), (0.5, 0.9)),)
+        self.controller._on_leak_roll_finished({"shapes": {"hb": carried, "gone": carried}})
+        self.mock_session_manager.config_for_asset.assert_called_once_with(self.controller.state.uploaded_files[1])
+        call = self.mock_session_manager.repo.save_file_settings.call_args
+        file_hash, saved = call.args[:2]
+        self.assertEqual(file_hash, "hb")
+        self.assertEqual(call.kwargs["file_path"], "/roll/b.nef")
+        self.assertEqual(saved, replace(own, leak=replace(own.leak, leak_shapes=carried, leak_remove=True)))
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["hb"])
+
+    def test_from_roll_selects_the_frames_that_show_a_leak(self):
+        self._roll()
+        self.controller._on_leak_roll_finished({"found": ["ha", "hc"]})
+        self.mock_session_manager.update_selection.assert_called_once_with([0, 2])
+
+    def test_from_roll_needs_a_leak_to_carry(self):
+        self._roll()
+        self.controller.state.selected_indices = [0, 1]
+        self.controller._begin_batch = MagicMock()
+        self.controller.leaks_from_roll()
+        self.controller._begin_batch.assert_not_called()
+        self.controller.set_status.assert_called_once()
+
+    def test_paint_strokes_grow_the_selected_painted_leak(self):
+        from negpy.features.leak.models import LeakKind
+        from negpy.features.leak.shapes import new_band
+
+        self._with_leaks(new_band((0.7, 0.1), (0.7, 0.9)))
+        self.controller.state.last_metrics["uv_grid"] = self._identity_uv()
+        self.controller.state.leak_selected = 0
+        self.controller.handle_leak_paint_completed([(0.2, 0.3), (0.4, 0.3)])
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertIs(saved.leak_shapes[1].kind, LeakKind.PAINT, "a band selected: the stroke starts a painted leak")
+        self.assertEqual(self.controller.state.leak_selected, 1)
+        self.controller.state.config = replace(self.controller.state.config, leak=saved)
+        self.controller.handle_leak_paint_completed([(0.25, 0.5)])
+        saved = self.mock_session_manager.update_config.call_args.args[0].leak
+        self.assertEqual(len(saved.leak_shapes), 2)
+        self.assertEqual(len(saved.leak_shapes[1].strokes), 2)
+        self.assertEqual(saved.leak_shapes[1].strokes[1][1], float(self.controller.state.config.retouch.manual_dust_size))
+
+    def test_show_burned_repaints_without_a_render(self):
+        self.controller.request_render = MagicMock()
+        emitted = []
+        self.controller.dust_overlay_changed.connect(lambda: emitted.append(True))
+        self.controller.set_leak_show_burned(True)
+        self.assertTrue(self.controller.state.leak_show_burned)
+        self.assertEqual(emitted, [True])
+        self.controller.request_render.assert_not_called()
+
+    def test_auto_leaks_says_so_when_it_finds_nothing(self):
+        self.controller.set_status = MagicMock()
+        self.mock_session_manager.update_config.reset_mock()
+        self._auto_found([])
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.assertEqual(self.controller.set_status.call_args.args[0], "No light leak found")
 
 
 class TestBatchExportFiltering(unittest.TestCase):

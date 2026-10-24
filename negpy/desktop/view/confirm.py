@@ -177,6 +177,27 @@ def confirm_clear_clones(parent, count: int) -> bool:
     )
 
 
+def confirm_delete_leak(parent) -> bool:
+    """Ask before deleting a single light leak shape. Enter confirms; Esc cancels."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle(tr("Delete Leak"))
+    box.setText(tr("Delete this light leak?"))
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
+def confirm_clear_leaks(parent, count: int) -> bool:
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle(tr("Clear All Leaks"))
+    box.setText(tr("Remove all {value} from this image?", value=count_of(count, tr("leak"))))
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_assembly_mode(parent, mode: str, count: int) -> bool:
     """Ask before Trichrome or Half Frame mode goes on.
 
