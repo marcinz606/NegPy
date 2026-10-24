@@ -826,6 +826,7 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 
 *   **Language**: English, Simplified Chinese, Japanese or Korean, after a restart.
 *   **UI scale**: 80% to 120%, after a restart.
+*   **UI theme**: **Black** (default), **Mid Gray** or **Light Gray** for the app's panels and chrome, after a restart.
 *   **Canvas background**: from black to white. Mid gray is best for judging a print.
 *   **Sticky Zoom**: keeps the zoom when you change frames. **Reverse Scroll Zoom**: scroll up zooms out.
 *   **Shortcut Hints** (on at first): after you use a control with the mouse, a toast on the canvas shows its keyboard shortcut, once per session.
