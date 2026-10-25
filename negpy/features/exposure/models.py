@@ -46,11 +46,9 @@ class ExposureConfig:
     highlight_density: float = 0.0
     # A shadow lift fades to nothing at paper black, so the black point barely moves.
     hold_black: bool = False
-    # Unsharp mask gamma: positive sandwiches a blurred positive and reduces contrast,
-    # negative a blurred negative and increases it. [-0.5, 0.5]; 0 = no mask.
-    contrast_mask: float = 0.0
-    # The mask's spacer: the scale above which tones are masked. [2.0, 6.0] %.
-    mask_spacer: float = 4.0
+    # Tone mask: lifts large dark areas and holds back large bright ones, more the farther they sit
+    # from mid-gray (contrast_mask_coeffs). [0, 1]; 0 = off.
+    contrast_mask_strength: float = 0.0
     # A diffuser under the enlarger lens: the paper sees the light mixed with a blurred copy,
     # so shadows bleed into highlights. [0, 1]; 0 = off; fixed spread (DIFFUSION_SPREAD).
     diffusion: float = 0.0

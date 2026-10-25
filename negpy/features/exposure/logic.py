@@ -1253,7 +1253,7 @@ def expand_mask_plane(
     it lands back at `roi`, edge-replicated so the uncropped preview has no seam.
 
     Split from `contrast_mask_ev` so a caller can cache this across slider values: only
-    the scalar depends on the gamma. The GPU shader mirrors the bilinear mapping.
+    the coefficients move with them. The GPU shader mirrors the bilinear mapping.
     """
     return _expanded(plane, out_shape, roi, 1.0)
 
@@ -1272,30 +1272,61 @@ def _expanded(
     return negpy_core.expand_plane(np.ascontiguousarray(plane, dtype=np.float32), (h, w), (y1, y2, x1, x2), scale)
 
 
-def contrast_mask_scale(gamma: float, density_range: float) -> float:
-    """
-    Stops of print exposure per unit of mask plane.
+# Contrast Mask tone codes, after the Frontier's HyperTone: 10-bit print density with mid-gray at
+# 412, reference_print_density at 450 and MASK_CODES_PER_DENSITY codes per unit. Its table is
+# sign(412 - i) * (i - 412)^2 / 256 over codes 0..1023, capped at 819, and a quarter of it is added.
+MASK_MID_CODE = 412.0
+MASK_AIM_CODE = 450.0
+MASK_CODES_PER_DENSITY = 145.0
+MASK_CODE_MAX = 1023.0
+MASK_TABLE_CAP = 819.0
 
-    The sandwich D' = D - g*blur(D) is val - g*blur in normalized space; one stop is
-    log10(2) of density, and equal stops is an equal density change in every channel,
-    as a neutral panchromatic masking film gives. Positive g is a blurred positive and
-    subtracts the low frequencies; negative g matches the negative's polarity and adds
-    them.
+
+def contrast_mask_coeffs(
+    strength: float,
+    centre: float,
+    slopes: Tuple[float, float, float],
+    pivots: Tuple[float, float, float],
+    offsets: Tuple[float, float, float],
+    density_range: float,
+) -> Optional[Tuple[float, float, float, float, float, float, float]]:
     """
-    return -float(gamma) * float(density_range) / float(np.log10(2.0))
+    The (a, b, lo, hi, g_lo, g_hi, lim) of negpy_core.contrast_mask_stops, or None when off. Both sides
+    take `strength` of the full table. The luma's code is the mean of the three
+    channels' straight lines, as the Frontier reads the mean of its channels; green's sizes the stops.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    slope = float(np.mean(slopes))
+    if strength <= 0.0 or slope <= 0.0 or slopes[1] <= 0.0 or density_range <= 0.0:
+        return None
+    c = MASK_CODES_PER_DENSITY
+    ref = float(EXPOSURE_CONSTANTS["reference_print_density"])
+    shift = float(np.mean([k * (o - p) for k, o, p in zip(slopes, offsets, pivots)]))
+    stops_per_code = float(density_range) / (c * float(slopes[1]) * math.log10(2.0))
+    gain = float(strength) * stops_per_code / (4.0 * 256.0)
+    return (
+        c * slope,
+        MASK_AIM_CODE + c * (slope * centre + shift - ref) - MASK_MID_CODE,
+        -MASK_MID_CODE,
+        MASK_CODE_MAX - MASK_MID_CODE,
+        gain,
+        gain,
+        MASK_TABLE_CAP / 4.0 * stops_per_code,
+    )
 
 
 def contrast_mask_ev(
     plane: Optional[np.ndarray],
-    gamma: float,
-    density_range: float,
+    coeffs: Optional[Tuple[float, ...]],
     out_shape: Tuple[int, int],
     roi: Optional[Tuple[int, int, int, int]] = None,
 ) -> Optional[np.ndarray]:
     """The contrast mask as print-exposure stops, ready to add to the dodge/burn map."""
-    if plane is None or abs(gamma) < 1e-6:
+    if plane is None or coeffs is None:
         return None
-    return _expanded(plane, out_shape, roi, contrast_mask_scale(gamma, density_range))
+    expanded = _expanded(plane, out_shape, roi, 1.0)
+    return None if expanded is None else negpy_core.contrast_mask_stops(expanded, tuple(float(k) for k in coeffs))
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

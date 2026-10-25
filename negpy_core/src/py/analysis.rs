@@ -727,6 +727,11 @@ fn contrast_mask_tail<'py>(
     sigma: f64,
 ) -> PyResult<(Bound<'py, PyArrayDyn<f32>>, f32)> {
     let (h, w) = rgb_dims(&val, "contrast_mask_tail")?;
+    if h * w == 0 {
+        return Err(PyValueError::new_err(
+            "contrast_mask_tail needs a non-empty plane",
+        ));
+    }
     let data = slice(&val)?;
     let (plane, centre) = super::detach(py, data.len(), || {
         analysis::contrast_mask_tail(data, h, w, sigma)
@@ -736,6 +741,22 @@ fn contrast_mask_tail<'py>(
         numpy::PyArray1::from_vec(py, plane).reshape(vec![h, w])?,
         centre,
     ))
+}
+
+/// The Contrast Mask's print stops from its plane, any shape; `k` is
+/// (a, b, lo, hi, g_lo, g_hi, lim) from `contrast_mask_coeffs`.
+#[pyfunction]
+fn contrast_mask_stops<'py>(
+    py: Python<'py>,
+    plane: PyReadonlyArrayDyn<'py, f32>,
+    k: [f32; 7],
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let data = slice(&plane)?;
+    let shape = plane.shape().to_vec();
+    filled_f32(py, &shape, data.len(), |dst| {
+        analysis::contrast_mask_stops(data, dst, k);
+        Some(())
+    })
 }
 
 /// `diffusion_grid`'s blurred light of an unmixed HxWx3 log plane, as log10.
@@ -803,5 +824,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(luma_median, m)?)?;
     m.add_function(wrap_pyfunction!(luma_planes, m)?)?;
     m.add_function(wrap_pyfunction!(contrast_mask_tail, m)?)?;
+    m.add_function(wrap_pyfunction!(contrast_mask_stops, m)?)?;
     m.add_function(wrap_pyfunction!(diffusion_tail, m)?)
 }

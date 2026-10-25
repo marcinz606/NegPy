@@ -1744,6 +1744,19 @@ pub fn contrast_mask_tail(val: &[f32], h: usize, w: usize, sigma: f64) -> Option
     Some((blurred, centre))
 }
 
+/// The Contrast Mask's print stops from its zero-mean plane: `d = a·p + b` clamped to
+/// `[lo, hi]`, then `g_lo·d²` below zero and `-g_hi·d²` above, clamped to `±lim`.
+/// Mirrors `contrast_mask_stops` in exposure.wgsl.
+pub fn contrast_mask_stops(plane: &[f32], dst: &mut [f32], k: [f32; 7]) {
+    let [a, b, lo, hi, g_lo, g_hi, lim] = k;
+    // max/min, not clamp: clamp panics on bad bounds, and this is WGSL's clamp.
+    crate::par_zip(dst, plane, move |d, &p| {
+        let x = (a * p + b).max(lo).min(hi);
+        let t = if x < 0.0 { g_lo * x * x } else { -g_hi * x * x };
+        *d = t.max(-lim).min(lim);
+    });
+}
+
 /// `diffusion_grid` after the unmix: 10^x of an HxWx3 log plane, blurred by `sigma` with a
 /// replicated border, back to log10.
 pub fn diffusion_tail(
@@ -1776,6 +1789,25 @@ pub fn diffusion_tail(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contrast_mask_stops_burns_below_and_dodges_above() {
+        let plane = [-2.0f32, -1.0, 0.0, 1.0, 2.0];
+        let mut out = [0f32; 5];
+        contrast_mask_stops(
+            &plane,
+            &mut out,
+            [100.0, 0.0, -150.0, 150.0, 1e-4, 2e-4, 3.0],
+        );
+        assert_eq!(out[2], 0.0);
+        assert!((out[1] - 1.0).abs() < 1e-6);
+        assert!((out[3] + 2.0).abs() < 1e-6);
+        // d clamps at -150 below (2.25), the stop limit at -3 above.
+        assert!((out[0] - 2.25).abs() < 1e-6);
+        assert_eq!(out[4], -3.0);
+        // Bad bounds stay finite-or-NaN output, never a panic.
+        contrast_mask_stops(&plane, &mut out, [1.0, 0.0, 1.0, -1.0, 1.0, 1.0, f32::NAN]);
+    }
 
     #[test]
     fn normalize_spans_0_to_255() {

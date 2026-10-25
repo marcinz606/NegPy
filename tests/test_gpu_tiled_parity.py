@@ -83,9 +83,12 @@ class TestGpuTiledParity(unittest.TestCase):
         self._assert_parity(settings, "Tiled export dropped Tilt/Swing")
 
     def test_tiled_applies_contrast_mask(self):
+        # A hard grade carries the gentle ramp's tails far enough past mid-gray for the mask to act.
         base = _base()
-        settings = replace(base, exposure=replace(base.exposure, contrast_mask=0.4))
-        self._assert_changes_export(settings, "Contrast Mask did nothing to the tiled export")
+        hard = replace(base, exposure=replace(base.exposure, grade=40.0))
+        settings = replace(hard, exposure=replace(hard.exposure, contrast_mask_strength=1.0))
+        diff = float(np.abs(self._tiled(settings) - self._tiled(hard)).mean())
+        self.assertGreater(diff, 0.01, "Contrast Mask did nothing to the tiled export")
         self._assert_parity(settings, "Tiled export dropped the Contrast Mask")
 
     def test_tiled_applies_sabattier(self):
@@ -137,7 +140,7 @@ class TestGpuTiledParity(unittest.TestCase):
         settings = replace(
             base,
             geometry=replace(base.geometry, rotation=1, flip_horizontal=True, fine_rotation=1.5, converge_v=6.0, converge_h=-4.0),
-            exposure=replace(base.exposure, contrast_mask=0.35, grade=140.0, wb_cyan=0.1, shadow_density=0.2),
+            exposure=replace(base.exposure, contrast_mask_strength=0.7, grade=140.0, wb_cyan=0.1, shadow_density=0.2),
             local=LocalAdjustmentsConfig(
                 masks=(LocalMask(vertices=((0.3, 0.3), (0.7, 0.7)), stops=1.0, grade=15.0, shape=MaskShape.GRADIENT),),
             ),

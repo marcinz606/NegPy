@@ -27,7 +27,6 @@ SLIDER_ATTRS: dict[str, str] = {
     "dye_separation": "paper_sidebar.dye_separation_slider",
     "separation_damping": "paper_sidebar.separation_damping_slider",
     "contrast_mask": "tone_sidebar.contrast_mask_slider",
-    "mask_spacer": "tone_sidebar.mask_spacer_slider",
     "diffusion": "tone_sidebar.diffusion_slider",
     "preflash": "tone_sidebar.preflash_slider",
     "offset": "autocrop_sidebar.offset_slider",

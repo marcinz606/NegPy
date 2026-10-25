@@ -2,7 +2,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock
 
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QPushButton
 
 from negpy.desktop.view.canvas.toolbar import DEFAULT_TOOLBAR_IDS, TOOLBAR_ITEM_BY_ID, TOOLBAR_ITEMS, ActionToolbar, load_toolbar_items
 from negpy.desktop.session import ToolMode
@@ -53,7 +53,7 @@ def _make_toolbar() -> ActionToolbar:
     return ActionToolbar(controller)
 
 
-def _repo(stored, added=("tools",)) -> MagicMock:
+def _repo(stored, added=("tools", "export")) -> MagicMock:
     """A stored row whose new items were already offered, unless *added* says otherwise."""
     repo = MagicMock()
     settings = {"toolbar_items": stored, "toolbar_added_items": list(added)}
@@ -349,14 +349,14 @@ class TestToolbarCustomization(unittest.TestCase):
         repo.save_global_setting.assert_not_called()
 
     def test_a_stored_row_gets_tools_once_before_undo(self):
-        repo = _repo(["prev", "undo", "redo"], added=())
+        repo = _repo(["prev", "undo", "redo"], added=("export",))
         self.assertEqual(load_toolbar_items(repo), ["prev", "tools", "undo", "redo"])
         repo.save_global_settings.assert_called_once_with(
-            {"toolbar_items": ["prev", "tools", "undo", "redo"], "toolbar_added_items": ["tools"]}
+            {"toolbar_items": ["prev", "tools", "undo", "redo"], "toolbar_added_items": ["export", "tools"]}
         )
 
     def test_a_stored_row_without_undo_gets_tools_last(self):
-        self.assertEqual(load_toolbar_items(_repo(["prev", "next"], added=())), ["prev", "next", "tools"])
+        self.assertEqual(load_toolbar_items(_repo(["prev", "next"], added=())), ["prev", "next", "tools", "export"])
 
     def test_a_removed_tools_button_stays_removed(self):
         repo = _repo(["prev", "undo"])
@@ -629,8 +629,7 @@ class TestFrameCounter(unittest.TestCase):
 
 class TestViewChooser(unittest.TestCase):
     def _choose(self, tb: ActionToolbar, label: str) -> None:
-        index = next(i for i in range(tb.source_choice.count()) if tb.source_choice.itemText(i).startswith(label))
-        tb.source_choice.setCurrentIndex(index)
+        next(a for a in tb._source_actions if a.text().startswith(label)).trigger()
 
     def test_a_peek_drives_the_controller(self):
         tb = _make_toolbar()
@@ -659,23 +658,68 @@ class TestViewChooser(unittest.TestCase):
         tb = _make_toolbar()
         tb.session.state.embedded_peek = True
         tb._sync_view_state()
-        self.assertEqual(tb.source_choice.currentText(), "Embedded")
+        self.assertEqual(tb.source_choice.text().strip(), "Embedded")
         tb.controller.toggle_embedded_peek.assert_not_called()
 
     def test_a_refused_peek_falls_back_to_print(self):
         """A file with no embedded preview leaves the state off; the chooser must not claim it is on."""
         tb = _make_toolbar()
         self._choose(tb, "Embedded")
-        self.assertEqual(tb.source_choice.currentText(), "Print")
+        self.assertEqual(tb.source_choice.text().strip(), "Print")
 
     def test_flat_scan_needs_no_flat_output(self):
         """The peek renders the flat master from any frame, like its key."""
         tb = _make_toolbar()
         tb.session.state.flat_output = False
         tb._sync_view_state()
-        flat = next(i for i in range(tb.source_choice.count()) if tb.source_choice.itemText(i).startswith("Flat Scan"))
-        self.assertTrue(tb.source_choice.is_item_enabled(flat))
+        flat = next(a for a in tb._source_actions if a.text().startswith("Flat Scan"))
+        self.assertTrue(flat.isEnabled())
         self.assertTrue(tb._ov_flat_peek_action.isEnabled())
+
+
+class TestExportMirror(unittest.TestCase):
+    def _mirrored(self):
+        tb = _make_toolbar()
+        source = QPushButton()
+        source.setToolTip("Export the current frame")
+        menu = QMenu()
+        for text in ("Frame", "Selected", "Roll"):
+            menu.addAction(text).setCheckable(True)
+        menu.actions()[0].setChecked(True)
+        tb.mirror_export(source, menu)
+        return tb, source, menu
+
+    def test_clicks_the_panel_button_and_shares_its_scope_menu(self):
+        tb, source, menu = self._mirrored()
+        clicked = []
+        source.clicked.connect(lambda: clicked.append(True))
+        tb.btn_export.click()
+        self.assertEqual(clicked, [True])
+        self.assertEqual(tb._export_menu.actions(), menu.actions())
+
+    def test_the_label_names_the_chosen_scope(self):
+        tb, _source, menu = self._mirrored()
+        self.assertEqual(tb.btn_export.text().strip(), "Frame")
+        menu.actions()[2].setChecked(True)
+        self.assertEqual(tb.btn_export.text().strip(), "Roll")
+        menu.actions()[1].setChecked(True)
+        self.assertEqual(tb.btn_export.text().strip(), "Selected")
+
+    def test_follows_the_panel_buttons_state(self):
+        tb, source, _menu = self._mirrored()
+        source.setEnabled(False)
+        source.setToolTip("Export every visible frame")
+        self.assertFalse(tb.btn_export.isEnabled())
+        self.assertFalse(tb.btn_export_menu.isEnabled())
+        self.assertEqual(tb.btn_export.toolTip(), "Export every visible frame")
+
+    def test_a_stored_row_gets_export_once_before_overlays(self):
+        repo = _repo(["source", "overlays"], added=("tools",))
+        self.assertEqual(load_toolbar_items(repo), ["source", "export", "overlays"])
+
+    def test_on_the_stock_row_and_hideable(self):
+        self.assertIn("export", DEFAULT_TOOLBAR_IDS)
+        self.assertIn("export", TOOLBAR_ITEM_BY_ID)
 
 
 class TestOverlaysMenu(unittest.TestCase):
@@ -1088,7 +1132,7 @@ def test_each_run_of_buttons_sits_flat_in_one_track():
     def rect(w):
         return QRect(w.mapTo(tb, QPoint(0, 0)), w.size())
 
-    buttons = [b for b in tb._view_row.findChildren(QAbstractButton) if b.isVisible()]
+    buttons = [b for b in tb._view_row.findChildren(QAbstractButton) if b.isVisible() and not b.property("primary")]
     assert buttons and all(any(t.contains(rect(b)) for t in tracks) for b in buttons)
     assert not any(t.intersects(rect(tb.mode_switch)) for t in tracks)
     assert tb.btn_tools.isFlat() and not tb.btn_tool_done.isFlat()

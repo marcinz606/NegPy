@@ -75,7 +75,7 @@ def test_the_contrast_mask_follows_a_fine_rotation_drag():
 
     def masked(**geo):
         cfg = _warped(**geo)
-        return replace(cfg, exposure=replace(cfg.exposure, contrast_mask=0.6))
+        return replace(cfg, exposure=replace(cfg.exposure, contrast_mask_strength=1.0))
 
     cached, fresh = GPUEngine(), GPUEngine()
     try:
@@ -96,7 +96,7 @@ def test_contrast_mask_with_point_trims_matches_the_cpu():
     cfg = replace(
         cfg,
         geometry=replace(cfg.geometry, autocrop_offset=0),
-        exposure=replace(cfg.exposure, contrast_mask=0.8),
+        exposure=replace(cfg.exposure, contrast_mask_strength=1.0),
         process=replace(cfg.process, white_point_offset=0.1, black_point_offset=-0.1),
     )
     processor = ImageProcessor()

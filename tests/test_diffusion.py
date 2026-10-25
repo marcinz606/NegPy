@@ -180,7 +180,7 @@ class TestDiffusionParity(unittest.TestCase):
         self.assertGreater(float(np.max(np.abs(soft - plain))), 0.02)
 
     def test_cpu_gpu_match_with_the_contrast_mask_on_the_same_texture(self):
-        self._assert_match(_settings(diffusion=0.5, contrast_mask=0.3, grade=80.0), "diffusion-mask-parity")
+        self._assert_match(_settings(diffusion=0.5, contrast_mask_strength=0.6, grade=80.0), "diffusion-mask-parity")
 
     def test_cpu_gpu_match_cropped(self):
         s = _settings(diffusion=0.6)

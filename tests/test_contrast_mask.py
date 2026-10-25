@@ -1,7 +1,7 @@
-"""The unsharp contrast-reduction mask.
+"""The Contrast Mask: an automatic tone mask after the Frontier's HyperTone.
 
-Pins what would break silently: the sign, resolution invariance, the crop boundary and
-CPU/GPU parity.
+Pins what would break silently: the sign, the fixed strength, resolution invariance,
+the crop boundary, the migration and CPU/GPU parity.
 """
 
 import unittest
@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.logic import contrast_mask_ev
+from negpy.features.exposure.logic import MASK_AIM_CODE, MASK_CODES_PER_DENSITY, MASK_MID_CODE, contrast_mask_coeffs, contrast_mask_ev
 from negpy.features.exposure.normalization import LogNegativeBounds, contrast_mask_plane
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.services.rendering.engine import DarkroomEngine
@@ -55,11 +55,14 @@ def _bw_settings(**exposure) -> WorkspaceConfig:
     )
 
 
-def _micro_contrast(plane: np.ndarray) -> list[float]:
-    """RMS Laplacian per horizontal third: thin, mid, dense."""
-    lap = cv2.Laplacian(plane, cv2.CV_32F)
-    h = plane.shape[0]
-    return [float(np.sqrt((band**2).mean()) * 100) for band in (lap[: h // 3], lap[h // 3 : 2 * h // 3], lap[2 * h // 3 :])]
+_BOUNDS = LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05))
+# Green's straight line at a mid grade: code 412 (mid-gray) sits at val 0.5 + _MID_OFFSET.
+_SLOPE, _PIVOT, _RANGE = 1.6, 0.5, 1.4
+_MID_OFFSET = ((MASK_MID_CODE - MASK_AIM_CODE) / MASK_CODES_PER_DENSITY + 0.75) / _SLOPE
+
+
+def _coeffs(strength: float = 1.0):
+    return contrast_mask_coeffs(strength, 0.5, (_SLOPE,) * 3, (_PIVOT,) * 3, (0.0,) * 3, _RANGE)
 
 
 def _render(img: np.ndarray, settings: WorkspaceConfig, tag: str) -> np.ndarray:
@@ -68,10 +71,8 @@ def _render(img: np.ndarray, settings: WorkspaceConfig, tag: str) -> np.ndarray:
 
 class TestContrastMaskPlane(unittest.TestCase):
     def test_plane_is_zero_mean(self):
-        """A sandwich is denser and the printer opens up for it, so the plane carries
-        only the redistribution; otherwise the slider doubles as Print Density."""
-        img = _wide_range_negative()
-        plane, _ = contrast_mask_plane(img, LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05)), None)
+        """The plane carries only the surround's tone; its mean rides in the centre."""
+        plane, _ = contrast_mask_plane(_wide_range_negative(), _BOUNDS, None)
         self.assertAlmostEqual(float(plane.mean()), 0.0, places=5)
 
     def test_surround_outside_the_crop_stays_out_of_the_mask(self):
@@ -81,104 +82,98 @@ class TestContrastMaskPlane(unittest.TestCase):
         img = np.full((h, w, 3), 0.35, dtype=np.float32)
         border = 60
         img[:border] = img[-border:] = img[:, :border] = img[:, -border:] = 0.98
-
-        bounds = LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05))
         roi_norm = (border / h, (h - border) / h, border / w, (w - border) / w)
 
-        cropped, _ = contrast_mask_plane(img, bounds, None, roi_norm=roi_norm)
-        whole, _ = contrast_mask_plane(img, bounds, None)
+        cropped, _ = contrast_mask_plane(img, _BOUNDS, None, roi_norm=roi_norm)
+        whole, _ = contrast_mask_plane(img, _BOUNDS, None)
 
         # A uniform picture area has no low frequencies, so its mask must be flat.
         self.assertLess(float(cropped.std()), 0.002, f"crop-respecting plane std {cropped.std():.5f}")
         # Without the crop the border bleeds in and manufactures a gradient.
         self.assertGreater(float(whole.std()), 10.0 * float(cropped.std()) + 0.01)
 
+
+class TestContrastMaskCoeffs(unittest.TestCase):
+    def test_off_at_zero_strength_or_without_a_density_range(self):
+        self.assertIsNone(_coeffs(strength=0.0))
+        self.assertIsNone(contrast_mask_coeffs(1.0, 0.5, (_SLOPE,) * 3, (_PIVOT,) * 3, (0.0,) * 3, 0.0))
+
+    def test_both_sides_take_the_slider_on_every_frame(self):
+        """One slider value sets both sides on every frame."""
+        k = _coeffs(0.7)
+        assert k is not None
+        self.assertEqual(k[4], k[5])
+        self.assertAlmostEqual(k[4], 0.7 * _RANGE / (MASK_CODES_PER_DENSITY * _SLOPE * np.log10(2.0)) / 1024.0)
+
+    def test_the_code_follows_the_mean_of_the_channel_lines(self):
+        """Cast Removal splits the slopes; the Frontier reads the mean of its channels."""
+        k = contrast_mask_coeffs(1.0, 0.5, (2.0, 1.0, 3.0), (_PIVOT,) * 3, (0.0,) * 3, _RANGE)
+        assert k is not None
+        self.assertAlmostEqual(k[0], MASK_CODES_PER_DENSITY * 2.0)
+
+    def test_strength_scales_both_sides(self):
+        full, half = _coeffs(1.0), _coeffs(0.5)
+        assert full is not None and half is not None
+        self.assertGreater(full[4], 0.0)
+        self.assertGreater(full[5], 0.0)
+        np.testing.assert_allclose(half[4:6], np.asarray(full[4:6]) / 2.0, rtol=1e-9)
+        self.assertEqual(half[:4], full[:4])
+
+    def test_light_surrounds_burn_and_dark_surrounds_dodge(self):
+        k = _coeffs()
+        assert k is not None
+        mid = 0.5 + _MID_OFFSET - 0.5
+        plane = np.array([[mid - 0.3, mid, mid + 0.3]], dtype=np.float32)
+        ev = contrast_mask_ev(plane, k, (1, 3))
+        assert ev is not None
+        self.assertGreater(ev[0, 0], 0.0)
+        self.assertAlmostEqual(float(ev[0, 1]), 0.0, places=5)
+        self.assertLess(ev[0, 2], 0.0)
+
     def test_ev_places_the_plane_back_at_the_crop(self):
         plane = np.full((4, 6), 0.25, dtype=np.float32)
-        ev = contrast_mask_ev(plane, 0.5, 1.4, (20, 30), roi=(5, 15, 6, 24))
+        ev = contrast_mask_ev(plane, _coeffs(), (20, 30), roi=(5, 15, 6, 24))
         assert ev is not None
         self.assertEqual(ev.shape, (20, 30))
         # Edge-replicated outside the crop, so the crop tool's full-frame view has no seam.
         np.testing.assert_allclose(ev[0, 0], ev[5, 6], rtol=1e-5)
 
-    def test_ev_is_off_when_gamma_is_zero(self):
-        plane = np.zeros((8, 8), dtype=np.float32)
-        self.assertIsNone(contrast_mask_ev(plane, 0.0, 1.4, (8, 8)))
-        self.assertIsNone(contrast_mask_ev(None, 0.5, 1.4, (8, 8)))
-
-    def test_ev_opposes_the_plane(self):
-        """The sandwich subtracts the blurred positive: dense areas come back as
-        negative exposure, thin ones as positive."""
-        plane = np.array([[-0.2, 0.2]], dtype=np.float32)
-        ev = contrast_mask_ev(plane, 0.5, 1.4, (1, 2))
-        assert ev is not None
-        self.assertGreater(ev[0, 0], 0.0)
-        self.assertLess(ev[0, 1], 0.0)
-
-    def test_negative_gamma_reverses_the_ev(self):
-        """A blurred negative adds the low frequencies where a blurred positive removes
-        them, so the two directions are one axis through zero."""
-        plane = np.array([[0.2]], dtype=np.float32)
-        reduce_ = contrast_mask_ev(plane, 0.3, 1.4, (1, 1))
-        increase = contrast_mask_ev(plane, -0.3, 1.4, (1, 1))
-        assert reduce_ is not None and increase is not None
-        self.assertAlmostEqual(float(reduce_[0, 0]), -float(increase[0, 0]), places=6)
-
-    def test_ev_scales_with_gamma(self):
-        plane = np.array([[0.25]], dtype=np.float32)
-        half = contrast_mask_ev(plane, 0.25, 1.4, (1, 1))
-        full = contrast_mask_ev(plane, 0.5, 1.4, (1, 1))
-        assert half is not None and full is not None
-        self.assertAlmostEqual(float(full[0, 0]), 2.0 * float(half[0, 0]), places=5)
+    def test_ev_is_off_without_coefficients_or_plane(self):
+        self.assertIsNone(contrast_mask_ev(np.zeros((8, 8), dtype=np.float32), None, (8, 8)))
+        self.assertIsNone(contrast_mask_ev(None, _coeffs(), (8, 8)))
 
 
 class TestContrastMaskRender(unittest.TestCase):
-    def test_mask_raises_micro_contrast_at_every_density(self):
-        """The range compresses, so a hard grade's local contrast survives at both ends
-        instead of being traded away."""
-        img = _wide_range_negative()
-        plain = _render(img, _bw_settings(grade=60.0), "cm-plain")
-        masked = _render(img, _bw_settings(grade=60.0, contrast_mask=0.5), "cm-masked")
-
-        for band, (before, after) in enumerate(zip(_micro_contrast(plain), _micro_contrast(masked))):
-            self.assertGreater(after, before, f"band {band}: {before:.2f} -> {after:.2f}")
+    def test_mask_opens_the_dark_area_and_holds_the_bright_one(self):
+        """Columns of a bright, a mid and a dark area, each wider than the blur."""
+        h, w = 240, 360
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        texture = 1.0 + 0.1 * np.sin(xx / 3.0) * np.sin(yy / 2.5)
+        neg = np.where(xx < w / 3, 0.04, np.where(xx < 2 * w / 3, 0.2, 0.85)) * texture
+        img = np.ascontiguousarray(np.dstack([neg, neg, neg]).astype(np.float32))
+        plain = _render(img, _bw_settings(), "cm-cols-plain")
+        masked = _render(img, _bw_settings(contrast_mask_strength=1.0), "cm-cols-masked")
+        self.assertLess(masked[:, : w // 3].mean(), plain[:, : w // 3].mean())
+        self.assertGreater(masked[:, 2 * w // 3 :].mean(), plain[:, 2 * w // 3 :].mean())
 
     def test_mask_compresses_the_global_range(self):
         img = _wide_range_negative()
         plain = _render(img, _bw_settings(grade=60.0), "cm-plain")
-        masked = _render(img, _bw_settings(grade=60.0, contrast_mask=0.5), "cm-masked")
-        self.assertLess(masked.std(), plain.std())
+        masked = _render(img, _bw_settings(grade=60.0, contrast_mask_strength=1.0), "cm-masked")
+        self.assertLess(_global_spread(masked), _global_spread(plain))
 
-    def test_negative_gamma_expands_the_range_where_grade_cannot(self):
-        """Contrast increase, the other half of Ctein's masking chapter. On a flat
-        negative the straight-line slope sits on its clamp, so Grade is inert there;
-        the mask still has travel because it works on the low frequencies."""
-        img = _flat_negative()
-        flat = _render(img, _bw_settings(grade=115.0), "cm-flat")
-        harder = _render(img, _bw_settings(grade=60.0), "cm-flat-hard")
-        masked = _render(img, _bw_settings(grade=115.0, contrast_mask=-0.3), "cm-flat-mask")
-
-        np.testing.assert_allclose(flat, harder, atol=1e-6, err_msg="grade should be clamped inert here")
-        self.assertGreater(_global_spread(masked), _global_spread(flat) * 1.1)
-
-    def test_the_two_directions_move_micro_contrast_oppositely(self):
-        """At a matched global gain Grade raises micro-contrast and the mask lowers it,
-        which is what makes the increasing mask more than a Grade preset."""
-        img = _wide_range_negative()
-        base = _render(img, _bw_settings(grade=115.0), "cm-dir-base")
-        masked = _render(img, _bw_settings(grade=115.0, contrast_mask=-0.3), "cm-dir-mask")
-        graded = _render(img, _bw_settings(grade=90.0), "cm-dir-grade")
-
-        for other in (masked, graded):
-            self.assertGreater(_global_spread(other), _global_spread(base))
-        self.assertLess(_micro_contrast(masked)[1], _micro_contrast(base)[1])
-        self.assertGreater(_micro_contrast(graded)[1], _micro_contrast(base)[1])
-
-    def test_zero_gamma_changes_nothing(self):
+    def test_zero_strength_changes_nothing(self):
         img = _wide_range_negative()
         off = _render(img, _bw_settings(grade=60.0), "cm-off")
-        explicit = _render(img, _bw_settings(grade=60.0, contrast_mask=0.0), "cm-off")
+        explicit = _render(img, _bw_settings(grade=60.0, contrast_mask_strength=0.0), "cm-off")
         np.testing.assert_allclose(off, explicit, atol=1e-6)
+
+    def test_a_slide_builds_no_plane(self):
+        """The transfer curve reads no mask, so its plane is not worth building."""
+        s = _bw_settings(contrast_mask_strength=1.0)
+        engine = DarkroomEngine()
+        engine.process(_wide_range_negative(), replace(s, process=replace(s.process, process_mode="Transparency")), "cm-slide")
+        self.assertIsNone(engine._mask_plane)
 
     def test_mask_survives_a_resolution_change(self):
         """Sigma is a fraction of the analysis grid, not of the render."""
@@ -191,7 +186,21 @@ class TestContrastMaskRender(unittest.TestCase):
             large = _render(big, _bw_settings(grade=60.0, **kw), "cm-res-l" + str(kw))
             return float(np.abs(small - cv2.resize(large, (w, h), interpolation=cv2.INTER_AREA)).mean())
 
-        self.assertLess(drift(contrast_mask=0.5), 2.0 * drift() + 0.002)
+        self.assertLess(drift(contrast_mask_strength=1.0), 2.0 * drift() + 0.002)
+
+
+class TestContrastMaskMigration(unittest.TestCase):
+    def test_the_linear_mask_maps_onto_the_strength(self):
+        config = WorkspaceConfig.from_flat_dict({"contrast_mask": 0.1, "mask_spacer": 6.0})
+        self.assertAlmostEqual(config.exposure.contrast_mask_strength, 0.2)
+
+    def test_the_contrast_boost_has_no_equivalent(self):
+        config = WorkspaceConfig.from_flat_dict({"contrast_mask": -0.5, "mask_blur": 3.0})
+        self.assertEqual(config.exposure.contrast_mask_strength, 0.0)
+
+    def test_a_current_save_is_not_mapped_again(self):
+        config = WorkspaceConfig.from_flat_dict(WorkspaceConfig.from_flat_dict({"contrast_mask_strength": 0.3}).to_dict())
+        self.assertAlmostEqual(config.exposure.contrast_mask_strength, 0.3)
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
@@ -226,66 +235,31 @@ class TestContrastMaskParity(unittest.TestCase):
         self.assertLess(float(np.max(np.abs(cpu - gpu))), 0.04)
 
     def test_cpu_gpu_match(self):
-        self._assert_match(_bw_settings(grade=60.0, contrast_mask=0.5), "contrast-mask-parity")
+        self._assert_match(_bw_settings(grade=60.0, contrast_mask_strength=1.0), "contrast-mask-parity")
 
-    def test_cpu_gpu_match_negative_gamma(self):
-        self._assert_match(_bw_settings(grade=60.0, contrast_mask=-0.35), "contrast-mask-parity-neg")
+    def test_cpu_gpu_match_color(self):
+        s = _bw_settings(grade=60.0, contrast_mask_strength=0.7)
+        self._assert_match(replace(s, process=replace(s.process, process_mode="Color Negative")), "contrast-mask-parity-c41")
 
     def test_cpu_gpu_match_cropped(self):
         # The only case where the shader's mask rect is not the whole frame.
-        s = _bw_settings(grade=60.0, contrast_mask=0.5)
+        s = _bw_settings(grade=60.0, contrast_mask_strength=1.0)
         self._assert_match(
             replace(s, geometry=replace(s.geometry, crop_rect=(0.2, 0.15, 0.65, 0.7))),
             "contrast-mask-parity-crop",
         )
 
     def test_slider_uploads_no_texture(self):
-        base = _bw_settings(grade=60.0, contrast_mask=0.5)
+        base = _bw_settings(grade=60.0, contrast_mask_strength=1.0)
         self._render(base, "contrast-mask-drag", prefer_gpu=True)
         engine = self.processor.engine_gpu
         mask_key, ev_key = engine._mask_tex_key, engine._local_ev_key
         self.assertIsNotNone(mask_key)
 
-        self._render(replace(base, exposure=replace(base.exposure, contrast_mask=0.2)), "contrast-mask-drag", prefer_gpu=True)
+        self._render(replace(base, exposure=replace(base.exposure, contrast_mask_strength=0.4)), "contrast-mask-drag", prefer_gpu=True)
         self.assertEqual(engine._mask_tex_key, mask_key)
         self.assertEqual(engine._local_ev_key, ev_key)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class TestMaskSpacer(unittest.TestCase):
-    def test_spacer_sets_the_scale_above_which_tones_are_masked(self):
-        """The spacer is a frequency cut-off, not a strength: a narrow mask reaches down
-        into finer detail, a wide one leaves it alone."""
-        img = _wide_range_negative()
-        bounds = LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05))
-        narrow, _ = contrast_mask_plane(img, bounds, None, spacer=2.0)
-        wide, _ = contrast_mask_plane(img, bounds, None, spacer=6.0)
-        # A narrower spacer keeps more of the frame's structure in the plane.
-        self.assertGreater(float(narrow.std()), float(wide.std()))
-
-    def test_spacer_rebuilds_a_cached_plane(self):
-        """The gamma slider is a scalar on a cached plane, so the spacer has to key that
-        cache or moving it would silently render the previous one."""
-        img = _wide_range_negative()
-        engine = DarkroomEngine()
-
-        def render(spacer):
-            settings = _bw_settings(grade=60.0, contrast_mask=0.5, mask_spacer=spacer)
-            return np.asarray(engine.process(img.copy(), settings, "one-source"))[:, :, 1]
-
-        wide, narrow = render(6.0), render(2.0)
-        self.assertGreater(float(np.abs(wide - narrow).mean()), 1e-4)
-
-    def test_spacer_alone_changes_nothing_without_a_mask(self):
-        img = _wide_range_negative()
-        engine = DarkroomEngine()
-        a = np.asarray(engine.process(img.copy(), _bw_settings(mask_spacer=6.0), "no-mask"))
-        b = np.asarray(engine.process(img.copy(), _bw_settings(mask_spacer=2.0), "no-mask"))
-        np.testing.assert_allclose(a, b, atol=1e-6)
-
-    def test_a_save_under_the_old_name_still_loads(self):
-        config = WorkspaceConfig.from_flat_dict({"mask_blur": 6.0})
-        self.assertEqual(config.exposure.mask_spacer, 6.0)

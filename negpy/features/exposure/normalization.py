@@ -16,12 +16,9 @@ if TYPE_CHECKING:
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
 BOUNDS_VERSION = 2
 
-# Contrast-mask spacer, per-cent of the analysis grid's short side. Of the grid, not of
-# the render, so preview and export mask alike. Under the minimum the mask stops being
-# unsharp and collapses into a plain (1-g) reduction, which is Grade.
-MASK_SPACER_DEFAULT = 4.0
-MASK_SPACER_MIN = 2.0
-MASK_SPACER_MAX = 6.0
+# Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
+# the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
+MASK_BLUR_PERCENT = 4.0
 # Diffusion's blur sigma in per-cent of the printed frame's short side: one diffuser at the
 # lens, whose spread a printer does not vary between prints.
 DIFFUSION_SPREAD = 2.0
@@ -567,11 +564,9 @@ def contrast_mask_plane(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
-    spacer: float = MASK_SPACER_DEFAULT,
 ) -> Tuple[np.ndarray, float]:
-    """The zero-mean blurred low-gamma plane an unsharp mask is built from, on `analysis_grid`, plus the val it
-    was centred on (the Analysis chart draws the mask's band from it). The gamma's sign picks the polarity.
-    `spacer` is per-cent of the grid: the scale above which tones are masked."""
+    """The zero-mean blurred luma plane the Contrast Mask reads, on `analysis_grid`, plus the val it was
+    centred on."""
     image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
 
     # A frame that never metered normalizes to huge values; no stretch, no mask.
@@ -579,7 +574,7 @@ def contrast_mask_plane(
         return np.zeros(image.shape[:2], dtype=np.float32), 0.5
 
     val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
-    sigma = min(max(spacer, MASK_SPACER_MIN), MASK_SPACER_MAX) * 0.01 * min(val.shape[:2])
+    sigma = MASK_BLUR_PERCENT * 0.01 * min(val.shape[:2])
     plane, centre = negpy_core.contrast_mask_tail(np.ascontiguousarray(val, dtype=np.float32), sigma)
     return plane, float(centre)
 

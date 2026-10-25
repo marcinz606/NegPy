@@ -356,6 +356,8 @@ class MainWindow(QMainWindow):
         geo.rot_r_btn.clicked.connect(lambda: self.toolbar.rotate(-1))
         geo.flip_h_btn.clicked.connect(lambda: self.toolbar.flip("horizontal"))
         geo.flip_v_btn.clicked.connect(lambda: self.toolbar.flip("vertical"))
+        export = self.right_panel.export_sidebar
+        self.toolbar.mirror_export(export.export_main_btn, export._export_menu)
 
         # Object names are required for saveState/restoreState to identify the docks.
         self.drawer.setObjectName("controls_dock")

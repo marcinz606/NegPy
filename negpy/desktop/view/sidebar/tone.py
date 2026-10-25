@@ -130,21 +130,16 @@ class ToneSidebar(BaseSidebar):
         self.split_grade_fold.attach(self.grade_trim_slider)
         self.layout.addWidget(self.split_grade_fold)
 
-        # Inverted like ISO-R Grade, so dragging right hardens on both controls.
-        self.contrast_mask_slider = CompactSlider(tr("Contrast Mask"), -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
+        self.contrast_mask_slider = CompactSlider(tr("Contrast Mask"), 0.0, 1.0, conf.contrast_mask_strength)
         self.contrast_mask_slider.setToolTip(
-            tr("Contrast Mask: lowers overall contrast and keeps fine detail, and negative values add contrast.")
+            tr("Contrast Mask: a soft darkroom mask that opens up large dark areas and holds back large bright ones, modeled on the Fujifilm Frontier's digital interpretation.")
         )
-        self.mask_spacer_slider = CompactSlider(tr("Mask Spacer"), 2.0, 6.0, conf.mask_spacer, unit="%")
-        self.mask_spacer_slider.setToolTip(tr("Mask Spacer: how soft the contrast mask is, where thicker acts on large areas only."))
         # Light given to the paper, not the shape of its curve, so it sits with the exposure controls.
         self.preflash_slider = CompactSlider(tr("Preflash"), 0.0, 1.0, conf.preflash)
         self.diffusion_slider = CompactSlider(tr("Diffusion"), 0.0, 1.0, conf.diffusion)
         self.diffusion_slider.setToolTip(tr("Diffusion: a soft glow that spreads dark areas into bright ones and softens edges, off at 0."))
-        self.mask_spacer_fold = rail_fold("tone_mask_spacer", self.contrast_mask_slider, self.mask_spacer_slider)
-        self.contrast_mask_slider.valueChanged.connect(lambda _v: self._sync_spacer())
         aids_header, self.aids_fold = group_fold(
-            "tone_aids", tr("Printing Aids"), self.preflash_slider, self.diffusion_slider, self.contrast_mask_slider, self.mask_spacer_fold
+            "tone_aids", tr("Printing Aids"), self.preflash_slider, self.diffusion_slider, self.contrast_mask_slider
         )
         self.layout.addLayout(aids_header)
         self.layout.addWidget(self.aids_fold)
@@ -246,8 +241,7 @@ class ToneSidebar(BaseSidebar):
         )
 
         for slider, field in (
-            (self.contrast_mask_slider, "contrast_mask"),
-            (self.mask_spacer_slider, "mask_spacer"),
+            (self.contrast_mask_slider, "contrast_mask_strength"),
             (self.diffusion_slider, "diffusion"),
             (self.preflash_slider, "preflash"),
         ):
@@ -392,22 +386,16 @@ class ToneSidebar(BaseSidebar):
             for i, fields in enumerate(self._channel_fields, start=1):
                 self.ch_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
             self._sync_driven()
-            self.contrast_mask_slider.setValue(conf.contrast_mask)
-            self.mask_spacer_slider.setValue(conf.mask_spacer)
+            self.contrast_mask_slider.setValue(conf.contrast_mask_strength)
             self.diffusion_slider.setValue(conf.diffusion)
             self.preflash_slider.setValue(conf.preflash)
             self.hold_black_action.setChecked(conf.hold_black)
-            self._sync_spacer()
             self.auto_density_action.setChecked(conf.auto_exposure)
             self.auto_grade_action.setChecked(conf.auto_normalize_contrast)
             self.auto_both_action.setChecked(conf.auto_exposure and conf.auto_normalize_contrast)
             self.auto_btn.refresh()
         finally:
             self.block_signals(False)
-
-    def _sync_spacer(self) -> None:
-        # Out of _global_only: that tuple means enabled exactly when global.
-        self.mask_spacer_slider.setEnabled(self._channel_index() == 0 and self.contrast_mask_slider.value() != 0.0)
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
@@ -420,7 +408,6 @@ class ToneSidebar(BaseSidebar):
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.contrast_mask_slider,
-            self.mask_spacer_slider,
             self.diffusion_slider,
             self.preflash_slider,
             self.hold_black_action,

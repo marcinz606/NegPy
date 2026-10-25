@@ -26,7 +26,7 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 *   **Canvas** (center): the picture. Scroll or pinch to zoom, drag to pan, and double-click to switch between fit and 100%. Right-click for view options, copy and paste of settings, resets and **Unload**.
 *   **Film Strip** (under the canvas): the open frames in one row. Drag its top edge to resize it; `Ctrl+[` folds it away.
-*   **Toolbar** (bottom): **Photo** holds navigation, zoom, rotate, **Tools** (crop, pickers, masks, light leaks, retouching), undo, the **Print** menu (Before / After and the peeks) and **Overlays**. **Roll** holds the Film Strip's import, filter, sort and roll actions. The **⋯** menu holds every action, **Preferences…** included.
+*   **Toolbar** (bottom): **Photo** holds navigation, zoom, rotate, **Tools** (crop, pickers, masks, light leaks, retouching), undo, the **Print** menu (Before / After and the peeks), **Export** and **Overlays**. **Export** does what the Export panel's button does, and its chevron picks the frames. **Roll** holds the Film Strip's import, filter, sort and roll actions. The **⋯** menu holds every action, **Preferences…** included.
 *   **Controls** (right): the tabs **Library**, **Roll**, **Frame**, **Metadata**, **Export** and **Scan**. Only Roll and Frame change the picture. Drag the panel by its top edge to float it.
 *   **Frame Info** (`I`): the file name, film and size in the corners of the canvas.
 
@@ -223,7 +223,7 @@ Two cards: **Crop** sets the part of the picture you keep, and **Straighten** tu
 Choose the part of the picture to keep, by hand or with Auto Crop.
 
 *   **Draw**: drag a crop on the picture. Drag a corner to resize it, the inside to move it, or outside the box to rotate. `Enter` or **Done** keeps the crop, and `Esc` puts back the crop you had before. The **×** removes a crop you drew. Drawing turns Auto Crop off.
-*   **Auto Crop**: finds the edges of the picture and crops to them.
+*   **Auto Crop** (also on the Geometry tab's bar): finds the edges of the picture and crops to them.
 *   **Ratio**: the crop shape, such as `3:2` or `1:1`, turned to fit the frame. **Free** uses the shape NegPy finds, and you can drag one side at a time. **Detect** picks the nearest standard shape.
 *   **Guide**: composition lines, such as thirds, while you draw. The rotate button turns them.
 *   **Mode** (Auto Crop Settings fold): **Image only** crops to the picture. **Film edge** keeps the whole film with its border and holes.
@@ -240,7 +240,7 @@ Turn the picture and make it level.
 
 *   **Rotate** and **Flip**: turn the picture a quarter turn, or mirror it. The toolbar has the same buttons.
 *   **Level**: draw a line along the horizon or a vertical edge, and the picture turns to make it level.
-*   **Square to Film**: lines the picture up with the edges of the film. It ignores what is in the picture, so a photo taken at a tilt stays tilted.
+*   **Square to Film** (also on the Geometry tab's bar): lines the picture up with the edges of the film. It ignores what is in the picture, so a photo taken at a tilt stays tilted.
 *   **Fine Rotation**: turns the picture by small amounts. Positive is clockwise.
 *   **Tilt** and **Swing** (fold): straighten a building shot from below (Tilt) or a wall shot from one side (Swing). **Draw Lines** sets both from lines along the four film edges.
 *   **Crop Empty Corners**: crops away the empty corners that rotation, Tilt and Swing leave.
@@ -271,7 +271,7 @@ How light or dark the print is, and how much contrast it has.
 
 *   **Print Density**: how light or dark the print is (the darkroom's exposure time). Lower is lighter.
 *   **ISO-R Grade**: contrast (the darkroom's paper grade). A lower number gives more contrast; about 110 is normal.
-*   **Auto**: **Auto Density** and **Auto Grade** set brightness and contrast for each frame, so a roll prints evenly. A slider then shows the automatic value: move it to adjust, double-click it to go back. The Auto menu also has:
+*   **Auto** (the wand, also on the Exposure tab's bar): **Auto Density** and **Auto Grade** set brightness and contrast for each frame, so a roll prints evenly. A slider then shows the automatic value: move it to adjust, double-click it to go back. The Auto menu also has:
     *   **Set Targets…**: the brightness and contrast Auto aims for.
     *   **Bake Auto Density/Grade**: keeps this frame's automatic values and turns Auto off for it.
     *   **Hold Black**: when you lighten the shadows, the deepest blacks stay black.
@@ -281,7 +281,7 @@ How light or dark the print is, and how much contrast it has.
 *   **Printing Aids** (fold):
     *   **Preflash**: brings back detail in the brightest areas.
     *   **Diffusion**: a soft glow; dark areas spread into bright ones.
-    *   **Contrast Mask**: lowers overall contrast and keeps fine detail. Negative values add contrast. **Mask Spacer** sets how soft the mask is.
+    *   **Contrast Mask**: opens up large dark areas and holds back large bright ones, and keeps fine detail. In the darkroom, a printer gets this with a soft, blurred mask placed on the negative. In digital printing, Fujifilm Frontier scanners get a similar effect with HyperTone. Areas far from mid-gray change most, so a low-contrast frame changes little.
 *   **Global / R / G / B**: R, G or B applies the grades to one color only, for a cast that differs between shadows and highlights.
 
 **White Point** and **Black Point** are on the Roll tab's **Metering** card ([§10.4](#104-metering-negative--positive)).
@@ -414,8 +414,8 @@ Reduces the glow a light leak adds to a negative or a slide, before any dust rep
 Removes dust, hairs and scratches. Each repair is rebuilt from the clean film around it.
 
 *   **Overlay**: **Marked** shows what dust removal found, **IR** the scan's infrared channel.
-*   **Optical Removal**: finds dust and hairs by itself. **Spot Threshold** and **Hair Threshold**: lower finds more but can remove real detail; 1 is off. **Size**: the largest dust to remove. To protect an area, right-drag over it or right-click a mark; the cursor button skips the right-click menu.
-*   **IR Removal** (scans with an infrared channel): finds dust in infrared, where the picture does not show. **IR Threshold**: lower finds more. B&W and Kodachrome are skipped: their picture shows in infrared too. The channel comes from 4-channel TIFF and DNG scans or an `_IR.tif` file beside the scan.
+*   **Optical Removal** (also on the Finish tab's bar): finds dust and hairs by itself. **Spot Threshold** and **Hair Threshold**: lower finds more but can remove real detail; 1 is off. **Size**: the largest dust to remove. To protect an area, right-drag over it or right-click a mark; the cursor button skips the right-click menu.
+*   **IR Removal** (scans with an infrared channel, also on the Finish tab's bar): finds dust in infrared, where the picture does not show. **IR Threshold**: lower finds more. B&W and Kodachrome are skipped: their picture shows in infrared too. The channel comes from 4-channel TIFF and DNG scans or an `_IR.tif` file beside the scan.
 *   **Heal**: click or paint over dust. Only marks that stand out are repaired, so paint generously.
 *   **Scratch**: click points along a scratch or hair, then press Enter.
 *   **Line**: click once on a long straight scratch, and NegPy finds and repairs the whole line. **Line Sensitivity**: lower finds fainter lines.

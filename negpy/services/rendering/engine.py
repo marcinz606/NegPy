@@ -258,20 +258,25 @@ class DarkroomEngine:
         # Built from the source and keyed on base, so the GPU calls the same helper and the slider re-runs only exposure.
         # Pre-trim bounds, as on the GPU: White/Black Point trims are a look, not the source.
         mask_bounds = context.metrics.get("pre_trim_bounds", context.metrics.get("final_bounds"))
-        if settings.exposure.contrast_mask != 0.0 and mask_bounds is not None:
+        # Print curve only, as Diffusion: the transfer curve and the Flat master take no plane.
+        if (
+            settings.exposure.contrast_mask_strength > 0.0
+            and mask_bounds is not None
+            and render_path(settings.process) is RenderPath.PRINT
+            and settings.exposure.render_intent != RenderIntent.FLAT
+        ):
             mask_roi = context.active_roi
-            mask_key = (source_hash, calculate_config_hash(base_key), mask_roi, current_img.shape[:2], settings.exposure.mask_spacer)
+            mask_key = (source_hash, calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 plane, centre = contrast_mask_plane(
                     img,
                     mask_bounds,
                     effective_crosstalk_matrix(settings.process, settings.process.process_mode),
                     roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
-                    spacer=settings.exposure.mask_spacer,
                     **geometry_kwargs(settings.geometry, distortion_k1),
                 )
                 # Expanded here, not in the exposure stage: the slider re-runs that stage,
-                # and only the scalar moves with it.
+                # and only the coefficients move with it.
                 expanded = expand_mask_plane(plane, current_img.shape[:2], mask_roi)
                 self._mask_plane = None if expanded is None else (mask_key, expanded, centre)
             if self._mask_plane is not None:

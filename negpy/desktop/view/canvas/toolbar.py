@@ -2,7 +2,7 @@ from negpy.kernel.system.i18n import tr
 from dataclasses import dataclass
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt
 from PyQt6.QtGui import QActionGroup, QColor, QCursor, QIcon, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -45,6 +45,7 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.papers import resolve_paper
 from negpy.kernel.system.text import count_of
@@ -93,6 +94,7 @@ TOOLBAR_ITEMS: tuple[ToolbarItem, ...] = (
     ToolbarItem("palette", tr("App"), tr("Find Control or Action…")),
     ToolbarItem("preferences", tr("App"), tr("Preferences…")),
     ToolbarItem("shortcuts", tr("App"), tr("Keyboard Shortcuts…")),
+    ToolbarItem("export", tr("Export"), tr("Export")),
 )
 
 TOOLBAR_ITEM_BY_ID = {item.id: item for item in TOOLBAR_ITEMS}
@@ -110,6 +112,7 @@ DEFAULT_TOOLBAR_IDS: tuple[str, ...] = (
     "undo",
     "redo",
     "source",
+    "export",
     "overlays",
 )
 
@@ -130,7 +133,7 @@ _RETIRED_IDS = {
 _TOOLBAR_SETTING_KEY = "toolbar_items"
 
 # A new item reaches a stored row once, before its anchor (else last); the record keeps a removed one out.
-_ADDED_IDS = {"tools": "undo"}
+_ADDED_IDS = {"tools": "undo", "export": "overlays"}
 _ADDED_SETTING_KEY = "toolbar_added_items"
 
 # A narrow bar hides these first to last; items not listed (menu actions put on the row) go
@@ -145,6 +148,7 @@ _COLLAPSE_ORDER = (
     "redo",
     "undo",
     "tools",
+    "export",
     "source",
     "zoom",
     "position",
@@ -438,13 +442,35 @@ class ActionToolbar(QWidget):
         self.btn_zoom.setMinimumWidth(self._zoom_min_width)
 
         # Every source here takes the whole canvas, and the controller keeps them exclusive.
-        self.source_choice = StepCombo.of(
-            [label for _flag, _icon, label, _key, _tip in _VIEW_SOURCES],
-            tr("What the canvas shows: the print, a before/after split, or a peek."),
+        self.source_choice = MenuButton(tr("What the canvas shows: the print, a before/after split, or a peek."))
+        source_group = QActionGroup(self)
+        self._source_actions = []
+        for i, (_flag, icon, label, key, tip) in enumerate(_VIEW_SOURCES):
+            action = self.source_choice.choice_menu.addAction(_icon(icon), label)
+            action.setCheckable(True)
+            source_group.addAction(action)
+            if key:
+                self._menu_tip(action, tip, key)
+            else:
+                action.setToolTip(tip)
+            action.triggered.connect(lambda _checked=False, i=i: self._on_source_chosen(i))
+            self._source_actions.append(action)
+        # Sized for the longest view, so changing it does not move the row.
+        source_width = 0
+        for _flag, _icon_name, label, _key, _tip in _VIEW_SOURCES:
+            self.source_choice.setText(icon_text(label))
+            source_width = max(source_width, self.source_choice.sizeHint().width())
+        self.source_choice.setMinimumWidth(source_width)
+        self._show_source(0)
+
+        # Mirrors the Export panel's button once MainWindow calls mirror_export.
+        self._export_menu = QMenu(self)
+        self._export_menu.setToolTipsVisible(True)
+        self.export_split, self.btn_export, self.btn_export_menu = make_split_button(
+            tr("Export"), "mdi6.export-variant", self._export_menu, primary=True
         )
-        for i, (_flag, icon, _label, _key, _tip) in enumerate(_VIEW_SOURCES):
-            self.source_choice.setItemIcon(i, _icon(icon))
-        self._sync_source_tips()
+        self.export_split.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.btn_export.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self.overlays_menu = ToggleMenuButton("fa5s.layer-group", "", tr("Overlays: marks drawn over the frame that never change the edit"))
         self._overlay_actions = {}
@@ -783,7 +809,7 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(wrap_tooltip(btn.toolTip()))
-        for btn in (self.btn_zoom, self.btn_tools, self.source_choice, self.overlays_menu):
+        for btn in (self.btn_zoom, self.btn_tools, self.source_choice, self.overlays_menu, self.btn_export, self.btn_export_menu):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFixedHeight(btn_height)
             btn.setIconSize(icon_size)
@@ -814,6 +840,7 @@ class ActionToolbar(QWidget):
             "palette": self.btn_palette,
             "preferences": self.btn_preferences,
             "shortcuts": self.btn_shortcuts,
+            "export": self.export_split,
         }
         self._row_sequence: list[tuple[QWidget, bool]] = []
         self._available_width = 0
@@ -1016,7 +1043,7 @@ class ActionToolbar(QWidget):
         self.btn_lt_auto_crop = labeled_action("fa5s.magic", tr("Auto Crop"), "")
         self._tip(self.btn_lt_auto_crop, tr("Auto Crop the selected frames; crops you drew stay"), None)
         self.btn_lt_auto_crop.clicked.connect(lambda: self.controller.request_batch_auto_crop(assets=self._selected_frames()))
-        self.btn_lt_export = labeled_action("fa5s.file-export", tr("Export"), "")
+        self.btn_lt_export = labeled_action("mdi6.export-variant", tr("Export"), "")
         self._tip(self.btn_lt_export, tr("Export the selected frames with the Export tab's settings, skipping rejected frames"), None)
         self.btn_lt_export.clicked.connect(self.controller.request_export_selected)
         self.btn_lt_more = self._action_button(
@@ -1293,15 +1320,39 @@ class ActionToolbar(QWidget):
         """Mirror the canvas source and the overlays from state, which the controller sets before it signals."""
         state = self.session.state
         active = next((i for i, (flag, *_rest) in enumerate(_VIEW_SOURCES) if flag and getattr(state, flag)), 0)
-        self.source_choice.blockSignals(True)
-        self.source_choice.setCurrentIndex(active)
-        self.source_choice.blockSignals(False)
-        self.source_choice.set_item_enabled(_SOURCE_INDEX["flatfield_peek"], bool(state.config.flatfield.profile_id))
+        self._show_source(active)
+        self._source_actions[_SOURCE_INDEX["flatfield_peek"]].setEnabled(bool(state.config.flatfield.profile_id))
         for flag, action in self._overlay_actions.items():
             action.setChecked(bool(getattr(state, flag)))
         for flag, action in self._ov_view_actions.items():
             action.setChecked(bool(getattr(state, flag)))
         self._info_actions[state.canvas_info_level].setChecked(True)
+
+    def _show_source(self, index: int) -> None:
+        _flag, icon, label, _key, _tip = _VIEW_SOURCES[index]
+        self._source_actions[index].setChecked(True)
+        self.source_choice.setIcon(_icon(icon))
+        self.source_choice.setText(icon_text(label))
+
+    def mirror_export(self, source: QPushButton, scope_menu: QMenu) -> None:
+        """The bar's Export clicks the Export panel's button and opens its scope menu, so both share one scope."""
+        self.btn_export.clicked.connect(source.click)
+        self._export_menu.addActions(scope_menu.actions())
+        # The menu lists the current, selected and all-visible scopes in that order.
+        labels = (tr("Frame"), tr("Selected"), tr("Roll"))
+        width = 0
+        for label in labels:
+            self._show_export_scope(label)
+            width = max(width, self.btn_export.sizeHint().width())
+        self.btn_export.setMinimumWidth(width)
+        for action, label in zip(scope_menu.actions(), labels, strict=True):
+            action.toggled.connect(lambda checked, label=label: checked and self._show_export_scope(label))
+            if action.isChecked():
+                self._show_export_scope(label)
+        _ExportMirror(source, self.btn_export, self.btn_export_menu)
+
+    def _show_export_scope(self, label: str) -> None:
+        self.btn_export.setText(icon_text(label))
 
     def _on_source_chosen(self, index: int) -> None:
         state = self.session.state
@@ -1351,7 +1402,6 @@ class ActionToolbar(QWidget):
             "printing_notes": self._ov_notes_action,
             "cursor_probe": self._ov_probe_action,
         }
-        self.source_choice.currentIndexChanged.connect(self._on_source_chosen)
         for signal in (
             controller.compare_changed,
             controller.flat_peek_changed,
@@ -1633,13 +1683,7 @@ class ActionToolbar(QWidget):
         self._label(action, action.text(), action_id)
         action.setToolTip(text)
 
-    def _sync_source_tips(self) -> None:
-        """Each view's tooltip in the list carries its key chip."""
-        for i, (_flag, _icon, _label, key, tip) in enumerate(_VIEW_SOURCES):
-            self.source_choice.set_item_tooltip(i, wrap_tooltip(tooltip_with_shortcut(tip, key or None)))
-
     def apply_shortcut_tooltips(self) -> None:
-        self._sync_source_tips()
         for target, text, ids in self._shortcut_tips:
             target.setToolTip(wrap_tooltip(tooltip_with_shortcut(text, ids)))
         for action, text, action_id in self._shortcut_labels:
@@ -1740,7 +1784,7 @@ class ActionToolbar(QWidget):
     def _track_rects(self) -> list[QRect]:
         """Each run of buttons in bar coordinates, with a label between two of them (the frame
         count between Previous and Next). A separator, a field, a slider or a primary button
-        ends a run; a segmented control carries its own track."""
+        ends a run; a segmented control carries its own track, and Export takes a track of its own."""
         rects: list[QRect] = []
 
         def walk(layout) -> None:
@@ -1771,6 +1815,9 @@ class ActionToolbar(QWidget):
                     continue
                 elif isinstance(widget, (QAbstractButton, QLabel)) and not widget.property("primary"):
                     run.append(widget)
+                elif widget is self.export_split:
+                    flush()
+                    rects.append(QRect(widget.mapTo(self, QPoint(0, 0)), widget.size()))
                 else:
                     flush()
             flush()
@@ -1859,3 +1906,23 @@ class ActionToolbar(QWidget):
             self._sync_separators()
 
         self._activate_layout()
+
+
+class _ExportMirror(QObject):
+    """Copies the Export panel button's tooltip and enabled state to the bar's split button."""
+
+    def __init__(self, source: QPushButton, main: QPushButton, menu_btn: QToolButton):
+        super().__init__(main)
+        self._source, self._main, self._menu_btn = source, main, menu_btn
+        source.installEventFilter(self)
+        self._sync()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.ToolTipChange):
+            self._sync()
+        return False
+
+    def _sync(self) -> None:
+        self._main.setEnabled(self._source.isEnabled())
+        self._menu_btn.setEnabled(self._source.isEnabled())
+        self._main.setToolTip(self._source.toolTip())

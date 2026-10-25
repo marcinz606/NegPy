@@ -1014,18 +1014,18 @@ class ExportSidebar(BaseSidebar):
     # itself triggers an export. key -> (menu label, button label, tooltip)
     _EXPORT_SCOPES = {
         "current": (
-            tr("Export Current Frame"),
-            tr("Export Current Frame"),
+            tr("Frame"),
+            tr("Export Frame"),
             tr("Export the current frame with the settings below"),
         ),
         "selected": (
-            tr("Export Selected Frames"),
+            tr("Selected"),
             tr("Export Selected"),
             tr("Export the selected filmstrip frames using the settings below"),
         ),
         "all": (
-            tr("Export All Visible Frames"),
-            tr("Export All"),
+            tr("Roll"),
+            tr("Export Roll"),
             tr("Export every visible frame using the settings below"),
         ),
     }
@@ -1039,18 +1039,18 @@ class ExportSidebar(BaseSidebar):
 
     _PRESET_SCOPES = {
         "current": (
-            tr("Export Current Frame"),
+            tr("Frame"),
             tr("Export Presets"),
             tr("Export the current frame with every enabled preset"),
         ),
         "selected": (
-            tr("Export Selected Frames"),
+            tr("Selected"),
             tr("Export Presets (Selected)"),
             tr("Export the selected filmstrip frames with every enabled preset"),
         ),
         "all": (
-            tr("Export All Visible Frames"),
-            tr("Export Presets (All)"),
+            tr("Roll"),
+            tr("Export Presets (Roll)"),
             tr("Export every visible frame with every enabled preset"),
         ),
     }
@@ -1075,7 +1075,7 @@ class ExportSidebar(BaseSidebar):
         menu, self._export_scope_actions = self._build_scope_menu(self._EXPORT_SCOPES, self._set_export_scope)
         self._export_menu = menu
 
-        container, self.export_main_btn, self.export_menu_btn = make_split_button(tr("Export"), "fa5s.check-circle", menu, primary=True)
+        container, self.export_main_btn, self.export_menu_btn = make_split_button(tr("Export"), "mdi6.export-variant", menu, primary=True)
         container.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 0)
         self.export_menu_btn.setToolTip(tr("Choose what the Export button does"))
         self.layout.addWidget(container)

@@ -47,8 +47,11 @@ def test_expand_mask_plane_output_is_pinned():
     for plane_shape in [(300, 400), (61, 87)]:
         plane = _img(6, plane_shape)
         for roi in [None, (0, 300, 0, 400), (20, 250, 35, 390), (-5, 320, 10, 500)]:
-            outs += [expand_mask_plane(plane, (300, 400), roi), contrast_mask_ev(plane, 0.6, 1.8, (300, 400), roi)]
-    assert digest(*outs) == "21bcf4594fcfefb350e50daac02a61d5710ae4e2b5145a52287f50336b405399"
+            outs += [
+                expand_mask_plane(plane, (300, 400), roi),
+                contrast_mask_ev(plane, (900.0, 30.0, -412.0, 611.0, 2e-5, 3e-5, 1.5), (300, 400), roi),
+            ]
+    assert digest(*outs) == "f022949c33afdb769e573b99576ccc441988f1cfe3758c310925e90dcd57d436"
 
 
 def test_expand_mask_plane_of_an_empty_roi_is_none():

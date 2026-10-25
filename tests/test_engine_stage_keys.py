@@ -31,7 +31,7 @@ def test_tilt_moves_the_full_frame_crop_preview():
 
 def test_the_contrast_mask_plane_follows_the_source():
     cfg = WorkspaceConfig()
-    cfg = replace(cfg, exposure=replace(cfg.exposure, contrast_mask=0.6))
+    cfg = replace(cfg, exposure=replace(cfg.exposure, contrast_mask_strength=0.6))
     a, b = _img(1), _img(2)
     engine = DarkroomEngine()
     engine.process(a, cfg, "a", _ctx(a, cfg))

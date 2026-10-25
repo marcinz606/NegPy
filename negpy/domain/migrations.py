@@ -36,8 +36,6 @@ KEY_RENAMES: Dict[str, str] = {
     "density_saturation_trim_green": "dye_separation_trim_green",
     "density_saturation_trim_blue": "dye_separation_trim_blue",
     "use_colour_average": "use_color_average",
-    # The contrast mask's radius is named for the darkroom spacer, not for the blur.
-    "mask_blur": "mask_spacer",
     # An old save with True and no rect lands armed, so it resolves on the next render.
     "manual_crop_rect": "crop_rect",
     "auto_crop_enabled": "crop_from_auto",
@@ -74,6 +72,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # Optical-removal exclusions became strokes (dust_exclusion_strokes); the loose
         # patch list they replaced cannot be unpacked as one.
         "dust_exclusions",
+        # The Contrast Mask's blur scale (spacer), fixed since the mask became the tone mask.
+        "mask_blur",
+        "mask_spacer",
         # Slide Normalize (a metered stretch through the print curve) was retired: every slide
         # renders through the transfer curve (migrate_flat_config reads it before this pop).
         "e6_normalize",
@@ -148,6 +149,12 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
             data["auto_exposure"] = data["auto_normalize_contrast"] = True
         elif not data.get("positive_source"):
             data["auto_exposure"] = data["auto_normalize_contrast"] = False
+
+    # The linear Contrast Mask (gamma ±0.5) became the one-way tone mask (strength 0..1). Its
+    # positive side maps across the range; the contrast boost (negative) has no equivalent.
+    if "contrast_mask" in data:
+        legacy = float(data.pop("contrast_mask") or 0.0)
+        data.setdefault("contrast_mask_strength", min(max(legacy, 0.0) / 0.5, 1.0))
 
     # True Black (BPC on) renamed to Paper Black with inverted polarity.
     if "true_black" in data:

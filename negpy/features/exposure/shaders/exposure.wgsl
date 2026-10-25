@@ -51,11 +51,14 @@ struct ExposureUniforms {
     // Hue Trim: x = rotation in radians; yzw = preflash fraction (0 = off), threshold
     // value and paper gamma (preflash_params). Costs no slot; 288B already spanned two.
     hue: vec4<f32>,
-    // x = Contrast Mask stops per unit of plane (0 = off), yz = the printed frame's origin
-    // in rotated pixels, w = the Diffusion mix (0 = off).
+    // x = Contrast Mask stop cap (0 = off), yz = the printed frame's origin in rotated
+    // pixels, w = the Diffusion mix (0 = off).
     mask: vec4<f32>,
-    // The printed frame's span in rotated pixels in xy, shared by both planes; zw pad.
+    // The printed frame's span in rotated pixels in xy, shared by both planes; zw = the
+    // Contrast Mask's code clamp (lo, hi).
     mask_span: vec4<f32>,
+    // Contrast Mask (contrast_mask_coeffs): code = x * plane + y, z/w = the gain below/above zero.
+    mask_tone: vec4<f32>,
     // Tone-limited masks (limited_mask_params): stops, ISO-R delta, key edges e0/e1 each.
     keyed: array<vec4<f32>, 4>,
     // x = limited mask count, y = frame ISO-R, zw = the ISO-R ladder's ends.
@@ -134,9 +137,12 @@ fn plane_sample(coords: vec2<i32>) -> vec4<f32> {
     return mix(top, bot, f.y);
 }
 
-// The Contrast Mask plane at this pixel, in stops.
+// The Contrast Mask at this pixel, in stops. Mirrors contrast_mask_stops in negpy_core.
 fn contrast_mask_stops(coords: vec2<i32>) -> f32 {
-    return params.mask.x * plane_sample(coords).r;
+    let k = params.mask_tone;
+    let d = clamp(k.x * plane_sample(coords).r + k.y, params.mask_span.z, params.mask_span.w);
+    let t = select(-k.w * d * d, k.z * d * d, d < 0.0);
+    return clamp(t, -params.mask.x, params.mask.x);
 }
 
 fn fast_sigmoid(x: f32) -> f32 {

@@ -7,9 +7,9 @@ from negpy.kernel.system.i18n import tr
 from typing import Iterable
 
 import qtawesome as qta
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QPushButton
+from PyQt6.QtWidgets import QAbstractButton, QPushButton
 
 from negpy.desktop.view.confirm import confirm_reset_tab
 from negpy.desktop.view.styles.templates import header_button, wrap_tooltip
@@ -57,6 +57,18 @@ class TabHeader(CollapsibleSection):
         self.icon_label.hide()
         return btn
 
+    def add_mirror(self, source: QAbstractButton, icon: QIcon | None = None) -> QPushButton:
+        """A lead button that clicks `source`, a card's own button, and follows its check,
+        its enabled state and whether the card hides it. `icon` replaces an icon drawn for a
+        labeled button, which is always lit."""
+        btn = self.add_lead_toggle(icon or source.icon(), source.toolTip())
+        btn.plain_tooltip = getattr(source, "plain_tooltip", "")
+        btn.setCheckable(source.isCheckable())
+        btn.clicked.connect(lambda: (source.click(), btn.setChecked(source.isChecked())))
+        source.toggled.connect(btn.setChecked)
+        _MirrorSync(source, btn)
+        return btn
+
     def bind(self, sections: Iterable[CollapsibleSection]) -> None:
         self._sections = tuple(sections)
         self.refresh()
@@ -96,3 +108,26 @@ class TabHeader(CollapsibleSection):
         collapse = self._any_expanded()
         self.cards_btn.setIcon(qta.icon("fa5s.angle-double-up" if collapse else "fa5s.angle-double-down", color=THEME.text_hint))
         self.cards_btn.setToolTip(wrap_tooltip(tr("Collapse every card on this tab") if collapse else tr("Expand every card on this tab")))
+
+
+class _MirrorSync(QObject):
+    """Copies a source button's explicit hide and enabled state to its mirror. ShowToParent and
+    HideToParent arrive even while a collapsed card keeps the source off screen."""
+
+    _EVENTS = (QEvent.Type.ShowToParent, QEvent.Type.HideToParent, QEvent.Type.EnabledChange)
+
+    def __init__(self, source: QAbstractButton, mirror: QPushButton):
+        super().__init__(mirror)
+        self._source, self._mirror = source, mirror
+        source.installEventFilter(self)
+        self._sync()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() in self._EVENTS:
+            self._sync()
+        return False
+
+    def _sync(self) -> None:
+        self._mirror.setVisible(not self._source.isHidden())
+        self._mirror.setEnabled(self._source.isEnabled())
+        self._mirror.setChecked(self._source.isChecked())

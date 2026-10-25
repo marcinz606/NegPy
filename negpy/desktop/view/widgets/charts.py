@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from typing import Any
 
+import negpy_core
 import numpy as np
 from PyQt6.QtCore import QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -215,7 +216,7 @@ class PhotometricCurveWidget(QWidget):
         curvatures: tuple[float, float, float] | None = None,
         process_mode: str | None = None,
         flat: bool = False,
-        mask_centre: float | None = None,
+        mask: tuple[float, float, tuple[float, float, float]] | None = None,
         highlight_density: float | None = None,
         shadow_density: float | None = None,
     ) -> None:
@@ -295,14 +296,26 @@ class PhotometricCurveWidget(QWidget):
         # Base (white) reference curve, and also the fill, pivot and zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
 
-        # Contrast Mask: the mask shifts each pixel's print exposure by how far its own
-        # value sits from its blurred surroundings, so it has no single curve. A flat area,
-        # where the blur equals its own value, prints at val' = (1-g)*val + g*centre; fine
-        # detail riding on a neutral surround prints unmoved. The band spans the two.
+        # Contrast Mask: (centre, density range, filtration offsets) of its plane. It moves each pixel's print
+        # exposure by its blurred surroundings' tone, so it has no single curve. A large flat area,
+        # where the blur equals its own value, prints on the mask's curve; fine detail rides along.
+        # The band spans the base curve and that one.
         self._mask_pts = []
-        gamma = float(getattr(params, "contrast_mask", 0.0) or 0.0)
-        if gamma and mask_centre is not None and not flat:
-            self._mask_pts = _curve_points(slope, pivot, x_in=(1.0 - gamma) * x_log_exp + gamma * float(mask_centre))
+        if mask is not None and not flat:
+            from negpy.features.exposure.logic import contrast_mask_coeffs
+
+            centre, density_range, offsets = mask
+            coeffs = contrast_mask_coeffs(
+                params.contrast_mask_strength,
+                centre,
+                slopes or (slope, slope, slope),
+                pivots or (pivot, pivot, pivot),
+                offsets,
+                density_range,
+            )
+            if coeffs is not None:
+                stops = negpy_core.contrast_mask_stops(np.ascontiguousarray(x_log_exp - centre, dtype=np.float32), coeffs)
+                self._mask_pts = _curve_points(slope, pivot, x_in=x_log_exp + stops * np.log10(2.0) / density_range)
 
         # Per-channel traces when Cast Removal or grade trims diverge the channels, or the knee
         # trims split toe and shoulder. Otherwise one white curve.

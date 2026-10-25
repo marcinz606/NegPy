@@ -120,6 +120,7 @@ class CrosstalkEditorDialog(QDialog):
         # Left: profile list + new / copy / delete
         left = QWidget()
         left.setMinimumWidth(180)
+        left.setObjectName("dialog_pane")
         left.setStyleSheet(dialog_pane_qss())
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(THEME.space_lg, THEME.space_lg, THEME.space_lg, THEME.space_lg)

@@ -51,7 +51,7 @@ class RetouchSidebar(BaseSidebar):
         self.optical_rail = SliderGroup(self.threshold_slider, self.hair_threshold_slider, self.auto_size_slider)
         self.layout.addWidget(self.optical_rail)
 
-        self.ir_dust_btn = self._small_toggle("fa5s.broom", tr("IR Removal"), conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
+        self.ir_dust_btn = self._small_toggle("mdi6.heat-wave", tr("IR Removal"), conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
         self.layout.addWidget(self.ir_dust_btn)
         self.ir_threshold_slider = CompactSlider(tr("IR Threshold"), 0.05, 0.95, float(conf.ir_threshold))
         self.ir_rail = SliderGroup(self.ir_threshold_slider)

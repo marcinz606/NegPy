@@ -66,6 +66,7 @@ class ExportPresetsDialog(QDialog):
         # Left: preset list + action buttons
         left = QWidget()
         left.setFixedWidth(220)
+        left.setObjectName("dialog_pane")
         left.setStyleSheet(dialog_pane_qss())
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(THEME.space_lg, THEME.space_lg, THEME.space_lg, THEME.space_lg)

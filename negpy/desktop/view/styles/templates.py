@@ -488,8 +488,9 @@ def pane_header_qss() -> str:
 
 
 def dialog_pane_qss() -> str:
-    """Left column pane in two-pane dialogs: panel fill + right divider."""
-    return f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};"
+    """Left column pane in two-pane dialogs: panel fill + right divider. Scoped to the pane, so the
+    pane takes the objectName "dialog_pane" and its controls keep their own look."""
+    return f"QWidget#dialog_pane {{background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};}}"
 
 
 def labeled_toggle_qss() -> str:

@@ -11,6 +11,7 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
     cast_solve_inputs,
+    contrast_mask_coeffs,
     contrast_mask_ev,
     effective_midtone_gamma,
     filtration_offsets,
@@ -310,10 +311,17 @@ class PhotometricProcessor:
             local_maps = np.ascontiguousarray(local_maps, dtype=np.float32)
         ev_map = None if local_maps is None else negpy_core.extract_channel(local_maps, 0)
         # The mask is a print-exposure input like a dodge, so it rides the same map.
+        mask_coeffs = contrast_mask_coeffs(
+            self.config.contrast_mask_strength,
+            context.metrics.get("contrast_mask_centre", 0.5),
+            slopes,
+            pivots,
+            cmy_offsets,
+            lum_range or 0.0,
+        )
         mask_ev = contrast_mask_ev(
             context.metrics.get("contrast_mask_plane"),
-            self.config.contrast_mask,
-            lum_range if lum_range else 1.0,
+            mask_coeffs,
             image.shape[:2],
             context.metrics.get("contrast_mask_roi"),
         )

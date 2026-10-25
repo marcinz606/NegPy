@@ -15,6 +15,9 @@
 - New: **Compare** with any history step or work print. @seanharding
 - New: **Presets** hold Optics, Flat Field and the crop shape. @kurtwindisch
 - New: **Film edge print** — real markings for the bundled stocks and KEYKODE for Kodak cine stocks.
+- New: **Toolbar Export** — an Export button on the canvas toolbar that exports the Frame, Selected or Roll choice of the Export panel; the Print menu takes the Tools button's look, and Export has one icon everywhere.
+- New: **Tab header helpers** — Auto beside Pick Better on Exposure, Auto Crop and Square to Film on Geometry, Optical and IR Removal on Finish.
+- New: **Contact sheet** — Name order by default, and a Label text field for the roll label.
 - Change: **Cast Removal** is a per-frame Filtration control.
 - Change: **IR Removal** — NegPy is the only method, improved and much faster; the OpenICE method is removed.
 - Fix: **Flat export** keeps the print stock's dye colors and the capture date. @thetalkingdrum @MbappeWU

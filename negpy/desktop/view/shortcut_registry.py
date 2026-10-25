@@ -163,8 +163,6 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "separation_damping_inc": ShortcutEntry("", tr("Separation Damping up"), tr("Exposure")),
     "contrast_mask_dec": ShortcutEntry("", tr("Contrast Mask down"), tr("Exposure")),
     "contrast_mask_inc": ShortcutEntry("", tr("Contrast Mask up"), tr("Exposure")),
-    "mask_spacer_dec": ShortcutEntry("", tr("Mask Spacer down"), tr("Exposure")),
-    "mask_spacer_inc": ShortcutEntry("", tr("Mask Spacer up"), tr("Exposure")),
     "diffusion_dec": ShortcutEntry("", tr("Diffusion down"), tr("Exposure")),
     "diffusion_inc": ShortcutEntry("", tr("Diffusion up"), tr("Exposure")),
     "preflash_dec": ShortcutEntry("", tr("Preflash down"), tr("Exposure")),

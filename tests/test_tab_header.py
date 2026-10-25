@@ -4,11 +4,13 @@ expand that reach all of them at once. Cards keep their own headers."""
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QPushButton, QWidget
 
 from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS, rows_for_fields, rows_for_section
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.tab_header import TabHeader
+from negpy.desktop.view.widgets.segmented_choice import ToggleMenuButton
 
 
 def _card(count: int, hidden: bool = False) -> CollapsibleSection:
@@ -233,3 +235,61 @@ def test_pick_better_leads_the_exposure_header():
 
     assert header._header_row.indexOf(panel.pick_better_btn) == 0
     panel.controller.toggle_pick_better.assert_called_once_with(force=True)
+
+
+def test_auto_mirror_shares_the_tone_cards_menu_beside_pick_better():
+    header = TabHeader("Exposure")
+    panel = MagicMock()
+    panel._pick_better_tooltip = ControlsPanel._pick_better_tooltip
+    auto = ToggleMenuButton("fa5s.magic", "", "Auto")
+    density = auto.add_toggle("Auto Density", "")
+    panel.tone_sidebar.auto_btn = auto
+
+    ControlsPanel._add_pick_better(panel, header)
+    ControlsPanel._add_auto_mirror(panel, header)
+
+    assert header._header_row.indexOf(panel.auto_mirror_btn) == 1
+    assert panel.auto_mirror_btn.menu() is auto.choice_menu
+    density.setChecked(True)
+    assert panel.auto_mirror_btn.isChecked()
+    density.setChecked(False)
+    assert not panel.auto_mirror_btn.isChecked()
+
+
+def test_mirror_forwards_clicks_and_follows_its_source():
+    header = TabHeader("Finish")
+    card = QWidget()
+    source = QPushButton(card)
+    source.setCheckable(True)
+    clicks = []
+    source.clicked.connect(clicks.append)
+
+    mirror = header.add_mirror(source)
+    mirror.click()
+    assert clicks == [True]
+    assert mirror.isChecked()
+
+    source.setChecked(False)
+    assert not mirror.isChecked()
+
+    # A collapsed card is never shown, yet its explicit hide still reaches the mirror.
+    source.setVisible(False)
+    assert mirror.isHidden()
+    source.setVisible(True)
+    assert not mirror.isHidden()
+
+    card.setEnabled(False)
+    assert not mirror.isEnabled()
+
+
+def test_mirror_of_a_one_shot_action_stays_unchecked():
+    header = TabHeader("Geometry")
+    source = QPushButton()
+    clicks = []
+    source.clicked.connect(clicks.append)
+
+    mirror = header.add_mirror(source)
+    mirror.click()
+
+    assert clicks == [False]
+    assert not mirror.isCheckable()

@@ -332,11 +332,11 @@ class ScanSidebar(QWidget):
         self.samples_widget = self._row_widget(field_row(tr("Samples"), self.samples_btn))
         quality.addWidget(self.samples_widget)
 
-        self.ir_btn = tool_toggle("fa5s.layer-group", tr("IR"), tr("Scan a separate infrared channel for dust detection"))
+        self.ir_btn = tool_toggle("mdi6.heat-wave", tr("IR"), tr("Scan a separate infrared channel for dust detection"))
         # IR and ICE read the same pass, and ICE bakes its repair into the file, so a raw IR
         # plane beside it would only have cleaned pixels to detect dust in: one choice of three.
         self.dust_btn = SegmentedChoice(
-            (("", tr("Off")), ("fa5s.layer-group", tr("IR")), ("fa5s.broom", tr("ICE"))),
+            (("", tr("Off")), ("mdi6.heat-wave", tr("IR")), ("fa5s.broom", tr("ICE"))),
             tr("How the scan uses the infrared pass against dust: not at all, as a separate channel, or as ICE in the scanner."),
             data=("off", "ir", "ice"),
         )

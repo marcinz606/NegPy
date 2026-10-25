@@ -5,10 +5,19 @@
   [![Release](https://img.shields.io/github/v/release/marcinz606/NegPy)](https://github.com/marcinz606/NegPy/releases)
   [![Downloads](https://img.shields.io/github/downloads/marcinz606/NegPy/total)](https://github.com/marcinz606/NegPy/releases)
   [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+
+  [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](#getting-started)
+  [![Film](https://img.shields.io/badge/film-C41%20%7C%20B%26W%20%7C%20E6-red?logo=googlephotos&logoColor=white)](docs/PIPELINE.md)
+  [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20日本語%20%7C%20한국어%20%7C%20中文-informational)](docs/USER_GUIDE.md)
+
   [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](pyproject.toml)
   [![Rust](https://img.shields.io/badge/rust-negpy__core-orange?logo=rust)](negpy_core)
+  [![GPU](https://img.shields.io/badge/GPU-WebGPU-005A9C)](docs/PIPELINE.md)
+  [![Qt](https://img.shields.io/badge/UI-PyQt6-41CD52?logo=qt&logoColor=white)](https://www.riverbankcomputing.com/software/pyqt/)
+  [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
   [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-  [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](#getting-started)
+
+  [![Stars](https://img.shields.io/github/stars/marcinz606/NegPy?style=flat&logo=github)](https://github.com/marcinz606/NegPy/stargazers)
   [![Contributors](https://img.shields.io/github/contributors/marcinz606/NegPy)](https://github.com/marcinz606/NegPy/graphs/contributors)
   [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/JySNzUWgwy)
 </div>

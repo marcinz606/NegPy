@@ -1,4 +1,5 @@
 from negpy.kernel.system.i18n import tr
+import qtawesome as qta
 from PyQt6.QtWidgets import (
     QMenu,
     QWidget,
@@ -433,6 +434,16 @@ class ControlsPanel(QWidget):
                 page_layout.addWidget(header)
                 if key == "tone":
                     self._add_pick_better(header)
+                    self._add_auto_mirror(header)
+                elif key == "geometry":
+                    self.auto_crop_mirror_btn = header.add_mirror(self.autocrop_sidebar.auto_frame_btn)
+                    self.square_to_film_mirror_btn = header.add_mirror(
+                        self.geometry_sidebar.auto_skew_btn,
+                        qta.icon("fa5s.ruler-combined", color=THEME.text_hint, color_disabled=THEME.text_muted),
+                    )
+                elif key == "finish":
+                    self.optical_removal_mirror_btn = header.add_mirror(self.retouch_sidebar.auto_dust_btn)
+                    self.ir_removal_mirror_btn = header.add_mirror(self.retouch_sidebar.ir_dust_btn)
             for section in sections:
                 page_layout.addWidget(section)
             page_layout.addStretch(1)
@@ -463,6 +474,15 @@ class ControlsPanel(QWidget):
         self.pick_better_btn.clicked.connect(lambda checked: self.controller.toggle_pick_better(force=checked))
         # Session state, not config, so the button follows the controller rather than sync_ui.
         self.controller.pick_better_changed.connect(self._sync_pick_better_btn)
+
+    def _add_auto_mirror(self, header: TabHeader) -> None:
+        """The Tone card's Auto button again on the tab's header: the one menu, so both stay in step."""
+        auto = self.tone_sidebar.auto_btn
+        icon = qta.icon("fa5s.magic", color=THEME.text_hint, color_on=THEME.text_primary, color_disabled=THEME.text_muted)
+        self.auto_mirror_btn = header.add_lead_toggle(icon, auto.plain_tooltip)
+        self.auto_mirror_btn.setMenu(auto.choice_menu)
+        self.auto_mirror_btn.setChecked(auto.isChecked())
+        auto.toggled.connect(self.auto_mirror_btn.setChecked)
 
     @staticmethod
     def _pick_better_tooltip(printing: bool = False) -> str:
@@ -586,6 +606,9 @@ class ControlsPanel(QWidget):
             (self.leak_sidebar.auto_btn, "leak_auto"),
             (self.leak_sidebar.roll_btn, "leak_from_roll"),
             (self.leak_sidebar.burned_btn, "toggle_leak_burned"),
+            (self.optical_removal_mirror_btn, "toggle_optical_removal"),
+            (self.ir_removal_mirror_btn, "toggle_ir_removal"),
+            (self.auto_crop_mirror_btn, "auto_crop"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
             (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),

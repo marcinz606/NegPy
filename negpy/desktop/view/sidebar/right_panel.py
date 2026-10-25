@@ -1021,7 +1021,12 @@ class RightPanel(QWidget):
         # Measured zones read through the current config, so they track every render.
         self._refresh_zone_placement()
 
-        from negpy.features.exposure.logic import auto_highlight_from_metrics, auto_shadow_from_metrics, curve_params_from_metrics
+        from negpy.features.exposure.logic import (
+            auto_highlight_from_metrics,
+            auto_shadow_from_metrics,
+            curve_params_from_metrics,
+            filtration_offsets,
+        )
 
         config = self.controller.session.state.config.exposure
         process_mode = self.controller.session.state.config.process.process_mode
@@ -1059,7 +1064,18 @@ class RightPanel(QWidget):
                 highlight_density=highlight_density,
                 shadow_density=shadow_density,
                 process_mode=process_mode,
-                mask_centre=metrics.get("contrast_mask_centre"),
+                mask=(
+                    (
+                        metrics["contrast_mask_centre"],
+                        metrics.get("norm_density_range") or 0.0,
+                        filtration_offsets(
+                            (config.wb_cyan, config.wb_magenta, config.wb_yellow),
+                            metrics.get("final_bounds") or metrics.get("log_bounds"),
+                        ),
+                    )
+                    if metrics.get("contrast_mask_centre") is not None
+                    else None
+                ),
             )
             self.controls_panel.paper_curve.set_curves(*self.curve_widget.curves())
             self._update_step_wedge(config, process_mode, slope, pivot, metrics)

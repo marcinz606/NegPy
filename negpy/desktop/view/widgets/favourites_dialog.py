@@ -89,6 +89,7 @@ class FavouritesDialog(QDialog):
 
     def _build_available(self) -> QWidget:
         pane = QWidget()
+        pane.setObjectName("dialog_pane")
         pane.setStyleSheet(dialog_pane_qss())
         layout = QVBoxLayout(pane)
         layout.setContentsMargins(0, 0, THEME.space_xl, 0)
