@@ -23,6 +23,7 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.state.negative_peek = False
     controller.session.state.embedded_peek = False
     controller.session.state.flatfield_peek = False
+    controller.session.state.export_size_view = False
     controller.session.state.flat_output = False
     controller.session.state.config.flatfield.profile_id = ""
     controller.session.state.zones_overlay = False

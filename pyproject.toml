@@ -43,8 +43,7 @@ classifiers = [
 
 [project.optional-dependencies]
 nkscan = ["nkscan>=0.16"]
-# pyopticfilm aligns multi-pass and IR scans with cv2, and silently skips the alignment without it.
-plustek = ["pyopticfilm>=1.3.7", "opencv-python-headless==4.13.0.92"]
+plustek = ["pyopticfilm>=1.3.8"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
 
@@ -55,13 +54,14 @@ dev = [
     "pytest-cov>=7.0",
     "ruff==0.14.10",
     "ty>=0.0.26",
+    # The test oracle for the negpy_core kernels that port OpenCV; the app imports no cv2.
+    "opencv-python-headless==4.13.0.92",
 ]
 sane = [
     "python-sane>=2.9",
 ]
 plustek = [
-    "pyopticfilm>=1.3.7",
-    "opencv-python-headless==4.13.0.92",
+    "pyopticfilm>=1.3.8",
 ]
 camera = [
     # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the

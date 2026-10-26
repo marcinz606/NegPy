@@ -53,6 +53,12 @@ def test_stays_near_cv2(shape, dx, dy):
     assert abs(gx - cx) < 0.05 and abs(gy - cy) < 0.05
 
 
+def test_recovers_the_shift_at_16_bit_scale():
+    base = _texture(11, (684, 1024)) * 65535
+    (gx, gy), _ = negpy_core.phase_correlate(base, _shifted(base, 3.0, -2.0))
+    assert abs(gx - 3.0) < 0.5 and abs(gy + 2.0) < 0.5
+
+
 def test_rejects_mismatched_planes():
     with pytest.raises(ValueError):
         negpy_core.phase_correlate(np.zeros((4, 4), np.float32), np.zeros((4, 5), np.float32))

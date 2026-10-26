@@ -1502,8 +1502,9 @@ class ImageProcessor:
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
         split_axis: str = "x",
-    ) -> Tuple[np.ndarray, str]:
-        """Full-res render of one frame; returns the float buffer and its color space."""
+    ) -> Tuple[np.ndarray, str, Optional[Tuple[int, int, int, int]]]:
+        """Full-res render of one frame; returns the float buffer, its color space and the
+        (x, y, w, h) the picture fills inside the mat."""
         f32_buffer, source_cs, export_token = self._prepare_export_source(
             file_path,
             params,
@@ -1589,7 +1590,7 @@ class ImageProcessor:
         if sharpen_after:
             buffer = self._sharpen_resized_content(buffer, content_rect, params)
             timing.lap("output sharpen")
-        return buffer, color_space
+        return buffer, color_space, content_rect
 
     @staticmethod
     def _sharpens_after_resize(params: WorkspaceConfig) -> bool:
@@ -1655,6 +1656,54 @@ class ImageProcessor:
         logger.info("export-timing render %s | %s", timing.summary(times), os.path.basename(file_path))
         return result
 
+    def render_export_view(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        export_settings,
+        source_hash: str,
+        prefer_gpu: bool = True,
+        bounds_override: Optional[Any] = None,
+        half: int = 0,
+        split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
+        split_axis: str = "x",
+        diptych: Optional[Tuple[WorkspaceConfig, WorkspaceConfig]] = None,
+    ) -> Tuple[np.ndarray, Optional[Tuple[int, int, int, int]]]:
+        """The export render of one frame, still in the working space, and the rect its picture
+        fills inside the mat (None for a diptych). Raises on failure."""
+        if diptych is not None:
+            buffer, status = self.render_export(
+                file_path,
+                params,
+                export_settings,
+                source_hash,
+                prefer_gpu=prefer_gpu,
+                split_x=split_x,
+                crop_rect=crop_rect,
+                gutter_thickness=gutter_thickness,
+                split_axis=split_axis,
+                diptych=diptych,
+            )
+            if buffer is None:
+                raise RuntimeError(status)
+            return buffer, None
+        buffer, _, content_rect = self._render_export_buffer(
+            file_path,
+            params,
+            export_settings,
+            source_hash,
+            prefer_gpu=prefer_gpu,
+            bounds_override=bounds_override,
+            half=half,
+            split_x=split_x,
+            crop_rect=crop_rect,
+            gutter_thickness=gutter_thickness,
+            split_axis=split_axis,
+        )
+        return buffer, content_rect
+
     def _render_export(
         self,
         file_path: str,
@@ -1690,11 +1739,11 @@ class ImageProcessor:
                     )
                     for n, cfg in ((1, diptych[0]), (2, diptych[1]))
                 ]
-                (left, color_space), (right, _) = rendered
+                (left, color_space, _), (right, _, _) = rendered
                 along = 1 if split_axis == "x" else 0
                 buffer = join_halves(left, right, gap_px(left.shape[along], right.shape[along], gutter_thickness), axis=split_axis)
             else:
-                buffer, color_space = self._render_export_buffer(
+                buffer, color_space, _ = self._render_export_buffer(
                     file_path,
                     params,
                     export_settings,

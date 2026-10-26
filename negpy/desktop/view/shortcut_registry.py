@@ -92,6 +92,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
         "", tr("Base Relative: the scan Parade's density above each channel's film base"), tr("Tools")
     ),
     "toggle_hq": ShortcutEntry("", tr("Toggle high-quality (full-resolution) preview"), tr("View")),
+    "toggle_export_size_view": ShortcutEntry("", tr("Show the frame at its export size, to judge sharpening and grain"), tr("View")),
     "toggle_optical_removal": ShortcutEntry("", tr("Toggle Optical Removal"), tr("Retouch")),
     "toggle_right_click_excludes": ShortcutEntry("", tr("Toggle right-click excludes from Optical Removal"), tr("Retouch")),
     "toggle_ir_removal": ShortcutEntry("", tr("Toggle IR Removal"), tr("Retouch")),

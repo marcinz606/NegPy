@@ -72,6 +72,7 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
             empty_state=MagicMock(),
             controller=MagicMock(display_transform_params=MagicMock(return_value=("sRGB", None, False))),
             canvas=MagicMock(),
+            _export_size_zoom_pending=False,
         )
         MainWindow._on_image_updated(stub)
         self.display_params = stub.controller.display_transform_params

@@ -156,6 +156,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.state = controller.state
+        self._export_size_zoom_pending = False
 
         self._restore_window_geometry()
         self.setAcceptDrops(True)
@@ -687,6 +688,8 @@ class MainWindow(QMainWindow):
         self.controller.clipping_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.zone_highlight_changed.connect(self.canvas.overlay.update)
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.export_view_ready.connect(self.canvas.overlay.update)
+        self.controller.export_size_view_changed.connect(self._on_export_size_view_changed)
         self.controller.printing_notes_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.cursor_probe_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.densitometer_readout.connect(self.canvas.overlay.set_probe_reading)
@@ -803,6 +806,9 @@ class MainWindow(QMainWindow):
         self.empty_state.setVisible(True)
         self._refresh_image_info()
 
+    def _on_export_size_view_changed(self, on: bool) -> None:
+        self._export_size_zoom_pending = on
+
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
         if not self.state.uploaded_files:
@@ -819,7 +825,8 @@ class MainWindow(QMainWindow):
             return
         content_rect = shown("content_rect")
 
-        if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
+        # The export render carries its own mat.
+        if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled and not shown("export_view"):
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
             # No padding for a crop_preview_full buffer (the uncropped frame), as on the GPU: it would misalign
@@ -853,6 +860,10 @@ class MainWindow(QMainWindow):
             splash=bool(shown("splash")), proofed=bool(shown("proof", True))
         )
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
+        # The first export frame opens at 100%: Export Size is for judging pixels.
+        if self._export_size_zoom_pending and shown("export_view"):
+            self._export_size_zoom_pending = False
+            self.canvas.zoom_to_percent(100.0)
 
     def _refresh_image_info(self) -> None:
         """Updates the canvas HUD corner pills."""

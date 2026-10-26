@@ -68,6 +68,14 @@ class ExportSidebar(BaseSidebar):
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
         self.form = ExportSettingsForm()
+        self.export_size_btn = self._tool_toggle(
+            "fa5s.ruler-combined",
+            tr("Preview Export Size"),
+            tr("Show the frame at the export size, to judge sharpening and grain (does not change your edit)"),
+            align_left=True,
+        )
+        self.export_size_btn.setChecked(self.state.export_size_view)
+        self.form.add_size_row(self.export_size_btn)
         self.form.load(self._config_to_form_values())
         self._body.addWidget(self.form)
         self._add_proof_controls()
@@ -131,6 +139,8 @@ class ExportSidebar(BaseSidebar):
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
         self.controller.linear_output_changed.connect(self._on_linear_output_changed)
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
+        self.export_size_btn.toggled.connect(self._on_export_size_clicked)
+        self.controller.export_size_view_changed.connect(self._on_export_size_view_changed)
 
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
         self.printing_notes_btn.clicked.connect(self.controller.request_printing_notes_export)
@@ -720,6 +730,16 @@ class ExportSidebar(BaseSidebar):
             or self.state.linear_apply_ice
         )
         self.linear_corrections_hint.setVisible(any_on)
+
+    def _on_export_size_clicked(self, checked: bool) -> None:
+        # The controller refuses with no frame open and sends no signal then.
+        self.controller.toggle_export_size_view(force=checked)
+        self._on_export_size_view_changed(self.state.export_size_view)
+
+    def _on_export_size_view_changed(self, active: bool) -> None:
+        self.export_size_btn.blockSignals(True)
+        self.export_size_btn.setChecked(active)
+        self.export_size_btn.blockSignals(False)
 
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.flat_peek_btn.blockSignals(True)

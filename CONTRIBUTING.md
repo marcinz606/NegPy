@@ -16,7 +16,7 @@ NegPy requires Python 3.13+, `uv` and a Rust toolchain.
 ### 1. Prerequisites
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [rustup](https://rustup.rs/). `rustup` reads the toolchain version from `negpy_core/rust-toolchain.toml`.
 
-The `negpy_core/` folder is a Rust library with NegPy's CPU kernels. The first `uv sync` compiles it. After you edit a Rust file, the next `uv run` or `make test` compiles it again. `negpy_core` builds no C or C++ code: `cargo-deny` (`negpy_core/deny.toml`) rejects a dependency that does. Its tests compare against opencv, which only the `plustek` group installs; `make install` (`uv sync --all-groups`) brings it.
+The `negpy_core/` folder is a Rust library with NegPy's CPU kernels. The first `uv sync` compiles it. After you edit a Rust file, the next `uv run` or `make test` compiles it again. `negpy_core` builds no C or C++ code: `cargo-deny` (`negpy_core/deny.toml`) rejects a dependency that does. Its tests compare against opencv, which only the `dev` group installs; `make install` (`uv sync --all-groups`) brings it.
 
 Scanner support (optional):
 
@@ -31,7 +31,7 @@ Scanner support (optional):
     brew install sane-backends
     ```
 
-- **Plustek USB** (Windows/macOS/Linux): the [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (**1.3.7** or later): `uv sync --group plustek` or `pip install negpy[plustek]`. On Windows, pyopticfilm installs `libusb-package`, and the scanner needs WinUSB bound with Zadig in place of the vendor/SilverFast driver (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1). See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
+- **Plustek USB** (Windows/macOS/Linux): the [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (**1.3.8** or later): `uv sync --group plustek` or `pip install negpy[plustek]`. On Windows, pyopticfilm installs `libusb-package`, and the scanner needs WinUSB bound with Zadig in place of the vendor/SilverFast driver (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1). See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
 
 - **Nikon Coolscan** (Windows/macOS/Linux): [nkscan](https://github.com/activexray/nkscan) 0.14 or newer, shipped as wheels: `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux, USB needs a udev rule for vendor `04b0`, and FireWire/SCSI needs the `sg` module.
 

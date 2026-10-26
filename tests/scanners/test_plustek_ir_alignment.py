@@ -41,13 +41,14 @@ def test_plustek_align_recovers_whole_pixel_offset():
 
 
 def test_plustek_align_estimates_nonzero_shift():
-    base = _texture()
+    # Multi-Exposure registration masks clipped pixels on the uint16 scale of a scan.
+    base = (_texture() * 40000 + 5000).astype(np.uint16)
     rgb = np.stack([base, base, base], axis=-1)
-    ir = np.roll(np.roll(base, 2, axis=1), -3, axis=0)
+    long = np.roll(np.roll(rgb, 2, axis=1), -3, axis=0)
 
-    dx, dy = estimate_pass_shift(rgb, ir)
+    dx, dy = estimate_pass_shift(rgb, long)
 
-    assert max(abs(dx), abs(dy)) > 0.5
+    assert (dx, dy) == pytest.approx((-2.0, 3.0), abs=0.5)
 
 
 def test_plustek_align_corrects_carriage_offset():

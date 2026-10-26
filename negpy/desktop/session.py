@@ -356,6 +356,11 @@ class AppState:
     embedded_peek: bool = False
     # Transient: preview is showing the selected Flat Field profile's self-check.
     flatfield_peek: bool = False
+    # Transient: preview is showing the frame as it exports, at the export size.
+    export_size_view: bool = False
+    # The open frame's export render for the current edit, for Export Size and the loupe:
+    # {"key", "buffer", "content_rect"}. None while it renders or nothing asks for it.
+    export_view: Optional[Dict[str, Any]] = None
     # A painted peek's canvas keys (negative, embedded, Check Flat Field), apart from last_metrics,
     # which holds the print. Stays until the print is painted again, not until the peek flag drops.
     peek_frame: Optional[Dict[str, Any]] = None
@@ -2462,6 +2467,7 @@ class DesktopSessionManager(QObject):
         self.state.preview_detect = None
         self.state.preview_embedded = None
         self.state.peek_frame = None
+        self.state.export_view = None
         self.state.has_ir = False
         self.state.config = self._empty_session_config()
         self._config_dirty = False

@@ -125,8 +125,8 @@ jobs:
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 x11-utils libgl1
 
       - name: Install Dependencies
-        # The plustek group brings opencv, which the direct cv2 oracles compare against.
-        run: uv sync --group dev --group plustek
+        # The dev group brings opencv, which the direct cv2 oracles compare against.
+        run: uv sync --group dev
 
       - name: negpy_core pins and oracles
         run: uv run pytest tests/test_percentiles.py tests/test_core_same_bits.py tests/test_core_orient.py tests/test_core_ir_downsample.py tests/test_core_flat_curve.py tests/test_core_png.py tests/test_core_resize.py tests/test_core_filter.py tests/test_core_morph.py tests/test_core_gray.py tests/test_core_contours.py tests/test_core_shapes.py tests/test_core_components.py tests/test_core_color.py tests/test_core_warp.py tests/test_core_lab.py tests/test_core_altprocess.py

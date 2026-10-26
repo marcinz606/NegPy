@@ -373,7 +373,6 @@ nkscan = [
     { name = "nkscan" },
 ]
 plustek = [
-    { name = "opencv-python-headless" },
     { name = "pyopticfilm" },
 ]
 sane = [
@@ -385,6 +384,7 @@ camera = [
     { name = "gphoto2", marker = "sys_platform != 'win32'" },
 ]
 dev = [
+    { name = "opencv-python-headless" },
     { name = "pyinstaller" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -398,7 +398,6 @@ pieusb = [
     { name = "pieusb" },
 ]
 plustek = [
-    { name = "opencv-python-headless" },
     { name = "pyopticfilm" },
 ]
 sane = [
@@ -415,10 +414,9 @@ requires-dist = [
     { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.16" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "onnxruntime", specifier = "==1.23.2" },
-    { name = "opencv-python-headless", marker = "extra == 'plustek'", specifier = "==4.13.0.92" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.7" },
+    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.8" },
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
@@ -433,6 +431,7 @@ provides-extras = ["nkscan", "plustek", "sane", "camera"]
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
 dev = [
+    { name = "opencv-python-headless", specifier = "==4.13.0.92" },
     { name = "pyinstaller", specifier = ">=6.18.0" },
     { name = "pytest", specifier = "==9.0.2" },
     { name = "pytest-cov", specifier = ">=7.0" },
@@ -441,10 +440,7 @@ dev = [
 ]
 nkscan = [{ name = "nkscan", specifier = ">=0.16" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
-plustek = [
-    { name = "opencv-python-headless", specifier = "==4.13.0.92" },
-    { name = "pyopticfilm", specifier = ">=1.3.7" },
-]
+plustek = [{ name = "pyopticfilm", specifier = ">=1.3.8" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -744,16 +740,16 @@ wheels = [
 
 [[package]]
 name = "pyopticfilm"
-version = "1.3.7"
+version = "1.3.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package", marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/f6/c56a765b814d54e45ece097409b59cf18ec4c3235fba3dc16a60ee3f03ee/pyopticfilm-1.3.7.tar.gz", hash = "sha256:b55cdfdefdb7d3819d5c018b176001f14210b8cd056dd450fb3d412aec13b282", size = 386455, upload-time = "2026-10-23T04:55:54.672Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/c9/17cc52f0ad2250062e033aa30242f10c49a7d3915295b24e327c363a62d6/pyopticfilm-1.3.8.tar.gz", hash = "sha256:2de66668ef8f34e5b4aefcd8c27f5c2eef0efdda7fbcc3143b470851e238e56e", size = 400629, upload-time = "2026-10-26T15:55:06.287Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/34/b6646f253923b6081231c9ac85763d7e403dfecf9d1d1bd22d58967fae05/pyopticfilm-1.3.7-py3-none-any.whl", hash = "sha256:d4eb98dd40c2d84487798e33b07278f4d4a7ff1cabe968c90381a18d35b511e0", size = 424539, upload-time = "2026-10-23T04:55:52.951Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/bb/8fbc31d957bdd79270711308168443bb2d7e1f007cb7bbd7cc331d44ac7d/pyopticfilm-1.3.8-py3-none-any.whl", hash = "sha256:1fbbafb5243346714a1e81fea8e241ee20147340ef6290142d7564636f0dab26", size = 445339, upload-time = "2026-10-26T15:55:04.657Z" },
 ]
 
 [[package]]

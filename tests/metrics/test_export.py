@@ -48,11 +48,11 @@ def test_export_render_and_encode(rig) -> None:
     cfg = WorkspaceConfig()
 
     # Warm run; measure steady state.
-    fbuf, cs = proc._render_export_buffer(path, cfg, cfg.export, "metrics-export")
+    fbuf, cs, _ = proc._render_export_buffer(path, cfg, cfg.export, "metrics-export")
     proc._encode_export(fbuf, cfg.export, cs)
 
     t0 = time.perf_counter()
-    fbuf, cs = proc._render_export_buffer(path, cfg, cfg.export, "metrics-export-2")
+    fbuf, cs, _ = proc._render_export_buffer(path, cfg, cfg.export, "metrics-export-2")
     render_s = time.perf_counter() - t0
 
     t0 = time.perf_counter()

@@ -150,9 +150,12 @@ pub fn phase_correlate(a: &[f32], b: &[f32], h: usize, w: usize) -> (f64, f64, f
         .zip(fb.par_chunks(m))
         .for_each(|(p, q)| {
             for (p, q) in p.iter_mut().zip(q) {
+                // In f64: at 16-bit scale |v|^2 of the DC bin passes f32::MAX.
                 let v = *p * q.conj();
-                let sq = v.norm_sqr();
-                *p = v * (sq.sqrt() / (sq + f32::EPSILON));
+                let (re, im) = (v.re as f64, v.im as f64);
+                let sq = re * re + im * im;
+                let k = sq.sqrt() / (sq + f32::EPSILON as f64);
+                *p = C32::new((re * k) as f32, (im * k) as f32);
             }
         });
     let corr = inverse(fa, (m, n));

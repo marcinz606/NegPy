@@ -50,6 +50,7 @@ class LabSidebar(BaseSidebar):
             tr("Auto Masking: sets Masking from the grain of each frame, so grain stays smooth."),
         )
         self.auto_masking_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.auto_masking_btn.setProperty("value_column", True)
         method_row.addWidget(self.auto_masking_btn)
         self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider(tr("Masking"), 0.0, 1.0, conf.sharpen_masking)

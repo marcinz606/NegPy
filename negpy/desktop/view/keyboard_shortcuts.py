@@ -138,6 +138,9 @@ def _context_cancel(controller, window) -> None:
     if controller.state.flat_peek:
         controller.toggle_flat_peek(force=False)
         return
+    if controller.state.export_size_view:
+        controller.toggle_export_size_view(force=False)
+        return
     if controller.state.compare_mode:
         controller.toggle_compare()
         return
@@ -516,6 +519,7 @@ class ShortcutManager:
             "toggle_negative_peek": controller.toggle_negative_peek,
             "toggle_embedded_peek": controller.toggle_embedded_peek,
             "toggle_flatfield_peek": controller.toggle_flatfield_peek,
+            "toggle_export_size_view": controller.toggle_export_size_view,
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_clipping_overlay": controller.toggle_clipping_overlay,
             "toggle_zone_hover_highlight": controller.toggle_zone_hover_highlight,

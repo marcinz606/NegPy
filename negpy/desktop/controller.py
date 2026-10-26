@@ -70,6 +70,7 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.embedding import EmbeddingWorker
+from negpy.desktop.workers.export_view import ExportViewWorker
 from negpy.desktop.workers.scan_worker import BatchRequest, MeterRequest, PrescanRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
@@ -620,6 +621,10 @@ class AppController(QObject):
     negative_peek_changed = pyqtSignal(bool)
     embedded_peek_changed = pyqtSignal(bool)
     flatfield_peek_changed = pyqtSignal(bool)
+    export_size_view_changed = pyqtSignal(bool)
+    # The open frame's export render landed in state.export_view.
+    export_view_ready = pyqtSignal()
+    _export_view_requested = pyqtSignal(object, object)  # key, ExportTask
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
@@ -904,6 +909,14 @@ class AppController(QObject):
         self._render_debounce.setSingleShot(True)
         self._render_debounce.setInterval(50)
         self._render_debounce.timeout.connect(self.request_render)
+        # The export render takes seconds, so it waits for an edit to settle.
+        self._export_view_timer = QTimer()
+        self._export_view_timer.setSingleShot(True)
+        self._export_view_timer.setInterval(400)
+        self._export_view_timer.timeout.connect(self._dispatch_export_view)
+        self._export_view_thread: Optional[QThread] = None
+        self._export_view_worker: Optional[ExportViewWorker] = None
+        self._export_view_busy = False
         self._dispatched_render_state: Optional[tuple] = None  # _render_state() of the last plain render
 
         self._crop_bounds_dirty = False
@@ -2912,6 +2925,7 @@ class AppController(QObject):
         self.state.preview_detect = None
         self.state.preview_embedded = None
         self.state.peek_frame = None
+        self.state.export_view = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
         if self.state.flat_peek:
@@ -2923,6 +2937,7 @@ class AppController(QObject):
         if self.state.embedded_peek:
             self.state.embedded_peek = False
             self.embedded_peek_changed.emit(False)
+        self._end_export_size_view()
         if self.state.flatfield_peek:
             self.state.flatfield_peek = False
             self.flatfield_peek_changed.emit(False)
@@ -3395,10 +3410,10 @@ class AppController(QObject):
             self.zone_highlight_changed.emit()
 
     def toggle_grain_focuser(self, force: Optional[bool] = None) -> None:
-        """Grain focuser loupe. Repaint only — it magnifies the frame the canvas already
-        holds, so no re-render is needed."""
+        """Grain focuser loupe. It magnifies the export render, so turning it on starts one."""
         self.state.grain_focuser = (not self.state.grain_focuser) if force is None else bool(force)
         self.grain_focuser_changed.emit(self.state.grain_focuser)
+        self._schedule_export_view()
 
     def toggle_cursor_probe(self, force: Optional[bool] = None) -> None:
         """Densitometer chip beside the pointer. Repaint only."""
@@ -4284,6 +4299,7 @@ class AppController(QObject):
         if self.state.embedded_peek:
             self.state.embedded_peek = False
             self.embedded_peek_changed.emit(False)
+        self._end_export_size_view()
         if self.state.flatfield_peek:
             self.state.flatfield_peek = False
             self.flatfield_peek_changed.emit(False)
@@ -7853,6 +7869,7 @@ class AppController(QObject):
             or st.flat_peek
             or st.embedded_peek
             or st.flatfield_peek
+            or st.export_size_view
             or st.active_tool in UNCROPPED_PREVIEW_TOOLS
         ):
             return
@@ -7886,6 +7903,7 @@ class AppController(QObject):
             if self.state.embedded_peek:
                 self.state.embedded_peek = False
                 self.embedded_peek_changed.emit(False)
+            self._end_export_size_view()
             if self.state.flatfield_peek:
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
@@ -7980,6 +7998,7 @@ class AppController(QObject):
             if self.state.embedded_peek:
                 self.state.embedded_peek = False
                 self.embedded_peek_changed.emit(False)
+            self._end_export_size_view()
             if self.state.flatfield_peek:
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
@@ -8064,6 +8083,7 @@ class AppController(QObject):
             if self.state.embedded_peek:
                 self.state.embedded_peek = False
                 self.embedded_peek_changed.emit(False)
+            self._end_export_size_view()
             if self.state.flatfield_peek:
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
@@ -8117,9 +8137,10 @@ class AppController(QObject):
         # point of the view.
         self._store_peek_frame(img, splash=True, crop_preview_full=context.crop_preview_full)
 
-    def _store_peek_frame(self, buffer: np.ndarray, splash: bool, crop_preview_full: bool) -> None:
+    def _store_peek_frame(self, buffer: np.ndarray, splash: bool, crop_preview_full: bool, **keys: Any) -> None:
         """Put a painted peek on the canvas, beside the print in last_metrics. `interactive` is
-        False: a prior Flat Peek render can leave it True, and right_panel then skips the histogram."""
+        False: a prior Flat Peek render can leave it True, and right_panel then skips the histogram.
+        `keys` overrides the defaults below."""
         self.state.peek_frame = {
             "base_positive": buffer,
             "content_rect": None,
@@ -8128,8 +8149,124 @@ class AppController(QObject):
             "splash": splash,
             "proof": False,
             "interactive": False,
+            **keys,
         }
         self.image_updated.emit()
+
+    def _paint_export_view(self) -> None:
+        """Put the export render on the canvas. A print, so it takes the soft proof. Its long edge
+        stands in for the scan's, so the zoom readout counts export pixels."""
+        view = self.state.export_view
+        if view is None:
+            return
+        self._store_peek_frame(
+            view["buffer"],
+            splash=False,
+            crop_preview_full=False,
+            content_rect=view["content_rect"],
+            render_long_edge=max(self.state.original_res or (0, 0)),
+            proof=True,
+            export_view=True,
+        )
+
+    def toggle_export_size_view(self, force: Optional[bool] = None) -> None:
+        """Show the frame as it exports, at the export size, without changing the edit. It follows
+        each edit once its export render lands. Exclusive with the peeks, the compare view and the
+        test strip."""
+        if self.state.preview_raw is None:
+            return
+        target = (not self.state.export_size_view) if force is None else force
+        if target == self.state.export_size_view:
+            return
+        if target:
+            self.exit_compare()
+            self.reset_all_peeks()
+            self._clear_test_strip()
+        self.state.export_size_view = target
+        self.export_size_view_changed.emit(target)
+        if target and self.state.export_view is not None:
+            self._paint_export_view()
+        elif target:
+            self._schedule_export_view()
+        else:
+            self.request_render()
+
+    def _end_export_size_view(self) -> None:
+        if self.state.export_size_view:
+            self.state.export_size_view = False
+            self.export_size_view_changed.emit(False)
+
+    def _export_view_wanted(self) -> bool:
+        st = self.state
+        return (st.export_size_view or st.grain_focuser) and st.preview_raw is not None and bool(st.current_file_path)
+
+    def _export_view_task(self) -> tuple[tuple, ExportTask]:
+        """The export of the open frame with the Export panel's settings, as Export would run it,
+        and the key that tells a later edit apart."""
+        st = self.state
+        params = flat_master_config(st.config) if st.flat_output else st.config
+        export_conf = replace(st.config.export, icc_input_path=self.effective_input_icc(), icc_output_path=st.icc_output_path)
+        if st.flat_output:
+            export_conf = flat_export_config(export_conf)
+        file_info = next(
+            (f for f in st.uploaded_files if f.get("hash") == st.current_file_hash),
+            {"name": os.path.basename(st.current_file_path or ""), "path": st.current_file_path, "hash": st.current_file_hash},
+        )
+        file_info, diptych = self._diptych_task(file_info)
+        bounds_override = None
+        if diptych is None:
+            with st.metrics_lock:
+                bounds_override = st.last_metrics.get("log_bounds")
+        task = ExportTask(
+            file_info=file_info,
+            params=params,
+            export_settings=preset_from_export_config(export_conf),
+            gpu_enabled=st.gpu_enabled,
+            bounds_override=bounds_override,
+            diptych=diptych,
+        )
+        return (file_info.get("hash"), file_info.get("half"), params, export_conf, diptych, st.gpu_enabled), task
+
+    def _schedule_export_view(self) -> None:
+        """Drop an export render the edit has moved past and start the timer for a new one. Runs
+        after each render, so the export uses that render's bounds."""
+        if not self._export_view_wanted():
+            self.state.export_view = None
+            return
+        view = self.state.export_view
+        if view is not None and view["key"] != self._export_view_task()[0]:
+            self.state.export_view = None
+            self.export_view_ready.emit()
+        if self.state.export_view is None:
+            self._export_view_timer.start()
+
+    def _dispatch_export_view(self) -> None:
+        if self._export_view_busy or not self._export_view_wanted() or self.state.export_view is not None:
+            return
+        if self._export_view_thread is None:
+            self._export_view_thread = QThread()
+            self._export_view_worker = ExportViewWorker()
+            self._export_view_worker.moveToThread(self._export_view_thread)
+            self._export_view_requested.connect(self._export_view_worker.render)
+            self._export_view_worker.finished.connect(self._on_export_view_done)
+            self._export_view_thread.start()
+        key, task = self._export_view_task()
+        self._export_view_busy = True
+        self._export_view_requested.emit(key, task)
+
+    def _on_export_view_done(self, key: tuple, result: Optional[tuple]) -> None:
+        self._export_view_busy = False
+        if not self._export_view_wanted():
+            return
+        if result is not None and key == self._export_view_task()[0]:
+            buffer, content_rect = result
+            self.state.export_view = {"key": key, "buffer": buffer, "content_rect": content_rect}
+            self.export_view_ready.emit()
+            if self.state.export_size_view:
+                self._paint_export_view()
+        elif result is not None:
+            # The edit moved on while this one rendered.
+            self._export_view_timer.start()
 
     def toggle_embedded_peek(self, force: Optional[bool] = None) -> None:
         """Show the camera's embedded preview, without changing the saved edit.
@@ -8160,6 +8297,7 @@ class AppController(QObject):
             if self.state.flatfield_peek:
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
+            self._end_export_size_view()
             self._clear_test_strip()
 
         self.state.embedded_peek = target
@@ -8250,6 +8388,7 @@ class AppController(QObject):
                 if getattr(self.state, flag):
                     setattr(self.state, flag, False)
                     signal.emit(False)
+            self._end_export_size_view()
             self._clear_test_strip()
 
         self.state.flatfield_peek = target
@@ -9350,9 +9489,12 @@ class AppController(QObject):
             self._paint_embedded_peek()
         elif self.state.flatfield_peek:
             self._paint_flatfield_peek()
+        elif self.state.export_size_view and self.state.export_view is not None:
+            self._paint_export_view()
         else:
             self.state.peek_frame = None
             self.image_updated.emit()
+        self._schedule_export_view()
 
         # By reference, because display buffers are read-only downstream. After the repaint:
         # overwriting an entry frees the texture the canvas has just stopped sampling.
@@ -9723,6 +9865,10 @@ class AppController(QObject):
         self._cleaned_up = True
         self._render_debounce.stop()
         self._cursor_readout_timer.stop()
+        self._export_view_timer.stop()
+        if self._export_view_thread is not None:
+            self._export_view_thread.quit()
+            self._export_view_thread.wait()
         if self.render_thread.isRunning():
             self.render_thread.quit()
             self.render_thread.wait()
@@ -9778,6 +9924,8 @@ class AppController(QObject):
         # Memo-owned textures outlive the pool, so they must die before the device.
         self._render_memo.clear()
         self.render_worker.destroy_all()
+        if self._export_view_worker is not None:
+            self._export_view_worker.destroy()
 
         # All GPU-touching threads are now joined; release the wgpu device.
         GPUDevice.destroy_singleton()

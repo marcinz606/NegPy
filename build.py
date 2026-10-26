@@ -41,7 +41,6 @@ params = [
     "--noconfirm",
     # Hidden imports
     "--hidden-import=rawpy",
-    "--hidden-import=cv2",
     "--hidden-import=numpy",
     "--hidden-import=PIL",
     "--hidden-import=PIL.Image",

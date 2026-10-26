@@ -165,6 +165,13 @@ _MODE_SETTING_KEY = "toolbar_mode"
 # (state flag, icon, label, shortcut id, tooltip); index 0 is the edit itself.
 _VIEW_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (
     ("", "fa5s.image", tr("Print"), "", tr("The edit, as it prints")),
+    (
+        "export_size_view",
+        "fa5s.ruler-combined",
+        tr("Export Size"),
+        "toggle_export_size_view",
+        tr("The frame as it exports, at the size the Export panel sets, to judge sharpening and grain"),
+    ),
     ("compare_mode", "fa5s.adjust", tr("Before / After"), "toggle_compare", tr("Split against the default conversion; drag the divider")),
     (
         "negative_peek",
@@ -504,7 +511,7 @@ class ActionToolbar(QWidget):
                 "fa5s.search-plus",
                 tr("Grain Focuser"),
                 "toggle_grain_focuser",
-                tr("Grain focuser: magnifies the frame's pixels at the pointer, with a sharpness number to compare areas."),
+                tr("Grain focuser: shows the exported pixels at the pointer at their true size, with a sharpness number to compare areas."),
                 self.controller.toggle_grain_focuser,
             ),
             (
@@ -692,7 +699,7 @@ class ActionToolbar(QWidget):
         self._ov_loupe_action.setCheckable(True)
         self._menu_tip(
             self._ov_loupe_action,
-            tr("Grain focuser: magnifies the frame's pixels at the pointer, with a sharpness number to compare areas."),
+            tr("Grain focuser: shows the exported pixels at the pointer at their true size, with a sharpness number to compare areas."),
             "toggle_grain_focuser",
         )
         self._ov_notes_action = view_menu.addAction(overlay_icon["printing_notes"], tr("Printing Notes"))
@@ -1390,6 +1397,7 @@ class ActionToolbar(QWidget):
             "flat_peek": controller.toggle_flat_peek,
             "embedded_peek": controller.toggle_embedded_peek,
             "flatfield_peek": controller.toggle_flatfield_peek,
+            "export_size_view": controller.toggle_export_size_view,
         }
         self._ov_view_actions = {
             "compare_mode": self._ov_compare_action,
@@ -1408,6 +1416,7 @@ class ActionToolbar(QWidget):
             controller.negative_peek_changed,
             controller.embedded_peek_changed,
             controller.flatfield_peek_changed,
+            controller.export_size_view_changed,
             controller.zones_overlay_changed,
             controller.clipping_overlay_changed,
             controller.printing_notes_changed,
