@@ -84,6 +84,7 @@ from negpy.features.transparency.logic import (
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
+from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -142,7 +143,9 @@ _METRICS_DENSITY_PARADE_BASE = _METRICS_PARADE_BASE + _METRICS_PARADE_WORDS
 _METRICS_DENSITY_PARADE_WORDS = 3 * WAVEFORM_BINS * WAVEFORM_COLS
 _METRICS_FULL_SCALE_BASE = _METRICS_DENSITY_PARADE_BASE + _METRICS_DENSITY_PARADE_WORDS
 _METRICS_FULL_SCALE_WORDS = 3 * WAVEFORM_COLS
-METRICS_BUFFER_SIZE = (_METRICS_FULL_SCALE_BASE + _METRICS_FULL_SCALE_WORDS) * 4
+# Auto Masking's share, the f32 bits of the auto_mask buffer's word 1.
+_METRICS_AUTO_MASK_BASE = _METRICS_FULL_SCALE_BASE + _METRICS_FULL_SCALE_WORDS
+METRICS_BUFFER_SIZE = (_METRICS_AUTO_MASK_BASE + 1) * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -320,6 +323,8 @@ class GPUEngine:
             "clahe_apply": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_apply.wgsl")),
             "lab_sharpen_h": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_h.wgsl")),
             "lab_sharpen_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_v.wgsl")),
+            "sharpen_grain_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "sharpen_grain_hist.wgsl")),
+            "sharpen_grain_pick": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "sharpen_grain_pick.wgsl")),
             "chroma_lowpass_h": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "chroma_lowpass_h.wgsl")),
             "chroma_lowpass_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "chroma_lowpass_v.wgsl")),
             "rl_init": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_init.wgsl")),
@@ -371,7 +376,7 @@ class GPUEngine:
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 464,
+            "exposure": 480,
             "transfer": 224,
             "clahe_u": 32,
             "lab": 96,
@@ -596,6 +601,9 @@ class GPUEngine:
         )
         # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius <= 511.
         self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        # Auto Masking: the gradient histogram, then (masking, auto share) for the lab pass.
+        self._buffers["grain_hist"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        self._buffers["auto_mask"] = GPUBuffer(256, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
         # Chroma Denoise low-pass taps, the same helper's.
         self._buffers["chroma_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # The Mackie-line blur taps, the same helper's, for the Sabattier passes.
@@ -984,12 +992,14 @@ class GPUEngine:
                     mask_rect = (frame[0] - global_offset[0], frame[1] - global_offset[1], frame[2], frame[3])
             else:
                 geo = settings.geometry
+                bw_weights = plane_weights(settings.process, settings.exposure)
                 mask_key = (
                     analysis_key,
                     bounds,
                     roi,
                     (h_rot, w_rot),
                     (geo.rotation, geo.fine_rotation, geo.flip_horizontal, geo.flip_vertical, geo.converge_v, geo.converge_h, k1_eff),
+                    bw_weights,
                 )
                 if self._mask_plane is None or self._mask_plane[0] != mask_key:
                     self._mask_plane = (
@@ -999,6 +1009,7 @@ class GPUEngine:
                             bounds,
                             unmix_m,
                             roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                            bw_weights=bw_weights,
                             **geometry_kwargs(settings.geometry, k1_eff),
                         ),
                     )
@@ -1036,7 +1047,7 @@ class GPUEngine:
                 diff_bounds = LogNegativeBounds(
                     tuple(bounds.floors[ch] + wp3[ch] for ch in range(3)), tuple(bounds.ceils[ch] + bp3[ch] for ch in range(3))
                 )
-                panchromatic = settings.process.process_mode == ProcessMode.BW
+                diff_weights = plane_weights(settings.process, settings.exposure)
                 grid_key = (
                     analysis_key,
                     roi,
@@ -1054,11 +1065,11 @@ class GPUEngine:
                             **geometry_kwargs(geo, k1_eff),
                         ),
                     )
-                diff_key = (grid_key, tuple(diff_bounds.floors), tuple(diff_bounds.ceils), panchromatic)
+                diff_key = (grid_key, tuple(diff_bounds.floors), tuple(diff_bounds.ceils), diff_weights)
                 # A None plane (an unmetered frame) is cached under its key like any other.
                 cached = self._diffusion_plane
                 if cached is None or cached[0] != diff_key:
-                    cached = (diff_key, diffusion_plane(self._diffusion_grid[1], diff_bounds, panchromatic))
+                    cached = (diff_key, diffusion_plane(self._diffusion_grid[1], diff_bounds, diff_weights))
                     self._diffusion_plane = cached
                 diff_plane = cached[1]
                 diff_rect = frame_rect
@@ -1386,6 +1397,14 @@ class GPUEngine:
                     )
             else:
                 tex_sharpen_v = self._get_intermediate_texture(1, 1, usage, "sharpen_v")
+            if settings.lab.sharpen > 0 and settings.lab.sharpen_auto_masking:
+                enc.clear_buffer(self._buffers["grain_hist"].buffer)
+                self._dispatch_pass(
+                    enc, "sharpen_grain_hist", [(0, tex_sharpen_v.view), (1, self._buffers["grain_hist"]), (2, lab_u)], w_rot, h_rot
+                )
+                self._dispatch_pass(
+                    enc, "sharpen_grain_pick", [(0, self._buffers["grain_hist"]), (1, self._buffers["auto_mask"]), (2, lab_u)], 1, 1
+                )
             # The Chroma Denoise low-pass reads only its input and sigma, so a lab-only change reuses it too.
             chroma_sigma = chroma_denoise_sigma(settings.lab.chroma_denoise, scale_factor)
             if chroma_sigma > 0.0:
@@ -1412,6 +1431,7 @@ class GPUEngine:
                     (2, lab_u),
                     (3, tex_sharpen_v.view),
                     (4, tex_chroma_v.view),
+                    (5, self._buffers["auto_mask"]),
                 ],
                 w_rot,
                 h_rot,
@@ -1526,6 +1546,7 @@ class GPUEngine:
 
         if not tiling_mode and readback_metrics:
             device.queue.write_buffer(self._buffers["metrics"].buffer, 0, _METRICS_ZEROS)
+            enc.copy_buffer_to_buffer(self._buffers["auto_mask"].buffer, 4, self._buffers["metrics"].buffer, _METRICS_AUTO_MASK_BASE * 4, 4)
             # Always compute metrics on the content image (tex_toning) before any
             # border/layout pass so that border pixels don't skew the histogram.
             self._dispatch_pass(
@@ -1735,6 +1756,8 @@ class GPUEngine:
                 .reshape((3, WAVEFORM_COLS))
                 .astype(np.float64)
             )
+            if settings.lab.sharpen > 0 and settings.lab.sharpen_auto_masking:
+                metrics["auto_masking"] = float(raw_metrics[_METRICS_AUTO_MASK_BASE : _METRICS_AUTO_MASK_BASE + 1].view(np.float32)[0])
             metrics["vectorscope"] = (
                 raw_metrics[_METRICS_SCOPE_BASE : _METRICS_SCOPE_BASE + _METRICS_SCOPE_WORDS]
                 .reshape((SCOPE_HUE_BINS, SCOPE_CHROMA_BINS))
@@ -2013,7 +2036,7 @@ class GPUEngine:
             resolve_saturation_matrix,
         )
 
-        exp = settings.exposure
+        exp = printed_exposure(settings.process, settings.exposure)
         paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
         pc = effective_constants(paper)  # tonal overrides; non-paper keys == EXPOSURE_CONSTANTS
         d_min = paper.d_min if exp.paper_dmin else 0.0
@@ -2137,9 +2160,7 @@ class GPUEngine:
         # (lim, a, b, lo, hi, g_lo, g_hi); lim 0 = off.
         mask_k = (0.0,) * 7
         if contrast_mask:
-            coeffs = contrast_mask_coeffs(
-                exp.contrast_mask_strength, contrast_mask[0], slopes, pivots, wb_offsets, lum_range
-            )
+            coeffs = contrast_mask_coeffs(exp.contrast_mask_strength, contrast_mask[0], slopes, pivots, wb_offsets, lum_range)
             if coeffs is not None:
                 mask_k = (coeffs[6], *coeffs[:6])
         plane_rect_v = (
@@ -2243,6 +2264,7 @@ class GPUEngine:
             + struct.pack("ffff", *channel_density_ranges(LogNegativeBounds(adj_floors, adj_ceils)), black_hold_taper(exp, paper))
             # Print-stock LUT: xyz = e_max (0 = no LUT), w = the black that BPC maps to 0.
             + struct.pack("ffff", *lut_row)
+            + struct.pack("ffff", *collapse_weights(settings.process, exp), 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -2293,7 +2315,7 @@ class GPUEngine:
             1.0 if lab.sharpen_method == SharpenMethod.RL else 0.0,
             float(lab.skin_protection),
             float(chroma_radius_px),
-            0.0,
+            1.0 if lab.sharpen_auto_masking else 0.0,
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
@@ -2985,6 +3007,7 @@ class GPUEngine:
                     global_bounds,
                     unmix_m,
                     roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                    bw_weights=plane_weights(settings.process, settings.exposure),
                     **geometry_kwargs(settings.geometry, k1_eff),
                 ),
                 (x1, y1, crop_w, crop_h),
@@ -3003,7 +3026,7 @@ class GPUEngine:
                 roi_norm=normalized_roi(roi, (h_rot, w_rot)),
                 **geometry_kwargs(settings.geometry, k1_eff),
             )
-            plane = diffusion_plane(grid, trimmed, settings.process.process_mode == ProcessMode.BW)
+            plane = diffusion_plane(grid, trimmed, plane_weights(settings.process, settings.exposure))
             global_diffusion = None if plane is None else (plane, (x1, y1, crop_w, crop_h))
             self._mask_tex_key = None
 

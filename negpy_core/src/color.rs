@@ -337,6 +337,49 @@ fn matmul_block(src: &[f32], dst: &mut [f32], m: [[f32; 3]; 3]) {
     }
 }
 
+/// `apply_flat_curve`: `lift + gain * (1 - v)` clipped to 0..1, with v the pixel plus the
+/// per-channel `offsets`, mixed by the 3x3 `m` (rows sum to 1) in `matmul_3x3`'s order when given.
+pub fn flat_curve(
+    src: &[f32],
+    dst: &mut [f32],
+    offsets: [f32; 3],
+    m: Option<[[f32; 3]; 3]>,
+    gain: f32,
+    lift: f32,
+) {
+    dst.par_chunks_mut(BLOCK * 3)
+        .zip(src.par_chunks(BLOCK * 3))
+        .for_each(|(d, p)| flat_curve_block(p, d, offsets, m, gain, lift));
+}
+
+#[multiversion(targets(
+    "x86_64+avx512f+avx512bw+avx512vl+avx512dq",
+    "x86_64+avx2+fma",
+    "aarch64+neon"
+))]
+fn flat_curve_block(
+    src: &[f32],
+    dst: &mut [f32],
+    offsets: [f32; 3],
+    m: Option<[[f32; 3]; 3]>,
+    gain: f32,
+    lift: f32,
+) {
+    for (d, p) in dst
+        .as_chunks_mut::<3>()
+        .0
+        .iter_mut()
+        .zip(src.as_chunks::<3>().0)
+    {
+        let [r, g, b] = std::array::from_fn(|c| p[c] + offsets[c]);
+        let v = match m {
+            Some(m) => m.map(|row| b.mul_add(row[2], g.mul_add(row[1], row[0] * r))),
+            None => [r, g, b],
+        };
+        *d = v.map(|x| (lift + gain * (1.0 - x)).clamp(0.0, 1.0));
+    }
+}
+
 /// `_in_gamut_lab`: (L, a, b) decodes to linear RGB within 0..1, 1e-4 either side; the bounds
 /// are float32 sums, compared in float64.
 #[inline(always)]

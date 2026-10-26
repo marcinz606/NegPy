@@ -1277,7 +1277,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.reset_section("process")
 
         self.assertEqual(self.session.state.config.process.process_mode, ProcessMode.C41)
-        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 1.0)
+        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 0.5)
 
     def test_reset_settings_is_recorded_not_wiping(self):
         self.session.select_file(0)

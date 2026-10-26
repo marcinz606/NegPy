@@ -4,6 +4,7 @@ import negpy_core
 import numpy as np
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
+from negpy.features.exposure.bw_filter import collapse_matrix
 from negpy.features.geometry.logic import AUTOCROP_DETECT_RES, _normalize_detection_input
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.logic import percentile_from_sorted
@@ -564,9 +565,10 @@ def contrast_mask_plane(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
+    bw_weights: Optional[Tuple[float, float, float]] = None,
 ) -> Tuple[np.ndarray, float]:
     """The zero-mean blurred luma plane the Contrast Mask reads, on `analysis_grid`, plus the val it was
-    centred on."""
+    centred on. `bw_weights` collapses the val first, as a B&W print does the pixel."""
     image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
 
     # A frame that never metered normalizes to huge values; no stretch, no mask.
@@ -574,6 +576,8 @@ def contrast_mask_plane(
         return np.zeros(image.shape[:2], dtype=np.float32), 0.5
 
     val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
+    if bw_weights is not None:
+        val = negpy_core.matmul_3x3(np.ascontiguousarray(val, dtype=np.float32), collapse_matrix(bw_weights))
     sigma = MASK_BLUR_PERCENT * 0.01 * min(val.shape[:2])
     plane, centre = negpy_core.contrast_mask_tail(np.ascontiguousarray(val, dtype=np.float32), sigma)
     return plane, float(centre)
@@ -599,14 +603,16 @@ def diffusion_grid(
     return negpy_core.diffusion_tail(unmixed, sigma)
 
 
-def diffusion_plane(grid: np.ndarray, bounds: LogNegativeBounds, panchromatic: bool = False) -> Optional[np.ndarray]:
-    """`diffusion_grid` in the print's normalization, for the kernel to mix as light. `panchromatic` collapses it
-    to luma, as a B&W print does the pixel. None when the frame never metered."""
+def diffusion_plane(
+    grid: np.ndarray, bounds: LogNegativeBounds, bw_weights: Optional[Tuple[float, float, float]] = None
+) -> Optional[np.ndarray]:
+    """`diffusion_grid` in the print's normalization, for the kernel to mix as light. `bw_weights` collapses it,
+    as a B&W print does the pixel. None when the frame never metered."""
     if luminance_density_range(bounds) < 1e-6:
         return None
     val = normalize_log_image(grid, bounds)
-    if panchromatic:
-        val = negpy_core.luma_planes(np.ascontiguousarray(val, dtype=np.float32))
+    if bw_weights is not None:
+        val = negpy_core.matmul_3x3(np.ascontiguousarray(val, dtype=np.float32), collapse_matrix(bw_weights))
     return np.ascontiguousarray(val, dtype=np.float32)
 
 

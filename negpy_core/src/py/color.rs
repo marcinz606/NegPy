@@ -166,7 +166,35 @@ fn gamut_aware_chroma_scale<'py>(
     })
 }
 
+/// `apply_flat_curve(img, gain, lift, offsets, stock_matrix)` of an (..., 3) float32 array.
+#[pyfunction]
+#[pyo3(signature = (px, gain, lift, offsets, m=None))]
+fn flat_curve<'py>(
+    py: Python<'py>,
+    px: PyReadonlyArrayDyn<'py, f32>,
+    gain: f32,
+    lift: f32,
+    offsets: [f32; 3],
+    m: Option<PyReadonlyArray2<'py, f32>>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    triplets(&px)?;
+    let m = match m {
+        Some(m) => {
+            let m = m.as_array();
+            if m.shape() != [3, 3] {
+                return Err(PyValueError::new_err("needs a 3x3 matrix"));
+            }
+            Some(std::array::from_fn(|r| std::array::from_fn(|c| m[[r, c]])))
+        }
+        None => None,
+    };
+    filled(py, &px, |src, d| {
+        color::flat_curve(src, d, offsets, m, gain, lift)
+    })
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(flat_curve, m)?)?;
     m.add_function(wrap_pyfunction!(oetf_encode, m)?)?;
     m.add_function(wrap_pyfunction!(oetf_decode, m)?)?;
     m.add_function(wrap_pyfunction!(rgb_to_lab, m)?)?;

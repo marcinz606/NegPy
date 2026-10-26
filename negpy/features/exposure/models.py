@@ -18,6 +18,22 @@ class RenderIntent(StrEnum):
     FLAT = "flat"
 
 
+class BwFilter(StrEnum):
+    """A contrast filter on the camera lens, for a B&W print from a color negative (Wratten numbers)."""
+
+    NONE = "none"
+    YELLOW_8 = "yellow_8"
+    DEEP_YELLOW_15 = "deep_yellow_15"
+    ORANGE_21 = "orange_21"
+    RED_25 = "red_25"
+    YELLOW_GREEN_11 = "yellow_green_11"
+    GREEN_58 = "green_58"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "BwFilter":
+        return cls.NONE
+
+
 @dataclass(frozen=True)
 class ExposureConfig:
     """
@@ -92,7 +108,7 @@ class ExposureConfig:
     midtone_gamma_trim_blue: float = 0.0
     # Uniform paper pre-exposure as a fraction of the threshold exposure. [0, 1]; 0 = off.
     preflash: float = 0.0
-    cast_removal_strength: float = 1.0
+    cast_removal_strength: float = 0.5
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT
@@ -107,6 +123,7 @@ class ExposureConfig:
     # logic.separation_damping_gain). Inert at dye_separation 1.0: it only
     # redistributes that slider's push.
     separation_damping: float = 0.0
+    bw_filter: BwFilter = BwFilter.NONE
 
     def __post_init__(self) -> None:
         """
@@ -118,6 +135,7 @@ class ExposureConfig:
         # Legacy: cast_removal was a bool toggle; MIGRATIONS renames the key, coerce its value.
         if isinstance(self.cast_removal_strength, bool):
             object.__setattr__(self, "cast_removal_strength", 1.0 if self.cast_removal_strength else 0.0)
+        object.__setattr__(self, "bw_filter", BwFilter(self.bw_filter))
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {

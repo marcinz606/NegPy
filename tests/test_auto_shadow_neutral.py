@@ -94,12 +94,12 @@ class TestCastRemoval(unittest.TestCase):
         self.assertGreater(half, full)
 
     def test_default_on(self):
-        self.assertEqual(WorkspaceConfig().exposure.cast_removal_strength, 1.0)
+        self.assertEqual(WorkspaceConfig().exposure.cast_removal_strength, 0.5)
 
     def test_serialization_roundtrip(self):
-        config = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, cast_removal_strength=0.5))
+        config = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, cast_removal_strength=0.25))
         restored = WorkspaceConfig.from_flat_dict(config.to_dict())
-        self.assertEqual(restored.exposure.cast_removal_strength, 0.5)
+        self.assertEqual(restored.exposure.cast_removal_strength, 0.25)
 
     def test_legacy_bool_migrates_to_strength(self):
         # Old saved edits stored cast_removal / auto_shadow_neutral as a bool.

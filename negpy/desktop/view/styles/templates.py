@@ -499,7 +499,7 @@ def labeled_toggle_qss() -> str:
 
 
 class EditedDot(QLabel):
-    """Red dot marking an edited (non-default) control. Standalone for layouts;
+    """Dot marking an edited (non-default) control. Standalone for layouts;
     pass overlay_on to pin it to a widget's top-right corner instead."""
 
     def __init__(self, overlay_on: QWidget | None = None, margin: int = 4, color: str = THEME.mark_edited) -> None:

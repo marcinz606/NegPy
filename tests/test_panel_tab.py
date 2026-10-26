@@ -44,7 +44,13 @@ def test_the_edit_dot_stays_inside_the_chip_of_a_narrow_tab(qapp):
         tab.setChecked(True)
         tab.set_marked(True)
         image = _image(tab, width)
-        xs = [x for x in range(width) for y in range(38) if (c := image.pixelColor(x, y)).red() > c.green() + 60]
+        dot = QColor(THEME.mark_edited)
+        xs = [
+            x
+            for x in range(width)
+            for y in range(38)
+            if max(abs((c := image.pixelColor(x, y)).red() - dot.red()), abs(c.green() - dot.green()), abs(c.blue() - dot.blue())) < 40
+        ]
 
         # The chip's edge runs half a pixel inside space_xs; the dot keeps a pixel clear of it.
         assert xs and max(xs) < width - THEME.space_xs - 2, tab.text()

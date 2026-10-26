@@ -306,20 +306,16 @@ def test_white_black_point_are_normalization_roll_defaults():
     assert rolls.card_fields("baseline") == ("use_luma_average", "use_color_average", "use_cast_average")
 
 
-def test_reanalyze_frame_clears_local_bounds_and_persists(qapp):
+def test_reanalyze_frame_measures_the_selection_again(qapp):
     controller, sidebar = _sidebar()
-    cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
     sidebar.sync_ui()
 
     sidebar.reanalyze_frame_btn.click()
 
-    new_cfg = controller.apply_config.call_args.args[0]
-    assert not new_cfg.process.is_local_initialized
-    assert controller.apply_config.call_args.kwargs == {"persist": True}
+    controller.reanalyze_selection.assert_called_once_with()
 
 
-def test_reanalyze_frame_is_disabled_when_nothing_would_be_measured(qapp):
+def test_reanalyze_frame_is_disabled_for_a_locked_frame(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
     sidebar.sync_ui()
@@ -329,9 +325,16 @@ def test_reanalyze_frame_is_disabled_when_nothing_would_be_measured(qapp):
     sidebar.sync_ui()
     assert not sidebar.reanalyze_frame_btn.isEnabled()
 
-    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=True))
+
+def test_reanalyze_names_the_selection(qapp):
+    controller, sidebar = _sidebar()
+    controller.session.selection_is_open_frame.return_value = False
+    controller.state.selected_indices = [0, 1, 2]
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, lock_bounds=True))
     sidebar.sync_ui()
-    assert not sidebar.reanalyze_frame_btn.isEnabled()
+    assert sidebar.reanalyze_frame_btn.isEnabled()
+    assert "Reanalyze 3 Frames" in sidebar.reanalyze_frame_btn.toolTip()
 
 
 def test_baseline_hint_names_where_the_bounds_came_from(qapp):

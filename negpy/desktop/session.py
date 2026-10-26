@@ -876,6 +876,7 @@ class DesktopSessionManager(QObject):
     history_changed = pyqtSignal()  # Emitted when undo/redo/persist happens
     work_prints_changed = pyqtSignal()  # A named version was saved, renamed or deleted
     settings_saved = pyqtSignal()
+    frame_previews_ending = pyqtSignal()  # The live config is about to become a stored edit: a preview a tool owns ends here
     active_file_changing = pyqtSignal()  # Outgoing file about to be replaced — last chance to snapshot it
     settings_copied = pyqtSignal()
     settings_pasted = pyqtSignal()
@@ -1455,6 +1456,7 @@ class DesktopSessionManager(QObject):
         if 0 <= index < len(self.state.uploaded_files):
             # Save current before switching, but only if user actually made explicit edits
             if self.state.current_file_hash:
+                self.end_frame_previews()
                 self._commit_preview()
                 if self._config_dirty:
                     self.repo.save_file_settings(
@@ -1918,6 +1920,19 @@ class DesktopSessionManager(QObject):
 
         if render:
             self.state_changed.emit()
+
+    def end_frame_previews(self) -> None:
+        """Call before the active frame is left or its live config is copied to another edit row,
+        so a tool that previews on the frame takes its preview back first."""
+        self.frame_previews_ending.emit()
+
+    def discard_preview(self) -> bool:
+        """Return the active frame to its config before its unsaved preview. False when there is none."""
+        if self._preview_history is None or self._preview_history[0] != self.state.current_file_hash:
+            return False
+        self.state.config = self._preview_history[1]
+        self._preview_history = None
+        return True
 
     def _commit_preview(self) -> None:
         if self._preview_history is not None:

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from negpy.domain.interfaces import PipelineContext
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import BwFilter, ExposureConfig
 from negpy.features.process.models import ProcessMode, cast_removal_for_mode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.rendering.engine import base_processor, exposure_processor
@@ -34,7 +34,7 @@ TRANSFER = (
 METERS = {"auto_exposure", "auto_normalize_contrast"}
 # The paper model's own controls; the transfer curve has no paper to apply them to.
 PRINT_ONLY = (
-    {"contrast_mask_strength", "diffusion", "paper_dmin", "paper_black", "paper_profile", "preflash", "hold_black"}
+    {"contrast_mask_strength", "diffusion", "paper_dmin", "paper_black", "paper_profile", "preflash", "hold_black", "bw_filter"}
     | {n + t for n in ("grade",) for t in _TRIMS}
     | _with_trims("shadow_grade", "highlight_grade", "midtone_gamma")
 )
@@ -64,6 +64,8 @@ def _moved(field: str, value):
         return not value
     if field == "paper_profile":
         return "kodak_endura"
+    if field == "bw_filter":
+        return BwFilter.RED_25
     if "grade" in field:
         return value + 15.0
     if field in ("toe_width", "shoulder_width"):

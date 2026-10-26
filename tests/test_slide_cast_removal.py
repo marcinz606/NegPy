@@ -126,7 +126,7 @@ class TestSlideRender(unittest.TestCase):
         rel = np.abs(out - expected) / np.maximum(expected, 1e-9)
         self.assertLess(float(rel.max()), 1e-4)
         # Nothing metered, so nothing to publish.
-        self.assertNotIn("neutral_axis_refs", ctx.metrics)
+        self.assertIsNone(ctx.metrics.get("neutral_axis_refs"))
 
     def test_on_meters_an_axis_and_neutralizes_the_cast(self):
         img = _cast_slide()
@@ -143,7 +143,7 @@ class TestSlideRender(unittest.TestCase):
         cfg = _slide_config(1.0)
         cfg = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
         _, ctx = _render(_cast_slide(), cfg)
-        self.assertNotIn("neutral_axis_refs", ctx.metrics)
+        self.assertIsNone(ctx.metrics.get("neutral_axis_refs"))
 
 
 class TestSlideStartsOff(unittest.TestCase):

@@ -171,3 +171,76 @@ fn matrix_trc_block(img: &[u8], out: &mut [u8], dec: &[f32], m: [[f32; 3]; 3], e
         }
     }
 }
+
+/// The 16-bit matrix/TRC transform: TRC decode through `dec` (3 x 65536, one entry per code),
+/// the 3x3 `m` with a gamut clip, TRC encode through `enc` (3 x K) sampled at linear values
+/// t^2 for t evenly spaced in 0..1, so a steep encode near black still interpolates finely;
+/// to 16-bit rounded half up.
+pub fn matrix_trc_u16(img: &[u16], dec: &[f32], m: [[f32; 3]; 3], enc: &[f32], out: &mut [u16]) {
+    out.par_chunks_mut(3 * 4096)
+        .zip(img.par_chunks(3 * 4096))
+        .for_each(|(o, i)| matrix_trc_u16_block(i, o, dec, m, enc));
+}
+
+#[multiversion(targets(
+    "x86_64+avx512f+avx512bw+avx512vl+avx512dq",
+    "x86_64+avx2+fma",
+    "aarch64+neon"
+))]
+fn matrix_trc_u16_block(img: &[u16], out: &mut [u16], dec: &[f32], m: [[f32; 3]; 3], enc: &[f32]) {
+    let k = enc.len() / 3;
+    let kmax = (k - 1) as f64;
+    let mut rgb = [[0f32; 3]; RUN];
+    let (mut idx, mut frac) = ([0usize; RUN], [0f64; RUN]);
+    for (o, p) in out.chunks_mut(3 * RUN).zip(img.chunks(3 * RUN)) {
+        let (o, p) = (o.as_chunks_mut::<3>().0, p.as_chunks::<3>().0);
+        let n = p.len();
+        for (q, p) in rgb.iter_mut().zip(p) {
+            *q = std::array::from_fn(|c| dec[c * 65536 + p[c] as usize]);
+        }
+        for c in 0..3 {
+            let row = m[c];
+            for i in 0..n {
+                let q = rgb[i];
+                let v = q[2]
+                    .mul_add(row[2], q[1].mul_add(row[1], row[0] * q[0]))
+                    .clamp(0.0, 1.0);
+                let f = (v as f64).sqrt() * kmax;
+                let i0 = (crate::convert::trunc_bits(f) as usize).min(k - 2);
+                idx[i] = c * k + i0;
+                frac[i] = f - i0 as f64;
+            }
+            for i in 0..n {
+                let e = lerp(enc[idx[i]] as f64, enc[idx[i] + 1] as f64, frac[i]);
+                o[i][c] =
+                    crate::convert::trunc_bits((e * 65535.0 + 0.5).clamp(0.0, 65535.0)) as u16;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_u16_round_trips_every_code() {
+        let k = 4097;
+        let dec: Vec<f32> = (0..3 * 65536)
+            .map(|i| (i % 65536) as f32 / 65535.0)
+            .collect();
+        let enc: Vec<f32> = (0..3 * k)
+            .map(|i| {
+                let t = (i % k) as f64 / (k - 1) as f64;
+                (t * t) as f32
+            })
+            .collect();
+        let eye = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let img: Vec<u16> = (0..3 * 30000).map(|i| ((i * 7) % 65536) as u16).collect();
+        let mut out = vec![0u16; img.len()];
+        matrix_trc_u16(&img, &dec, eye, &enc, &mut out);
+        for (a, b) in img.iter().zip(&out) {
+            assert!((*a as i32 - *b as i32).abs() <= 1, "{a} -> {b}");
+        }
+    }
+}

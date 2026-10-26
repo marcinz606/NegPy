@@ -204,20 +204,25 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
     Classify a raw linear scan as C41, B&W or E-6.
     Falls back to C41 (the default) on ambiguous or invalid input.
     """
+    return detect_process_and_source(raw)[0]
+
+
+def detect_source_color(raw: Optional[ImageBuffer]) -> bool:
+    """True when the scan is of color film: its channels decorrelate, or it carries an orange or purple mask."""
+    return detect_process_and_source(raw)[1]
+
+
+def detect_process_and_source(raw: Optional[ImageBuffer]) -> tuple[ProcessMode, bool]:
+    """(process mode, source is color film) from one pass of the scan stats; invalid input reads as C41."""
     if raw is None or raw.ndim != 3 or raw.shape[2] < 3:
-        return ProcessMode.C41
+        return ProcessMode.C41, True
 
     img = _downsample(get_analysis_crop(raw[:, :, :3], _ANALYSIS_BUFFER), _MAX_ANALYSIS_DIM).astype(np.float32)
     img = np.clip(np.nan_to_num(img, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
     if img.size == 0:
-        return ProcessMode.C41
+        return ProcessMode.C41, True
 
     min_corr, (r_mean, b_mean, r_p25, b_p25, r_p98, g_p98, b_p98) = negpy_core.process_mode_stats(np.ascontiguousarray(img))
-
-    # B&W: the channels stay near-perfectly correlated even with a color tint, while real
-    # color (C41, E-6) has varied hues and lower correlation.
-    if min_corr > _BW_CORR_THRESHOLD:
-        return ProcessMode.BW
 
     # Orange mask (standard C41): R much greater than B. Scanners sometimes correct the mask
     # only in bright areas, so check across density levels.
@@ -226,12 +231,14 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
         (r_p25 + 1e-6) / (b_p25 + 1e-6),
         (r_p98 + 1e-6) / (b_p98 + 1e-6),
     )
-    if orange_score > _C41_ORANGE_THRESHOLD:
-        return ProcessMode.C41
-
     # Purple mask, as on Harman Phoenix: R about equal to B with G suppressed. Check at p98,
     # the clearest film areas, where the base color is most visible.
-    if _has_purple_mask(r_p98, g_p98, b_p98):
-        return ProcessMode.C41
+    masked = orange_score > _C41_ORANGE_THRESHOLD or _has_purple_mask(r_p98, g_p98, b_p98)
+    monochrome = min_corr > _BW_CORR_THRESHOLD
 
-    return ProcessMode.E6
+    # B&W: the channels stay near-perfectly correlated even with a color tint, while real
+    # color (C41, E-6) has varied hues and lower correlation. A gray scene on masked color
+    # film still reads B&W for the mode, but its source stays color.
+    if monochrome:
+        return ProcessMode.BW, masked
+    return (ProcessMode.C41 if masked else ProcessMode.E6), True

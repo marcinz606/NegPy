@@ -225,7 +225,7 @@ _HAIR_INPAINT_PAD = 16
 def _density(img: ImageBuffer) -> np.ndarray:
     """Log density of the luminance. Local contrast measured here is exposure-invariant:
     a gain on the source is an offset in density and cancels in every difference."""
-    return -np.log10(np.clip(get_luminance(img), 1e-6, None)).astype(np.float32)
+    return -negpy_core.log_density_open(get_luminance(img))
 
 
 def _mask_to_score(mask: np.ndarray, pad_px: float) -> np.ndarray:
@@ -674,17 +674,8 @@ def _erode_resize_bounded(plane: np.ndarray, dims: Tuple[int, int], kernel: np.n
         eroded = negpy_core.morphology_ex(source, negpy_core.MORPH_ERODE, kernel)
         core = np.ascontiguousarray(eroded[source_top - read_top : source_bottom - read_top])
         horizontal = negpy_core.resize_area(core, (dw, len(core)))
-        # Keep the full-image sampling grid across fractional block boundaries.
-        for row in range(top, bottom):
-            start = row * scale_y
-            end = start + scale_y
-            first, last = math.floor(start), min(h, math.ceil(end))
-            indices = np.arange(first, last)
-            overlap = np.minimum(indices + 1, end) - np.maximum(indices, start)
-            # OpenCV's area table omits fractional edges at or below this cutoff.
-            weights = (np.where(overlap > 1e-3, overlap, 0.0) / min(scale_y, h - start)).astype(np.float32)
-            values = horizontal[first - source_top : last - source_top]
-            output[row] = np.sum(values * weights.reshape((-1,) + (1,) * (values.ndim - 1)), axis=0)
+        # The vertical pass keeps the full-image sampling grid across fractional block boundaries.
+        negpy_core.area_rows_into(horizontal, output[top:bottom], top, source_top, scale_y, h)
     return output
 
 

@@ -77,7 +77,8 @@ class ScanSetupSidebar(BaseSidebar):
             btn.setCurrentIndex(btn.findData(value))
             btn.blockSignals(False)
         # A B&W negative prints the same under either light, so the choice hides and keeps its value.
-        bw = self.state.config.process.process_mode == ProcessMode.BW
+        process = self.state.config.process
+        bw = process.process_mode == ProcessMode.BW and not process.source_color
         self.light_btn.setVisible(not bw)
         detected = (
             (tr("A camera RAW, so a camera.") if resolved == "camera" else tr("Not a camera RAW, so a film scanner."))

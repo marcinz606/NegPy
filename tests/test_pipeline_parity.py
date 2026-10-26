@@ -15,6 +15,7 @@ locally or in a nightly GPU-enabled CI job.
 """
 
 import numpy as np
+import pytest
 from dataclasses import replace
 
 from negpy.domain.models import WorkspaceConfig
@@ -573,6 +574,28 @@ class TestLabParity:
     def test_sharpen_rl_masking(self):
         s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.2, sharpen_masking=0.7))
         self._run_and_compare_sharpen(s, scale=1.0)
+
+    def _auto_masking_both(self, settings: WorkspaceConfig) -> tuple:
+        from negpy.domain.interfaces import PipelineContext
+
+        h, w = self.img.shape[:2]
+        ctx = PipelineContext(original_size=(h, w), scale_factor=1.0, process_mode=settings.process.process_mode)
+        cpu = self.cpu.process(self.img, settings, "parity_auto_masking", context=ctx)
+        tex, gpu_metrics = self.gpu.process_to_texture(self.img, settings, scale_factor=1.0, apply_layout=False, readback_metrics=True)
+        gpu = self.gpu._readback_downsampled(tex)
+        _assert_mostly_close(cpu, gpu, atol=5e-2, rtol=5e-2, max_violation_frac=0.001)
+        return ctx.metrics["auto_masking"], gpu_metrics["auto_masking"]
+
+    @pytest.mark.parametrize("method", ["usm", "rl"])
+    def test_sharpen_auto_masking(self, method):
+        lab = LabConfig(sharpen=0.8, sharpen_method=method, sharpen_auto_masking=True)
+        cpu_auto, gpu_auto = self._auto_masking_both(replace(_make_base_settings(), lab=lab))
+        assert gpu_auto == pytest.approx(cpu_auto, abs=0.01)
+        assert cpu_auto != LabConfig().sharpen_masking
+
+    def test_sharpen_auto_masking_offset(self):
+        lab = LabConfig(sharpen=0.8, sharpen_masking=0.3, sharpen_auto_masking=True)
+        self._auto_masking_both(replace(_make_base_settings(), lab=lab))
 
     def test_sharpen_rl_export_scale(self):
         s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.0))

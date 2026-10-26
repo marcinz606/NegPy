@@ -344,3 +344,48 @@ pub fn apply_carrier(src: &[f32], (h, w): (usize, usize), c: &Carrier, dst: &mut
         }
     });
 }
+
+/// `apply_vignette`: an exposure change of `-stops * factor` stops, the factor a cosine ramp
+/// over a radial/rectangular distance from the centre, in NumPy's float32 order. cos and exp2
+/// come from libm in float64, rounded once.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_vignette(
+    src: &[f32],
+    h: usize,
+    w: usize,
+    cn: usize,
+    stops: f64,
+    size: f64,
+    roundness: f64,
+    dst: &mut [f32],
+) {
+    use rayon::prelude::*;
+    let (cy, cx) = ((h as f64 - 1.0) * 0.5, (w as f64 - 1.0) * 0.5);
+    let max_dist = (cx * cx + cy * cy).sqrt().max(1.0) as f32;
+    let (cxf, cyf) = (cx as f32, cy as f32);
+    let (rx, ry) = (cx.max(1.0) as f32, cy.max(1.0) as f32);
+    let (keep, mix) = ((1.0 - roundness) as f32, roundness as f32);
+    let midpoint = 1.0 - size;
+    let (mid, span) = (midpoint as f32, (1.0 - midpoint).max(1e-6) as f32);
+    let neg_stops = -stops as f32;
+    let pi = std::f64::consts::PI as f32;
+    dst.par_chunks_mut(w * cn)
+        .zip(src.par_chunks(w * cn))
+        .enumerate()
+        .for_each(move |(y, (d, s))| {
+            let dy = y as f32 - cyf;
+            for x in 0..w {
+                let dx = x as f32 - cxf;
+                let d_radial = (dx * dx + dy * dy).sqrt() / max_dist;
+                let d_rect = (dx.abs() / rx).max(dy.abs() / ry);
+                let dist = d_radial * keep + d_rect * mix;
+                let t = ((dist - mid) / span).clamp(0.0, 1.0);
+                let factor = 0.5f32 * (1.0f32 - libm::cos((t * pi) as f64) as f32);
+                let gain = libm::exp2((neg_stops * factor) as f64) as f32;
+                for c in 0..cn {
+                    let i = x * cn + c;
+                    d[i] = (s[i] * gain).clamp(0.0, 1.0);
+                }
+            }
+        });
+}

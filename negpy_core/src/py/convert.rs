@@ -337,7 +337,82 @@ fn nan_to_num<'py>(
     })
 }
 
+/// `ir.astype(np.float32) * (1 / 255)` or `* (1 / 65535)` of a contiguous uint8 or uint16 array.
+#[pyfunction]
+fn int_to_unit_float32<'py>(
+    py: Python<'py>,
+    img: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Ok(a) = img.extract::<PyReadonlyArrayDyn<u16>>() {
+        let src = contiguous(&a)?;
+        let scale = (1.0f64 / 65535.0) as f32;
+        return Ok(filled(py, a.shape(), "float32", |d| {
+            convert::scaled_to_float32(src, scale, d)
+        })?
+        .into_any());
+    }
+    let a = img.extract::<PyReadonlyArrayDyn<u8>>()?;
+    let src = contiguous(&a)?;
+    let scale = (1.0f64 / 255.0) as f32;
+    Ok(filled(py, a.shape(), "float32", |d| {
+        convert::scaled_to_float32(src, scale, d)
+    })?
+    .into_any())
+}
+
+/// `lut[img]` of a contiguous uint16 array through a 65536-entry uint8 or uint16 table.
+#[pyfunction]
+fn lut_u16<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, u16>,
+    lut: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let src = contiguous(&img)?;
+    if let Ok(t) = lut.extract::<PyReadonlyArrayDyn<u16>>() {
+        let table = contiguous(&t)?;
+        if table.len() != 65536 {
+            return Err(PyValueError::new_err("needs a 65536-entry table"));
+        }
+        return Ok(filled(py, img.shape(), "uint16", |d| {
+            convert::lut_u16(src, table, d)
+        })?
+        .into_any());
+    }
+    let t = lut.extract::<PyReadonlyArrayDyn<u8>>()?;
+    let table = contiguous(&t)?;
+    if table.len() != 65536 {
+        return Err(PyValueError::new_err("needs a 65536-entry table"));
+    }
+    Ok(filled(py, img.shape(), "uint8", |d| {
+        convert::lut_u16(src, table, d)
+    })?
+    .into_any())
+}
+
+/// `img`, an HxWxP uint8 view of an image with P-byte pixels, turned by EXIF `orientation`.
+#[pyfunction]
+fn orient<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, u8>,
+    orientation: u8,
+) -> PyResult<Bound<'py, PyArrayDyn<u8>>> {
+    let [h, w, px] = img.shape()[..] else {
+        return Err(PyValueError::new_err("orient needs an HxWxP array"));
+    };
+    if !(1..=8).contains(&orientation) || px == 0 {
+        return Err(PyValueError::new_err("orientation must be 1-8"));
+    }
+    let src = contiguous(&img)?;
+    let (oh, ow) = crate::orient::oriented_dims(h, w, orientation);
+    filled(py, &[oh, ow, px], "uint8", |d| {
+        crate::orient::orient(src, h, w, px, orientation, d)
+    })
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(orient, m)?)?;
+    m.add_function(wrap_pyfunction!(lut_u16, m)?)?;
+    m.add_function(wrap_pyfunction!(int_to_unit_float32, m)?)?;
     m.add_function(wrap_pyfunction!(nan_to_num, m)?)?;
     m.add_function(wrap_pyfunction!(gray_to_rgb, m)?)?;
     m.add_function(wrap_pyfunction!(add, m)?)?;

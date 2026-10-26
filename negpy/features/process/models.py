@@ -115,6 +115,9 @@ class ProcessConfig:
     """
 
     process_mode: ProcessMode = ProcessMode.C41
+    # The scan is of color film, measured once on load and stored. A B&W print takes its
+    # contrast filter only from a color source. None = not measured yet.
+    source_color: Optional[bool] = None
     linear_raw: bool = False
     # The source is a finished positive (a scanned print, an export from other software, a
     # scanner's own positive) rather than a raw capture. Slide only, held in __post_init__.

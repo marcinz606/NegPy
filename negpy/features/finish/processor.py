@@ -6,6 +6,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.altprocess.models import AltProcess
+from negpy.features.exposure.bw_filter import collapse_weights, printed_exposure
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.exposure.processor import PhotometricProcessor
 from negpy.features.finish.logic import apply_carrier, apply_vignette, carrier_tone_exposures, linear_carrier_tone
@@ -48,8 +49,9 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
     t = np.maximum(carrier_tone_exposures(), np.float32(1e-6))
     strip = 1.0 + (REBATE_BASE_MARGIN + np.log10(t)[:, None]) / np.maximum(ceils - floors, 1e-6)[None, :]
     ctx = PipelineContext(original_size=(1, len(t)), scale_factor=1.0, process_mode=mode, metrics=dict(metrics))
-    exposure = replace(settings.exposure, contrast_mask_strength=0.0, diffusion=0.0)
-    printed = PhotometricProcessor(exposure).process(strip[None].astype(np.float32), ctx)
+    exposure = replace(printed_exposure(settings.process, settings.exposure), contrast_mask_strength=0.0, diffusion=0.0)
+    weights = collapse_weights(settings.process, settings.exposure)
+    printed = PhotometricProcessor(exposure, bw_weights=weights).process(strip[None].astype(np.float32), ctx)
     if settings.lab.saturation != 1.0 or settings.lab.skin_protection > 0:
         printed = apply_saturation(printed, settings.lab.saturation, settings.lab.skin_protection)
     printed = np.asarray(ToningProcessor(settings.toning, settings.altproc.alt_process).process(printed, ctx))[0]

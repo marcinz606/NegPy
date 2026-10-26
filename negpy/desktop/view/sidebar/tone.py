@@ -132,7 +132,9 @@ class ToneSidebar(BaseSidebar):
 
         self.contrast_mask_slider = CompactSlider(tr("Contrast Mask"), 0.0, 1.0, conf.contrast_mask_strength)
         self.contrast_mask_slider.setToolTip(
-            tr("Contrast Mask: a soft darkroom mask that opens up large dark areas and holds back large bright ones, modeled on the Fujifilm Frontier's digital interpretation.")
+            tr(
+                "Contrast Mask: a soft darkroom mask that opens up large dark areas and holds back large bright ones, modeled on the Fujifilm Frontier's digital interpretation."
+            )
         )
         # Light given to the paper, not the shape of its curve, so it sits with the exposure controls.
         self.preflash_slider = CompactSlider(tr("Preflash"), 0.0, 1.0, conf.preflash)

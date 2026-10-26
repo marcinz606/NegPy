@@ -705,20 +705,6 @@ fn luma_median(py: Python<'_>, grid: PyReadonlyArrayDyn<'_, f32>) -> PyResult<f6
     }))
 }
 
-/// Each pixel of an HxWx3 float32 plane set to its float32 Rec. 709 luma.
-#[pyfunction]
-fn luma_planes<'py>(
-    py: Python<'py>,
-    val: PyReadonlyArrayDyn<'py, f32>,
-) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
-    let (h, w) = rgb_dims(&val, "luma_planes")?;
-    let data = slice(&val)?;
-    filled_f32(py, &[h, w, 3], data.len(), |dst| {
-        analysis::luma_planes(data, dst);
-        Some(())
-    })
-}
-
 /// `contrast_mask_plane`'s blurred zero-mean luma of a normalized HxWx3 plane, and its mean.
 #[pyfunction]
 fn contrast_mask_tail<'py>(
@@ -822,7 +808,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(film_surround_is_plausible, m)?)?;
     m.add_function(wrap_pyfunction!(clip_fractions, m)?)?;
     m.add_function(wrap_pyfunction!(luma_median, m)?)?;
-    m.add_function(wrap_pyfunction!(luma_planes, m)?)?;
     m.add_function(wrap_pyfunction!(contrast_mask_tail, m)?)?;
     m.add_function(wrap_pyfunction!(contrast_mask_stops, m)?)?;
     m.add_function(wrap_pyfunction!(diffusion_tail, m)?)

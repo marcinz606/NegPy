@@ -33,9 +33,9 @@ fn shadow_gain(l: f32) -> f32 {
     f + (1.0 - f) * smoothstep(0.0, SHADOW_L_HI as f64, l)
 }
 
-/// `_edge_mask(l, masking)`: central differences on the edge-padded plane, `np.hypot` (glibc's
-/// float64 formula), a 3x3 replicate-border box mean, then the smoothstep over 0.5t..t.
-fn edge_mask(l: &[f32], (h, w): (usize, usize), masking: f64) -> Option<Vec<f32>> {
+/// The edge mask's gradient: central differences on the edge-padded plane, `np.hypot` (glibc's
+/// float64 formula), then a 3x3 replicate-border box mean.
+fn box_gradient(l: &[f32], (h, w): (usize, usize)) -> Option<Vec<f32>> {
     let mut hyp = vec![0f32; h * w];
     hyp.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
         let (up, down) = (y.saturating_sub(1), (y + 1).min(h - 1));
@@ -49,10 +49,64 @@ fn edge_mask(l: &[f32], (h, w): (usize, usize), masking: f64) -> Option<Vec<f32>
     });
     let mut grad = vec![0f32; h * w];
     filter::box_filter(&hyp, &mut grad, (h, w, 1), (3, 3), true, Border::Replicate)?;
+    Some(grad)
+}
+
+/// `_edge_mask(l, masking)`: the smoothstep of `box_gradient` over 0.5t..t.
+fn edge_mask(l: &[f32], (h, w): (usize, usize), masking: f64) -> Option<Vec<f32>> {
+    let mut grad = box_gradient(l, (h, w))?;
     let t = MASK_T_HI * masking;
     grad.par_iter_mut()
         .for_each(|g| *g = smoothstep(0.5 * t, t, *g));
     Some(grad)
+}
+
+// Auto Masking meter; shaders/sharpen_grain_hist.wgsl and sharpen_grain_pick.wgsl mirror it.
+// Bins are 1/GRAIN_BIN_SCALE L* per pixel wide, so the range tops out at 4 L*/px.
+pub const GRAIN_BINS: usize = 1024;
+const GRAIN_BIN_SCALE: f32 = 256.0;
+const GRAIN_L_LO: f32 = 30.0;
+const GRAIN_L_HI: f32 = 85.0;
+
+/// The grain the edge mask has to clear: the 30th percentile of `box_gradient` over the midtone
+/// pixels (L* of linear luminance `lum`), as its bin centre. Flat midtones hold mostly grain, and
+/// the percentile stays below their edges. None without midtones or below the filter's size.
+pub fn sharpen_grain(src: &[f32], (h, w): (usize, usize), lum: [f32; 3]) -> Option<f32> {
+    let l: Vec<f32> = src
+        .par_chunks(3)
+        .map(|q| lab_l_from_y(q[0] * lum[0] + q[1] * lum[1] + q[2] * lum[2]))
+        .collect();
+    let grad = box_gradient(&l, (h, w))?;
+    let hist = grad
+        .par_chunks(1 << 16)
+        .zip(l.par_chunks(1 << 16))
+        .map(|(g, l)| {
+            let mut bins = [0u32; GRAIN_BINS];
+            for (&g, &l) in g.iter().zip(l) {
+                if l > GRAIN_L_LO && l < GRAIN_L_HI {
+                    bins[((g * GRAIN_BIN_SCALE) as usize).min(GRAIN_BINS - 1)] += 1;
+                }
+            }
+            bins
+        })
+        .reduce(
+            || [0u32; GRAIN_BINS],
+            |mut a, b| {
+                a.iter_mut().zip(b).for_each(|(a, b)| *a += b);
+                a
+            },
+        );
+    let total: u64 = hist.iter().map(|&c| c as u64).sum();
+    if total == 0 {
+        return None;
+    }
+    let rank = total * 3 / 10;
+    let mut cum = 0u64;
+    let bin = hist.iter().position(|&c| {
+        cum += c as u64;
+        cum > rank
+    })?;
+    Some((bin as f32 + 0.5) / GRAIN_BIN_SCALE)
 }
 
 /// `_usm_sharpening_block` of an HxWx3 linear image: the L* channel's soft-gated unsharp mask

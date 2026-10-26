@@ -102,7 +102,7 @@ def test_compute_dust_stats_pin():
     rng = np.random.default_rng(8)
     img = (0.3 + 0.2 * rng.random((140, 180, 3))).astype(np.float32)
     img[40:43, 50:53] *= 0.2  # a speck
-    assert digest(L.compute_dust_stats(img, 2)) == "1e3e0ae2a35da752b5c5e36fa2286c8e59d1f00d9e6aa26e504468e89c85ecdc"
+    assert digest(L.compute_dust_stats(img, 2)) == "d0ebd32203ccb8dc9e9197e444323b30be9bcf2ebeee3565b2f4d05762b3e320"
 
 
 def test_split_hairs_matches_components():

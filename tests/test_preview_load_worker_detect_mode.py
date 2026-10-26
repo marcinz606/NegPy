@@ -1,5 +1,5 @@
 """
-Guards PreviewLoadWorker._detect_mode after the use_camera_wb rename.
+Guards PreviewLoadWorker._detect after the use_camera_wb rename.
 
 The worker previously read task.linear_raw and passed linear_raw=True to
 load_linear_preview; both were renamed to use_camera_wb during the #210 merge.
@@ -38,10 +38,10 @@ def test_detect_mode_camera_wb_redecodes_no_wb(qapp):
     worker = PreviewLoadWorker(service)
 
     camera_wb_buf = np.ones((4, 4, 3), dtype=np.float32)
-    with patch("negpy.features.process.logic.detect_process_mode", return_value="c41") as dpm:
-        result = worker._detect_mode(_task(use_camera_wb=True), camera_wb_buf)
+    with patch("negpy.features.process.logic.detect_process_and_source", return_value=(ProcessMode.C41, True)) as dpm:
+        result = worker._detect(_task(use_camera_wb=True), camera_wb_buf)
 
-    assert result == "c41"
+    assert result == (ProcessMode.C41, None)
     # Camera WB hides the C41 mask → a lean no-WB decode is run for detection.
     service.decode_for_detection.assert_called_once_with("/fake/path.dng")
     service.load_linear_preview.assert_not_called()
@@ -56,10 +56,10 @@ def test_detect_mode_no_wb_uses_existing_buffer(qapp):
     worker = PreviewLoadWorker(service)
 
     no_wb_buf = np.ones((4, 4, 3), dtype=np.float32)
-    with patch("negpy.features.process.logic.detect_process_mode", return_value="bw") as dpm:
-        result = worker._detect_mode(_task(use_camera_wb=False), no_wb_buf)
+    with patch("negpy.features.process.logic.detect_process_and_source", return_value=(ProcessMode.BW, False)) as dpm:
+        result = worker._detect(_task(use_camera_wb=False), no_wb_buf)
 
-    assert result == "bw"
+    assert result == (ProcessMode.BW, None)
     service.load_linear_preview.assert_not_called()
     assert dpm.call_args[0][0] is no_wb_buf
 
@@ -81,11 +81,12 @@ def test_rgb_import_with_detection_disabled_never_calls_classifier(qapp):
         detect_mode=False,
     )
 
-    with patch("negpy.features.process.logic.detect_process_mode") as dpm:
+    with patch("negpy.features.process.logic.detect_process_and_source") as dpm:
         worker.process(task)
 
     dpm.assert_not_called()
     assert finished[0][5] == ""
+    assert finished[0][9] is None
 
 
 def test_automatic_import_returns_classifier_result_from_public_process(qapp):
@@ -105,11 +106,22 @@ def test_automatic_import_returns_classifier_result_from_public_process(qapp):
         detect_mode=True,
     )
 
-    with patch("negpy.features.process.logic.detect_process_mode", return_value=ProcessMode.E6) as dpm:
+    with patch("negpy.features.process.logic.detect_process_and_source", return_value=(ProcessMode.E6, True)) as dpm:
         worker.process(task)
 
     dpm.assert_called_once_with(raw)
     assert finished[0][5] == ProcessMode.E6
+    assert finished[0][9] is None
+
+
+def test_a_source_only_task_returns_the_fact_and_no_mode(qapp):
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    worker = PreviewLoadWorker(MagicMock())
+    task = PreviewLoadTask(file_path="a.ARW", workspace_color_space="Adobe RGB", use_camera_wb=False, detect_source=True)
+
+    with patch("negpy.features.process.logic.detect_process_and_source", return_value=(ProcessMode.BW, True)):
+        assert worker._detect(task, np.ones((4, 4, 3), dtype=np.float32)) == ("", True)
 
 
 def test_vram_capped_emits_when_metadata_flags_it(qapp):

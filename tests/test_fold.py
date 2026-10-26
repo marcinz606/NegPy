@@ -201,15 +201,15 @@ def test_a_fold_can_start_open_until_the_user_closes_it():
     assert not again.is_open()
 
 
-def test_a_warning_marks_a_closed_fold_amber_and_an_edit_outranks_it():
+def test_a_warning_marks_a_closed_fold_with_a_sign_and_an_edit_outranks_it():
     repo, _ = _repo()
     _section, _grade, shadows, fold = _grade_card(repo)
 
     fold.set_warning(True)
-    assert fold.button.is_marked() and fold.button._mark_color == THEME.warn_amber
+    assert fold.button.is_warning()
 
     shadows.setValue(-15)
-    assert fold.button._mark_color == THEME.mark_edited
+    assert fold.button.is_marked() and not fold.button.is_warning()
 
     fold.set_open(True)
     assert not fold.button.is_marked()

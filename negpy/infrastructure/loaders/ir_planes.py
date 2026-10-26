@@ -8,6 +8,7 @@ page counts as the main image differs between the two containers).
 
 from typing import Any, Iterable, Optional
 
+import negpy_core
 import numpy as np
 
 _NEW_SUBFILE_TYPE = 254
@@ -19,10 +20,8 @@ def normalize_ir_to_float32(ir: np.ndarray) -> np.ndarray:
     """Single-channel uint8/uint16/float ndarray → float32 in [0,1]."""
     if ir.ndim == 3:
         ir = ir[:, :, 0]
-    if ir.dtype == np.uint8:
-        return ir.astype(np.float32) * (1.0 / 255.0)
-    if ir.dtype == np.uint16:
-        return ir.astype(np.float32) * (1.0 / 65535.0)
+    if ir.dtype in (np.uint8, np.uint16):
+        return negpy_core.int_to_unit_float32(np.ascontiguousarray(ir))
     return np.clip(ir.astype(np.float32), 0.0, 1.0)
 
 

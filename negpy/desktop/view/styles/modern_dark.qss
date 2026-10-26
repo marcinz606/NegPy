@@ -607,6 +607,30 @@ QPushButton#collapsible_header[overlay="true"]:checked {
     background-color: @header_veil;
 }
 
+/* The tab header (widgets/tab_header.py) sits on the panel ground; its buttons sit in tracks. */
+QPushButton#collapsible_header[bar="true"], QPushButton#collapsible_header[bar="true"]:hover {
+    background-color: transparent;
+    border: none;
+}
+
+QFrame#header_track {
+    background-color: @bg_input;
+    border: 1px solid @border_primary;
+    border-radius: 4px;
+}
+
+/* A tab header toggle that is on takes the chip of a chosen item. */
+QFrame#header_track QPushButton#collapsible_reset_btn:checked {
+    background-color: @bg_checked;
+    border: 1px solid @border_checked;
+    border-radius: 3px;
+}
+
+QFrame#header_track QPushButton#collapsible_reset_btn:checked:hover {
+    background-color: @bg_checked_hover;
+    border: 1px solid @border_checked_hover;
+}
+
 /* Preset lists: Export Presets dialog and the Presets sidebar. */
 /* The Library's roll rows (see sidebar/library_tree.py): the delegate paints them. */
 QTreeWidget#roll_tree {

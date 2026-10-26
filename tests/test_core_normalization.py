@@ -31,12 +31,6 @@ def _lum32(val):
     return LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
 
 
-def test_luma_planes_match_numpy():
-    val = _rgb(2) * 2.0 - 0.5
-    lum = _lum32(val)
-    np.testing.assert_array_equal(negpy_core.luma_planes(val), np.dstack([lum, lum, lum]))
-
-
 @cv2_oracle
 def test_luma_median_matches_numpy():
     grid = -3.0 * _rgb(3)

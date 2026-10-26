@@ -15,11 +15,12 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 
 _CHEVRON = 10
 _DOT = 6
+_SIGN = 10
 
 
 class FoldButton(QAbstractButton):
     """A chevron, and with text a sub-header that folds the group under it. A dot marks an
-    edited control behind a closed fold, or in amber a warning its owner reports."""
+    edited control behind a closed fold, and a warning sign a warning its owner reports."""
 
     GUTTER = THEME.space_xl
 
@@ -30,25 +31,28 @@ class FoldButton(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self._marked = False
-        self._mark_color = THEME.mark_edited
+        self._warning = False
         self._font = QFont(self.font())
         self._font.setPixelSize(THEME.font_size_small)
         self._font.setWeight(QFont.Weight(THEME.weight_semibold))
         if not text:
             self.setFixedWidth(self.GUTTER)
 
-    def set_marked(self, marked: bool, color: str = THEME.mark_edited) -> None:
-        if (marked, color) != (self._marked, self._mark_color):
+    def set_marked(self, marked: bool, warning: bool = False) -> None:
+        if (marked, warning) != (self._marked, self._warning):
             self._marked = marked
-            self._mark_color = color
+            self._warning = warning
             self.update()
 
     def is_marked(self) -> bool:
         return self._marked
 
+    def is_warning(self) -> bool:
+        return self._marked and self._warning
+
     def sizeHint(self) -> QSize:  # noqa: N802
-        # A sub-header's dot follows its name.
-        text = QFontMetrics(self._font).horizontalAdvance(self.text()) + THEME.space_md + _DOT if self.text() else 0
+        # A sub-header's mark follows its name.
+        text = QFontMetrics(self._font).horizontalAdvance(self.text()) + THEME.space_md + _SIGN if self.text() else 0
         return QSize(self.GUTTER + text, max(QFontMetrics(self._font).height(), _CHEVRON + 2 * THEME.space_xs))
 
     def enterEvent(self, event) -> None:
@@ -71,13 +75,18 @@ class FoldButton(QAbstractButton):
             p.setPen(QColor(color))
             p.drawText(QRectF(self.GUTTER, 0, self.width() - self.GUTTER, self.height()), Qt.AlignmentFlag.AlignVCenter, self.text())
         if self._marked:
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(self._mark_color))
             if self.text():
-                x = self.GUTTER + QFontMetrics(self._font).horizontalAdvance(self.text()) + THEME.space_md + _DOT / 2
-                p.drawEllipse(QPointF(x, self.height() / 2), _DOT / 2, _DOT / 2)
+                center = QPointF(self.GUTTER + QFontMetrics(self._font).horizontalAdvance(self.text()) + THEME.space_md, self.height() / 2)
+                center += QPointF((_SIGN if self._warning else _DOT) / 2, 0)
             else:
-                p.drawEllipse(QPointF(_CHEVRON, top), _DOT / 2, _DOT / 2)
+                center = QPointF(_CHEVRON, top)
+            if self._warning:
+                sign = qta.icon("mdi6.alert", color=THEME.warn_amber).pixmap(_SIGN, _SIGN)
+                p.drawPixmap(int(center.x() - _SIGN / 2), int(center.y() - _SIGN / 2), sign)
+            else:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QColor(THEME.mark_edited))
+                p.drawEllipse(center, _DOT / 2, _DOT / 2)
 
 
 def _names(content: QWidget) -> str:
@@ -149,7 +158,7 @@ class Fold(QWidget):
             button.setToolTip(wrap_tooltip(text) if text else "")
 
     def set_warning(self, warning: bool) -> None:
-        """Mark the closed fold amber: something behind it needs a look (a clipping readout)."""
+        """Mark the closed fold with a warning sign: something behind it needs a look (a clipping readout)."""
         self._warning = warning
         self._sync_mark()
 
@@ -157,7 +166,7 @@ class Fold(QWidget):
         edited = not self._open and any(not dot.isHidden() for dot in self.content.findChildren(EditedDot))
         warning = not self._open and self._warning and not edited
         for button in self.buttons:
-            button.set_marked(edited or warning, THEME.warn_amber if warning else THEME.mark_edited)
+            button.set_marked(edited or warning, warning)
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() in (QEvent.Type.ShowToParent, QEvent.Type.HideToParent):

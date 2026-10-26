@@ -33,6 +33,7 @@ pub mod skew;
 pub mod stats;
 pub mod stitch;
 pub mod toning;
+pub mod transfer;
 pub mod warp;
 pub mod zones;
 

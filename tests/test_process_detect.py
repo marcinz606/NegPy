@@ -1,6 +1,6 @@
 import numpy as np
 
-from negpy.features.process.logic import detect_process_mode
+from negpy.features.process.logic import detect_process_mode, detect_source_color
 from negpy.features.process.models import ProcessMode
 
 
@@ -63,3 +63,20 @@ def test_detects_e6():
 def test_invalid_input_falls_back_to_c41():
     assert detect_process_mode(None) == ProcessMode.C41
     assert detect_process_mode(np.zeros((4, 4), dtype=np.float32)) == ProcessMode.C41
+
+
+def test_color_film_is_a_color_source():
+    for scan in (_c41_scan(), _phoenix_scan(), _e6_scan()):
+        assert detect_source_color(scan) is True
+
+
+def test_bw_film_is_not_a_color_source():
+    assert detect_source_color(_bw_scan()) is False
+    assert detect_source_color(_tinted_bw_scan()) is False
+
+
+def test_a_gray_scene_on_masked_film_reads_bw_but_stays_a_color_source():
+    gray = np.linspace(0.1, 0.5, 128 * 128, dtype=np.float32).reshape(128, 128)
+    scan = np.stack([gray * 1.0, gray * 0.6, gray * 0.4], axis=-1)
+    assert detect_process_mode(scan) == ProcessMode.BW
+    assert detect_source_color(scan) is True

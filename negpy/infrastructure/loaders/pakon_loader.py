@@ -6,7 +6,6 @@ from typing import Any, List, Dict, ContextManager, Optional, Tuple
 from PIL import Image
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, linear_uint16_to_display_uint8
-from negpy.kernel.image.logic import uint16_to_float32
 
 
 class PakonLoader(IImageLoader):
@@ -23,6 +22,10 @@ class PakonLoader(IImageLoader):
     ]
 
     HEADER_SIZE = 16
+    # F135 scans always have this many lines; a trimmed frame keeps them and shortens the width.
+    # The cap covers a panoramic (XPan, 65 mm) frame at 2000 lines per 24 mm, about 5400 columns.
+    TRIMMED_HEIGHT = 2000
+    TRIMMED_WIDTHS = range(1000, 6001)
 
     @classmethod
     def read_header(cls, file_path: str) -> Optional[Tuple[int, int]]:
@@ -53,10 +56,13 @@ class PakonLoader(IImageLoader):
         except OSError:
             return None
         spec = next((s for s in cls.PAKON_SPECS if abs(file_size - s["size"]) < 1024), None)
-        if spec is None:
-            return None
-        height, width = spec["res"]
-        return height, width, None
+        if spec is not None:
+            height, width = spec["res"]
+            return height, width, None
+        row_bytes = cls.TRIMMED_HEIGHT * 6
+        if file_size % row_bytes == 0 and file_size // row_bytes in cls.TRIMMED_WIDTHS:
+            return cls.TRIMMED_HEIGHT, file_size // row_bytes, None
+        return None
 
     @classmethod
     def can_handle(cls, file_path: str) -> bool:
@@ -97,7 +103,7 @@ class PakonLoader(IImageLoader):
                 data = data.reshape((h, w, 3))[..., ::-1]
 
             metadata = {"orientation": 0, "ir": None}
-            return NonStandardFileWrapper(uint16_to_float32(np.ascontiguousarray(data))), metadata
+            return NonStandardFileWrapper(source_u16=np.ascontiguousarray(data)), metadata
         except Exception as e:
             # Fallback to Rawpy or re-raise to be caught by worker
             raise RuntimeError(f"Pakon Load Failure: {e}") from e

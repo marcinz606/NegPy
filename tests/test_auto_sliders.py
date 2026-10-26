@@ -3,6 +3,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from negpy.desktop.auto_sliders import shown_masking, stored_masking
+from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.auto_sliders import print_shown_values, print_stored_value
 from negpy.features.exposure.logic import (
     auto_highlight_from_metrics,
@@ -149,3 +151,21 @@ def test_only_a_plain_render_of_the_open_frame_records_meters():
     record_meters(store, "frame", plain)
     assert store["frame"]["metered_anchor"] == plain["metered_anchor"]
     assert "memo_key" not in store["frame"]
+
+
+def _masking_config(auto: bool, masking: float = 0.1) -> WorkspaceConfig:
+    config = WorkspaceConfig()
+    return replace(config, lab=replace(config.lab, sharpen_auto_masking=auto, sharpen_masking=masking))
+
+
+def test_masking_shows_the_measured_value_plus_the_offset() -> None:
+    meters = {"auto_masking": 0.31}
+    assert shown_masking(_masking_config(True), meters) == pytest.approx(0.31)
+    assert shown_masking(_masking_config(True, 0.19), meters) == pytest.approx(0.40)
+    assert stored_masking(_masking_config(True), meters, 0.40) == pytest.approx(0.19)
+
+
+def test_masking_off_or_unmetered_shows_the_stored_value() -> None:
+    assert shown_masking(_masking_config(False, 0.19), {"auto_masking": 0.31}) == 0.19
+    assert shown_masking(_masking_config(True, 0.19), {}) == 0.19
+    assert stored_masking(_masking_config(False), {"auto_masking": 0.31}, 0.4) == 0.4

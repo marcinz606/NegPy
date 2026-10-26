@@ -114,26 +114,4 @@ def apply_vignette(img: ImageBuffer, stops: float, size: float, roundness: float
     """
     if stops == 0.0:
         return img
-
-    h, w = img.shape[:2]
-    cy, cx = (h - 1) * 0.5, (w - 1) * 0.5
-
-    y_coords = np.arange(h, dtype=np.float32)
-    x_coords = np.arange(w, dtype=np.float32)
-    yy, xx = np.meshgrid(y_coords, x_coords, indexing="ij")
-    max_dist = float(np.sqrt(cx * cx + cy * cy))
-    d_radial = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / max(max_dist, 1.0)
-    d_rect = np.maximum(np.abs(xx - cx) / max(cx, 1.0), np.abs(yy - cy) / max(cy, 1.0))
-    dist = d_radial * (1.0 - roundness) + d_rect * roundness
-
-    # Remap: size=0 → vignette barely at corners, size=1 → covers entire image
-    midpoint = 1.0 - size
-    t = (dist - midpoint) / max(1.0 - midpoint, 1e-6)
-    t = np.clip(t, 0.0, 1.0)
-
-    # Smooth cosine falloff
-    factor = 0.5 * (1.0 - np.cos(t * np.pi))
-
-    result = img * np.exp2(-stops * factor[:, :, np.newaxis])
-
-    return ensure_image(np.clip(result, 0.0, 1.0))
+    return ensure_image(negpy_core.apply_vignette(np.ascontiguousarray(img, dtype=np.float32), float(stops), float(size), float(roundness)))

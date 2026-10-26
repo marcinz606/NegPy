@@ -15,7 +15,7 @@ import imagecodecs
 import negpy_core
 import numpy as np
 import tifffile
-from PIL import Image, ImageFile, PngImagePlugin
+from PIL import Image, ImageFile
 
 from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
@@ -67,28 +67,27 @@ def encode_png(
     exif: Optional[bytes] = None,
     xmp: Optional[bytes] = None,
 ) -> bytes:
-    """Encode uint8/uint16 pixels as PNG.
-
-    uint16 goes through imagecodecs and gets its ancillary chunks spliced in,
-    because PIL has no 16-bit RGB mode.
-    """
-    if arr.dtype == np.uint16 and arr.ndim == 3:
-        return _encode_png_u16(arr, icc=icc, resolution=resolution, level=level, exif=exif, xmp=xmp)
-
-    buf = io.BytesIO()
-    kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": level}
-    if resolution is not None:
-        kwargs["dpi"] = (resolution.x_dpi, resolution.y_dpi)
+    """Encode uint8/uint16 pixels as PNG: negpy_core filters and deflates bands of rows on
+    every core, and the ancillary chunks are spliced in ahead of the image data."""
+    png = bytes(negpy_core.encode_png(np.ascontiguousarray(arr), int(level)))
+    chunks = []
     if icc:
-        kwargs["icc_profile"] = icc
+        chunks.append(_png_chunk(b"iCCP", b"ICC Profile\x00\x00" + zlib.compress(icc, 9)))
+    if resolution is not None:
+        ppm_x = max(1, int(round(resolution.x_dpi * _INCH_PER_METRE)))
+        ppm_y = max(1, int(round(resolution.y_dpi * _INCH_PER_METRE)))
+        chunks.append(_png_chunk(b"pHYs", struct.pack(">IIB", ppm_x, ppm_y, _PNG_METRE)))
     if exif:
-        kwargs["exif"] = exif
+        # eXIf carries the bare TIFF structure; the APP1 marker piexif emits is a
+        # JPEG framing detail and makes readers reject the chunk.
+        chunks.append(_png_chunk(b"eXIf", exif[6:] if exif.startswith(b"Exif\x00\x00") else exif))
     if xmp:
-        info = PngImagePlugin.PngInfo()
-        info.add_itxt("XML:com.adobe.xmp", xmp.decode("utf-8"), zip=False)
-        kwargs["pnginfo"] = info
-    Image.fromarray(arr).save(buf, **kwargs)
-    return buf.getvalue()
+        chunks.append(_png_chunk(b"iTXt", b"XML:com.adobe.xmp\x00\x00\x00\x00\x00" + xmp))
+    if not chunks:
+        return png
+    # Ancillary chunks must precede the image data.
+    cut = png.index(b"IDAT") - 4
+    return png[:cut] + b"".join(chunks) + png[cut:]
 
 
 def encode_jpeg(
@@ -178,33 +177,3 @@ def encode_jxl(
 
 def _png_chunk(tag: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-
-def _encode_png_u16(
-    arr: np.ndarray,
-    *,
-    icc: Optional[bytes],
-    resolution: Optional[Resolution],
-    level: int,
-    exif: Optional[bytes],
-    xmp: Optional[bytes],
-) -> bytes:
-    png = bytes(imagecodecs.png_encode(np.ascontiguousarray(arr), level=level))
-    chunks = []
-    if icc:
-        chunks.append(_png_chunk(b"iCCP", b"ICC Profile\x00\x00" + zlib.compress(icc, 9)))
-    if resolution is not None:
-        ppm_x = max(1, int(round(resolution.x_dpi * _INCH_PER_METRE)))
-        ppm_y = max(1, int(round(resolution.y_dpi * _INCH_PER_METRE)))
-        chunks.append(_png_chunk(b"pHYs", struct.pack(">IIB", ppm_x, ppm_y, _PNG_METRE)))
-    if exif:
-        # eXIf carries the bare TIFF structure; the APP1 marker piexif emits is a
-        # JPEG framing detail and makes readers reject the chunk.
-        chunks.append(_png_chunk(b"eXIf", exif[6:] if exif.startswith(b"Exif\x00\x00") else exif))
-    if xmp:
-        chunks.append(_png_chunk(b"iTXt", b"XML:com.adobe.xmp\x00\x00\x00\x00\x00" + xmp))
-    if not chunks:
-        return png
-    # Ancillary chunks must precede the image data.
-    cut = png.index(b"IDAT") - 4
-    return png[:cut] + b"".join(chunks) + png[cut:]

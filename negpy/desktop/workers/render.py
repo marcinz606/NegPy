@@ -320,6 +320,7 @@ class PreviewLoadTask:
     integrated_gpu: bool = False
     protected_file_hashes: tuple[str, ...] = ()
     detect_mode: bool = False  # run process-mode detection (a white-light capture of unknown film)
+    detect_source: bool = False  # measure whether the scan is of color film (ProcessConfig.source_color)
     # The assembly configs travel whole rather than flattened into loose fields. They are
     # frozen and hashable, the worker rebuilt them from the pieces anyway, and a new field on
     # one of them then needs no change here or at the call site.
@@ -1255,8 +1256,9 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb), detect_preview, generation)
-    finished = pyqtSignal(str, object, object, str, object, str, object, object, int)
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb), detect_preview, generation,
+    # source_color or None)
+    finished = pyqtSignal(str, object, object, str, object, str, object, object, int, object)
     splash = pyqtSignal(str, object, object, int)  # (file_path, buffer, dims, generation) — first paint
     error = pyqtSignal(str)
     # (file_path, applied long-edge cap px): an HQ load exceeded the GPU's VRAM budget
@@ -1365,7 +1367,7 @@ class PreviewLoadWorker(QObject):
                     return
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
-                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                detected_mode, source_color = self._detect(task, raw)
                 logger.info(
                     "load-timing preview_worker_total %.0fms (stitch load->buffer) %s",
                     (time.perf_counter() - t0) * 1000,
@@ -1390,6 +1392,7 @@ class PreviewLoadWorker(QObject):
                     ),
                     metadata.get("detect_preview"),
                     task.generation,
+                    source_color,
                 )
                 return
             if hdr_active(task.hdr):
@@ -1411,7 +1414,7 @@ class PreviewLoadWorker(QObject):
                     return
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
-                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                detected_mode, source_color = self._detect(task, raw)
                 logger.info(
                     "load-timing preview_worker_total %.0fms (hdr load->buffer) %s",
                     (time.perf_counter() - t0) * 1000,
@@ -1436,6 +1439,7 @@ class PreviewLoadWorker(QObject):
                     ),
                     metadata.get("detect_preview"),
                     task.generation,
+                    source_color,
                 )
                 return
             if is_rgb_triplet(task.rgbscan):
@@ -1455,7 +1459,7 @@ class PreviewLoadWorker(QObject):
                     return
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
-                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                detected_mode, source_color = self._detect(task, raw)
                 logger.info(
                     "load-timing preview_worker_total %.0fms (rgb load->buffer) %s",
                     (time.perf_counter() - t0) * 1000,
@@ -1480,6 +1484,7 @@ class PreviewLoadWorker(QObject):
                     ),
                     metadata.get("detect_preview"),
                     task.generation,
+                    source_color,
                 )
                 return
             if task.use_splash and not task.full_resolution:
@@ -1526,7 +1531,7 @@ class PreviewLoadWorker(QObject):
                     return
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
-            detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+            detected_mode, source_color = self._detect(task, raw)
             logger.info(
                 "load-timing preview_worker_total %.0fms (load->buffer) %s",
                 (time.perf_counter() - t0) * 1000,
@@ -1551,6 +1556,7 @@ class PreviewLoadWorker(QObject):
                 ),
                 metadata.get("detect_preview"),
                 task.generation,
+                source_color,
             )
         except InterruptedError:
             return
@@ -1566,9 +1572,11 @@ class PreviewLoadWorker(QObject):
             self.error.emit(message)
             self.load_failed.emit(task.file_path, message)
 
-    def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
-        """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""
-        from negpy.features.process.logic import detect_process_mode
+    def _detect(self, task: PreviewLoadTask, raw) -> tuple[str, Optional[bool]]:
+        """(detected mode or "", source is color film or None), each only when the task asks for it."""
+        if not (task.detect_mode or task.detect_source):
+            return "", None
+        from negpy.features.process.logic import detect_process_and_source
 
         t0 = time.perf_counter()
         try:
@@ -1577,18 +1585,19 @@ class PreviewLoadWorker(QObject):
             else:
                 # Camera WB hides the C41 mask, so re-decode without WB. Lean: detect downsamples.
                 scan = self._preview_service.decode_for_detection(task.file_path)
-            mode = str(detect_process_mode(scan))
+            mode, source_color = detect_process_and_source(scan)
             logger.info(
-                "load-timing detect %.0fms mode=%s (re_decode=%s) %s",
+                "load-timing detect %.0fms mode=%s source_color=%s (re_decode=%s) %s",
                 (time.perf_counter() - t0) * 1000,
                 mode,
+                source_color,
                 task.use_camera_wb,
                 task.file_path,
             )
-            return mode
+            return (str(mode) if task.detect_mode else ""), (source_color if task.detect_source else None)
         except Exception:
             logger.exception(f"Process-mode detection failed: {task.file_path}")
-            return ""
+            return "", None
 
 
 def gain_slices_for_asset(file_info: dict) -> tuple:

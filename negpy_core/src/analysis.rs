@@ -1710,15 +1710,6 @@ fn luma_f32(p: &[f32; 3]) -> f32 {
     LUMA_R as f32 * p[0] + LUMA_G as f32 * p[1] + LUMA_B as f32 * p[2]
 }
 
-/// `diffusion_plane`'s panchromatic collapse: each pixel of an HxWx3 plane set to its float32 luma.
-pub fn luma_planes(val: &[f32], dst: &mut [f32]) {
-    crate::par_zip(
-        dst.as_chunks_mut::<3>().0,
-        val.as_chunks::<3>().0,
-        move |d, p| *d = [luma_f32(p); 3],
-    );
-}
-
 /// `contrast_mask_plane` after normalization: the float32 luma of an HxWx3 plane, blurred by
 /// `sigma` with a replicated border, minus its float32 mean. Returns the plane and the mean.
 pub fn contrast_mask_tail(val: &[f32], h: usize, w: usize, sigma: f64) -> Option<(Vec<f32>, f32)> {

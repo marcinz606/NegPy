@@ -272,13 +272,10 @@ class ExportSettingsForm(QWidget):
         self.target_px_input.setToolTip(tr("Long edge of the exported image"))
         self.target_px_input.valueChanged.connect(self._on_changed)
         target_px_inner.addLayout(field_row(tr("Long edge"), self.target_px_input))
-        self.output_sharpen_slider = CompactSlider(tr("Sharpening"), 0.0, 1.0, 0.0)
-        self.output_sharpen_slider.setToolTip(tr("Sharpen the export at its final size, on top of the Lab Sharpening."))
-        self.output_sharpen_slider.valueChanged.connect(self._on_changed)
         options = QWidget()
         options_box = QVBoxLayout(options)
         options_box.setContentsMargins(0, 0, 0, 0)
-        for row in (self._print_container, self._target_px_container, self.output_sharpen_slider):
+        for row in (self._print_container, self._target_px_container):
             options_box.addWidget(row)
         self._size_rail = SliderGroup(options)
         root.addWidget(self._size_rail)
@@ -600,7 +597,6 @@ class ExportSettingsForm(QWidget):
         self.fmt_combo.blockSignals(False)
         self._on_fmt_changed()
         self._update_ratio_visibility()
-        self.output_sharpen_slider.setVisible(not enabled)
 
     def flat_mode(self) -> bool:
         return self._flat_mode
@@ -679,7 +675,6 @@ class ExportSettingsForm(QWidget):
             self.size_input.setValue(v["export_print_size"])
             self.dpi_input.setValue(v["export_dpi"])
             self.target_px_input.setValue(v["export_target_long_edge_px"])
-            self.output_sharpen_slider.setValue(v.get("output_sharpen", 0.0))
             _select_data(self.ratio_combo, str(v["paper_aspect_ratio"]))
 
             self._export_space = v["export_color_space"]
@@ -726,7 +721,6 @@ class ExportSettingsForm(QWidget):
             "export_print_size": self.size_input.value(),
             "export_dpi": self.dpi_input.value(),
             "export_target_long_edge_px": self.target_px_input.value(),
-            "output_sharpen": self.output_sharpen_slider.value(),
             "output_mode": self.output_mode_combo.currentData() or ExportPresetOutputMode.ABSOLUTE,
             "output_subfolder": self.subfolder_edit.text(),
             "output_path": self.abspath_edit.text(),

@@ -203,13 +203,6 @@ class TiffLoader(IImageLoader):
         if ir is None and load_ir:
             ir = _read_ir_from_extra_page(file_path, img.shape[0], img.shape[1])
 
-        if img.dtype == np.uint8:
-            f32 = uint8_to_float32(np.ascontiguousarray(img))
-        elif img.dtype == np.uint16:
-            f32 = uint16_to_float32(np.ascontiguousarray(img))
-        else:
-            f32 = np.clip(img.astype(np.float32), 0, 1)
-
         icc_bytes: bytes | None = None
         try:
             with tifffile.TiffFile(file_path) as tif:
@@ -229,12 +222,23 @@ class TiffLoader(IImageLoader):
                 # linear, which no ColorSpace names, so it stays None; a positive source has
                 # resolved that ambiguity and takes the 8-bit assumption.
                 color_space = ColorSpace.SRGB.value
+        decodes = color_space in (ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value)
+        if img.dtype == np.uint16 and not decodes:
+            wrapper = NonStandardFileWrapper(source_u16=np.ascontiguousarray(img))
+        else:
+            if img.dtype == np.uint8:
+                f32 = uint8_to_float32(np.ascontiguousarray(img))
+            elif img.dtype == np.uint16:
+                f32 = uint16_to_float32(np.ascontiguousarray(img))
+            else:
+                f32 = np.clip(img.astype(np.float32), 0, 1)
             if color_space == ColorSpace.SRGB.value:
                 f32 = srgb_to_linear(f32)
             elif color_space == ColorSpace.ADOBE_RGB.value:
                 # Adobe RGB's TRC is the working space's own gamma, so its decode is the
                 # inverse of the pipeline OETF encode.
                 f32 = working_oetf_decode(f32)
+            wrapper = NonStandardFileWrapper(f32)
         metadata = {
             "orientation": read_orientation(file_path),
             "color_space": color_space,
@@ -242,7 +246,7 @@ class TiffLoader(IImageLoader):
             "ir": ir,
             "ir_valid_mask": ir_valid_mask,
         }
-        return NonStandardFileWrapper(f32), metadata
+        return wrapper, metadata
 
     def load_bounded_preview(
         self,

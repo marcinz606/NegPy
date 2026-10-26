@@ -25,7 +25,8 @@ from negpy.features.exposure.logic import (
     shadow_hold_offset,
     per_channel_curve_params,
 )
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
+from negpy.features.exposure.bw_filter import BW_FILTER_WEIGHTS, collapse_matrix
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, BwFilter, ExposureConfig, RenderIntent
 from negpy.features.exposure.papers import effective_paper_profile, resolve_flat_matrix
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.exposure.normalization import (
@@ -153,7 +154,9 @@ class NormalizationProcessor:
         res = normalize_log_image(img_log, bounds)
 
         # Neutral axis for the two-point Cast Removal gray balance. Colour only: B&W
-        # collapses to one density and has no channels to balance.
+        # collapses to one density and has no channels to balance. Published as None there,
+        # as the GPU does, so a merged metrics dict drops the last colour render's axis.
+        context.metrics["neutral_axis_refs"] = None
         if context.process_mode != ProcessMode.BW:
             own = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
             pooled = pooled_neutral_axis(self.config)
@@ -191,9 +194,11 @@ class PhotometricProcessor:
         self,
         config: ExposureConfig,
         local_config: Optional[LocalAdjustmentsConfig] = None,
+        bw_weights: tuple[float, float, float] = BW_FILTER_WEIGHTS[BwFilter.NONE],
     ):
         self.config = config
         self.local_config = local_config
+        self.bw_weights = bw_weights
 
     def _build_local_maps(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
         if self.local_config is None or not self.local_config.masks:
@@ -302,9 +307,9 @@ class PhotometricProcessor:
         )
 
         if context.process_mode == ProcessMode.BW:
-            # Panchromatic response: collapse to a single density BEFORE the curve, so the curve
-            # shapes one channel instead of mixing three.
-            image = negpy_core.gray_to_rgb(get_luminance(image))
+            # Collapse to a single density BEFORE the curve, so the curve shapes one channel
+            # instead of mixing three.
+            image = negpy_core.matmul_3x3(np.ascontiguousarray(image, dtype=np.float32), collapse_matrix(self.bw_weights))
 
         local_maps = self._build_local_maps(image, context)
         if local_maps is not None:
@@ -394,7 +399,7 @@ class PhotometricProcessor:
             highlight_density=self.config.highlight_density + hl_auto,
             shadow_grade_deltas=sg_deltas,
             highlight_grade_deltas=hg_deltas,
-            # B&W collapses to luminance before this call, with all channels equal, so the matrix is
+            # B&W collapses to one density before this call, with all channels equal, so the matrix is
             # already a no-op there. Skip it explicitly anyway to avoid the wasted per-pixel 3x3
             # multiply.
             dye_separation=1.0 if context.process_mode == ProcessMode.BW else self.config.dye_separation,
@@ -439,7 +444,7 @@ class PhotometricProcessor:
         is_bw = context.process_mode == ProcessMode.BW
 
         if is_bw:
-            image = negpy_core.gray_to_rgb(get_luminance(image))
+            image = negpy_core.matmul_3x3(np.ascontiguousarray(image, dtype=np.float32), collapse_matrix(self.bw_weights))
 
         stock_matrix = None if is_bw else resolve_flat_matrix(effective_paper_profile(self.config.paper_profile, context.process_mode))
         img_pos = apply_flat_curve(image, gain, lift, cmy_offsets=cmy_offsets, stock_matrix=stock_matrix)

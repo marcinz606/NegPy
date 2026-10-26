@@ -22,7 +22,7 @@ _TOAST_PADDING = 40
 
 INFO_OFF, INFO_BASIC, INFO_FULL = range(3)
 INFO_LEVEL_LABELS = (tr("Off"), tr("Basic"), tr("Full"))
-MODE_LABELS = {ProcessMode.C41: tr("Color Negative"), ProcessMode.BW: tr("B&W Negative"), ProcessMode.E6: tr("Transparency")}
+MODE_LABELS = {ProcessMode.C41: tr("Color Negative"), ProcessMode.BW: tr("B&W"), ProcessMode.E6: tr("Transparency")}
 
 
 def _film_line(meta: Any) -> str:

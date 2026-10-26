@@ -27,7 +27,9 @@ pub mod median;
 pub mod memo;
 pub mod meter;
 pub mod morph;
+pub mod orient;
 pub mod phase;
+pub mod png;
 pub mod print_curve;
 pub mod process;
 pub mod register;
@@ -42,6 +44,7 @@ pub mod skew;
 pub mod stats;
 pub mod stitch;
 pub mod toning;
+pub mod transfer;
 pub mod warp;
 pub mod zones;
 
@@ -82,6 +85,7 @@ fn negpy_core(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> 
     py::bounds::register(m)?;
     py::color::register(m)?;
     py::toning::register(m)?;
+    py::transfer::register(m)?;
     py::sensor::register(m)?;
     py::hdr::register(m)?;
     py::display::register(m)?;

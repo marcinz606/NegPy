@@ -207,6 +207,24 @@ fn rl_sharpen<'py>(
     Ok(out)
 }
 
+/// `sharpen_grain` of an HxWx3 float32 linear image with the luminance row `lum`.
+#[pyfunction]
+fn sharpen_grain<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    lum: (f32, f32, f32),
+) -> PyResult<Option<f32>> {
+    let [h, w, 3] = img.shape()[..] else {
+        return Err(PyValueError::new_err("needs an HxWx3 image"));
+    };
+    let src = img
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs contiguous arrays"))?;
+    Ok(super::detach(py, src.len(), || {
+        lab::sharpen_grain(src, (h, w), lum.into())
+    }))
+}
+
 /// `apply_split_toning` of an HxWx3 float32 image: each tint is (cos, sin) of its hue times 20
 /// times its strength, or None when off; then the working Lab constants.
 #[pyfunction]
@@ -283,6 +301,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hue_trim, m)?)?;
     m.add_function(wrap_pyfunction!(split_toning, m)?)?;
     m.add_function(wrap_pyfunction!(rl_sharpen, m)?)?;
+    m.add_function(wrap_pyfunction!(sharpen_grain, m)?)?;
     m.add_function(wrap_pyfunction!(clahe, m)?)?;
     m.add_function(wrap_pyfunction!(glow_and_halation, m)?)?;
     m.add_function(wrap_pyfunction!(usm_sharpen, m)?)?;

@@ -68,6 +68,8 @@ struct ExposureUniforms {
     diff_range: vec4<f32>,
     // Print-stock LUT: xyz = e_max per dye (0 = no LUT), w = the black luminance BPC maps to 0.
     lut: vec4<f32>,
+    // B&W collapse weights on the normalized log channels (collapse_weights); w is a pad.
+    bw: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -248,10 +250,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     var color = textureLoad(input_tex, coords, 0);
 
-    // B&W: panchromatic luminance BEFORE the curve (single-density response).
+    // B&W: one weighted density BEFORE the curve, in matmul_3x3's fma order.
     if (params.mode == 1u) {
-        let luma = dot(color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-        color = vec4<f32>(luma, luma, luma, color.a);
+        let v = fma(color.b, params.bw.z, fma(color.g, params.bw.y, color.r * params.bw.x));
+        color = vec4<f32>(v, v, v, color.a);
     }
 
     let eps = 1e-6;

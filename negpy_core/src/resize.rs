@@ -1010,9 +1010,122 @@ pub fn expand_plane(
     Some(())
 }
 
+/// The vertical INTER_AREA pass of `retouch.logic._erode_resize_bounded` on one block: output
+/// rows `top..top + dst rows` of a `full_h`-row image shrunk by `scale_y`, from the block's
+/// horizontally resized rows `src` (row `source_top` first, `len` floats per row). Weights in
+/// float64 then float32; each product in float32, summed down the rows in order, as NumPy does.
+pub fn area_rows(
+    src: &[f32],
+    len: usize,
+    source_top: usize,
+    top: usize,
+    scale_y: f64,
+    full_h: usize,
+    dst: &mut [f32],
+) {
+    use rayon::prelude::*;
+    let src_rows = src.len() / len;
+    dst.par_chunks_mut(len).enumerate().for_each(|(r, out)| {
+        let start = (top + r) as f64 * scale_y;
+        let end = start + scale_y;
+        let first = start.floor() as usize;
+        let last = (end.ceil() as usize).min(full_h);
+        let norm = scale_y.min(full_h as f64 - start);
+        out.fill(0.0);
+        for (k, i) in (first..last).enumerate() {
+            let overlap = ((i + 1) as f64).min(end) - (i as f64).max(start);
+            let w = ((if overlap > 1e-3 { overlap } else { 0.0 }) / norm) as f32;
+            let row = i - source_top;
+            debug_assert!(row < src_rows);
+            let vals = &src[row * len..(row + 1) * len];
+            if k == 0 {
+                for (o, &v) in out.iter_mut().zip(vals) {
+                    *o = v * w;
+                }
+            } else {
+                for (o, &v) in out.iter_mut().zip(vals) {
+                    *o += v * w;
+                }
+            }
+        }
+    });
+}
+
+/// The overlap of source pixels with output pixel `o` of `n_out` along an axis of `n_in`:
+/// (first source index, weights summing to 1).
+fn box_weights(o: usize, n_in: usize, n_out: usize) -> (usize, Vec<f64>) {
+    let scale = n_in as f64 / n_out as f64;
+    let (a, b) = (o as f64 * scale, (o + 1) as f64 * scale);
+    let first = a.floor() as usize;
+    let last = (b.ceil() as usize).min(n_in);
+    let mut w: Vec<f64> = (first..last)
+        .map(|i| ((i + 1) as f64).min(b) - (i as f64).max(a))
+        .collect();
+    let sum: f64 = w.iter().sum();
+    w.iter_mut().for_each(|v| *v /= sum);
+    (first, w)
+}
+
+/// An (h, w, cn) uint8 or uint16 image area-averaged into the (oh, ow, 3) uint8 `dst`, each
+/// sample read through `lut` (`k` tables of 65536 codes, one per channel or one shared) when
+/// given. One channel fills all three; a fourth is dropped. Rounded to nearest.
+#[allow(clippy::too_many_arguments)]
+pub fn box_into_u8<T: Copy + Into<u32>>(
+    src: &[T],
+    h: usize,
+    w: usize,
+    cn: usize,
+    lut: Option<(&[u8], usize)>,
+    dst: &mut [u8],
+    oh: usize,
+    ow: usize,
+    dst_row: usize,
+) {
+    let cols: Vec<(usize, Vec<f64>)> = (0..ow).map(|x| box_weights(x, w, ow)).collect();
+    let value = |y: usize, x: usize, c: usize| -> f64 {
+        let sc = c.min(cn - 1);
+        let v: u32 = src[(y * w + x) * cn + sc].into();
+        match lut {
+            Some((t, k)) => t[(c.min(k - 1)) * 65536 + v as usize] as f64,
+            None => v as f64,
+        }
+    };
+    for oy in 0..oh {
+        let (y0, wy) = box_weights(oy, h, oh);
+        let row = &mut dst[oy * dst_row..oy * dst_row + ow * 3];
+        for (ox, (x0, wx)) in cols.iter().enumerate() {
+            let mut acc = [0f64; 3];
+            for (dy, &fy) in wy.iter().enumerate() {
+                for (dx, &fx) in wx.iter().enumerate() {
+                    let f = fy * fx;
+                    for (c, a) in acc.iter_mut().enumerate() {
+                        *a += f * value(y0 + dy, x0 + dx, c);
+                    }
+                }
+            }
+            for c in 0..3 {
+                row[ox * 3 + c] = acc[c].round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn box_into_u8_averages_through_the_lut() {
+        let src: Vec<u16> = vec![0, 2, 4, 6];
+        let lut: Vec<u8> = (0..65536).map(|v| (v * 10).min(255) as u8).collect();
+        let mut dst = [0u8; 3];
+        box_into_u8(&src, 2, 2, 1, Some((&lut, 1)), &mut dst, 1, 1, 3);
+        assert_eq!(dst, [30, 30, 30]);
+        let rgb: Vec<u8> = vec![10, 20, 30, 255, 30, 40, 50, 255];
+        let mut out = [0u8; 3];
+        box_into_u8(&rgb, 1, 2, 4, None, &mut out, 1, 1, 3);
+        assert_eq!(out, [20, 30, 40]);
+    }
 
     #[test]
     fn flat_image_stays_flat() {

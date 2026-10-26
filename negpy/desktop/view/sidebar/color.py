@@ -1,20 +1,50 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtWidgets import QHBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, RING_AROUND_SWEEP, gradient_icon, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, RING_AROUND_SWEEP, field_row, gradient_icon, wrap_tooltip
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
+from negpy.features.exposure.models import BwFilter
+from negpy.features.process.models import ProcessMode
 
 
 class ColorSidebar(BaseSidebar):
-    """White balance: region CMY, Temperature and Pick WB, and Cast Removal over the whole frame."""
+    """White balance: region CMY, Temperature and Pick WB, and Cast Removal over the whole frame. A B&W print
+    from a color negative shows only the contrast Filter."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
+
+        # Flat, in the order the arrows darken a blue sky: None, then yellow to red, then the greens.
+        self.filter_combo = StepCombo.of(
+            [
+                tr("None"),
+                tr("Yellow #8"),
+                tr("Deep Yellow #15"),
+                tr("Orange #21"),
+                tr("Red #25"),
+                tr("Yellow-Green #11"),
+                tr("Green #58"),
+            ],
+            tr("Filter: a colored filter, as on the camera lens. It darkens the colors opposite to its own."),
+            list(BwFilter),
+        )
+        self.filter_block = QWidget()
+        self.filter_block.setObjectName("collapsible_content_body")
+        filter_col = QVBoxLayout(self.filter_block)
+        filter_col.setContentsMargins(0, 0, 0, 0)
+        filter_col.addLayout(field_row(tr("Filter"), self.filter_combo))
+        self.layout.addWidget(self.filter_block)
+
+        self.color_block = QWidget()
+        self.color_block.setObjectName("collapsible_content_body")
+        color_col = QVBoxLayout(self.color_block)
+        color_col.setContentsMargins(0, 0, 0, 0)
 
         self.region_btn = SegmentedChoice(
             (("fa5s.globe", tr("Global")), ("fa5s.moon", tr("Shadows")), ("fa5s.sun", tr("Highlights"))),
@@ -37,13 +67,13 @@ class ColorSidebar(BaseSidebar):
         region_row.addWidget(self.region_btn, 1)
         region_row.addWidget(self.pick_wb_btn)
         region_row.addWidget(self.ring_btn)
-        self.layout.addLayout(region_row)
+        color_col.addLayout(region_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
         self.temp_slider = KelvinSlider(tr("Temperature"))
         self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
         self._temp_anchor = None
-        self.layout.addWidget(self.temp_slider)
+        color_col.addWidget(self.temp_slider)
 
         self.cyan_slider = CompactSlider(tr("Cyan"), -1.0, 1.0, conf.wb_cyan, has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
@@ -52,14 +82,15 @@ class ColorSidebar(BaseSidebar):
         self.yellow_slider = CompactSlider(tr("Yellow"), -1.0, 1.0, conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
         for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
-            self.layout.addWidget(slider)
+            color_col.addWidget(slider)
 
         # Balances each dye layer against the frame's own grays; no region scopes it.
         self.cast_removal_slider = CompactSlider(tr("Cast Removal"), 0.0, 1.0, conf.cast_removal_strength)
         self.cast_removal_slider.setToolTip(
             tr("Cast Removal: removes a color cast that differs between the dark and bright parts of the picture. 0 is off.")
         )
-        self.layout.addWidget(self.cast_removal_slider)
+        color_col.addWidget(self.cast_removal_slider)
+        self.layout.addWidget(self.color_block)
 
         self.layout.addStretch()
 
@@ -83,6 +114,9 @@ class ColorSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.region_btn.currentChanged.connect(lambda _i: self.sync_ui())
+        self.filter_combo.currentIndexChanged.connect(
+            lambda _i: self.update_config_section("exposure", persist=True, bw_filter=self.filter_combo.currentData())
+        )
 
         self.temp_slider.dragStarted.connect(self._on_temp_drag_started)
         self.temp_slider.dragEnded.connect(self._on_temp_drag_ended)
@@ -165,6 +199,10 @@ class ColorSidebar(BaseSidebar):
             self.yellow_slider.setValue(getattr(conf, channels[2]))
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
+            self.filter_combo.setCurrentIndex(self.filter_combo.findData(conf.bw_filter))
+            bw = self.state.config.process.process_mode == ProcessMode.BW
+            self.filter_block.setVisible(bw)
+            self.color_block.setVisible(not bw)
 
             for i, fields in enumerate(self._REGION_FIELDS):
                 self.region_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
@@ -175,6 +213,7 @@ class ColorSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
+            self.filter_combo,
             self.region_btn,
             self.temp_slider,
             self.cyan_slider,

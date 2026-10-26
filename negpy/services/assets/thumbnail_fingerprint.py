@@ -12,7 +12,7 @@ from typing import Any, Optional
 from negpy.domain.models import WorkspaceConfig
 
 # Bump in any change that alters rendered pixels for unchanged settings, a changed default included.
-THUMBNAIL_RENDER_VERSION = 17
+THUMBNAIL_RENDER_VERSION = 21
 
 # Marks a thumbnail made from the source preview, which runs none of the frame's settings.
 QUICK = "quick"
@@ -28,7 +28,7 @@ _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
     "process": frozenset(
         {"demosaic_export", "roll_name", "baseline_source", "demosaic_preview", "crosstalk_profile", "meter_rect", "meter_key"}
     ),
-    "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "chroma_denoise"}),
+    "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "sharpen_auto_masking", "chroma_denoise"}),
 }
 
 _BELOW_THUMBNAIL_SECTIONS = frozenset({"retouch"})

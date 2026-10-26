@@ -60,6 +60,7 @@ from negpy.features.exposure.analysis import (
     zone_region_labels,
     zone_shares,
 )
+from negpy.features.exposure.bw_filter import printed_exposure
 from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.exposure.papers import profiles_for_mode
 from negpy.features.geometry.logic import (
@@ -3023,7 +3024,7 @@ class CanvasOverlay(QWidget):
     def _recipe_lines(self) -> List[str]:
         conf = self.state.config
         meters = self.state.auto_meters.get(self.state.current_file_hash or "", {})
-        exposure = replace(conf.exposure, **shown_values(conf, meters))
+        exposure = replace(printed_exposure(conf.process, conf.exposure), **shown_values(conf, meters))
         return recipe_lines(exposure, conf.local, conf.finish, frame=self._frame_name())
 
     def _draw_printing_notes(self, painter: QPainter) -> None:

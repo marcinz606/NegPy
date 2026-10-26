@@ -396,7 +396,7 @@ class RightPanel(QWidget):
 
     def _build_roll_page(self) -> QWidget:
         """The cards for facts the whole roll shares, not one frame's own edit: its film, scanning rig,
-        frame assembly, calibration, metering, shared baseline, decode and optics. Setup leads, since
+        decode, optics, calibration, metering, shared baseline and frame assembly. Setup leads, since
         it decides which of the others apply."""
         cp = self.controls_panel
         page = QWidget()
@@ -408,11 +408,11 @@ class RightPanel(QWidget):
         self.roll_tab_header.bind(
             (
                 cp.film_section,
+                cp.demosaic_section,
+                cp.optics_section,
                 cp.sensor_section,
                 cp.process_section,
                 cp.baseline_section,
-                cp.demosaic_section,
-                cp.optics_section,
             )
         )
         self.roll_tab_header.apply_requested.connect(self._apply_roll_tab)
@@ -423,12 +423,12 @@ class RightPanel(QWidget):
         page_layout.addWidget(cp.roll_override_summary)
         for section in (
             cp.film_section,
-            cp.assembly_section,
+            cp.demosaic_section,
+            cp.optics_section,
             cp.sensor_section,
             cp.process_section,
             cp.baseline_section,
-            cp.demosaic_section,
-            cp.optics_section,
+            cp.assembly_section,
         ):
             page_layout.addWidget(section)
         page_layout.addStretch(1)
@@ -1028,7 +1028,9 @@ class RightPanel(QWidget):
             filtration_offsets,
         )
 
-        config = self.controller.session.state.config.exposure
+        from negpy.features.exposure.bw_filter import printed_exposure
+
+        config = printed_exposure(self.controller.session.state.config.process, self.controller.session.state.config.exposure)
         process_mode = self.controller.session.state.config.process.process_mode
 
         # While peeking the flat master, plot the flat curve so the chart matches what the canvas

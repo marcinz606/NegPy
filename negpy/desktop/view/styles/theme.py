@@ -38,8 +38,8 @@ class ThemeConfig:
     bg_primary_hover: str = "#723939"
     # An edited card's frame-scope stripe and lit Frame icon; a roll-scope card takes border_checked_hover.
     border_scope_frame: str = "#5D4B24"
-    # The dot on an edited control: red, a step below the R channel's red.
-    mark_edited: str = "#9C3B3B"
+    # The dot on an edited control. A warning takes a sign in warn_amber, never a dot.
+    mark_edited: str = "#C79A3A"
     bg_accent_muted: str = "#322C2C"
     border_input: str = "#323232"
     border_primary: str = "#3E3E3E"

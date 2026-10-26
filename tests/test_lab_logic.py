@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import pytest
 import cv2
 from negpy.kernel.image.logic import _skin_weight, lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
 from negpy.features.lab.models import LabConfig
@@ -9,6 +10,8 @@ from negpy.features.lab.logic import (
     apply_glow_and_halation,
     apply_usm_sharpening,
     apply_rl_sharpening,
+    auto_masking,
+    effective_masking,
     sharpen_shadow_gain,
     apply_saturation,
     gaussian_kernel_1d,
@@ -679,3 +682,30 @@ class TestSharpenShadowGain(unittest.TestCase):
         light = _l_contrast_gain(apply_rl_sharpening, _textured_patch(60.0), radius=1.0)
         self.assertGreater(light, 1.15)
         self.assertLess((dark - 1.0) / (light - 1.0), 0.6)
+
+
+def _grainy(sigma: float, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return np.clip(0.25 + sigma * rng.standard_normal((200, 300, 3)), 0.0, 1.0).astype(np.float32)
+
+
+def test_auto_masking_rises_with_grain() -> None:
+    on = LabConfig(sharpen_auto_masking=True)
+    fine, coarse = auto_masking(_grainy(0.005), on), auto_masking(_grainy(0.02), on)
+    assert fine is not None and coarse is not None
+    assert 0.0 < fine < coarse <= 1.0
+
+
+def test_auto_masking_off_or_unmeasured() -> None:
+    assert auto_masking(_grainy(0.02), LabConfig()) is None
+    # No midtone pixels to measure: the neutral masking.
+    black = np.zeros((50, 50, 3), dtype=np.float32)
+    assert auto_masking(black, LabConfig(sharpen_auto_masking=True)) == LabConfig().sharpen_masking
+
+
+def test_effective_masking_is_an_offset_on_the_auto_value() -> None:
+    assert effective_masking(LabConfig(sharpen_masking=0.3), None) == 0.3
+    assert effective_masking(LabConfig(), 0.4) == 0.4
+    assert effective_masking(LabConfig(sharpen_masking=0.2), 0.4) == pytest.approx(0.5)
+    assert effective_masking(LabConfig(sharpen_masking=-0.5), 0.2) == 0.0
+    assert effective_masking(LabConfig(sharpen_masking=0.9), 0.6) == 1.0

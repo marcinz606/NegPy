@@ -1333,3 +1333,12 @@ def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(brow
         browser._on_remove_from_menu()
     session.remove_selected_files.assert_called_once()
     session.remove_current_file.assert_not_called()
+
+
+def test_context_menu_reanalyze_follows_the_selection(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    assert "Reanalyze Frame" in _action_labels(browser.build_frame_menu())
+
+    session.state.selected_indices = [0, 2]
+    assert "Reanalyze 2 Frames" in _action_labels(browser.build_frame_menu())

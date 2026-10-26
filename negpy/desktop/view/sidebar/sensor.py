@@ -1,3 +1,5 @@
+from typing import Optional
+
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
@@ -31,6 +33,8 @@ _UNMIX_CHOICES = (
     ),
 )
 
+_CROSSTALK_FIELDS = ("crosstalk_profile", "crosstalk_matrix", "crosstalk_strength", "crosstalk_process")
+
 
 class SensorSidebar(BaseSidebar):
     """
@@ -41,6 +45,9 @@ class SensorSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
+        self._crosstalk_dialog: Optional[QDialog] = None
+        self._crosstalk_snapshot: dict = {}  # the frame's crosstalk fields when the editor opened
+        self._crosstalk_previewed: dict = {}  # the fields the editor's last preview set
 
         row = QHBoxLayout()
         self.sensor_label = field_label(tr("Profile"))
@@ -214,6 +221,8 @@ class SensorSidebar(BaseSidebar):
 
         self.crosstalk_combo.currentTextChanged.connect(self._on_crosstalk_profile_changed)
         self.manage_crosstalk_btn.clicked.connect(self._open_crosstalk_editor)
+        self.controller.session.frame_previews_ending.connect(self._end_crosstalk_editor)
+        self.controller.session.session_emptied.connect(self._end_crosstalk_editor)
         self.measure_chart_btn.clicked.connect(self._open_chart_calibration)
         self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
         self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
@@ -282,8 +291,13 @@ class SensorSidebar(BaseSidebar):
     def _open_crosstalk_editor(self) -> None:
         from negpy.desktop.view.widgets.crosstalk_editor_dialog import CrosstalkEditorDialog
 
+        if self._crosstalk_dialog is not None:
+            self._crosstalk_dialog.raise_()
+            self._crosstalk_dialog.activateWindow()
+            return
         conf = self.state.config.process
-        self._crosstalk_snapshot = (conf.crosstalk_profile, conf.crosstalk_matrix, conf.crosstalk_strength, conf.crosstalk_process)
+        self._crosstalk_snapshot = {f: getattr(conf, f) for f in _CROSSTALK_FIELDS}
+        self._crosstalk_previewed = {}
         dlg = CrosstalkEditorDialog(
             conf.crosstalk_profile, conf.crosstalk_strength, conf.process_mode, parent=self, repo=self.controller.session.repo
         )
@@ -318,19 +332,39 @@ class SensorSidebar(BaseSidebar):
     def _on_crosstalk_preview(self, matrix: object, strength: float, process: str) -> None:
         # The process rides along: the render gates the unmix on it, so a preview without it shows
         # nothing whenever the edited profile is for another film.
+        self._crosstalk_previewed = {
+            "crosstalk_matrix": tuple(matrix) if matrix is not None else None,
+            "crosstalk_strength": strength,
+            "crosstalk_process": process,
+        }
         self.controller.set_roll_default(
-            "sensor",
-            persist=False,
-            crosstalk_matrix=tuple(matrix) if matrix is not None else None,
-            crosstalk_strength=strength,
-            crosstalk_process=process,
-            **invalidate_local_bounds(self.state.config.process),
+            "sensor", persist=False, **self._crosstalk_previewed, **invalidate_local_bounds(self.state.config.process)
         )
 
+    def _end_crosstalk_editor(self) -> None:
+        """Close the editor and take its preview back, so the frame's edit is stored without it."""
+        dlg = self._crosstalk_dialog
+        if dlg is None:
+            return
+        self._crosstalk_dialog = None
+        if self.state.current_file_hash and self._crosstalk_previewed:
+            self.controller.session.discard_preview()
+            # A persisted edit made during the preview stored it too; only a field the user has not
+            # changed since goes back, and the bounds re-meter instead of taking stale values.
+            conf = self.state.config.process
+            snapshot = self._crosstalk_snapshot
+            changes = {f: snapshot[f] for f, v in self._crosstalk_previewed.items() if getattr(conf, f) == v != snapshot[f]}
+            if changes:
+                self.update_config_section("process", render=False, **changes, **invalidate_local_bounds(conf))
+        dlg.reject()
+
     def _on_crosstalk_editor_finished(self, dlg, result: int) -> None:
+        if dlg is not self._crosstalk_dialog:
+            return  # ended by _end_crosstalk_editor, which restored the frame
+        self._crosstalk_dialog = None
         if result == QDialog.DialogCode.Accepted:
             name = dlg.selected_name() or CrosstalkProfiles.DEFAULT_NAME
-            snap_strength = self._crosstalk_snapshot[2]
+            snap_strength = self._crosstalk_snapshot["crosstalk_strength"]
             self.controller.set_roll_default(
                 "sensor",
                 crosstalk_profile=name,
@@ -342,15 +376,7 @@ class SensorSidebar(BaseSidebar):
                 **invalidate_local_bounds(self.state.config.process),
             )
         else:
-            profile, matrix, strength, process = self._crosstalk_snapshot
-            self.controller.set_roll_default(
-                "sensor",
-                crosstalk_profile=profile,
-                crosstalk_matrix=matrix,
-                crosstalk_strength=strength,
-                crosstalk_process=process,
-                **invalidate_local_bounds(self.state.config.process),
-            )
+            self.controller.set_roll_default("sensor", **self._crosstalk_snapshot, **invalidate_local_bounds(self.state.config.process))
         self.sync_ui()
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:

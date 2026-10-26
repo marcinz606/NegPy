@@ -190,7 +190,7 @@ def test_a_retired_card_does_not_count_for_reset_to_roll():
 
 def test_reset_to_roll_stays_beside_the_reset_arrow():
     header = TabHeader("Exposure")
-    row = header._header_row
+    row = header.reset_btn.parentWidget().layout()
 
     assert row.indexOf(header.roll_revert_btn) == row.indexOf(header.reset_btn) + 1
     assert row.indexOf(header.apply_btn) == row.indexOf(header.roll_revert_btn) + 1
@@ -214,15 +214,40 @@ def test_reset_to_roll_on_the_roll_tab_reaches_both_optics_cards():
     panel.controller.revert_to_roll.assert_called_once_with(["process", "lens", "flatfield"])
 
 
-def test_a_lead_toggle_takes_the_layers_icons_place():
+def test_a_lead_toggle_opens_the_track_before_the_state_line():
     header = TabHeader("Exposure")
-    row = header._header_row
+    assert header._lead_track.isHidden()
 
     btn = header.add_lead_toggle(QIcon(), "Pick Better")
 
     assert btn.isCheckable()
-    assert header.icon_label.isHidden()
-    assert row.indexOf(btn) < row.indexOf(header.title_label)
+    assert not header._lead_track.isHidden()
+    assert header._lead_track.isAncestorOf(btn)
+    assert header._header_row.indexOf(header._lead_track) < header._header_row.indexOf(header.title_label)
+
+
+def test_the_lead_track_hides_while_every_mirror_source_is_hidden():
+    header = TabHeader("Geometry")
+    card = QWidget()
+    first, second = QPushButton(card), QPushButton(card)
+    header.add_mirror(first)
+    header.add_mirror(second)
+
+    first.setVisible(False)
+    assert not header._lead_track.isHidden()
+    second.setVisible(False)
+    assert header._lead_track.isHidden()
+    first.setVisible(True)
+    assert not header._lead_track.isHidden()
+
+
+def test_the_edited_dot_shows_only_while_a_card_is_edited():
+    header = TabHeader("Exposure")
+    header.bind([_card(0)])
+    assert header.edited_dot.isHidden()
+
+    header.bind([_card(1)])
+    assert not header.edited_dot.isHidden()
 
 
 def test_pick_better_leads_the_exposure_header():
@@ -233,7 +258,7 @@ def test_pick_better_leads_the_exposure_header():
     ControlsPanel._add_pick_better(panel, header)
     panel.pick_better_btn.click()
 
-    assert header._header_row.indexOf(panel.pick_better_btn) == 0
+    assert header._lead_track.row.indexOf(panel.pick_better_btn) == 0
     panel.controller.toggle_pick_better.assert_called_once_with(force=True)
 
 
@@ -248,7 +273,7 @@ def test_auto_mirror_shares_the_tone_cards_menu_beside_pick_better():
     ControlsPanel._add_pick_better(panel, header)
     ControlsPanel._add_auto_mirror(panel, header)
 
-    assert header._header_row.indexOf(panel.auto_mirror_btn) == 1
+    assert header._lead_track.row.indexOf(panel.auto_mirror_btn) == 1
     assert panel.auto_mirror_btn.menu() is auto.choice_menu
     density.setChecked(True)
     assert panel.auto_mirror_btn.isChecked()

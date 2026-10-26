@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Tuple
 
+import negpy_core
 import numpy as np
 import rawpy
 from PIL import Image, ImageCms
@@ -11,7 +12,7 @@ from PIL import Image, ImageCms
 from negpy.domain.models import ColorSpace
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
-from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 
@@ -251,6 +252,7 @@ _linear_u16_low = _linear_u16_levels < 0.018
 _linear_u16_levels[_linear_u16_low] *= 4.5
 _linear_u16_levels[~_linear_u16_low] = 1.099 * np.power(_linear_u16_levels[~_linear_u16_low], 1.0 / 2.222) - 0.099
 _LINEAR_U16_DISPLAY_LUT = np.clip(_linear_u16_levels * 255.0, 0, 255).astype(np.uint8)
+_LINEAR_U16_DISPLAY_ROWS = np.ascontiguousarray(_LINEAR_U16_DISPLAY_LUT[None, :])
 del _linear_u16_levels, _linear_u16_low
 
 
@@ -362,6 +364,26 @@ def dng_quick_preview(file_path: str) -> Optional[Image.Image]:
     return Image.fromarray(np.ascontiguousarray(arr))
 
 
+def _dng_display_lut(dtype: Any, linearization: Optional[np.ndarray], black: np.ndarray, white: np.ndarray, wb: np.ndarray) -> np.ndarray:
+    """The LinearRaw preview's display value of every code, per channel (3 x 65536 uint8):
+    linearization, black/white normalize, as-shot white balance, the BT.709 curve."""
+    codes = np.arange(int(np.iinfo(dtype).max) + 1, dtype=dtype)
+    source = np.repeat(codes[:, None, None], 3, axis=2)
+    if linearization is not None:
+        indices = np.clip(source, 0, linearization.size - 1).astype(np.int32)
+        data = linearization[indices]
+    else:
+        data = source.astype(np.float32)
+    data = np.clip((data - black) / np.maximum(white - black, 1e-6), 0.0, 1.0)
+    data = np.clip(data * wb, 0.0, 1.0)
+    low = data < 0.018
+    data[low] *= 4.5
+    data[~low] = 1.099 * np.power(data[~low], 1.0 / 2.222) - 0.099
+    table = np.zeros((3, 65536), dtype=np.uint8)
+    table[:, : codes.size] = np.clip(data * 255.0, 0, 255).astype(np.uint8)[:, 0, :].T
+    return table
+
+
 def dng_bounded_preview(
     file_path: str,
     max_edge: int,
@@ -424,6 +446,7 @@ def dng_bounded_preview(
             crop_size = _dng_tag_floats(tag("DefaultCropSize"))
             orientation_tag = tag("Orientation")
             orientation = int(orientation_tag.value) if orientation_tag is not None else 1
+            lut = _dng_display_lut(page.dtype, linearization, black, white, wb)
             for decoded, position, _shape in page.segments(maxworkers=1):
                 if should_cancel is not None and should_cancel():
                     raise InterruptedError("thumbnail cancelled")
@@ -437,27 +460,14 @@ def dng_bounded_preview(
                 valid_width = min(tile.shape[1], width - x)
                 if valid_height <= 0 or valid_width <= 0:
                     continue
-                source = tile[:valid_height, :valid_width, :3]
-                if linearization is not None:
-                    indices = np.clip(source, 0, linearization.size - 1).astype(np.int32)
-                    data = linearization[indices]
-                else:
-                    data = source.astype(np.float32)
-                data = np.clip((data - black) / np.maximum(white - black, 1e-6), 0.0, 1.0)
-                data = np.clip(data * wb, 0.0, 1.0)
-                low = data < 0.018
-                data[low] *= 4.5
-                data[~low] = 1.099 * np.power(data[~low], 1.0 / 2.222) - 0.099
-                tile_u8 = np.clip(data * 255.0, 0, 255).astype(np.uint8)
-
                 left = int(round(x * out_width / width))
                 top = int(round(y * out_height / height))
                 right = int(round((x + valid_width) * out_width / width))
                 bottom = int(round((y + valid_height) * out_height / height))
                 if right <= left or bottom <= top:
                     continue
-                small = Image.fromarray(tile_u8).resize((right - left, bottom - top), Image.Resampling.BOX)
-                output[top:bottom, left:right] = np.asarray(small)
+                source = np.ascontiguousarray(tile[:valid_height, :valid_width, :3], dtype=np.uint16)
+                negpy_core.box_into_u8(source, output[top:bottom, left:right], lut)
 
             image = Image.fromarray(output)
             if crop_origin.size >= 2 and crop_size.size >= 2:
@@ -521,20 +531,14 @@ def bounded_tiff_page_preview(
     output = np.zeros((out_height, out_width, 3), dtype=np.uint8)
 
     def place(source: np.ndarray, y: int, x: int) -> None:
-        if source.dtype == np.uint16:
-            source = linear_uint16_to_display_uint8(source)
-        if source.shape[2] == 1:
-            source = np.repeat(source, 3, axis=2)
-        elif source.shape[2] == 4:
-            source = source[:, :, :3]
         left = int(round(x * out_width / width))
         top = int(round(y * out_height / height))
         right = int(round((x + source.shape[1]) * out_width / width))
         bottom = int(round((y + source.shape[0]) * out_height / height))
         if right <= left or bottom <= top:
             return
-        small = Image.fromarray(np.ascontiguousarray(source)).resize((right - left, bottom - top), Image.Resampling.BOX)
-        output[top:bottom, left:right] = np.asarray(small)
+        lut = _LINEAR_U16_DISPLAY_ROWS if source.dtype == np.uint16 else None
+        negpy_core.box_into_u8(np.ascontiguousarray(source), output[top:bottom, left:right], lut)
 
     if banded:
         # An uncompressed page is one run of rows at its first offset, so it reads in
@@ -645,11 +649,16 @@ class NonStandardFileWrapper:
 
     def __init__(
         self,
-        data: np.ndarray,
+        data: Optional[np.ndarray] = None,
         full_output_hw: Optional[Tuple[int, int]] = None,
         wb_gains: Optional[Tuple[float, float, float]] = None,
+        *,
+        source_u16: Optional[np.ndarray] = None,
     ) -> None:
-        self.data = data
+        self._data = data
+        # A linear 16-bit source: float32 is made only on demand, and a linear 16-bit
+        # postprocess() hands it back as it is. uint16 -> float32 -> uint16 restores every code.
+        self._source_u16 = source_u16
         # If set, `sizes` reports this (h, w) for full image; else derived from `data` shape.
         self._full_output_hw: Optional[Tuple[int, int]] = full_output_hw
         # As-shot (R, G, B) white balance gains, applied by postprocess() when the caller asks
@@ -658,11 +667,20 @@ class NonStandardFileWrapper:
         self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
 
     @property
+    def data(self) -> np.ndarray:
+        if self._data is None:
+            assert self._source_u16 is not None
+            self._data = uint16_to_float32(self._source_u16)
+        return self._data
+
+    @property
     def sizes(self) -> Any:
         if self._full_output_hw is not None:
             h, w = self._full_output_hw
         else:
-            h, w = self.data.shape[0], self.data.shape[1]
+            source = self._data if self._data is not None else self._source_u16
+            assert source is not None
+            h, w = source.shape[0], source.shape[1]
         return SimpleNamespace(raw_height=int(h), raw_width=int(w))
 
     def __enter__(self) -> "NonStandardFileWrapper":
@@ -675,6 +693,9 @@ class NonStandardFileWrapper:
         bps = kwargs.get("output_bps", 8)
         half_size = kwargs.get("half_size", False)
         gamma = kwargs.get("gamma")
+        camera_wb = kwargs.get("use_camera_wb") and self.wb_gains is not None
+        if self._source_u16 is not None and bps == 16 and gamma is not None and tuple(gamma) == (1, 1) and not camera_wb:
+            return np.ascontiguousarray(self._source_u16[::2, ::2] if half_size else self._source_u16)
         data = self.data
         if half_size:
             data = data[::2, ::2]

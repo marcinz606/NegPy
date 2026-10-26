@@ -209,6 +209,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Shadows CMY"), "exposure", "shadow_cyan", "shadow_magenta", "shadow_yellow", channels="CMY"),
         _row(mark("Highlights CMY"), "exposure", "highlight_cyan", "highlight_magenta", "highlight_yellow", channels="CMY"),
         _row(mark("Cast Removal"), "exposure", "cast_removal_strength", sticky=True),
+        _row(mark("Filter"), "exposure", "bw_filter"),
     )),
     (mark("Lab"), (
         _row(mark("Chroma"), "lab", "saturation", sticky=True),
@@ -218,6 +219,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Sharpen Method"), "lab", "sharpen_method", sticky=True),
         _row(mark("Sharpen Radius"), "lab", "sharpen_radius", sticky=True),
         _row(mark("Sharpen Masking"), "lab", "sharpen_masking", sticky=True),
+        _row(mark("Auto Masking"), "lab", "sharpen_auto_masking", sticky=True),
         _row(mark("Chroma Denoise"), "lab", "chroma_denoise", sticky=True),
         _row(mark("Glow"), "lab", "glow_amount", sticky=True),
         _row(mark("Halation"), "lab", "halation_strength", sticky=True),
@@ -322,7 +324,6 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Print Size"), "export", "export_print_size", sticky=True),
         _row(mark("DPI"), "export", "export_dpi", sticky=True),
         _row(mark("Long Edge"), "export", "export_target_long_edge_px", sticky=True),
-        _row(mark("Output Sharpening"), "export", "output_sharpen", sticky=True),
         _row(mark("Export Profile"), "export", "export_color_space", sticky=True),
         _row(mark("Filename Pattern"), "export", "filename_pattern", sticky=True),
         _row(mark("Overwrite Existing Files"), "export", "overwrite", sticky=True),
@@ -391,7 +392,7 @@ def rows_for_section(section: str) -> list[SettingRow]:
 
 _LISTED = frozenset((r.section, f) for r in all_rows() for f in r.fields)
 # Written by a render, not by the user, so never a change of its own.
-_MEASURED = frozenset({("process", "local_floors"), ("process", "local_ceils"), ("process", "meter_key")})
+_MEASURED = frozenset({("process", "local_floors"), ("process", "local_ceils"), ("process", "meter_key"), ("process", "source_color")})
 
 # The card a change lives on when no catalog row lists its field (a crop rectangle, a heal, a mask).
 _UNLISTED_CARD = {
@@ -449,6 +450,7 @@ COLOR_FIELDS = (
     "highlight_magenta",
     "highlight_yellow",
     "cast_removal_strength",
+    "bw_filter",
 )
 
 GEOMETRY_FIELDS = (

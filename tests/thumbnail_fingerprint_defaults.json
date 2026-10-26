@@ -17,7 +17,8 @@
   "exposure": {
    "auto_exposure": "true",
    "auto_normalize_contrast": "true",
-   "cast_removal_strength": "1.0",
+   "bw_filter": "\"none\"",
+   "cast_removal_strength": "0.5",
    "contrast_mask_strength": "0.0",
    "density": "1.0",
    "diffusion": "0.0",
@@ -129,7 +130,7 @@
    "halation_strength": "0.0",
    "saturation": "1.0",
    "sharpen": "0.25",
-   "sharpen_masking": "0.0",
+   "sharpen_masking": "0.1",
    "sharpen_method": "\"usm\"",
    "sharpen_radius": "1.0",
    "skin_protection": "0.5"
@@ -178,6 +179,7 @@
    "sensor_matrix": "null",
    "sensor_profile": "\"None\"",
    "sensor_unmix": "\"two_scale\"",
+   "source_color": "null",
    "use_cast_average": "false",
    "use_color_average": "false",
    "use_luma_average": "false",
@@ -214,5 +216,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 17
+ "render_version": 21
 }

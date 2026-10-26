@@ -6,11 +6,11 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_glow_and_halation,
-    apply_usm_sharpening,
-    apply_rl_sharpening,
+    apply_lab_sharpening,
     apply_saturation,
+    auto_masking,
 )
-from negpy.features.lab.models import LabConfig, SharpenMethod
+from negpy.features.lab.models import LabConfig
 
 
 class PhotoLabProcessor:
@@ -30,13 +30,10 @@ class PhotoLabProcessor:
             img = apply_saturation(img, self.config.saturation, self.config.skin_protection)
 
         if self.config.sharpen > 0:
-            sharpen = apply_rl_sharpening if self.config.sharpen_method == SharpenMethod.RL else apply_usm_sharpening
-            img = sharpen(
-                img,
-                self.config.sharpen,
-                radius=self.config.sharpen_radius,
-                masking=self.config.sharpen_masking,
-            )
+            auto = auto_masking(img, self.config)
+            if auto is not None:
+                context.metrics["auto_masking"] = auto
+            img = apply_lab_sharpening(img, self.config, auto)
 
         if self.config.glow_amount > 0 or self.config.halation_strength > 0:
             img = apply_glow_and_halation(img, self.config.glow_amount, self.config.halation_strength, context.scale_factor)

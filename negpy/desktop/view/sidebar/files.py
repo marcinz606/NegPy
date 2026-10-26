@@ -2387,6 +2387,8 @@ class FileBrowser(QWidget):
         menu.addAction(label_with_shortcut(tr("Sync Bounds…"), "sync_bounds")).triggered.connect(
             lambda: open_sync_bounds_dialog(self, self.session)
         )
+        reanalyze = tr("Reanalyze {value}", value=count_of(n, "frame").title()) if on_selection else tr("Reanalyze Frame")
+        menu.addAction(reanalyze).triggered.connect(lambda: self.controller.reanalyze_selection())
         if self.controller.thumbnail_refresh_running:
             menu.addAction(tr("Cancel Thumbnail Update")).triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
         else:

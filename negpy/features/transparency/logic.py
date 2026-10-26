@@ -35,6 +35,7 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
 
 from typing import Any, Dict, Mapping, Optional, Tuple
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
@@ -45,7 +46,6 @@ from negpy.features.exposure.logic import (
     per_channel_dye_separation,
     per_channel_toe_shoulder,
     per_channel_widths,
-    separation_damping_gain_np,
     slope_to_grade,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -155,29 +155,7 @@ def display_rendering(scene_linear: np.ndarray) -> np.ndarray:
     return np.clip(num / np.maximum(den, np.float32(1e-8)), 0.0, 1.0).astype(np.float32)
 
 
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    """Logistic sigmoid, overflow-safe for large |x| (mirrors logic.py::_fast_sigmoid)."""
-    return (0.5 * (1.0 + np.tanh(0.5 * np.asarray(x, dtype=np.float32)))).astype(np.float32)
-
-
 ZONE_BLACK_TAPER = 1.0
-
-
-def _black_taper(d: np.ndarray, density_range: float) -> np.ndarray:
-    """Fades a shadow lift back to nothing at the bottom of the window.
-
-    On a print, Zone Density is bounded by paper black -- a shadow burn cannot exceed
-    d_max. This curve has no paper, so without a bound a lift walks the black point up
-    with it and the frame simply stops having blacks. Smoothstep so the taper adds no kink.
-    """
-    t = np.clip((np.float32(density_range) - d) / np.float32(ZONE_BLACK_TAPER), 0.0, 1.0)
-    return (t * t * (np.float32(3.0) - np.float32(2.0) * t)).astype(np.float32)
-
-
-def _softplus(x: np.ndarray, width: float) -> np.ndarray:
-    """width * log(1 + exp(x / width)), overflow-safe: ~x for x >> width, ~0 for x << -width."""
-    t = x / width
-    return (width * (np.logaddexp(0.0, -np.abs(t)) + np.maximum(t, 0.0))).astype(np.float32)
 
 
 def transfer_widths(config: ExposureConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
@@ -424,102 +402,52 @@ def apply_transfer_curve(
     """
     c = TRANSFER_CONSTANTS
     base_width = float(c["transfer_knee_width"])
-    tw3 = toe_widths or (base_width, base_width, base_width)
-    sw3 = shoulder_widths or (base_width, base_width, base_width)
-    pivot = float(c["transfer_contrast_pivot"])
-    toe_knee = float(c["transfer_toe_knee"])
-    sh_knee = float(c["transfer_shoulder_knee"])
-
-    def shape(d: np.ndarray, ch: int) -> np.ndarray:
-        """One channel's capture density through every control above Dye Separation."""
-
-        # Cast Removal: the channel's neutral refs onto green's. First, so every control
-        # below shapes the corrected signal.
-        if cast_gain[ch] != 1.0 or cast_offset[ch] != 0.0:
-            d = d * np.float32(cast_gain[ch]) + np.float32(cast_offset[ch])
-
-        if exposure_offset != 0.0 or cmy_offsets[ch] != 0.0:
-            # cmy_offsets arrive in normalized space, because filtration_offsets divides by the
-            # channel's stretch range, so they scale back up by the same range.
-            d = d - np.float32(exposure_offset) + np.float32(cmy_offsets[ch] * density_range)
-
-        if contrast != 1.0:
-            d = np.float32(pivot) + (d - np.float32(pivot)) * np.float32(contrast)
-
-        # Shadows/Highlights WB: regional CMY, using the print path's own kernel
-        # (logic.py, "Regional CMY") and geometry (wb_split_geometry).
-        if shadow_cmy[ch] != 0.0 or highlight_cmy[ch] != 0.0:
-            wb_c, wb_k = wb_split_geometry()
-            w_sh = _sigmoid(np.float32(wb_k) * (d - np.float32(wb_c)))
-            w_hi = np.float32(1.0) - w_sh
-            d = d + np.float32(shadow_cmy[ch]) * w_sh + np.float32(highlight_cmy[ch]) * w_hi
-
-        # Zone Density: mid-sparing brightness offsets, using the print path's own kernel and
-        # weights (logic.py, "Zone Density (ΔD)"). Positive adds density, so it darkens: the
-        # Density convention, the opposite sign to a Lightroom Shadows slider. Runs after
-        # contrast and before the knees, as it does on the print.
-        if shadow_density != 0.0 or highlight_density != 0.0:
-            sh_c, hi_c, k = zone_geometry()
-            w_sh = _sigmoid(np.float32(k) * (d - np.float32(sh_c)))
-            w_sh = w_sh * _black_taper(d, density_range)
-            w_hi = np.float32(1.0) - _sigmoid(np.float32(k) * (d - np.float32(hi_c)))
-            d = d + np.float32(shadow_density) * w_sh + np.float32(highlight_density) * w_hi
-
-        # Shadows sit at high density and highlights at low, so the toe compresses above its knee
-        # and the shoulder below its own.
-        if toe[ch] != 0.0:
-            d = d - np.float32(toe[ch]) * _softplus(d - np.float32(toe_knee), tw3[ch])
-        if shoulder[ch] != 0.0:
-            d = d + np.float32(shoulder[ch]) * _softplus(np.float32(sh_knee) - d, sw3[ch])
-
-        return d
-
-    n = np.asarray(img_norm, dtype=np.float32)
-    capture = n * np.float32(density_range)
-    dens = np.empty_like(n)
-    for ch in range(3):
-        dens[:, :, ch] = shape(capture[:, :, ch], ch)
-
+    wb_c, wb_k = wb_split_geometry()
+    sh_c, hi_c, zone_k = zone_geometry()
     sep_k3 = per_channel_dye_separation(separation, separation_trims)
-    if sep_k3 != (1.0, 1.0, 1.0):
-        # Both softplus steps rise with their input, so d_ref never falls as a channel
-        # darkens; a reference that can fall folds a smooth gradient into bands. The cap is
-        # decided on the capture, where the window clamp always sits at the dense edge, so
-        # no edit can move a clamped channel back under it.
-        d_lo = capture.min(axis=2, keepdims=True)
-        cap = np.float32(SEPARATION_CAP_LEVEL) + _softplus(
-            d_lo + np.float32(SEPARATION_CAP_SPREAD - SEPARATION_CAP_LEVEL), SEPARATION_CAP_SOFTNESS
-        )
-        capped = cap - _softplus(cap - capture, SEPARATION_CAP_SOFTNESS)
-        capped = np.stack([shape(capped[:, :, ch], ch) for ch in range(3)], axis=2)
-        d_ref = capped.mean(axis=2, keepdims=True)
-        e = dens - d_ref
-        if damping > 0.0:
-            # Separation Damping makes each channel's k chroma-dependent per pixel, from
-            # the same chroma but each channel's own k (see separation_damping_gain_np).
-            # The chroma reads the capped channels too.
-            ce = capped - d_ref
-            chroma = np.sqrt(((ce[:, :, 0] - ce[:, :, 1]) ** 2 + (ce[:, :, 1] - ce[:, :, 2]) ** 2 + (ce[:, :, 0] - ce[:, :, 2]) ** 2) / 3.0)
-            ref_spread = float(EXPOSURE_CONSTANTS["separation_damping_ref_spread"])
-            k_eff = np.stack(
-                [separation_damping_gain_np(sep_k3[ch], damping, chroma, ref_spread) for ch in range(3)],
-                axis=2,
-            )
-            dens = d_ref + k_eff * e
-        else:
-            k3 = np.asarray(sep_k3, dtype=np.float32)
-            dens = d_ref + k3[np.newaxis, np.newaxis, :] * e
-
-    out = np.power(np.float32(10.0), -dens, dtype=np.float32)
-
-    # Baseline and display rendering last, so the controls above shape the scene and this
-    # only decides how the scene is shown. A finished positive sits nowhere below a sensor
-    # white level, so neither belongs: it passes through at scene scale, clipped to the
-    # same range display_rendering outputs.
-    if positive_source:
-        return ensure_image(np.clip(out, 0.0, 1.0))
-    gain = np.float32(2.0 ** float(c["transfer_baseline_ev"]))
-    return ensure_image(display_rendering(out * gain))
+    params = {
+        "density_range": density_range,
+        "cast_gain": tuple(cast_gain),
+        "cast_offset": tuple(cast_offset),
+        "cast_on": tuple(cast_gain[ch] != 1.0 or cast_offset[ch] != 0.0 for ch in range(3)),
+        "exposure_offset": exposure_offset,
+        # cmy_offsets arrive in normalized space, because filtration_offsets divides by the
+        # channel's stretch range, so they scale back up by the same range.
+        "cmy": tuple(cmy_offsets[ch] * density_range for ch in range(3)),
+        "exposure_on": tuple(exposure_offset != 0.0 or cmy_offsets[ch] != 0.0 for ch in range(3)),
+        "contrast": contrast,
+        "contrast_on": contrast != 1.0,
+        "pivot": float(c["transfer_contrast_pivot"]),
+        "shadow_cmy": tuple(shadow_cmy),
+        "highlight_cmy": tuple(highlight_cmy),
+        "regional_on": tuple(shadow_cmy[ch] != 0.0 or highlight_cmy[ch] != 0.0 for ch in range(3)),
+        "wb_c": wb_c,
+        "wb_k": wb_k,
+        "shadow_density": shadow_density,
+        "highlight_density": highlight_density,
+        "zone_on": shadow_density != 0.0 or highlight_density != 0.0,
+        "zone_sh": sh_c,
+        "zone_hi": hi_c,
+        "zone_k": zone_k,
+        "black_taper": ZONE_BLACK_TAPER,
+        "toe": tuple(toe),
+        "shoulder": tuple(shoulder),
+        "toe_width": tuple(toe_widths or (base_width,) * 3),
+        "shoulder_width": tuple(shoulder_widths or (base_width,) * 3),
+        "toe_knee": float(c["transfer_toe_knee"]),
+        "shoulder_knee": float(c["transfer_shoulder_knee"]),
+        "sep_k": sep_k3,
+        "sep_on": sep_k3 != (1.0, 1.0, 1.0),
+        "cap_level": SEPARATION_CAP_LEVEL,
+        "cap_offset": SEPARATION_CAP_SPREAD - SEPARATION_CAP_LEVEL,
+        "cap_softness": SEPARATION_CAP_SOFTNESS,
+        "damping": damping,
+        "damping_on": damping > 0.0,
+        "ref_spread": float(EXPOSURE_CONSTANTS["separation_damping_ref_spread"]),
+        "positive_source": bool(positive_source),
+        "gain": 2.0 ** float(c["transfer_baseline_ev"]),
+    }
+    return ensure_image(negpy_core.apply_transfer_curve(np.ascontiguousarray(img_norm, dtype=np.float32), params))
 
 
 def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:

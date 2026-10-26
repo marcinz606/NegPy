@@ -3,8 +3,10 @@ from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.auto_sliders import auto_masking_share, shown_masking, stored_masking
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.features.lab.logic import NEUTRAL_MASKING
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.process.models import ProcessMode
 
@@ -41,10 +43,27 @@ class LabSidebar(BaseSidebar):
         self.sharpen_method_combo.addItem(tr("Deconvolution"), SharpenMethod.RL.value)
         self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
         method_row.addWidget(self.sharpen_method_combo, 1)
+        self.auto_masking_btn = self._small_toggle(
+            "fa5s.magic",
+            "",
+            conf.sharpen_auto_masking,
+            tr("Auto Masking: sets Masking from the grain of each frame, so grain stays smooth."),
+        )
+        self.auto_masking_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        method_row.addWidget(self.auto_masking_btn)
         self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider(tr("Masking"), 0.0, 1.0, conf.sharpen_masking)
+        self.auto_masking_hint = hint_label("")
+        self.auto_masking_hint.setVisible(False)
         self.layout.addWidget(
-            rail_fold("lab_sharpen", self.sharpen_slider, method_row, self.sharpen_radius_slider, self.sharpen_masking_slider)
+            rail_fold(
+                "lab_sharpen",
+                self.sharpen_slider,
+                method_row,
+                self.sharpen_radius_slider,
+                self.sharpen_masking_slider,
+                self.auto_masking_hint,
+            )
         )
 
         self.clahe_slider = CompactSlider(tr("CLAHE"), 0.0, 1.0, conf.clahe_strength)
@@ -84,12 +103,12 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen_radius=v)
         )
 
-        self.sharpen_masking_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, sharpen_masking=v)
+        self.sharpen_masking_slider.valueChanged.connect(lambda v: self._set_masking(v, persist=False))
+        self.sharpen_masking_slider.valueCommitted.connect(lambda v: self._set_masking(v, persist=True))
+        self.auto_masking_btn.clicked.connect(
+            lambda checked: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen_auto_masking=checked)
         )
-        self.sharpen_masking_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen_masking=v)
-        )
+        self.controller.image_updated.connect(self._sync_masking)
 
         self.saturation_slider.valueChanged.connect(
             lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, saturation=v)
@@ -126,6 +145,29 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
         )
 
+    def _meters(self) -> dict:
+        return self.state.auto_meters.get(self.state.current_file_hash or "", {})
+
+    def _sync_masking(self) -> None:
+        """With Auto Masking on, Masking shows the measured value plus the offset and resets to the measured value."""
+        config, meters = self.state.config, self._meters()
+        auto = auto_masking_share(config, meters)
+        self.auto_masking_hint.setVisible(auto is not None)
+        if auto is not None:
+            self.auto_masking_hint.setText(tr("Auto: {value}, from the grain of this view.", value=f"{auto:.2f}"))
+        self.sharpen_masking_slider.blockSignals(True)
+        self.sharpen_masking_slider.set_default(NEUTRAL_MASKING if auto is None else min(auto, 1.0))
+        self.sharpen_masking_slider.setValue(shown_masking(config, meters))
+        self.sharpen_masking_slider.blockSignals(False)
+
+    def _set_masking(self, value: float, persist: bool) -> None:
+        # A value at the slider's default is a reset: back to the neutral offset exactly.
+        if self.sharpen_masking_slider.is_default(value):
+            stored = NEUTRAL_MASKING
+        else:
+            stored = stored_masking(self.state.config, self._meters(), value)
+        self.update_config_section("lab", persist=persist, readback_metrics=persist, sharpen_masking=stored)
+
     def sync_ui(self) -> None:
         conf = self.state.config.lab
         is_bw = self.state.config.process.process_mode == ProcessMode.BW
@@ -136,7 +178,7 @@ class LabSidebar(BaseSidebar):
             self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
             self.sharpen_slider.setValue(conf.sharpen)
             self.sharpen_radius_slider.setValue(conf.sharpen_radius)
-            self.sharpen_masking_slider.setValue(conf.sharpen_masking)
+            self.auto_masking_btn.setChecked(conf.sharpen_auto_masking)
             self.saturation_slider.setValue(conf.saturation)
             self.skin_protection_slider.setValue(conf.skin_protection)
             self.chroma_denoise_slider.setValue(conf.chroma_denoise)
@@ -149,6 +191,7 @@ class LabSidebar(BaseSidebar):
             self.chroma_fold.content.setVisible(not is_bw)
         finally:
             self.block_signals(False)
+        self._sync_masking()
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
@@ -157,6 +200,7 @@ class LabSidebar(BaseSidebar):
             self.sharpen_slider,
             self.sharpen_radius_slider,
             self.sharpen_masking_slider,
+            self.auto_masking_btn,
             self.saturation_slider,
             self.skin_protection_slider,
             self.chroma_denoise_slider,

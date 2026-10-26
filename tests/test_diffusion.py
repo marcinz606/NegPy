@@ -35,8 +35,8 @@ def _normalized(lin: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(normalize_log_image(to_log_density(lin), BOUNDS), dtype=np.float32)
 
 
-def _plane(lin: np.ndarray, panchromatic: bool = False) -> np.ndarray:
-    plane = diffusion_plane(diffusion_grid(lin, None), BOUNDS, panchromatic)
+def _plane(lin: np.ndarray, bw_weights=None) -> np.ndarray:
+    plane = diffusion_plane(diffusion_grid(lin, None), BOUNDS, bw_weights)
     assert plane is not None
     return plane
 
@@ -63,12 +63,12 @@ class TestPlane(unittest.TestCase):
         mean_density = float(_normalized(lin)[h // 2, :, 0].mean())
         self.assertLess(abs(edge - mean_light), abs(edge - mean_density))
 
-    def test_a_panchromatic_plane_is_the_luma_of_a_cast_frame(self):
+    def test_a_bw_plane_is_the_weighted_value_of_a_cast_frame(self):
         lin = np.full((20, 30, 3), 0.3, dtype=np.float32)
         lin[:, :, 0] *= 1.4  # an orange-mask cast
-        plane = _plane(lin, panchromatic=True)
+        plane = _plane(lin, bw_weights=(0.31, 0.39, 0.30))
         norm = _normalized(lin)
-        lum = 0.2126 * norm[:, :, 0] + 0.7152 * norm[:, :, 1] + 0.0722 * norm[:, :, 2]
+        lum = 0.31 * norm[:, :, 0] + 0.39 * norm[:, :, 1] + 0.30 * norm[:, :, 2]
         for ch in range(3):
             np.testing.assert_allclose(plane[:, :, ch], lum, atol=1e-4)
 

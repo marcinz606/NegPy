@@ -1,6 +1,6 @@
 from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.text import count_of
 import math
-from dataclasses import replace
 
 import numpy as np
 from PyQt6.QtWidgets import (
@@ -50,7 +50,7 @@ _COLOR_CLIP_MAX = 5.0
 # silver grey, slide blue.
 _MODES = (
     (ProcessMode.C41, tr("Color"), THEME.mode_c41, tr("Color Negative (C-41): orange-masked negative")),
-    (ProcessMode.BW, tr("B&W"), THEME.mode_bw, tr("B&W Negative: panchromatic silver negative")),
+    (ProcessMode.BW, tr("B&W"), THEME.mode_bw, tr("B&W: a black-and-white print, from a B&W negative or a color negative.")),
     (ProcessMode.E6, tr("Slide"), THEME.mode_e6, tr("Transparency: slide or reversal film")),
 )
 
@@ -358,9 +358,18 @@ class ProcessSidebar(BaseSidebar):
             set_hint_kind(self.baseline_source_hint, "warning")
             self.baseline_source_hint.setText(tr("No baseline yet: this frame uses its own analysis until Roll Analysis runs"))
 
+    def _sync_reanalyze_btn(self, locked: bool) -> None:
+        on_selection = not self.controller.session.selection_is_open_frame()
+        self.reanalyze_frame_btn.setEnabled(on_selection or not locked)
+        if on_selection:
+            n = count_of(len(self.state.selected_indices), "frame").title()
+            tip = tr("Reanalyze {value}: measure each selected frame again on its own bounds.", value=n)
+        else:
+            tip = tr("Reanalyze Frame: measure this frame again from its current crop.")
+        self.reanalyze_frame_btn.setToolTip(wrap_tooltip(tip))
+
     def _on_reanalyze_frame(self) -> None:
-        conf = self.state.config
-        self.controller.apply_config(replace(conf, process=replace(conf.process, **invalidate_local_bounds(conf.process))), persist=True)
+        self.controller.reanalyze_selection()
 
     def _on_luma_range_clip_changed(self, val: float, persist: bool = True) -> None:
         self.controller.set_roll_default(
@@ -471,8 +480,7 @@ class ProcessSidebar(BaseSidebar):
             # matters only when at least one axis still analyzes locally, and a freehand analysis
             # region overrides it entirely.
             self.analysis_buffer_slider.setEnabled(not locked and not has_region and not (conf.use_luma_average and conf.use_color_average))
-            # A frame riding the roll on both axes never reads its own bounds, so there is nothing to re-measure.
-            self.reanalyze_frame_btn.setEnabled(not locked and not (conf.use_luma_average and conf.use_color_average))
+            self._sync_reanalyze_btn(locked)
             self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
             self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average)
         finally:

@@ -441,6 +441,8 @@ class ControlsPanel(QWidget):
                         self.geometry_sidebar.auto_skew_btn,
                         qta.icon("fa5s.ruler-combined", color=THEME.text_hint, color_disabled=THEME.text_muted),
                     )
+                elif key == "color":
+                    self.auto_masking_mirror_btn = header.add_mirror(self.lab_sidebar.auto_masking_btn)
                 elif key == "finish":
                     self.optical_removal_mirror_btn = header.add_mirror(self.retouch_sidebar.auto_dust_btn)
                     self.ir_removal_mirror_btn = header.add_mirror(self.retouch_sidebar.ir_dust_btn)
@@ -609,6 +611,8 @@ class ControlsPanel(QWidget):
             (self.optical_removal_mirror_btn, "toggle_optical_removal"),
             (self.ir_removal_mirror_btn, "toggle_ir_removal"),
             (self.auto_crop_mirror_btn, "auto_crop"),
+            (self.lab_sidebar.auto_masking_btn, "toggle_auto_masking"),
+            (self.auto_masking_mirror_btn, "toggle_auto_masking"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.flatfield_sidebar.check_btn, "toggle_flatfield_peek"),
             (self.autocrop_sidebar.auto_frame_btn, "auto_crop"),
@@ -1014,7 +1018,8 @@ class ControlsPanel(QWidget):
         from negpy.features.process.models import ProcessMode
 
         self._set_read_only(self.controller.active_diptych() is not None)
-        self.color_section.setVisible(self.controller.state.config.process.process_mode != ProcessMode.BW)
+        process = self.controller.state.config.process
+        self.color_section.setVisible(process.process_mode != ProcessMode.BW or bool(process.source_color))
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
         self.color_sidebar.sync_ui()
@@ -1063,11 +1068,11 @@ class ControlsPanel(QWidget):
     def _roll_sections(self) -> tuple:
         return (
             ("film", self.film_section),
+            ("demosaic", self.demosaic_section),
+            ("optics", self.optics_section),
             ("sensor", self.sensor_section),
             ("process", self.process_section),
             ("baseline", self.baseline_section),
-            ("demosaic", self.demosaic_section),
-            ("optics", self.optics_section),
         )
 
     def _sync_scope_buttons(self) -> None:
@@ -1229,6 +1234,8 @@ class ControlsPanel(QWidget):
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""
+        from negpy.features.process.models import ProcessMode
+
         cfg = self.controller.state.config
         _exp = _DEFAULT_EXPOSURE
         _lab = _DEFAULT_LAB
@@ -1239,7 +1246,9 @@ class ControlsPanel(QWidget):
 
         exp = cfg.exposure
         mode = cfg.process.process_mode
-        color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in COLOR_FIELDS)
+        # The card shows only the Filter in B&W, and the Filter only there.
+        shown_color = ("bw_filter",) if mode == ProcessMode.BW else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
+        color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in shown_color)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
         paper_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in PAPER_FIELDS)
 

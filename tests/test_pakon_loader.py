@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 
@@ -101,3 +102,23 @@ def test_portrait_header_beats_the_size_table(tmp_path):
     assert img.shape == (h, w, 3)
     np.testing.assert_allclose(img[:, -1, 0] * 65535.0, np.arange(h), atol=0.5)
     assert PakonLoader().load_bounded_preview(str(p), 300).size == (200, 300)
+
+
+@pytest.mark.parametrize("w", [2017, 5400])
+def test_trimmed_frame_width_opens_without_a_header(tmp_path, w):
+    # A frame the scanner software trimmed keeps 2000 lines and loses width, so no table size matches.
+    h = 2000
+    planes = np.stack([np.full((h, w), v, dtype="<u2") for v in (1000, 2000, 3000)])
+    p = tmp_path / "trimmed.raw"
+    planes.tofile(p)
+
+    assert PakonLoader.resolve_layout(str(p)) == (h, w, None)
+    wrapper, _ = PakonLoader().load(str(p))
+    assert wrapper.data.shape == (h, w, 3)
+    np.testing.assert_allclose(wrapper.data[0, 0], np.array([1000, 2000, 3000]) / 65535.0, atol=1e-6)
+
+
+def test_unrelated_size_is_not_claimed(tmp_path):
+    p = tmp_path / "other.raw"
+    p.write_bytes(b"\0" * (2000 * 6 * 999 + 6))
+    assert not PakonLoader.can_handle(str(p))

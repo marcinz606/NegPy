@@ -527,3 +527,22 @@ def test_errors_of_parallel_encodes_keep_the_task_order(tmp_path, monkeypatch) -
 
     assert second_done.is_set()
     assert errors == ["boom 0", "boom 1"]
+
+
+def test_a_resized_export_runs_the_lab_sharpening_once_after_the_resize(tmp_path) -> None:
+    from negpy.domain.models import ExportResolutionMode
+
+    proc, path = _real_processor_and_source(tmp_path)
+    proc.engine_gpu = None
+    cfg = WorkspaceConfig()
+    export = replace(cfg.export, export_resolution_mode=ExportResolutionMode.TARGET_PX.value, export_target_long_edge_px=300)
+    sharp = replace(cfg, lab=replace(cfg.lab, sharpen=0.8))
+    soft = replace(cfg, lab=replace(cfg.lab, sharpen=0.0))
+
+    out, _ = proc.render_export(path, sharp, export, "rs")
+    plain, _ = proc.render_export(path, soft, export, "rs")
+    expected = proc._sharpen_resized_content(plain.copy(), None, replace(sharp, export=export))
+
+    assert max(out.shape[:2]) == 300
+    np.testing.assert_array_equal(out, expected)
+    assert not np.array_equal(out, plain)

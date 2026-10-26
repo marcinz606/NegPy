@@ -17,6 +17,7 @@ from negpy.features.exposure.processor import (
     NormalizationProcessor,
     PhotometricProcessor,
 )
+from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.exposure.logic import expand_mask_plane
 from negpy.features.exposure.normalization import (
     contrast_mask_plane,
@@ -28,7 +29,6 @@ from negpy.features.exposure.normalization import (
     normalized_roi,
 )
 from negpy.features.process.hue import apply_hue_trim
-from negpy.features.process.models import ProcessMode
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
 from negpy.features.exposure.papers import effective_paper_profile
@@ -57,7 +57,9 @@ def base_processor(settings: WorkspaceConfig) -> Any:
 def exposure_processor(settings: WorkspaceConfig) -> Any:
     """The exposure stage's curve: the print or a slide's transfer, or the Flat master on either base."""
     if settings.exposure.render_intent == RenderIntent.FLAT or render_path(settings.process) is RenderPath.PRINT:
-        return PhotometricProcessor(settings.exposure, settings.local)
+        return PhotometricProcessor(
+            printed_exposure(settings.process, settings.exposure), settings.local, collapse_weights(settings.process, settings.exposure)
+        )
     return TransferProcessor(settings.exposure, settings.process.positive_source)
 
 
@@ -266,13 +268,15 @@ class DarkroomEngine:
             and settings.exposure.render_intent != RenderIntent.FLAT
         ):
             mask_roi = context.active_roi
-            mask_key = (source_hash, calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
+            bw_weights = plane_weights(settings.process, settings.exposure)
+            mask_key = (source_hash, calculate_config_hash(base_key), mask_roi, current_img.shape[:2], bw_weights)
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 plane, centre = contrast_mask_plane(
                     img,
                     mask_bounds,
                     effective_crosstalk_matrix(settings.process, settings.process.process_mode),
                     roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
+                    bw_weights=bw_weights,
                     **geometry_kwargs(settings.geometry, distortion_k1),
                 )
                 # Expanded here, not in the exposure stage: the slider re-runs that stage,
@@ -296,13 +300,13 @@ class DarkroomEngine:
             and settings.exposure.render_intent != RenderIntent.FLAT
         ):
             diff_roi = context.active_roi
-            panchromatic = settings.process.process_mode == ProcessMode.BW
+            diff_weights = plane_weights(settings.process, settings.exposure)
             diff_key = (
                 source_hash,
                 calculate_config_hash(base_key),
                 diff_roi,
                 current_img.shape[:2],
-                panchromatic,
+                diff_weights,
             )
             # A None plane (an unmetered frame) is cached under its key like any other.
             cached = self._diffusion_plane
@@ -313,7 +317,7 @@ class DarkroomEngine:
                     roi_norm=normalized_roi(diff_roi, current_img.shape[:2]),
                     **geometry_kwargs(settings.geometry, distortion_k1),
                 )
-                plane = diffusion_plane(grid, diff_bounds, panchromatic)
+                plane = diffusion_plane(grid, diff_bounds, diff_weights)
                 cached = (diff_key, plane)
                 self._diffusion_plane = cached
             if cached[1] is not None:
@@ -330,7 +334,7 @@ class DarkroomEngine:
         # Dodge/burn masks are print-exposure inputs, so they key this stage.
         current_img, pipeline_changed = self._run_stage(
             current_img,
-            (settings.exposure, settings.local, settings.process.hue_trim),
+            (settings.exposure, settings.local, settings.process.hue_trim, collapse_weights(settings.process, settings.exposure)),
             "exposure",
             run_exposure,
             context,

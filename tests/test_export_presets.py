@@ -484,9 +484,6 @@ def test_jxl_cross_space_is_16bit(proc):
     )
 
 
-def test_output_sharpening_survives_a_preset_round_trip_and_the_current_settings_preset():
-    from negpy.domain.models import ExportConfig, preset_from_export_config
-
-    preset = ExportPreset(output_sharpen=0.4)
-    assert ExportPreset.from_dict(preset.to_dict()).output_sharpen == 0.4
-    assert preset_from_export_config(ExportConfig(output_sharpen=0.3)).output_sharpen == 0.3
+def test_a_preset_saved_with_the_retired_output_sharpening_still_loads():
+    preset = ExportPreset.from_dict({**ExportPreset().to_dict(), "output_sharpen": 0.4})
+    assert "output_sharpen" not in preset.to_dict()

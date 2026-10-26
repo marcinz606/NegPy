@@ -105,7 +105,7 @@ from negpy.features.metadata.resolution import Resolution
 from negpy.services.export.print import PrintService
 from negpy.services.export.encoders import encode_jpeg, encode_jxl, encode_png, encode_tiff, encode_webp
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
-from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb, apply_matrix_trc_u8
+from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb, apply_matrix_trc_u16, apply_matrix_trc_u8
 
 # Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
 # output gamut boundary, and interpolating across that kink is where the error is.
@@ -159,6 +159,23 @@ def _cms_transform_strips(img_u16: np.ndarray, src_bytes: bytes, dst_bytes: byte
 
     with ThreadPoolExecutor(max_workers=n) as ex:
         list(ex.map(run, range(n)))
+    return out
+
+
+@lru_cache(maxsize=8)
+def _grey_reencode_lut(working_color_space: Optional[str], bits: int) -> np.ndarray:
+    """The greyscale export re-encode as a table over every uint16 luma code: working TRC
+    decode, sRGB OETF, 16-bit, then 8-bit for ``bits`` 8. None keeps the working TRC."""
+    codes = np.arange(65536, dtype=np.uint16)
+    out = codes
+    if working_color_space is not None:
+        lin = np.clip(np.asarray(working_oetf_decode(codes.astype(np.float32) / 65535.0)), 0.0, 1.0)
+        gray = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1.0 / 2.4) - 0.055)
+        out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
+    if bits == 8:
+        out = np.clip(np.round(out.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
+    out = np.ascontiguousarray(out)
+    out.setflags(write=False)
     return out
 
 
@@ -1522,6 +1539,10 @@ class ImageProcessor:
 
         if self._is_flat(params):
             prefer_gpu = False
+        # A resized export sharpens after the resize, so the radius is in exported pixels as it is
+        # in the preview's own pixels.
+        sharpen_after = self._sharpens_after_resize(params)
+        render_params = dc_replace(params, lab=dc_replace(params.lab, sharpen=0.0)) if sharpen_after else params
 
         if prefer_gpu and self.engine_gpu:
             # Mirrors run_pipeline's base_hash, so a multi-preset batch of one frame
@@ -1530,7 +1551,7 @@ class ImageProcessor:
             with timing.step("GPU"):
                 buffer, _gpu_metrics = self.engine_gpu.process(
                     f32_buffer,
-                    params,
+                    render_params,
                     scale_factor=export_scale,
                     bounds_override=bounds_override,
                     readback_metrics=False,
@@ -1543,7 +1564,7 @@ class ImageProcessor:
         else:
             buffer, _ = self.run_pipeline(
                 f32_buffer,
-                params,
+                render_params,
                 source_hash,
                 render_size_ref=float(APP_CONFIG.preview_render_size),
                 metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
@@ -1565,27 +1586,31 @@ class ImageProcessor:
             self.engine_cpu.cache.clear()
             timing.lap("print layout")
 
-        buffer = self._sharpen_resized_content(buffer, content_rect, params)
-        timing.lap("output sharpen")
+        if sharpen_after:
+            buffer = self._sharpen_resized_content(buffer, content_rect, params)
+            timing.lap("output sharpen")
         return buffer, color_space
 
+    @staticmethod
+    def _sharpens_after_resize(params: WorkspaceConfig) -> bool:
+        """A Print or Pixels export with Lab Sharpening on, or any with Auto Masking, which measures
+        the whole exported image where a tiled render sees one tile. Otherwise an Original-size
+        export and a flat master sharpen in the pipeline."""
+        return (
+            params.lab.sharpen > 0.0
+            and (params.export.export_resolution_mode != ExportResolutionMode.ORIGINAL.value or params.lab.sharpen_auto_masking)
+            and not ImageProcessor._is_flat(params)
+        )
+
+    @staticmethod
     def _sharpen_resized_content(
-        self, buffer: np.ndarray, content_rect: Optional[Tuple[int, int, int, int]], params: WorkspaceConfig
+        buffer: np.ndarray, content_rect: Optional[Tuple[int, int, int, int]], params: WorkspaceConfig
     ) -> np.ndarray:
-        """Export sharpening: runs once on the CPU for both engines, on the scaled content
-        inside the mat. An Original-size export and a flat master skip it."""
-        amount = float(params.export.output_sharpen)
-        if (
-            amount <= 0.0
-            or content_rect is None
-            or params.export.export_resolution_mode == ExportResolutionMode.ORIGINAL.value
-            or self._is_flat(params)
-        ):
-            return buffer
-        x, y, w, h = content_rect
+        """The Lab Sharpening on the scaled content inside the mat, on the CPU for both engines."""
+        x, y, w, h = content_rect or (0, 0, buffer.shape[1], buffer.shape[0])
         if not buffer.flags.writeable:
             buffer = buffer.copy()
-        buffer[y : y + h, x : x + w] = apply_resize_sharpening(buffer[y : y + h, x : x + w], amount)
+        buffer[y : y + h, x : x + w] = apply_resize_sharpening(buffer[y : y + h, x : x + w], params.lab)
         return buffer
 
     def render_export(
@@ -1882,12 +1907,8 @@ class ImageProcessor:
                 return self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
             return self._apply_color_management_u16(float_to_uint16(buffer), working_color_space, color_space, icc_output, icc_input)
         if is_greyscale:
-            pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
-        else:
-            pil_img, icc_bytes = self.apply_color_management(
-                Image.fromarray(float_to_uint8(buffer)), working_color_space, color_space, icc_output, icc_input
-            )
-        return np.asarray(pil_img), icc_bytes
+            return self._greyscale_to_u8(buffer, working_color_space, color_space, icc_output, icc_input)
+        return self.apply_color_management(float_to_uint8(buffer), working_color_space, color_space, icc_output, icc_input)
 
     def render_display_array(
         self,
@@ -2167,30 +2188,27 @@ class ImageProcessor:
         """
         if working_color_space == color_space:
             return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
-        lin = np.clip(np.asarray(working_oetf_decode(img_u16.astype(np.float32) / 65535.0)), 0.0, 1.0)
-        gray = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1.0 / 2.4) - 0.055)
-        out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
+        out = negpy_core.lut_u16(np.ascontiguousarray(img_u16), _grey_reencode_lut(working_color_space, 16))
         return out, self._get_target_icc_bytes(color_space, output_icc_path)
 
-    def _greyscale_to_pil_u8(
+    def _greyscale_to_u8(
         self,
         buffer: np.ndarray,
         working_color_space: str,
         color_space: str,
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
-    ) -> Tuple[Image.Image, Optional[bytes]]:
-        """Greyscale buffer -> color-managed 8-bit L image for JPEG/WebP.
+    ) -> Tuple[np.ndarray, Optional[bytes]]:
+        """Greyscale buffer -> color-managed 8-bit luma for JPEG/WebP.
 
         Runs the 16-bit grey re-encode first so the 8-bit result carries the same
         TRC (and profile bytes) as the greyscale TIFF/PNG of the same edit.
         """
         img16 = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
-        img16, icc_bytes = self._apply_color_management_u16_greyscale(
-            img16, working_color_space, color_space, output_icc_path, input_icc_path
-        )
-        img8 = np.clip(np.round(img16.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
-        return Image.fromarray(img8), icc_bytes
+        icc_bytes = self._get_target_icc_bytes(color_space, output_icc_path)
+        if working_color_space == color_space:
+            return negpy_core.lut_u16(img16, _grey_reencode_lut(None, 8)), icc_bytes
+        return negpy_core.lut_u16(img16, _grey_reencode_lut(working_color_space, 8)), icc_bytes
 
     def _apply_color_management_u16(
         self,
@@ -2222,6 +2240,13 @@ class ImageProcessor:
             if src_bytes is None or dst_bytes is None:
                 logger.warning("CMS skipped: ICC profile not found")
                 return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
+
+            # Matrix/TRC pairs take the exact kernel: lcms resamples a 16-bit transform to a
+            # grid, off by up to 8% near the destination gamut edge. LUT profiles keep lcms.
+            if img_u16.ndim == 3:
+                fast = apply_matrix_trc_u16(img_u16, src_bytes, dst_bytes)
+                if fast is not None:
+                    return fast, dst_bytes
 
             try:
                 result = _cms_transform_strips(np.ascontiguousarray(img_u16), src_bytes, dst_bytes)
@@ -2263,37 +2288,35 @@ class ImageProcessor:
 
     def apply_color_management(
         self,
-        pil_img: Image.Image,
+        img: np.ndarray,
         working_color_space: str,
         color_space: str,
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
-    ) -> Tuple[Image.Image, Optional[bytes]]:
-        """ICC transform for export. Source is the input override or working space;
-        destination is the output override or target space."""
+    ) -> Tuple[np.ndarray, Optional[bytes]]:
+        """ICC transform of a uint8 HxWx3 or HxW export buffer. Source is the input override or
+        working space; destination is the output override or target space."""
         has_custom = self._has_custom_icc(input_icc_path, output_icc_path)
         if not has_custom and working_color_space == color_space:
-            return pil_img, self._get_target_icc_bytes(color_space, None)
+            return img, self._get_target_icc_bytes(color_space, None)
 
         try:
             p_src = self._resolve_src_profile(working_color_space, input_icc_path)
             p_dst = self._resolve_dst_profile(color_space, output_icc_path)
             if p_dst is None:
-                return pil_img, self._get_target_icc_bytes(color_space, None)
+                return img, self._get_target_icc_bytes(color_space, None)
 
-            if pil_img.mode not in ("RGB", "L"):
-                pil_img = pil_img.convert("RGB" if pil_img.mode != "I;16" else "L")
-
-            if pil_img.mode == "RGB":
+            if img.ndim == 3:
                 # Matrix/TRC pairs take the parallel kernel; LUT profiles (printer
                 # ICCs) return None and fall through to exact lcms.
                 src_bytes = self._get_target_icc_bytes(working_color_space, input_icc_path)
                 dst_bytes = self._get_target_icc_bytes(color_space, output_icc_path)
                 if src_bytes and dst_bytes:
-                    fast = apply_matrix_trc_u8(np.asarray(pil_img), src_bytes, dst_bytes)
+                    fast = apply_matrix_trc_u8(img, src_bytes, dst_bytes)
                     if fast is not None:
-                        return Image.fromarray(fast), dst_bytes
+                        return fast, dst_bytes
 
+            pil_img = Image.fromarray(img)
             result_pil = ImageCms.profileToProfile(
                 pil_img,
                 p_src,
@@ -2302,14 +2325,13 @@ class ImageProcessor:
                 outputMode="RGB" if pil_img.mode != "L" else "L",
                 flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
             )
-            if result_pil:
-                pil_img = result_pil
-            return pil_img, self._get_target_icc_bytes(color_space, output_icc_path)
+            out = np.asarray(result_pil) if result_pil else img
+            return out, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
             # The pixels never left the working space, so tag them with it (a CMYK or Gray
             # profile cannot take RGB pixels). Untagged, the export reads as sRGB.
-            return pil_img, self._get_target_icc_bytes(working_color_space, input_icc_path)
+            return img, self._get_target_icc_bytes(working_color_space, input_icc_path)
 
     @staticmethod
     def soft_proof_preview(

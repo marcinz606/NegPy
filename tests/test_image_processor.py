@@ -463,16 +463,16 @@ def test_detect_luma_reads_the_prepared_plane(monkeypatch) -> None:
 
 def test_an_8bit_export_to_a_profile_lcms_refuses_stays_tagged_with_the_working_space(tmp_path):
     """A CMYK, Gray or Lab Export ICC cannot take RGB pixels; untagged, they read as sRGB."""
-    from PIL import Image, ImageCms
+    from PIL import ImageCms
 
     from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 
     path = tmp_path / "lab.icc"
     path.write_bytes(ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes())
-    img = Image.fromarray((np.random.default_rng(0).random((8, 8, 3)) * 255).astype(np.uint8))
+    img = (np.random.default_rng(0).random((8, 8, 3)) * 255).astype(np.uint8)
     proc = ImageProcessor()
 
     out, icc = proc.apply_color_management(img, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, str(path))
 
-    assert out.mode == "RGB"
+    assert out.shape == (8, 8, 3) and out.dtype == np.uint8
     assert icc == proc._get_target_icc_bytes(WORKING_COLOR_SPACE, None)

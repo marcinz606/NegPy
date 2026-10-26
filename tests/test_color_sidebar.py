@@ -81,13 +81,82 @@ def test_cast_removal_shows_wherever_the_render_honours_it(qapp):
     v = np.geomspace(5e-4, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
     img = np.ascontiguousarray(np.stack([v, v * 0.9, v * 0.78], -1) + rng.uniform(0, 1e-4, (64, 64, 3)).astype(np.float32))
 
-    for mode in (ProcessMode.C41, ProcessMode.E6, ProcessMode.BW):
-        base = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=mode))
+    for mode, source in ((ProcessMode.C41, None), (ProcessMode.E6, None), (ProcessMode.BW, None), (ProcessMode.BW, True)):
+        base = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=mode, source_color=source))
         renders = [
-            DarkroomEngine().process(img, replace(base, exposure=replace(base.exposure, cast_removal_strength=s)), f"cast_{mode}_{s}")
+            DarkroomEngine().process(
+                img, replace(base, exposure=replace(base.exposure, cast_removal_strength=s)), f"cast_{mode}_{source}_{s}"
+            )
             for s in (0.0, 1.0)
         ]
         controller.state.config = base
         panel._sync_all_sidebars()
-        shown = not panel.color_section.isHidden() and not panel.color_sidebar.cast_removal_slider.isHidden()
-        assert shown == (not np.allclose(renders[0], renders[1])), mode
+        shown = not panel.color_section.isHidden() and panel.color_sidebar.color_block.isVisibleTo(panel.color_section)
+        shown = shown and not panel.color_sidebar.cast_removal_slider.isHidden()
+        assert shown == (not np.allclose(renders[0], renders[1])), (mode, source)
+
+
+def test_the_filter_shows_wherever_the_render_honours_it(qapp):
+    """The B&W contrast Filter shows only on a color negative printed in B&W, where it changes the print."""
+    import numpy as np
+
+    from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.exposure.models import BwFilter
+    from negpy.features.process.models import ProcessMode
+    from negpy.services.rendering.engine import DarkroomEngine
+
+    controller = MagicMock()
+    controller.state = AppState()
+    controller.active_diptych.return_value = None
+    panel = ControlsPanel(controller)
+    rng = np.random.default_rng(5)
+    v = np.geomspace(5e-3, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
+    img = np.ascontiguousarray(np.stack([v, v[::-1] * 0.8, v.T * 0.6], -1) + rng.uniform(0, 1e-4, (64, 64, 3)).astype(np.float32))
+
+    cases = [(ProcessMode.C41, True), (ProcessMode.BW, None), (ProcessMode.BW, False), (ProcessMode.BW, True)]
+    for mode, source in cases:
+        base = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=mode, source_color=source))
+        renders = [
+            DarkroomEngine().process(img, replace(base, exposure=replace(base.exposure, bw_filter=f)), f"filter_{mode}_{source}_{f}")
+            for f in (BwFilter.NONE, BwFilter.RED_25)
+        ]
+        controller.state.config = base
+        panel._sync_all_sidebars()
+        shown = not panel.color_section.isHidden() and panel.color_sidebar.filter_block.isVisibleTo(panel.color_section)
+        assert shown == (not np.allclose(renders[0], renders[1])), (mode, source)
+
+
+def test_the_filter_combo_writes_bw_filter(qapp):
+    from negpy.features.exposure.models import BwFilter
+
+    controller, sidebar = _sidebar()
+    sidebar.filter_combo.setCurrentIndex(sidebar.filter_combo.findData(BwFilter.ORANGE_21))
+
+    assert controller.apply_config.call_args.args[0].exposure.bw_filter == BwFilter.ORANGE_21
+
+
+def test_the_mode_blocks_do_not_paint_over_the_card(qapp):
+    _controller, sidebar = _sidebar()
+    for block in (sidebar.filter_block, sidebar.color_block):
+        assert block.objectName() == "collapsible_content_body"
+
+
+def test_the_card_count_in_bw_is_the_filter_alone(qapp):
+    from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.exposure.models import BwFilter
+    from negpy.features.process.models import ProcessMode
+
+    controller = MagicMock()
+    controller.state = AppState()
+    controller.active_diptych.return_value = None
+    panel = ControlsPanel(controller)
+    base = WorkspaceConfig()
+    leftover = replace(base.exposure, wb_cyan=0.3, cast_removal_strength=0.25, bw_filter=BwFilter.RED_25)
+    counts = {}
+    for mode in (ProcessMode.C41, ProcessMode.BW):
+        controller.state.config = replace(base, process=replace(base.process, process_mode=mode, source_color=True), exposure=leftover)
+        panel._sync_modified_dots()
+        counts[mode] = panel.color_section.modified_count
+    assert counts == {ProcessMode.C41: 2, ProcessMode.BW: 1}

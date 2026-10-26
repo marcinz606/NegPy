@@ -41,6 +41,18 @@ pub fn uint16_to_float32(src: &[u16], dst: &mut [f32]) {
     crate::par_zip(dst, src, move |d, &v| *d = (v as f32 as f64 * inv) as f32);
 }
 
+/// `v.astype(np.float32) * scale` with `scale` already float32, NumPy's NEP 50 rule for a
+/// Python float times a float32 array.
+pub fn scaled_to_float32<T: Copy + Into<f32> + Sync>(src: &[T], scale: f32, dst: &mut [f32]) {
+    crate::par_zip(dst, src, move |d, &v| *d = v.into() * scale);
+}
+
+/// `lut[src]` of a uint16 array through a 65536-entry table.
+pub fn lut_u16<T: Copy + Send + Sync>(src: &[u16], lut: &[T], dst: &mut [T]) {
+    let lut = &lut[..65536];
+    crate::par_zip(dst, src, move |d, &v| *d = lut[v as usize]);
+}
+
 /// Numba's fastmath luminance in float64: two fused multiply-adds.
 fn luma(p: &[f32]) -> f64 {
     LUMA_B.mul_add(

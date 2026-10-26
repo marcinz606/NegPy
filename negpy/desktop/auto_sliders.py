@@ -1,12 +1,13 @@
-"""Auto Density / Auto Grade slider conversion for the open frame: its render path's inverse,
+"""Auto Density, Auto Grade and Auto Masking slider conversion for the open frame: its render path's inverse,
 fed by the meters of the frame's last plain render. Meters are kept per file: last_metrics
 outlives a frame switch, and a memo paint shows a frame before its own render lands.
 """
 
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.auto_sliders import print_shown_values, print_stored_value
+from negpy.features.lab.logic import NEUTRAL_MASKING, effective_masking
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import transfer_shown_values, transfer_stored_value
 
@@ -19,6 +20,7 @@ METER_KEYS = (
     "final_bounds",
     "log_bounds",
     "neutral_axis_refs",
+    "auto_masking",
 )
 
 
@@ -35,6 +37,20 @@ def shown_values(config: WorkspaceConfig, meters: Mapping[str, Any]) -> Dict[str
     if render_path(config.process) is RenderPath.PRINT:
         return print_shown_values(config.exposure, config.process.process_mode, meters)
     return transfer_shown_values(config.exposure, meters)
+
+
+def auto_masking_share(config: WorkspaceConfig, meters: Mapping[str, Any]) -> Optional[float]:
+    """The masking Auto Masking measured on the last render, or None when it is off or unmetered."""
+    return meters.get("auto_masking") if config.lab.sharpen_auto_masking else None
+
+
+def shown_masking(config: WorkspaceConfig, meters: Mapping[str, Any]) -> float:
+    return effective_masking(config.lab, auto_masking_share(config, meters))
+
+
+def stored_masking(config: WorkspaceConfig, meters: Mapping[str, Any], shown: float) -> float:
+    auto = auto_masking_share(config, meters)
+    return shown if auto is None else shown - auto + NEUTRAL_MASKING
 
 
 def stored_value(config: WorkspaceConfig, meters: Mapping[str, Any], field: str, shown: float) -> float:

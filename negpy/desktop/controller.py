@@ -193,6 +193,7 @@ from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
+    ProcessConfig,
     ProcessMode,
     invalidate_local_bounds,
     mode_aware_exposure_reset,
@@ -502,6 +503,11 @@ def _kept_own_exposure(count: int) -> str:
     return tr("{value} kept its own exposure", value=locked) if count == 1 else tr("{value} kept their own exposure", value=locked)
 
 
+def _own_bounds(process: ProcessConfig) -> ProcessConfig:
+    """*process* off its roll or scene baseline, its local bounds cleared for a fresh measure."""
+    return replace(process, use_luma_average=False, use_color_average=False, use_cast_average=False, **invalidate_local_bounds(process))
+
+
 # Process-wide, so a cleared last_metrics never reissues a serial a canvas cache still holds.
 _RENDER_SERIALS = itertools.count(1)
 
@@ -739,8 +745,8 @@ class AppController(QObject):
         # Per frame hash: its resolved Auto Crop when the run started.
         self._autocrop_started_auto: Dict[str, bool] = {}
         self._autocrop_cancel_requested = False
-        # The analysis a run of Auto-crop all frames was started for: (scene id or None,), run when it finishes.
-        self._analysis_after_crop: Optional[Tuple[Optional[str], bool]] = None
+        # The analysis a run of Auto-crop all frames was started for, run when it finishes.
+        self._analysis_after_crop: Optional[Callable[[], None]] = None
         # Background thumbnail refresh runs off the shared batch lane entirely — it must
         # never block Export or another user-triggered batch — so it tracks its own
         # generation instead of `_batch_serial`/`_active_batch_token`.
@@ -1231,6 +1237,7 @@ class AppController(QObject):
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
         self.session.active_file_changing.connect(self._update_thumbnail_from_state)
+        self.session.frame_previews_ending.connect(self._previewed_meter_cards.clear)
         self.session.session_emptied.connect(self._render_memo.clear)
         self.session.session_emptied.connect(self._strip_memo.clear)
         self.session.file_selected.connect(self._on_file_selected_load)
@@ -2986,6 +2993,7 @@ class AppController(QObject):
                 # A reload or memo hit keeps the rendered frame until its replacement is ready.
                 use_splash=memo is None and not keep_preview,
                 detect_mode=pending_import is not None and pending_import.detect_mode,
+                detect_source=self.state.config.process.source_color is None,
                 # Whole, not flattened: the worker gates on the same predicates the decode
                 # paths use, so a disabled section needs no blanking here.
                 rgbscan=rgbscan,
@@ -3077,6 +3085,7 @@ class AppController(QObject):
         cam_matrix: Any = None,
         detect_preview: Any = None,
         generation: Optional[int] = None,
+        source_color: Optional[bool] = None,
     ) -> None:
         for f in self.state.uploaded_files:
             if f["path"] == file_path and f.pop("decode_failed", None) is not None:
@@ -3114,6 +3123,7 @@ class AppController(QObject):
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
         self._apply_detected_mode(detected_mode)
+        self._store_source_color(source_color)
         self.preview_loaded.emit()
         self.config_updated.emit()
         self._first_render_t0 = time.perf_counter()
@@ -3223,6 +3233,14 @@ class AppController(QObject):
         if not detected_mode or detected_mode == self.state.config.process.process_mode:
             return
         self.state.config = with_process_mode(self.state.config, detected_mode)
+        self.state.is_dirty = True
+
+    def _store_source_color(self, source_color: Optional[bool]) -> None:
+        """Store the measured film fact once; it never changes the saved mode."""
+        process = self.state.config.process
+        if source_color is None or process.source_color is not None:
+            return
+        self.state.config = replace(self.state.config, process=replace(process, source_color=source_color))
         self.state.is_dirty = True
 
     def toggle_hq_preview(self) -> None:
@@ -4570,7 +4588,7 @@ class AppController(QObject):
             self.request_render()
         then, self._analysis_after_crop = self._analysis_after_crop, None
         if then is not None:
-            self._request_normalization(then[0], cropped=True, detect=then[1])
+            then()
 
     def _on_batch_autocrop_cancelled(self) -> None:
         token = self._autocrop_batch_token
@@ -5733,12 +5751,7 @@ class AppController(QObject):
         title = tr("Detect Scenes") if detect else tr("Roll Analysis") if scene_id is None else tr("Scene Analysis")
         if self._batch_busy(title):
             return
-        if scene_id is None:
-            in_scene = set(rolls.scene_by_hash(self.session.repo, self.state.active_roll_id))
-            visible = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
-            frames = [f for f in visible if rolls.unforked_hash(f["hash"]) not in in_scene]
-        else:
-            frames = self._normalization_targets(scene_id)
+        frames = self._roll_analysis_frames() if scene_id is None else self._normalization_targets(scene_id)
         if not frames:
             return
         if detect:
@@ -5748,7 +5761,7 @@ class AppController(QObject):
             return
         waiting = [] if cropped else [f for f in frames if self._waits_for_auto_crop(f)]
         if waiting and self.request_batch_auto_crop(assets=waiting):
-            self._analysis_after_crop = (scene_id, detect)
+            self._analysis_after_crop = lambda: self._request_normalization(scene_id, cropped=True, detect=detect)
             return
         if detect:
             batch_title = tr("Detecting scenes")
@@ -5784,6 +5797,43 @@ class AppController(QObject):
             return
         self._scene_queue = [sid for sid, _frames in queue[1:]]
         self._dispatch_normalization(*queue[0])
+
+    def _roll_analysis_frames(self) -> List[dict]:
+        """The frames Roll Analysis reads: the visible ones outside every scene."""
+        in_scene = set(rolls.scene_by_hash(self.session.repo, self.state.active_roll_id))
+        visible = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        return [f for f in visible if rolls.unforked_hash(f["hash"]) not in in_scene]
+
+    def _reanalyze_targets(self) -> List[dict]:
+        state = self.state
+        return [
+            state.uploaded_files[i] for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)
+        ]
+
+    def reanalyze_selection(self) -> None:
+        """Measures each selected frame (else the open one) again on its own bounds, off its
+        roll or scene baseline. A frame with Lock Bounds is skipped."""
+        frames = [f for f in self._reanalyze_targets() if not self._config_for_batch_asset(f).process.lock_bounds]
+        if frames:
+            self._clear_local_bounds(frames)
+            self.set_status(tr("{value} measured again", value=count_of(len(frames), "frame")), 3000)
+
+    def _clear_local_bounds(self, frames: List[dict]) -> None:
+        """Puts each of *frames* on fresh own bounds: the open one measures at its next render,
+        the others at their thumbnail refresh."""
+        changed: List[str] = []
+        for f in frames:
+            if f["hash"] == self.state.current_file_hash:
+                self.session.update_config(replace(self.state.config, process=_own_bounds(self.state.config.process)), persist=True)
+                self.request_render()
+                continue
+            p = self.session.repo.load_file_settings(f["hash"]) or self.session.config_for_asset(f)
+            new_p = replace(p, process=_own_bounds(p.process))
+            self.session.push_external_history(f["hash"], p, new_p)
+            self.session.repo.save_file_settings(f["hash"], new_p, file_path=f["path"])
+            changed.append(f["hash"])
+        if changed:
+            self.session.frames_edited_offscreen.emit(changed)
 
     def request_detect_scenes(self) -> None:
         """Detect Scenes: measure the visible frames outside every scene and find the groups under
@@ -7165,6 +7215,8 @@ class AppController(QObject):
         if not roll_id or not path or not from_hash or rolls.unforked_hash(from_hash) != from_hash:
             return
         is_active = from_hash == self.state.current_file_hash
+        if is_active:
+            self.session.end_frame_previews()
         seed = self.state.config if is_active else self.session.config_for_asset(asset)
         asset["hash"] = rolls.fork_edit(self.session.repo, roll_id, from_hash, path, seed)
         self.session.asset_model.refresh()

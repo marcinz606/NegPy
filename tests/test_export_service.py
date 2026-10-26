@@ -116,24 +116,42 @@ def test_image_service_tiff_export_format() -> None:
     assert read_back.shape == (10, 10, 3)
 
 
-def _edge_export(mode: str, amount: float, flat: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    """A vertical edge on a mat, as an encoded export buffer, before and after the pass."""
+def _sharpen_params(mode: str, amount: float = 0.5, flat: bool = False) -> WorkspaceConfig:
     from dataclasses import replace
 
     from negpy.features.exposure.models import RenderIntent
 
-    buffer = np.full((60, 80, 3), 0.9, dtype=np.float32)
-    buffer[10:50, 10:40] = 0.3
-    buffer[10:50, 40:70] = 0.6
-    params = WorkspaceConfig(export=ExportConfig(export_resolution_mode=mode, output_sharpen=amount))
+    params = WorkspaceConfig(export=ExportConfig(export_resolution_mode=mode))
+    params = replace(params, lab=replace(params.lab, sharpen=amount))
     if flat:
         params = replace(params, exposure=replace(params.exposure, render_intent=RenderIntent.FLAT))
-    out = ImageProcessor()._sharpen_resized_content(buffer.copy(), (10, 10, 60, 40), params)
-    return buffer, out
+    return params
 
 
-def test_output_sharpening_raises_edge_contrast_and_leaves_the_mat() -> None:
-    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.5)
+def test_a_resized_export_sharpens_after_the_resize() -> None:
+    assert ImageProcessor._sharpens_after_resize(_sharpen_params(ExportResolutionMode.TARGET_PX.value))
+    assert ImageProcessor._sharpens_after_resize(_sharpen_params(ExportResolutionMode.PRINT.value))
+
+
+def test_auto_masking_sharpens_an_original_size_export_after_the_pipeline() -> None:
+    from dataclasses import replace
+
+    params = _sharpen_params(ExportResolutionMode.ORIGINAL.value)
+    assert ImageProcessor._sharpens_after_resize(replace(params, lab=replace(params.lab, sharpen_auto_masking=True)))
+
+
+def test_original_size_flat_and_unsharpened_exports_sharpen_in_the_pipeline() -> None:
+    assert not ImageProcessor._sharpens_after_resize(_sharpen_params(ExportResolutionMode.ORIGINAL.value))
+    assert not ImageProcessor._sharpens_after_resize(_sharpen_params(ExportResolutionMode.TARGET_PX.value, flat=True))
+    assert not ImageProcessor._sharpens_after_resize(_sharpen_params(ExportResolutionMode.TARGET_PX.value, amount=0.0))
+
+
+def test_resize_sharpening_raises_edge_contrast_and_leaves_the_mat() -> None:
+    before = np.full((60, 80, 3), 0.9, dtype=np.float32)
+    before[10:50, 10:40] = 0.3
+    before[10:50, 40:70] = 0.6
+    params = _sharpen_params(ExportResolutionMode.TARGET_PX.value)
+    after = ImageProcessor._sharpen_resized_content(before.copy(), (10, 10, 60, 40), params)
 
     assert after[30, 39, 0] < before[30, 39, 0]
     assert after[30, 40, 0] > before[30, 40, 0]
@@ -142,40 +160,16 @@ def test_output_sharpening_raises_edge_contrast_and_leaves_the_mat() -> None:
     assert np.array_equal(after[mat], before[mat])
 
 
-def test_output_sharpening_skips_an_original_size_export() -> None:
-    before, after = _edge_export(ExportResolutionMode.ORIGINAL.value, 0.5)
-
-    assert np.array_equal(after, before)
-
-
-def test_output_sharpening_is_off_by_default() -> None:
-    assert ExportConfig().output_sharpen == 0.0
-    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.0)
-    assert np.array_equal(after, before)
-
-
-def test_output_sharpening_skips_a_flat_master() -> None:
-    before, after = _edge_export(ExportResolutionMode.TARGET_PX.value, 0.5, flat=True)
-
-    assert np.array_equal(after, before)
-
-
-def test_resize_sharpening_matches_across_row_blocks_and_keeps_alpha() -> None:
+def test_resize_sharpening_is_the_lab_sharpening_in_encoded_values_and_keeps_alpha() -> None:
     from negpy.features.lab import logic
+    from negpy.features.lab.models import LabConfig, SharpenMethod
+    from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 
     rng = np.random.default_rng(3)
     rgba = rng.random((64, 48, 4), dtype=np.float32)
-    whole = logic.apply_resize_sharpening(rgba, 0.5)
-
-    blocks = logic._map_row_blocks
-    try:
-        logic._map_row_blocks = lambda img, fn, halo=0: np.concatenate(
-            [fn(img[max(0, s - halo) : s + 16 + halo])[s - max(0, s - halo) :][:16] for s in range(0, img.shape[0], 16)]
-        )
-        tiled = logic.apply_resize_sharpening(rgba, 0.5)
-    finally:
-        logic._map_row_blocks = blocks
-
-    assert np.array_equal(whole[..., 3], rgba[..., 3])
-    assert not np.array_equal(whole[..., :3], rgba[..., :3])
-    np.testing.assert_allclose(tiled, whole, atol=1e-6)
+    for method in SharpenMethod:
+        lab = LabConfig(sharpen=0.5, sharpen_method=method, sharpen_radius=1.5)
+        out = logic.apply_resize_sharpening(rgba, lab)
+        expected = working_oetf_encode(logic.apply_lab_sharpening(working_oetf_decode(np.ascontiguousarray(rgba[..., :3])), lab))
+        np.testing.assert_array_equal(out[..., :3], expected)
+        np.testing.assert_array_equal(out[..., 3], rgba[..., 3])

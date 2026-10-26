@@ -65,7 +65,8 @@ Apache-2.0), ndarray, num-traits, num-complex, num-integer, matrixmultiply and
 rawpointer (MIT OR Apache-2.0), libc, once_cell, either, portable-atomic and
 rustc-hash (MIT OR Apache-2.0), multiversion and target-features (MIT OR Apache-2.0), libm (MIT, a port of
 musl's math library), rustfft, realfft, primal-check, strength_reduce and transpose (MIT OR
-Apache-2.0).
+Apache-2.0), miniz_oxide (MIT OR Zlib OR Apache-2.0), adler2 (0BSD OR MIT OR Apache-2.0),
+crc32fast and cfg-if (MIT OR Apache-2.0).
 negpy_core/Cargo.lock lists the exact versions.
 
 negpy_core/src/resize.rs and negpy_core/src/filter.rs port OpenCV's float32 area

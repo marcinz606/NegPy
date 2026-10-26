@@ -34,6 +34,13 @@ def test_every_frame_card_resolves_to_rows(key: str):
     assert _rows_for(key), f"{key} would open an empty picker"
 
 
+def test_every_lab_field_travels_with_the_lab_card():
+    from dataclasses import fields
+
+    carried = {f for row in rows_for_section("lab") for f in row.fields}
+    assert {f.name for f in fields(WorkspaceConfig().lab)} <= carried
+
+
 def test_no_two_cards_claim_the_same_row():
     seen: dict[str, str] = {}
     for key in FRAME_CARD_FIELDS:

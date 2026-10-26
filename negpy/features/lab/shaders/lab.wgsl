@@ -12,7 +12,7 @@ struct LabUniforms {
     sharpen_method: f32,
     skin_protection: f32,
     chroma_radius_px: f32,
-    _pad3: f32,
+    auto_masking: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -23,6 +23,8 @@ struct LabUniforms {
 @group(0) @binding(3) var sharpen_tex: texture_2d<f32>;
 // (low-pass a*, low-pass b*) from chroma_lowpass_h/v.wgsl. 1x1 dummy when Chroma Denoise is off.
 @group(0) @binding(4) var chroma_tex: texture_2d<f32>;
+// (masking to apply, auto share) from sharpen_grain_pick.wgsl, read when Auto Masking is on.
+@group(0) @binding(5) var<storage, read> auto_mask: array<f32, 2>;
 
 // Sharpen constants — mirrored from negpy_core/src/lab.rs.
 const SHARPEN_GATE_LO = 0.25;
@@ -357,6 +359,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // rl_*.wgsl (deconvolution) passes over input_tex, which the earlier
     // chroma/saturation stages never touch in L*/Y (they only rewrite
     // a*/b*), so the state matches what `color` would produce.
+    let masking = select(params.sharpen_masking, auto_mask[0], params.auto_masking > 0.5);
     if (params.sharpen > 0.0 && params.sharpen_method < 0.5) {
         // Unsharp mask — mirrors apply_usm_sharpening in logic.py.
         let blur_l = textureLoad(sharpen_tex, coords, 0).x;
@@ -376,7 +379,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let lv = textureLoad(sharpen_tex, p, 0).y;
                 l_min = min(l_min, lv);
                 l_max = max(l_max, lv);
-                if (params.sharpen_masking > 0.0) {
+                if (masking > 0.0) {
                     let px = clamp(p + vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
                     let mx = clamp(p - vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
                     let py = clamp(p + vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
@@ -390,8 +393,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         // Edge mask: sharpening ramps in with local gradient; higher masking
         // raises the bar, protecting flat areas (sky, skin, grain).
-        if (params.sharpen_masking > 0.0) {
-            let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
+        if (masking > 0.0) {
+            let t = SHARPEN_MASK_T_HI * masking;
             gain = gain * smoothstep(0.5 * t, t, grad_box / 9.0);
         }
 
@@ -407,7 +410,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // (chroma-preserving), gated by the shared edge mask over L*(obs).
         let d = textureLoad(sharpen_tex, coords, 0);
         var gain = params.sharpen * sharpen_shadow_gain(lab_l_from_y(d.y));
-        if (params.sharpen_masking > 0.0) {
+        if (masking > 0.0) {
             var grad_box = 0.0;
             for (var j = -1; j <= 1; j++) {
                 for (var i = -1; i <= 1; i++) {
@@ -421,7 +424,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     grad_box += sqrt(gx * gx + gy * gy);
                 }
             }
-            let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
+            let t = SHARPEN_MASK_T_HI * masking;
             gain = gain * smoothstep(0.5 * t, t, grad_box / 9.0);
         }
         let ratio = d.x / max(d.y, RL_EPS);

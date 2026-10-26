@@ -25,10 +25,10 @@ import qtawesome as qta
 NO_ROLL_SCOPE_HINT = tr("These frames are not one roll, so use Save as Roll to give them a shared value.")
 
 
-def roll_revert_icon(color: str) -> QIcon:
+def roll_revert_icon(color: str, cutout: str = THEME.bg_header) -> QIcon:
     """Reset to Roll's icon, shared by the section headers and the frame-wide menu items:
     the reset arrow at full height, a film frame cut into its lower right. The cut-out is
-    painted in bg_header, the header's and the menu's background."""
+    painted in `cutout`, the color of the surface under the icon."""
     film_offset = (0.188, 0.2)
     return qta.icon(
         "fa5s.undo",
@@ -36,7 +36,7 @@ def roll_revert_icon(color: str) -> QIcon:
         "fa5s.film",
         options=[
             {"color": color, "color_disabled": THEME.text_muted},
-            {"color": THEME.bg_header, "scale_factor": 0.924, "offset": film_offset},
+            {"color": cutout, "scale_factor": 0.924, "offset": film_offset},
             {"color": color, "color_disabled": THEME.text_muted, "scale_factor": 0.66, "offset": film_offset},
         ],
     )

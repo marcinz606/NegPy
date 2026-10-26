@@ -66,7 +66,9 @@ def test_real_sidebar_slider_commits_keep_separate_undo_steps(session, qapp) -> 
     def apply_config(config, persist=False, readback_metrics=True):
         session.update_config(config, persist=persist, render=False)
 
-    controller = SimpleNamespace(state=session.state, session=session, apply_config=apply_config)
+    controller = SimpleNamespace(
+        state=session.state, session=session, apply_config=apply_config, image_updated=SimpleNamespace(connect=lambda _slot: None)
+    )
     lab = LabSidebar(controller)
     finish = FinishSidebar(controller)
     initial = session.state.config
