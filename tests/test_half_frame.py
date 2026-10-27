@@ -1027,3 +1027,77 @@ def test_a_resplit_decodes_no_scan_without_saved_half_edits(tmp_path):
     AppController._remap_half_frame_edits(ctrl, "H", HalfGeometry(split_x=0.6))
 
     ctrl._half_frame_geometry_for.assert_not_called()
+
+
+def test_discovery_splits_only_the_named_paths_and_the_files_of_a_named_folder(tmp_path, monkeypatch):
+    """With no roll open, Half Frame is decided per requested path; the rest stay whole."""
+    from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
+
+    monkeypatch.setattr("negpy.services.assets.half_frame.detect_split_axis_for_file", lambda p: (0.5, "x"))
+    split_dir, whole_dir = tmp_path / "split", tmp_path / "whole"
+    for folder in (split_dir, whole_dir):
+        folder.mkdir()
+    for path in (split_dir / "a.tif", whole_dir / "b.tif", tmp_path / "c.tif", tmp_path / "d.tif"):
+        path.write_bytes(os.urandom(256))
+    named = frozenset(os.path.normcase(os.path.normpath(str(p))) for p in (split_dir, tmp_path / "c.tif"))
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+
+    paths = [str(split_dir), str(whole_dir), str(tmp_path / "c.tif"), str(tmp_path / "d.tif")]
+    worker.process(AssetDiscoveryTask(paths=paths, supported_extensions=(".tif",), half_frame_paths=named))
+
+    assert sorted(a["name"] for a in seen.pop()) == ["a.tif [1]", "a.tif [2]", "b.tif", "c.tif [1]", "c.tif [2]", "d.tif"]
+
+
+def _loose_controller(repo):
+    from negpy.desktop.controller import AppController
+    from negpy.desktop.session import AppState
+
+    ctrl = AppController.__new__(AppController)
+    ctrl.session = MagicMock()
+    ctrl.session.repo = repo
+    ctrl.state = AppState()
+    return ctrl
+
+
+def test_with_no_roll_open_each_path_follows_its_own_rolls_toggle(tmp_path):
+    from negpy.services.assets import rolls
+
+    store: dict = {}
+    repo = MagicMock()
+    repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+    repo.read_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+    repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+    half_roll, full_roll = tmp_path / "half", tmp_path / "full"
+    for folder in (half_roll, full_roll):
+        folder.mkdir()
+    half_id = rolls.recognize_folder(repo, str(half_roll))
+    rolls.recognize_folder(repo, str(full_roll))
+    store["half_frame_mode_by_roll"] = {half_id: True}
+    ctrl = _loose_controller(repo)
+    paths = [str(half_roll / "1.tif"), str(full_roll / "2.tif"), str(half_roll), str(tmp_path / "loose.tif")]
+
+    def key(p):
+        return os.path.normcase(os.path.normpath(p))
+
+    assert ctrl._half_frame_paths(paths) == {key(paths[0]), key(paths[2])}
+    ctrl.state.half_frame_loose = True
+    assert ctrl._half_frame_paths(paths) == {key(paths[0]), key(paths[2]), key(paths[3])}
+
+
+def test_the_sessions_half_frame_choice_is_saved_restored_and_cleared():
+    from negpy.desktop.session import DesktopSessionManager
+
+    store: dict = {}
+    repo = MagicMock()
+    repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+    repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+    session = DesktopSessionManager(repo)
+    session.state.half_frame_loose = True
+    session.persist_session()
+    assert store["session_half_frame"] is True
+
+    session.clear_files()
+    assert session.state.half_frame_loose is False
+    assert store["session_half_frame"] is False

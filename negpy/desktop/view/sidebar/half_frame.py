@@ -5,8 +5,10 @@ from negpy.desktop.view.confirm import confirm_assembly_mode, confirm_undiptych
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import SliderGroup
+from negpy.services.assets import rolls
 
-_NO_ROLL_HINT = tr("Half Frame is a roll-wide setting, and these frames are not one roll. Open the roll itself to split its scans.")
+_FOLLOWS_ROLLS_HINT = tr("Each of these frames follows its own roll's Half Frame. Open the roll to change it.")
+_TOGGLE_TIP = tr("Split each scan into two frames, for half-frame cameras.")
 
 
 class HalfFrameSidebar(BaseSidebar):
@@ -91,24 +93,35 @@ class HalfFrameSidebar(BaseSidebar):
         if confirm_undiptych(self):
             self.controller.request_undiptych()
 
+    def _follows_rolls(self) -> bool:
+        """With no roll open, whether a loaded frame belongs to a roll: it then splits by that
+        roll's toggle, which this one cannot change. Cached on the loaded paths and the rolls."""
+        if self.state.active_roll_id:
+            return False
+        repo = self.controller.session.repo
+        key = (tuple(f.get("path", "") for f in self.state.uploaded_files), rolls.saved_rolls(repo))
+        if getattr(self, "_follows_key", None) != key:
+            paths = key[0]
+            self._follows_key = key
+            self._follows = any(rolls.rolls_containing_path(repo, p) for p in dict.fromkeys(paths) if p)
+        return self._follows
+
     def sync_ui(self) -> None:
-        """The toggle is a roll-wide fact -- one film type, split or not -- so it has
-        nothing to apply to a batch with no single active roll (a library-wide search's
-        mixed results, a restored session with no shared roll). Nothing in such a batch
-        splits: the roll itself is where a scan becomes two frames."""
-        has_roll = bool(self.state.active_roll_id)
+        """Each roll keeps its own toggle; with no roll open it is this session's choice for
+        frames in no roll. A frame from a roll follows that roll, so with one loaded and no
+        roll open the toggle grays out under a hint."""
+        usable = not self._follows_rolls()
         has_files = bool(self.state.uploaded_files)
         self.block_signals(True)
         try:
             self.enable_btn.setChecked(self.controller.half_frame_mode_for_roll(self.state.active_roll_id))
-            self.enable_btn.setEnabled(has_roll)
-            self.enable_btn.setToolTip(
-                wrap_tooltip(tr("Split each scan into two frames, for half-frame cameras.")) if has_roll else wrap_tooltip(_NO_ROLL_HINT)
-            )
-            self.adjust_btn.setEnabled(has_roll and has_files)
-            self.auto_btn.setEnabled(has_roll and has_files)
+            self.enable_btn.setEnabled(usable)
+            self.enable_btn.setToolTip(wrap_tooltip(_TOGGLE_TIP if usable else _FOLLOWS_ROLLS_HINT))
+            self.adjust_btn.setEnabled(usable and has_files)
+            self.auto_btn.setEnabled(usable and has_files)
             self.unsplit_btn.setEnabled(self.controller.active_diptych() is not None)
-            self.hint.setText("" if has_roll else _NO_ROLL_HINT)
+            self.hint.setText("" if usable else _FOLLOWS_ROLLS_HINT)
+            self.hint.setVisible(not usable)
         finally:
             self.block_signals(False)
 

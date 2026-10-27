@@ -160,8 +160,8 @@ class ProcessSidebar(BaseSidebar):
         self.film_base_btn = clearable_tool_toggle(
             "fa5s.crosshairs",
             tr("Film Base"),
-            tr("Film Base: click the clear film between frames to set the roll's film base."),
-            tr("Clear Film Base: forget the roll's film base."),
+            tr("Film Base: click the clear film between frames to set the film base of the open roll, or of this frame without one."),
+            tr("Clear Film Base: forget the film base this frame uses."),
         )
         self.clear_film_base_btn = self.film_base_btn.clear_btn
         tools_row = QHBoxLayout()
@@ -260,7 +260,7 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_region_btn.toggled.connect(self._on_analysis_region_toggled)
         self.clear_analysis_region_btn.clicked.connect(self.controller.clear_analysis_region)
         self.film_base_btn.toggled.connect(lambda on: self.controller.set_active_tool(ToolMode.FILM_BASE if on else ToolMode.NONE))
-        self.clear_film_base_btn.clicked.connect(self.controller.clear_roll_film_base)
+        self.clear_film_base_btn.clicked.connect(self.controller.clear_film_base)
 
         self.luma_range_clip_slider.valueChanged.connect(lambda v: self._on_luma_range_clip_changed(v, persist=False))
         self.luma_range_clip_slider.valueCommitted.connect(lambda v: self._on_luma_range_clip_changed(v, persist=True))
@@ -436,7 +436,7 @@ class ProcessSidebar(BaseSidebar):
             has_region = conf.analysis_rect is not None
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
             self.clear_analysis_region_btn.setVisible(has_region)
-            has_base = self.controller.roll_film_base() is not None
+            has_base = self.controller.clearable_film_base()
             self.film_base_btn.setChecked(self.state.active_tool == ToolMode.FILM_BASE)
             self.clear_film_base_btn.setVisible(has_base)
 
@@ -453,7 +453,12 @@ class ProcessSidebar(BaseSidebar):
             ):
                 w.setVisible(not transfer)
             self.use_cast_avg_btn.setVisible(conf.process_mode == ProcessMode.C41)
-            self.use_cast_avg_btn.setEnabled(conf.locked_neutral_axis is not None)
+            # A roll baseline is what the averages read, so without a roll they only turn off;
+            # the Roll Analysis hint above says why.
+            has_roll = bool(self.controller.state.active_roll_id)
+            self.use_luma_avg_btn.setEnabled(has_roll or conf.use_luma_average)
+            self.use_color_avg_btn.setEnabled(has_roll or conf.use_color_average)
+            self.use_cast_avg_btn.setEnabled((has_roll and conf.locked_neutral_axis is not None) or conf.use_cast_average)
             self._update_baseline_source_hint(conf, transfer)
 
             idx = self._channel_index()

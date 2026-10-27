@@ -129,6 +129,11 @@ class _EmptyStateOverlay(QWidget):
         menu.addAction(tr("Scan…")).triggered.connect(self.scan_requested)
         menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Each render raises the canvas's own layers, which would otherwise cover these buttons.
+        self.raise_()
+
     def eventFilter(self, obj, event) -> bool:
         if obj is self.parent() and event.type() == QEvent.Type.Resize:
             self.setGeometry(self.parent().rect())
@@ -243,8 +248,10 @@ class MainWindow(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.controller.restore_session()
+                self.file_browser.restore_hot_folder(True)
                 self._schedule_onboarding()
                 return
+        self.file_browser.restore_hot_folder(False)
         self.show_library(ask_if_unset=False)
         self._schedule_onboarding()
 
@@ -967,5 +974,5 @@ class MainWindow(QMainWindow):
             # them rather than reporting that it found nothing.
             self.file_browser.open_or_browse(paths[0])
         elif paths:
-            self.controller.request_asset_discovery(paths, auto_open=True)
+            self.controller.request_asset_discovery(paths, auto_open=True, user_add=True)
         event.acceptProposedAction()

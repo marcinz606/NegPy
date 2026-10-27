@@ -53,6 +53,7 @@ def browser(session):
     controller = MagicMock()
     controller.session = session
     controller.thumbnail_refresh_running = False
+    controller.half_frame_mode_for_roll.return_value = False
     return FileBrowser(controller)
 
 
@@ -845,7 +846,7 @@ def test_session_menu_mirrors_the_toolbar_tools(browser, session):
     labels = [a.text() for a in browser._build_session_menu().actions() if not a.isSeparator()]
     assert labels == ["Add Files…", "Add Folder…", "Unload All…"]
     session.state.active_roll_id = "r1"
-    assert browser._build_session_menu().actions()[-1].text() == "Close Roll…"
+    assert browser._build_session_menu().actions()[-1].text() == "Unload All…"
 
 
 def _close_item(browser):
@@ -861,8 +862,8 @@ def test_session_menu_close_enabled_with_files(browser):
     assert _close_item(browser).isEnabled()
 
 
-def test_session_menu_close_runs_close_roll(browser):
-    with patch("negpy.desktop.view.sidebar.files._close_roll") as close:
+def test_session_menu_close_runs_unload_all(browser):
+    with patch("negpy.desktop.view.sidebar.files._unload_all") as close:
         _close_item(browser).trigger()
     close.assert_called_once_with(browser, browser.controller)
 
@@ -889,25 +890,6 @@ def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
         browser._show_context_menu(QPoint(5, 5))
     frame_menu.assert_called_once()
     session_menu.assert_not_called()
-
-
-def test_session_menu_clear_all_clears_every_frame(browser, session):
-    session.clear_files = MagicMock()
-    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
-        browser._on_clear_all()
-    session.clear_files.assert_called_once()
-
-
-def test_new_roll_menu_action_clears_the_session_like_clear_all(browser, session):
-    """Distinct from Unload: this is the deliberate "start over" action, for building a
-    roll entirely by drag-drop, so it confirms and clears everything, not the selection."""
-    session.clear_files = MagicMock()
-    menu = browser.roll_menu_btn.menu()
-    action = next(a for a in menu.actions() if a.text() == "New Roll…")
-    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True) as confirm:
-        action.trigger()
-    confirm.assert_called_once_with(browser, clear_all=True)
-    session.clear_files.assert_called_once()
 
 
 def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
@@ -1152,9 +1134,14 @@ def _scene_menu(menu):
     return next(a.menu() for a in menu.actions() if a.text() == "Scene")
 
 
-def test_scene_menu_is_absent_without_a_roll(browser, session):
+def test_scene_menu_is_grayed_without_a_roll(browser, session):
     session.state.selected_indices = [0, 1]
-    assert "Scene" not in _action_labels(browser.build_frame_menu())
+    session.state.active_roll_id = None
+    menu = browser.build_frame_menu()
+    scene = next(a for a in menu.actions() if a.text() == "Scene")
+    assert not scene.isEnabled()
+    assert scene.toolTip() == "Open or save a roll to use scenes."
+    assert menu.toolTipsVisible()
 
 
 def test_scene_menu_offers_group_and_add_for_loose_frames(browser, session):
@@ -1273,18 +1260,37 @@ def test_adding_a_folder_without_images_imports_its_roll_folders(browser, tmp_pa
     browser.controller.request_asset_discovery.assert_not_called()
 
 
-def test_film_strip_menu_offers_close_roll(browser, session):
+def test_film_strip_menu_offers_unload_all_with_or_without_a_roll(browser, session):
     menu = browser.roll_menu_btn.menu()
-    session.state.active_roll_id = None
-    browser._sync_close_roll_action()
-    assert browser.close_roll_action.text().startswith("Unload All…")
-    session.state.active_roll_id = "r1"
-    browser._sync_close_roll_action()
-    assert browser.close_roll_action.text().startswith("Close Roll…")
-    assert browser.close_roll_action in menu.actions()
-    with patch("negpy.desktop.view.sidebar.files._close_roll") as close:
-        browser.close_roll_action.trigger()
+    for roll_id in (None, "r1"):
+        session.state.active_roll_id = roll_id
+        browser._sync_unload_all_action()
+        assert browser.unload_all_action.text().startswith("Unload All…")
+    assert browser.unload_all_action in menu.actions()
+    assert not any(a.text() in ("New Roll…", "Close Roll…") for a in menu.actions())
+    with patch("negpy.desktop.view.sidebar.files._unload_all") as close:
+        browser.unload_all_action.trigger()
     close.assert_called_once_with(browser, browser.controller)
+
+
+def test_film_strip_menu_offers_restore_removed_frames_for_an_open_folder_roll(browser, session):
+    kinds = {"folder-roll": "folder", "virtual-roll": "virtual"}
+    for roll_id, removed, visible, enabled in (
+        ("folder-roll", 2, True, True),
+        ("folder-roll", 0, True, False),
+        ("virtual-roll", 0, False, False),
+    ):
+        session.state.active_roll_id = roll_id
+        browser.controller.removed_frame_count.return_value = removed
+        with patch("negpy.desktop.view.sidebar.files.rolls.roll_for_id", lambda repo, rid: {"kind": kinds[rid]}):
+            browser._sync_unload_all_action()
+        assert browser.restore_removed_action.isVisible() is visible
+        assert browser.restore_removed_action.isEnabled() is enabled
+    assert browser.restore_removed_action in browser.roll_menu_btn.menu().actions()
+    browser.restore_removed_action.setEnabled(True)
+    with patch("negpy.desktop.view.sidebar.files.restore_removed_frames") as restore:
+        browser.restore_removed_action.trigger()
+    restore.assert_called_once_with(browser, browser.controller)
 
 
 def test_context_menu_offers_merge_to_tiff_only_for_an_assembled_frame(browser, session):

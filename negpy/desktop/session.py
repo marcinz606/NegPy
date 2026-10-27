@@ -129,8 +129,10 @@ class AppState:
     found_scenes: List[Dict[str, Any]] = field(default_factory=list)
     # The roll (negpy.services.assets.rolls) the loaded frames came from, if any -- a
     # plain Add Files pick or a clear leaves this None. Files appended while it is set
-    # join that roll's membership so reopening it later still shows them.
+    # join it when it is a virtual roll; a folder roll holds only its folder's files.
     active_roll_id: Optional[str] = None
+    # Half Frame for frames in no roll: this session's choice, saved with it, cleared by Unload All.
+    half_frame_loose: bool = False
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
@@ -1373,16 +1375,29 @@ class DesktopSessionManager(QObject):
 
         Keyed on the unforked hash: a lock is about this physical frame's relationship
         to the roll, and must survive forking or unforking its edit identity.
-        A *fresh* frame, one with no saved edit, also takes the roll's frame seed.
+        A *fresh* frame, one with no saved edit, also takes the roll's frame seed. A frame in
+        no roll has no roll baseline to average, so an average it does not already ride is off.
         """
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
-            return config
+            return self._without_unbaselined_averages(config)
         if fresh and (seed := rolls.frame_seed(self.repo, roll_id)):
             config = with_frame_seed(config, seed)
         file_hash = unforked_hash(asset["hash"])
         config = rolls.resolve_roll_config(self.repo, roll_id, file_hash, config)
         return rolls.resolve_roll_baseline(self.repo, roll_id, file_hash, config)
+
+    @staticmethod
+    def _without_unbaselined_averages(config: WorkspaceConfig) -> WorkspaceConfig:
+        """Use Average off where nothing saved backs it: Luma and Color without a baseline, Cast
+        without a neutral axis. The render ignores such an average, so no pixel changes."""
+        proc = config.process
+        off = {}
+        if not proc.is_locked_initialized:
+            off.update({k: False for k in ("use_luma_average", "use_color_average") if getattr(proc, k)})
+        if proc.use_cast_average and proc.locked_neutral_axis is None:
+            off["use_cast_average"] = False
+        return replace(config, process=replace(proc, **off)) if off else config
 
     def load_edit_from_sidecar(self, path: str) -> bool:
         """Replace the active frame's edit with the sidecar at *path*, as an undoable
@@ -2276,6 +2291,7 @@ class DesktopSessionManager(QObject):
         paths = [f["path"] for f in self.state.uploaded_files]
         self.repo.save_global_setting("session_files", paths)
         self.repo.save_global_setting("session_active_path", self.state.current_file_path)
+        self.repo.save_global_setting("session_active_roll", self.state.active_roll_id or "")
         # RGB-scan triplets keep their green and blue exposures here so restore can rebuild the
         # merged asset. Re-discovery from the red path alone cannot regroup it.
         triplets = {
@@ -2284,6 +2300,7 @@ class DesktopSessionManager(QObject):
             if f.get("green_path") and f.get("blue_path")
         }
         self.repo.save_global_setting("session_triplets", triplets)
+        self.repo.save_global_setting("session_half_frame", self.state.half_frame_loose)
         # Stitch and HDR membership is not part of the manifest: a composite outlives the
         # file list it was made in, so it is upserted into its own store instead.
         remember_composites(self.repo, self.state.uploaded_files)
@@ -2484,6 +2501,7 @@ class DesktopSessionManager(QObject):
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
         self.state.active_roll_id = None
+        self.state.half_frame_loose = False
         self.state.stale_thumbnails.clear()
         self.state.duplicate_paths.clear()
         self.state.embeddings.clear()

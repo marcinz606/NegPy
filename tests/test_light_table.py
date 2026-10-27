@@ -179,6 +179,7 @@ def browser(qapp):
     controller = MagicMock()
     controller.session = session
     controller.thumbnail_refresh_running = False
+    controller.half_frame_mode_for_roll.return_value = False
     return FileBrowser(controller)
 
 

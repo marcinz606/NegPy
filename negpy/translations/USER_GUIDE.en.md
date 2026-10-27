@@ -112,12 +112,14 @@ The **Library** tab (`Ctrl+L`) lists your **rolls**. A roll is a named group of 
 
 *   **+**: **Import Folder as a Roll…** makes one roll of a folder and opens it. **Import Subfolders as Rolls…** makes a roll of each subfolder that holds images.
 *   **Double-click** a roll (or press Enter) to open it in the Film Strip.
-*   **⋮** or right-click a roll: **Open**, **Close Roll…**, **Roll Analysis**, **Rename…** and **Delete…**. Delete forgets the roll only; the files and edits stay.
+*   **⋮** or right-click a roll: **Open**, **Unload All…** (the open roll), **Roll Analysis**, **Rename…**, **Restore Removed Frames…** and **Delete…**. Restore Removed Frames brings back the frames that Remove from Roll took out of a folder roll; the line under the roll's name counts them. Delete keeps the files and their shared edits. It loses the roll's settings, baseline, film base, scenes, card locks and the edits made only in that roll, and Refresh does not add a deleted folder roll again.
 *   **Filter rolls…** and **Sort** help you find a roll. **⋮ → Refresh** finds new subfolders and recounts the frames. **⋮ → Discovery Filters…** lists folder names to skip (`export` at first).
 
 A roll whose folder is gone shows **folder missing**. A folder name that matches your gear ("penf" for "Pen F") opens Roll Settings filled in.
 
-A roll can also be any set of frames: search or gather them, then **Save as Roll…** in the Film Strip. A frame has one edit in every roll that holds it; right-click → **Edit Independently in This Roll** gives it its own edit in one roll.
+A folder roll holds only the files in its folder. A file you add from another folder stays for this session only.
+
+A roll can also be any set of frames: search or gather them, then **Save as Roll…** in the Film Strip. It saves every frame in the Film Strip. The new roll starts with the open roll's settings, card locks and the edits made only in that roll. A frame has one edit in every roll that holds it; right-click → **Edit Independently in This Roll** gives it its own edit in one roll.
 
 Nikon Z 8 and Z 9 NEFs in **HE** or **HE\*** compression cannot be opened. Shoot **Lossless Compressed**, or convert them with Adobe DNG Converter.
 
@@ -132,9 +134,9 @@ The toolbar's **Roll** row holds:
 *   The **filter box**: type part of a file name, or terms such as `film:portra iso:>=400` (below). The search button, or **Enter**, searches the whole library.
 *   **Sort**: by name, date or scene.
 *   **Sheet filter**: all frames, keepers only, hide rejected, or unmarked only. The button is highlighted while a filter hides frames.
-*   **Roll Settings** (the tag): gear and film details for this frame, the selection or the whole roll.
+*   **Roll Settings** (the tag): gear and film details for this frame, the selection or the roll.
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
-*   **⋮**: **Add Files…**, **Add Folder…**, **Save as Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files as a scanner saves them), **Unload…**, **New Roll…**, **Close Roll…**, **Reset Roll to Defaults…** and **Film Strip Guide…**.
+*   **⋮**: **Add Files…**, **Add Folder…**, **Save as Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files as a scanner saves them), **Unload…**, **Unload All…** (empties the Film Strip; the roll stays in the Library), **Reset Roll to Defaults…**, **Restore Removed Frames…** and **Film Strip Guide…**.
 
 Right-click a frame to **Keep** it (a check) or **Reject** it (a cross; batch exports skip it).
 
@@ -172,7 +174,7 @@ The right-click menu also copies, pastes and resets settings, applies them to ot
 
 ### Scenes
 
-A scene is a group of frames shot in the same light. It gets its own Roll Analysis baseline, so its frames match each other. **Detect Scenes** in Roll Analysis finds these groups for you. To make one yourself, select frames, then right-click → **Scene → Group as Scene…**. The same menu adds and removes frames, runs **Analyze Scene…**, and renames or deletes the scene. **Sort → Scene** groups them in the strip. Scenes need a roll.
+A scene is a group of frames shot in the same light. It gets its own Roll Analysis baseline, so its frames match each other. **Detect Scenes** in Roll Analysis finds these groups for you. To make one yourself, select frames, then right-click → **Scene → Group as Scene…**. The same menu adds and removes frames, runs **Analyze Scene…**, and renames or deletes the scene. **Sort → Scene** groups them in the strip. Scenes need a roll; without one, the **Scene** menu is grayed out.
 
 ---
 
@@ -552,7 +554,7 @@ To turn a negative into a positive, NegPy measures its darkest and brightest par
 
 *   **Reanalyze Frame**: measures this frame, or each selected frame, again from its current crop. The frame then uses its own bounds, not the roll or scene baseline.
 *   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside or press `Enter` to confirm, and `Esc` puts back the region you had before. **×** clears it.
-*   **Film Base**: click the clear film between frames to set the roll's film base, for the Analysis readout. **×** clears it.
+*   **Film Base**: click the clear film between frames to set the film base for the Analysis readout. It is the roll's base, or this frame's own with no roll open. **×** clears it.
 *   **Analysis Buffer**: ignores a border around the frame when measuring, so film edges and holders do not count.
 *   **Clipping**: how much of the print is pure black or pure white.
 *   **Lock Bounds**: keeps this frame's black and white points, even when the crop or Roll Analysis changes.
@@ -565,7 +567,7 @@ A **slide** needs no inversion: the tone controls shape the picture directly. Au
 <!-- panel:baseline -->
 ### 10.6 Roll Analysis
 
-Measures the whole roll once and shares the result, so the frames of one film print alike.
+Measures the whole roll once and shares the result, so the frames of one film print alike. With no roll open, the card is grayed out: open or save a roll first.
 
 *   **Reanalyze**: measures every loaded frame (except scene and locked frames) and saves the average as the roll's baseline. Frames very different from the rest keep their own. It first crops the frames that wait for Auto Crop.
 *   **Use This Frame**: makes this frame's measurement the roll's baseline.
@@ -590,7 +592,7 @@ For a camera with narrowband light that takes three shots of each frame: red, gr
 
 #### Half Frame
 
-**Half Frame Mode** splits each scan into two frames, for half-frame cameras. Each half has its own edit.
+**Half Frame Mode** splits each scan into two frames, for half-frame cameras. Each half has its own edit. Each roll keeps its own setting. With no roll open, it applies to frames in no roll until **Unload All**, and **Reopen your last session** keeps it. It is grayed while a frame from a roll is loaded, because that frame follows its own roll.
 
 *   **Adjust…**: drag the white box to crop and the orange line to set the split. **Split direction** and **Cut Thickness** set the gap, **Auto-detect** finds them again, and **Apply** saves to this frame, the selection or all frames.
 *   **Detect All**: finds the splits on every scan again.
@@ -682,7 +684,7 @@ The **Export** button is at the bottom of the tab. Above it, **File** holds the 
 ### Output intent
 
 *   **Print** (default): the picture as you see it.
-*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps light leak reduction and a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. Run **Roll Analysis** first so the masters of a roll match.
+*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps light leak reduction and a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. In a roll, run **Roll Analysis** first so the masters match. Without a roll, NegPy measures each frame on its own, so the masters can differ.
 *   **Linear**: the raw scan data before NegPy's processing, as a 16-bit TIFF or JPEG XL, for a raw workflow in another app. It reads camera RAW, LinearRaw DNG, Coolscan NEF, Flextight, Noritsu and Pakon files and TIFF scans. Options for infrared, white balance, flat field, sensor and lens correction are off at first. File names get `_linear`, so a source is never overwritten.
 
 ### File settings
@@ -691,7 +693,7 @@ The **Export** button is at the bottom of the tab. Above it, **File** holds the 
 *   **Export profile**: the color space of the file, such as sRGB for the web or Adobe RGB, or a printer or paper profile. **Import ICC** adds a profile. **Input ICC** sets the color space of a scan that has none.
 *   **Paper ratio**: the shape of the final print, or **Original**.
 *   **Resolution**: **Original** (full size), **Print** (size in cm and DPI) or **Pixels** (the long edge in pixels). A Print or Pixels export applies the Lab Sharpening after the resize. **Preview Export Size** shows the frame at this size on the canvas, to judge sharpening and grain.
-*   **Destination**: the **Filename Pattern** (see [TEMPLATING.md](TEMPLATING.md)), **Overwrite Existing Files**, and the folder: an `export` subfolder beside the source (default), the source folder, or a path you pick.
+*   **Destination**: the **Filename Pattern** (see [TEMPLATING.md](TEMPLATING.md)), **Overwrite Existing Files**, and the folder: an `export` subfolder beside each source file (default), the source folder, or a path you pick.
 
 ### Export button
 

@@ -1,5 +1,5 @@
-"""Remove from Roll: a frame leaves a virtual roll's member list, a folder roll's extras, or
-its own folder through excluded_paths, which every walk of that folder skips."""
+"""Remove from Roll: a frame leaves a virtual roll's member list, or a folder roll through its
+excluded_paths, which every walk of that folder skips."""
 
 import os
 from unittest.mock import MagicMock
@@ -26,13 +26,11 @@ def test_a_virtual_roll_drops_the_member():
     assert rolls.rolls_containing_path(repo, "/a/1.tif") == []
 
 
-def test_a_folder_roll_drops_an_extra_and_excludes_its_own_file():
+def test_a_folder_roll_excludes_its_own_file():
     repo = _repo()
     roll_id = rolls.recognize_folder(repo, "/scans/roll_a")
-    rolls.add_extra_members(repo, roll_id, ["/elsewhere/c.nef"])
     rolls.remove_members(repo, roll_id, ["/elsewhere/c.nef", "/scans/roll_a/1.tif"], [])
     entry = rolls.roll_for_id(repo, roll_id)
-    assert entry["extra_paths"] == []
     assert entry["excluded_paths"] == ["/scans/roll_a/1.tif"]
     assert os.path.normcase(os.path.normpath("/scans/roll_a/1.tif")) in rolls.excluded_paths(repo, ["/scans/roll_a/"])
     assert rolls.excluded_paths(repo, ["/scans/roll_b"]) == frozenset()
@@ -44,7 +42,7 @@ def test_adding_an_excluded_file_back_lifts_the_exclusion():
     repo = _repo()
     roll_id = rolls.recognize_folder(repo, "/scans/roll_a")
     rolls.remove_members(repo, roll_id, ["/scans/roll_a/1.tif"], [])
-    rolls.add_extra_members(repo, roll_id, ["/scans/roll_a/1.tif"])
+    assert rolls.add_members(repo, roll_id, ["/scans/roll_a/1.tif"]) == ["/scans/roll_a/1.tif"]
     entry = rolls.roll_for_id(repo, roll_id)
     assert entry["excluded_paths"] == []
     assert entry["extra_paths"] == []
@@ -57,11 +55,28 @@ def test_adding_a_removed_stitch_back_lifts_its_parts_without_adding_them():
     rolls.remove_members(repo, roll_id, source_files(stitch), [])
     assert rolls.roll_for_id(repo, roll_id)["excluded_paths"] == ["/scans/roll_a/1.tif", "/scans/roll_a/2.tif"]
 
-    rolls.add_extra_members(repo, roll_id, [stitch["path"]], parts=source_files(stitch))
+    rolls.add_members(repo, roll_id, [stitch["path"]], parts=source_files(stitch))
 
     entry = rolls.roll_for_id(repo, roll_id)
     assert entry["excluded_paths"] == []
     assert entry["extra_paths"] == []
+
+
+def test_restore_removed_empties_the_exclusions_and_returns_the_files_on_disk(tmp_path):
+    repo = _repo()
+    folder = tmp_path / "roll_a"
+    folder.mkdir()
+    kept, gone = folder / "1.tif", folder / "2.tif"
+    kept.write_bytes(b"1")
+    roll_id = rolls.recognize_folder(repo, str(folder))
+    rolls.remove_members(repo, roll_id, [str(kept), str(gone)], [])
+
+    assert rolls.removed_paths(repo, roll_id) == [str(kept)]
+    assert rolls.restore_removed(repo, roll_id) == [str(kept)]
+    assert rolls.roll_for_id(repo, roll_id)["excluded_paths"] == []
+    assert rolls.restore_removed(repo, roll_id) == []
+    virtual = rolls.create_virtual_roll(repo, "Picks", [str(kept)])
+    assert rolls.removed_paths(repo, virtual) == [] and rolls.restore_removed(repo, virtual) == []
 
 
 def test_removal_drops_the_frames_locks_scene_and_fork():

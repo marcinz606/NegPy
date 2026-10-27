@@ -431,7 +431,7 @@ class _HintLabel(QLabel):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        if self._icon is None:
+        if self._icon is None or not self.text():
             return
         fm, size = self.fontMetrics(), self.fontMetrics().ascent()
         flags = int(self.alignment().value) | (int(Qt.TextFlag.TextWordWrap.value) if self.wordWrap() else 0)

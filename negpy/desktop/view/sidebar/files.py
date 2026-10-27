@@ -58,7 +58,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.kernel.system.text import count_of
-from negpy.desktop.controller import AppController
+from negpy.desktop.controller import SCENES_NEED_A_ROLL, AppController
 from negpy.desktop.session import AppState, composite_kind
 from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 from negpy.desktop.view.confirm import (
@@ -77,7 +77,7 @@ from negpy.desktop.view.frame_merge_action import (
     merge_to_tiff,
     mergeable_in,
 )
-from negpy.desktop.view.keyboard_shortcuts import _close_roll, _reset_roll, _reset_selected, close_roll_label, remove_from_roll
+from negpy.desktop.view.keyboard_shortcuts import _reset_roll, _reset_selected, _unload_all, remove_from_roll, restore_removed_frames
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
@@ -1393,6 +1393,8 @@ class _FilmStripView(_FilmGridView):
 # Save as Roll moves to the ⋮ menu.
 _ROLL_TITLE_MAX_WIDTH = 280
 _FILTER_ROOM = 220
+# Belongs to the saved session: only a restored session turns the Hot Folder back on.
+_HOT_FOLDER_KEY = "session_hot_folder"
 
 
 class FileBrowser(QWidget):
@@ -1633,14 +1635,16 @@ class FileBrowser(QWidget):
         self.update_thumbnails_action.triggered.connect(self._on_update_thumbnails_clicked)
         self._on_thumbnail_refresh_state_changed(False)
         roll_menu.addAction(self.hot_folder_action)
+        roll_menu.addSeparator()
         self.unload_action = roll_menu.addAction(tr("Unload…"))
         self.unload_action.triggered.connect(self._on_unload_clicked)
-        roll_menu.addSeparator()
-        roll_menu.addAction(tr("New Roll…")).triggered.connect(self._on_clear_all)
-        self.close_roll_action = roll_menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll"))
-        self.close_roll_action.triggered.connect(lambda: _close_roll(self, self.controller))
-        roll_menu.aboutToShow.connect(self._sync_close_roll_action)
+        self.unload_all_action = roll_menu.addAction(label_with_shortcut(tr("Unload All…"), "close_roll"))
+        self.unload_all_action.triggered.connect(lambda: _unload_all(self, self.controller))
+        roll_menu.aboutToShow.connect(self._sync_unload_all_action)
         roll_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
+        self.restore_removed_action = roll_menu.addAction(label_with_shortcut(tr("Restore Removed Frames…"), "restore_removed_frames"))
+        self.restore_removed_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
+        self.restore_removed_action.triggered.connect(lambda: restore_removed_frames(self, self.controller))
         roll_menu.addSeparator()
         roll_menu.addAction(tr("Film Strip Guide…")).triggered.connect(self._show_guide)
         self.roll_menu_btn.setMenu(roll_menu)
@@ -1742,7 +1746,10 @@ class FileBrowser(QWidget):
         asset = files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(files) else {}
         config = state.config
         meta = config.metadata
-        half_frame = bool(self.controller.half_frame_mode_for_roll(state.active_roll_id)) if state.active_roll_id else False
+        # With no roll open a frame splits by its own roll, so the frame itself says.
+        half_frame = (
+            bool(self.controller.half_frame_mode_for_roll(state.active_roll_id)) if state.active_roll_id else bool(asset.get("half"))
+        )
         table = table_color(state.canvas_bg_index)
         key = (
             (meta.film_stock_id, meta.film, meta.film_manufacturer, meta.film_color_type, meta.format, meta.format_other),
@@ -1815,15 +1822,12 @@ class FileBrowser(QWidget):
         """Same as the context menu's Unload…: the selection, never the whole roll."""
         self._on_remove_from_menu()
 
-    def _sync_close_roll_action(self) -> None:
-        state = self.session.state
-        self.close_roll_action.setText(label_with_shortcut(close_roll_label(state), "close_roll"))
-        self.close_roll_action.setEnabled(bool(state.uploaded_files))
-
-    def _on_clear_all(self) -> None:
-        """Drop every loaded frame, from the empty-space context menu."""
-        if confirm_unload(self, clear_all=True):
-            self.session.clear_files()
+    def _sync_unload_all_action(self) -> None:
+        self.unload_all_action.setEnabled(bool(self.session.state.uploaded_files))
+        roll_id = self.session.state.active_roll_id
+        is_folder = bool(roll_id) and (rolls.roll_for_id(self.session.repo, roll_id) or {}).get("kind") == "folder"
+        self.restore_removed_action.setVisible(is_folder)
+        self.restore_removed_action.setEnabled(is_folder and bool(self.controller.removed_frame_count(roll_id)))
 
     def _on_reset_roll(self) -> None:
         """Reset every visible frame back to its own defaults, from the Film Strip
@@ -2094,9 +2098,17 @@ class FileBrowser(QWidget):
         self._apply_filter()
         self._apply_sheet_filter("all")
 
+    def restore_hot_folder(self, restored: bool) -> None:
+        """Turn the Hot Folder back on with a restored session that had it on; a fresh start forgets it."""
+        if restored and self.session.repo.get_global_setting(_HOT_FOLDER_KEY, False):
+            self.hot_folder_action.setChecked(True)
+        else:
+            self.session.repo.save_global_setting(_HOT_FOLDER_KEY, False)
+
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self.hot_folder_btn.setChecked(checked)
         self.hot_folder_btn.setVisible(checked)
+        self.session.repo.save_global_setting(_HOT_FOLDER_KEY, checked)
         if checked:
             self.scan_timer.start()
         else:
@@ -2173,7 +2185,7 @@ class FileBrowser(QWidget):
         )
         if files:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(files[0]))
-            self.controller.request_asset_discovery(files, auto_open=True, announce_rgb=True)
+            self.controller.request_asset_discovery(files, auto_open=True, announce_rgb=True, user_add=True)
 
     def prompt_add_folder(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
@@ -2188,7 +2200,7 @@ class FileBrowser(QWidget):
         into Library when it holds none directly."""
         images, _ = folder_counts(folder)
         if images:
-            self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True)
+            self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True, user_add=True)
         elif self.library_tree.import_subfolders(folder):
             self.library_requested.emit(False)
 
@@ -2335,8 +2347,8 @@ class FileBrowser(QWidget):
         menu.addAction(qta.icon("fa5s.file-import", color=icon_color), tr("Add Files…")).triggered.connect(self.prompt_add_files)
         menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), tr("Add Folder…")).triggered.connect(self.prompt_add_folder)
         menu.addSeparator()
-        clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), close_roll_label(self.session.state))
-        clear.triggered.connect(lambda: _close_roll(self, self.controller))
+        clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), tr("Unload All…"))
+        clear.triggered.connect(lambda: _unload_all(self, self.controller))
         clear.setEnabled(bool(self.session.state.uploaded_files))
         return menu
 
@@ -2347,6 +2359,7 @@ class FileBrowser(QWidget):
         multi = len(state.selected_indices) > 1
 
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
         if on_selection:
             menu.addAction(tr("Export Selected Frames")).triggered.connect(lambda: self.controller.request_export_selected())
         else:
@@ -2434,6 +2447,10 @@ class FileBrowser(QWidget):
                     )
         if state.active_roll_id:
             self._add_scene_menu(menu, [state.uploaded_files[i] for i in targets], multi)
+        else:
+            no_scenes = menu.addMenu(tr("Scene"))
+            no_scenes.setEnabled(False)
+            no_scenes.menuAction().setToolTip(SCENES_NEED_A_ROLL)
         menu.addSeparator()
         if not on_selection:
             menu.addAction(label_with_shortcut(SHOW_LABEL, "show_in_folder")).triggered.connect(

@@ -389,3 +389,19 @@ def test_the_clipping_hint_reads_as_the_analysis_row_does():
 
     sidebar.set_clipping(None, None)
     assert sidebar.clipping_hint.text() == "Clipping: —"
+
+
+def test_average_toggles_gray_out_without_a_roll(qapp):
+    """The averages read a roll baseline; the Roll Analysis hint above says why they are gray."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True))
+    controller.state.active_roll_id = None
+    sidebar.sync_ui()
+    assert sidebar.use_luma_avg_btn.isChecked()
+    # A checked average can still be turned off; an unchecked one cannot be turned on.
+    assert sidebar.use_luma_avg_btn.isEnabled() and not sidebar.use_color_avg_btn.isEnabled()
+
+    controller.state.active_roll_id = "roll-1"
+    sidebar.sync_ui()
+    assert sidebar.use_luma_avg_btn.isEnabled() and sidebar.use_color_avg_btn.isEnabled()

@@ -397,6 +397,7 @@ class PreferencesDialog(QDialog):
             spin = QSpinBox()
             spin.setRange(spec.minimum, spec.maximum)
             spin.setSingleStep(spec.step)
+            spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
             spin.setSuffix(spec.suffix)
             spin.setValue(self._stored_number(spec))
             if spec.key in self._pinned:

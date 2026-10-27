@@ -385,6 +385,7 @@ class TestBatchAutoCropController:
         files = [{"name": f"{h}.dng", "path": f"/roll/{h}.dng", "hash": h} for h in configs]
         self.controller.state.uploaded_files = files
         self.controller.state.current_file_hash = "none"
+        self.controller.state.active_roll_id = "roll"
         self.session.asset_model.visible_actual_indices_ordered.return_value = list(range(len(files)))
         self.session.config_for_asset.side_effect = lambda asset: configs[asset["hash"]]
         self.controller._confirm_normalization = MagicMock(return_value=True)

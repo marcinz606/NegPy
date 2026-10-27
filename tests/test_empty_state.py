@@ -87,3 +87,18 @@ def test_scan_opens_the_scan_tab_through_the_saved_panel_toggle():
     MainWindow._show_scan_tab(win)
     win.toggle_controls_dock.assert_called_once_with()
     win.right_panel.show_tab_by_key.assert_called_once_with("scan")
+
+
+def test_overlay_comes_back_above_layers_raised_while_it_was_hidden(overlay, host):
+    """The canvas raises its own layers on each render; the empty state must take the clicks again."""
+    overlay.hide()
+    layer = QWidget(host)
+    layer.setGeometry(host.rect())
+    layer.show()
+    layer.raise_()
+
+    overlay.show()
+    QApplication.processEvents()
+
+    centre = overlay.load_btn.mapTo(host, overlay.load_btn.rect().center())
+    assert host.childAt(centre) is overlay.load_btn

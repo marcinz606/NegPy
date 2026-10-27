@@ -687,10 +687,12 @@ class TestAppController(unittest.TestCase):
         self._fake_settings_store()
         self.assertFalse(self.controller.half_frame_mode_for_roll("new-roll"))
 
-    def test_half_frame_mode_for_roll_falls_back_to_the_sticky_flag_with_no_roll(self):
+    def test_half_frame_mode_with_no_roll_is_this_sessions_choice_not_an_app_wide_flag(self):
         store = self._fake_settings_store()
         store["half_frame_mode"] = True
-        store["half_frame_mode_by_roll"] = {"r1": False}
+        self.controller.state.half_frame_loose = False
+        self.assertFalse(self.controller.half_frame_mode_for_roll(None))
+        self.controller.state.half_frame_loose = True
         self.assertTrue(self.controller.half_frame_mode_for_roll(None))
 
     def test_set_half_frame_mode_writes_the_active_rolls_own_entry(self):
@@ -701,12 +703,14 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(store["half_frame_mode_by_roll"], {"r1": True})
         self.assertNotIn("half_frame_mode", store)
 
-    def test_set_half_frame_mode_writes_the_sticky_flag_with_no_active_roll(self):
+    def test_set_half_frame_mode_with_no_roll_sets_the_session_choice(self):
         store = self._fake_settings_store()
         self.controller.state.active_roll_id = None
         self.controller.session.state.uploaded_files = []
         self.controller.set_half_frame_mode(True)
-        self.assertEqual(store["half_frame_mode"], True)
+        self.assertTrue(self.controller.state.half_frame_loose)
+        self.controller.session.persist_session.assert_called()
+        self.assertNotIn("half_frame_mode", store)
         self.assertNotIn("half_frame_mode_by_roll", store)
 
     def test_open_roll_emits_that_rolls_own_half_frame_state(self):
@@ -774,7 +778,7 @@ class TestAppController(unittest.TestCase):
         """Saving the current ad hoc session as a roll must not silently reset its
         toggle to off the next time that roll is opened."""
         store = self._fake_settings_store()
-        store["half_frame_mode"] = True
+        self.controller.state.half_frame_loose = True
         self.controller.state.uploaded_files = [{"path": "/p/a.tif"}]
         with patch("negpy.desktop.controller.rolls") as mock_rolls:
             mock_rolls.create_virtual_roll.return_value = "new-roll"
@@ -1065,18 +1069,18 @@ class TestAppController(unittest.TestCase):
         cfg = WorkspaceConfig()
         self.controller.session.repo.load_file_settings.return_value = None
         self.controller.session.config_for_asset = MagicMock(return_value=cfg)
-        self.controller.roll_film_base = MagicMock(return_value=None)
+        self.controller.film_base_for = MagicMock(return_value=None)
         self.controller._half_slice_for_asset = MagicMock(return_value=None)
         asset = {"path": "/tmp/neighbor.dng", "hash": "neighbor"}
 
         task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
         self.assertIs(task.base_settings, cfg)
 
-        self.controller.roll_film_base.return_value = (-0.3, -0.3, -0.3)
+        self.controller.film_base_for.return_value = (-0.3, -0.3, -0.3)
         task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
         self.assertIsNone(task.base_settings)
 
-        self.controller.roll_film_base.return_value = None
+        self.controller.film_base_for.return_value = None
         self.controller._half_slice_for_asset.return_value = (1, 0.5, None, 0.0, "x")
         task = self.controller._neighbor_prefetch_task(asset, generation=4, protected_file_hashes=())
         self.assertIsNone(task.base_settings)
@@ -4671,18 +4675,43 @@ class TestSessionRestore(unittest.TestCase):
             self.assertEqual(self.controller._pending_scanned_file, b.name)
             self.controller.request_asset_discovery.assert_called_once_with([a.name, b.name], auto_open=True, restore_triplets={})
 
+    def test_restore_session_brings_back_the_sessions_half_frame_choice(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".dng") as a:
+            for saved in (True, False):
+                self._mock_settings_with_rolls([a.name], a.name, {}, session_half_frame=saved)
+                self.controller.restore_session()
+                self.assertIs(self.controller.state.half_frame_loose, saved)
+
     def test_restore_session_no_saved_files_is_noop(self):
         self._mock_settings([], None)
         self.controller.restore_session()
         self.controller.request_asset_discovery.assert_not_called()
 
-    def _mock_settings_with_rolls(self, files, active, rolls_store):
+    def _mock_settings_with_rolls(self, files, active, rolls_store, **saved):
         from negpy.services.assets import rolls
 
         def get(key, default=None):
-            return {"session_files": files, "session_active_path": active, rolls.ROLLS_KEY: rolls_store}.get(key, default)
+            return {"session_files": files, "session_active_path": active, rolls.ROLLS_KEY: rolls_store, **saved}.get(key, default)
 
         self.mock_session_manager.repo.get_global_setting.side_effect = get
+
+    def test_restore_session_reopens_the_saved_roll_with_a_file_from_elsewhere(self):
+        """A folder roll holds only its folder, so the saved roll id, not membership, names it."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as elsewhere:
+            a, b = os.path.join(folder, "a.dng"), os.path.join(elsewhere, "b.dng")
+            open(a, "w").close()
+            open(b, "w").close()
+            store = {"roll1": {"kind": "folder", "folder_path": folder, "extra_paths": []}}
+            for saved, expected in (("roll1", "roll1"), ("", None), ("deleted-roll", None)):
+                with self.subTest(saved=saved):
+                    self._mock_settings_with_rolls([a, b], a, store, session_active_roll=saved)
+                    self.controller.restore_session()
+                    self.assertEqual(self.controller.state.active_roll_id, expected)
 
     def test_restore_session_recognizes_the_roll_all_restored_paths_belong_to(self):
         import os
@@ -5139,6 +5168,7 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
             self.mock_session_manager.repo.load_file_settings(f["hash"]) or WorkspaceConfig()
         )
 
+        self.mock_session_manager.state.active_roll_id = "roll-1"
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
             {"name": "IMG_0002.cr2", "path": "/tmp/IMG_0002.cr2", "hash": "h2"},
@@ -5179,6 +5209,23 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
                 thread.wait()
         del self.controller
         gc.collect()
+
+    def test_analysis_without_a_roll_runs_nothing_and_says_why(self):
+        self.mock_session_manager.state.active_roll_id = None
+        messages = []
+        self.controller.status_message_requested.connect(lambda text, *_: messages.append(text))
+        for request in (
+            self.controller.request_batch_normalization,
+            self.controller.request_detect_scenes,
+            self.controller.request_analyze_all_scenes,
+            lambda: self.controller.request_scene_analysis("s1"),
+        ):
+            request()
+        self.assertEqual(self.emitted, [])
+        self.assertEqual(
+            messages,
+            ["Open or save a roll to use Roll Analysis."] + ["Open or save a roll to use scenes."] * 3,
+        )
 
     def test_analysis_respects_filter(self):
         self.visible_indices = [0, 1]  # only IMG_*
@@ -5280,77 +5327,22 @@ class TestContactSheetOutputDir(unittest.TestCase):
         self.controller.session.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
         self.controller.session.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
 
-    def test_subfolder_of_source_redirects_a_virtual_roll_with_no_folder(self):
-        """A virtual roll's files share no folder to build a subfolder under, so
-        Subfolder of Source gathers them under the data folder instead."""
-        from negpy.kernel.system.paths import get_default_user_dir
-        from negpy.services.assets.rolls import create_virtual_roll
+    def test_subfolder_of_source_follows_the_first_frame_whatever_roll_is_open(self):
+        """The sheet goes under its first frame's own folder in a virtual roll, a folder roll or none."""
+        from negpy.services.assets.rolls import create_virtual_roll, recognize_folder
 
         self._dict_repo()
-        roll_id = create_virtual_roll(self.controller.session.repo, "Portra 400", ["/a.nef", "/b.nef"])
-        self.controller.state.active_roll_id = roll_id
+        repo = self.controller.session.repo
         export = ExportConfig(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="export")
         self.controller.state.config = replace(self.controller.state.config, export=export)
-
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
-
-        self.assertEqual(out, os.path.join(get_default_user_dir(), "Portra 400", "export"))
-
-    def test_subfolder_of_source_keeps_per_file_resolution_for_a_folder_roll(self):
-        """A folder roll's own folder is already the roll's folder, so it resolves
-        exactly as it would with no roll at all."""
-        from negpy.services.assets.rolls import recognize_folder
-
-        self._dict_repo()
-        roll_id = recognize_folder(self.controller.session.repo, "/rolls/frame")
-        self.controller.state.active_roll_id = roll_id
-        export = ExportConfig(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="export")
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
-
-        self.assertEqual(out, os.path.join("/rolls/frame", "export"))
-
-    def test_subfolder_of_source_with_no_active_roll_resolves_per_file(self):
-        self._dict_repo()
-        export = ExportConfig(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="export")
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
-
-        self.assertEqual(out, os.path.join("/rolls/frame", "export"))
-
-    def test_virtual_roll_redirect_warns_once(self):
-        from negpy.services.assets.rolls import create_virtual_roll
-
-        self._dict_repo()
-        roll_id = create_virtual_roll(self.controller.session.repo, "Portra 400", ["/a.nef", "/b.nef"])
-        self.controller.state.active_roll_id = roll_id
-        export = ExportConfig(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="export")
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-
-        msgs = []
-        self.controller.status_message_requested.connect(lambda text, _ms, kind: msgs.append((text, kind)))
-        self.controller._contact_sheet_output_dir(self.visible_files)
-
-        self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0][1], "warning")
-        self.assertIn("Portra 400", msgs[0][0])
-
-    def test_folder_roll_does_not_warn(self):
-        from negpy.services.assets.rolls import recognize_folder
-
-        self._dict_repo()
-        roll_id = recognize_folder(self.controller.session.repo, "/rolls/frame")
-        self.controller.state.active_roll_id = roll_id
-        export = ExportConfig(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="export")
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-
-        msgs = []
-        self.controller.status_message_requested.connect(lambda text, _ms, kind: msgs.append((text, kind)))
-        self.controller._contact_sheet_output_dir(self.visible_files)
-
-        self.assertEqual(msgs, [])
+        for label, roll_id in (
+            ("virtual", create_virtual_roll(repo, "Portra 400", ["/a.nef", "/b.nef"])),
+            ("folder", recognize_folder(repo, "/rolls/frame")),
+            ("none", None),
+        ):
+            with self.subTest(roll=label):
+                self.controller.state.active_roll_id = roll_id
+                self.assertEqual(self.controller._contact_sheet_output_dir(self.visible_files), os.path.join("/rolls/frame", "export"))
 
 
 class TestRetouchPersistence(unittest.TestCase):
@@ -7339,18 +7331,128 @@ class TestLibrarySearch(unittest.TestCase):
 
         self.assertEqual(saved_rolls(self.controller.session.repo), {})
 
-    def test_open_roll_loads_a_folder_rolls_own_and_extra_paths(self):
+    def test_open_roll_walks_only_a_folder_rolls_folder(self):
+        """extra_paths from an older version are ignored."""
         self._dict_repo()
-        from negpy.services.assets.rolls import add_extra_members, recognize_folder
+        from negpy.services.assets.rolls import ROLLS_KEY, recognize_folder
 
-        roll_id = recognize_folder(self.controller.session.repo, "/photos/roll_a")
-        add_extra_members(self.controller.session.repo, roll_id, ["/elsewhere/c.nef"])
+        repo = self.controller.session.repo
+        roll_id = recognize_folder(repo, "/photos/roll_a")
+        store = dict(repo.get_global_setting(ROLLS_KEY))
+        store[roll_id] = {**store[roll_id], "extra_paths": ["/elsewhere/c.nef"]}
+        repo.save_global_setting(ROLLS_KEY, store)
 
         with patch.object(self.controller, "request_asset_discovery") as discovery:
             self.controller.open_roll(roll_id)
 
-        discovery.assert_called_once_with(["/photos/roll_a", "/elsewhere/c.nef"], auto_open=True, replace_existing=True)
+        discovery.assert_called_once_with(["/photos/roll_a"], auto_open=True, replace_existing=True)
         self.assertEqual(self.controller.state.active_roll_id, roll_id)
+
+    def test_a_folder_roll_that_held_files_from_other_folders_says_so_once(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import ROLLS_KEY, recognize_folder
+
+        repo = self.controller.session.repo
+        with tempfile.TemporaryDirectory() as other:
+            extra = os.path.join(other, "c.nef")
+            open(extra, "w").close()
+            roll_id = recognize_folder(repo, "/photos/roll_a")
+            store = dict(repo.get_global_setting(ROLLS_KEY))
+            store[roll_id] = {**store[roll_id], "name": "500T", "extra_paths": [extra, "/gone/d.nef"]}
+            repo.save_global_setting(ROLLS_KEY, store)
+
+            for click_load in (True, False):
+                with (
+                    patch.object(self.controller, "request_asset_discovery") as discovery,
+                    patch("negpy.desktop.controller.QMessageBox") as box_class,
+                ):
+                    box = box_class.return_value
+                    load = MagicMock()
+                    box.addButton.side_effect = [load, MagicMock()]
+                    box.clickedButton.return_value = load if click_load else None
+                    self.controller.open_roll(roll_id)
+                    self.controller._show_extras_notice()
+                if click_load:
+                    body = box_class.call_args.args[2]
+                    self.assertTrue(body.startswith("“500T” held 1 frame from other folders."), body)
+                    discovery.assert_called_with([extra], auto_open=True, user_add=True)
+                else:
+                    box_class.assert_not_called()
+                    self.assertEqual(discovery.call_count, 1, "only the open's own discovery, no notice the second time")
+
+    def test_files_added_to_an_open_folder_roll_from_another_folder_stay_out_of_it(self):
+        """An open virtual roll gains what is added; a folder roll gains nothing."""
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll, recognize_folder, roll_for_id
+
+        repo = self.controller.session.repo
+        folder_roll = recognize_folder(repo, "/photos/roll_a")
+        virtual_roll = create_virtual_roll(repo, "Picks", ["/a.nef"])
+        self.controller.generate_missing_thumbnails = MagicMock()
+        for roll_id in (folder_roll, virtual_roll):
+            self.controller.state.active_roll_id = roll_id
+            self.controller._replace_after_discovery = False
+            self.controller._on_discovery_finished([{"name": "c", "path": f"/elsewhere/{roll_id}.nef", "hash": roll_id}])
+
+        self.assertEqual(roll_for_id(repo, folder_roll)["extra_paths"], [])
+        self.assertEqual(roll_for_id(repo, virtual_roll)["member_paths"], ["/a.nef", f"/elsewhere/{virtual_roll}.nef"])
+
+    def test_restore_removed_frames_brings_them_back_and_loads_them_in_the_open_roll(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import recognize_folder, remove_members, roll_for_id
+
+        repo = self.controller.session.repo
+        with tempfile.TemporaryDirectory() as folder:
+            frames = [os.path.join(folder, f"{n}.tif") for n in (1, 2)]
+            for path in frames:
+                open(path, "w").close()
+            roll_id = recognize_folder(repo, folder)
+            self.controller.rgb_scan_mode_for_roll = MagicMock(return_value=False)
+            for active in (None, roll_id):
+                with self.subTest(open=bool(active)):
+                    remove_members(repo, roll_id, frames, [])
+                    self.assertEqual(self.controller.removed_frame_count(roll_id), 2)
+                    self.controller.state.active_roll_id = active
+                    with patch.object(self.controller, "request_asset_discovery") as discovery:
+                        self.controller.restore_removed_frames(roll_id)
+                    self.assertEqual(roll_for_id(repo, roll_id)["excluded_paths"], [])
+                    self.assertEqual(self.controller.removed_frame_count(roll_id), 0)
+                    if active:
+                        discovery.assert_called_once_with(frames)
+                    else:
+                        discovery.assert_not_called()
+
+    def test_a_user_add_to_a_folder_roll_says_what_stays_for_this_session(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import recognize_folder, remove_members, rename_roll
+
+        repo = self.controller.session.repo
+        roll_id = recognize_folder(repo, "/photos/roll_a")
+        rename_roll(repo, roll_id, "500T")
+        remove_members(repo, roll_id, ["/photos/roll_a/1.nef"], [])
+        self.controller.generate_missing_thumbnails = MagicMock()
+        cases = (
+            ([], ["/elsewhere/c.nef", "/elsewhere/d.nef"], True, "Loaded 2 frames for this session only."),
+            (["/photos/roll_a/1.nef"], ["/elsewhere/e.nef"], True, "Added 1 frame to “500T”. Loaded 1 frame"),
+            ([], ["/elsewhere/f.nef"], False, None),
+            ([], ["/photos/roll_a/2.nef"], True, None),
+        )
+        for own, outside, user_add, message in cases:
+            with self.subTest(outside=outside, user_add=user_add):
+                self.controller.state.active_roll_id = roll_id
+                self.controller._replace_after_discovery = False
+                self.controller._user_add_after_discovery = user_add
+                assets = [{"name": os.path.basename(p), "path": p, "hash": p} for p in (*own, *outside)]
+                with patch.object(self.controller, "set_status") as status:
+                    self.controller._on_discovery_finished(assets)
+                notes = [c.args[0] for c in status.call_args_list if "this session only" in c.args[0]]
+                if message is None:
+                    self.assertEqual(notes, [])
+                else:
+                    self.assertEqual(len(notes), 1)
+                    self.assertTrue(notes[0].startswith(message), notes[0])
+                    self.assertIn("Save as Roll…", notes[0])
+                self.assertFalse(self.controller._user_add_after_discovery)
 
     def test_open_roll_loads_a_virtual_rolls_member_paths(self):
         self._dict_repo()
@@ -7368,6 +7470,102 @@ class TestLibrarySearch(unittest.TestCase):
         with patch.object(self.controller, "request_asset_discovery") as discovery:
             self.controller.open_roll("not-a-real-id")
         discovery.assert_not_called()
+
+    def test_save_as_roll_starts_from_the_open_rolls_settings(self):
+        """The frames look the same in the new roll: its modes, defaults and their locks."""
+        self._dict_repo()
+        from negpy.services.assets import rolls
+
+        repo = self.controller.session.repo
+        source = rolls.recognize_folder(repo, "/photos/portra")
+        rolls.set_roll_defaults(repo, source, film_stock_id="portra400")
+        rolls.add_frame_seed(repo, source, cast_removal_strength=0.5)
+        rolls.set_section_push(repo, source, "lab", {"saturation": 1.2})
+        rolls.set_frame_override(repo, source, "h12", "film", True)
+        rolls.set_frame_override(repo, source, "h99", "film", True)
+        rolls.set_roll_normalization(repo, source, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        rolls.create_scene(repo, source, "Beach", ["h12"])
+        repo.save_global_setting("half_frame_mode_by_roll", {source: True})
+        repo.save_global_setting("rgbscan_mode_by_roll", {source: True})
+        self.controller.state.active_roll_id = source
+        self.controller.state.uploaded_files = [
+            {"path": "/photos/portra/12.tif", "hash": f"h12#roll:{source}"},
+            {"path": "/photos/portra/13.tif", "hash": "h13"},
+        ]
+
+        roll_id = self.controller.create_roll_from_session("Portra picks")
+
+        entry = rolls.roll_for_id(repo, roll_id)
+        self.assertEqual(entry["defaults"], {"film_stock_id": "portra400"})
+        self.assertEqual(entry["frame_seed"], {"cast_removal_strength": 0.5})
+        self.assertEqual(entry["section_pushes"], {"lab": {"saturation": 1.2}})
+        self.assertEqual(entry["frame_overrides"], {"h12": ["film"]})
+        self.assertNotIn("normalization", entry)
+        self.assertNotIn("scenes", entry)
+        self.assertTrue(self.controller.half_frame_mode_for_roll(roll_id))
+        self.assertTrue(self.controller.rgb_scan_mode_for_roll(roll_id))
+
+    def test_save_as_roll_carries_each_frames_edit_made_only_in_the_open_roll(self):
+        """A frame edited independently in the open roll keeps that edit, and its look, in the new roll."""
+        self._dict_repo()
+        from negpy.services.assets import rolls
+
+        repo = self.controller.session.repo
+        source = rolls.recognize_folder(repo, "/photos/portra")
+        rolls.fork_edit(repo, source, "h1", "/photos/portra/1.tif", WorkspaceConfig())
+        self.controller.state.active_roll_id = source
+        self.controller.state.current_file_hash = "h2"
+        self.controller.state.uploaded_files = [
+            {"path": "/photos/portra/1.tif", "hash": rolls.roll_edit_hash("h1", source)},
+            {"path": "/photos/portra/2.tif", "hash": "h2"},
+        ]
+        own_edit = WorkspaceConfig()
+        self.controller.session.config_for_asset = MagicMock(return_value=own_edit)
+        repo.save_file_settings.reset_mock()
+
+        roll_id = self.controller.create_roll_from_session("Portra picks")
+
+        self.controller.session.save_active_edit.assert_called_once()
+        self.assertEqual(self.controller.state.uploaded_files[0]["hash"], rolls.roll_edit_hash("h1", roll_id))
+        self.assertEqual(self.controller.state.uploaded_files[1]["hash"], "h2")
+        self.assertTrue(rolls.is_forked(repo, roll_id, "h1"))
+        repo.save_file_settings.assert_called_once_with(rolls.roll_edit_hash("h1", roll_id), own_edit, file_path="/photos/portra/1.tif")
+
+    def test_save_as_roll_saves_the_open_roll_with_the_session(self):
+        self._dict_repo()
+        self.controller.state.active_roll_id = None
+        self.controller.state.uploaded_files = [{"path": "/a.nef", "hash": "h1"}]
+        self.controller.session.persist_session = MagicMock()
+
+        self.controller.create_roll_from_session("Picks")
+
+        self.controller.session.persist_session.assert_called_once()
+
+    def test_save_as_roll_from_search_results_keeps_half_frame_only_when_every_frame_is_a_half(self):
+        self._dict_repo()
+        self.controller.state.active_roll_id = None
+        self.controller.state.half_frame_loose = False
+        halves = [{"path": "/r/a.nef", "hash": "h1#1", "half": 1}, {"path": "/r/a.nef", "hash": "h1#2", "half": 2}]
+        for loaded, expected in ((halves, True), (halves + [{"path": "/x/b.nef", "hash": "h2"}], False)):
+            with self.subTest(whole_frames=len(loaded) - 2):
+                self.controller.state.active_roll_id = None
+                self.controller.state.uploaded_files = list(loaded)
+                roll_id = self.controller.create_roll_from_session("Picks")
+                self.assertIs(self.controller.half_frame_mode_for_roll(roll_id), expected)
+
+    def test_save_as_roll_with_no_roll_open_takes_the_no_roll_modes(self):
+        self._dict_repo()
+        from negpy.services.assets import rolls
+
+        repo = self.controller.session.repo
+        self.controller.state.half_frame_loose = True
+        self.controller.state.active_roll_id = None
+        self.controller.state.uploaded_files = [{"path": "/a.nef", "hash": "h1"}]
+
+        roll_id = self.controller.create_roll_from_session("Picks")
+
+        self.assertTrue(self.controller.half_frame_mode_for_roll(roll_id))
+        self.assertNotIn("defaults", rolls.roll_for_id(repo, roll_id))
 
     def test_create_roll_from_session_saves_the_loaded_paths(self):
         self._dict_repo()

@@ -169,14 +169,14 @@ def test_the_negative_row_carries_the_densities_on_hover():
 def test_a_picked_base_is_named_as_such_without_the_reader_caveat():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=(0.22, 0.71, 1.42), base_source="picked")
 
-    assert "Above the film base set on the roll: Dmax 1.42" in rows[0].detail
+    assert "Above the film base set with the Film Base tool: Dmax 1.42" in rows[0].detail
     assert "Film Base tool pins it" not in rows[0].detail
 
 
 def test_a_scan_with_no_base_says_so():
     rows = negative_statistics(1.26, 0.5, 0.0, 0.0, density_above_base=None)
 
-    assert "Dmax, Dmed and Dmin need the roll's film base." in rows[0].detail
+    assert "Dmax, Dmed and Dmin need a film base." in rows[0].detail
 
 
 def test_the_hover_shows_the_detail_under_the_fixed_text(qapp):

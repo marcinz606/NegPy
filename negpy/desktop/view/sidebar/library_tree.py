@@ -32,7 +32,7 @@ from negpy.desktop.view.confirm import (
     warn_invalid_roll_name,
 )
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
-from negpy.desktop.view.keyboard_shortcuts import _close_roll
+from negpy.desktop.view.keyboard_shortcuts import _unload_all, restore_removed_frames
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, labeled_action, wrap_tooltip
 from negpy.desktop.view.widgets.flat_rows import ICON, more_press, more_rect, paint_fill, paint_more, paint_pill, two_line_rects
@@ -46,6 +46,26 @@ from negpy.services.assets.triplets import saved_triplets
 from negpy.services.assets.presets import is_valid_preset_name
 from negpy.services.assets.gear import GearProfiles
 from negpy.features.process.models import ProcessMode
+
+# What Delete loses: the whole roll record. A frame's shared edit is per file and stays; an edit made
+# only in the roll has no other way back. A deleted folder roll's folder is dismissed, so Refresh skips it.
+_DELETE_FOLDER_ROLL = tr(
+    "The files and their shared edits stay. The roll's settings, Roll Analysis baseline, film base, scenes, "
+    "card locks and the edits made only in this roll are lost. Refresh will not add it again."
+)
+_DELETE_SET_ROLL = tr(
+    "The files and their shared edits stay. The roll's list of frames, settings, Roll Analysis baseline, film base, "
+    "scenes, card locks and the edits made only in this roll are lost."
+)
+_DELETE_FOLDER_ROW = tr(
+    "The files and their shared edits stay. Each roll's settings, Roll Analysis baseline, film base, scenes, "
+    "card locks and the edits made only in that roll are lost. Refresh will not add these rolls again."
+)
+_DELETE_SEVERAL = tr(
+    "The files and their shared edits stay. Each roll's settings, Roll Analysis baseline, film base, scenes, "
+    "card locks and the edits made only in that roll are lost. Refresh will not add a deleted folder roll again."
+)
+_DELETE_SEVERAL_SETS = tr("A roll that is a set of frames loses its list of frames too.")
 
 _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
 _MISSING_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -470,20 +490,22 @@ class LibraryTree(QWidget):
         stock_ids = {(entry.get("defaults") or {}).get("film_stock_id") for _roll_id, entry in entries} - {None, ""}
         self._gear = GearProfiles.load_library() if stock_ids else None
         # A folder roll named "a/b/c" sits under folder rows "a" and "a/b", placed where
-        # their first roll falls in the sort.
+        # their first roll falls in the sort. One row can hold rolls from several folders
+        # of one name, so it keeps every folder path under it.
         folders: dict[str, QTreeWidgetItem] = {}
         for roll_id, entry in entries:
             parts = entry.get("name", "").split(rolls.ROLL_PATH_SEP) if entry.get("kind") == "folder" else [entry.get("name", "")]
             parent = self.tree.invisibleRootItem()
             for depth in range(1, len(parts)):
                 key = rolls.ROLL_PATH_SEP.join(parts[:depth])
+                folder_path = entry.get("folder_path", "")
+                for _ in range(len(parts) - depth):
+                    folder_path = os.path.dirname(folder_path)
                 if key not in folders:
-                    folder_path = entry.get("folder_path", "")
-                    for _ in range(len(parts) - depth):
-                        folder_path = os.path.dirname(folder_path)
-                    folders[key] = self._make_folder_item(parts[depth - 1], folder_path)
+                    folders[key] = self._make_folder_item(parts[depth - 1])
                     folders[key].setData(0, _PREFIX_ROLE, key)
                     parent.addChild(folders[key])
+                self._add_folder_path(folders[key], folder_path)
                 parent = folders[key]
             parent.addChild(self._make_item(roll_id, entry, parts[-1]))
         for item in folders.values():
@@ -512,14 +534,31 @@ class LibraryTree(QWidget):
         self.repo.save_global_setting(_COLLAPSED_KEY, sorted(self._collapsed))
 
     @staticmethod
-    def _make_folder_item(name: str, folder_path: str) -> QTreeWidgetItem:
+    def _make_folder_item(name: str) -> QTreeWidgetItem:
         """A folder row: groups rolls, is not a roll itself, so it opens and selects nothing."""
         item = QTreeWidgetItem([name])
         item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        item.setData(0, _FOLDER_ROLE, folder_path)
-        item.setToolTip(0, folder_path)
+        item.setData(0, _FOLDER_ROLE, [])
         item.setIcon(0, qta.icon("mdi6.folder-open-outline", color=THEME.text_secondary))
         return item
+
+    @staticmethod
+    def _add_folder_path(item: QTreeWidgetItem, folder_path: str) -> None:
+        paths = item.data(0, _FOLDER_ROLE)
+        if folder_path and os.path.normcase(os.path.normpath(folder_path)) not in {os.path.normcase(os.path.normpath(p)) for p in paths}:
+            paths = [*paths, folder_path]
+            item.setData(0, _FOLDER_ROLE, paths)
+            item.setToolTip(0, "\n".join(paths))
+
+    def _leaf_roll_ids(self, item: QTreeWidgetItem) -> list[str]:
+        """The rolls shown under *item*: the Library filter hides the others."""
+        ids = []
+        for child in (item.child(i) for i in range(item.childCount())):
+            if child.isHidden():
+                continue
+            roll_id = child.data(0, _ROLL_ID_ROLE)
+            ids.extend(self._leaf_roll_ids(child) if roll_id is None else [roll_id])
+        return ids
 
     def _leaf_count(self, item: QTreeWidgetItem) -> int:
         return sum(
@@ -571,6 +610,9 @@ class LibraryTree(QWidget):
         frames = self._frame_count(roll_id, entry)
         item.setData(0, _FRAMES_ROLE, frames)
         parts = [count_of(frames, "photo")]
+        removed = self.controller.removed_frame_count(roll_id) if entry.get("kind") == "folder" else 0
+        if removed:
+            parts.append(count_of(removed, "removed", "removed"))
         mode = defaults.get("process_mode")
         label, color = _MODES.get(ProcessMode(mode), ("", "")) if mode else ("", "")
         if label:
@@ -608,8 +650,7 @@ class LibraryTree(QWidget):
     def _frame_count(self, roll_id: str, entry: dict) -> int:
         if entry.get("kind") == "folder":
             skip = {os.path.normcase(os.path.normpath(p)) for p in entry.get("excluded_paths") or ()}
-            own = [p for p in folder_image_paths(entry.get("folder_path", "")) if os.path.normcase(os.path.normpath(p)) not in skip]
-            paths = [*own, *(entry.get("extra_paths") or ())]
+            paths = [p for p in folder_image_paths(entry.get("folder_path", "")) if os.path.normcase(os.path.normpath(p)) not in skip]
         else:
             paths = entry.get("member_paths") or ()
         # Discovery re-attaches a remembered triplet in Trichrome Mode only.
@@ -659,7 +700,7 @@ class LibraryTree(QWidget):
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
         if item is not None and item.data(0, _FOLDER_ROLE):
-            menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_folder(item.data(0, _FOLDER_ROLE), item.text(0)))
+            menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_folder(item))
             menu.addSeparator()
         elif item is not None and item.data(0, _ROLL_ID_ROLE) is not None:
             roll_id = item.data(0, _ROLL_ID_ROLE)
@@ -671,14 +712,19 @@ class LibraryTree(QWidget):
                 menu.addAction(tr("Open")).triggered.connect(lambda: self.controller.open_roll(roll_id))
                 is_active = roll_id == self.controller.state.active_roll_id
                 if is_active:
-                    menu.addAction(label_with_shortcut(tr("Close Roll…"), "close_roll")).triggered.connect(
-                        lambda: _close_roll(self, self.controller)
+                    menu.addAction(label_with_shortcut(tr("Unload All…"), "close_roll")).triggered.connect(
+                        lambda: _unload_all(self, self.controller)
                     )
                 analyze_action = menu.addAction(tr("Roll Analysis"))
                 analyze_action.setEnabled(is_active)
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
+                if (rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") == "folder":
+                    restore_action = menu.addAction(label_with_shortcut(tr("Restore Removed Frames…"), "restore_removed_frames"))
+                    restore_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
+                    restore_action.setEnabled(bool(self.controller.removed_frame_count(roll_id)))
+                    restore_action.triggered.connect(lambda: self._restore_removed(roll_id))
                 menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_roll(roll_id, name))
             menu.addSeparator()
         menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
@@ -717,21 +763,32 @@ class LibraryTree(QWidget):
         self.reload()
         self.rolls_changed.emit()
 
+    def _restore_removed(self, roll_id: str) -> None:
+        if restore_removed_frames(self, self.controller, roll_id):
+            self.reload()
+
     def _delete_roll(self, roll_id: str, name: str) -> None:
-        if confirm_delete_named(self, tr("Roll"), name, informative=tr("This only forgets the roll. Nothing on disk changes.")):
+        is_folder = (rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") == "folder"
+        if confirm_delete_named(self, tr("Roll"), name, informative=_DELETE_FOLDER_ROLL if is_folder else _DELETE_SET_ROLL):
             rolls.delete_roll(self.repo, roll_id)
             self.reload()
             self.rolls_changed.emit()
 
-    def _delete_folder(self, folder_path: str, name: str) -> None:
-        if confirm_delete_named(self, tr("Folder"), name, informative=tr("This forgets every roll in it. Nothing on disk changes.")):
-            rolls.delete_folder_rolls(self.repo, folder_path)
+    def _delete_folder(self, item: QTreeWidgetItem) -> None:
+        """Forget the rolls the row shows, not every roll under its folders: a roll opened
+        on its own, or one the filter hides, can sit in one of them."""
+        if confirm_delete_named(self, tr("Folder"), item.text(0), informative=_DELETE_FOLDER_ROW):
+            for roll_id in self._leaf_roll_ids(item):
+                rolls.delete_roll(self.repo, roll_id)
+            rolls.forget_import_sources(self.repo, item.data(0, _FOLDER_ROLE))
             self.reload()
             self.rolls_changed.emit()
 
     def _delete_rolls(self, selection: list[tuple]) -> None:
         names = [name for _roll_id, name in selection]
-        if confirm_delete_several(self, tr("Rolls"), names, informative=tr("This only forgets the roll records. Nothing on disk changes.")):
+        sets = any((rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") != "folder" for roll_id, _name in selection)
+        informative = f"{_DELETE_SEVERAL} {_DELETE_SEVERAL_SETS}" if sets else _DELETE_SEVERAL
+        if confirm_delete_several(self, tr("Rolls"), names, informative=informative):
             for roll_id, _name in selection:
                 rolls.delete_roll(self.repo, roll_id)
             self.reload()

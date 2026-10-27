@@ -97,7 +97,7 @@ class TestDropEvent(unittest.TestCase):
 
         MainWindow.dropEvent(stub, event)
 
-        stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True)
+        stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True, user_add=True)
 
 
 class TestBatchStartedPopupSuppression(unittest.TestCase):

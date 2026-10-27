@@ -227,18 +227,29 @@ def test_half_frame_follows_the_active_rolls_state_without_retoggling(half_frame
     controller.set_half_frame_mode.assert_not_called()
 
 
-def test_half_frame_card_is_dead_without_one_roll(half_frame):
-    """A batch with no single active roll (a library-wide search's mixed results) has no
-    roll-wide toggle to apply -- nothing in it splits."""
+def test_half_frame_card_is_live_for_loose_frames_with_no_roll(half_frame, monkeypatch):
+    """With no roll open, frames in no roll take this session's Half Frame."""
     sidebar, controller = half_frame
     controller.state.active_roll_id = None
+    monkeypatch.setattr("negpy.desktop.view.sidebar.half_frame.rolls.rolls_containing_path", lambda repo, path: [])
 
     sidebar.sync_ui()
 
-    assert sidebar.enable_btn.isEnabled() is False
-    assert sidebar.adjust_btn.isEnabled() is False
-    assert sidebar.auto_btn.isEnabled() is False
-    assert "roll-wide setting" in sidebar.hint.text()
+    assert sidebar.enable_btn.isEnabled() and sidebar.adjust_btn.isEnabled() and sidebar.auto_btn.isEnabled()
+    assert sidebar.hint.text() == "" and sidebar.hint.isHidden()
+
+
+def test_half_frame_card_grays_when_a_loaded_frame_follows_its_roll(half_frame, monkeypatch):
+    """A search result from a roll splits by that roll's toggle, which this one cannot change."""
+    sidebar, controller = half_frame
+    controller.state.active_roll_id = None
+    monkeypatch.setattr("negpy.desktop.view.sidebar.half_frame.rolls.rolls_containing_path", lambda repo, path: ["r2"])
+
+    sidebar.sync_ui()
+
+    assert not sidebar.enable_btn.isEnabled() and not sidebar.adjust_btn.isEnabled() and not sidebar.auto_btn.isEnabled()
+    assert sidebar.hint.text() == "Each of these frames follows its own roll's Half Frame. Open the roll to change it."
+    assert not sidebar.hint.isHidden()
 
 
 def test_half_frame_card_is_live_with_an_active_roll(half_frame):
@@ -248,7 +259,7 @@ def test_half_frame_card_is_live_with_an_active_roll(half_frame):
 
     assert sidebar.enable_btn.isEnabled() is True
     assert sidebar.adjust_btn.isEnabled() is True
-    assert sidebar.hint.text() == ""
+    assert sidebar.hint.text() == "" and sidebar.hint.isHidden()
 
 
 def test_unsplit_is_enabled_only_for_a_diptych(half_frame):
@@ -296,3 +307,17 @@ def test_adjust_does_nothing_without_a_frame(half_frame):
     sidebar._on_adjust()
 
     controller.open_half_frame_dialog.assert_not_called()
+
+
+def test_half_frame_graying_follows_a_roll_made_over_the_loaded_files(half_frame, monkeypatch):
+    sidebar, controller = half_frame
+    controller.state.active_roll_id = None
+    store: dict = {}
+    monkeypatch.setattr("negpy.desktop.view.sidebar.half_frame.rolls.saved_rolls", lambda repo: dict(store))
+    monkeypatch.setattr("negpy.desktop.view.sidebar.half_frame.rolls.rolls_containing_path", lambda repo, path: list(store))
+    sidebar.sync_ui()
+    assert sidebar.enable_btn.isEnabled()
+
+    store["r9"] = {"kind": "folder", "folder_path": "/tmp"}
+    sidebar.sync_ui()
+    assert not sidebar.enable_btn.isEnabled()

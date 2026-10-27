@@ -288,6 +288,9 @@ class AssetDiscoveryTask:
     rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
     restore_triplets: dict | None = None  # {red_path: [green, blue, align, hashes?]}
     half_frame: bool = False  # Split each file into two half-frame assets.
+    # Without a roll the choice is per request path (a file, or a folder for every file in it),
+    # in os.path.normcase(os.path.normpath()) form; half_frame=True splits every file instead.
+    half_frame_paths: frozenset = frozenset()
     restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
     restore_hdr: dict | None = None  # {reference_path: {paths, ratios, align, hash}} (session restore).
     half_frame_profile: dict | None = None  # {crop_rect, split_x, gutter_thickness, split_axis} override
@@ -893,7 +896,9 @@ class AssetDiscoveryWorker(QObject):
         from negpy.services.assets.migrations.hash import blank_ambiguous_legacy_hashes
 
         discovered_paths = []
+        split_paths = set()
         for path in task.paths:
+            split = task.half_frame or os.path.normcase(os.path.normpath(path)) in task.half_frame_paths
             try:
                 if os.path.isdir(path):
                     for f in os.listdir(path):
@@ -905,9 +910,13 @@ class AssetDiscoveryWorker(QObject):
                             and os.path.normcase(os.path.normpath(found)) not in task.skip_paths
                         ):
                             discovered_paths.append(found)
+                            if split:
+                                split_paths.add(found)
                 else:
                     if not is_hidden_path(path) and path.lower().endswith(task.supported_extensions):
                         discovered_paths.append(path)
+                        if split:
+                            split_paths.add(path)
             except Exception as e:
                 logger.error(f"Discovery error for {path}: {e}")
         # Half-frame re-discovery passes both halves' identical paths, so hash once.
@@ -944,8 +953,12 @@ class AssetDiscoveryWorker(QObject):
         if task.restore_hdr and valid_assets:
             valid_assets = self._attach_restored_hdr(valid_assets, task.restore_hdr)
 
-        if task.half_frame and valid_assets:
-            valid_assets = self._expand_half_frames(valid_assets, profile=task.half_frame_profile, overrides=task.half_frame_overrides)
+        if split_paths and valid_assets:
+            to_split = [a for a in valid_assets if a["path"] in split_paths]
+            halves: dict = {}
+            for half in self._expand_half_frames(to_split, profile=task.half_frame_profile, overrides=task.half_frame_overrides):
+                halves.setdefault(half["path"], []).append(half)
+            valid_assets = [h for a in valid_assets for h in (halves.get(a["path"]) or [a] if a["path"] in split_paths else [a])]
 
         self.finished.emit(valid_assets)
 

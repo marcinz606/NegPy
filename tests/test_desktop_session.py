@@ -53,6 +53,21 @@ class TestDesktopSessionSync(unittest.TestCase):
         # A scoped apply reads the visible set, which a real load always builds.
         self.session.asset_model.refresh()
 
+    def test_a_frame_in_no_roll_drops_an_average_nothing_saved_backs(self):
+        """With no roll there is no roll baseline: carried or saved averages go off unless a baseline backs them."""
+        base = WorkspaceConfig()
+        averages = replace(base.process, use_luma_average=True, use_color_average=True, use_cast_average=True)
+        unbacked = replace(base, process=averages)
+        backed = replace(
+            base, process=replace(averages, locked_floors=(-1.0, -1.0, -1.0), locked_neutral_axis=((0.1, 0.1, 0.1), (0.2, 0.2, 0.2), None))
+        )
+        self.session.state.active_roll_id = None
+        asset = {"name": "a.tif", "path": "/loose/a.tif", "hash": "h9"}
+        for saved, expected in ((unbacked, (False, False, False)), (backed, (True, True, True))):
+            with self.subTest(backed=saved is backed), patch("negpy.desktop.session.load_or_promote", return_value=saved):
+                proc = self.session.config_for_asset(asset).process
+                self.assertEqual((proc.use_luma_average, proc.use_color_average, proc.use_cast_average), expected)
+
     def test_found_scenes_mark_their_frames_after_the_scenes_and_drop_with_their_roll(self):
         from negpy.services.assets import rolls
 
@@ -1644,6 +1659,13 @@ class TestDesktopSessionSync(unittest.TestCase):
         paths, active = self._last_session_manifest()
         self.assertEqual(paths, ["path1", "path2"])
         self.assertEqual(active, "path2")
+
+    def test_the_manifest_records_the_open_roll(self):
+        for roll_id, saved in (("roll1", "roll1"), (None, "")):
+            self.session.state.active_roll_id = roll_id
+            self.session.persist_session()
+            last = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}
+            self.assertEqual(last["session_active_roll"], saved)
 
     def test_active_file_changing_snapshots_outgoing_when_dirty(self):
         # Fires before state mutates to the new file, carrying the outgoing identity.

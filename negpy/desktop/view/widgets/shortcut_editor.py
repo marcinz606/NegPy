@@ -349,6 +349,7 @@ class ShortcutEditorDialog(QDialog):
         spin.setMinimum(10**-group.step_decimals)
         spin.setMaximum(10_000.0)
         spin.setSingleStep(group.default_step)
+        spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         if group.step_suffix:
             spin.setSuffix(group.step_suffix)
         spin.setValue(self._initial_slider_steps.get(group.id, group.default_step))

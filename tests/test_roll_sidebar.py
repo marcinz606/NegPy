@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.roll import STALE_ROLL_HINT, STALE_SCENE_TOOLTIP, RollAnalysisSidebar
+from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets import rolls
@@ -46,9 +47,10 @@ def test_picker_owns_its_batch_analysis_subheader(qapp):
     body -- everything else in that card (Analysis Buffer, clip sliders, White/Black
     Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
-    assert sidebar.layout.itemAt(0).layout().itemAt(0).widget().text() == "ROLLS"
-    assert sidebar.layout.itemAt(1).widget().text() == "Roll Analysis first crops the frames that wait for Auto Crop."
-    assert sidebar.layout.itemAt(2).widget() is sidebar.roll_combo
+    body = sidebar.body.layout()
+    assert body.itemAt(0).layout().itemAt(0).widget().text() == "ROLLS"
+    assert body.itemAt(1).widget().text() == "Roll Analysis first crops the frames that wait for Auto Crop."
+    assert body.itemAt(2).widget() is sidebar.roll_combo
 
 
 def test_picker_defaults_to_the_active_roll_and_lists_every_library_roll(qapp):
@@ -103,7 +105,7 @@ def test_use_this_frame_is_gated_the_same_way_reanalyze_is(qapp):
 def test_the_baseline_buttons_sit_on_the_rolls_header(qapp):
     _, sidebar, _ids = _sidebar()
 
-    row = sidebar.layout.itemAt(0).layout()
+    row = sidebar.body.layout().itemAt(0).layout()
     widgets = [row.itemAt(i).widget() for i in range(row.count())]
     assert widgets[1:] == [sidebar.reanalyze_btn, sidebar.from_frame_btn]
     assert widgets[0].text() == "ROLLS"
@@ -158,6 +160,32 @@ def test_sync_ui_selects_the_config_roll_name_when_it_still_exists(qapp):
     controller.state.config = replace(cfg, process=replace(cfg.process, roll_name="Tri-X"))
     sidebar.sync_ui()
     assert sidebar.roll_combo.selected_id() == ids["Tri-X"]
+
+
+def test_sync_ui_selects_the_baseline_roll_by_id_when_two_rolls_share_its_name(qapp):
+    controller, sidebar, _ids = _sidebar(roll_names=["Roll99", "Portra 400"], active_name="Portra 400")
+    second = rolls.create_virtual_roll(controller.session.repo, "Roll99", [])
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, roll_name="Roll99", baseline_source=f"roll:{second}"))
+    sidebar.sync_ui()
+    assert sidebar.roll_combo.selected_id() == second
+
+
+def test_sync_ui_follows_the_baseline_roll_after_it_is_renamed(qapp):
+    controller, sidebar, ids = _sidebar(roll_names=["Tri-X", "Portra 400"], active_name="Portra 400")
+    rolls.rename_roll(controller.session.repo, ids["Tri-X"], "Tri-X 2026")
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, roll_name="Tri-X", baseline_source=f"roll:{ids['Tri-X']}"))
+    sidebar.sync_ui()
+    assert sidebar.roll_combo.selected_id() == ids["Tri-X"]
+
+
+def test_sync_ui_falls_back_to_the_active_roll_when_the_baseline_roll_is_deleted(qapp):
+    controller, sidebar, ids = _sidebar(roll_names=["Tri-X", "Portra 400"], active_name="Portra 400")
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, roll_name="Tri-X", baseline_source="roll:gone"))
+    sidebar.sync_ui()
+    assert sidebar.roll_combo.selected_id() == ids["Portra 400"]
 
 
 def test_sync_ui_falls_back_to_the_active_roll_when_the_saved_name_is_gone(qapp):
@@ -330,3 +358,17 @@ def test_detect_scenes_sits_on_the_scenes_header(qapp):
     controller, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
     sidebar.detect_scenes_btn.click()
     controller.request_detect_scenes.assert_called_once()
+
+
+def test_without_a_roll_the_panel_grays_under_one_hint(qapp):
+    controller, sidebar, ids = _sidebar(roll_names=["Portra 400"])
+    sidebar.sync_ui()
+    assert not sidebar.no_roll_hint.isHidden()
+    assert sidebar.no_roll_hint.text() == "Open or save a roll to use Roll Analysis."
+    assert not sidebar.body.isEnabled()
+    assert sidebar.reanalyze_btn.toolTip() == wrap_tooltip("Open or save a roll to use Roll Analysis.")
+
+    controller.state.active_roll_id = ids["Portra 400"]
+    sidebar.sync_ui()
+    assert sidebar.no_roll_hint.isHidden()
+    assert sidebar.body.isEnabled()

@@ -22,11 +22,12 @@ _COMMENT_PREFIX = "negpy-thumb:"
 # Sections that never reach the pixels; every other section counts as shaping the thumbnail.
 NON_PIXEL_SECTIONS = frozenset({"metadata", "export"})
 
-# Fields left out of a hashed section: export-only, labels, detail too fine for a thumbnail, and the
-# meter rect, which the source and geometry decide and whose effect lands in the stored bounds.
+# Fields left out of a hashed section: export-only, labels, detail too fine for a thumbnail, the
+# meter rect, which the source and geometry decide and whose effect lands in the stored bounds,
+# and a frame's picked film base, which only the preview's readouts use.
 _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
     "process": frozenset(
-        {"demosaic_export", "roll_name", "baseline_source", "demosaic_preview", "crosstalk_profile", "meter_rect", "meter_key"}
+        {"demosaic_export", "roll_name", "baseline_source", "demosaic_preview", "crosstalk_profile", "meter_rect", "meter_key", "film_base"}
     ),
     "lab": frozenset({"sharpen", "sharpen_method", "sharpen_radius", "sharpen_masking", "sharpen_auto_masking", "chroma_denoise"}),
 }

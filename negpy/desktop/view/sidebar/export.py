@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.controller import ROLL_ANALYSIS_NEEDS_A_ROLL
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
     field_label,
@@ -45,6 +46,9 @@ from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 # The built-in baseline in the proof-preset combo. Empty rather than None so a saved preset
 # can never collide with it: a name is required and cannot be blank.
 _PROOF_PRESET_NONE = ""
+
+
+_FLAT_ROLL_WARNING = tr("For consistent masters across a roll, lock one baseline for every frame.")
 
 
 class ExportSidebar(BaseSidebar):
@@ -354,7 +358,7 @@ class ExportSidebar(BaseSidebar):
         # Roll-consistency nudge: a flat master is identical across frames only once the roll
         # shares one normalization baseline (locked bounds). Until then, per-frame auto bounds
         # make each frame's tones drift.
-        self.flat_roll_warning = hint_label(tr("For consistent masters across a roll, lock one baseline for every frame."), kind="warning")
+        self.flat_roll_warning = hint_label(_FLAT_ROLL_WARNING, kind="warning")
         box.addWidget(self.flat_roll_warning)
 
         self.linear_hint_label = hint_label(
@@ -532,8 +536,11 @@ class ExportSidebar(BaseSidebar):
         # Flat-master roll consistency needs both axes baselined across the roll.
         locked = proc.use_luma_average and proc.use_color_average and proc.is_locked_initialized
         show = on and not locked
+        has_roll = bool(self.controller.state.active_roll_id)
+        self.flat_roll_warning.setText(_FLAT_ROLL_WARNING if has_roll else ROLL_ANALYSIS_NEEDS_A_ROLL)
         self.flat_roll_warning.setVisible(show)
         self.flat_bake_btn.setVisible(show)
+        self.flat_bake_btn.setEnabled(has_roll)
 
     def _state_intent(self) -> int:
         """Print 0, Flat 1, Linear 2, from the session; Linear wins over Flat."""

@@ -40,11 +40,11 @@ _LOG10_2 = 0.30103  # one stop in log10-density
 
 
 _NO_BASE = (
-    "Dmax, Dmed and Dmin need the roll's film base. Click the clear rebate with the Film Base tool on the "
+    "Dmax, Dmed and Dmin need a film base. Click the clear rebate with the Film Base tool on the "
     "Metering card; without one, the base is read from the rebate when the scan shows a film edge."
 )
 _SOURCE = {
-    "picked": "Above the film base set on the roll",
+    "picked": "Above the film base set with the Film Base tool",
     "read": "Above the clear base read from the rebate",
 }
 _READ_CAVEAT = " The rebate reader can take bare light or a neighbor frame for the base; the Film Base tool pins it."

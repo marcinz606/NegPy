@@ -143,6 +143,10 @@ class ProcessConfig:
     # an auto crop.
     meter_rect: Optional[tuple] = None
     meter_key: str = ""
+    # The clear film base picked on this frame with no roll open, as per-channel raw log10
+    # transmittance; a roll's picked base (rolls.roll_film_base) wins inside that roll. Only the
+    # preview's base readouts use it.
+    film_base: Optional[tuple] = None
     # Two normalization clip axes: luma sets the black/white-point span, color sets
     # the per-channel balance clip (orange-mask cast removal).
     luma_range_clip: float = 0.0
@@ -230,6 +234,8 @@ class ProcessConfig:
             object.__setattr__(self, "analysis_rect", tuple(self.analysis_rect))
         if self.meter_rect is not None:
             object.__setattr__(self, "meter_rect", tuple(self.meter_rect))
+        if self.film_base is not None:
+            object.__setattr__(self, "film_base", tuple(float(v) for v in self.film_base))
 
     @property
     def is_local_initialized(self) -> bool:

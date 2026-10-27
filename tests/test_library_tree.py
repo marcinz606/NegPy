@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.rolls import create_virtual_roll, delete_roll, recognize_folder, roll_for_id
+from negpy.services.assets.rolls import create_virtual_roll, delete_roll, recognize_folder, roll_for_id, saved_rolls
 
 
 @pytest.fixture
@@ -27,6 +27,7 @@ def _make(tmp_path) -> LibraryTree:
     repo.initialize()
     controller = MagicMock()
     controller.session.repo = repo
+    controller.removed_frame_count.return_value = 0
     return LibraryTree(controller)
 
 
@@ -153,7 +154,7 @@ def test_a_collapsed_folder_stays_collapsed_in_the_next_session(qapp, tmp_path, 
     recognize_folder(widget.repo, str(tree_dirs / "roll_b"), name="scans/roll_b")
     widget.reload()
     folder = widget.tree.topLevelItem(0)
-    assert folder.data(0, _FOLDER_ROLE) == str(tree_dirs)
+    assert folder.data(0, _FOLDER_ROLE) == [str(tree_dirs)]
     assert folder.isExpanded()
 
     folder.setExpanded(False)
@@ -262,6 +263,43 @@ def test_the_filter_box_hides_the_rolls_it_rules_out(widget, tree_dirs):
     assert widget.tally_label.text() == "1 of 2 rolls"
     widget.filter_input.clear()
     assert not folder.isHidden() and widget.tally_label.text().startswith("2 rolls")
+
+
+def test_a_folder_roll_row_counts_its_removed_frames_and_the_filter_finds_them(widget, tree_dirs):
+    a = recognize_folder(widget.repo, str(tree_dirs / "roll_a"), name="A")
+    recognize_folder(widget.repo, str(tree_dirs / "roll_b"), name="B")
+    widget.controller.removed_frame_count.side_effect = lambda roll_id: 3 if roll_id == a else 0
+    widget.reload()
+
+    rows = {widget.tree.topLevelItem(i).text(0): widget.tree.topLevelItem(i) for i in range(2)}
+    assert rows["A"].data(0, _DETAIL_ROLE).split(" · ")[1] == "3 removed"
+    assert "removed" not in rows["B"].data(0, _DETAIL_ROLE)
+    widget.filter_input.setText("removed")
+    assert not rows["A"].isHidden() and rows["B"].isHidden()
+
+
+@pytest.mark.parametrize(("kind", "removed"), [("folder", 2), ("folder", 0), ("virtual", 0)])
+def test_a_folder_roll_offers_restore_removed_frames(widget, tree_dirs, monkeypatch, kind, removed):
+    roll_id = recognize_folder(widget.repo, str(tree_dirs / "roll_a")) if kind == "folder" else create_virtual_roll(widget.repo, "V", [])
+    widget.controller.removed_frame_count.return_value = removed
+    widget.reload()
+    item = widget.tree.topLevelItem(0)
+    monkeypatch.setattr(widget.tree, "itemAt", lambda pos: item)
+    actions = _menu_with_distinct_actions(monkeypatch)
+
+    widget._show_context_menu(QPoint(0, 0))
+
+    restore = [label for label in actions if label.startswith("Restore Removed Frames…")]
+    if kind == "virtual":
+        assert restore == []
+        return
+    actions[restore[0]].setEnabled.assert_called_once_with(bool(removed))
+    with monkeypatch.context() as m:
+        m.setattr("negpy.desktop.view.sidebar.library_tree.restore_removed_frames", lambda w, c, r: r == roll_id)
+        reload = MagicMock()
+        m.setattr(widget, "reload", reload)
+        actions[restore[0]].triggered.connect.call_args.args[0]()
+    reload.assert_called_once()
 
 
 # --- sorting ----------------------------------------------------------------
@@ -446,6 +484,22 @@ def test_right_click_on_the_loaded_roll_offers_an_enabled_analyze_action(widget,
     widget._show_context_menu(QPoint(0, 0))
 
     actions["Roll Analysis"].setEnabled.assert_called_once_with(True)
+
+
+@pytest.mark.parametrize("open_roll", [True, False])
+def test_only_the_open_roll_offers_unload_all(widget, monkeypatch, open_roll):
+    roll_id = create_virtual_roll(widget.repo, "Portra", [])
+    widget.controller.state.active_roll_id = roll_id if open_roll else "some-other-roll"
+    widget.reload()
+    item = widget.tree.topLevelItem(0)
+    monkeypatch.setattr(widget.tree, "itemAt", lambda pos: item)
+    actions = _menu_with_distinct_actions(monkeypatch)
+
+    widget._show_context_menu(QPoint(0, 0))
+
+    assert [label.split("\t")[0] for label in actions if label.startswith(("Unload All", "Close Roll"))] == (
+        ["Unload All…"] if open_roll else []
+    )
 
 
 def test_right_click_on_a_different_roll_offers_a_disabled_analyze_action(widget, monkeypatch):
@@ -888,9 +942,83 @@ def test_deleting_a_folder_row_forgets_every_roll_under_it(widget, tree_dirs, mo
     create_virtual_roll(widget.repo, "portra", [])
     widget.reload()
     folder = widget.tree.topLevelItem(_names(widget).index("scans"))
-    assert folder.data(0, _FOLDER_ROLE) == str(tree_dirs)
+    assert folder.data(0, _FOLDER_ROLE) == [str(tree_dirs)]
     monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
 
-    widget._delete_folder(str(tree_dirs), "scans")
+    widget._delete_folder(folder)
 
     assert _names(widget) == ["portra"]
+
+
+def test_a_folder_row_shared_by_two_folders_deletes_the_rolls_of_both(widget, tmp_path, monkeypatch):
+    for parent in ("a", "b"):
+        (tmp_path / parent / "scans" / f"roll_{parent}").mkdir(parents=True)
+    recognize_folder(widget.repo, str(tmp_path / "a" / "scans" / "roll_a"), name="scans/roll_a")
+    recognize_folder(widget.repo, str(tmp_path / "b" / "scans" / "roll_b"), name="scans/roll_b")
+    create_virtual_roll(widget.repo, "portra", [])
+    widget.reload()
+    folder = widget.tree.topLevelItem(_names(widget).index("scans"))
+    paths = sorted(folder.data(0, _FOLDER_ROLE))
+    assert paths == [str(tmp_path / "a" / "scans"), str(tmp_path / "b" / "scans")]
+    assert folder.toolTip(0).split("\n") == folder.data(0, _FOLDER_ROLE)
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
+
+    widget._delete_folder(folder)
+
+    assert _names(widget) == ["portra"]
+
+
+def test_deleting_a_folder_row_keeps_the_rolls_the_filter_hides(widget, tmp_path, monkeypatch):
+    for name in ("2023-01", "2024-01"):
+        (tmp_path / "scans" / name).mkdir(parents=True)
+        recognize_folder(widget.repo, str(tmp_path / "scans" / name), name=f"scans/{name}")
+    widget.repo.save_global_setting("roll_import_sources", [str(tmp_path / "scans")])
+    widget.reload()
+    widget.filter_input.setText("2024")
+    widget._apply_filter()
+    folder = widget.tree.topLevelItem(0)
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
+
+    widget._delete_folder(folder)
+
+    assert [entry["name"] for entry in saved_rolls(widget.repo).values()] == ["scans/2023-01"]
+    assert widget.repo.get_global_setting("roll_import_sources") == [str(tmp_path / "scans")]
+
+
+def test_deleting_a_folder_row_keeps_a_roll_shown_outside_it(widget, tmp_path, monkeypatch):
+    (tmp_path / "y" / "a" / "roll").mkdir(parents=True)
+    recognize_folder(widget.repo, str(tmp_path / "y" / "a" / "roll"), name="a/roll")
+    recognize_folder(widget.repo, str(tmp_path / "y" / "a"))
+    widget.reload()
+    assert _names(widget) == ["a", "a"]
+    folder = next(item for item in (widget.tree.topLevelItem(i) for i in range(2)) if item.childCount())
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
+
+    widget._delete_folder(folder)
+
+    assert _names(widget) == ["a"]
+    assert widget.tree.topLevelItem(0).childCount() == 0
+
+
+def test_delete_says_what_the_roll_loses_by_kind(widget, tmp_path, monkeypatch):
+    (tmp_path / "scans" / "roll_a").mkdir(parents=True)
+    folder_id = recognize_folder(widget.repo, str(tmp_path / "scans" / "roll_a"), name="scans/roll_a")
+    set_id = create_virtual_roll(widget.repo, "Picks", [])
+    said: list = []
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: said.append(k["informative"]))
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_several", lambda *a, **k: said.append(k["informative"]))
+    widget.reload()
+
+    widget._delete_roll(folder_id, "roll_a")
+    widget._delete_roll(set_id, "Picks")
+    widget._delete_folder(
+        next(widget.tree.topLevelItem(i) for i in range(widget.tree.topLevelItemCount()) if widget.tree.topLevelItem(i).childCount())
+    )
+    widget._delete_rolls([(folder_id, "roll_a")])
+    widget._delete_rolls([(folder_id, "roll_a"), (set_id, "Picks")])
+
+    shared = "The files and their shared edits stay."
+    assert all(text.startswith(shared) and "film base" in text and "edits made only in" in text for text in said)
+    assert "Refresh will not add it again." in said[0] and "list of frames" in said[1] and "Refresh" not in said[1]
+    assert "Refresh will not add these rolls again." in said[2]
+    assert "set of frames" not in said[3] and said[4].endswith("A roll that is a set of frames loses its list of frames too.")

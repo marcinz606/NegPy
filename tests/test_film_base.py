@@ -142,3 +142,105 @@ def test_the_tool_is_registered():
 
     assert "film_base" in REGISTRY
     assert any(not isinstance(spec, str) and spec[0] is ToolMode.FILM_BASE for spec in _CANVAS_TOOLS)
+
+
+def _controller(repo, *, roll_id=None, own=None):
+    """A controller over *repo* whose frame /tmp/roll-a/1.tif carries *own* as its picked base."""
+    from dataclasses import replace
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.controller import AppController
+    from negpy.desktop.session import AppState
+
+    ctrl = AppController.__new__(AppController)
+    ctrl.session = MagicMock()
+    ctrl.session.repo = repo
+    ctrl.state = AppState()
+    ctrl.state.active_roll_id = roll_id
+    ctrl.state.uploaded_files = [{"path": "/tmp/roll-a/1.tif", "hash": "h1"}]
+    ctrl.state.selected_file_idx = 0
+    ctrl.state.config = replace(ctrl.state.config, process=replace(ctrl.state.config.process, film_base=own))
+    ctrl.set_status = MagicMock()
+    ctrl.set_active_tool = MagicMock()
+    ctrl.tool_sync_requested = MagicMock()
+    ctrl.request_render = MagicMock()
+    ctrl.apply_config = lambda config, **_k: setattr(ctrl.state, "config", config)
+    return ctrl
+
+
+ROLL_BASE = (-0.33, -0.32, -0.31)
+OWN_BASE = (-0.21, -0.2, -0.19)
+
+
+def test_an_open_rolls_base_wins_and_a_loose_frames_own_base_wins():
+    repo, roll_id = _repo_with_roll()
+    rolls.set_roll_film_base(repo, roll_id, ROLL_BASE)
+    assert _controller(repo, roll_id=roll_id, own=OWN_BASE).film_base() == ROLL_BASE
+    # No roll open: the frame's own base, else its library roll's (a search result).
+    assert _controller(repo, own=OWN_BASE).film_base() == OWN_BASE
+    assert _controller(repo).film_base() == ROLL_BASE
+    rolls.set_roll_film_base(repo, roll_id, None)
+    assert _controller(repo, roll_id=roll_id, own=OWN_BASE).film_base() == OWN_BASE
+
+
+def _pick(ctrl):
+    from unittest.mock import MagicMock
+
+    bounds = LogNegativeBounds(floors=(-1.0, -1.0, -1.0), ceils=(0.0, 0.0, 0.0))
+    ctrl.state.last_metrics = {"final_bounds": bounds}
+    ctrl._sample_normalized_patch = MagicMock(return_value=[(0.7, 0.7, 0.7)] * 9)
+    ctrl._handle_film_base_pick(0.5, 0.5)
+
+
+def test_a_pick_with_no_roll_open_sets_the_frames_own_base():
+    repo, roll_id = _repo_with_roll()
+    ctrl = _controller(repo)
+    _pick(ctrl)
+    assert ctrl.state.config.process.film_base is not None
+    assert rolls.roll_film_base(repo, roll_id) is None
+    ctrl.set_status.assert_called_once_with("Film base set for this frame", 3000)
+
+
+def test_a_pick_in_an_open_roll_sets_the_rolls_base():
+    repo, roll_id = _repo_with_roll()
+    ctrl = _controller(repo, roll_id=roll_id)
+    _pick(ctrl)
+    assert rolls.roll_film_base(repo, roll_id) is not None
+    assert ctrl.state.config.process.film_base is None
+
+
+def test_clear_forgets_the_base_in_use():
+    repo, roll_id = _repo_with_roll()
+    rolls.set_roll_film_base(repo, roll_id, ROLL_BASE)
+    ctrl = _controller(repo, own=OWN_BASE)
+    ctrl.clear_film_base()
+    assert ctrl.state.config.process.film_base is None and rolls.roll_film_base(repo, roll_id) == ROLL_BASE
+
+    ctrl = _controller(repo, roll_id=roll_id, own=OWN_BASE)
+    ctrl.clear_film_base()
+    assert rolls.roll_film_base(repo, roll_id) is None and ctrl.state.config.process.film_base == OWN_BASE
+
+
+def test_a_frames_own_base_round_trips_and_leaves_thumbnails_alone():
+    from dataclasses import replace
+
+    from negpy.services.assets.thumbnail_fingerprint import thumbnail_fingerprint
+
+    config = WorkspaceConfig()
+    picked = replace(config, process=replace(config.process, film_base=OWN_BASE))
+    assert WorkspaceConfig.from_flat_dict(picked.to_dict()).process.film_base == OWN_BASE
+
+    def fingerprint(c):
+        return thumbnail_fingerprint(c, workspace_color_space="Adobe RGB", input_icc_path=None)
+
+    assert fingerprint(picked) == fingerprint(config)
+
+
+def test_with_no_roll_open_clear_leaves_the_library_rolls_base_alone():
+    repo, roll_id = _repo_with_roll()
+    rolls.set_roll_film_base(repo, roll_id, ROLL_BASE)
+    ctrl = _controller(repo)
+    assert ctrl.film_base() == ROLL_BASE and not ctrl.clearable_film_base()
+    ctrl.clear_film_base()
+    assert rolls.roll_film_base(repo, roll_id) == ROLL_BASE
+    assert _controller(repo, roll_id=roll_id).clearable_film_base()
