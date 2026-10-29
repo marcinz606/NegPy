@@ -1,20 +1,17 @@
-from negpy.kernel.system.i18n import tr
-import qtawesome as qta
-from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QTimer
-from PyQt6.QtWidgets import QLabel, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
+from PyQt6.QtWidgets import QWidget
 
-from negpy.desktop.view.styles.templates import toast_qss
 from negpy.desktop.view.styles.theme import THEME
 
 
 class LoadingOverlay(QWidget):
     """
-    Translucent scrim with a centred spinner, shown over the canvas while a file loads.
-    Keeps the previous frame visible (dimmed) instead of blanking the canvas.
+    Translucent scrim over the canvas while a file loads. Keeps the previous frame visible
+    (dimmed) instead of blanking the canvas; the canvas strip carries the words.
     """
 
-    # Backstop so the spinner can never get stuck if no render/error arrives.
-    _MAX_VISIBLE_MS = 8000
+    # Backstop so the scrim can never get stuck if no render/error arrives.
+    MAX_VISIBLE_MS = 8000
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -22,25 +19,8 @@ class LoadingOverlay(QWidget):
         # Integer alpha: QSS float alpha is not reliably parsed across Qt versions.
         self.setStyleSheet(f"background-color: {THEME.surface_scrim};")
 
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-
-        self._spinner = QToolButton()
-        self._spinner.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._spinner.setStyleSheet("QToolButton { border: none; background: transparent; }")
-        self._spin = qta.Spin(self._spinner, interval=12, step=12)
-        self._spinner.setIcon(qta.icon("fa5s.circle-notch", color=THEME.text_primary, animation=self._spin))
-        self._spinner.setIconSize(QSize(52, 52))
-        layout.addWidget(self._spinner, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self._label = QLabel(tr("Processing…"))
-        self._label.setStyleSheet(toast_qss())
-        layout.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignHCenter)
-
         # Track the canvas size ourselves. Relying on the main window's resizeEvent leaves the
-        # overlay at its default (0,0) sizeHint rect until the first window resize, and the
-        # spinner then huddles in the top-left corner.
+        # overlay at its default (0,0) sizeHint rect until the first window resize.
         parent.installEventFilter(self)
 
         self._timeout = QTimer(self)
@@ -58,7 +38,7 @@ class LoadingOverlay(QWidget):
         self.setGeometry(self.parent().rect())
         self.show()
         self.raise_()
-        self._timeout.start(self._MAX_VISIBLE_MS)
+        self._timeout.start(self.MAX_VISIBLE_MS)
 
     def stop(self) -> None:
         self._timeout.stop()

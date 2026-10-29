@@ -11,6 +11,7 @@ from negpy.features.lab.logic import (
     auto_masking,
 )
 from negpy.features.lab.models import LabConfig
+from negpy.features.process.models import ProcessMode
 
 
 class PhotoLabProcessor:
@@ -36,6 +37,11 @@ class PhotoLabProcessor:
             img = apply_lab_sharpening(img, self.config, auto)
 
         if self.config.glow_amount > 0 or self.config.halation_strength > 0:
-            img = apply_glow_and_halation(img, self.config.glow_amount, self.config.halation_strength, context.scale_factor)
+            img = apply_glow_and_halation(
+                img,
+                self.config.glow_amount,
+                self.config.halation_strength,
+                bw=context.process_mode == ProcessMode.BW,
+            )
 
         return negpy_core.clip01(np.ascontiguousarray(img, dtype=np.float32))

@@ -1205,8 +1205,8 @@ def channel_density_ranges(bounds: Any) -> Tuple[float, float, float]:
     return (out[0], out[1], out[2])
 
 
-# A real diffuser passes much of the light unscattered, so the slider's top is half the light.
-DIFFUSION_MIX_MAX = 0.5
+# A real diffuser passes most of the light unscattered, so the slider's top is a quarter of the light.
+DIFFUSION_MIX_MAX = 0.25
 
 
 def diffusion_mix(diffusion: float) -> float:

@@ -232,67 +232,68 @@ pub fn chroma_denoise(
     Some(())
 }
 
-/// One Gaussian bloom of `apply_glow_and_halation`: the highlights above `threshold` (a Python
-/// float) of luma, blurred by (ksize, sigma) and added at `amount`.
-pub struct Bloom {
-    pub amount: f32,
-    pub ksize: usize,
-    pub sigma: f64,
-    pub threshold: f64,
+/// A spread of `apply_glow_and_halation`: per-channel `amounts` of the light blurred by the
+/// `(weight, sigma)` Gaussians.
+pub struct Spread {
+    pub amounts: [f32; 3],
+    pub psf: Vec<(f32, f64)>,
 }
 
-/// `apply_glow_and_halation`: glow masks highlights on the display-encoded luma (`inv_gamma`
-/// TRC), halation the red channel on linear luma, each blurred and added, then clipped. `lum`
-/// is the luminance row.
+/// `apply_glow_and_halation`: each effect is I + a·(K*L − L), so a flat area keeps its value.
+/// Halation spreads all light, L = I; glow spreads the highlights, L = I·m, with m a ramp from
+/// `threshold` on the display-encoded luma (`inv_gamma` TRC). Clipped after both. `lum` is the
+/// luminance row.
 pub fn glow_and_halation(
     src: &[f32],
     (h, w): (usize, usize),
-    (glow, halation): (Option<Bloom>, Option<Bloom>),
+    (glow, halation): (Option<(Spread, f64)>, Option<Spread>),
     (lum, inv_gamma): ([f32; 3], f32),
     dst: &mut [f32],
 ) -> Option<()> {
     let n = h * w;
     dst.copy_from_slice(src);
-    let luma = |p: &[f32]| p[0] * lum[0] + p[1] * lum[1] + p[2] * lum[2];
-    let ramp = |v: f32, t: f64| clip((v - t as f32) / (1.0 - t) as f32, 0.0, 1.0);
-    let mut light = vec![0f32; n * 3];
+    let mut spread = vec![0f32; n * 3];
     let mut blur = vec![0f32; n * 3];
-    let mut add = |light: &[f32], b: &Bloom, dst: &mut [f32]| -> Option<()> {
-        filter::gaussian_blur(
-            light,
-            &mut blur,
-            (h, w, 3),
-            (b.ksize, b.ksize),
-            (b.sigma, 0.0),
-            Border::Reflect101,
-        )?;
-        dst.par_iter_mut()
-            .zip(blur.par_iter())
-            .for_each(|(d, &v)| *d += v * b.amount);
+    let mut mix = |light: &[f32], s: &Spread, dst: &mut [f32]| -> Option<()> {
+        spread.fill(0.0);
+        for &(weight, sigma) in &s.psf {
+            filter::gaussian_blur(
+                light,
+                &mut blur,
+                (h, w, 3),
+                (0, 0),
+                (sigma, 0.0),
+                Border::Reflect101,
+            )?;
+            crate::par_zip(&mut spread, &blur, move |k, &b| *k += weight * b);
+        }
+        let a = s.amounts;
+        dst.par_chunks_mut(3)
+            .zip(spread.par_chunks(3))
+            .zip(light.par_chunks(3))
+            .for_each(|((d, k), l)| {
+                for c in 0..3 {
+                    d[c] += a[c] * (k[c] - l[c]);
+                }
+            });
         Some(())
     };
-    if let Some(b) = &glow {
-        let mut enc = vec![0f32; n * 3];
-        color::oetf_encode(src, &mut enc, inv_gamma);
-        light
-            .par_chunks_mut(3)
-            .zip(src.par_chunks(3))
-            .zip(enc.par_chunks(3))
-            .for_each(|((o, p), e)| {
-                let m = ramp(luma(e), b.threshold);
-                o.copy_from_slice(&[p[0] * m, p[1] * m, p[2] * m]);
-            });
-        add(&light, b, dst)?;
-    }
-    if let Some(b) = &halation {
+    if let Some((s, threshold)) = &glow {
+        let mut light = vec![0f32; n * 3];
+        color::oetf_encode(src, &mut light, inv_gamma);
+        let (t, span) = (*threshold as f32, (1.0 - threshold) as f32);
         light
             .par_chunks_mut(3)
             .zip(src.par_chunks(3))
             .for_each(|(o, p)| {
-                let r = p[0] * ramp(luma(p), b.threshold);
-                o.copy_from_slice(&[r, r * 0.3, r * 0.05]);
+                let y = o[0] * lum[0] + o[1] * lum[1] + o[2] * lum[2];
+                let m = clip((y - t) / span, 0.0, 1.0);
+                o.copy_from_slice(&[p[0] * m, p[1] * m, p[2] * m]);
             });
-        add(&light, b, dst)?;
+        mix(&light, s, dst)?;
+    }
+    if let Some(s) = &halation {
+        mix(src, s, dst)?;
     }
     dst.par_iter_mut().for_each(|v| *v = clip(*v, 0.0, 1.0));
     Some(())

@@ -237,8 +237,16 @@ def _paper_overlay(expanded=None) -> CanvasOverlay:
     return overlay
 
 
-def test_the_paper_strip_names_each_band_along_the_top() -> None:
+def _labelled_paper_overlay() -> CanvasOverlay:
+    """Big enough that every stock's band keeps its label."""
     overlay = _paper_overlay()
+    overlay._view_rect = QRectF(0, 0, 800, 800)
+    overlay._current_size = (800, 800)
+    return overlay
+
+
+def test_the_paper_strip_names_each_band_along_the_top() -> None:
+    overlay = _labelled_paper_overlay()
     assert overlay._strip_grid() == (1, len(PAPER_SHORTS))
     top, left, current = _strip_labels(overlay)
 
@@ -248,7 +256,7 @@ def test_the_paper_strip_names_each_band_along_the_top() -> None:
 
 
 def test_a_turned_paper_strip_names_its_bands_down_the_side() -> None:
-    overlay = _paper_overlay()
+    overlay = _labelled_paper_overlay()
     overlay.state.test_strip_rotation = 1
     top, left, current = _strip_labels(overlay)
 

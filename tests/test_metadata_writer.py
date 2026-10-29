@@ -404,3 +404,63 @@ def test_the_exposure_time_shows_as_the_camera_marks_it_and_parses_back(rational
     assert text == shown
     if shown:
         assert Fraction(*_parse_exposure_str(text)[piexif.ExifIFD.ExposureTime]) == Fraction(*rational)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1/3ev", (1, 3)),
+        ("-1/3ev", (-1, 3)),
+        ("−1/3ev", (-1, 3)),
+        ("1+2/3ev", (5, 3)),
+        ("-1-2/3ev", (-5, 3)),
+        ("0ev", (0, 1)),
+        ("+2ev", (2, 1)),
+        ("2ev", (2, 1)),
+        ("-0.3ev", (-3, 10)),
+        (".25ev", (1, 4)),
+        ("+1+2/3ev", (5, 3)),
+        ("1 + 2/3 ev", None),
+        ("1/125s f/2.8 ISO 400", None),
+    ],
+)
+def test_ev_parsing_reads_a_signed_rational(text: str, expected: tuple[int, int] | None) -> None:
+    """A number before the marker 'ev' is a signed rational sum of stops."""
+    from negpy.features.metadata.writer import _parse_exposure_str
+
+    result = _parse_exposure_str(text)
+    ev = result.get(piexif.ExifIFD.ExposureBiasValue)
+    if expected is None:
+        assert ev is None
+    else:
+        assert ev == expected
+
+
+def test_ev_parses_among_other_exposure_fields() -> None:
+    """A mixed-order string still yields every field, EV included."""
+    from negpy.features.metadata.writer import _parse_exposure_str
+
+    result = _parse_exposure_str("ISO400 f/2.8 -2/3ev 1/60s")
+    assert result[piexif.ExifIFD.ExposureTime] == (1, 60)
+    assert result[piexif.ExifIFD.ISOSpeedRatings] == 400
+    assert result[piexif.ExifIFD.ExposureBiasValue] == (-2, 3)
+
+
+def test_ev_parses_at_the_end_of_a_mixed_order_string() -> None:
+    from negpy.features.metadata.writer import _parse_exposure_str
+
+    result = _parse_exposure_str("1/125s f/8.0 ISO800 +1+2/3ev")
+    assert result[piexif.ExifIFD.ExposureTime] == (1, 125)
+    assert result[piexif.ExifIFD.ISOSpeedRatings] == 800
+    assert result[piexif.ExifIFD.ExposureBiasValue] == (5, 3)
+
+
+def test_embed_carries_exposure_bias_into_jpeg() -> None:
+    """A signed EV the user typed lands in the exported file as ExposureBiasValue."""
+    source_exif = _raw_like_source_exif()
+    source_exif["Exif"][piexif.ExifIFD.ExposureBiasValue] = (-2, 3)
+
+    out = embed_metadata(_jpeg(), MetadataConfig(), source_exif)
+
+    loaded = piexif.load(out)
+    assert loaded["Exif"][piexif.ExifIFD.ExposureBiasValue] == (-2, 3)

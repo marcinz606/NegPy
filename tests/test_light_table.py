@@ -14,6 +14,7 @@ from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 from negpy.desktop.view.main_window import MainWindow
 from negpy.desktop.view.sidebar.files import (
+    THUMB_CELL_DEFAULT,
     THUMB_CELL_MIN,
     FileBrowser,
     _FilmDelegate,
@@ -577,7 +578,8 @@ def _found_roll(browser, qapp, marks):
     browser._film_key = None
     browser.sync_ui()
     table = browser.light_table_view
-    table.resize(table.gridSize().width() * 6 + 2 * THEME.space_2xl + 30, 600)
+    # The light table justifies its rows and keeps no grid size, so size it from its frame width.
+    table.resize(THUMB_CELL_DEFAULT * 6 + 2 * THEME.space_2xl + 30, 600)
     table._relayout()
     table.show()
     qapp.processEvents()

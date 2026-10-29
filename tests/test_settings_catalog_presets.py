@@ -3,9 +3,12 @@ the flat-dict merge apply path, and preset_summary tooltips."""
 
 from dataclasses import replace
 
-from negpy.desktop.settings_catalog import all_rows, preset_summary, selected_flat_dict
+import pytest
+
+from negpy.desktop.settings_catalog import all_rows, apply_selected_fields, preset_summary, roll_card_rows, selected_flat_dict
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import DemosaicMode, ProcessMode
+from negpy.services.assets.rolls import card_fields
 
 
 def _row(label: str):
@@ -29,7 +32,7 @@ def test_channel_grouped_row_stores_all_channels():
 
 def test_crosstalk_row_bundles_fields():
     data = selected_flat_dict(WorkspaceConfig(), [_row("Crosstalk")])
-    assert set(data) == {"crosstalk_strength", "crosstalk_profile", "crosstalk_matrix"}
+    assert set(data) == {"crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", "crosstalk_process"}
 
 
 def test_positive_source_row_is_catalogued():
@@ -40,6 +43,54 @@ def test_positive_source_row_is_catalogued():
     cfg = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=True))
     data = selected_flat_dict(cfg, [_row("Positive")])
     assert data == {"positive_source": True}
+
+
+@pytest.mark.parametrize("card", ["film", "sensor", "demosaic", "process", "baseline", "lens", "flatfield"])
+def test_every_roll_card_field_has_a_row(card):
+    """Copy Card Settings, Paste and the Roll tab's Apply offer only catalog rows."""
+    listed = {f for r in roll_card_rows(card) for f in r.fields}
+    assert set(card_fields(card)) <= listed
+
+
+def test_pasting_highlight_recovery_remeters():
+    """It rebuilds a slide's brightest pixels, which the white point is measured from."""
+    base = WorkspaceConfig()
+    src = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, highlight_reconstruction=5))
+    target = replace(
+        src, process=replace(base.process, process_mode=ProcessMode.E6, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9))
+    )
+    out = apply_selected_fields(src, target, [_row("Highlight Recovery")])
+    assert out.process.highlight_reconstruction == 5
+    assert not out.process.is_local_initialized
+
+
+def test_pasting_demosaic_preview_remeters():
+    """The preview decode is what the meters read."""
+    base = WorkspaceConfig()
+    src = replace(base, process=replace(base.process, demosaic_preview=DemosaicMode.DCB))
+    target = replace(base, process=replace(base.process, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
+    out = apply_selected_fields(src, target, [_row("Demosaic Preview")])
+    assert out.process.demosaic_preview == DemosaicMode.DCB
+    assert not out.process.is_local_initialized
+
+
+@pytest.mark.parametrize(("level", "label"), [(0, "Off"), (2, "Blend"), (5, "Reconstruct"), (7, "Reconstruct"), (1, "Off"), (42, "Off")])
+def test_highlight_recovery_shows_the_card_choice(level, label):
+    from negpy.desktop.settings_catalog import _format
+
+    assert _format(_row("Highlight Recovery"), (level,)) == label
+
+
+def test_pasting_raw_decode_carries_its_values_and_remeters_on_white_balance():
+    base = WorkspaceConfig()
+    src = replace(
+        base,
+        process=replace(base.process, linear_raw=True, demosaic_export=DemosaicMode.DCB, highlight_reconstruction=2),
+    )
+    target = replace(base, process=replace(base.process, local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
+    out = apply_selected_fields(src, target, roll_card_rows("demosaic"))
+    assert (out.process.linear_raw, out.process.demosaic_export, out.process.highlight_reconstruction) == (True, DemosaicMode.DCB, 2)
+    assert not out.process.is_local_initialized
 
 
 def test_overlay_apply_preserves_unrelated_edits():

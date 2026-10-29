@@ -186,7 +186,7 @@ class SlippyMapWidget(QWidget):
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt override
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(THEME.canvas_bg_dark_grey))
+        painter.fillRect(self.rect(), QColor(THEME.bg_input))
 
         span = 2**self._zoom
         left, top = self._tile_at(0.0, 0.0)
@@ -208,7 +208,7 @@ class SlippyMapWidget(QWidget):
                 pixmap = self._tiles.get(key)
                 if pixmap is None:
                     self._request(key)
-                    painter.fillRect(px, py, TILE_SIZE, TILE_SIZE, QColor(THEME.canvas_bg_mid_grey))
+                    painter.fillRect(px, py, TILE_SIZE, TILE_SIZE, QColor(THEME.bg_header))
                     continue
                 painter.drawPixmap(px, py, pixmap)
 

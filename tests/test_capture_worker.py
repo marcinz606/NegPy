@@ -923,3 +923,42 @@ def test_only_the_frames_last_exposure_leaves_the_end_light_lit(tmp_path, monkey
     assert light.colors.count((25, 12, 11, 0, 0)) == 1
     # The visible exposures hand to the infrared one through off; with no infrared, nothing turns it off.
     assert ((0, 0, 0, 0, 0) in light.colors) is infrared
+
+
+@pytest.mark.parametrize(("share", "emitted"), [(0.36, [0.36]), (None, [])])
+def test_a_single_file_capture_reports_clipping_after_it_finishes(tmp_path, monkeypatch, share, emitted):
+    class Camera:
+        def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
+            path = os.path.splitext(out_path)[0] + ".ARW"
+            with open(path, "wb") as raw:
+                raw.truncate(8 * 1024 * 1024)
+            return path
+
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: Camera())
+    monkeypatch.setattr("negpy.infrastructure.capture.raw_demosaic.linear_demosaic", lambda _p, half_size=False: None)
+    monkeypatch.setattr("negpy.services.capture.meter.picture_clipping", lambda _img: share)
+    events = []
+    worker.finished.connect(lambda paths: events.append("finished"))
+    worker.clipped.connect(lambda _path, s: events.append(s))
+
+    worker.run_capture(
+        CaptureRequest(roll_name="Roll01", frame_number=1, output_folder=str(tmp_path), levels=(0, 0, 0), settle_s=0, rgb_mode=False)
+    )
+
+    assert events == ["finished", *emitted]
+
+
+def test_a_failed_clipping_check_keeps_the_frame(tmp_path, monkeypatch):
+    def broken(_path, half_size=False):
+        raise ValueError("not a raw")
+
+    monkeypatch.setattr("negpy.infrastructure.capture.raw_demosaic.linear_demosaic", broken)
+    worker = CaptureWorker()
+    errors, clipped = [], []
+    worker.error.connect(errors.append)
+    worker.clipped.connect(lambda *a: clipped.append(a))
+
+    worker._report_clipping(str(tmp_path / "Roll01_Frame001.ARW"))
+
+    assert errors == [] and clipped == []

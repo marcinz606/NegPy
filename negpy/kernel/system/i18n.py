@@ -17,7 +17,14 @@ def mark(source: str) -> str:
     return source
 
 
-LANGUAGES = (("system", mark("System Default")), ("en", "English"), ("zh_CN", "简体中文"), ("ja", "日本語"), ("ko", "한국어"))
+LANGUAGES = (
+    ("system", mark("System Default")),
+    ("en", "English"),
+    ("zh_CN", "简体中文"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("de", "Deutsch"),
+)
 _language = "en"
 _messages: dict[str, str] = {}
 _formatter = Formatter()

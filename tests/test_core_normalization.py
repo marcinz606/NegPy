@@ -55,5 +55,8 @@ def test_contrast_mask_tail_matches_numpy(sigma):
 def test_diffusion_tail_matches_numpy():
     unmixed = -2.5 * _rgb(5)
     light = np.ascontiguousarray(10.0**unmixed, dtype=np.float32)
-    want = np.log10(cv2.GaussianBlur(light, (0, 0), 6.0, sigmaY=0, borderType=cv2.BORDER_REPLICATE))
-    np.testing.assert_allclose(negpy_core.diffusion_tail(unmixed, 6.0), want, rtol=0, atol=1e-6)
+    psf = [(0.3, 1.5), (0.5, 6.0), (0.2, 20.0)]
+    want = np.zeros_like(light)
+    for weight, sigma in psf:
+        want += np.float32(weight) * cv2.GaussianBlur(light, (0, 0), sigma, sigmaY=0, borderType=cv2.BORDER_REPLICATE)
+    np.testing.assert_allclose(negpy_core.diffusion_tail(unmixed, psf), np.log10(want), rtol=0, atol=1e-6)

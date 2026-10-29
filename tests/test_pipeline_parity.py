@@ -610,6 +610,36 @@ class TestLabParity:
         self._run_and_compare(s)
 
 
+@pytest.mark.skipif(not GPUDevice.get().is_available, reason="GPU not available")
+@pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
+@pytest.mark.parametrize("effect", ["glow_amount", "halation_strength"])
+def test_glow_and_halation_match_on_a_frame_they_span(mode, effect):
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    h, w = 800, 1200
+    neg = np.full((h, w, 3), 0.8, np.float32)
+    neg[300:500, 450:750] = 0.05
+    neg[100:140, 100:1100] = 0.3
+    base = WorkspaceConfig()
+    base = replace(
+        base,
+        process=replace(base.process, process_mode=mode),
+        exposure=replace(base.exposure, auto_exposure=False, auto_normalize_contrast=False),
+    )
+    processor = ImageProcessor()
+    out = {}
+    for strength in (0.0, 1.0):
+        settings = replace(base, lab=replace(LabConfig(), **{effect: strength}))
+        for gpu in (False, True):
+            res, _ = processor.run_pipeline(
+                neg.copy(), settings, f"{effect}{strength}{gpu}{mode}", render_size_ref=float(w), prefer_gpu=gpu, readback_metrics=False
+            )
+            arr = np.asarray(res.readback()) if hasattr(res, "readback") else np.asarray(res)
+            out[(strength, gpu)] = arr[..., :3].astype(np.float64)
+    assert np.abs(out[(1.0, False)] - out[(0.0, False)]).max() > 0.15
+    assert np.abs(out[(1.0, False)] - out[(1.0, True)]).max() < 0.04
+
+
 class TestToningParity:
     """CPU vs GPU parity for the toning (paper/chemical/split) shader."""
 

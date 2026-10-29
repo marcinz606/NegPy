@@ -20,9 +20,10 @@ BOUNDS_VERSION = 2
 # Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
 MASK_BLUR_PERCENT = 4.0
-# Diffusion's blur sigma in per-cent of the printed frame's short side: one diffuser at the
-# lens, whose spread a printer does not vary between prints.
-DIFFUSION_SPREAD = 2.0
+# Diffusion's spread, one diffuser at the lens that a printer does not vary between prints:
+# (weight, sigma in per-cent of the printed frame's short side) Gaussians that fit a sum of
+# radial exponentials, a halo and a bloom with a power-law tail. The weights sum to 1.
+DIFFUSION_PSF = ((0.0421, 0.213), (0.1576, 0.449), (0.2723, 0.926), (0.3540, 2.017), (0.1740, 5.48))
 
 
 class LogNegativeBounds:
@@ -595,12 +596,12 @@ def diffusion_grid(
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
 ) -> np.ndarray:
-    """The unmixed light blurred by `DIFFUSION_SPREAD`, as log density on `analysis_grid`. It takes no bounds:
+    """The unmixed light blurred by `DIFFUSION_PSF`, as log density on `analysis_grid`. It takes no bounds:
     the print's normalization is a per-channel gain on that light."""
     image = analysis_grid(image, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1, converge_v, converge_h, roi_norm)
     unmixed = np.ascontiguousarray(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), dtype=np.float32)
-    sigma = DIFFUSION_SPREAD * 0.01 * min(unmixed.shape[:2])
-    return negpy_core.diffusion_tail(unmixed, sigma)
+    short = 0.01 * min(unmixed.shape[:2])
+    return negpy_core.diffusion_tail(unmixed, [(w, s * short) for w, s in DIFFUSION_PSF])
 
 
 def diffusion_plane(

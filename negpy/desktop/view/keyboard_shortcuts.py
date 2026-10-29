@@ -138,6 +138,9 @@ def _context_cancel(controller, window) -> None:
     if controller.state.negative_peek:
         controller.toggle_negative_peek(force=False)
         return
+    if controller.state.average_peek:
+        controller.toggle_average_peek(force=False)
+        return
     if controller.state.embedded_peek:
         controller.toggle_embedded_peek(force=False)
         return
@@ -394,6 +397,7 @@ class ShortcutManager:
             action_id: self._spring_loaded(flag, toggle)
             for action_id, flag, toggle in (
                 ("toggle_negative_peek", "negative_peek", controller.toggle_negative_peek),
+                ("toggle_average_peek", "average_peek", controller.toggle_average_peek),
                 ("toggle_flat_peek", "flat_peek", controller.toggle_flat_peek),
                 ("toggle_embedded_peek", "embedded_peek", controller.toggle_embedded_peek),
             )
@@ -526,6 +530,7 @@ class ShortcutManager:
             "open_tools_menu": lambda: self.window.toolbar.open_tools_menu(),
             "toggle_flat_peek": controller.toggle_flat_peek,
             "toggle_negative_peek": controller.toggle_negative_peek,
+            "toggle_average_peek": controller.toggle_average_peek,
             "toggle_embedded_peek": controller.toggle_embedded_peek,
             "toggle_flatfield_peek": controller.toggle_flatfield_peek,
             "toggle_export_size_view": controller.toggle_export_size_view,
@@ -607,6 +612,7 @@ class ShortcutManager:
             "roll_settings": lambda: self.window.file_browser.roll_settings_btn.click(),
             "contact_sheet": lambda: right.export_sidebar.contact_sheet_btn.click(),
             "save_as_roll": lambda: self.window.file_browser.save_roll_action.trigger(),
+            "save_to_folder_roll": lambda: self.window.file_browser.save_to_folder_roll(),
             "import_roll": lambda: self.window.right_panel.library_tree.prompt_import_folder(),
             "index_library": lambda: self.window.right_panel.library_tree.index_action.trigger(),
             "metadata_infer_gear": lambda: right.metadata_sidebar.gear_infer_btn.click(),

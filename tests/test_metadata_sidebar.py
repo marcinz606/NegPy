@@ -124,6 +124,30 @@ class TestCaptureDate:
         assert sidebar.state.config.metadata.capture_date == ""
 
 
+class TestExposureLock:
+    """The Exposure field is lock-gated: unlock to type, re-lock to keep the text."""
+
+    def _type_and_relock(self, sidebar: MetadataSidebar) -> None:
+        sidebar._toggle_exif_lock("exposure", sidebar.exposure_edit, sidebar._exposure_lock_btn, True)
+        sidebar.exposure_edit.setText("1/125s f/2.8 ISO 400 -1/3ev")
+        sidebar._toggle_exif_lock("exposure", sidebar.exposure_edit, sidebar._exposure_lock_btn, False)
+
+    def test_relocking_keeps_the_typed_text(self, sidebar: MetadataSidebar) -> None:
+        self._type_and_relock(sidebar)
+
+        assert sidebar.exposure_edit.text() == "1/125s f/2.8 ISO 400 -1/3ev"
+        assert sidebar.state.config.metadata.exposure_override == "1/125s f/2.8 ISO 400 -1/3ev"
+
+    def test_the_debounce_and_a_frame_switch_keep_the_text(self, sidebar: MetadataSidebar) -> None:
+        self._type_and_relock(sidebar)
+        sidebar._persist_all_metadata_settings()
+        sidebar._on_file_selected("/scans/other/frame002.tif")
+        sidebar.sync_ui()
+
+        assert sidebar.exposure_edit.text() == "1/125s f/2.8 ISO 400 -1/3ev"
+        assert sidebar.state.config.metadata.exposure_override == "1/125s f/2.8 ISO 400 -1/3ev"
+
+
 class TestCapturePlace:
     def test_place_field_shows_names_then_coordinates(self, sidebar: MetadataSidebar) -> None:
         _set_metadata(sidebar, location_city="Tokyo", location_country="Japan")

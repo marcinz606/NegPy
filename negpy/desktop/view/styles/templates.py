@@ -77,7 +77,13 @@ HEADER_HEIGHT = 40
 TOOLBAR_BUTTON_HEIGHT = 28
 TOOLBAR_ICON_SIZE = 16
 # The canvas bar under the picture, the app's main toolbar: larger than a section toolbar.
+# Every box on the bar is this tall: a track, a field, a segmented control, a primary button.
 BAR_BUTTON_HEIGHT = 36
+# A track's edge sits this far outside the buttons it groups, as a segmented chip sits inside its track.
+BAR_TRACK_PAD = THEME.space_xs + 0.5
+BAR_TRACK_BUTTON_HEIGHT = BAR_BUTTON_HEIGHT - int(2 * BAR_TRACK_PAD)
+# The canvas strip and the controls panel's Find row share one height, so their edges line up.
+TOP_ROW_HEIGHT = BAR_BUTTON_HEIGHT + 2 * THEME.space_sm
 BAR_ICON_SIZE = 18
 
 _default_btn_height: int | None = None
@@ -469,17 +475,6 @@ def caption_label(text: str) -> QLabel:
         f"color: {THEME.text_on_accent}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_bold}; border: none;"
     )
     return lbl
-
-
-def toast_qss(kind: str = "info") -> str:
-    """Canvas toast and loading chip: title type on a solid dark plate that reads over any canvas.
-    kind: "info" | "warning" | "error" picks the text colour, the same three as hint_label."""
-    color = {"warning": THEME.warn_amber, "error": THEME.channel_red}.get(kind, THEME.text_primary)
-    return (
-        f"color: {color}; font-size: {THEME.font_size_title}px; font-weight: {THEME.weight_semibold}; "
-        f"background-color: {THEME.surface_toast}; border: 1px solid {THEME.border_toast}; "
-        f"border-radius: {THEME.radius_lg}px; padding: 7px 18px;"
-    )
 
 
 def pane_header_qss() -> str:

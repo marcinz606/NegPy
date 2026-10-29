@@ -47,11 +47,39 @@ _VP8X_EXIF = 0x08
 _VP8X_XMP = 0x04
 
 
+# EV (exposure bias) is a sum of stops written to ExposureBiasValue as a signed
+# rational; terms join by a sign with no space before the next number (1+2/3ev =
+# 5/3, -1-2/3ev = -5/3), and a sign followed by a space ("1 + 2/3 ev") is skipped.
+_EV_SIGNS = "+−-"  # +, the U+2212 minus, and the ASCII hyphen
+_EV_NUMBER = r"(?:\d+/\d+|\d+(?:\.\d+)?|\.\d+)"  # fraction form leads so a signed fraction (-1/3) reads as one term, not two
+# In a regex character class the hyphen must sit at the end to stay literal.
+_EV_SIGN_CLASS = "[" + _EV_SIGNS + "]"
+# A term is an optional sign then a number; a token is the first term then any
+# further terms, each led by a sign with no space before its number.
+_EV_TERM = rf"{_EV_SIGN_CLASS}?{_EV_NUMBER}"
+_EV_TOKEN = rf"{_EV_TERM}(?:{_EV_SIGN_CLASS}{_EV_NUMBER})*"
+_EV_RE = re.compile(rf"({_EV_TOKEN})\s?ev", re.IGNORECASE)
+_EV_TERM_RE = re.compile(_EV_TERM)
+
+
+def _ev_fraction(token: str) -> Optional[Fraction]:
+    """Sum the signed terms of an EV token as exact fractions (1+2/3 -> 5/3)."""
+    # Fraction reads only the ASCII hyphen, so map the U+2212 minus to an ASCII hyphen.
+    token = token.replace("−", "-")
+    total = Fraction(0)
+    try:
+        for term in _EV_TERM_RE.findall(token):
+            total += Fraction(term)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return total
+
+
 def _parse_exposure_str(text: str) -> dict:
     """
-    Parse a free-form exposure string like '1/125s f/2.8 ISO 400' into
-    piexif-format rational tuples for ExposureTime, FNumber, and ISOSpeedRatings.
-    Returns an empty dict if parsing fails.
+    Parse a free-form exposure string like '1/125s f/2.8 ISO 400 +1/3ev' into
+    piexif-format values for ExposureTime, FNumber, ISOSpeedRatings and
+    ExposureBiasValue (a signed rational). Returns an empty dict if parsing fails.
     """
     result: dict = {}
 
@@ -79,6 +107,16 @@ def _parse_exposure_str(text: str) -> dict:
     if m_iso:
         iso_val = int(m_iso.group(1))
         result[piexif.ExifIFD.ISOSpeedRatings] = iso_val
+
+    m_ev = _EV_RE.search(text)
+    if m_ev is not None:
+        start = m_ev.start(1)
+        # A sign followed by a space just left of the token splits the sum
+        # ("1 + 2/3 ev"); skip it instead of reading a wrong value.
+        if not (start >= 2 and text[start - 2] in _EV_SIGNS and text[start - 1] == " "):
+            ev = _ev_fraction(m_ev.group(1))
+            if ev is not None:
+                result[piexif.ExifIFD.ExposureBiasValue] = (ev.numerator, ev.denominator)
 
     return result
 

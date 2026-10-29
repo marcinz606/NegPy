@@ -262,7 +262,7 @@ class AppState:
     grain_focuser: bool = False
     # Densitometer reading in a chip beside the pointer. A persisted preference.
     cursor_probe: bool = False
-    # Canvas corner pills: 0 off, 1 basic, 2 full (hud.INFO_*). A persisted preference.
+    # Canvas strip frame info: 0 off, 1 basic, 2 full (hud.INFO_*). A persisted preference.
     canvas_info_level: int = 1
 
     # Printing notes: the dodge/burn map and print recipe over the frame. Display-only and
@@ -354,6 +354,11 @@ class AppState:
     flat_peek: bool = False
     # Transient: preview is showing the decoded source as loaded, un-inverted.
     negative_peek: bool = False
+    # Transient: preview is printing the frame on the roll average, with average_peek_axes on.
+    average_peek: bool = False
+    average_peek_axes: dict = field(default_factory=dict)
+    # "roll" while a scene frame peeks at the roll's average instead of its scene's.
+    average_peek_scope: Optional[str] = None
     # Transient: preview is showing the camera's own embedded preview, as a reference.
     embedded_peek: bool = False
     # Transient: preview is showing the selected Flat Field profile's self-check.
@@ -1568,9 +1573,44 @@ class DesktopSessionManager(QObject):
                 else:
                     f.pop(key, None)
 
+    def _stamp_averages(self, hashes: Optional[Collection[str]] = None) -> bool:
+        """Marks each loaded frame (or each of *hashes*) that uses the roll average, ``average`` "on"
+        or "outlier", for the Film Strip. True when a mark changed."""
+        files = [f for f in self.state.uploaded_files if hashes is None or f["hash"] in hashes]
+        saved = self.repo.load_file_settings_many([f["hash"] for f in files])
+        # A frame with no saved edit rides an average only through the roll's Use Average default.
+        defaults = rolls.roll_defaults(self.repo, self.state.active_roll_id) if self.state.active_roll_id else {}
+        unsaved_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
+        changed = False
+        for f in files:
+            if f["hash"] == self.state.current_file_hash:
+                process = self.state.config.process
+            elif f["hash"] in saved:
+                process = saved[f["hash"]].process
+            elif unsaved_rides:
+                process = self.config_for_asset(f).process
+            else:
+                process = None
+            mark = None
+            if process is not None and (process.use_luma_average or process.use_color_average or process.use_cast_average):
+                mark = "outlier" if rolls.frame_is_outlier(self.repo, process, f["hash"]) else "on"
+            if mark != f.get("average"):
+                changed = True
+                if mark:
+                    f["average"] = mark
+                else:
+                    f.pop("average", None)
+        return changed
+
+    def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
+        if self._stamp_averages(hashes):
+            self.asset_model.refresh()
+            self.files_changed.emit()
+
     def refresh_scene_marks(self) -> None:
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
         self._stamp_scenes()
+        self._stamp_averages()
         self.asset_model.refresh()
         self.files_changed.emit()
 
@@ -1937,6 +1977,7 @@ class DesktopSessionManager(QObject):
             if self.state.current_file_hash:
                 self.repo.save_file_settings(self.state.current_file_hash, config, file_path=self.state.current_file_path or "")
                 self.settings_saved.emit()
+                self.refresh_average_marks({self.state.current_file_hash})
 
         if render:
             self.state_changed.emit()
@@ -2369,6 +2410,7 @@ class DesktopSessionManager(QObject):
             f["keeper"] = m == "keeper"
             f["excluded"] = m == "excluded"
         self._stamp_scenes()
+        self._stamp_averages()
 
         self.asset_model.refresh()
         self.files_changed.emit()
@@ -2416,6 +2458,7 @@ class DesktopSessionManager(QObject):
             m = marks.get(unforked_hash(asset["hash"]))
             self.state.uploaded_files[i] = {**asset, "keeper": m == "keeper", "excluded": m == "excluded"}
         self._stamp_scenes()
+        self._stamp_averages()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
@@ -2442,6 +2485,7 @@ class DesktopSessionManager(QObject):
         self.state.selected_file_idx = shifted(self.state.selected_file_idx)
         self.state.selected_indices = [shifted(i) for i in self.state.selected_indices]
         self._stamp_scenes()
+        self._stamp_averages()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()

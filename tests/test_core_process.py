@@ -71,3 +71,28 @@ def test_alphas_overlap_matches_numpy():
         b = rng.uniform(0, 0.27, (96, 96)).astype(np.float32)
         want = bool(((a > _OVERLAP_ALPHA) & (b > _OVERLAP_ALPHA)).any())
         assert negpy_core.alphas_overlap(a, b, _OVERLAP_ALPHA) == want
+
+
+def _chroma_spread(img, block, lo, hi, min_share):
+    h, w = (img.shape[0] // block) * block, (img.shape[1] // block) * block
+    b = img[:h, :w].reshape(h // block, block, w // block, block, 3).astype(np.float64)
+    ok = ((b > lo) & (b < hi)).all(axis=(1, 3, 4)).ravel()
+    if not ok.any() or ok.sum() < min_share * ok.size:
+        return None
+    log = np.log10(b.sum(axis=(1, 3)).reshape(-1, 3)[ok])
+    d = log[:, 1] - log[:, 1].mean()
+    out = []
+    for y in (log[:, 0] - log[:, 1], log[:, 2] - log[:, 1]):
+        y = y - y.mean()
+        r = y - (d @ y) / (d @ d) * d
+        out.append(1.4826 * np.median(np.abs(r - np.median(r))))
+    return float(np.hypot(*out))
+
+
+@pytest.mark.parametrize("seed", [2, 3])
+def test_chroma_spread_matches_numpy(seed):
+    img = np.clip(_scan(seed), 0.0, 1.0)
+    img[:40] = 1.0  # clipped rows drop out
+    want = _chroma_spread(img, 4, 0.003, 0.97, 0.1)
+    np.testing.assert_allclose(negpy_core.chroma_spread(img, 4, 0.003, 0.97, 0.1), want, rtol=1e-9)
+    assert negpy_core.chroma_spread(img, 4, 0.003, 0.97, 0.95) is None

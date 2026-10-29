@@ -1748,27 +1748,32 @@ pub fn contrast_mask_stops(plane: &[f32], dst: &mut [f32], k: [f32; 7]) {
     });
 }
 
-/// `diffusion_grid` after the unmix: 10^x of an HxWx3 log plane, blurred by `sigma` with a
-/// replicated border, back to log10.
+/// `diffusion_grid` after the unmix: 10^x of an HxWx3 log plane, blurred by the sum of
+/// `(weight, sigma)` Gaussians with a replicated border, back to log10. Components add in order.
 pub fn diffusion_tail(
     unmixed: &[f32],
     h: usize,
     w: usize,
-    sigma: f64,
+    psf: &[(f32, f64)],
     dst: &mut [f32],
 ) -> Option<()> {
     let mut light = vec![0f32; unmixed.len()];
     crate::par_zip(&mut light, unmixed, move |d, &v| {
         *d = crate::mathf::exp10_f64(v as f64) as f32;
     });
-    crate::filter::gaussian_blur(
-        &light,
-        dst,
-        (h, w, 3),
-        (0, 0),
-        (sigma, 0.0),
-        Border::Replicate,
-    )?;
+    let mut part = vec![0f32; unmixed.len()];
+    dst.fill(0.0);
+    for &(weight, sigma) in psf {
+        crate::filter::gaussian_blur(
+            &light,
+            &mut part,
+            (h, w, 3),
+            (0, 0),
+            (sigma, 0.0),
+            Border::Replicate,
+        )?;
+        crate::par_zip(dst, &part, move |d, &p| *d += weight * p);
+    }
     dst.par_chunks_mut(1 << 14).for_each(|d| {
         for v in d {
             *v = crate::mathf::log10f(*v);

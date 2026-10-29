@@ -119,6 +119,26 @@ def shutter_at_most(seconds: float, candidates: tuple[str, ...]) -> str | None:
     return None
 
 
+def _measure_picture(linear: np.ndarray):
+    """(detection image, film ROI, picture gate, meter_picture's (clipped fraction, blown, thin end))
+    of a normalized linear frame."""
+    det, scale = _normalize_detection_input(linear, AUTOCROP_DETECT_RES)
+    det = np.ascontiguousarray(det, dtype=np.float32)
+    film_roi, gate = film_and_picture(det)
+    # The picture at the frame's own resolution: a highlight narrower than a detection pixel
+    # is averaged away at detection size, and it still clips.
+    roi = _scale_roi(gate, scale, linear.shape[0], linear.shape[1])
+    return det, film_roi, gate, negpy_core.meter_picture(linear, tuple(roi), _SATURATION, _BLOWN_SHARE)
+
+
+def picture_clipping(img: np.ndarray) -> float | None:
+    """Share of a decoded linear frame's picture (`HxWx3`, counts to `CLIP_CEILING`) at saturation,
+    when it clips as Meter judges a probe; None when it does not."""
+    linear = negpy_core.normalized(np.ascontiguousarray(img), float(CLIP_CEILING))
+    _, _, _, (fraction, blown, thin) = _measure_picture(linear)
+    return float(fraction) if blown or max(thin) >= _SATURATION else None
+
+
 def meter_frame(
     img: np.ndarray, shutter: str, candidates: tuple[str, ...] = (), medium: str | None = None, wb: list | None = None
 ) -> MeterReading:
@@ -131,15 +151,9 @@ def meter_frame(
     linear = negpy_core.normalized(np.ascontiguousarray(img), float(CLIP_CEILING))
     if medium is None:
         medium = "positive" if detect_process_mode(linear) == ProcessMode.E6 else "negative"
-    det, scale = _normalize_detection_input(linear, AUTOCROP_DETECT_RES)
-    det = np.ascontiguousarray(det, dtype=np.float32)
-    film_roi, gate = film_and_picture(det)
+    det, film_roi, gate, (clipped_fraction, blown, thin) = _measure_picture(linear)
     gy1, gy2, gx1, gx2 = gate
     picture_det = det[gy1:gy2, gx1:gx2].reshape(-1, 3)
-    # The picture at the probe's own resolution: a highlight narrower than a detection pixel
-    # is averaged away at detection size, and it still clips.
-    ly1, ly2, lx1, lx2 = _scale_roi(gate, scale, linear.shape[0], linear.shape[1])
-    clipped_fraction, blown, thin = negpy_core.meter_picture(linear, (ly1, ly2, lx1, lx2), _SATURATION, _BLOWN_SHARE)
     thinnest = np.array(thin, dtype=np.float32)  # the picture's thin end, per channel
 
     ring = det[rebate_mask(det.shape[:2], film_roi, gate)]

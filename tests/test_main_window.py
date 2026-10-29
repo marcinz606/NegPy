@@ -100,49 +100,58 @@ class TestDropEvent(unittest.TestCase):
         stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True, user_add=True)
 
 
-class TestBatchStartedPopupSuppression(unittest.TestCase):
-    """The popup is suppressed by sequence identity (did THIS batch come from the
+class TestBatchReportsInTheStrip(unittest.TestCase):
+    """Hot Folder batches are quiet by sequence identity (did THIS batch come from the
     hot-folder poll), never by whether the Hot Folder toggle happens to be checked."""
 
-    def _stub(self, hot_folder_sequence_active: bool, hot_folder_checked: bool = True):
+    def _stub(self, hot_folder_sequence_active: bool):
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
+        from negpy.desktop.view.main_window import MainWindow
+
         controller = MagicMock()
         controller.hot_folder_sequence_active = hot_folder_sequence_active
-        return SimpleNamespace(
-            controller=controller,
-            progress_dialog=MagicMock(),
-            file_browser=SimpleNamespace(hot_folder_btn=SimpleNamespace(isChecked=lambda: hot_folder_checked)),
-        )
+        stub = SimpleNamespace(controller=controller, canvas=SimpleNamespace(hud=MagicMock()), _batch_message="")
+        stub._show_batch_message = lambda text: MainWindow._show_batch_message(stub, text)
+        return stub
 
-    def test_manual_import_shows_popup_even_when_hot_folder_checked(self):
+    def test_manual_import_posts_its_title_even_when_hot_folder_checked(self):
         from negpy.desktop.view.main_window import MainWindow
 
-        stub = self._stub(hot_folder_sequence_active=False, hot_folder_checked=True)
-
+        stub = self._stub(hot_folder_sequence_active=False)
         MainWindow._on_batch_started(stub, "Hashing files", False)
+        stub.canvas.hud.showMessage.assert_called_once_with("Hashing files…", -1)
+        stub.canvas.hud.set_abortable.assert_called_once_with(False)
 
-        stub.progress_dialog.start.assert_called_once_with("Hashing files", False)
-
-    def test_hot_folder_sequence_silent_for_discovery_and_thumbnails(self):
+    def test_hot_folder_sequence_keeps_the_bar_but_posts_no_message(self):
         from negpy.desktop.view.main_window import MainWindow
 
-        stub = self._stub(hot_folder_sequence_active=True, hot_folder_checked=True)
-
+        stub = self._stub(hot_folder_sequence_active=True)
         MainWindow._on_batch_started(stub, "Hashing files", False)
-        MainWindow._on_batch_started(stub, "Generating thumbnails", False)
+        MainWindow._on_batch_progress(stub, 1, 3, "a.tif")
+        stub.canvas.hud.showMessage.assert_not_called()
+        stub.canvas.hud.set_progress.assert_called_once_with(1, 3)
 
-        stub.progress_dialog.start.assert_not_called()
-
-    def test_abortable_batch_always_shows_even_mid_hot_folder_sequence(self):
+    def test_abortable_batch_reports_each_item_and_offers_abort(self):
         from negpy.desktop.view.main_window import MainWindow
 
-        stub = self._stub(hot_folder_sequence_active=True, hot_folder_checked=True)
-
+        stub = self._stub(hot_folder_sequence_active=True)
         MainWindow._on_batch_started(stub, "Exporting", True)
+        MainWindow._on_batch_progress(stub, 2, 10, "frame_02.tif")
+        stub.canvas.hud.set_abortable.assert_called_once_with(True)
+        stub.canvas.hud.showMessage.assert_called_with("Exporting: frame_02.tif (2/10)", -1)
 
-        stub.progress_dialog.start.assert_called_once_with("Exporting", True)
+    def test_finishing_clears_only_the_batch_message(self):
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = self._stub(hot_folder_sequence_active=False)
+        MainWindow._on_batch_started(stub, "Exporting", True)
+        MainWindow._on_batch_progress(stub, 10, 10, "frame_10.tif")
+        MainWindow._on_batch_finished(stub)
+        stub.canvas.hud.clear_message.assert_called_once_with("Exporting: frame_10.tif (10/10)")
+        stub.canvas.hud.hide_progress.assert_called_once()
+        stub.canvas.hud.set_abortable.assert_called_with(False)
 
 
 if __name__ == "__main__":

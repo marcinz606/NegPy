@@ -13,7 +13,7 @@ from tests.conftest import FakeController, FakeRepo, dialog_classes
 
 NEGPY = Path(__file__).resolve().parents[1] / "negpy"
 KEY = "dialog_geometry_probe"
-FIXED_SIZE = {"ProgressDialog", "CommandPalette"}
+FIXED_SIZE = {"CommandPalette"}
 # A dialog that keeps its size in memory only: an app exit drops it, so it does not persist geometry.
 IN_MEMORY_ONLY = {"PickBetterWindow"}
 # Callables that pass the store on to a dialog they build.

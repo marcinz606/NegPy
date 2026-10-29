@@ -25,9 +25,9 @@ _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
 
 def _draw_plated_text(painter: QPainter, rect: QRect, flags: Qt.AlignmentFlag, text: str) -> None:
-    """A chart label on a dark plate, so it reads over a bright trace."""
+    """A chart label on a plate of the chart's own surface, so it reads over a bright trace."""
     box = painter.boundingRect(rect, flags, text).adjusted(-2, 0, 2, 0)
-    painter.fillRect(box, with_alpha(THEME.canvas_bg_black, 190))
+    painter.fillRect(box, with_alpha(THEME.bg_input, 210))
     painter.setPen(with_alpha(THEME.text_hint, 230))
     painter.drawText(rect, flags, text)
 
@@ -410,7 +410,9 @@ class PhotometricCurveWidget(QWidget):
             painter.drawLine(0, gy, w, gy)
 
         # Diagonal reference (dashed)
-        painter.setPen(QPen(QColor(THEME.bg_menu_selected), 1, Qt.PenStyle.DashLine))
+        diagonal_pen = _guide_pen()
+        diagonal_pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(diagonal_pen)
         painter.drawLine(
             int(self._wx(0.0, w)),
             int(self._wy(0.0, h)),
@@ -476,6 +478,8 @@ class PhotometricCurveWidget(QWidget):
             # Curve line on top; per-channel traces replace the white line when present.
             painter.setBrush(Qt.BrushStyle.NoBrush)
             if self._channel_curves:
+                # Added, as on the Parade Overlay: where the channels agree the line is white.
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
                 for color, pts in self._channel_curves:
                     ch_path = QPainterPath()
                     ch_path.moveTo(self._wx(pts[0][0], w), self._wy(pts[0][1], h))
@@ -483,6 +487,7 @@ class PhotometricCurveWidget(QWidget):
                         ch_path.lineTo(self._wx(px, w), self._wy(py, h))
                     painter.setPen(QPen(color, 1.5))
                     painter.drawPath(ch_path)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             else:
                 painter.setPen(QPen(QColor(THEME.text_on_accent), 1.5))
                 painter.drawPath(curve_path)
@@ -508,13 +513,11 @@ class PhotometricCurveWidget(QWidget):
                 idx = round((plt_x - self._X_MIN) / (self._X_MAX - self._X_MIN) * (len(self._curve_pts) - 1))
                 idx = max(0, min(len(self._curve_pts) - 1, idx))
                 tx, ty = self._curve_pts[idx]
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(with_alpha(THEME.text_on_accent, 220), 1.5))
-                painter.drawEllipse(QPointF(self._wx(tx, w), self._wy(ty, h)), 4.0, 4.0)
+                _draw_hover_ring(painter, QPointF(self._wx(tx, w), self._wy(ty, h)))
 
             # Hovered-pixel marker lines, on the print histogram's tone scale
             if self._marker is not None:
-                for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
+                for value, color_hex in zip(self._marker, (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)):
                     painter.setPen(QPen(with_alpha(color_hex, 220), 1, Qt.PenStyle.DashLine))
                     mx = int(self._wx(value / 255, w))
                     painter.drawLine(mx, 0, mx, h)
@@ -592,7 +595,7 @@ class PhotometricCurveWidget(QWidget):
         """Zones I–IX on the print axis, on the ruler the zone strip and probe read; V is longer."""
         from negpy.features.exposure.analysis import encoded_of_zone
 
-        painter.setPen(QPen(QColor(THEME.border_hover), 1))
+        painter.setPen(_guide_pen())
         for zone in range(1, 10):
             zy = int(self._wy(encoded_of_zone(zone), h))
             painter.drawLine(0, zy, 8 if zone == 5 else 4, zy)
@@ -893,9 +896,11 @@ class WaveformWidget(QWidget):
                 tints = [np.moveaxis(np.clip(vals / ref, 0.0, 1.0), 0, -1) / np.maximum(levels[0][..., None], 1e-9)]
             self._images = []
             for level, tint in zip(levels, tints):
-                rgb = np.ascontiguousarray(np.flipud(tint * level[..., None] * 255.0).astype(np.uint8))
+                # Premultiplied, as on the vectorscope: an empty cell shows the chart background.
+                rgba = np.concatenate([tint * level[..., None], level[..., None]], axis=-1)
+                rgba = np.ascontiguousarray(np.flipud(rgba * 255.0).astype(np.uint8))
                 h, w = level.shape
-                self._images.append(QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy())
+                self._images.append(QImage(rgba.data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy())
         return self._images
 
     def _shown_marks(self, tones: np.ndarray) -> np.ndarray:
@@ -1127,13 +1132,10 @@ class VectorscopeWidget(QWidget):
         font = QFont(self.font())
         font.setPixelSize(THEME.font_size_micro)
         painter.setFont(font)
+        painter.setPen(_guide_pen())
         for chroma in self._RINGS:
             r = float(scope_radius(chroma, self._log_scale)) * rim
-            painter.setPen(_guide_pen())
             painter.drawEllipse(center, r, r)
-            painter.setPen(QColor(THEME.text_hint))
-            painter.drawText(QPointF(center.x() + r * 0.71 + 2, center.y() + r * 0.71 + 8), f"{chroma:.0f}")
-        painter.setPen(_guide_pen())
         painter.drawEllipse(center, rim, rim)
         painter.drawLine(QPointF(center.x() - 6, center.y()), QPointF(center.x() + 6, center.y()))
         painter.drawLine(QPointF(center.x(), center.y() - 6), QPointF(center.x(), center.y() + 6))
@@ -1142,6 +1144,20 @@ class VectorscopeWidget(QWidget):
         if image is not None:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             painter.drawImage(QRectF(center.x() - rim, center.y() - rim, side, side), image)
+
+        # Ring values along the widest gap between hue letters, so no label meets a letter.
+        angles = sorted(angle % (2 * np.pi) for _label, angle in self._hue_ticks())
+        gaps = [((b if b > a else b + 2 * np.pi) - a, a) for a, b in zip(angles, angles[1:] + angles[:1])]
+        width, start = max(gaps)
+        cos, sin = float(np.cos(start + width / 2)), float(np.sin(start + width / 2))
+        last = 0.0
+        for chroma in self._RINGS:
+            r = float(scope_radius(chroma, self._log_scale)) * rim
+            if r - last < 14.0:  # a label's height: a closer ring would stack labels
+                continue
+            last = r
+            at = QPointF(center.x() + cos * r, center.y() - sin * r)
+            _draw_plated_text(painter, QRect(int(at.x()) - 10, int(at.y()) - 6, 20, 12), Qt.AlignmentFlag.AlignCenter, f"{chroma:.0f}")
 
         hint = QColor(THEME.text_hint)
         for label, angle in self._hue_ticks():
@@ -1373,13 +1389,15 @@ class StepWedgeWidget(QWidget):
 
         span = wedge_usable_span(self._enc)
         if span is not None:
-            # The hover ring's pens, so a mark holds on black and white steps alike.
+            # The hover ring's pens, so a mark holds on black and white steps alike; ticks at the
+            # top and bottom edges leave the middle row to the step labels.
+            tick = h // 4
             for edge in span:
                 x = (bounds[edge][0] + bounds[edge][1]) // 2
-                painter.setPen(QPen(with_alpha(THEME.canvas_bg_black, 200), 3))
-                painter.drawLine(x, 0, x, h)
-                painter.setPen(QPen(with_alpha(THEME.text_on_accent, 220), 1))
-                painter.drawLine(x, 0, x, h)
+                for pen in (QPen(with_alpha(THEME.canvas_bg_black, 200), 3), QPen(with_alpha(THEME.text_on_accent, 220), 1)):
+                    painter.setPen(pen)
+                    painter.drawLine(x, 0, x, tick)
+                    painter.drawLine(x, h - tick, x, h)
 
         labelled = range(0, len(self._enc), self._LABEL_EVERY)
         if self.width() / len(labelled) >= self._LABEL_MIN_PX:

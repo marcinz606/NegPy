@@ -4,8 +4,8 @@
 use multiversion::multiversion;
 use rayon::prelude::*;
 
-use crate::mathf::pow_f64;
-use crate::stats::{np_median, np_percentiles, pairwise_sum_f32, quantile_f64};
+use crate::mathf::{log10_f64, pow_f64};
+use crate::stats::{median_f64, np_median, np_percentiles, pairwise_sum_f32, quantile_f64};
 
 /// `x @ m.T` for one pixel, in the order OpenBLAS's dgemm sums it.
 #[multiversion(targets("x86_64+avx2+fma", "aarch64+neon"))]
@@ -87,6 +87,67 @@ pub fn process_mode_stats(img: &[f32]) -> (f64, [f64; 7]) {
     )
 }
 
+/// Robust spread of an HxWx3 image's color around its own neutral axis, in log10 units: block
+/// means of `block`-pixel squares, each pixel inside (`lo`, `hi`) in every channel, then the
+/// residuals of log R − log G and log B − log G after a straight-line fit on log G. Silver
+/// leaves only noise there; dyes leave the scene's hues. None under `min_share` usable blocks.
+pub fn chroma_spread(
+    img: &[f32],
+    w: usize,
+    block: usize,
+    lo: f32,
+    hi: f32,
+    min_share: f64,
+) -> Option<f64> {
+    let block = block.max(1);
+    let h = img.len() / (3 * w.max(1));
+    let (bh, bw) = (h / block, w / block);
+    let mut d = Vec::with_capacity(bh * bw);
+    let mut rg = Vec::with_capacity(bh * bw);
+    let mut bg = Vec::with_capacity(bh * bw);
+    for by in 0..bh {
+        'blocks: for bx in 0..bw {
+            let mut sum = [0.0f64; 3];
+            for y in by * block..(by + 1) * block {
+                let row = &img[(y * w + bx * block) * 3..(y * w + (bx + 1) * block) * 3];
+                for px in row.as_chunks::<3>().0 {
+                    if px.iter().any(|&v| !(v > lo && v < hi)) {
+                        continue 'blocks;
+                    }
+                    for c in 0..3 {
+                        sum[c] += f64::from(px[c]);
+                    }
+                }
+            }
+            let [r, g, b] = sum.map(log10_f64);
+            d.push(g);
+            rg.push(r - g);
+            bg.push(b - g);
+        }
+    }
+    if d.is_empty() || (d.len() as f64) < min_share * (bh * bw) as f64 {
+        return None;
+    }
+    let n = d.len() as f64;
+    let md = d.iter().sum::<f64>() / n;
+    let vd: f64 = d.iter().map(|x| (x - md) * (x - md)).sum();
+    let spread = |y: &[f64]| {
+        let my = y.iter().sum::<f64>() / n;
+        let cov: f64 = d.iter().zip(y).map(|(x, v)| (x - md) * (v - my)).sum();
+        let slope = if vd > 0.0 { cov / vd } else { 0.0 };
+        let mut r: Vec<f64> = d
+            .iter()
+            .zip(y)
+            .map(|(x, v)| v - my - slope * (x - md))
+            .collect();
+        let mid = median_f64(&mut r);
+        let mut dev: Vec<f64> = r.iter().map(|v| (v - mid).abs()).collect();
+        1.4826 * median_f64(&mut dev)
+    };
+    let (a, b) = (spread(&rg), spread(&bg));
+    Some(a.hypot(b))
+}
+
 /// `sample_patches` of an HxWxC float32 image: the float32 median per channel of the first three
 /// channels in each (x0, x1, y0, y1) box. With `gamma`, of `working_oetf_decode(np.clip(img, 0, 1))`.
 pub fn chart_patches(
@@ -125,6 +186,32 @@ mod tests {
         let (c, s) = process_mode_stats(&img);
         assert!((c - 1.0).abs() < 1e-6);
         assert_eq!(s[0], s[1]);
+    }
+
+    #[test]
+    fn a_tinted_gray_has_no_chroma_spread() {
+        let img: Vec<f32> = (0..64 * 64)
+            .flat_map(|i| {
+                let v = 0.05 + 0.9 * i as f32 / 4096.0;
+                [v * 0.5, v, v.powf(1.1) * 0.7]
+            })
+            .collect();
+        assert!(chroma_spread(&img, 64, 4, 0.003, 0.97, 0.1).unwrap() < 1e-3);
+    }
+
+    #[test]
+    fn independent_channels_spread_and_clipped_blocks_drop_out() {
+        let mut s = 1u32;
+        let mut rnd = || {
+            s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            0.05 + 0.9 * (s >> 8) as f32 / (1 << 24) as f32
+        };
+        let img: Vec<f32> = (0..64 * 64 * 3).map(|_| rnd()).collect();
+        assert!(chroma_spread(&img, 64, 4, 0.003, 0.97, 0.1).unwrap() > 0.05);
+        assert_eq!(
+            chroma_spread(&vec![1.0; 64 * 64 * 3], 64, 4, 0.003, 0.97, 0.1),
+            None
+        );
     }
 
     #[test]

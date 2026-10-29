@@ -1,7 +1,7 @@
-"""Roll membership: a Roll is a named, navigable group of frames -- either a real
-library folder recognized as a roll, or a virtual roll built by hand from whatever the
-Film Strip currently holds (a search result, a hand-picked selection, extras added to a
-folder roll that are not physically in that folder).
+"""Roll membership: a Roll is a named, navigable group of frames -- either a folder roll,
+the image files of one library folder minus those removed from it, or a virtual roll, a
+fixed list of frames saved from whatever the Film Strip held (a search result, a
+hand-picked selection).
 
 Edits are not stored here and are not scoped by roll by default: they stay in the edits
 DB under each frame's own content hash, exactly as if no Roll existed. A Roll only
@@ -20,12 +20,12 @@ import time
 import uuid
 from dataclasses import replace
 from fnmatch import fnmatchcase
-from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple
 
 from negpy.features.exposure.normalization import BOUNDS_VERSION
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
 from negpy.features.process.models import neutral_axis_tuple, with_film_fields
-from negpy.services.assets.library import folder_counts
+from negpy.services.assets.library import folder_counts, folder_image_paths
 
 if TYPE_CHECKING:
     from negpy.domain.models import WorkspaceConfig
@@ -116,10 +116,7 @@ def next_roll_name(name: str, taken: Callable[[str], bool]) -> str:
 def recognize_folder(repo: Any, path: str, name: str = "") -> str:
     """Mark *path* as a recognized folder roll. Idempotent: returns the existing id
     when the folder is already recognized, without touching its stored name."""
-    dismissed = _dismissed_folders(repo)
-    kept = [p for p in dismissed if _folder_key(p) != _folder_key(path)]
-    if kept != dismissed:
-        repo.save_global_setting(DISMISSED_FOLDERS_KEY, kept)
+    _undismiss(repo, path)
     existing = folder_roll_id_for_path(repo, path)
     if existing:
         return existing
@@ -127,13 +124,61 @@ def recognize_folder(repo: Any, path: str, name: str = "") -> str:
     roll_id = uuid.uuid4().hex
     store[roll_id] = {
         "kind": "folder",
-        "name": name or _import_name(repo, path) or path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or path,
+        "name": name or folder_roll_name(repo, path),
         "folder_path": path,
         "extra_paths": [],
         "created_at": time.time(),
     }
     _write(repo, store)
     return roll_id
+
+
+def _undismiss(repo: Any, path: str) -> None:
+    dismissed = _dismissed_folders(repo)
+    kept = [p for p in dismissed if _folder_key(p) != _folder_key(path)]
+    if kept != dismissed:
+        repo.save_global_setting(DISMISSED_FOLDERS_KEY, kept)
+
+
+def folder_roll_name(repo: Any, path: str) -> str:
+    """The name a folder roll of *path* takes: its path from the import source, else the folder's name."""
+    return _import_name(repo, path) or path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or path
+
+
+def folder_scope(paths: Collection[str]) -> tuple[Optional[str], List[str]]:
+    """The one folder every one of *paths* sits directly in, or None, and that folder's image files
+    not among *paths*."""
+    folders = {_folder_key(os.path.dirname(p)): os.path.dirname(p) for p in paths}
+    if len(folders) != 1:
+        return None, []
+    folder = next(iter(folders.values()))
+    have = {_folder_key(p) for p in paths}
+    return folder, [p for p in folder_image_paths(folder) if _folder_key(p) not in have]
+
+
+def create_folder_roll(repo: Any, path: str, excluded: Sequence[str] = ()) -> str:
+    """A new folder roll of *path* that leaves out *excluded*; *path* must have no folder roll yet."""
+    roll_id = recognize_folder(repo, path)
+    if excluded:
+        store = _read(repo)
+        store[roll_id]["excluded_paths"] = list(excluded)
+        _write(repo, store)
+    return roll_id
+
+
+def convert_to_folder_roll(repo: Any, roll_id: str, folder: str, excluded: Sequence[str]) -> str:
+    """Make virtual roll *roll_id* the folder roll of *folder* in place, leaving out *excluded*.
+    The id, and every record keyed by it, stays. Returns the roll's new name."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None or entry.get("kind") != "virtual":
+        return ""
+    _undismiss(repo, folder)
+    name = folder_roll_name(repo, folder)
+    entry.pop("member_paths", None)
+    entry.update(kind="folder", name=name, folder_path=folder, extra_paths=[], excluded_paths=list(excluded))
+    _write(repo, store)
+    return name
 
 
 def _import_name(repo: Any, path: str) -> str:
@@ -889,7 +934,8 @@ def move_section_push_fields(repo: Any, section_key: str, to_key: str, fields: C
 
 def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Optional[tuple]]]:
     """The roll's saved Roll Analysis baseline (floors, ceils, cast, the pooled neutral
-    ``axis`` or None, and the hashes of the frames that keep their own bounds, ``outliers``), or None if it
+    ``axis`` or None, the hashes of the frames that keep their own bounds, ``outliers``, and of
+    the frames measured, ``frames``, None before frames were recorded), or None if it
     has never been analyzed. Unlike roll_defaults, this is written only by Batch
     Analysis itself -- a metering run over the roll's files, not a per-frame edit --
     so a frame's own Use Luma/Color Average axes borrow it directly rather than
@@ -904,6 +950,7 @@ def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Optional[t
         "cast": tuple(saved["cast"]),
         "axis": _saved_axis(saved),
         "outliers": tuple(saved.get("outliers", ())),
+        "frames": tuple(saved["frames"]) if "frames" in saved else None,
     }
 
 
@@ -921,6 +968,7 @@ def set_roll_normalization(
     outliers: tuple = (),
     axis: Optional[tuple] = None,
     bounds_version: int = BOUNDS_VERSION,
+    frames: Optional[tuple] = None,
 ) -> None:
     """Records a Roll Analysis result as the roll's own baseline, overwriting
     whatever was there. No-op for an unknown roll id."""
@@ -936,6 +984,8 @@ def set_roll_normalization(
         "axis": axis,
         "bounds_version": bounds_version,
     }
+    if frames is not None:
+        entry["normalization"]["frames"] = list(frames)
     _write(repo, store)
 
 
@@ -957,6 +1007,22 @@ def frame_baseline_stale(repo: Any, process: Any) -> bool:
             if scene:
                 return baseline_stale(scene.get("normalization"))
     return False
+
+
+def frame_is_outlier(repo: Any, process: Any, file_hash: str) -> bool:
+    """Whether the roll or scene baseline a frame rides measured it as far from the pooled color."""
+    kind, _, ref = process.baseline_source.partition(":")
+    saved: Optional[dict] = None
+    if kind == "roll":
+        entry = roll_for_id(repo, ref)
+        saved = entry.get("normalization") if entry else None
+    elif kind == "scene":
+        for entry in _view(repo).values():
+            scene = entry.get("scenes", {}).get(ref)
+            if scene:
+                saved = scene.get("normalization")
+                break
+    return bool(saved) and bool({file_hash, unforked_hash(file_hash)} & set(saved.get("outliers", ())))
 
 
 def roll_film_base(repo: Any, roll_id: Optional[str]) -> Optional[tuple]:
@@ -1055,7 +1121,8 @@ def delete_scene(repo: Any, roll_id: str, scene_id: str) -> None:
 
 
 def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, Optional[tuple]]]:
-    """The scene's saved Scene Analysis baseline (floors, ceils, axis, outliers), or None before one."""
+    """The scene's saved Scene Analysis baseline (floors, ceils, axis, outliers, and the ``frames``
+    measured, None before frames were recorded), or None before one."""
     saved = dict(roll_scenes(repo, roll_id)).get(scene_id, {}).get("normalization")
     if not saved:
         return None
@@ -1064,11 +1131,19 @@ def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict
         "ceils": tuple(saved["ceils"]),
         "axis": _saved_axis(saved),
         "outliers": tuple(saved.get("outliers", ())),
+        "frames": tuple(saved["frames"]) if "frames" in saved else None,
     }
 
 
 def set_scene_normalization(
-    repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple, outliers: tuple = (), axis: Optional[tuple] = None
+    repo: Any,
+    roll_id: str,
+    scene_id: str,
+    floors: tuple,
+    ceils: tuple,
+    outliers: tuple = (),
+    axis: Optional[tuple] = None,
+    frames: Optional[tuple] = None,
 ) -> None:
     def edit(scenes: Dict[str, dict]) -> None:
         if scene_id in scenes:
@@ -1079,6 +1154,8 @@ def set_scene_normalization(
                 "axis": axis,
                 "bounds_version": BOUNDS_VERSION,
             }
+            if frames is not None:
+                saved["frames"] = list(frames)
             scenes[scene_id] = {**scenes[scene_id], "normalization": saved}
 
     _edit_scenes(repo, roll_id, edit)
@@ -1112,11 +1189,10 @@ def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "Work
     process = config.process
     if process.lock_bounds or process.is_locked_initialized or not (process.use_luma_average or process.use_color_average):
         return config
-    scene = scene_by_hash(repo, roll_id).get(file_hash)
-    saved = scene_normalization(repo, roll_id, scene[1]) if scene else roll_normalization(repo, roll_id)
-    if not saved:
+    found = frame_saved_baseline(repo, roll_id, file_hash)
+    if found is None:
         return config
-    source = f"scene:{scene[1]}" if scene else f"roll:{roll_id}"
+    saved, source = found
     return replace(
         config,
         process=replace(
@@ -1129,10 +1205,34 @@ def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "Work
     )
 
 
+def average_scope(process: Any) -> Optional[str]:
+    """``"roll"`` for a frame that chose the roll's average over its scene's, else None."""
+    return "roll" if process.baseline_source.startswith("roll:") else None
+
+
+def frame_saved_baseline(repo: Any, roll_id: Optional[str], file_hash: str, scope: Optional[str] = None) -> Optional[Tuple[dict, str]]:
+    """The baseline a frame's Use Average reads, its scene's else its roll's (always the roll's
+    with *scope* ``"roll"``), with its ``baseline_source``; None before that baseline is measured."""
+    if roll_id is None:
+        return None
+    scene = None if scope == "roll" else scene_by_hash(repo, roll_id).get(unforked_hash(file_hash))
+    saved = scene_normalization(repo, roll_id, scene[1]) if scene else roll_normalization(repo, roll_id)
+    if not saved:
+        return None
+    return saved, f"scene:{scene[1]}" if scene else f"roll:{roll_id}"
+
+
 def baseline_label(repo: Any, process: Any) -> str:
     """What a frame's locked baseline was taken from, for display: “Roll …”, “Scene …” or
     “Frame …”. A baseline saved before sources were recorded names its roll_name, if any."""
-    kind, _, ref = process.baseline_source.partition(":")
+    if not process.baseline_source:
+        return f"Roll “{process.roll_name}”" if process.roll_name else "a saved baseline"
+    return source_label(repo, process.baseline_source)
+
+
+def source_label(repo: Any, source: str) -> str:
+    """A ``baseline_source`` for display: “Roll …”, “Scene …” or “Frame …”."""
+    kind, _, ref = source.partition(":")
     if kind == "roll":
         entry = roll_for_id(repo, ref)
         return f"Roll “{entry['name']}”" if entry else "a deleted roll"
@@ -1144,4 +1244,4 @@ def baseline_label(repo: Any, process: Any) -> str:
         return "a deleted scene"
     if kind == "frame":
         return f"Frame “{ref}”"
-    return f"Roll “{process.roll_name}”" if process.roll_name else "a saved baseline"
+    return "a saved baseline"

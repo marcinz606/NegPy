@@ -218,6 +218,15 @@ class TestPaperProfiles(unittest.TestCase):
         self.assertEqual(len(c41), 1 + sum(p.kind == "ra4" for p in PAPER_PROFILES.values()))
         self.assertEqual(len(bw), 1 + sum(p.kind == "bw" for p in PAPER_PROFILES.values()))
 
+    def test_stocks_sort_by_label_within_each_medium(self):
+        for mode in (ProcessMode.C41, ProcessMode.BW):
+            listed = profiles_for_mode(mode)[1:]
+            media = [p.medium for _, p in listed]
+            self.assertEqual(media, sorted(media, key=("digital", "paper", "film").index), mode)
+            for medium in set(media):
+                labels = [p.label.casefold() for _, p in listed if p.medium == medium]
+                self.assertEqual(labels, sorted(labels), (mode, medium))
+
     def test_every_stock_has_a_distinct_short_name_for_its_strip_band(self):
         for mode in (ProcessMode.C41, ProcessMode.BW):
             shorts = [p.short for _, p in profiles_for_mode(mode)]

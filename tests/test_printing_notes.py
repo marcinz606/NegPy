@@ -158,3 +158,12 @@ def test_a_shadow_limit_reads_at_or_below_its_zone() -> None:
 
     assert note.badge == "1 −½ R95 ≤III⅓"
     assert note.summary == "1 Dodge −½ @ R95 on ≤III⅓"
+
+
+def test_a_brief_recipe_keeps_paper_density_and_grade():
+    exposure = replace(ExposureConfig(), shadow_density=0.1, toe=0.2, midtone_gamma=0.3)
+    full = recipe_lines(exposure, LocalAdjustmentsConfig(), FinishConfig())
+    brief = recipe_lines(exposure, LocalAdjustmentsConfig(), FinishConfig(), brief=True)
+    assert len(brief) == 3
+    assert brief[1].startswith("Print Density") and brief[2].startswith("Grade")
+    assert len(full) > len(brief)

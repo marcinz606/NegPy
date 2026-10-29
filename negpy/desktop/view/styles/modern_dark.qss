@@ -607,6 +607,11 @@ QPushButton#collapsible_header[overlay="true"]:checked {
     background-color: @header_veil;
 }
 
+/* A card that never collapses has no click target, so its header keeps one look. */
+QPushButton#collapsible_header[checkable="false"]:hover {
+    background-color: @bg_header;
+}
+
 /* The tab header (widgets/tab_header.py) sits on the panel ground; its buttons sit in tracks. */
 QPushButton#collapsible_header[bar="true"], QPushButton#collapsible_header[bar="true"]:hover {
     background-color: transparent;

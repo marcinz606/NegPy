@@ -66,7 +66,7 @@ class ExposureConfig:
     # from mid-gray (contrast_mask_coeffs). [0, 1]; 0 = off.
     contrast_mask_strength: float = 0.0
     # A diffuser under the enlarger lens: the paper sees the light mixed with a blurred copy,
-    # so shadows bleed into highlights. [0, 1]; 0 = off; fixed spread (DIFFUSION_SPREAD).
+    # so shadows bleed into highlights. [0, 1]; 0 = off; fixed spread (DIFFUSION_PSF).
     diffusion: float = 0.0
     # Split grade: zone contrast in ISO-R points (negative = harder), global
     # value + per-layer trims like Grade.

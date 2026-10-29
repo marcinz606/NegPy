@@ -60,6 +60,26 @@ fn process_mode_stats(
     }))
 }
 
+/// `detect_process_and_source`'s chroma spread of an HxWx3 float32 image, or None when too few
+/// blocks are usable.
+#[pyfunction]
+fn chroma_spread(
+    py: Python<'_>,
+    img: PyReadonlyArrayDyn<'_, f32>,
+    block: usize,
+    lo: f32,
+    hi: f32,
+    min_share: f64,
+) -> PyResult<Option<f64>> {
+    let (data, w, cn) = pixels(&img, 3)?;
+    if cn != 3 {
+        return Err(PyValueError::new_err("chroma_spread needs 3 channels"));
+    }
+    Ok(super::detach(py, data.len(), || {
+        process::chroma_spread(data, w, block, lo, hi, min_share)
+    }))
+}
+
 /// `sample_patches` of an HxWxC float32 image, one (x0, x1, y0, y1) box per patch; with `gamma`,
 /// of the clipped image decoded from the working encoding.
 #[pyfunction]
@@ -90,5 +110,6 @@ fn chart_patches(
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lightbox_white, m)?)?;
     m.add_function(wrap_pyfunction!(process_mode_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(chroma_spread, m)?)?;
     m.add_function(wrap_pyfunction!(chart_patches, m)?)
 }

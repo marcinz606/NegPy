@@ -92,7 +92,7 @@ def test_hidden_masks_are_still_on_the_record() -> None:
     sheet = overlay.printing_notes_sheet()
     assert sheet is not None
     # Both masks in the recipe, and the hidden burn still hatched on the map.
-    assert "1 Burn +1 · 2 Dodge −½" in "\n".join(overlay._recipe_lines())
+    assert "1 Burn +1 · 2 Dodge −½" in "\n".join(overlay.recipe())
     assert _to_array(sheet)[40, 40].tolist() != [128, 128, 128, 255]
 
 

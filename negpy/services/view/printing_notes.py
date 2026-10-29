@@ -116,8 +116,11 @@ def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNo
     ]
 
 
-def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish: FinishConfig, *, frame: str = "") -> List[str]:
-    """The printing record: one line per decision that is not at its default."""
+def recipe_lines(
+    exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish: FinishConfig, *, frame: str = "", brief: bool = False
+) -> List[str]:
+    """The printing record: one line per decision that is not at its default. brief keeps the
+    three every print has: paper, Print Density and grade."""
     lines: List[str] = []
     if frame:
         lines.append(frame)
@@ -131,7 +134,7 @@ def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish
         density += " (auto)"
     lines.append(density)
 
-    if exposure.shadow_density or exposure.highlight_density:
+    if not brief and (exposure.shadow_density or exposure.highlight_density):
         lines.append(f"Zone density: shadows {exposure.shadow_density:+.2f} · highlights {exposure.highlight_density:+.2f}")
 
     grade = f"Grade ISO-R {exposure.grade:.0f}"
@@ -140,6 +143,8 @@ def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish
     if exposure.shadow_grade or exposure.highlight_grade:
         grade += f" · split {exposure.shadow_grade:+.0f}/{exposure.highlight_grade:+.0f}"
     lines.append(grade)
+    if brief:
+        return lines
 
     if exposure.wb_cyan or exposure.wb_magenta or exposure.wb_yellow:
         lines.append(f"Filtration C{exposure.wb_cyan:+.2f} M{exposure.wb_magenta:+.2f} Y{exposure.wb_yellow:+.2f}")

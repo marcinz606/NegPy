@@ -367,10 +367,13 @@ def _row_lit(img, y: int) -> bool:
 
 
 def _row_across(img, y: int) -> bool:
-    """A drawn line across a third of the row, over the black trace image and its separators."""
+    """A drawn line across a third of the row, over the empty chart and its separators."""
     from PyQt6.QtGui import QColor
 
-    return sum(QColor(img.pixel(x, y)).lightness() > 30 for x in range(img.width())) > img.width() // 3
+    from negpy.desktop.view.styles.theme import THEME
+
+    lit = QColor(THEME.bg_input).lightness() + 20
+    return sum(QColor(img.pixel(x, y)).lightness() > lit for x in range(img.width())) > img.width() // 3
 
 
 def test_the_scan_parade_trades_zone_guides_for_density_guides_and_marks(qapp) -> None:
@@ -856,7 +859,10 @@ def test_the_scan_parade_draws_the_film_base_line(qapp) -> None:
     def dots(img) -> int:
         from PyQt6.QtGui import QColor
 
-        return sum(QColor(img.pixel(x, y)).lightness() > 40 for x in range(img.width()))
+        from negpy.desktop.view.styles.theme import THEME
+
+        lit = QColor(THEME.bg_input).lightness() + 20
+        return sum(QColor(img.pixel(x, y)).lightness() > lit for x in range(img.width()))
 
     assert dots(widget.grab().toImage()) < 10
     widget.set_scan_domain(True, np.array([[0.2, 0.7]] * 3), base=np.full(3, 0.85))

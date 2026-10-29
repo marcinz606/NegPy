@@ -26,11 +26,11 @@ def test_chroma_denoise_output_is_pinned():
 def test_glow_and_halation_output_is_pinned():
     rng = np.random.default_rng(17)
     outs = []
-    for shape in [(97, 131), (5, 7)]:
-        for glow, halation, scale in [(0.3, 0.0, 1.0), (0.0, 0.5, 1.0), (0.4, 0.2, 0.5), (1.0, 1.0, 2.0)]:
+    for shape in [(97, 131), (5, 7), (400, 600)]:
+        for glow, halation, bw in [(0.3, 0.0, False), (0.0, 0.5, False), (0.4, 0.2, True), (1.0, 1.0, False)]:
             img = rng.random((*shape, 3), dtype=np.float32)
-            outs.append(apply_glow_and_halation(img, glow, halation, scale))
-    assert digest(*outs) == "932811cd3a0aaadcc57401245d6789f2f53061b7fe9642f774fe293fa254d03f"
+            outs.append(apply_glow_and_halation(img, glow, halation, bw=bw))
+    assert digest(*outs) == "d6e678682cfb69cd9a8258a4b5b480bb7994cb845f66a435d2ce02ef18207095"
 
 
 def test_clahe_output_is_pinned():

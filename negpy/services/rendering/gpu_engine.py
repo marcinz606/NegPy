@@ -58,7 +58,15 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
 )
 from negpy.features.geometry.models import GeometryConfig, crops_frame
-from negpy.features.lab.logic import chroma_denoise_sigma, gaussian_kernel_1d, rl_iterations
+from negpy.features.lab.logic import (
+    GLOW_AMOUNT_MAX,
+    chroma_denoise_sigma,
+    gaussian_kernel_1d,
+    glow_reach_px,
+    halation_amounts,
+    halation_reach_px,
+    rl_iterations,
+)
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
@@ -2301,12 +2309,13 @@ class GPUEngine:
             if self._chroma_kernel_key != chroma_sigma:
                 self._buffers["chroma_k"].upload(chroma_kernel)
                 self._chroma_kernel_key = chroma_sigma
+        hal_amounts = halation_amounts(lab.halation_strength, settings.process.process_mode == ProcessMode.BW)
         l_data = struct.pack(
-            "ffffffffffff",
+            "ffffffffffffffff",
             float(lab.sharpen),
             float(lab.chroma_denoise),
             float(lab.saturation),
-            float(lab.glow_amount),
+            GLOW_AMOUNT_MAX * float(lab.glow_amount),
             float(lab.halation_strength),
             # Chroma Denoise's sigma is chroma_denoise * scale_factor, as on the CPU.
             float(scale_factor),
@@ -2316,6 +2325,8 @@ class GPUEngine:
             float(lab.skin_protection),
             float(chroma_radius_px),
             1.0 if lab.sharpen_auto_masking else 0.0,
+            *hal_amounts,
+            float(min(h_rot, w_rot)),
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
@@ -3044,12 +3055,12 @@ class GPUEngine:
             k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius)) // 2
             mult = 6 if settings.lab.sharpen_method == SharpenMethod.RL else 1
             halo = max(halo, k_radius * mult)
-        # Glow/halation taps reach up to their radius (max(., . * scale_factor) in
-        # lab.wgsl). Without this the bloom seams at tile edges on big exports.
+        # Glow/halation taps reach up to their radius (lab.wgsl). Without this the bloom
+        # seams at tile edges on big exports.
         if settings.lab.glow_amount > 0.0:
-            halo = max(halo, int(np.ceil(max(3.0, 15.0 * scale_factor))))
+            halo = max(halo, glow_reach_px((h_rot, w_rot)) + 1)
         if settings.lab.halation_strength > 0.0:
-            halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
+            halo = max(halo, halation_reach_px((h_rot, w_rot)) + 1)
         # Chroma Denoise reads its low-pass kernel's half-width, plus one for the edge test's neighbors.
         chroma_sigma = chroma_denoise_sigma(settings.lab.chroma_denoise, scale_factor)
         if chroma_sigma > 0.0:

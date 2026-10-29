@@ -40,6 +40,9 @@ def chinese() -> Iterator[None]:
         ("ko", ["en-US"], "ko"),
         ("KO_KR", ["en-US"], "ko"),
         ("system", ["ko-KR"], "ko"),
+        ("de", ["en-US"], "de"),
+        ("DE_AT", ["en-US"], "de"),
+        ("system", ["de-DE"], "de"),
         ("system", [], "en"),
         ("invalid", ["zh-CN"], "en"),
     ],
@@ -162,6 +165,18 @@ def test_japanese_and_korean_templates_keep_user_text_and_count_forms(locale: st
         i18n.configure(previous)
 
 
+def test_german_count_forms_use_the_catalog_singular_and_plural() -> None:
+    previous = i18n.language()
+    try:
+        i18n.configure("de")
+        assert count_of(1, "frame") == "1 Bild"
+        assert count_of(2, "frame") == "2 Bilder"
+        assert count_of(2, "strip") == "2 Streifen"
+        assert count_of(0, "file") == "0 Dateien"
+    finally:
+        i18n.configure(previous)
+
+
 def test_format_signature_keeps_repeated_fields_and_conversions() -> None:
     assert i18n.fields("{name!r} {name}") == i18n.fields("{name} {name!r}")
     assert i18n.fields("{x:.1f}") != i18n.fields("{x:.2f}")
@@ -207,7 +222,7 @@ def test_language_preference_is_saved_and_waits_for_restart(locale: str) -> None
     assert reopened.language_combo.currentData() == locale
 
 
-@pytest.mark.parametrize("locale,word", [("zh_CN", "密度"), ("ja", "濃度"), ("ko", "농도")])
+@pytest.mark.parametrize("locale,word", [("zh_CN", "密度"), ("ja", "濃度"), ("ko", "농도"), ("de", "Dichte")])
 def test_localized_guides_cover_every_panel_and_fall_back(locale: str, word: str) -> None:
     from negpy.desktop.view.widgets.section_help_dialog import _localized_guides, _read_guides, guide_markdown
 

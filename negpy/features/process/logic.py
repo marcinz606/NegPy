@@ -177,7 +177,11 @@ def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highligh
 # Tuned against real sample scans; see tests/test_process_detect.py.
 _ANALYSIS_BUFFER = 0.12  # centre-crop ratio: drops film rebate / borders
 _MAX_ANALYSIS_DIM = 256  # downsample longest edge to this for speed
-_BW_CORR_THRESHOLD = 0.99  # min channel correlation above this -> monochrome
+_BW_CORR_THRESHOLD = 0.99  # min channel correlation above this -> monochrome, when too few blocks give a chroma spread
+_BW_CHROMA_THRESHOLD = 0.022  # chroma spread (log10) below this -> monochrome
+_CHROMA_BLOCK = 4  # block edge in analysis pixels: averages out sensor noise, keeps scene hues
+_CHROMA_LO, _CHROMA_HI = 0.003, 0.97  # a block with a pixel outside this in any channel is noise or clipped
+_CHROMA_MIN_SHARE = 0.1  # usable blocks needed, as a share of all blocks
 _C41_ORANGE_THRESHOLD = 1.5  # red-over-blue cast above this -> orange mask (C41)
 _PURPLE_G_DEFICIT = 0.05  # min absolute linear deficit: (R+B)/2 - G (purple mask)
 _PURPLE_RB_BALANCE = 1.05  # min(R,B)/G must exceed this (both R and B above G)
@@ -234,11 +238,12 @@ def detect_process_and_source(raw: Optional[ImageBuffer]) -> tuple[ProcessMode, 
     # Purple mask, as on Harman Phoenix: R about equal to B with G suppressed. Check at p98,
     # the clearest film areas, where the base color is most visible.
     masked = orange_score > _C41_ORANGE_THRESHOLD or _has_purple_mask(r_p98, g_p98, b_p98)
-    monochrome = min_corr > _BW_CORR_THRESHOLD
+    spread = negpy_core.chroma_spread(np.ascontiguousarray(img), _CHROMA_BLOCK, _CHROMA_LO, _CHROMA_HI, _CHROMA_MIN_SHARE)
+    monochrome = spread < _BW_CHROMA_THRESHOLD if spread is not None else min_corr > _BW_CORR_THRESHOLD
 
-    # B&W: the channels stay near-perfectly correlated even with a color tint, while real
-    # color (C41, E-6) has varied hues and lower correlation. A gray scene on masked color
-    # film still reads B&W for the mode, but its source stays color.
+    # B&W: silver leaves only a tint and noise around the neutral axis; dyes carry the scene's hues.
+    # Channel correlation falls on a flat or clipped B&W frame, so it decides only without a spread.
+    # A gray scene on masked color film still reads B&W for the mode, but its source stays color.
     if monochrome:
         return ProcessMode.BW, masked
     return (ProcessMode.C41 if masked else ProcessMode.E6), True

@@ -113,13 +113,13 @@ class TestKernel(unittest.TestCase):
         self.assertGreater(float(soft[mid, w // 2 - 2, 0]), float(plain[mid, w // 2 - 2, 0]))
         self.assertLess(float(soft[mid, w // 2 + 1, 0]), float(plain[mid, w // 2 + 1, 0]))
 
-    def test_the_full_slider_diffuses_half_the_light(self):
+    def test_the_full_slider_diffuses_a_quarter_of_the_light(self):
         lin = _step_negative()
         img = _normalized(lin)
         plane = _plane(lin)
         r = np.array(channel_density_ranges(BOUNDS), dtype=np.float64)
-        half = np.log10(0.5 * 10.0 ** (img * r) + 0.5 * 10.0 ** (plane * r)) / r
-        np.testing.assert_allclose(_print(img, diffusion=1.0, diffusion_plane=plane), _print(half.astype(np.float32)), atol=1e-5)
+        quarter = np.log10(0.75 * 10.0 ** (img * r) + 0.25 * 10.0 ** (plane * r)) / r
+        np.testing.assert_allclose(_print(img, diffusion=1.0, diffusion_plane=plane), _print(quarter.astype(np.float32)), atol=1e-5)
 
     def test_the_rect_places_the_plane_on_the_printed_frame(self):
         lin = _step_negative()
@@ -177,7 +177,7 @@ class TestDiffusionParity(unittest.TestCase):
     def test_cpu_gpu_match_and_the_diffusion_moves_the_print(self):
         soft = self._assert_match(_settings(diffusion=0.7), "diffusion-parity")
         plain = self._render(_settings(), "diffusion-parity-plain", prefer_gpu=False)
-        self.assertGreater(float(np.max(np.abs(soft - plain))), 0.02)
+        self.assertGreater(float(np.max(np.abs(soft - plain))), 0.005)
 
     def test_cpu_gpu_match_with_the_contrast_mask_on_the_same_texture(self):
         self._assert_match(_settings(diffusion=0.5, contrast_mask_strength=0.6, grade=80.0), "diffusion-mask-parity")

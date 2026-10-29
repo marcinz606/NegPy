@@ -261,17 +261,33 @@ class ShortcutsOverlay(QDialog):
         grid.setVerticalSpacing(THEME.space_lg)
 
         header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
+        headers = []
         for col, label in enumerate((tr("Action"), tr("Default"), tr("Shortcut"), tr("Step"))):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)
+            if col == 0:
+                hdr.setContentsMargins(THEME.space_sm, 0, 0, 0)
             grid.addWidget(hdr, 0, col)
+            headers.append(hdr)
 
         mono = f"color: {THEME.text_secondary}; font-family: {mono_font_family()};"
-        for row, editor_row in enumerate(category_editor_rows(items), start=1):
+        rows = category_editor_rows(items)
+        for row, editor_row in enumerate(rows, start=1):
             if isinstance(editor_row, EditorRowSlider):
                 self._add_slider_row(grid, row, editor_row, mono)
             else:
                 self._add_single_row(grid, row, editor_row, mono)
+
+        # Each row is its own frame (for the highlight), so the columns are sized once for all of them.
+        inners = [grid.itemAtPosition(row, 0).widget().layout() for row in range(1, len(rows) + 1)]
+        for col in range(4):
+            width = max([inner.itemAtPosition(0, col).sizeHint().width() for inner in inners] + [headers[col].sizeHint().width()])
+            for inner in inners:
+                inner.setColumnMinimumWidth(col, width)
+            grid.setColumnMinimumWidth(col, width + (THEME.space_sm if col == 0 else 0))
+        for inner in inners:
+            inner.setColumnStretch(3, 1)
+        grid.setColumnStretch(3, 1)
 
         return body
 

@@ -5,7 +5,8 @@ from PyQt6.QtCore import pyqtSignal
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
-from negpy.features.process.models import ProcessMode, scan_setup_rig
+from negpy.features.exposure.papers import resolve_paper
+from negpy.features.process.models import SCAN_SETUP_PAPERS, ProcessMode, scan_setup_rig, scan_setup_values
 
 _LIGHT_HINT = {
     "camera": {
@@ -14,8 +15,20 @@ _LIGHT_HINT = {
     },
     "scanner": {
         "white": tr("A white lamp, as in Plustek, Epson and most flatbed scanners."),
-        "narrowband": tr("RGB LED light, as in a Nikon Coolscan or Kodak Pakon"),
+        "narrowband": tr("RGB LED light, as in a Nikon Coolscan or Kodak Pakon."),
     },
+}
+_DECODE_EFFECT = {
+    ("camera", "white"): tr("Decodes the RAW with the camera white balance."),
+    ("camera", "narrowband"): tr("Decodes the RAW linear, with no white balance."),
+    ("scanner", "white"): tr("Reads the scan linear, with no white balance."),
+    ("scanner", "narrowband"): tr("Reads the scan linear, with no white balance."),
+}
+_CARDS_EFFECT = {
+    ("camera", "white"): tr("Shows the Raw Decode and Optics cards."),
+    ("camera", "narrowband"): tr("Shows the Raw Decode, Optics and Trichrome cards."),
+    ("scanner", "white"): tr("Hides the Raw Decode and Optics cards."),
+    ("scanner", "narrowband"): tr("Hides the Raw Decode and Optics cards."),
 }
 
 
@@ -85,6 +98,17 @@ class ScanSetupSidebar(BaseSidebar):
             if capture == "auto" and self.state.current_file_hash
             else ""
         )
-        text = " ".join(t for t in (detected, "" if bw else _LIGHT_HINT[resolved][light]) if t)
-        self.hint.setText(text)
-        self.hint.setVisible(bool(text))
+        # apply_scan_setup moves only a Color frame on one of these stocks.
+        stock = ""
+        if process.process_mode == ProcessMode.C41:
+            paper = self.state.config.exposure.paper_profile
+            stock = (
+                tr("Prints on {stock}.", stock=resolve_paper(scan_setup_values(resolved, light)[1]).label)
+                if paper in SCAN_SETUP_PAPERS
+                else tr("Keeps the print stock you picked.")
+            )
+        rig = (resolved, light)
+        lines = ("" if bw else _LIGHT_HINT[resolved][light], detected, _DECODE_EFFECT[rig], _CARDS_EFFECT[rig], stock)
+        # A table, not <ul>: a wrapped line hangs under its own text, and the bullets stay flush left.
+        rows = "".join(f"<tr><td>•&nbsp;</td><td>{t}</td></tr>" for t in lines if t)
+        self.hint.setText('<table cellspacing="0" cellpadding="0">' + rows + "</table>")

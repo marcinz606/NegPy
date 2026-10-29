@@ -3,7 +3,6 @@ from typing import List, Optional
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -341,8 +340,7 @@ class CrosstalkEditorDialog(QDialog):
             item = QListWidgetItem(name)
             item.setData(Qt.ItemDataRole.UserRole, name)
             if CrosstalkProfiles.is_bundled(name):
-                item.setForeground(QColor(THEME.text_muted))
-                item.setIcon(qta.icon("fa5s.lock", color=THEME.text_muted))
+                item.setIcon(qta.icon("fa5s.lock", color=THEME.text_hint))
             self.profile_list.addItem(item)
         self.profile_list.blockSignals(False)
         self._updating = False

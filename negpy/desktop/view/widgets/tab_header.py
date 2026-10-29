@@ -43,7 +43,7 @@ class TabHeader(CollapsibleSection):
         for widget in (self.reset_btn, self.roll_revert_btn):
             self._header_row.removeWidget(widget)
         self._lead_track = _Track()
-        self._lead_track.hide()
+        self._set_lead_visible(False)
         self.edited_dot = QLabel()
         self.edited_dot.setPixmap(qta.icon("fa5s.circle", color=THEME.mark_edited).pixmap(6, 6))
         self._header_row.insertWidget(0, self._lead_track)
@@ -58,7 +58,7 @@ class TabHeader(CollapsibleSection):
         btn = header_button(icon, tooltip)
         btn.setCheckable(True)
         self._lead_track.row.addWidget(btn)
-        self._lead_track.show()
+        self._set_lead_visible(True)
         return btn
 
     def add_mirror(self, source: QAbstractButton, icon: QIcon | None = None) -> QPushButton:
@@ -74,7 +74,12 @@ class TabHeader(CollapsibleSection):
         return btn
 
     def _sync_lead_track(self) -> None:
-        self._lead_track.setVisible(any(not b.isHidden() for b in self._lead_track.findChildren(QPushButton)))
+        self._set_lead_visible(any(not b.isHidden() for b in self._lead_track.findChildren(QPushButton)))
+
+    def _set_lead_visible(self, visible: bool) -> None:
+        """The lead track sits on the panel edge like the cards' frames; without it the state line takes the cards' inset."""
+        self._lead_track.setVisible(visible)
+        self._header_row.setContentsMargins(0 if visible else THEME.space_xl, THEME.space_sm, 0, THEME.space_sm)
 
     def bind(self, sections: Iterable[CollapsibleSection]) -> None:
         self._sections = tuple(sections)

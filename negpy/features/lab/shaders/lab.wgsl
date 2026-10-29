@@ -13,6 +13,10 @@ struct LabUniforms {
     skin_protection: f32,
     chroma_radius_px: f32,
     auto_masking: f32,
+    halation_r: f32,
+    halation_g: f32,
+    halation_b: f32,
+    frame_short_px: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -120,9 +124,21 @@ const FIBONACCI_64 = array<vec2<f32>, 64>(
     vec2<f32>(-0.410097, -0.899101),
     vec2<f32>(0.916976, 0.389028)
 );
-// Sum of exp(-2*r²) over all 64 Fibonacci samples — used to normalize the
-// accumulator the same way a Gaussian convolution kernel is normalized (sum=1).
-const BLOOM_GAUSS_SUM = 27.668145;
+
+// Mirror GLOW_PSF, GLOW_THRESHOLD, HALATION_SIGMA and HALATION_BOUNCES in features/lab/logic.py.
+const GLOW_PSF = array<vec2<f32>, 4>(
+    vec2<f32>(0.1104, 0.001582),
+    vec2<f32>(0.3559, 0.004122),
+    vec2<f32>(0.4014, 0.010181),
+    vec2<f32>(0.1323, 0.024798)
+);
+const GLOW_THRESHOLD = 0.5;
+const HALATION_SIGMA = 0.0027;
+const HALATION_BOUNCES = array<vec2<f32>, 3>(
+    vec2<f32>(0.5714286, 1.0),
+    vec2<f32>(0.2857143, 1.4142136),
+    vec2<f32>(0.1428571, 1.7320508)
+);
 
 // Chroma Denoise edge test — mirrors CHROMA_EDGE_LO/HI in negpy_core/src/lab.rs.
 const CHROMA_EDGE_LO = 1.0;
@@ -138,6 +154,12 @@ fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
 fn oetf_decode(c: vec3<f32>) -> vec3<f32> {
     let e = max(c, vec3<f32>(0.0));
     return pow(e, vec3<f32>(2.19921875));
+}
+
+// Glow's scattered light: the highlights above GLOW_THRESHOLD of display-encoded luma.
+fn glow_light(coords: vec2<i32>) -> vec3<f32> {
+    let s = load_lin(coords);
+    return s * clamp((dot(oetf_encode(s), WORKING_LUMA_COEFFS) - GLOW_THRESHOLD) / (1.0 - GLOW_THRESHOLD), 0.0, 1.0);
 }
 
 fn load_lin(coords: vec2<i32>) -> vec3<f32> {
@@ -431,60 +453,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = color * max(1.0 + (ratio - 1.0) * gain, 0.0);
     }
 
-    // 4. Glow and Halation
-    // Radii match the CPU base_r (glow=15px, halation=25px at scale_factor=1) and scale
-    // with resolution so full-res exports keep the preview footprint.
-    // Accumulate highlight-weighted Gaussian samples then divide by the fixed kernel
-    // weight sum (BLOOM_GAUSS_SUM) — mirrors how a normalised Gaussian convolution
-    // kernel divides by its total weight, so intensity decays naturally with distance
-    // rather than being renormalised back up to full highlight brightness.
+    // 4. Glow and Halation: each I + a·(K*L − L). One 64-tap disc per Gaussian, out to three of
+    // its sigmas, offsets rounded to texels and normalized over the taps.
     if (params.glow_amount > 0.0 || params.halation_strength > 0.0) {
-        let HIGHLIGHT_THRESHOLD = 0.5;
-        // Halation mask in LINEAR reflectance: fixed by scene exposure, so the
-        // footprint doesn't move with grade/density (mirrors CPU logic.py).
-        let HALATION_THRESHOLD_LINEAR = 0.65;
-        // Radii scale with resolution so a full-res export keeps the preview footprint
-        // (mirrors CPU logic.py's base_r = max(., int(. * scale_factor))).
-        let GLOW_RADIUS = max(3.0, 15.0 * params.scale_factor);
-        let HAL_RADIUS = max(5.0, 25.0 * params.scale_factor);
-
-        var glow_accum = vec3<f32>(0.0);
-        var hal_accum = vec3<f32>(0.0);
-
-        for (var tap = 0; tap < 64; tap++) {
-            let offset = FIBONACCI_64[tap];
-
-            if (params.glow_amount > 0.0) {
-                let g_off = offset * GLOW_RADIUS;
-                let g_coord = clamp(coords + vec2<i32>(g_off), vec2<i32>(0), vec2<i32>(dims) - 1);
-                let g_samp = load_lin(g_coord);
-                // Glow is a print-side lens effect: mask stays in display domain.
-                let g_luma = dot(oetf_encode(g_samp), WORKING_LUMA_COEFFS);
-                let g_hl = max(0.0, (g_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
-                let g_r = length(offset);  // normalised radius in [0,1]
-                let g_w = exp(-g_r * g_r * 2.0);
-                glow_accum += g_samp * (g_hl * g_w);
-            }
-
-            if (params.halation_strength > 0.0) {
-                let h_off = offset * HAL_RADIUS;
-                let h_coord = clamp(coords + vec2<i32>(h_off), vec2<i32>(0), vec2<i32>(dims) - 1);
-                let h_samp = load_lin(h_coord);
-                let h_luma = dot(h_samp, WORKING_LUMA_COEFFS);
-                let h_hl = max(0.0, (h_luma - HALATION_THRESHOLD_LINEAR) / (1.0 - HALATION_THRESHOLD_LINEAR));
-                let h_r = length(offset);
-                let h_w = exp(-h_r * h_r * 2.0);
-                hal_accum += vec3<f32>(h_samp.r, h_samp.r * 0.3, h_samp.r * 0.05) * (h_hl * h_w);
-            }
-        }
-
-        // Scattered light is added exposure — additive in linear, clamped at store.
         if (params.glow_amount > 0.0) {
-            color = color + (glow_accum / BLOOM_GAUSS_SUM) * params.glow_amount;
+            var spread = vec3<f32>(0.0);
+            for (var k = 0; k < 4; k++) {
+                let s = GLOW_PSF[k].y * params.frame_short_px;
+                var acc = vec3<f32>(0.0);
+                var sum = 0.0;
+                for (var tap = 0; tap < 64; tap++) {
+                    let off = vec2<i32>(round(FIBONACCI_64[tap] * (3.0 * s)));
+                    let d = vec2<f32>(off);
+                    let g = exp(-dot(d, d) / (2.0 * s * s));
+                    acc += glow_light(clamp(coords + off, vec2<i32>(0), vec2<i32>(dims) - 1)) * g;
+                    sum += g;
+                }
+                spread += acc * (GLOW_PSF[k].x / max(sum, 1e-6));
+            }
+            color = color + params.glow_amount * (spread - glow_light(coords));
         }
 
+        // One disc per bounce: a shared one undersamples the narrow first bounce.
         if (params.halation_strength > 0.0) {
-            color = color + (hal_accum / BLOOM_GAUSS_SUM) * params.halation_strength;
+            var spread = vec3<f32>(0.0);
+            for (var k = 0; k < 3; k++) {
+                let s = HALATION_BOUNCES[k].y * HALATION_SIGMA * params.frame_short_px;
+                var acc = vec3<f32>(0.0);
+                var sum = 0.0;
+                for (var tap = 0; tap < 64; tap++) {
+                    let off = vec2<i32>(round(FIBONACCI_64[tap] * (3.0 * s)));
+                    let d = vec2<f32>(off);
+                    let g = exp(-dot(d, d) / (2.0 * s * s));
+                    acc += load_lin(clamp(coords + off, vec2<i32>(0), vec2<i32>(dims) - 1)) * g;
+                    sum += g;
+                }
+                spread += acc * (HALATION_BOUNCES[k].x / max(sum, 1e-6));
+            }
+            let a = vec3<f32>(params.halation_r, params.halation_g, params.halation_b);
+            color = color + a * (spread - load_lin(coords));
         }
     }
 

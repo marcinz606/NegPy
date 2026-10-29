@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import pytest
@@ -8,7 +7,6 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDialog, QMainWindow, QPushButton, QSlider, QVBoxLayout
 
 from negpy.desktop.view.widgets.floating_panel import float_over_app
-from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 
 # Qt::Tool shares the Window and Dialog bits, so only the masked windowType() tells
 # a panel from a plain dialog — `flags & Tool` is truthy for both.
@@ -38,13 +36,6 @@ def test_float_over_app_keeps_the_other_flags() -> None:
     float_over_app(dlg, platform="darwin")
     assert dlg.windowType() == Qt.WindowType.Tool
     assert dlg.windowFlags() & Qt.WindowType.WindowCloseButtonHint
-
-
-def test_progress_dialog_floats_and_stays_modeless() -> None:
-    dlg = ProgressDialog()
-    assert not dlg.isModal()
-    is_panel = dlg.windowType() == Qt.WindowType.Tool
-    assert is_panel == (sys.platform == "darwin")
 
 
 @pytest.fixture
@@ -129,31 +120,6 @@ def test_esc_and_close_both_end_a_scan_window_session(panel_over_main, window) -
     win.show()
     win.close()
     assert closed == ["closed", "closed"]
-
-
-def test_esc_leaves_a_running_job_visible(panel_over_main) -> None:
-    main, _, _ = panel_over_main
-    dlg = ProgressDialog(main)
-    aborts: list[str] = []
-    dlg.abort_requested.connect(lambda: aborts.append("abort"))
-    dlg.start("Exporting", abortable=True)
-    _focus(dlg, dlg)
-    QTest.keyClick(dlg, Qt.Key.Key_Escape)
-    assert dlg.isVisible()
-    assert aborts == []
-    dlg.close()
-    assert not dlg.isVisible()
-
-
-def test_progress_leaves_main_window_keys_live(panel_over_main) -> None:
-    main, _, fired = panel_over_main
-    dlg = ProgressDialog(main)
-    float_over_app(dlg, platform="darwin", claim_keys=False)
-    dlg.start("Exporting", abortable=True)
-    _focus(dlg, dlg)
-    QTest.keyClick(dlg, Qt.Key.Key_Right)
-    assert fired == ["Right"]
-    dlg.finish()
 
 
 def test_esc_leaves_a_running_calibration_open(panel_over_main) -> None:

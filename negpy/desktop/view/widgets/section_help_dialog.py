@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QTextTable
+from PyQt6.QtGui import QColor, QTextListFormat, QTextTable
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.templates import pin_dialog_default
@@ -118,6 +118,16 @@ class SectionHelpDialog(QDialog):
                 table = frame.format()
                 table.setBorderBrush(QColor(THEME.border_primary))
                 frame.setFormat(table)
+        # The importer draws '*' items as hollow circles a full tab in; the app's lists are discs at a short indent.
+        doc = self.body.document()
+        doc.setIndentWidth(THEME.space_2xl + THEME.space_sm)
+        block = doc.begin()
+        while block.isValid():
+            if (lst := block.textList()) is not None and lst.format().style() != QTextListFormat.Style.ListDisc:
+                fmt = lst.format()
+                fmt.setStyle(QTextListFormat.Style.ListDisc)
+                lst.setFormat(fmt)
+            block = block.next()
         root.addWidget(self.body, stretch=1)
 
         actions = QHBoxLayout()

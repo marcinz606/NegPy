@@ -20,9 +20,11 @@ from negpy.features.exposure.papers import PAPER_PROFILES
 from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
+from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
+from negpy.services.assets.rolls import card_fields
 
 
 class SettingRow:
@@ -114,6 +116,31 @@ def _fmt_flatfield(values: tuple) -> str:
     return profile.name if profile else _fmt_scalar(True)
 
 
+def _fmt_white_balance(values: tuple) -> str:
+    return tr("Linear RAW") if values[0] else tr("Camera WB")
+
+
+# Highlight Recovery's choices: rawpy's HighlightMode collapsed to three, Reconstruct pinned
+# to libraw's own default level.
+HIGHLIGHT_LEVELS = (
+    (0, tr("Off")),
+    (2, tr("Blend")),
+    (5, tr("Reconstruct")),
+)
+
+
+def highlight_bucket(level: int) -> int:
+    """The HIGHLIGHT_LEVELS entry a stored level shows under. Any other valid level (3-9) is a
+    Reconstruct level. An invalid one is Off, as effective_highlight_reconstruction decodes it."""
+    if level not in VALID_HIGHLIGHT_LEVELS or level == 0:
+        return 0
+    return 1 if level == 2 else 2
+
+
+def _fmt_highlights(values: tuple) -> str:
+    return HIGHLIGHT_LEVELS[highlight_bucket(values[0])][1]
+
+
 # fmt: off
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     (mark("Setup"), (
@@ -136,12 +163,18 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Use Average Cast"), "process", "use_cast_average", "locked_neutral_axis", fmt=lambda v: _fmt_scalar(v[0])),
     )),
     (mark("Calibration"), (
-        # Strength, profile and the baked matrix copy atomically: strength alone would leave the
-        # target on a stale or None matrix.
-        _row(mark("Crosstalk"), "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
+        # Strength, profile, the baked matrix and the process it was baked for copy atomically:
+        # strength alone would leave the target on a stale or None matrix.
+        _row(mark("Crosstalk"), "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", "crosstalk_process", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         _row(mark("Sensor Crosstalk Profile"), "process", "sensor_profile", "sensor_matrix", "sensor_unmix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row(mark("Hue Trim"), "process", "hue_trim", sticky=True),
+    )),
+    (mark("Raw Decode"), (
+        _row(mark("White Balance"), "process", "linear_raw", fmt=_fmt_white_balance),
+        _row(mark("Demosaic Preview"), "process", "demosaic_preview"),
+        _row(mark("Demosaic Export"), "process", "demosaic_export"),
+        _row(mark("Highlight Recovery"), "process", "highlight_reconstruction", fmt=_fmt_highlights),
     )),
     (mark("Crop"), (
         _row(mark("Auto Crop"), "geometry", "crop_from_auto", sticky=True),
@@ -354,6 +387,10 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "sensor_profile",
         "sensor_matrix",
         "sensor_unmix",
+        # Each changes the decoded preview the meters read.
+        "linear_raw",
+        "highlight_reconstruction",
+        "demosaic_preview",
         "crop_from_auto",
         "autocrop_offset",
         "autocrop_rebate_trim",
@@ -408,13 +445,6 @@ _UNLISTED_CARD = {
     "metadata": mark("Metadata"),
     "export": mark("Export"),
 }
-_UNLISTED_FIELD_CARD = {
-    "linear_raw": mark("Raw Decode"),
-    "demosaic_preview": mark("Raw Decode"),
-    "demosaic_export": mark("Raw Decode"),
-    "highlight_reconstruction": mark("Raw Decode"),
-    "crosstalk_process": mark("Calibration"),
-}
 
 
 def changed_settings(prev: WorkspaceConfig, config: WorkspaceConfig) -> list[tuple[str, str]]:
@@ -433,7 +463,7 @@ def changed_settings(prev: WorkspaceConfig, config: WorkspaceConfig) -> list[tup
         for f in dataclass_fields(after):
             key = (section, f.name)
             if key not in _LISTED and key not in _MEASURED and getattr(before, f.name) != getattr(after, f.name):
-                changed.append((_UNLISTED_FIELD_CARD.get(f.name) or _UNLISTED_CARD.get(section, section), ""))
+                changed.append((_UNLISTED_CARD.get(section, section), ""))
     return changed
 
 
@@ -545,6 +575,11 @@ FRAME_CARD_FIELDS: dict[str, tuple | None] = {
     "leak": None,
     "finish": None,
 }
+
+
+def roll_card_rows(*card_keys: str) -> list[SettingRow]:
+    """The catalog rows of one or more Roll-tab cards (ROLL_DEFAULT_FIELDS keys)."""
+    return rows_for_fields(f for card in card_keys for f in card_fields(card))
 
 
 def frame_card_rows(card_key: str) -> list[SettingRow]:

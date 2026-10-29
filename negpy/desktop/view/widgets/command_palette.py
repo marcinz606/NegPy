@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QLi
 from negpy.desktop.view.shortcut_editor_search import HIGHLIGHT_MS
 from negpy.desktop.view.shortcut_registry import REGISTRY, display_key, key_for, label_with_shortcut
 from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUPS
-from negpy.desktop.view.styles.templates import hint_label
+from negpy.desktop.view.styles.templates import BAR_BUTTON_HEIGHT, TOP_ROW_HEIGHT, hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, hidden_by_gating
 from negpy.desktop.view.widgets.sliders import CompactSlider, align_slider_columns, clone_slider
@@ -38,6 +38,12 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "화이트 밸런스": ("Filtration", "Temperature"),
     "원근": ("Tilt", "Swing"),
     "먼지 제거": ("Retouch",),
+    "kontrast": ("ISO-R Grade", "Contrast Mask"),
+    "helligkeit": ("Print Density",),
+    "sättigung": ("Chroma", "Dye Separation"),
+    "weißabgleich": ("Filtration", "Temperature"),
+    "perspektive": ("Tilt", "Swing"),
+    "staubentfernung": ("Retouch",),
     "exposure": ("Print Density",),
     "brightness": ("Print Density",),
     "contrast": ("ISO-R Grade", "Contrast Mask"),
@@ -201,7 +207,9 @@ class FindField(QWidget):
         self._open = open_palette
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, THEME.space_sm, 0, THEME.space_sm)
+        self.setFixedHeight(TOP_ROW_HEIGHT)
         self.box = QLineEdit()
+        self.box.setFixedHeight(BAR_BUTTON_HEIGHT)
         self.box.setReadOnly(True)
         self.box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.box.setCursor(Qt.CursorShape.PointingHandCursor)

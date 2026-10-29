@@ -88,6 +88,25 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.found_scenes, [])
         self.assertNotIn("found_scene", self.session.state.uploaded_files[1])
 
+    def test_frames_on_the_roll_average_carry_a_mark_and_an_outlier_is_flagged(self):
+        from negpy.services.assets import rolls
+
+        base = WorkspaceConfig()
+        riding = replace(base, process=replace(base.process, use_luma_average=True, baseline_source="roll:roll-1"))
+        self.session.state.active_roll_id = "roll-1"
+        self.mock_repo.load_file_settings_many.return_value = {"hash1": riding, "hash2": base}
+        heard = []
+        self.session.files_changed.connect(lambda: heard.append(1))
+        with (
+            patch.object(rolls, "roll_defaults", return_value={}),
+            patch.object(rolls, "frame_is_outlier", side_effect=lambda _repo, _p, h: h == "hash1"),
+        ):
+            self.session.refresh_average_marks()
+            first, second = self.session.state.uploaded_files
+            self.assertEqual((first.get("average"), second.get("average")), ("outlier", None))
+            self.session.refresh_average_marks()
+        self.assertEqual(heard, [1])
+
     def test_a_color_vision_choice_is_saved_and_announced(self):
         heard = []
         self.session.color_vision_changed.connect(lambda: heard.append(1))

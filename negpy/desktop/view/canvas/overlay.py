@@ -3043,11 +3043,12 @@ class CanvasOverlay(QWidget):
         path = self.state.current_file_path
         return os.path.basename(path) if path else ""
 
-    def _recipe_lines(self) -> List[str]:
+    def recipe(self, *, brief: bool = False, with_frame: bool = True) -> List[str]:
+        """The print recipe with the metered values the sliders show."""
         conf = self.state.config
         meters = self.state.auto_meters.get(self.state.current_file_hash or "", {})
         exposure = replace(printed_exposure(conf.process, conf.exposure), **shown_values(conf, meters))
-        return recipe_lines(exposure, conf.local, conf.finish, frame=self._frame_name())
+        return recipe_lines(exposure, conf.local, conf.finish, frame=self._frame_name() if with_frame else "", brief=brief)
 
     def _draw_printing_notes(self, painter: QPainter) -> None:
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
@@ -3061,7 +3062,7 @@ class CanvasOverlay(QWidget):
             if mask.enabled and len(ctrl) >= min_points(mask.shape)
         ]
         paint_map(painter, polys, palette_for(self.state.color_vision).dodge_burn)
-        paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self._recipe_lines())
+        paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self.recipe())
 
     def printing_notes_sheet(self) -> Optional[QImage]:
         """The exportable notes sheet: the frame the canvas rendered, the map baked on
@@ -3081,7 +3082,7 @@ class CanvasOverlay(QWidget):
             self._content_rect,
             self.state.config.local,
             uv_grid,
-            self._recipe_lines(),
+            self.recipe(),
             palette_for(self.state.color_vision).dodge_burn,
             self.state.config.exposure.grade,
         )

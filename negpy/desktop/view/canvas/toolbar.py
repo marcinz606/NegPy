@@ -27,10 +27,12 @@ from negpy.desktop.view.canvas.zone_legend import ZoneLegend
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
-from negpy.desktop.view.widgets.segmented_choice import MenuButton, SegmentedChoice, ToggleMenuButton
+from negpy.desktop.view.widgets.segmented_choice import MenuButton, RightClickToggleAll, SegmentedChoice, ToggleMenuButton
 from negpy.desktop.view.widgets.collapsible import hidden_by_gating, roll_revert_icon
 from negpy.desktop.view.styles.templates import (
     BAR_BUTTON_HEIGHT,
+    BAR_TRACK_BUTTON_HEIGHT,
+    BAR_TRACK_PAD,
     BAR_ICON_SIZE,
     EditedDot,
     default_button_height,
@@ -40,6 +42,7 @@ from negpy.desktop.view.styles.templates import (
     icon_text,
     labeled_action,
     section_subheader,
+    set_hint_kind,
     tool_toggle,
     tool_toggle_qss,
     wrap_tooltip,
@@ -48,15 +51,18 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.papers import resolve_paper
+from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import RenderPath, render_path
+from negpy.services.assets import rolls
 from negpy.kernel.system.text import count_of
 
 # The index is what is saved, so a new color goes at the end; Preferences shows them darkest first.
 CANVAS_COLORS = [
-    (THEME.canvas_bg_black, (0.02, 0.02, 0.02), tr("Black")),
-    (THEME.canvas_bg_dark_grey, (0.11, 0.11, 0.11), tr("Dark Gray")),
-    (THEME.canvas_bg_mid_grey, (0.25, 0.25, 0.25), tr("Mid Gray")),
-    (THEME.canvas_bg_white, (0.902, 0.902, 0.902), tr("White")),
-    (THEME.canvas_bg_light_grey, (0.627, 0.627, 0.627), tr("Light Gray")),
+    (THEME.canvas_bg_black, (0.027, 0.027, 0.027), tr("Black")),
+    (THEME.canvas_bg_dark_grey, (0.227, 0.227, 0.227), tr("Dark Gray")),
+    (THEME.canvas_bg_mid_grey, (0.435, 0.435, 0.435), tr("Mid Gray")),
+    (THEME.canvas_bg_white, (0.91, 0.91, 0.91), tr("White")),
+    (THEME.canvas_bg_light_grey, (0.667, 0.667, 0.667), tr("Light Gray")),
 ]
 
 
@@ -82,6 +88,7 @@ TOOLBAR_ITEMS: tuple[ToolbarItem, ...] = (
     ToolbarItem("undo", tr("Edit"), tr("Undo")),
     ToolbarItem("redo", tr("Edit"), tr("Redo")),
     ToolbarItem("source", tr("View"), tr("Print or Peek")),
+    ToolbarItem("average", tr("View"), tr("Roll Average")),
     ToolbarItem("overlays", tr("View"), tr("Overlays")),
     ToolbarItem("reference", tr("View"), tr("Reference View")),
     ToolbarItem("copy", tr("Settings"), tr("Copy Settings")),
@@ -112,6 +119,7 @@ DEFAULT_TOOLBAR_IDS: tuple[str, ...] = (
     "undo",
     "redo",
     "source",
+    "average",
     "export",
     "overlays",
 )
@@ -133,7 +141,7 @@ _RETIRED_IDS = {
 _TOOLBAR_SETTING_KEY = "toolbar_items"
 
 # A new item reaches a stored row once, before its anchor (else last); the record keeps a removed one out.
-_ADDED_IDS = {"tools": "undo", "export": "overlays"}
+_ADDED_IDS = {"tools": "undo", "export": "overlays", "average": "export"}
 _ADDED_SETTING_KEY = "toolbar_added_items"
 
 # A narrow bar hides these first to last; items not listed (menu actions put on the row) go
@@ -145,6 +153,7 @@ _COLLAPSE_ORDER = (
     "rot_l",
     "reference",
     "overlays",
+    "average",
     "redo",
     "undo",
     "tools",
@@ -179,6 +188,13 @@ _VIEW_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (
         tr("Negative"),
         "toggle_negative_peek",
         tr("The scan as loaded, before inversion and edits."),
+    ),
+    (
+        "average_peek",
+        "mdi6.filmstrip",
+        tr("Roll Average"),
+        "toggle_average_peek",
+        tr("This frame printed on the roll's average, to try it before you apply it"),
     ),
     (
         "flat_peek",
@@ -364,7 +380,7 @@ class ActionToolbar(QWidget):
         v_layout.addWidget(self._view_row, 0, Qt.AlignmentFlag.AlignHCenter)
 
         icon_size = QSize(BAR_ICON_SIZE, BAR_ICON_SIZE)
-        btn_height = BAR_BUTTON_HEIGHT
+        btn_height = BAR_TRACK_BUTTON_HEIGHT
         self._shortcut_tips: list = []
         self._shortcut_labels: list = []
 
@@ -374,7 +390,7 @@ class ActionToolbar(QWidget):
         self.mode_switch = SegmentedChoice((("fa5s.image", tr("Photo")), ("fa5s.film", tr("Roll"))), mode_tip, data=_MODES)
         self._tip(self.mode_switch, mode_tip, "toggle_toolbar_mode")
         self.mode_switch.setCurrentIndex(_MODES.index(self._mode))
-        self.mode_switch.setFixedHeight(btn_height)
+        self.mode_switch.setFixedHeight(BAR_BUTTON_HEIGHT)
         self.mode_switch.currentChanged.connect(lambda _i: self.set_mode(self.mode_switch.currentData()))
 
         # Not checkable: an open panel is the resting state, and the checked look means armed.
@@ -543,6 +559,18 @@ class ActionToolbar(QWidget):
         self._info_actions[0].setToolTip(tr("No corner pills"))
         self._info_actions[1].setToolTip(tr("File name, scan size and film mode"))
         self._info_actions[2].setToolTip(tr("Adds the frame's place in the strip, film, camera and lens, the proof and the export size"))
+
+        # Opens the Roll Average row; checked while the frame uses an average.
+        self._average_icon = _icon("mdi6.filmstrip", checkable=True)
+        self.btn_average = self._action_button(
+            self._average_icon,
+            tr("Roll Average: try the average on this frame; right-click turns every average on or off."),
+            "toggle_average_peek",
+            self._on_average_clicked,
+        )
+        self.btn_average.setCheckable(True)
+        self._average_right_click = RightClickToggleAll([self.btn_average], self._frame_average_states)
+        self._average_right_click.toggledAll.connect(self._on_use_all_averages)
 
         self.btn_tools = MenuButton(tr("Tools: crop, straighten, the pickers, masks and retouching, each with its own row here"))
         self.btn_tools.setIcon(_icon("fa5s.tools"))
@@ -789,6 +817,7 @@ class ActionToolbar(QWidget):
             self.btn_redo,
             self.btn_reference,
             self.btn_light_table,
+            self.btn_average,
             self.btn_copy,
             self.btn_copy_bounds,
             self.btn_paste,
@@ -816,7 +845,14 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(wrap_tooltip(btn.toolTip()))
-        for btn in (self.btn_zoom, self.btn_tools, self.source_choice, self.overlays_menu, self.btn_export, self.btn_export_menu):
+        for btn in (
+            self.btn_zoom,
+            self.btn_tools,
+            self.source_choice,
+            self.overlays_menu,
+            self.btn_export,
+            self.btn_export_menu,
+        ):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFixedHeight(btn_height)
             btn.setIconSize(icon_size)
@@ -835,6 +871,7 @@ class ActionToolbar(QWidget):
             "undo": self.btn_undo,
             "redo": self.btn_redo,
             "source": self.source_choice,
+            "average": self.btn_average,
             "overlays": self.overlays_menu,
             "reference": self.btn_reference,
             "copy": self.btn_copy,
@@ -858,6 +895,7 @@ class ActionToolbar(QWidget):
         self._build_tool_row(v_layout, icon_size, btn_height)
         self._build_paper_row(v_layout, btn_height)
         self._build_zone_row(v_layout)
+        self._build_average_row(v_layout)
         self._build_light_table_row(v_layout, icon_size, rotate_icon_size, btn_height)
 
         main_layout.addWidget(self.mode_switch)
@@ -879,7 +917,7 @@ class ActionToolbar(QWidget):
         layout.setSpacing(THEME.space_md)
         self._tool_layout = layout
         self._shown_tool = ToolMode.NONE
-        self._shown_rows = (False, False, False)  # (tool row, paper row, zone row); none means the view row
+        self._shown_rows = (False, False, False, False)  # (tool, paper, zone, average); none means the view row
         self._tool_slider = None
         self._tool_slider_source = None
 
@@ -903,7 +941,7 @@ class ActionToolbar(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tool_done = labeled_action("fa5s.check", tr("Done"), "", primary=True)
         self.btn_tool_done.setToolTip(wrap_tooltip(tr("Finish the line or shape in progress and leave the tool, keeping its changes")))
-        self.btn_tool_done.setFixedHeight(btn_height)
+        self.btn_tool_done.setFixedHeight(BAR_BUTTON_HEIGHT)
         # A narrow bar lays out at minimum widths, which would cut the label down to the icon.
         self.btn_tool_done.setMinimumWidth(self.btn_tool_done.sizeHint().width())
         self.btn_tool_done.clicked.connect(self._on_tool_done)
@@ -946,14 +984,16 @@ class ActionToolbar(QWidget):
         self.btn_paper_back.clicked.connect(lambda: self.controller.show_paper_strip(None))
         self.btn_paper_keep = labeled_action("fa5s.check", tr("Keep"), tr("Print on this paper: make it the Print stock"), primary=True)
         self.btn_paper_keep.clicked.connect(lambda: self.controller.keep_paper_strip())
+        self.btn_paper_back.setFixedHeight(btn_height)
+        self.btn_paper_keep.setFixedHeight(BAR_BUTTON_HEIGHT)
         for btn in (self.btn_paper_back, self.btn_paper_keep):
-            btn.setFixedHeight(btn_height)
             # A narrow bar lays out at minimum widths, which would cut the label down to the icon.
             btn.setMinimumWidth(btn.sizeHint().width())
         self.btn_paper_close = icon_button("fa5s.times", tr("Close the Paper Test Strip"))
         self.btn_paper_close.clicked.connect(lambda: self.controller.toggle_paper_strip(force=False))
-        for widget in (self.paper_layout, self.paper_strip_combo, self.btn_paper_close):
-            widget.setFixedHeight(btn_height)
+        for widget in (self.paper_layout, self.paper_strip_combo):
+            widget.setFixedHeight(BAR_BUTTON_HEIGHT)
+        self.btn_paper_close.setFixedHeight(btn_height)
         layout.addWidget(field_label(tr("Paper test strip")))
         for widget in (
             self.paper_layout,
@@ -1008,8 +1048,8 @@ class ActionToolbar(QWidget):
         self.zone_legend.zone_hovered.connect(self.controller.highlight_zone)
         self.btn_zone_close = icon_button("fa5s.times", tr("Close the Zone Overlay"))
         self.btn_zone_close.clicked.connect(lambda: self.controller.toggle_zones_overlay(force=False))
-        for widget in (self.zone_style, self.btn_zone_close):
-            widget.setFixedHeight(BAR_BUTTON_HEIGHT)
+        self.zone_style.setFixedHeight(BAR_BUTTON_HEIGHT)
+        self.btn_zone_close.setFixedHeight(BAR_TRACK_BUTTON_HEIGHT)
         self._zone_label = field_label(tr("Zone overlay"))
         layout.addWidget(self._zone_label)
         layout.addWidget(self.zone_style)
@@ -1017,6 +1057,94 @@ class ActionToolbar(QWidget):
         layout.addWidget(self.zone_legend)
         layout.addWidget(self.btn_zone_close)
         v_layout.addWidget(self._zone_row, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    def _build_average_row(self, v_layout: QVBoxLayout) -> None:
+        """While the Roll Average peek is up the bar names the baseline, holds the averages it
+        prints with, and keeps them or leaves the frame as it was."""
+        self._average_row = QWidget()
+        self._average_row.hide()
+        layout = QHBoxLayout(self._average_row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(THEME.space_md)
+        self._average_label = field_label(tr("Roll average"))
+        self.average_scope = SegmentedChoice(
+            (("mdi6.select-group", tr("Scene")), ("fa5s.film", tr("Roll"))),
+            tr("Which average the peek prints with: the scene's or the roll's"),
+            data=("scene", "roll"),
+        )
+        self.average_scope.setFixedHeight(BAR_BUTTON_HEIGHT)
+        self.average_scope.currentChanged.connect(
+            lambda _i: self.controller.set_average_peek_scope("roll" if self.average_scope.currentData() == "roll" else None)
+        )
+        self.average_hint = hint_label()
+        self.average_hint.setWordWrap(False)
+        self._average_toggles = {
+            "use_luma_average": tool_toggle(
+                "mdi6.brightness-6", tr("Luma"), tr("The roll's average black and white points; right-click turns every average on or off.")
+            ),
+            "use_color_average": tool_toggle("mdi6.palette-outline", tr("Color"), tr("The roll's average color balance.")),
+            "use_cast_average": tool_toggle("mdi6.scale-balance", tr("Cast"), tr("The roll's gray balance for Cast Removal.")),
+        }
+        for field_name, toggle in self._average_toggles.items():
+            toggle.setFixedHeight(BAR_BUTTON_HEIGHT)
+            toggle.toggled.connect(lambda on, f=field_name: self.controller.set_average_peek_axes(**{f: on}))
+        self._average_row_right_click = RightClickToggleAll(list(self._average_toggles.values()))
+        self._average_row_right_click.toggledAll.connect(self._on_average_all)
+        self.btn_average_keep = labeled_action("fa5s.check", tr("Apply"), "", primary=True)
+        self.btn_average_keep.setToolTip(wrap_tooltip(tr("Apply these averages to this frame, as one edit")))
+        self.btn_average_keep.setMinimumWidth(self.btn_average_keep.sizeHint().width())
+        self.btn_average_keep.clicked.connect(self.controller.keep_average_peek)
+        self.btn_average_close = icon_button("fa5s.times", tr("Leave the frame as it was"))
+        self.btn_average_close.clicked.connect(lambda: self.controller.toggle_average_peek(force=False))
+        self.btn_average_keep.setFixedHeight(BAR_BUTTON_HEIGHT)
+        self.btn_average_close.setFixedHeight(BAR_TRACK_BUTTON_HEIGHT)
+        layout.addWidget(self._average_label)
+        layout.addWidget(self.average_scope)
+        layout.addWidget(self.average_hint)
+        for toggle in self._average_toggles.values():
+            layout.addWidget(toggle)
+        layout.addWidget(self._create_separator())
+        layout.addWidget(self.btn_average_keep)
+        layout.addWidget(self.btn_average_close)
+        v_layout.addWidget(self._average_row, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    def _on_average_all(self, on: bool) -> None:
+        shown = {f: on for f, t in self._average_toggles.items() if not t.isHidden() and t.isEnabled()}
+        self.controller.set_average_peek_axes(**shown)
+
+    def _sync_average_row(self) -> None:
+        state = self.session.state
+        process = state.config.process
+        cast = process.process_mode == ProcessMode.C41
+        self._average_toggles["use_cast_average"].setVisible(cast)
+        for field_name, toggle in self._average_toggles.items():
+            toggle.blockSignals(True)
+            toggle.setChecked(bool(state.average_peek_axes.get(field_name)))
+            toggle.blockSignals(False)
+        scopes = self.controller.average_scopes()
+        self.average_scope.setVisible(bool(scopes))
+        self.average_scope.blockSignals(True)
+        self.average_scope.setCurrentIndex(1 if state.average_peek_scope == "roll" else 0)
+        self.average_scope.blockSignals(False)
+        found = self._saved_baseline(state, state.average_peek_scope or "scene")
+        self._average_label.setText(rolls.source_label(self.session.repo, found[1]) if found else tr("Roll average"))
+        outlier = self._average_outlier(state, found)
+        scene = found is not None and found[1].startswith("scene:")
+        self.average_hint.setText((tr("Far from the scene color") if scene else tr("Far from the roll color")) if outlier else "")
+        set_hint_kind(self.average_hint, "warning" if outlier else "muted")
+        self.average_hint.setVisible(outlier)
+
+    def _saved_baseline(self, state, scope=None):
+        """The baseline the frame's averages read, or the one *scope* names."""
+        scope = scope or rolls.average_scope(state.config.process)
+        return rolls.frame_saved_baseline(self.session.repo, state.active_roll_id, state.current_file_hash or "", scope)
+
+    def _average_outlier(self, state, found) -> bool:
+        """Whether the baseline *found* for this frame measured it far from the roll color."""
+        if found is None:
+            return False
+        h = state.current_file_hash or ""
+        return bool({h, rolls.unforked_hash(h)} & set(found[0].get("outliers", ())))
 
     def _build_light_table_row(self, v_layout: QVBoxLayout, icon_size: QSize, rotate_icon_size: QSize, btn_height: int) -> None:
         """While the Light Table is open, Photo mode acts on the selected frames: Keep and Reject,
@@ -1174,9 +1302,12 @@ class ActionToolbar(QWidget):
         # An armed tool outranks the paper strip, which outranks the Zone Overlay, which outranks
         # the view row.
         paper = spec is None and state.test_strip_kind == "paper" and bool(state.test_strip)
-        rows = (spec is not None, paper, spec is None and not paper and bool(state.zones_overlay))
+        average = spec is None and not paper and state.average_peek
+        rows = (spec is not None, paper, spec is None and not paper and not average and bool(state.zones_overlay), average)
         if paper:
             self._sync_paper_row()
+        if average:
+            self._sync_average_row()
         if rows != self._shown_rows:
             self._shown_rows = rows
             if rows[2]:
@@ -1184,6 +1315,7 @@ class ActionToolbar(QWidget):
             self._tool_row.setVisible(rows[0])
             self._paper_row.setVisible(rows[1])
             self._zone_row.setVisible(rows[2])
+            self._average_row.setVisible(rows[3])
             self._sync_rows()
         if self._tool_slider is not None:
             self._tool_slider.setEnabled(self._tool_slider_source.isEnabled())
@@ -1394,6 +1526,7 @@ class ActionToolbar(QWidget):
         controller = self.controller
         self._peek_toggles = {
             "negative_peek": controller.toggle_negative_peek,
+            "average_peek": controller.toggle_average_peek,
             "flat_peek": controller.toggle_flat_peek,
             "embedded_peek": controller.toggle_embedded_peek,
             "flatfield_peek": controller.toggle_flatfield_peek,
@@ -1414,6 +1547,7 @@ class ActionToolbar(QWidget):
             controller.compare_changed,
             controller.flat_peek_changed,
             controller.negative_peek_changed,
+            controller.average_peek_changed,
             controller.embedded_peek_changed,
             controller.flatfield_peek_changed,
             controller.export_size_view_changed,
@@ -1428,10 +1562,12 @@ class ActionToolbar(QWidget):
         controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
+        controller.config_updated.connect(lambda: "average" in self._item_ids and self._sync_average_button())
         self.session.asset_model.layoutChanged.connect(self._update_ui_state)
         self.session.files_changed.connect(self._sync_light_table_row)
         controller.tool_sync_requested.connect(self._sync_tool_row)
         controller.zones_overlay_changed.connect(lambda _on: self._sync_tool_row())
+        controller.average_peek_changed.connect(lambda _on: self._sync_tool_row())
         controller.test_strip_changed.connect(lambda _up: self._sync_tool_row())
         controller.zones_style_changed.connect(lambda _style: self._sync_zone_row())
         self.session.color_vision_changed.connect(self._sync_zone_row)
@@ -1653,10 +1789,65 @@ class ActionToolbar(QWidget):
         # A roll lookup on every state change, so only while the button is on the row.
         if "reset_to_roll" in self._item_ids:
             self.btn_reset_to_roll.setEnabled(bool(self.controller.can_revert_frame_to_roll()))
+        if "average" in self._item_ids:
+            self._sync_average_button()
+
+    def _on_average_clicked(self) -> None:
+        self.controller.toggle_average_peek(force=True)
+        self._sync_average_button()
+
+    def _average_fields(self) -> list[str]:
+        """The averages that apply to this frame: Cast only on a color negative with a neutral axis to use."""
+        state = self.session.state
+        process = state.config.process
+        fields = ["use_luma_average", "use_color_average"]
+        if process.process_mode == ProcessMode.C41:
+            found = self._saved_baseline(state) if state.active_roll_id else None
+            if (found is not None and found[0]["axis"] is not None) or process.use_cast_average:
+                fields.append("use_cast_average")
+        return fields
+
+    def _frame_average_states(self) -> list[bool]:
+        process = self.session.state.config.process
+        return [bool(getattr(process, f)) for f in self._average_fields()]
+
+    def _on_use_all_averages(self, on: bool) -> None:
+        self.controller.set_roll_average(**{f: on for f in self._average_fields()})
+
+    def _sync_average_button(self) -> None:
+        """Checked while the frame uses an average; usable once the roll has a baseline for the frame, or to turn one off."""
+        state = self.session.state
+        process = state.config.process
+        found = self._saved_baseline(state) if state.active_roll_id else None
+        on = process.use_luma_average or process.use_color_average or process.use_cast_average
+        self.btn_average.setChecked(on)
+        # The transfer path prints from a fixed window, with no measurement to average.
+        printed = render_path(process) is RenderPath.PRINT
+        self.btn_average.setEnabled(printed and (found is not None or on))
+        outlier = self._average_outlier(state, found)
+        self.btn_average.setIcon(qta.icon("mdi6.alert", color=THEME.warn_amber) if outlier else self._average_icon)
+        if self.btn_average.isEnabled() or not printed:
+            tip = tooltip_with_shortcut(
+                tr("Roll Average: try the average on this frame; right-click turns every average on or off."), "toggle_average_peek"
+            )
+        elif state.active_roll_id and self.controller.measuring_baseline() is True:
+            tip = tr("Measuring the average…")
+        else:
+            tip = tr("No average for this frame yet")
+        self.btn_average.setToolTip(wrap_tooltip(tip))
 
     def _activate_layout(self) -> None:
         # Innermost first: an outer layout reads its rows' size hints as of their last activation.
-        for widget in (self._view_row, self._tool_row, self._paper_row, self._zone_row, self._light_table_row, self._rows, self):
+        for widget in (
+            self._view_row,
+            self._tool_row,
+            self._paper_row,
+            self._zone_row,
+            self._average_row,
+            self._light_table_row,
+            self._rows,
+            self,
+        ):
             layout = widget.layout()
             if layout is not None:
                 layout.activate()
@@ -1840,7 +2031,7 @@ class ActionToolbar(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(QPen(QColor(THEME.border_primary), 1))
         p.setBrush(QColor(THEME.bg_input))
-        pad = THEME.space_xs + 0.5
+        pad = BAR_TRACK_PAD
         for rect in self._track_rects():
             p.drawRoundedRect(QRectF(rect).adjusted(-pad, -pad, pad, pad), THEME.radius_lg, THEME.radius_lg)
 
@@ -1863,6 +2054,17 @@ class ActionToolbar(QWidget):
             optional = [widget for widget in (self.tool_hint, self._tool_slider) if widget is not None]
             for widget in optional:
                 widget.setVisible(True)
+            for widget in optional:
+                if self._bar_width() <= w:
+                    break
+                widget.setVisible(False)
+            self._activate_layout()
+            return
+        if not self._average_row.isHidden():
+            # The name goes first, then the warning; the averages, Apply and close always stay.
+            optional = (self._average_label, self.average_hint)
+            for widget in optional:
+                widget.setVisible(widget is self._average_label or bool(self.average_hint.text()))
             for widget in optional:
                 if self._bar_width() <= w:
                     break

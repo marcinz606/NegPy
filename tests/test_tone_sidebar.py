@@ -221,6 +221,26 @@ def test_both_autos_toggle_together(qapp):
     assert not off.auto_exposure and not off.auto_normalize_contrast
 
 
+def test_a_right_click_on_auto_turns_both_autos_on_then_off(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    controller, sidebar = _metered_sidebar()
+    conf = controller.state.config
+    controller.state.config = replace(conf, exposure=replace(conf.exposure, auto_exposure=True, auto_normalize_contrast=False))
+    sidebar.sync_ui()
+
+    QTest.mouseClick(sidebar.auto_btn, Qt.MouseButton.RightButton)
+    on = controller.apply_config.call_args.args[0].exposure
+    assert on.auto_exposure and on.auto_normalize_contrast
+
+    controller.state.config = controller.apply_config.call_args.args[0]
+    sidebar.sync_ui()
+    QTest.mouseClick(sidebar.auto_btn, Qt.MouseButton.RightButton)
+    off = controller.apply_config.call_args.args[0].exposure
+    assert not off.auto_exposure and not off.auto_normalize_contrast
+
+
 def test_bake_writes_shown_values_and_turns_both_autos_off(qapp):
     from negpy.desktop.auto_sliders import shown_values
 

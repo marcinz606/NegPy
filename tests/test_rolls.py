@@ -58,6 +58,7 @@ from negpy.services.assets.rolls import (
     set_frame_override,
     set_roll_defaults,
     set_roll_normalization,
+    frame_is_outlier,
     unfork_edit,
     unforked_hash,
     virtual_rolls,
@@ -139,6 +140,60 @@ def test_a_folder_roll_gains_no_file_from_another_folder():
     entry = roll_for_id(repo, roll_id)
     assert entry["extra_paths"] == []
     assert "member_paths" not in entry
+
+
+def test_folder_scope_finds_the_one_folder_and_the_files_it_lacks(tmp_path):
+    from negpy.services.assets.rolls import folder_scope
+
+    folder = tmp_path / "500T"
+    (folder / "sub").mkdir(parents=True)
+    for name in ("a1.tif", "a2.tif", "a3.tif", "a3_IR.tif"):
+        (folder / name).write_bytes(b"1")
+    (folder / "sub" / "s.tif").write_bytes(b"1")
+    a1, a2 = str(folder / "a1.tif"), str(folder / "a2.tif")
+
+    found, missing = folder_scope([a1, a2])
+    assert os.path.normcase(found) == os.path.normcase(str(folder))
+    assert [os.path.basename(p) for p in missing] == ["a3.tif"], "an IR sidecar and a subfolder are not the folder's files"
+    assert folder_scope([a1, str(folder / "sub" / "s.tif")]) == (None, [])
+    assert folder_scope([]) == (None, [])
+
+
+def test_create_folder_roll_names_it_after_its_folder_and_leaves_out_the_rest(tmp_path):
+    from negpy.services.assets.rolls import DISMISSED_FOLDERS_KEY, create_folder_roll
+
+    repo = _repo()
+    folder = str(tmp_path / "500T")
+    repo.save_global_setting(DISMISSED_FOLDERS_KEY, [folder])
+    roll_id = create_folder_roll(repo, folder, [folder + "/a3.tif"])
+    entry = roll_for_id(repo, roll_id)
+    assert (entry["kind"], entry["name"], entry["excluded_paths"]) == ("folder", "500T", [folder + "/a3.tif"])
+    assert repo.get_global_setting(DISMISSED_FOLDERS_KEY) == []
+
+
+def test_convert_to_folder_roll_keeps_the_id_and_every_record_keyed_by_it(tmp_path):
+    from negpy.services.assets.rolls import DISMISSED_FOLDERS_KEY, convert_to_folder_roll, create_scene
+
+    repo = _repo()
+    folder = str(tmp_path / "500T")
+    roll_id = create_virtual_roll(repo, "Picks", [folder + "/a1.tif"])
+    set_roll_defaults(repo, roll_id, film_stock_id="portra400")
+    set_frame_override(repo, roll_id, "h1", "film", True)
+    scene = create_scene(repo, roll_id, "Beach", ["h1"])
+    repo.save_global_setting(DISMISSED_FOLDERS_KEY, [folder])
+    before = roll_for_id(repo, roll_id)
+
+    assert convert_to_folder_roll(repo, roll_id, folder, [folder + "/a2.tif"]) == "500T"
+
+    entry = roll_for_id(repo, roll_id)
+    assert (entry["kind"], entry["name"], entry["folder_path"]) == ("folder", "500T", folder)
+    assert entry["excluded_paths"] == [folder + "/a2.tif"] and "member_paths" not in entry
+    for key in ("defaults", "frame_overrides", "scenes", "created_at"):
+        assert entry[key] == before[key]
+    assert scene in entry["scenes"]
+    assert folder_roll_id_for_path(repo, folder) == roll_id
+    assert repo.get_global_setting(DISMISSED_FOLDERS_KEY) == []
+    assert convert_to_folder_roll(repo, roll_id, folder, []) == "", "a folder roll is not converted again"
 
 
 def test_outside_folder_names_the_files_a_folder_roll_cannot_hold():
@@ -685,7 +740,46 @@ class TestRollNormalization:
 
         data = roll_normalization(repo, roll_id)
 
-        assert data == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01), "axis": None, "outliers": ()}
+        assert data == {
+            "floors": (0.1, 0.1, 0.1),
+            "ceils": (0.9, 0.9, 0.9),
+            "cast": (0.01, 0.0, -0.01),
+            "axis": None,
+            "outliers": (),
+            "frames": None,
+        }
+
+    def test_records_the_measured_frames(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1,) * 3, (0.9,) * 3, frames=("h1", "h2"))
+
+        assert roll_normalization(repo, roll_id)["frames"] == ("h1", "h2")
+
+    def test_an_outlier_riding_the_roll_baseline_reads_as_one(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1,) * 3, (0.9,) * 3, outliers=("h1",))
+        process = ProcessConfig(baseline_source=f"roll:{roll_id}")
+
+        assert frame_is_outlier(repo, process, "h1")
+        assert frame_is_outlier(repo, process, "h1#roll:x")
+        assert not frame_is_outlier(repo, process, "h2")
+        assert not frame_is_outlier(repo, ProcessConfig(baseline_source="frame:a.tif"), "h1")
+
+    def test_a_scene_frame_reads_its_scene_unless_it_chose_the_roll(self):
+        from negpy.services.assets.rolls import average_scope, frame_saved_baseline
+
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        sid = create_scene(repo, roll_id, "Woods", ["h1"])
+        set_roll_normalization(repo, roll_id, (0.1,) * 3, (0.9,) * 3)
+        set_scene_normalization(repo, roll_id, sid, (0.2,) * 3, (0.8,) * 3)
+
+        assert frame_saved_baseline(repo, roll_id, "h1")[1] == f"scene:{sid}"
+        assert frame_saved_baseline(repo, roll_id, "h1", "roll")[1] == f"roll:{roll_id}"
+        assert average_scope(ProcessConfig(baseline_source=f"roll:{roll_id}")) == "roll"
+        assert average_scope(ProcessConfig(baseline_source=f"scene:{sid}")) is None
 
     def test_defaults_cast_to_zero(self):
         repo = _repo()
@@ -783,8 +877,11 @@ class TestScenes:
             "ceils": (0.7, 0.8, 0.9),
             "axis": axis,
             "outliers": ("a",),
+            "frames": None,
         }
         assert roll_normalization(repo, roll_id) is None
+        set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), frames=("a",))
+        assert scene_normalization(repo, roll_id, sid)["frames"] == ("a",)
 
     def test_roll_record_keeps_its_outliers_and_an_old_record_has_none(self):
         repo, roll_id = self._roll()

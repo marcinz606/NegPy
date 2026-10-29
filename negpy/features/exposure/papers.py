@@ -276,6 +276,21 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         base_tint_cmy=(-0.003, -0.003, 0.005),
         print_color=DyeLut("kodak_e4070"),
     ),
+    # Fitted to Kodak E-7020 (Status A R/G/B). Its spectral dye density curves are E-4070's.
+    "kodak_ektacolor_edge": PaperProfile(
+        label="Kodak Ektacolor Edge",
+        short="Ektacolor Edge",
+        kind="ra4",
+        d_max=2.25,
+        d_min=0.083,
+        toe_sharpness_base=2.30,
+        shoulder_sharpness_base=2.34,
+        paper_midtone_gamma=0.250,
+        paper_gamma_width=0.82,
+        channel_gamma=(1.013, 1.0, 1.004),
+        base_tint_cmy=(0.011, 0.011, -0.022),
+        print_color=DyeLut("kodak_e4070"),
+    ),
     # ── Color print film (kind "ra4": the kind gates the C-41 mode) ─────────
     # Fitted to Kodak H-1-2383 (Status A R/G/B) with the `print` fit, which scales the
     # projection Dmax (near 4) into the paper range. The datasheet draws one shared base, so
@@ -297,7 +312,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # Fitted like 2383 to Kodak H-1-2393t (1998); its curves and dyes are spektrafilm's trace of
     # that sheet (CC BY-SA 4.0, NOTICE.md). The base tint is within the trace's noise.
     "kodak_2393": PaperProfile(
-        label="Kodak Vision Premier 2393",
+        label="Kodak Vision 2393",
         short="2393",
         kind="ra4",
         medium="film",
@@ -389,15 +404,17 @@ def compose_density_matrices(dye: Optional[np.ndarray], sat: Optional[np.ndarray
 # Digital default. Keyed by ProcessMode, a StrEnum, so plain-string process_mode values
 # look up fine.
 _MODE_KIND: Dict[str, str] = {ProcessMode.C41: "ra4", ProcessMode.BW: "bw"}
+_MEDIUM_ORDER = ("digital", "paper", "film")
 
 
 def profiles_for_mode(process_mode: str) -> List[Tuple[str, PaperProfile]]:
-    """Selectable (key, profile) pairs for `process_mode`: the Digital default first,
-    then the papers whose kind matches the mode (default only for E-6)."""
+    """Selectable (key, profile) pairs for `process_mode`: the Digital default first, then the
+    papers whose kind matches the mode, by medium and label (default only for E-6)."""
     allowed = _MODE_KIND.get(process_mode)
     out = [(DEFAULT_PROFILE_KEY, PAPER_PROFILES[DEFAULT_PROFILE_KEY])]
     if allowed is not None:
-        out += [(k, p) for k, p in PAPER_PROFILES.items() if p.kind == allowed]
+        papers = [(k, p) for k, p in PAPER_PROFILES.items() if p.kind == allowed]
+        out += sorted(papers, key=lambda kp: (_MEDIUM_ORDER.index(kp[1].medium), kp[1].label.casefold()))
     return out
 
 

@@ -104,7 +104,7 @@ def test_a_header_never_becomes_current(qapp):
     assert changed == []
 
 
-@pytest.mark.parametrize("locale", ["zh_CN", "ja", "ko"])
+@pytest.mark.parametrize("locale", ["zh_CN", "ja", "ko", "de"])
 def test_export_ratio_arrows_keep_stored_values_in_translated_ui(qapp, locale: str) -> None:
     from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
     from negpy.kernel.system import i18n

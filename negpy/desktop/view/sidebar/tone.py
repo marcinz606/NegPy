@@ -63,7 +63,12 @@ class ToneSidebar(BaseSidebar):
             )
             for ch in _CH_SUFFIX
         )
-        self.auto_btn = ToggleMenuButton("fa5s.magic", "", tr("Auto: let NegPy set the brightness and contrast of each frame."))
+        self.auto_btn = ToggleMenuButton(
+            "fa5s.magic",
+            "",
+            tr("Auto: let NegPy set the brightness and contrast of each frame; right-click turns both on or off."),
+            toggle_all=True,
+        )
         self.auto_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.auto_density_action = self.auto_btn.add_toggle(
             tr("Auto Density"),
@@ -291,11 +296,12 @@ class ToneSidebar(BaseSidebar):
                     "exposure", render=True, persist=True, readback_metrics=True, **{f: checked}
                 )
             )
-        self.auto_both_action.toggled.connect(
-            lambda checked: self.update_config_section(
-                "exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked, auto_normalize_contrast=checked
+        for signal in (self.auto_both_action.toggled, self.auto_btn.toggledAll):
+            signal.connect(
+                lambda checked: self.update_config_section(
+                    "exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked, auto_normalize_contrast=checked
+                )
             )
-        )
 
     def _driven_sliders(self) -> dict:
         return {

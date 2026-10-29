@@ -217,3 +217,10 @@ def test_the_preset_section_filters_name_real_catalog_sections():
     assert presets._PRESET_EXCLUDED_SECTIONS <= titles
     assert presets._REPLACE_KEPT_SECTIONS <= titles
     assert "geometry.crop_rect" in {r.id for _title, rows in CATALOG for r in rows}
+
+
+def test_presets_leave_out_raw_decode():
+    """A preset applied on top would change the decode of every frame it reaches."""
+    from negpy.desktop.view.sidebar import presets
+
+    assert "Raw Decode" in presets._PRESET_EXCLUDED_SECTIONS

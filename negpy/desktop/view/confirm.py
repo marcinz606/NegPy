@@ -36,6 +36,34 @@ def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
     return True
 
 
+def confirm_unmetered_scan(parent, repo) -> bool:
+    """Ask before a scan shoots at the camera's own exposure with no Meter reading and no exposure
+    set in NegPy. Skippable via "Do Not Ask Again", persisted."""
+    if repo.get_global_setting("scan_unmetered_confirm_dismissed", False):
+        return True
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle(tr("Scan"))
+    box.setText(tr("Scan without metering?"))
+    box.setInformativeText(
+        tr(
+            "The scan uses the exposure set on the camera. If the film base clips, the shadows of the print turn solid black. "
+            "Click Cancel, then click Meter."
+        )
+    )
+    remember = box_toggle(tr("Do Not Ask Again"))
+    box.setCheckBox(remember)
+    scan = box.addButton(tr("Scan"), QMessageBox.ButtonRole.AcceptRole)
+    cancel = box.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel)
+    box.exec()
+    if box.clickedButton() is not scan:
+        return False
+    if remember.isChecked():
+        repo.save_global_setting("scan_unmetered_confirm_dismissed", True)
+    return True
+
+
 def warn_targets_affect_unbaked(parent, repo) -> None:
     """On a confirmed target change, advise that unbaked frames move with the new targets, and
     that baking a frame first keeps it fixed. Skippable via "Don't show again", persisted so a

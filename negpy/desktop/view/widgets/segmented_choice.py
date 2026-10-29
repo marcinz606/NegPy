@@ -1,10 +1,39 @@
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QVariantAnimation, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, QVariantAnimation, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QMenu, QPushButton, QToolTip, QWidget
 
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, EditedDot, default_button_height, tool_toggle_qss, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+
+
+class RightClickToggleAll(QObject):
+    """A right-click on any of *widgets* emits toggledAll: True unless every option is on.
+    *options* returns the on state of each shown, enabled option; by default the widgets' own."""
+
+    toggledAll = pyqtSignal(bool)
+
+    def __init__(self, widgets: list[QWidget], options=None):
+        super().__init__(widgets[0])
+        self._widgets = list(widgets)
+        self._options = options or (lambda: [w.isChecked() for w in self._widgets if not w.isHidden() and w.isEnabled()])
+        for widget in self._widgets:
+            widget.installEventFilter(self)
+
+    def watch(self, widget: QWidget) -> None:
+        """*widget* takes the same right-click."""
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        # The context menu event follows the press; eaten so no parent menu opens over it.
+        if event.type() == QEvent.Type.ContextMenu:
+            return True
+        if event.type() != QEvent.Type.MouseButtonPress or event.button() != Qt.MouseButton.RightButton:
+            return False
+        states = self._options()
+        if states:
+            self.toggledAll.emit(not all(states))
+        return True
 
 
 class _MenuButton(QPushButton):
@@ -70,15 +99,29 @@ class MenuButton(_MenuButton):
 class ToggleMenuButton(_MenuButton):
     """Several independent on/off options behind one button, in the tool-toggle look with no
     chevron. The button takes the checked look while any option is on; an empty label leaves
-    it icon-only."""
+    it icon-only. With *toggle_all*, a right-click emits toggledAll: True unless every shown,
+    enabled option is on. The owner applies it as one edit."""
 
-    def __init__(self, icon_name: str, label: str, tooltip: str, parent=None):
+    toggledAll = pyqtSignal(bool)
+
+    def __init__(self, icon_name: str, label: str, tooltip: str, parent=None, toggle_all: bool = False):
         super().__init__(tooltip, parent)
         self.setStyleSheet(tool_toggle_qss(icon_only=not label))
         self.setCheckable(True)
         self.setIcon(qta.icon(icon_name, color=THEME.text_hint, color_on=THEME.text_primary, color_disabled=THEME.text_muted))
         self.setText(f" {label}" if label else "")
         self._toggles: list[QAction] = []
+        self._right_click = None
+        if toggle_all:
+            self._right_click = RightClickToggleAll(
+                [self], lambda: [a.isChecked() for a in self._toggles if a.isVisible() and a.isEnabled()]
+            )
+            self._right_click.toggledAll.connect(self.toggledAll)
+
+    def mirror_right_click(self, widget: QWidget) -> None:
+        """*widget*, another button for this one's menu, takes the same right-click."""
+        if self._right_click is not None:
+            self._right_click.watch(widget)
 
     def add_toggle(self, label: str, tooltip: str) -> QAction:
         action = QAction(label, self)

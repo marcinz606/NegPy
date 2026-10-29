@@ -1,11 +1,7 @@
 from dataclasses import replace
 from unittest.mock import MagicMock
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 from negpy.desktop.workers.export import ExportTask, ExportWorker
 from negpy.desktop.workers.render import NormalizationInput, NormalizationTask, NormalizationWorker
 from negpy.domain.models import WorkspaceConfig
@@ -18,35 +14,6 @@ def _export_task(name: str) -> ExportTask:
         params=DEFAULT_WORKSPACE_CONFIG,
         export_settings=DEFAULT_WORKSPACE_CONFIG.export,
     )
-
-
-def test_progress_dialog_updates_and_abort() -> None:
-    dlg = ProgressDialog()
-    aborted: list[bool] = []
-    dlg.abort_requested.connect(lambda: aborted.append(True))
-
-    dlg.start("Exporting", abortable=True)
-    assert dlg.isVisible()
-    assert dlg._abort.isVisible()
-
-    dlg.set_progress(2, 5, "frame.cr2")
-    QApplication.processEvents()
-    assert dlg._count.text() == "2/5"
-    assert dlg._file_label.text() == "frame.cr2"
-    assert dlg._bar.value() == 2
-
-    QTest.mouseClick(dlg._abort, Qt.MouseButton.LeftButton)
-    assert aborted == [True]
-    assert not dlg._abort.isEnabled()
-
-    dlg.finish()
-    assert not dlg.isVisible()
-
-
-def test_progress_dialog_hides_abort_when_not_abortable() -> None:
-    dlg = ProgressDialog()
-    dlg.start("Generating thumbnails", abortable=False)
-    assert not dlg._abort.isVisible()
 
 
 def test_export_worker_cancel_stops_batch_keeps_partial() -> None:

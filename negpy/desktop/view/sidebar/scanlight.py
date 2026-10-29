@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.confirm import confirm_unmetered_scan
 from negpy.desktop.view.sidebar.calibration_window import CAPTURE_MODE_TOOLTIP, CAPTURE_MODES, CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
 from negpy.desktop.view.sidebar.roi_image import zebra_image
@@ -205,6 +206,8 @@ class ScanlightSidebar(QWidget):
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._magnifier_seen = False  # the state the stream last published, or a click's own
         self._metering = False  # a Meter probe is on the worker; Scan, Retake and Meter wait for it
+        # Meter placed the exposure, or a Live View stepper set it, since the camera connected.
+        self._exposure_chosen = False
         self._meter_raw: dict[str, int] = {}  # the body's shutter labels → raw indexes, read once per probe
         self._meter_fastest = ""  # the probe's ladder's fastest label, for the too-bright report
         # The last probe's predicted RAW clipping, the exposure it holds for, and the preview it
@@ -553,6 +556,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_live_view_unsupported.connect(self._on_live_view_unsupported)
         self.controller.capture_focus_magnifier_unavailable.connect(self._on_magnifier_unavailable)
         self.controller.capture_finished.connect(self._on_finished)
+        self.controller.capture_clipped.connect(self._on_clipped)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
         self.controller.capture_status.connect(self._on_status)
@@ -780,6 +784,7 @@ class ScanlightSidebar(QWidget):
     def _on_live_view_exposure(self, which: str, stepper) -> None:
         """A Live View stepper moved. With the exposure editable it is the card's, so the step
         lands in the settings a scan forces; otherwise it only drives the body."""
+        self._exposure_chosen = True
         if self._manual_mode or self._free_exposure:
             self._on_sidebar_exposure_changed(which, stepper)
         else:
@@ -1385,6 +1390,7 @@ class ScanlightSidebar(QWidget):
             if self._adopt_metered_shutter(label, raw)
             else ""
         )
+        self._exposure_chosen = not reading.clipped  # a clipped probe steps down and meters again
         self._apply_gating()
         if reading.clipped:
             self._set_status(
@@ -1911,6 +1917,13 @@ class ScanlightSidebar(QWidget):
         info = self._settings_json().get("shutter") or {}
         return tuple(str(o.get("label", "")) for o in info.get("options", []))
 
+    def _scan_uses_camera_exposure(self) -> bool:
+        """The scan shoots at the body's shutter: no preset or Meter reading supplies one."""
+        s = self._settings
+        if not self._rgb_mode:
+            return True
+        return not (s.shutter_w if s.white_mode else s.shutter_r)
+
     def _start_capture(self, retake: bool) -> None:
         if self._calibrating_preset:
             # Both ride one worker thread, so this would only queue, then fire with the exposure
@@ -1944,6 +1957,10 @@ class ScanlightSidebar(QWidget):
         # The preview pauses for the shot and resumes, with no teardown and no reconnect.
         self._update_settings_from_ui()
         self._save_settings()
+        if self._scan_uses_camera_exposure() and not self._exposure_chosen:
+            if not confirm_unmetered_scan(self, self.controller.session.repo):
+                return
+            self._exposure_chosen = True  # asked once per camera connection
 
         from negpy.desktop.workers.capture_worker import CaptureRequest
 
@@ -2050,6 +2067,13 @@ class ScanlightSidebar(QWidget):
         )
         self._relight_after_capture()
 
+    def _on_clipped(self, path: str, share: float) -> None:
+        frame = path.split("_Frame")[-1][:3]
+        self._set_status(
+            tr("Frame {frame} clipped on {share:.0%} of the picture. Lower the exposure, then click Retake.", frame=frame, share=share),
+            pinned=True,
+        )
+
     @pyqtSlot()
     def _on_cancelled(self) -> None:
         self.set_scanning(False)
@@ -2147,6 +2171,7 @@ class ScanlightSidebar(QWidget):
         self._camera_verified = bool(status["usb_ok"]) and not claimed
         self._set_cam_status(bool(status["usb_ok"]), status["usb_model"], claimed_elsewhere=claimed)
         if self._camera_verified != was_verified:
+            self._exposure_chosen = False
             if self._manual_mode and not self._camera_verified:
                 self._reset_hand_set_exposure()
                 self._update_settings_from_ui()

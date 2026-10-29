@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from negpy.services.capture.calibration import CLIP_CEILING, SHUTTER_CANDIDATES, true_seconds
-from negpy.services.capture.meter import CLIPPED_STEP_STOPS, PEAK_MAP_EDGE, meter_frame, shutter_at_most
+from negpy.services.capture.meter import CLIPPED_STEP_STOPS, PEAK_MAP_EDGE, meter_frame, picture_clipping, shutter_at_most
 
 
 def _frame(border: float, picture: float, h: int = 600, w: int = 900, orange: bool = True) -> np.ndarray:
@@ -255,3 +255,9 @@ def test_the_white_light_target_allows_for_the_cameras_white_balance():
     assert balanced.clipped is False
     assert _is_ceiling(balanced.recommended, true_seconds("1/30") * 0.9 / (0.6 * 2.6))
     assert true_seconds(balanced.recommended) < true_seconds(plain.recommended)
+
+
+def test_picture_clipping_reports_a_blown_picture_and_passes_a_clean_one():
+    clipped = picture_clipping(_frame(border=0.02, picture=2.0, orange=False))
+    assert clipped is not None and clipped > 0.1
+    assert picture_clipping(_frame(border=0.02, picture=0.5, orange=False)) is None

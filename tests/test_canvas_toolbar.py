@@ -1,6 +1,6 @@
 import sys
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QPushButton
 
@@ -21,6 +21,7 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.state.compare_mode = False
     controller.session.state.flat_peek = False
     controller.session.state.negative_peek = False
+    controller.session.state.average_peek = False
     controller.session.state.embedded_peek = False
     controller.session.state.flatfield_peek = False
     controller.session.state.export_size_view = False
@@ -50,11 +51,12 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.asset_model.rowCount.return_value = 1
     controller.session.repo.get_global_setting.return_value = 1.0
     controller.canvas = None
+    controller.average_scopes.return_value = {}
     controller.render_worker.processor.backend_name = "CPU"
     return ActionToolbar(controller)
 
 
-def _repo(stored, added=("tools", "export")) -> MagicMock:
+def _repo(stored, added=("tools", "export", "average")) -> MagicMock:
     """A stored row whose new items were already offered, unless *added* says otherwise."""
     repo = MagicMock()
     settings = {"toolbar_items": stored, "toolbar_added_items": list(added)}
@@ -350,14 +352,18 @@ class TestToolbarCustomization(unittest.TestCase):
         repo.save_global_setting.assert_not_called()
 
     def test_a_stored_row_gets_tools_once_before_undo(self):
-        repo = _repo(["prev", "undo", "redo"], added=("export",))
+        repo = _repo(["prev", "undo", "redo"], added=("export", "average"))
         self.assertEqual(load_toolbar_items(repo), ["prev", "tools", "undo", "redo"])
         repo.save_global_settings.assert_called_once_with(
-            {"toolbar_items": ["prev", "tools", "undo", "redo"], "toolbar_added_items": ["export", "tools"]}
+            {"toolbar_items": ["prev", "tools", "undo", "redo"], "toolbar_added_items": ["average", "export", "tools"]}
         )
 
+    def test_a_stored_row_gets_roll_average_once_before_export(self):
+        repo = _repo(["prev", "source", "export"], added=("tools", "export"))
+        self.assertEqual(load_toolbar_items(repo)[-3:], ["source", "average", "export"])
+
     def test_a_stored_row_without_undo_gets_tools_last(self):
-        self.assertEqual(load_toolbar_items(_repo(["prev", "next"], added=())), ["prev", "next", "tools", "export"])
+        self.assertEqual(load_toolbar_items(_repo(["prev", "next"], added=("average",))), ["prev", "next", "tools", "export"])
 
     def test_a_removed_tools_button_stays_removed(self):
         repo = _repo(["prev", "undo"])
@@ -715,7 +721,7 @@ class TestExportMirror(unittest.TestCase):
         self.assertEqual(tb.btn_export.toolTip(), "Export every visible frame")
 
     def test_a_stored_row_gets_export_once_before_overlays(self):
-        repo = _repo(["source", "overlays"], added=("tools",))
+        repo = _repo(["source", "overlays"], added=("tools", "average"))
         self.assertEqual(load_toolbar_items(repo), ["source", "export", "overlays"])
 
     def test_on_the_stock_row_and_hideable(self):
@@ -1162,3 +1168,74 @@ def test_every_track_shows_its_side_edges():
         assert image.pixelColor(t.left() - 3, y) == QColor(THEME.border_primary), t
         assert image.pixelColor(t.right() + 3, y) == QColor(THEME.border_primary), t
     tb.close()
+
+
+def test_the_average_peek_shows_its_row_and_right_click_turns_every_average_on(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    tb = _make_toolbar()
+    state = tb.session.state
+    state.average_peek = True
+    state.average_peek_axes = {"use_luma_average": True, "use_color_average": False, "use_cast_average": False}
+    state.config.process.process_mode = "B&W Negative"
+    tb.controller.session.repo = MagicMock()
+    with patch("negpy.desktop.view.canvas.toolbar.rolls.frame_saved_baseline", return_value=None):
+        tb._sync_tool_row()
+
+    assert not tb._average_row.isHidden()
+    assert tb._average_toggles["use_luma_average"].isChecked()
+    assert not tb._average_toggles["use_color_average"].isChecked()
+    QTest.mouseClick(tb._average_toggles["use_color_average"], Qt.MouseButton.RightButton)
+    tb.controller.set_average_peek_axes.assert_called_with(use_luma_average=True, use_color_average=True)
+
+
+def _average_toolbar(baseline):
+    tb = _make_toolbar()
+    process = WorkspaceConfig().process
+    tb.session.state.config.process = process
+    tb.session.state.active_roll_id = "r1"
+    tb.session.state.current_file_hash = "h1"
+    tb.controller.measuring_baseline.return_value = False
+    with patch("negpy.desktop.view.canvas.toolbar.rolls.frame_saved_baseline", return_value=baseline):
+        tb._sync_average_button()
+    return tb
+
+
+def test_the_average_row_offers_scene_or_roll_on_a_scene_frame(qapp):
+    tb = _make_toolbar()
+    state = tb.session.state
+    state.average_peek = True
+    state.average_peek_scope = None
+    state.average_peek_axes = {"use_luma_average": True, "use_color_average": True, "use_cast_average": False}
+    state.config.process = WorkspaceConfig().process
+    tb.controller.average_scopes.return_value = {"scene": "Scene “Woods”", "roll": "Roll “Portra”"}
+    with patch("negpy.desktop.view.canvas.toolbar.rolls.frame_saved_baseline", return_value=None):
+        tb._sync_tool_row()
+
+    assert not tb.average_scope.isHidden()
+    tb.average_scope.setCurrentIndex(1)
+    tb.controller.set_average_peek_scope.assert_called_with("roll")
+
+
+def test_the_bar_average_button_waits_for_a_roll_baseline(qapp):
+    tb = _average_toolbar(None)
+    assert not tb.btn_average.isEnabled()
+    assert "No average" in tb.btn_average.toolTip()
+
+
+def test_the_bar_average_button_opens_the_row_and_right_click_writes_all(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    baseline = ({"floors": (0.0,) * 3, "ceils": (1.0,) * 3, "axis": None, "outliers": ()}, "roll:r1")
+    tb = _average_toolbar(baseline)
+    assert tb.btn_average.isEnabled()
+    assert not tb.btn_average.isChecked()
+    with patch("negpy.desktop.view.canvas.toolbar.rolls.frame_saved_baseline", return_value=baseline):
+        tb.btn_average.click()
+        tb.controller.toggle_average_peek.assert_called_once_with(force=True)
+        assert not tb.btn_average.isChecked()
+        QTest.mouseClick(tb.btn_average, Qt.MouseButton.RightButton)
+    # Cast waits for a neutral axis, so right-click leaves it out.
+    tb.controller.set_roll_average.assert_called_with(use_luma_average=True, use_color_average=True)

@@ -81,7 +81,7 @@ class TestScanSetupCard(unittest.TestCase):
         card = ScanSetupSidebar(controller)
         card.sync_ui()
         self.assertFalse(card.light_btn.isHidden())
-        self.assertFalse(card.hint.isHidden())
+        self.assertIn("Coolscan", card.hint.text())
 
     def test_bw_hides_the_light_and_keeps_it(self):
         controller = _setup_controller({"capture": "scanner", "light": "narrowband"})
@@ -91,11 +91,37 @@ class TestScanSetupCard(unittest.TestCase):
         card.sync_ui()
         self.assertTrue(card.light_btn.isHidden())
         self.assertEqual(card.light_btn.currentData(), "narrowband")
-        self.assertTrue(card.hint.isHidden())
+        self.assertNotIn("Coolscan", card.hint.text())
+        self.assertIn("Hides the Raw Decode", card.hint.text())
 
         controller.state.config = config
         card.sync_ui()
         self.assertFalse(card.light_btn.isHidden())
+
+    def test_the_hint_says_what_the_setup_changes(self):
+        card = ScanSetupSidebar(_setup_controller({"capture": "camera", "light": "narrowband"}))
+        card.sync_ui()
+        text = card.hint.text()
+        for words in ("Scanlight", "Decodes the RAW linear", "Trichrome", "Digital (Pakon)"):
+            self.assertIn(words, text)
+
+        card = ScanSetupSidebar(_setup_controller({"capture": "scanner", "light": "white"}))
+        card.sync_ui()
+        text = card.hint.text()
+        for words in ("Epson", "Reads the scan linear", "Hides the Raw Decode", "Digital (Adobe RGB)"):
+            self.assertIn(words, text)
+
+    def test_the_stock_line_follows_where_the_setup_moves_the_stock(self):
+        controller = _setup_controller({"capture": "scanner", "light": "narrowband"})
+        config = controller.state.config
+        card = ScanSetupSidebar(controller)
+        controller.state.config = replace(config, process=replace(config.process, process_mode=ProcessMode.E6))
+        card.sync_ui()
+        self.assertNotIn("Prints on", card.hint.text())
+        self.assertNotIn("Keeps the print stock", card.hint.text())
+        controller.state.config = replace(config, exposure=replace(config.exposure, paper_profile="frontier"))
+        card.sync_ui()
+        self.assertIn("Keeps the print stock you picked.", card.hint.text())
 
     def test_auto_reads_the_open_frame(self):
         camera = _setup_controller(None, current_file_hash="h", preview_cam_xyz=((1, 0, 0), (0, 1, 0), (0, 0, 1)))

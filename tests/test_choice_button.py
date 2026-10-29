@@ -26,6 +26,60 @@ def test_toggle_menu_button_is_checked_while_any_option_is_on(qapp):
     assert not btn.isChecked()
 
 
+def test_a_right_click_turns_every_option_on_then_off(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.view.widgets.segmented_choice import ToggleMenuButton
+
+    btn = ToggleMenuButton("fa5s.magic", "Auto", "tip", toggle_all=True)
+    a = btn.add_toggle("A", "a")
+    btn.add_toggle("B", "b")
+    hidden = btn.add_toggle("C", "c")
+    hidden.setVisible(False)
+    asked = []
+    btn.toggledAll.connect(asked.append)
+
+    a.setChecked(True)
+    QTest.mouseClick(btn, Qt.MouseButton.RightButton)
+    for action in btn.choice_menu.actions()[:2]:
+        action.setChecked(True)
+    QTest.mouseClick(btn, Qt.MouseButton.RightButton)
+
+    assert asked == [True, False]
+
+
+def test_a_mirror_takes_the_same_right_click(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QPushButton
+
+    from negpy.desktop.view.widgets.segmented_choice import ToggleMenuButton
+
+    btn = ToggleMenuButton("fa5s.magic", "", "tip", toggle_all=True)
+    btn.add_toggle("A", "a")
+    mirror = QPushButton()
+    btn.mirror_right_click(mirror)
+    asked = []
+    btn.toggledAll.connect(asked.append)
+    QTest.mouseClick(mirror, Qt.MouseButton.RightButton)
+    assert asked == [True]
+
+
+def test_a_right_click_does_nothing_without_toggle_all(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.view.widgets.segmented_choice import ToggleMenuButton
+
+    btn = ToggleMenuButton("fa5s.magic", "Auto", "tip")
+    btn.add_toggle("A", "a")
+    asked = []
+    btn.toggledAll.connect(asked.append)
+    QTest.mouseClick(btn, Qt.MouseButton.RightButton)
+    assert asked == []
+
+
 def test_tool_toggle_centers_by_default_and_left_aligns_on_request(qapp):
     from negpy.desktop.view.styles.templates import tool_toggle
 

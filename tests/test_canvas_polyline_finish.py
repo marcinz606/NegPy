@@ -278,6 +278,7 @@ def test_context_cancel_two_stage() -> None:
     controller.state.pick_better = False
     controller.state.pick_better_pending = False
     controller.state.negative_peek = False
+    controller.state.average_peek = False
     controller.state.embedded_peek = False
     controller.state.flatfield_peek = False
     controller.state.export_size_view = False
@@ -304,6 +305,7 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
     window.light_table_active.return_value = False
     controller.state.test_strip_pending = False
     controller.state.negative_peek = False
+    controller.state.average_peek = False
     controller.state.embedded_peek = False
     controller.state.flatfield_peek = False
     controller.state.export_size_view = False
@@ -340,6 +342,7 @@ def test_context_cancel_closes_the_grain_focuser_before_any_tool() -> None:
     controller.state.pick_better = False
     controller.state.pick_better_pending = False
     controller.state.negative_peek = False
+    controller.state.average_peek = False
     controller.state.embedded_peek = False
     controller.state.flatfield_peek = False
     controller.state.export_size_view = False
@@ -419,6 +422,7 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
         controller.state.pick_better = False
         controller.state.pick_better_pending = False
         controller.state.negative_peek = False
+        controller.state.average_peek = False
         controller.state.embedded_peek = False
         controller.state.flatfield_peek = False
         controller.state.export_size_view = False

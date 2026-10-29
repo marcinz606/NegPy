@@ -18,13 +18,14 @@ from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettings
 from negpy.domain.models import WorkspaceConfig
 from negpy.services.assets.presets import Presets, is_valid_preset_name
 
-_PRESET_EXCLUDED_SECTIONS = frozenset({"Straighten"})
+# Raw Decode belongs to the rig: a preset applied on top would change the decode of every frame.
+_PRESET_EXCLUDED_SECTIONS = frozenset({"Straighten", "Raw Decode"})
 # The Crop and Optics cards hold the roll's format and the scanning rig; the crop rectangle is one frame's.
 _PRESET_ROW_IDS = frozenset(r.id for _title, rows in CATALOG for r in rows) - {"geometry.crop_rect"}
 
-# "Replace edits" resets only the look sections. Per-frame geometry, frame metadata and
-# export prefs stay, and dust, heal and masks are not catalog rows at all.
-_REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Straighten", "Optics", "Metadata", "Export"})
+# "Replace edits" resets only the look sections. Per-frame geometry, the rig's decode, frame
+# metadata and export prefs stay; a reset decode mode would force a re-decode.
+_REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Straighten", "Optics", "Raw Decode", "Metadata", "Export"})
 _LOOK_ROWS = tuple(r for title, rows in CATALOG if title not in _REPLACE_KEPT_SECTIONS for r in rows)
 
 

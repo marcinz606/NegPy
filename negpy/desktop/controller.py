@@ -111,7 +111,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.composites import forget_composite, frame_count, restore_maps, saved_composites, source_files
+from negpy.services.assets.composites import forget_composite, frame_count, part_paths, restore_maps, saved_composites, source_files
 from negpy.services.assets.triplets import forget_triplets, saved_triplets
 from negpy.services.assets import rolls
 from negpy.services.assets.sensor import SensorProfiles
@@ -503,6 +503,8 @@ _NOTHING_TO_APPLY = tr("Nothing to apply: every card already follows the roll")
 ROLL_ANALYSIS_NEEDS_A_ROLL = tr("Open or save a roll to use Roll Analysis.")
 SCENES_NEED_A_ROLL = tr("Open or save a roll to use scenes.")
 
+_AVERAGE_FIELDS = ("use_luma_average", "use_color_average", "use_cast_average")
+
 
 def _kept_own_exposure(count: int) -> str:
     locked = count_of(count, "locked frame")
@@ -558,12 +560,12 @@ class AppController(QObject):
     # Emitted before the GPU engine frees its texture pool; the canvas samples a
     # pooled texture directly and must drop it first.
     gpu_textures_released = pyqtSignal()
-    export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float, list)  # elapsed seconds, the failed files' messages
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     prefetch_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
+    background_normalization_requested = pyqtSignal(NormalizationTask)
     batch_autocrop_requested = pyqtSignal(BatchAutoCropTask)
     thumbnail_render_requested = pyqtSignal(ThumbnailRenderTask)
     thumbnail_refresh_state_changed = pyqtSignal(bool)  # a background refresh started/stopped running
@@ -624,6 +626,7 @@ class AppController(QObject):
     bake_on_export_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
     negative_peek_changed = pyqtSignal(bool)
+    average_peek_changed = pyqtSignal(bool)
     embedded_peek_changed = pyqtSignal(bool)
     flatfield_peek_changed = pyqtSignal(bool)
     export_size_view_changed = pyqtSignal(bool)
@@ -637,6 +640,7 @@ class AppController(QObject):
     status_progress_requested = pyqtSignal(int, int)
     # "" when no refresh is running.
     thumbnail_refresh_progress = pyqtSignal(str)
+    baseline_progress = pyqtSignal(str)
     batch_started = pyqtSignal(str, bool)  # title, abortable
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
     batch_finished = pyqtSignal()
@@ -683,6 +687,7 @@ class AppController(QObject):
     capture_live_view_unsupported = pyqtSignal(str)  # body advertises no preview; none was attempted
     capture_focus_magnifier_unavailable = pyqtSignal(str)  # reason
     capture_finished = pyqtSignal(list)
+    capture_clipped = pyqtSignal(str, float)  # a single-file capture's path, share of its picture at saturation
     capture_cancelled = pyqtSignal()
     capture_error = pyqtSignal(str)
     capture_status = pyqtSignal(str)
@@ -748,6 +753,12 @@ class AppController(QObject):
         self._active_batch_token: Optional[int] = None
         self._normalization_scope: Optional[str] = None
         self._scene_queue: List[str] = []
+        # (roll id, frame hashes) of the running background Roll Analysis.
+        self._background_baseline: Optional[Tuple[str, Tuple[str, ...]]] = None
+        self._background_baseline_timer = QTimer(self)
+        self._background_baseline_timer.setSingleShot(True)
+        self._background_baseline_timer.setInterval(2000)
+        self._background_baseline_timer.timeout.connect(self._run_background_baseline)
         # True while a hot-folder-triggered discovery owns the batch lane. Thumbnail
         # loading is an independent background queue and never owns this state.
         self._hot_folder_sequence_active = False
@@ -834,6 +845,8 @@ class AppController(QObject):
         self.norm_thread = QThread()
         self.norm_worker = NormalizationWorker(self.preview_service)
         self.norm_worker.moveToThread(self.norm_thread)
+        self.bg_norm_worker = NormalizationWorker(self.preview_service)
+        self.bg_norm_worker.moveToThread(self.norm_thread)
         self.batch_autocrop_worker = BatchAutoCropWorker(self.batch_autocrop_preview_service)
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
         self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service, self.preview_service)
@@ -1097,7 +1110,6 @@ class AppController(QObject):
         self.render_worker.error.connect(self._on_strip_error)
         self.render_worker.error.connect(self._on_pick_better_error)
 
-        self.export_worker.progress.connect(self.export_progress.emit)
         self.export_worker.progress.connect(self._on_batch_progress)
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
@@ -1151,6 +1163,11 @@ class AppController(QObject):
         self.norm_worker.detected.connect(self._on_scenes_detected)
         self.norm_worker.cancelled.connect(self._on_normalization_cancelled)
         self.norm_worker.error.connect(self._on_normalization_error)
+        self.background_normalization_requested.connect(self.bg_norm_worker.process)
+        self.bg_norm_worker.finished.connect(self._on_background_baseline)
+        self.bg_norm_worker.progress.connect(self._on_background_baseline_progress)
+        self.bg_norm_worker.cancelled.connect(self._on_background_baseline_ended)
+        self.bg_norm_worker.error.connect(self._on_background_baseline_ended)
 
         self.batch_autocrop_requested.connect(self.batch_autocrop_worker.process)
         self.batch_autocrop_worker.progress.connect(self._on_batch_autocrop_progress)
@@ -1228,6 +1245,7 @@ class AppController(QObject):
         self.capture_worker.live_view_unsupported.connect(self.capture_live_view_unsupported.emit)
         self.capture_worker.focus_magnifier_unavailable.connect(self.capture_focus_magnifier_unavailable.emit)
         self.capture_worker.finished.connect(self._on_capture_finished)
+        self.capture_worker.clipped.connect(self.capture_clipped.emit)
         self.capture_worker.cancelled.connect(self.capture_cancelled.emit)
         self.capture_worker.error.connect(self.capture_error.emit)
         self.capture_worker.status.connect(self.capture_status.emit)
@@ -1634,6 +1652,8 @@ class AppController(QObject):
             return None
         if owner in _NORM_THREAD_BATCH_OWNERS:
             self._preempt_background_thumbnail_refresh()
+        if self._background_baseline is not None:
+            self.bg_norm_worker.cancel()
         self._batch_serial += 1
         self._active_batch = owner
         self._active_batch_title = title
@@ -1685,6 +1705,7 @@ class AppController(QObject):
         self.batch_finished.emit()
         if self._pending_asset_discoveries and not self._discovery_running:
             QTimer.singleShot(0, self._start_next_asset_discovery)
+        self._background_baseline_timer.start()
         return True
 
     def _on_batch_progress(self, current: int, total: int, name: str) -> None:
@@ -1924,14 +1945,14 @@ class AppController(QObject):
         if returned:
             return tr(
                 "Added {value} to “{name}”. Loaded {value1} from other folders for this session only. "
-                "Use Save as Roll… to keep them in a new roll.",
+                "Use Save as Virtual Roll… to keep them in a new roll.",
                 value=count_of(len(returned), "frame"),
                 value1=count_of(len(outside), "frame"),
                 name=name,
             )
         return tr(
             "Loaded {value} for this session only. The folder roll “{name}” holds only files from its own folder. "
-            "Use Save as Roll… to keep them in a new roll.",
+            "Use Save as Virtual Roll… to keep them in a new roll.",
             value=count_of(len(outside), "frame"),
             name=name,
         )
@@ -2027,19 +2048,7 @@ class AppController(QObject):
             return None
         source = self.state.active_roll_id
         roll_id = rolls.create_virtual_roll(self.session.repo, name, paths)
-        # The new roll starts from the open roll's settings, or the no-roll ones without
-        # one, so the frames look the same once it becomes the open roll.
-        by_roll = dict(self.session.repo.get_global_setting(self._HALF_FRAME_MODE_BY_ROLL_KEY, default=None) or {})
-        # With no roll open a frame splits by its own roll; one toggle fits the set only when
-        # every frame that can split is a half.
-        splittable = [f for f in self.state.uploaded_files if not is_composite(f)]
-        by_roll[roll_id] = (
-            self.half_frame_mode_for_roll(source)
-            if source
-            else self.state.half_frame_loose or bool(splittable) and all(f.get("half") for f in splittable)
-        )
-        self.session.repo.save_global_setting(self._HALF_FRAME_MODE_BY_ROLL_KEY, by_roll)
-        self._save_rgb_scan_mode(self.rgb_scan_mode_for_roll(source), roll_id)
+        self._seed_roll_modes(roll_id, source)
         moved = (False, False)
         if source:
             hashes = {rolls.unforked_hash(f["hash"]) for f in self.state.uploaded_files if f.get("hash")}
@@ -2052,7 +2061,104 @@ class AppController(QObject):
         if moved[1]:
             self._reselect_active_frame()
         self._announce_roll_modes(roll_id)
-        self.set_status(tr("Saved as roll “{name}”", name=name), 3000)
+        self.set_status(tr("Saved as virtual roll “{name}”", name=name), 3000)
+        return roll_id
+
+    def _seed_roll_modes(self, roll_id: str, source: Optional[str]) -> None:
+        """Half Frame and RGB Scan for a new roll: the open roll's, or the no-roll ones without one,
+        so the frames look the same once it becomes the open roll."""
+        by_roll = dict(self.session.repo.get_global_setting(self._HALF_FRAME_MODE_BY_ROLL_KEY, default=None) or {})
+        # With no roll open a frame splits by its own roll; one toggle fits the set only when
+        # every frame that can split is a half.
+        splittable = [f for f in self.state.uploaded_files if not is_composite(f)]
+        by_roll[roll_id] = (
+            self.half_frame_mode_for_roll(source)
+            if source
+            else self.state.half_frame_loose or bool(splittable) and all(f.get("half") for f in splittable)
+        )
+        self.session.repo.save_global_setting(self._HALF_FRAME_MODE_BY_ROLL_KEY, by_roll)
+        self._save_rgb_scan_mode(self.rgb_scan_mode_for_roll(source), roll_id)
+
+    def save_choice(self, roll_id: Optional[str] = None) -> tuple[str, str]:
+        """Whether Save to Folder Roll applies to *roll_id* (default: the open roll, else the frames in
+        no roll): "hidden", "ready", or "blocked" with the reason. It applies to frames or a virtual
+        roll whose files all sit directly in one folder that has no folder roll."""
+        choice, reason, _folder, _missing = self._folder_target(roll_id)
+        return choice, reason
+
+    def _folder_target(self, roll_id: Optional[str]) -> tuple[str, str, Optional[str], List[str]]:
+        """save_choice, with the folder and the folder's files the roll would leave out."""
+        roll_id = roll_id or self.state.active_roll_id
+        if roll_id:
+            entry = rolls.roll_for_id(self.session.repo, roll_id) or {}
+            paths = self._virtual_roll_files(entry) if entry.get("kind") == "virtual" else []
+        else:
+            paths = self._loaded_source_paths() if self.state.uploaded_files else []
+        if not paths:
+            return "hidden", "", None, []
+        folder, missing = rolls.folder_scope(paths)
+        if folder is None:
+            return "blocked", tr("Save to Folder Roll: the frames come from more than one folder."), None, []
+        existing = rolls.folder_roll_id_for_path(self.session.repo, folder)
+        if existing:
+            name = (rolls.roll_for_id(self.session.repo, existing) or {}).get("name") or folder
+            return "blocked", tr("“{name}” is already a folder roll, so open it from the Library.", name=name), None, []
+        return "ready", "", folder, missing
+
+    def _virtual_roll_files(self, entry: dict) -> List[str]:
+        """A virtual roll's members on disk, with the parts of its composites and triplets."""
+        members = [p for p in entry.get("member_paths", ()) if os.path.isfile(p)]
+        held = set(members)
+        parts = part_paths(c for primary, c in saved_composites(self.session.repo).items() if primary in held)
+        parts.update(p for red, t in saved_triplets(self.session.repo).items() if red in held for p in t[:2] if p)
+        return list(dict.fromkeys([*members, *sorted(parts)]))
+
+    def _loaded_source_paths(self) -> List[str]:
+        """Every file the Film Strip holds: composite parts, triplet exposures, and the duplicates it
+        turned away from the same folders (one from elsewhere does not make the frames span folders)."""
+        paths = [p for f in self.state.uploaded_files for p in source_files(f)]
+        folders = {os.path.normcase(os.path.dirname(p)) for p in paths}
+        duplicates = [p for p in sorted(self.state.duplicate_paths) if os.path.normcase(os.path.dirname(p)) in folders]
+        return list(dict.fromkeys([*paths, *duplicates]))
+
+    def save_to_folder_roll(self, roll_id: Optional[str] = None) -> Optional[str]:
+        """Save the frames as the folder roll of their folder, leaving out the folder's files they do
+        not hold; the roll becomes the open roll. A virtual roll (*roll_id*, default the open one)
+        becomes that folder roll in place. Shows the reason when it cannot apply."""
+        roll_id = roll_id or self.state.active_roll_id
+        choice, reason, folder, missing = self._folder_target(roll_id)
+        if choice != "ready" or folder is None:
+            if reason:
+                self.set_status(reason, 4000)
+            return None
+        if roll_id:
+            return self._convert_to_folder_roll(roll_id, folder, missing)
+        roll_id = rolls.create_folder_roll(self.session.repo, folder, missing)
+        self._seed_roll_modes(roll_id, None)
+        self.state.active_roll_id = roll_id
+        self.invalidate_library_walk()
+        self.session.persist_session()
+        self._announce_roll_modes(roll_id)
+        name = (rolls.roll_for_id(self.session.repo, roll_id) or {}).get("name") or folder
+        self.set_status(tr("Saved as folder roll “{name}”", name=name), 3000)
+        return roll_id
+
+    def _convert_to_folder_roll(self, roll_id: str, folder: str, missing: List[str]) -> str:
+        entry = rolls.roll_for_id(self.session.repo, roll_id) or {}
+        old_name = entry.get("name") or tr("this roll")
+        gone = sum(1 for p in entry.get("member_paths", ()) if not os.path.isfile(p))
+        name = rolls.convert_to_folder_roll(self.session.repo, roll_id, folder, missing)
+        self.invalidate_library_walk()
+        if gone:
+            message = tr(
+                "“{old}” is now the folder roll “{name}”. {value} no longer on disk left the roll.",
+                old=old_name,
+                name=name,
+                value=count_of(gone, "file"),
+            )
+        else:
+            message = tr("“{old}” is now the folder roll “{name}”", old=old_name, name=name)
+        self.set_status(message, 4000)
         return roll_id
 
     def _carry_roll_edits(self, roll_id: str) -> tuple[bool, bool]:
@@ -2136,8 +2242,7 @@ class AppController(QObject):
             self.set_status(tr("No frames in the library match that search"), 4000)
             return
         self.set_status(tr("{value} {frame_word} found", value=len(paths), frame_word=plural(len(paths), "frame")), 3000)
-        # An ad hoc result, not (yet) any roll -- Save as Roll in the Film Strip turns it
-        # into one.
+        # An ad hoc result, not (yet) any roll: a save in the Film Strip turns it into one.
         self.state.active_roll_id = None
         self._announce_roll_modes(None)
         # The hand-off already is the filtered result -- a semantic query left over from
@@ -2661,6 +2766,7 @@ class AppController(QObject):
         Adds discovered assets to the session and starts thumbnail generation.
         """
         remember_split_scans(self.session.repo, {base_hash(a["hash"]) for a in valid_assets if a.get("half")})
+        self._background_baseline_timer.start()
         self._mark_diptychs(valid_assets)
         self._apply_roll_forks(valid_assets)
         promote_sidecars(self.session.repo, valid_assets)
@@ -4448,6 +4554,9 @@ class AppController(QObject):
         self.request_render()
 
     def reset_all_peeks(self) -> None:
+        if self.state.average_peek:
+            self.state.average_peek = False
+            self.average_peek_changed.emit(False)
         if self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
@@ -4908,6 +5017,7 @@ class AppController(QObject):
             self.refresh_thumbnails_for(hashes)
 
     def _on_frames_edited_offscreen(self, hashes: list[str]) -> None:
+        self.session.refresh_average_marks(set(hashes))
         if self.state.auto_thumbnail_refresh:
             self.refresh_thumbnails_for(hashes)
             return
@@ -6180,10 +6290,16 @@ class AppController(QObject):
 
         if scene_id is None:
             if roll_id is not None:
-                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils, outliers=outliers, axis=axis)
+                known = tuple(f["hash"] for f in targets)
+                rolls.set_roll_normalization(
+                    self.session.repo, roll_id, locked_floors, locked_ceils, outliers=outliers, axis=axis, frames=known
+                )
             message = tr("Roll analysis complete")
         else:
-            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils, outliers=outliers, axis=axis)
+            known = tuple(f["hash"] for f in targets)
+            rolls.set_scene_normalization(
+                self.session.repo, roll_id, scene_id, locked_floors, locked_ceils, outliers=outliers, axis=axis, frames=known
+            )
             self.session.refresh_scene_marks()
             message = tr("Scene “{value}” analyzed", value=self._scene_name(scene_id))
 
@@ -6220,6 +6336,251 @@ class AppController(QObject):
         self._end_batch("normalization")
         self.status_progress_requested.emit(0, 0)
         self.request_render()
+
+    def _run_background_baseline(self) -> None:
+        """Measures the roll baseline, then each scene's, one per run, without a dialog or
+        progress bar and without turning any frame's Use Average on. A scope runs while one of its
+        frames is missing from its saved baseline; a baseline saved before frames were recorded
+        stays until Roll or Scene Analysis runs."""
+        roll_id = self.state.active_roll_id
+        if roll_id is None or self._active_batch is not None or self._background_baseline is not None:
+            return
+        repo = self.session.repo
+        for scene_id in [None, *(sid for sid, _entry in rolls.roll_scenes(repo, roll_id))]:
+            frames = [f for f in self._normalization_targets(scene_id) if not self._waits_for_auto_crop(f)]
+            hashes = tuple(f["hash"] for f in frames)
+            saved = rolls.scene_normalization(repo, roll_id, scene_id) if scene_id else rolls.roll_normalization(repo, roll_id)
+            if len(frames) >= 2 and not (saved and (saved["frames"] is None or set(hashes) <= set(saved["frames"]))):
+                break
+        else:
+            return
+        self._background_baseline = (roll_id, scene_id, hashes)
+        self._on_background_baseline_progress(0, len(frames))
+        self.bg_norm_worker.arm()
+        self.background_normalization_requested.emit(
+            NormalizationTask(
+                frames=[NormalizationInput(file_info=f, config=self._config_for_batch_asset(f)) for f in frames],
+                workspace_color_space=self.state.workspace_color_space,
+                override_analysis_buffer=None,
+                override_luma_range_clip=None,
+                override_color_range_clip=None,
+                background=True,
+            )
+        )
+        self.config_updated.emit()
+
+    def measuring_baseline(self) -> bool:
+        return self._background_baseline is not None
+
+    def _on_background_baseline(self, floors: tuple, ceils: tuple, outlier_hashes: list, axis: Optional[tuple] = None) -> None:
+        """Saves the measured baseline on the roll or scene and moves the frames that already ride it."""
+        if self._background_baseline is None:
+            return
+        roll_id, scene_id, hashes = self._background_baseline
+        outliers = tuple(outlier_hashes)
+        if scene_id:
+            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, floors, ceils, outliers=outliers, axis=axis, frames=hashes)
+        else:
+            rolls.set_roll_normalization(self.session.repo, roll_id, floors, ceils, outliers=outliers, axis=axis, frames=hashes)
+        if roll_id == self.state.active_roll_id:
+            self._refresh_riding_frames(scene_id, floors, ceils, axis)
+            # Outliers moved with the new pool.
+            self.session.refresh_average_marks()
+        self._on_background_baseline_ended()
+        # Frames that arrived during the run.
+        self._background_baseline_timer.start()
+
+    def _shares_progress_bar(self) -> bool:
+        """The canvas bar belongs to a batch or a thumbnail refresh first; the background run only borrows it."""
+        return self._active_batch is None and not self._thumbnail_render_running
+
+    def _on_background_baseline_progress(self, done: int, total: int, *_args) -> None:
+        if self._background_baseline is None:
+            return
+        if self._background_baseline[1]:
+            text = tr("Scene average {index}/{total}", index=done, total=total)
+        else:
+            text = tr("Roll average {index}/{total}", index=done, total=total)
+        self.baseline_progress.emit(text)
+        if self._shares_progress_bar():
+            self.status_progress_requested.emit(done, total)
+
+    def _on_background_baseline_ended(self, *_args) -> None:
+        self._background_baseline = None
+        self.baseline_progress.emit("")
+        if self._shares_progress_bar():
+            self.status_progress_requested.emit(0, 0)
+        self.config_updated.emit()
+
+    def _refresh_riding_frames(self, scene_id: Optional[str], floors: tuple, ceils: tuple, axis: Optional[tuple]) -> None:
+        """A frame that rides Use Average on this scene's or the roll's baseline, or on none yet
+        while it belongs here, takes the new numbers; its Use Average choices stay."""
+        source = f"scene:{scene_id}" if scene_id else f"roll:{self.state.active_roll_id}"
+        own = {f["hash"] for f in self._normalization_targets(scene_id)}
+
+        def rides(p, file_hash: str) -> bool:
+            if p.lock_bounds or not (p.use_luma_average or p.use_color_average or p.use_cast_average):
+                return False
+            return p.baseline_source == source or (file_hash in own and not (p.baseline_source or p.is_locked_initialized))
+
+        values = {"locked_floors": floors, "locked_ceils": ceils, "locked_neutral_axis": axis, "baseline_source": source}
+        current = self.state.current_file_hash
+        changed: List[str] = []
+        for f in self.state.uploaded_files:
+            if f["hash"] == current:
+                continue
+            p = self.session.repo.load_file_settings(f["hash"]) or self.session.config_for_asset(f)
+            if not rides(p.process, f["hash"]):
+                continue
+            new_p = replace(p, process=replace(p.process, **values))
+            self.session.push_external_history(f["hash"], p, new_p)
+            self.session.repo.save_file_settings(f["hash"], new_p, file_path=f["path"])
+            changed.append(f["hash"])
+        if changed:
+            self.session.frames_edited_offscreen.emit(changed)
+        if current and rides(self.state.config.process, current):
+            self.session.update_config(replace(self.state.config, process=replace(self.state.config.process, **values)), persist=True)
+            self.request_render()
+
+    def set_roll_average(self, scope: Optional[str] = None, **axis: bool) -> None:
+        """Use Average on the active frame alone. An axis turned on takes the current scene or
+        roll baseline (the roll's with *scope* ``"roll"``), unless the frame carries one taken
+        from another frame."""
+        process = self.state.config.process
+        changes: dict = dict(axis)
+        if "use_luma_average" in axis or "use_color_average" in axis:
+            # The other axis re-derives per frame; roll_name drops since a picked baseline no longer applies whole.
+            changes.update(roll_name=None, **invalidate_local_bounds(process))
+        if any(axis.values()):
+            changes.update(self._saved_baseline_fields(process, scope=scope))
+        self.set_roll_default("baseline", **changes)
+
+    def average_scopes(self) -> Dict[str, str]:
+        """``{"scene": label, "roll": label}`` while the open frame is in a measured scene and the
+        roll is measured too, so it can choose either average; else empty."""
+        roll_id, file_hash = self.state.active_roll_id, self.state.current_file_hash
+        if not roll_id or not file_hash:
+            return {}
+        repo = self.session.repo
+        scene = rolls.scene_by_hash(repo, roll_id).get(rolls.unforked_hash(file_hash))
+        if not scene or not rolls.scene_normalization(repo, roll_id, scene[1]) or not rolls.roll_normalization(repo, roll_id):
+            return {}
+        return {"scene": rolls.source_label(repo, f"scene:{scene[1]}"), "roll": rolls.source_label(repo, f"roll:{roll_id}")}
+
+    def _saved_baseline_fields(self, process, file_hash: Optional[str] = None, scope: Optional[str] = None) -> dict:
+        """The scene or roll baseline a frame's Use Average reads (the active frame's by default), as
+        process fields; none for a frame with Lock Bounds or a baseline taken from another frame.
+        *scope* ``"roll"`` or ``"scene"`` overrides the frame's own choice."""
+        file_hash = file_hash or self.state.current_file_hash
+        kind = process.baseline_source.partition(":")[0]
+        if process.lock_bounds or kind not in ("", "roll", "scene") or not file_hash:
+            return {}
+        scope = scope or rolls.average_scope(process)
+        found = rolls.frame_saved_baseline(self.session.repo, self.state.active_roll_id, file_hash, scope)
+        if found is None:
+            return {}
+        saved, source = found
+        return {
+            "locked_floors": saved["floors"],
+            "locked_ceils": saved["ceils"],
+            "locked_neutral_axis": saved["axis"],
+            "baseline_source": source,
+        }
+
+    def set_selection_average(self, on: bool) -> None:
+        """Use Average (on: Luma, Color and, where it applies, Cast) or Use Own Measurement
+        (off) on each selected frame, else the open one. A frame with no baseline yet stays."""
+        current = self.state.current_file_hash
+        changed: List[str] = []
+        skipped = 0
+        for f in self._reanalyze_targets():
+            config = (
+                self.state.config
+                if f["hash"] == current
+                else self.session.repo.load_file_settings(f["hash"]) or self.session.config_for_asset(f)
+            )
+            baseline = self._saved_baseline_fields(config.process, f["hash"]) if on else {}
+            if on and not baseline:
+                skipped += 1
+                continue
+            cast = on and config.process.process_mode == ProcessMode.C41 and baseline.get("locked_neutral_axis") is not None
+            axes = {"use_luma_average": on, "use_color_average": on, "use_cast_average": cast}
+            if f["hash"] == current:
+                self.set_roll_average(**axes)
+                continue
+            process = replace(config.process, **axes, roll_name=None, **invalidate_local_bounds(config.process), **baseline)
+            new_config = replace(config, process=process)
+            self.session.push_external_history(f["hash"], config, new_config)
+            self.session.repo.save_file_settings(f["hash"], new_config, file_path=f["path"])
+            self._lock_roll_card_for(f, f["hash"], new_config, "baseline")
+            changed.append(f["hash"])
+        if changed:
+            self.session.frames_edited_offscreen.emit(changed)
+        if skipped:
+            self.set_status(tr("{value} without an average yet kept their own measurement", value=count_of(skipped, "frame")), 4000)
+
+    def toggle_average_peek(self, force: Optional[bool] = None) -> None:
+        """Print the frame on the roll average without changing the edit. Opens with the frame's
+        own averages, or Luma and Color (and Cast where it applies) when it uses none."""
+        if self.state.preview_raw is None:
+            return
+        target = (not self.state.average_peek) if force is None else force
+        if target == self.state.average_peek:
+            return
+        process = self.state.config.process
+        if target:
+            if not self._saved_baseline_fields(process):
+                self.set_status(tr("No average for this frame yet"), 3000)
+                self.average_peek_changed.emit(False)
+                return
+            self.exit_compare()
+            self.reset_all_peeks()
+            self._clear_test_strip()
+            axes = {f: bool(getattr(process, f)) for f in _AVERAGE_FIELDS}
+            if not any(axes.values()):
+                axes = {"use_luma_average": True, "use_color_average": True, "use_cast_average": self._cast_average_applies()}
+            self.state.average_peek_axes = axes
+            self.state.average_peek_scope = rolls.average_scope(process)
+        self.state.average_peek = target
+        self.average_peek_changed.emit(target)
+        if target:
+            self._render_average_peek()
+        else:
+            self.request_render()
+
+    def _cast_average_applies(self) -> bool:
+        process = self.state.config.process
+        return process.process_mode == ProcessMode.C41 and self._saved_baseline_fields(process).get("locked_neutral_axis") is not None
+
+    def set_average_peek_axes(self, **axes: bool) -> None:
+        if not self.state.average_peek:
+            return
+        self.state.average_peek_axes = {**self.state.average_peek_axes, **axes}
+        self.average_peek_changed.emit(True)
+        self._render_average_peek()
+
+    def set_average_peek_scope(self, scope: Optional[str]) -> None:
+        if not self.state.average_peek:
+            return
+        self.state.average_peek_scope = scope
+        self.average_peek_changed.emit(True)
+        self._render_average_peek()
+
+    def _render_average_peek(self) -> None:
+        process = self.state.config.process
+        axes = self.state.average_peek_axes
+        fields = self._saved_baseline_fields(process, scope=self.state.average_peek_scope or "scene") if any(axes.values()) else {}
+        peek = replace(process, **axes, **fields)
+        self.request_render(readback_metrics=False, config_override=replace(self.state.config, process=peek))
+
+    def keep_average_peek(self) -> None:
+        """Apply: the peek's averages become the frame's, as one edit."""
+        if not self.state.average_peek:
+            return
+        axes = dict(self.state.average_peek_axes)
+        self.state.average_peek = False
+        self.average_peek_changed.emit(False)
+        self.set_roll_average(scope=self.state.average_peek_scope or "scene", **axes)
 
     def request_reset_roll(self) -> None:
         """Reset every visible frame to its own bare defaults -- Reset Settings, applied
@@ -6284,6 +6645,7 @@ class AppController(QObject):
             return None
         result = edit(self.state.active_roll_id)
         self.session.refresh_scene_marks()
+        self._background_baseline_timer.start()
         return result
 
     def request_group_as_scene(self, name: str) -> Optional[str]:
@@ -6407,26 +6769,27 @@ class AppController(QObject):
         through (rolls.frame_roll). No-op with no frame, or a frame in no roll."""
         if not self.state.current_file_hash:
             return
-        roll_id = self._active_frame_roll()
+        idx = self.state.selected_file_idx
+        files = self.state.uploaded_files
+        asset = files[idx] if 0 <= idx < len(files) else {}
+        self._lock_roll_card_for(asset, self.state.current_file_hash, self.state.config, card_key)
+
+    def _lock_roll_card_for(self, asset: dict, file_hash: str, config: WorkspaceConfig, card_key: str) -> None:
+        """_lock_roll_card for any frame, given its config."""
+        roll_id = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
         # A field the roll has never set at all cannot "match" -- there is nothing yet
         # to differ from, and treating that as a match would hide a card's first-ever
         # edit from Apply until every one of its fields happened to get a roll default.
-        current = self._card_values(self.state.config, card_key)
+        current = self._card_values(config, card_key)
         matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
         diverged = not matches_roll
-        file_hash = rolls.unforked_hash(self.state.current_file_hash)
+        file_hash = rolls.unforked_hash(file_hash)
         if diverged == (card_key in rolls.frame_override_cards(self.session.repo, roll_id, file_hash)):
             return
         rolls.set_frame_override(self.session.repo, roll_id, file_hash, card_key, diverged)
-
-    def _active_frame_roll(self) -> Optional[str]:
-        idx = self.state.selected_file_idx
-        files = self.state.uploaded_files
-        asset = files[idx] if 0 <= idx < len(files) else {}
-        return rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
 
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
@@ -7872,6 +8235,9 @@ class AppController(QObject):
         if config_override is None and self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
+        if config_override is None and self.state.average_peek:
+            self.state.average_peek = False
+            self.average_peek_changed.emit(False)
         if config_override is None and (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
             self.reset_all_peeks()
 
@@ -8103,6 +8469,8 @@ class AppController(QObject):
             self.reset_all_peeks()
         if self.state.flatfield_peek:
             self._paint_flatfield_peek()
+        elif self.state.average_peek:
+            self._render_average_peek()
         elif self.state.flat_peek:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
@@ -10049,6 +10417,7 @@ class AppController(QObject):
         self.thumbnail_render_worker.cancel(self._thumbnail_render_generation)
         if self.norm_thread.isRunning():
             self.norm_worker.cancel()
+            self.bg_norm_worker.cancel()
             self.norm_thread.quit()
             self.norm_thread.wait()
         if self.discovery_thread.isRunning():

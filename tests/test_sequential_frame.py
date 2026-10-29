@@ -20,6 +20,20 @@ def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: s
         i18n.configure(previous)
 
 
+@pytest.mark.parametrize("count,noun", [(1, "Bild"), (2, "Bilder")])
+def test_sequential_preview_uses_german_count_forms(qapp, count: int, noun: str) -> None:
+    from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
+    from negpy.kernel.system import i18n
+
+    previous = i18n.language()
+    try:
+        i18n.configure("de")
+        dialog = SequentialFrameDialog(None, count, count, 10)
+        assert dialog.preview.text().endswith(f"({count} {noun})")
+    finally:
+        i18n.configure(previous)
+
+
 def _session() -> DesktopSessionManager:
     repo = MagicMock(spec=StorageRepository)
     repo.get_global_setting.return_value = None

@@ -19,44 +19,46 @@ class ThemeConfig:
 
     # Colors. Surfaces, darkest first.
     # bg_dark is also the macOS window background (view/mac_window.py): an alternate theme updates that fix.
-    bg_dark: str = "#252525"
-    bg_panel: str = "#252525"
-    bg_input: str = "#222222"
-    bg_card: str = "#2A2A2A"
-    bg_header: str = "#2E2E2E"
-    bg_selected: str = "#3A3A3A"
-    bg_hover: str = "#3E3E3E"
-    bg_menu_selected: str = "#464646"
+    bg_dark: str = "#323232"
+    bg_panel: str = "#323232"
+    bg_input: str = "#2F2F2F"
+    bg_card: str = "#373737"
+    bg_header: str = "#3B3B3B"
+    bg_selected: str = "#484848"
+    bg_hover: str = "#4C4C4C"
+    bg_menu_selected: str = "#545454"
     # A checked toggle and a segmented control's current choice; also the Scan button's tint
     # while it cannot start or while it reads Stop.
-    bg_checked: str = "#423535"
-    bg_checked_hover: str = "#4D3737"
-    border_checked: str = "#623C3C"
-    border_checked_hover: str = "#764242"
+    bg_checked: str = "#504242"
+    bg_checked_hover: str = "#5B4544"
+    border_checked: str = "#714A4A"
+    border_checked_hover: str = "#865050"
     # The primary action: the strongest button on a panel.
-    bg_primary: str = "#623434"
-    bg_primary_hover: str = "#723939"
+    bg_primary: str = "#724241"
+    bg_primary_hover: str = "#824747"
     # An edited card's frame-scope stripe and lit Frame icon; a roll-scope card takes border_checked_hover.
     border_scope_frame: str = "#5D4B24"
     # The dot on an edited control. A warning takes a sign in warn_amber, never a dot.
     mark_edited: str = "#C79A3A"
-    bg_accent_muted: str = "#322C2C"
-    border_input: str = "#323232"
-    border_primary: str = "#3E3E3E"
-    border_color: str = "#4B4B4B"
-    border_hover: str = "#525252"
+    # The canvas strip's job bar: the one warm red bright enough to read as progress.
+    progress_fill: str = "#9C3B3B"
+    bg_accent_muted: str = "#3F3939"
+    border_input: str = "#3F3F3F"
+    border_primary: str = "#4C4C4C"
+    border_color: str = "#595959"
+    border_hover: str = "#606060"
     # Keyboard focus: a neutral edge, as hover and the arrow-key row are neutral.
-    border_focus: str = "#7A7A7A"
-    border_indicator: str = "#5A5A5A"
-    slider_disabled: str = "#6D6D6D"
+    border_focus: str = "#898989"
+    border_indicator: str = "#696969"
+    slider_disabled: str = "#7C7C7C"
     text_on_accent: str = "#FFFFFF"
     text_primary: str = "#E4E4E4"
-    text_secondary: str = "#B4B4B4"
-    # hint = readable secondary copy (5.0:1 on bg_panel); muted = disabled widgets only, and
-    # too dim (2.9:1) for text a user must read.
-    text_hint: str = "#949494"
-    text_muted: str = "#6B6B6B"
-    text_unit: str = "#7C7C7C"
+    text_secondary: str = "#BCBCBC"
+    # hint = readable secondary copy (5.1:1 on bg_panel); muted = disabled widgets only, and
+    # too dim (3.0:1) for text a user must read.
+    text_hint: str = "#A4A4A4"
+    text_muted: str = "#7A7A7A"
+    text_unit: str = "#8B8B8B"
     warn_amber: str = "#C79A3A"
     # Marks drawn over the photo: white on a dark edge or plate, which reads on any picture.
     mark_photo: str = "#FFFFFF"
@@ -65,7 +67,7 @@ class ThemeConfig:
     # Errors and invalid input. Error copy takes the lighter tier, as the channel colors do: error
     # falls under 4.5:1 on a card, and a lighter error would dim the white mark on a failed-frame badge.
     error: str = "#D32F2F"
-    error_text: str = "#FF5A5A"
+    error_text: str = "#FF6868"
 
     # Spacing scale (px)
     space_xs: int = 2
@@ -83,16 +85,13 @@ class ThemeConfig:
     # Surface overlay tokens (rgba). Integer alpha where a widget sheet reads it.
     surface_scrim: str = "rgba(5, 5, 5, 115)"
     surface_pill: str = "rgba(0, 0, 0, 140)"
-    surface_reveal_flash: str = "rgba(118, 66, 66, 0.35)"  # border_checked_hover, faint
+    surface_reveal_flash: str = "rgba(134, 80, 80, 0.35)"  # border_checked_hover, faint
     surface_hover_faint: str = "#0CFFFFFF"  # #AARRGGBB: QColor reads it, not rgba()
-    surface_overlay: str = "rgba(37,37,37,0.88)"
+    surface_overlay: str = "rgba(50,50,50,0.88)"
     # A card header over its chart: light enough for the chart to read through.
-    header_veil: str = "rgba(50,50,50,0.55)"
-    header_veil_hover: str = "rgba(58,58,58,0.62)"
-    surface_overlay_hover: str = "rgba(58,58,58,0.88)"
-    # Canvas toast / loading chip plate. Integer alpha: QSS float alpha is not reliably parsed.
-    surface_toast: str = "rgba(10, 10, 10, 225)"
-    border_toast: str = "rgba(255, 255, 255, 55)"
+    header_veil: str = "rgba(63,63,63,0.55)"
+    header_veil_hover: str = "rgba(72,72,72,0.62)"
+    surface_overlay_hover: str = "rgba(72,72,72,0.88)"
 
     # Font weight scale
     weight_regular: int = 400
@@ -105,9 +104,9 @@ class ThemeConfig:
     channel_red: str = "#D32F2F"
     channel_green: str = "#388E3C"
     channel_blue: str = "#1976D2"
-    channel_red_text: str = "#FF5A5A"
+    channel_red_text: str = "#FF6868"
     channel_green_text: str = "#5ADC78"
-    channel_blue_text: str = "#5F96FF"
+    channel_blue_text: str = "#6398FF"
     # Subtractive filtration sliders.
     filter_cyan: str = "#00B1B1"
     filter_magenta: str = "#B100B1"
@@ -122,15 +121,15 @@ class ThemeConfig:
     mode_bw: str = "#8C8C8C"
     mode_e6: str = "#4FB0D8"
 
-    # Canvas background swatches
-    canvas_bg_black: str = "#050505"
-    canvas_bg_dark_grey: str = "#1C1C1C"
-    canvas_bg_mid_grey: str = "#404040"
-    canvas_bg_light_grey: str = "#A0A0A0"
-    canvas_bg_white: str = "#E6E6E6"
+    # Canvas background swatches, equal CIE L* steps from black to white.
+    canvas_bg_black: str = "#070707"
+    canvas_bg_dark_grey: str = "#3A3A3A"
+    canvas_bg_mid_grey: str = "#6F6F6F"
+    canvas_bg_light_grey: str = "#AAAAAA"
+    canvas_bg_white: str = "#E8E8E8"
 
     # Status semantic
-    status_success: str = "#1D9E75"
+    status_success: str = "#33AD83"
 
     sidebar_expanded_defaults: Dict[str, bool] = field(
         default_factory=lambda: {

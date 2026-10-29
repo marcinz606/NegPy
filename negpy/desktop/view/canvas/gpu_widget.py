@@ -1,4 +1,5 @@
 import struct
+import sys
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -225,14 +226,22 @@ class GPUCanvasWidget(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # Bitmap present paints the last frame stretched to the new size until a new one lands.
-        # On macOS force_draw pumps events, so a nested resize waits for resize_timer.
         if self.current_texture_view is not None and not self._force_drawing:
             self._force_drawing = True
             try:
-                self.canvas.force_draw()
+                self._draw_now()
             finally:
                 self._force_drawing = False
         self.resize_timer.start()
+
+    def _draw_now(self) -> None:
+        """Draw and present synchronously. On macOS a bitmap present skips force_draw, which pumps
+        the event loop there: a resize mid-click then hands the window to a native drag."""
+        sub = getattr(self.canvas, "_subwidget", None)
+        if sub is None or sys.platform != "darwin" or self.presents_to_screen():
+            self.canvas.force_draw()
+            return
+        sub._draw_and_present(force_sync=True)
 
     def event(self, event) -> bool:
         if event.type() == QEvent.Type.DevicePixelRatioChange:

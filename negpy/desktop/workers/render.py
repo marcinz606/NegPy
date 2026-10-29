@@ -218,12 +218,14 @@ class NormalizationTask:
     frames: list[NormalizationInput]
     workspace_color_space: str
     # Roll-wide overrides taken from the current image, applied to every file's analysis
-    # before averaging, so the whole roll shares one buffer and luma bounds.
-    override_analysis_buffer: float
-    override_luma_range_clip: float
-    override_color_range_clip: float
+    # before averaging, so the whole roll shares one buffer and luma bounds. None reads each frame's own.
+    override_analysis_buffer: Optional[float]
+    override_luma_range_clip: Optional[float]
+    override_color_range_clip: Optional[float]
     # Detect Scenes: the same per-frame pass, grouped by light instead of pooled into a baseline.
     detect: bool = False
+    # One frame at a time on the background core pool, so the live preview keeps the CPU.
+    background: bool = False
 
 
 @dataclass(frozen=True)
@@ -2139,7 +2141,7 @@ class NormalizationWorker(QObject):
         from negpy.features.geometry.processor import GeometryProcessor
 
         total = len(task.frames)
-        limit = max(1, APP_CONFIG.max_workers // 2)
+        limit = 1 if task.background else max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
         lock = asyncio.Lock()
         completed = 0
@@ -2154,9 +2156,10 @@ class NormalizationWorker(QObject):
                     params = frame.config
                     # Roll-wide buffer and luma bounds from the current image, applied to every
                     # file, so one slider setting drives the whole batch baseline.
-                    analysis_buffer = task.override_analysis_buffer
-                    luma_range_clip = task.override_luma_range_clip
-                    color_range_clip = task.override_color_range_clip
+                    p = params.process
+                    analysis_buffer = p.analysis_buffer if task.override_analysis_buffer is None else task.override_analysis_buffer
+                    luma_range_clip = p.luma_range_clip if task.override_luma_range_clip is None else task.override_luma_range_clip
+                    color_range_clip = p.color_range_clip if task.override_color_range_clip is None else task.override_color_range_clip
                     process_mode = params.process.process_mode
                     geometry = params.geometry
 
@@ -2235,6 +2238,8 @@ class NormalizationWorker(QObject):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            if task.background:
+                loop.set_default_executor(ThreadPoolExecutor(1, initializer=negpy_core.set_background_thread, initargs=(True,)))
             batch_results = loop.run_until_complete(_run_batch())
             try:
                 loop.close()

@@ -1,28 +1,26 @@
 from negpy.kernel.system.i18n import tr
-import math
-from typing import Any, Tuple
+from typing import Any, List, Tuple
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QTextDocument
-from PyQt6.QtWidgets import QGridLayout, QLabel, QProgressBar, QWidget
+from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from negpy.desktop.view.styles.templates import toast_qss
+from negpy.desktop.view.styles.templates import TOP_ROW_HEIGHT, labeled_action
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.elided_label import ElidedLabel
 from negpy.domain.models import ExportResolutionMode
 from negpy.features.geometry.models import AspectRatio
-from negpy.features.process.models import ProcessMode
 
-_DEFAULT_TOAST_MS = 2500
-#: Toast wrapping bounds. The ratio keeps a long message clear of the corner pills, and
-#: the floor stops it collapsing to a sliver on a narrow canvas.
-_TOAST_WIDTH_RATIO = 0.55
-_TOAST_MIN_WIDTH = 320
-#: Horizontal padding in toast_qss(), so a one-line measurement matches the rendered pill.
-_TOAST_PADDING = 40
+_DEFAULT_MESSAGE_MS = 2500
+_BAR_HEIGHT = 4
+#: Up to this many items, the bar splits into one segment per item.
+_MAX_SEGMENTS = 40
+_SEGMENT_GAP = 2
 
 INFO_OFF, INFO_BASIC, INFO_FULL = range(3)
 INFO_LEVEL_LABELS = (tr("Off"), tr("Basic"), tr("Full"))
-MODE_LABELS = {ProcessMode.C41: tr("Color Negative"), ProcessMode.BW: tr("B&W"), ProcessMode.E6: tr("Transparency")}
+_ABORTING = tr("Aborting…")
+_MESSAGE_COLORS = {"warning": THEME.warn_amber, "error": THEME.error_text}
 
 
 def _film_line(meta: Any) -> str:
@@ -54,135 +52,160 @@ def _export_line(export: Any) -> str:
     return " · ".join(p for p in (size, paper) if p)
 
 
-def frame_info(level: int, config: Any, filename: str, res: str, mode: str, position: str = "", proof: str = "") -> Tuple[str, str, str]:
-    """Top-left, top-right and bottom-left pill text for an info level."""
+def frame_info(level: int, config: Any, filename: str, res: str, recipe: List[str], position: str = "", proof: str = "") -> Tuple[str, str]:
+    """Left and right strip text for an info level: the frame on the left, its print recipe on the right.
+    The caller passes the brief recipe at Basic and the whole one at Full."""
     if level == INFO_OFF or not filename:
-        return "", "", ""
+        return "", ""
     if level == INFO_BASIC:
-        return " · ".join(s for s in (filename, res) if s), mode, ""
-    head = " · ".join(s for s in (position, filename, res) if s)
-    top_left = "\n".join(s for s in (head, _film_line(config.metadata), _camera_line(config.metadata)) if s)
-    top_right = "\n".join(s for s in (mode, tr("Proof: {value}", value=proof) if proof else "") if s)
-    return top_left, top_right, _export_line(config.export)
-
-
-_PILL_QSS = (
-    f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_medium}; "
-    f"background-color: {THEME.surface_pill}; border-radius: {THEME.radius_md}px; padding: {THEME.space_xs}px {THEME.space_lg}px;"
-)
+        return " · ".join(s for s in (filename, res) if s), " · ".join(recipe)
+    meta = config.metadata
+    left = " · ".join(s for s in (position, filename, res, _film_line(meta), _camera_line(meta)) if s)
+    right = " · ".join(s for s in (*recipe, _export_line(config.export), tr("Proof: {value}", value=proof) if proof else "") if s)
+    return left, right
 
 
 class CanvasHud(QWidget):
     """
-    Translucent info layer floating over the image canvas: corner metadata pills,
-    a transient top-center toast, and a thin progress bar along the top edge.
-    Fully mouse-transparent so canvas pan/zoom/tools work underneath.
+    Opaque strip docked above the canvas: frame info at the sides, the latest message or job
+    in the middle, and job progress as a bar along its bottom edge. It hides when it has
+    nothing to show, so Frame Info Off gives the canvas its full height at rest.
     """
+
+    abort_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # A minimum, not a fixed height: a long message wraps and the strip grows for it.
+        self.setMinimumHeight(TOP_ROW_HEIGHT)
 
-        layout = QGridLayout(self)
-        layout.setContentsMargins(THEME.space_xl, THEME.space_xl, THEME.space_xl, THEME.space_xl)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(THEME.space_xl, THEME.space_sm, THEME.space_xl, THEME.space_sm + _BAR_HEIGHT)
+        layout.setSpacing(THEME.space_xl)
 
-        self.lbl_top_left = QLabel()
-        self.lbl_top_right = QLabel()
-        self.lbl_bottom_left = QLabel()
-        self.lbl_bottom_right = QLabel()
-        self.toast = QLabel()
-        for lbl in (self.lbl_top_left, self.lbl_top_right, self.lbl_bottom_left, self.lbl_bottom_right):
-            lbl.setStyleSheet(_PILL_QSS)
-            lbl.hide()
-        self.toast.setStyleSheet(toast_qss())
-        # Wraps rather than running off the canvas: a message that has to explain itself, why a
-        # file will not open and what to do about it, does not fit one line.
-        self.toast.setWordWrap(True)
-        self.toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.toast.hide()
+        side_qss = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; background: transparent;"
+        self.lbl_left = ElidedLabel()
+        self.lbl_right = ElidedLabel()
+        self.lbl_right.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.lbl_left.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        for lbl in (self.lbl_left, self.lbl_right):
+            lbl.setStyleSheet(side_qss)
 
-        top = Qt.AlignmentFlag.AlignTop
-        bottom = Qt.AlignmentFlag.AlignBottom
-        layout.addWidget(self.lbl_top_left, 0, 0, top | Qt.AlignmentFlag.AlignLeft)
-        self.lbl_top_right.setAlignment(Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(self.lbl_top_right, 0, 2, top | Qt.AlignmentFlag.AlignRight)
-        # Own row so a long toast never squeezes the corner pills.
-        layout.addWidget(self.toast, 1, 0, 1, 3, top | Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.lbl_bottom_left, 2, 0, bottom | Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.lbl_bottom_right, 2, 2, bottom | Qt.AlignmentFlag.AlignRight)
-        layout.setRowStretch(1, 1)
-        layout.setColumnStretch(1, 1)
+        # Wraps rather than eliding: a message that explains why a file will not open and what to
+        # do about it does not fit one line, so the strip grows for it.
+        self.message = QLabel()
+        self.message.setWordWrap(True)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.message.hide()
 
-        self.progress = QProgressBar(self)
-        self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(
-            f"QProgressBar {{ background-color: {THEME.border_primary}; border: none; border-radius: 0; }}"
-            f"QProgressBar::chunk {{ background-color: {THEME.border_checked_hover}; border-radius: 0; }}"
-        )
-        self.progress.hide()
+        self.abort_button = labeled_action("", tr("Abort"), tr("Stop the running job."))
+        self.abort_button.clicked.connect(self._on_abort)
+        self.abort_button.hide()
 
-        self._toast_timer = QTimer(self)
-        self._toast_timer.setSingleShot(True)
-        self._toast_timer.timeout.connect(self.toast.hide)
+        layout.addWidget(self.lbl_left, 1)
+        layout.addWidget(self.message, 2)
+        layout.addWidget(self.abort_button)
+        layout.addWidget(self.lbl_right, 1)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.progress.setGeometry(0, 0, self.width(), 3)
-        # A cap, not a width: wordWrap only wraps at the widget's width, and without a bound the
-        # label grows to the canvas. Short toasts still size to content.
-        self.toast.setMaximumWidth(max(_TOAST_MIN_WIDTH, int(self.width() * _TOAST_WIDTH_RATIO)))
+        self._info = ("", "")
+        self._zoom_note = ""
+        self._done = 0
+        self._total = 0
 
-    @staticmethod
-    def _set_pill(lbl: QLabel, text: str) -> None:
-        lbl.setText(text)
-        lbl.setVisible(bool(text))
+        self._message_timer = QTimer(self)
+        self._message_timer.setSingleShot(True)
+        self._message_timer.timeout.connect(lambda: self.showMessage(""))
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setSingleShot(True)
+        self._progress_timer.timeout.connect(self.hide_progress)
+        self._sync()
 
-    def update_info(self, top_left: str, top_right: str, bottom_left: str) -> None:
-        self._set_pill(self.lbl_top_left, top_left)
-        self._set_pill(self.lbl_top_right, top_right)
-        self._set_pill(self.lbl_bottom_left, bottom_left)
+    def progress_visible(self) -> bool:
+        return self._total > 0
+
+    def update_info(self, left: str, right: str) -> None:
+        self._info = (left, right)
+        self._sync()
 
     def set_zoom_note(self, note: str) -> None:
         """Qualifier for what the canvas shows at this zoom."""
-        self._set_pill(self.lbl_bottom_right, note)
+        self._zoom_note = note
+        self._sync()
 
     def showMessage(self, text: str, timeout: int = 0, kind: str = "info") -> None:
-        """kind: "info" | "warning" | "error" — a failure must not read like a progress note."""
-        if not text:  # a step that posted a long-lived toast has finished
-            self._toast_timer.stop()
-            self.toast.hide()
+        """kind: "info" | "warning" | "error". A negative timeout keeps the message until
+        clear_message; an empty text clears any message."""
+        if not text:
+            self._message_timer.stop()
+            self.message.hide()
+            self._sync()
             return
-        # Cap here as well as on resize, because a toast can be posted before the HUD has ever
-        # been resized. Set the minimum too: a wrapping QLabel's sizeHint aims for a squarish
-        # block, so a long message folds into narrow lines rather than using the width it is
-        # allowed. Short toasts keep their natural width.
-        cap = max(_TOAST_MIN_WIDTH, int(self.width() * _TOAST_WIDTH_RATIO))
-        self.toast.setMaximumWidth(cap)
-        self.toast.setMinimumWidth(min(cap, self._one_line_width(text)))
-        self.toast.setStyleSheet(toast_qss(kind))
-        self.toast.setText(text)
-        self.toast.show()
-        self._toast_timer.start(timeout if timeout > 0 else _DEFAULT_TOAST_MS)
+        color = _MESSAGE_COLORS.get(kind, THEME.text_primary)
+        self.message.setStyleSheet(
+            f"color: {color}; font-size: {THEME.font_size_base}px; font-weight: {THEME.weight_semibold}; background: transparent;"
+        )
+        self.message.setText(text)
+        self.message.show()
+        self._message_timer.stop()
+        if timeout >= 0:
+            self._message_timer.start(timeout or _DEFAULT_MESSAGE_MS)
+        self._sync()
 
-    def _one_line_width(self, text: str) -> int:
-        if not text.startswith("<"):
-            return self.toast.fontMetrics().horizontalAdvance(text) + _TOAST_PADDING
-        # Rich text (a shortcut hint's keycaps) is measured laid out, not as its markup.
-        doc = QTextDocument()
-        doc.setDefaultFont(self.toast.font())
-        doc.setHtml(text)
-        return math.ceil(doc.idealWidth()) + _TOAST_PADDING
+    def clear_message(self, text: str) -> None:
+        """Clears the message only if it is still `text`, so a later message survives."""
+        if text and self.message.text() == text and not self.message.isHidden():
+            self.showMessage("")
+
+    def set_abortable(self, on: bool) -> None:
+        self.abort_button.setEnabled(True)
+        self.abort_button.setVisible(on)
+        if not on:
+            self.clear_message(_ABORTING)
+        self._sync()
+
+    def _on_abort(self) -> None:
+        # A job stops at its next item, so the strip says so until the batch ends.
+        self.abort_button.setEnabled(False)
+        self.showMessage(_ABORTING, -1)
+        self.abort_requested.emit()
 
     def set_progress(self, current: int, total: int) -> None:
         if total <= 0:
-            self.progress.hide()
+            self.hide_progress()
             return
-        self.progress.show()
-        if self.progress.maximum() != total:
-            self.progress.setRange(0, total)
-        self.progress.setValue(current)
+        self._progress_timer.stop()
+        self._done, self._total = max(0, min(current, total)), total
         if current >= total:
-            QTimer.singleShot(1000, self.progress.hide)
+            self._progress_timer.start(1000)
+        self._sync()
 
     def hide_progress(self) -> None:
-        self.progress.hide()
+        self._progress_timer.stop()
+        self._done = self._total = 0
+        self._sync()
+
+    def _sync(self) -> None:
+        left, right = self._info
+        self.lbl_left.setText(left)
+        self.lbl_left.setToolTip(left)
+        self.lbl_right.setText(" · ".join(s for s in (right, self._zoom_note) if s))
+        self.setVisible(
+            bool(left or right or self._zoom_note or self.message.isVisibleTo(self) or self._total or self.abort_button.isVisibleTo(self))
+        )
+        self.update()
+
+    def paintEvent(self, a0) -> None:
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(THEME.bg_panel))
+        p.fillRect(0, self.height() - 1, self.width(), 1, QColor(THEME.border_primary))
+        if not self._total:
+            return
+        top = self.height() - _BAR_HEIGHT
+        track, fill = QColor(THEME.border_primary), QColor(THEME.progress_fill)
+        if self._total > _MAX_SEGMENTS:
+            p.fillRect(0, top, self.width(), _BAR_HEIGHT, track)
+            p.fillRect(QRectF(0, top, self.width() * self._done / self._total, _BAR_HEIGHT), fill)
+            return
+        step = (self.width() + _SEGMENT_GAP) / self._total
+        for i in range(self._total):
+            p.fillRect(QRectF(i * step, top, step - _SEGMENT_GAP, _BAR_HEIGHT), fill if i < self._done else track)

@@ -57,3 +57,20 @@ def test_paste_mode_keeps_no_section_checkboxes(qapp):
     assert dlg._section_rows == []
     assert all(s.select_box is None for s, _n in dlg._sections)
     assert not dlg._show_unchanged.isHidden()
+
+
+def test_the_carry_picker_leaves_out_only_the_always_carried_rows(qapp, monkeypatch):
+    """White Balance and the demosaic modes always carry; Highlight Recovery is a choice."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.widgets import granular_settings_dialog as gsd
+
+    opened = []
+    monkeypatch.setattr(gsd.GranularSettingsDialog, "exec", lambda self: (opened.append(self), 0)[1])
+    repo = MagicMock()
+    repo.get_global_setting.side_effect = lambda key, default=None: default
+    gsd.open_sticky_dialog(None, SimpleNamespace(session=SimpleNamespace(repo=repo)))
+    offered = {row.label for _b, row, _e, _l in opened[0]._checks}
+    assert not {"White Balance", "Demosaic Preview", "Demosaic Export"} & offered
+    assert "Highlight Recovery" in offered

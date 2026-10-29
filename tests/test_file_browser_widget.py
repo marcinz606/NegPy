@@ -1260,6 +1260,21 @@ def test_adding_a_folder_without_images_imports_its_roll_folders(browser, tmp_pa
     browser.controller.request_asset_discovery.assert_not_called()
 
 
+@pytest.mark.parametrize("loaded", [False, True])
+def test_a_folder_that_is_a_folder_roll_opens_as_that_roll_on_an_empty_film_strip(browser, session, tmp_path, loaded):
+    (tmp_path / "a1.tif").write_bytes(b"1")
+    if not loaded:
+        session.state.uploaded_files = []
+    with patch("negpy.desktop.view.sidebar.files.rolls.folder_roll_id_for_path", return_value="r1"):
+        browser.open_or_browse(str(tmp_path))
+    if loaded:
+        browser.controller.open_roll.assert_not_called()
+        browser.controller.request_asset_discovery.assert_called_once()
+    else:
+        browser.controller.open_roll.assert_called_once_with("r1")
+        browser.controller.request_asset_discovery.assert_not_called()
+
+
 def test_film_strip_menu_offers_unload_all_with_or_without_a_roll(browser, session):
     menu = browser.roll_menu_btn.menu()
     for roll_id in (None, "r1"):
@@ -1271,6 +1286,51 @@ def test_film_strip_menu_offers_unload_all_with_or_without_a_roll(browser, sessi
     with patch("negpy.desktop.view.sidebar.files._unload_all") as close:
         browser.unload_all_action.trigger()
     close.assert_called_once_with(browser, browser.controller)
+
+
+@pytest.mark.parametrize(
+    ("choice", "label", "folder_visible", "folder_enabled"),
+    [
+        (("ready", ""), "Save to Folder Roll", True, True),
+        (("blocked", "Save to Folder Roll: the frames come from more than one folder."), "Save as Virtual Roll…", True, False),
+        (("hidden", ""), "Save as Virtual Roll…", False, False),
+    ],
+)
+def test_the_save_button_and_menu_follow_what_the_film_strip_holds(browser, session, choice, label, folder_visible, folder_enabled):
+    session.state.active_roll_id = None
+    browser.controller.save_choice.return_value = choice
+    browser._save_choice_cache = ((), ("hidden", ""))
+    browser._update_tally()
+    assert browser.save_roll_btn.text() == label
+    browser._sync_save_actions()
+    assert browser.save_folder_roll_action.isVisible() is folder_visible
+    assert browser.save_folder_roll_action.isEnabled() is folder_enabled
+    if choice[1]:
+        assert browser.save_folder_roll_action.toolTip() == choice[1]
+    with patch.object(browser, "save_to_folder_roll") as to_folder, patch.object(browser, "_on_save_roll_clicked") as virtual:
+        browser._on_save_roll_button()
+    assert (to_folder.called, virtual.called) == (choice[0] == "ready", choice[0] != "ready")
+
+
+def test_the_save_choice_is_read_again_after_a_library_change_and_on_click(browser, session):
+    session.state.active_roll_id = None
+    browser.controller.save_choice.return_value = ("ready", "")
+    browser._forget_save_choice()
+    browser._update_tally()
+    assert browser.save_roll_btn.text() == "Save to Folder Roll"
+
+    # The folder became a roll in the Library: the button and a click both see it.
+    browser.controller.save_choice.return_value = ("blocked", "“A” is already a folder roll, so open it from the Library.")
+    browser.library_tree.rolls_changed.emit()
+    assert browser.save_roll_btn.text() == "Save as Virtual Roll…"
+    browser._save_choice_cache = (browser._save_choice_cache[0], ("ready", ""))
+    with patch.object(browser, "save_to_folder_roll") as to_folder, patch.object(browser, "_on_save_roll_clicked") as virtual:
+        browser._on_save_roll_button()
+    assert virtual.called and not to_folder.called
+
+    session.state.uploaded_files = []
+    browser._sync_save_actions()
+    assert browser.save_roll_action.isEnabled(), "its shortcut works whenever frames load"
 
 
 def test_film_strip_menu_offers_restore_removed_frames_for_an_open_folder_roll(browser, session):

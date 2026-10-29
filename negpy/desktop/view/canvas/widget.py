@@ -220,6 +220,7 @@ class ImageCanvas(QWidget):
         self.overlay.local_vertex_deleted.connect(self.local_vertex_deleted.emit)
         self.overlay.zoom_toggle_requested.connect(self.toggle_zoom_at)
 
+        # The window docks the strip above the canvas; parented here only until then.
         self.hud = CanvasHud(self)
         self.navigator = CanvasNavigator(self)
         self.navigator.center_requested.connect(self.center_on)
@@ -234,7 +235,6 @@ class ImageCanvas(QWidget):
         self.zoom_changed.emit(self.zoom_level)
 
     def _layout_floating_widgets(self) -> None:
-        self.hud.setGeometry(self.rect())
         nav = self.navigator.sizeHint()
         self.navigator.setGeometry(
             self.width() - nav.width() - _NAVIGATOR_INSET, self.height() - nav.height() - _NAVIGATOR_INSET, nav.width(), nav.height()
@@ -242,7 +242,6 @@ class ImageCanvas(QWidget):
         self._raise_floating_widgets()
 
     def _raise_floating_widgets(self) -> None:
-        self.hud.raise_()
         self.navigator.raise_()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
@@ -597,8 +596,15 @@ class ImageCanvas(QWidget):
             self._pinch_brush_step(k)
             ev.setAccepted(g, True)
             return True
-        # A pinch reports its center in screen coordinates.
-        anchor = self.mapFromGlobal(g.centerPoint())
+        # A touch pinch reports its center in screen coordinates. The macOS trackpad
+        # recognizer reports the pointer in widget coordinates, frozen at the gesture start;
+        # the live pointer anchors while it is over the canvas, else that frozen center.
+        if sys.platform == "darwin":
+            anchor = self.mapFromGlobal(QCursor.pos().toPointF())
+            if not QRectF(self.rect()).contains(anchor):
+                anchor = g.centerPoint()
+        else:
+            anchor = self.mapFromGlobal(g.centerPoint())
         if self._apply_scale_at(k, anchor):
             ev.setAccepted(g, True)
             return True

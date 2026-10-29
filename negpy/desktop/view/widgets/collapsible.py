@@ -22,7 +22,7 @@ import qtawesome as qta
 
 # Said by every card's Roll half where no roll spans the loaded frames, so the disabled
 # control carries the reason once rather than each sidebar wording it again.
-NO_ROLL_SCOPE_HINT = tr("These frames are not one roll, so use Save as Roll to give them a shared value.")
+NO_ROLL_SCOPE_HINT = tr("These frames are not one roll, so save them as a roll to give them a shared value.")
 
 
 def roll_revert_icon(color: str, cutout: str = THEME.bg_header) -> QIcon:

@@ -24,6 +24,7 @@ def _sidebar(adopt=True):
     ctrl = MagicMock()
     ctrl.session.repo.get_global_setting.return_value = {}
     w = ScanlightSidebar(ctrl)
+    w._exposure_chosen = True  # these tests are not about metering; the unmetered tests clear it
     if adopt:  # every built-in in the dropdown, as a user who picked them all under +
         w._settings = replace(w._settings, adopted_presets=tuple(_BUILTIN_PRESETS))
         w._reload_presets()
@@ -2821,3 +2822,74 @@ def test_a_scan_that_ends_dark_shows_the_light_off():
     w._on_light_set(25, 12, 11, 0)
     _finish_scan(w)
     assert not w.light_btn.isChecked()
+
+
+def _unmetered_camera_sidebar(tmp_path, monkeypatch, answers):
+    """A camera-only sidebar with no exposure chosen; the confirmation answers from `answers`."""
+    w = _sidebar()
+    w.output.folder_edit.setText(str(tmp_path))
+    w._camera_verified = True
+    w._set_rgb_mode(False)
+    w._exposure_chosen = False
+    asked = []
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scanlight.confirm_unmetered_scan", lambda *_a: asked.append(1) or answers.pop(0))
+    return w, asked
+
+
+def test_an_unmetered_scan_asks_first_and_cancel_shoots_nothing(tmp_path, monkeypatch):
+    w, asked = _unmetered_camera_sidebar(tmp_path, monkeypatch, [False])
+
+    w._start_capture(retake=False)
+
+    assert asked == [1]
+    w.controller.start_capture.assert_not_called()
+
+
+def test_an_unmetered_scan_asks_once_per_camera_connection(tmp_path, monkeypatch):
+    w, asked = _unmetered_camera_sidebar(tmp_path, monkeypatch, [True, True])
+
+    w._start_capture(retake=False)
+    w.set_scanning(False)
+    w._start_capture(retake=False)
+    assert asked == [1] and w.controller.start_capture.call_count == 2
+
+    w._on_poll_status(_poll(usb_ok=False, light_ok=False))
+    w._on_poll_status(_poll(usb_ok=True, usb_model="D3300", light_ok=False))
+    w.set_scanning(False)
+    w._start_capture(retake=False)
+    assert asked == [1, 1]
+
+
+def test_a_preset_shutter_scans_without_asking(tmp_path, monkeypatch):
+    w, asked = _unmetered_camera_sidebar(tmp_path, monkeypatch, [])
+    w._set_rgb_mode(True)
+    w._settings = replace(w._settings, white_mode=False, shutter_r="1/60", shutter_g="1/60", shutter_b="1/60")
+
+    assert not w._scan_uses_camera_exposure()
+    w._settings = replace(w._settings, white_mode=True, shutter_w="")
+    assert w._scan_uses_camera_exposure()
+    assert asked == []
+
+
+def test_a_clipped_capture_pins_a_retake_advice():
+    w = _sidebar()
+
+    w._on_clipped("/scans/Roll01_Frame010.NEF", 0.356)
+
+    assert "Frame 010" in w.status_strip.message() and "36%" in w.status_strip.message()
+    assert w._status_pinned
+
+
+@pytest.mark.parametrize("single", [False, True])
+def test_a_calibrated_preset_scans_without_asking(tmp_path, monkeypatch, single):
+    w, asked = _unmetered_camera_sidebar(tmp_path, monkeypatch, [])
+    w._set_rgb_mode(True)
+    w._light_verified = True
+    w._apply_preset(ScanlightPreset(r_level=200, g_level=150, b_level=255, shutter_r="1/60", iso="100", single_capture=single))
+    monkeypatch.setattr(w, "_preset_selected", lambda: True)
+
+    w._start_capture(retake=False)
+
+    assert asked == []
+    req = w.controller.start_capture.call_args[0][0]
+    assert req.shutters == ("1/60", "1/60", "1/60")

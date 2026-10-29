@@ -750,12 +750,12 @@ fn contrast_mask_stops<'py>(
 fn diffusion_tail<'py>(
     py: Python<'py>,
     unmixed: PyReadonlyArrayDyn<'py, f32>,
-    sigma: f64,
+    psf: Vec<(f32, f64)>,
 ) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
     let (h, w) = rgb_dims(&unmixed, "diffusion_tail")?;
     let data = slice(&unmixed)?;
     filled_f32(py, &[h, w, 3], data.len(), |dst| {
-        analysis::diffusion_tail(data, h, w, sigma, dst)
+        analysis::diffusion_tail(data, h, w, &psf, dst)
     })
 }
 

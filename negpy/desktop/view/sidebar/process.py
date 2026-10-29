@@ -25,7 +25,7 @@ from negpy.desktop.view.widgets.stats import CLIPPING_TOOLTIP
 from negpy.features.exposure.stats import clipping_row
 from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.segmented_choice import RightClickToggleAll, SegmentedChoice
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -210,7 +210,7 @@ class ProcessSidebar(BaseSidebar):
             "mdi6.brightness-6",
             tr("Luma"),
             conf.use_luma_average,
-            tr("Use the roll's average black and white points, with color still per frame."),
+            tr("Use the roll's average black and white points, with color still per frame; right-click turns every average on or off."),
         )
         self.use_color_avg_btn = self._small_toggle(
             "mdi6.palette-outline",
@@ -224,10 +224,10 @@ class ProcessSidebar(BaseSidebar):
             conf.use_cast_average,
             tr("Color negatives only: use the roll's gray balance for Cast Removal, so frames under one light match."),
         )
-        avg_row.addWidget(self.use_luma_avg_btn)
-        avg_row.addWidget(self.use_color_avg_btn)
-        avg_row.addWidget(self.use_cast_avg_btn)
+        for btn in (self.use_luma_avg_btn, self.use_color_avg_btn, self.use_cast_avg_btn):
+            avg_row.addWidget(btn)
         baseline_col.addLayout(avg_row)
+        self._use_all_averages = RightClickToggleAll([self.use_luma_avg_btn, self.use_color_avg_btn, self.use_cast_avg_btn])
 
         # Render exposure for a merged bracket, continuous rather than snapped to the frames that
         # happen to have been shot. The menu still offers those and writes a frame name; this
@@ -272,6 +272,7 @@ class ProcessSidebar(BaseSidebar):
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
         self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
         self.use_cast_avg_btn.toggled.connect(self._on_use_cast_average_toggled)
+        self._use_all_averages.toggledAll.connect(self._on_use_all_averages)
 
         self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
         self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
@@ -315,17 +316,18 @@ class ProcessSidebar(BaseSidebar):
         self._toggle_roll_axis(use_color_average=checked)
 
     def _on_use_cast_average_toggled(self, checked: bool) -> None:
-        self.controller.set_roll_default("baseline", use_cast_average=checked)
+        self.controller.set_roll_average(use_cast_average=checked)
+
+    def _on_use_all_averages(self, checked: bool) -> None:
+        fields = {
+            self.use_luma_avg_btn: "use_luma_average",
+            self.use_color_avg_btn: "use_color_average",
+            self.use_cast_avg_btn: "use_cast_average",
+        }
+        self.controller.set_roll_average(**{f: checked for a, f in fields.items() if not a.isHidden() and a.isEnabled()})
 
     def _toggle_roll_axis(self, **axis: bool) -> None:
-        # The other axis re-derives per frame, so a fresh analysis is forced; roll_name
-        # drops since the picked baseline no longer applies as a whole.
-        self.controller.set_roll_default(
-            "baseline",
-            roll_name=None,
-            **axis,
-            **invalidate_local_bounds(self.state.config.process),
-        )
+        self.controller.set_roll_average(**axis)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
@@ -340,6 +342,16 @@ class ProcessSidebar(BaseSidebar):
         )
         self.controller.analysis_buffer_preview_requested.emit(val)
 
+    def _cast_baseline_ready(self, conf) -> bool:
+        """A neutral axis on this frame, or on the baseline its Cast toggle would take."""
+        if conf.locked_neutral_axis is not None:
+            return True
+        state = self.controller.state
+        found = rolls.frame_saved_baseline(
+            self.controller.session.repo, state.active_roll_id, state.current_file_hash or "", rolls.average_scope(conf)
+        )
+        return found is not None and found[0]["axis"] is not None
+
     def _update_baseline_source_hint(self, conf, transfer: bool) -> None:
         """Names the baseline the average axes read; hidden while neither axis rides one."""
         riding = (conf.use_luma_average or conf.use_color_average) and not transfer
@@ -349,11 +361,21 @@ class ProcessSidebar(BaseSidebar):
         if conf.is_locked_initialized:
             repo = self.controller.session.repo
             stale = rolls.frame_baseline_stale(repo, conf)
-            set_hint_kind(self.baseline_source_hint, "warning" if stale else "muted")
+            outlier = rolls.frame_is_outlier(repo, conf, self.controller.state.current_file_hash or "")
+            set_hint_kind(self.baseline_source_hint, "warning" if stale or outlier else "muted")
             baseline = rolls.baseline_label(repo, conf)
-            self.baseline_source_hint.setText(
-                tr("Baseline: {value}, from an older analysis", value=baseline) if stale else tr("Baseline: {value}", value=baseline)
-            )
+            if stale:
+                text = tr("Baseline: {value}, from an older analysis", value=baseline)
+            elif outlier:
+                text = tr(
+                    "Baseline: {value}. This frame's color is far from the average, so the average can shift its color", value=baseline
+                )
+            else:
+                text = tr("Baseline: {value}", value=baseline)
+            self.baseline_source_hint.setText(text)
+        elif self.controller.measuring_baseline() is True:
+            set_hint_kind(self.baseline_source_hint, "muted")
+            self.baseline_source_hint.setText(tr("Measuring the average…"))
         else:
             set_hint_kind(self.baseline_source_hint, "warning")
             self.baseline_source_hint.setText(tr("No baseline yet: this frame uses its own analysis until Roll Analysis runs"))
@@ -458,7 +480,7 @@ class ProcessSidebar(BaseSidebar):
             has_roll = bool(self.controller.state.active_roll_id)
             self.use_luma_avg_btn.setEnabled(has_roll or conf.use_luma_average)
             self.use_color_avg_btn.setEnabled(has_roll or conf.use_color_average)
-            self.use_cast_avg_btn.setEnabled((has_roll and conf.locked_neutral_axis is not None) or conf.use_cast_average)
+            self.use_cast_avg_btn.setEnabled((has_roll and self._cast_baseline_ready(conf)) or conf.use_cast_average)
             self._update_baseline_source_hint(conf, transfer)
 
             idx = self._channel_index()

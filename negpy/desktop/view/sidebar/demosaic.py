@@ -1,44 +1,20 @@
 from negpy.kernel.system.i18n import tr
 
+from negpy.desktop.settings_catalog import HIGHLIGHT_LEVELS, highlight_bucket
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_row, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.hdr.models import hdr_active
-from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
-from negpy.features.process.models import DemosaicMode, ProcessMode, invalidate_local_bounds
+from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.infrastructure.loaders.helpers import supported_demosaic_modes
 
 _TIP = tr("How the camera's raw data becomes pixels: Auto is fast on screen and uses AHD for export.")
 
-# Highlight Reconstruction dropdown: rawpy's HighlightMode, collapsed to the three settings
-# worth choosing between (see effective_highlight_reconstruction) — Reconstruct pinned to
-# libraw's own default level rather than exposing all seven numbered levels.
-_HIGHLIGHT_LEVELS = (
-    (0, tr("Off")),
-    (2, tr("Blend")),
-    (5, tr("Reconstruct")),
-)
-
 _HIGHLIGHT_TIP = tr(
     "Rebuilds blown highlights in a camera RAW: Blend suits sun and sky, and Reconstruct is stronger but can get the color wrong."
 )
-
-
-def _highlight_bucket(level: int) -> int:
-    """Which of the three entries a stored value belongs under. Off and Blend are exact;
-    any other valid level is some Reconstruct level (3-9), so it buckets there.
-
-    A value outside `VALID_HIGHLIGHT_LEVELS` (a hand-edited sidecar) buckets to Off,
-    matching `effective_highlight_reconstruction`'s own resolution — the panel must never
-    show Reconstruct armed while the decode actually clips.
-    """
-    if level not in VALID_HIGHLIGHT_LEVELS:
-        return 0
-    if level == 2:
-        return 1
-    return 2 if level else 0
 
 
 class DemosaicSidebar(BaseSidebar):
@@ -88,9 +64,9 @@ class DemosaicSidebar(BaseSidebar):
         self.highlight_header = section_subheader(tr("HIGHLIGHTS"))
         self.layout.addWidget(self.highlight_header)
         self.highlight_combo = StepCombo()
-        self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
+        self.highlight_combo.addItems([label for _level, label in HIGHLIGHT_LEVELS])
         self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
-        self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+        self.highlight_combo.setCurrentIndex(highlight_bucket(conf.highlight_reconstruction))
         highlight_row = field_row(tr("Recovery"), self.highlight_combo)
         self.highlight_label = highlight_row.itemAt(0).widget()
         self.layout.addLayout(highlight_row)
@@ -111,11 +87,7 @@ class DemosaicSidebar(BaseSidebar):
     def _on_linear_raw_changed(self, _index: int) -> None:
         # linear_raw switches use_camera_wb, so it is a source change: set_roll_default's
         # apply_config re-decodes and suppresses the bounds analysis over the stale buffer.
-        self.controller.set_roll_default(
-            "demosaic",
-            linear_raw=bool(self.linear_raw_btn.currentData()),
-            **invalidate_local_bounds(self.state.config.process),
-        )
+        self.controller.set_roll_default("demosaic", linear_raw=bool(self.linear_raw_btn.currentData()))
 
     def _on_changed(self, field: str, name: str) -> None:
         # apply_config (inside set_roll_default): source_token carries the preview
@@ -123,7 +95,7 @@ class DemosaicSidebar(BaseSidebar):
         self.controller.set_roll_default("demosaic", **{field: DemosaicMode(name)})
 
     def _on_highlight_reconstruction_changed(self, bucket: int) -> None:
-        level, _label = _HIGHLIGHT_LEVELS[bucket]
+        level, _label = HIGHLIGHT_LEVELS[bucket]
         self.controller.set_roll_default("demosaic", highlight_reconstruction=level)
 
     def sync_ui(self) -> None:
@@ -178,7 +150,7 @@ class DemosaicSidebar(BaseSidebar):
             self.highlight_label.setVisible(is_e6)
             self.highlight_combo.setVisible(is_e6)
             self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None and not merged)
-            self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+            self.highlight_combo.setCurrentIndex(highlight_bucket(conf.highlight_reconstruction))
             self.highlight_merged_hint.setVisible(is_e6 and merged)
         finally:
             self.block_signals(False)

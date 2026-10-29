@@ -150,6 +150,7 @@ class CaptureWorker(QObject):
     #: session. Always fires, so the sidebar's pending-write gate on Scan cannot stick.
     camera_setting_applied = pyqtSignal(str)
     finished = pyqtSignal(list)  # [red_path, green_path, blue_path]
+    clipped = pyqtSignal(str, float)  # a single-file capture's path, share of its picture at saturation
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
     status = pyqtSignal(str)
@@ -313,6 +314,7 @@ class CaptureWorker(QObject):
                     cancel=self._cancel,
                 )
                 self.finished.emit([path])
+                self._report_clipping(path)
                 return
 
             # RGB / white-preset captures drive the Scanlight, so it must be connected.
@@ -375,6 +377,7 @@ class CaptureWorker(QObject):
                     end_light=visible_end,
                 )
                 self.finished.emit(_with_ir([path]))
+                self._report_clipping(path)
                 return
 
             settings = CaptureSettings(
@@ -390,7 +393,9 @@ class CaptureWorker(QObject):
             )
             if req.single_capture:  # one narrowband exposure, imported as an ordinary single RAW
                 self.status.emit(tr("Capturing…"))
-                self.finished.emit(_with_ir([service.capture_rgb_single(settings, cancel=self._cancel, end_light=visible_end)]))
+                path = service.capture_rgb_single(settings, cancel=self._cancel, end_light=visible_end)
+                self.finished.emit(_with_ir([path]))
+                self._report_clipping(path)
                 return
 
             if tuple(req.channels) != ("R", "G", "B"):  # a subset of the visible exposures, each shot alone
@@ -445,6 +450,20 @@ class CaptureWorker(QObject):
             self._close_camera()  # discard a possibly-broken held session
             logger.exception("capture failed")
             self.error.emit(str(e))
+
+    def _report_clipping(self, path: str) -> None:
+        """Emit `clipped` when a single-file capture clips as Meter judges a probe. Runs after
+        `finished`, so the import does not wait; a failed check never fails the frame."""
+        from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
+        from negpy.services.capture.meter import picture_clipping
+
+        try:
+            share = picture_clipping(linear_demosaic(path, half_size=True))
+        except Exception:  # noqa: BLE001
+            logger.exception("clipping check failed: %s", path)
+            return
+        if share is not None:
+            self.clipped.emit(path, share)
 
     def _wait_before_capture(self, delay_s: float) -> None:
         """Hold the first exposure for `delay_s`; Stop ends the wait as a cancellation."""

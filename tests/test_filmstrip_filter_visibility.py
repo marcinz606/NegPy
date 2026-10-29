@@ -121,7 +121,7 @@ def test_the_row_leads_with_the_active_rolls_name(qapp):
 def test_frames_that_are_not_one_roll_lead_with_collection_and_say_what_that_costs(qapp):
     """The name slot holds the roll's name, so a batch that is not one roll would show
     nothing there and look exactly like a roll -- while an edit in it reaches the roll each
-    frame came from. Named, plus a tooltip for the consequence and Save as Roll beside it."""
+    frame came from. Named, plus a tooltip for the consequence and the save button beside it."""
     browser = _browser(qapp)
     browser.controller.state.active_roll_id = None
 

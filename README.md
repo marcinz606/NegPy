@@ -8,7 +8,7 @@
 
   [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](#getting-started)
   [![Film](https://img.shields.io/badge/film-C41%20%7C%20B%26W%20%7C%20E6-red?logo=googlephotos&logoColor=white)](docs/PIPELINE.md)
-  [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20日本語%20%7C%20한국어%20%7C%20中文-informational)](docs/USER_GUIDE.md)
+  [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20日本語%20%7C%20한국어%20%7C%20中文%20%7C%20DE-informational)](docs/USER_GUIDE.md)
 
   [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](pyproject.toml)
   [![Rust](https://img.shields.io/badge/rust-negpy__core-orange?logo=rust)](negpy_core)
@@ -30,7 +30,7 @@ The [User Guide](docs/USER_GUIDE.md) covers every panel and control (the ⓘ on 
 
 ## Languages
 
-The desktop interface and panel guides support English, Simplified Chinese (简体中文), Japanese (日本語) and Korean (한국어). Choose a language in **Preferences → Interface → Language**, then restart NegPy. **System Default** follows your system language and uses English for unsupported languages. Missing panel translations fall back to English. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) to update or add a translation.
+The desktop interface and panel guides support English, Simplified Chinese (简体中文), Japanese (日本語), Korean (한국어) and German (Deutsch). Choose a language in **Preferences → Interface → Language**, then restart NegPy. **System Default** follows your system language and uses English for unsupported languages. Missing panel translations fall back to English. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) to update or add a translation.
 
 ## Features
 

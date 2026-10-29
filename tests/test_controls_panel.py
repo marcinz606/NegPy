@@ -523,7 +523,7 @@ def _card_menu(monkeypatch, key: str):
             pass
 
     monkeypatch.setattr(cp, "QMenu", FakeMenu)
-    panel = SimpleNamespace(_roll_sections=lambda: (("optics", None),), controller=MagicMock())
+    panel = SimpleNamespace(_roll_sections=lambda: (("optics", None), ("demosaic", None)), controller=MagicMock())
     panel.controller.can_undo_roll_push.return_value = False
     cp.ControlsPanel._show_card_menu(panel, key, SimpleNamespace(toggle_button=MagicMock()), QPoint())
     return panel, actions
@@ -531,9 +531,18 @@ def _card_menu(monkeypatch, key: str):
 
 def test_a_roll_card_menu_offers_undo_only_for_its_own_cards(monkeypatch):
     panel, actions = _card_menu(monkeypatch, "optics")
-    assert [a.text for a in actions] == ["Undo Apply to Roll"]
+    assert [a.text for a in actions] == ["Copy Card Settings", "Undo Apply to Roll"]
     panel.controller.can_undo_roll_push.assert_called_once_with(("lens", "flatfield"))
-    assert not actions[0].enabled
+    assert not actions[1].enabled
+
+
+def test_a_roll_card_menu_copies_that_card(monkeypatch):
+    from negpy.desktop.settings_catalog import roll_card_rows
+
+    panel, actions = _card_menu(monkeypatch, "demosaic")
+    assert actions[0].enabled
+    actions[0].slot()
+    panel.controller.session.copy_card_settings.assert_called_once_with(roll_card_rows("demosaic"))
 
 
 def test_a_frame_card_menu_copies_that_card(monkeypatch):

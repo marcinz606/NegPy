@@ -50,11 +50,11 @@ from negpy.features.process.models import ProcessMode
 # What Delete loses: the whole roll record. A frame's shared edit is per file and stays; an edit made
 # only in the roll has no other way back. A deleted folder roll's folder is dismissed, so Refresh skips it.
 _DELETE_FOLDER_ROLL = tr(
-    "The files and their shared edits stay. The roll's settings, Roll Analysis baseline, film base, scenes, "
+    "The files and their shared edits stay. The folder roll's settings, Roll Analysis baseline, film base, scenes, "
     "card locks and the edits made only in this roll are lost. Refresh will not add it again."
 )
 _DELETE_SET_ROLL = tr(
-    "The files and their shared edits stay. The roll's list of frames, settings, Roll Analysis baseline, film base, "
+    "The files and their shared edits stay. The virtual roll's list of frames, settings, Roll Analysis baseline, film base, "
     "scenes, card locks and the edits made only in this roll are lost."
 )
 _DELETE_FOLDER_ROW = tr(
@@ -65,7 +65,7 @@ _DELETE_SEVERAL = tr(
     "The files and their shared edits stay. Each roll's settings, Roll Analysis baseline, film base, scenes, "
     "card locks and the edits made only in that roll are lost. Refresh will not add a deleted folder roll again."
 )
-_DELETE_SEVERAL_SETS = tr("A roll that is a set of frames loses its list of frames too.")
+_DELETE_SEVERAL_SETS = tr("A virtual roll loses its list of frames too.")
 
 _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
 _MISSING_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -325,7 +325,7 @@ class LibraryTree(QWidget):
         icon.setPixmap(qta.icon("mdi6.bookshelf", color=THEME.text_muted).pixmap(34, 34))
         title = QLabel(tr("No rolls yet"))
         title.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_header}px; font-weight: {THEME.weight_semibold};")
-        hint = hint_label(tr("A roll is a folder of scans, or a set of frames you saved."))
+        hint = hint_label(tr("A folder roll holds a folder of scans, and a virtual roll holds frames you saved."))
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         first = labeled_action(
             "mdi6.folder-plus-outline", tr("Import Folder as a Roll…"), tr("Make one folder of scans a roll and open it"), primary=True
@@ -596,7 +596,12 @@ class LibraryTree(QWidget):
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
             item.setToolTip(1, tr("The folder is not on disk, so move it back or delete the roll."))
         else:
-            item.setToolTip(0, folder_path if is_folder else tr("Built from a search or a hand-picked set of frames"))
+            item.setToolTip(
+                0,
+                tr("Folder roll: {path}", path=folder_path)
+                if is_folder
+                else tr("Virtual roll: a fixed list of frames that new files never join"),
+            )
         return item
 
     def _set_detail(self, item: QTreeWidgetItem, roll_id: str, entry: dict) -> None:
@@ -720,6 +725,13 @@ class LibraryTree(QWidget):
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
+                choice, reason = self.controller.save_choice(roll_id)
+                if choice != "hidden":
+                    # No shortcut label: the shortcut acts on the open roll, not the one clicked here.
+                    folder_action = menu.addAction(tr("Save to Folder Roll"))
+                    folder_action.setToolTip(reason or tr("Make this virtual roll the folder roll of its folder"))
+                    folder_action.setEnabled(choice == "ready")
+                    folder_action.triggered.connect(lambda: self._save_to_folder_roll(roll_id))
                 if (rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") == "folder":
                     restore_action = menu.addAction(label_with_shortcut(tr("Restore Removed Frames…"), "restore_removed_frames"))
                     restore_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
@@ -762,6 +774,11 @@ class LibraryTree(QWidget):
 
         self.reload()
         self.rolls_changed.emit()
+
+    def _save_to_folder_roll(self, roll_id: str) -> None:
+        if self.controller.save_to_folder_roll(roll_id):
+            self.reload()
+            self.rolls_changed.emit()
 
     def _restore_removed(self, roll_id: str) -> None:
         if restore_removed_frames(self, self.controller, roll_id):

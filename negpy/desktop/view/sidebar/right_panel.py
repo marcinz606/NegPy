@@ -25,6 +25,7 @@ from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.desktop.view.styles.templates import clipping_sweep, gradient_icon, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.sliders import align_slider_columns
 from negpy.desktop.view.widgets.charts import (
     ChartWell,
     PhotometricCurveWidget,
@@ -38,9 +39,8 @@ from negpy.desktop.view.widgets.fold import Fold, group_fold
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
-from negpy.desktop.settings_catalog import rows_for_fields
+from negpy.desktop.settings_catalog import roll_card_rows
 from negpy.features.process.models import ProcessMode
-from negpy.services.assets.rolls import card_fields
 from negpy.desktop.view.widgets.stats import NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.widgets.panel_tab import PanelTab
@@ -376,6 +376,8 @@ class RightPanel(QWidget):
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
             self.switcher.add_button(btn, tooltip)
 
+            # One label column across the tab's cards, so every slider track starts at the same x.
+            align_slider_columns(content)
             self.stack.addWidget(wrap_scroll(content))
             self._tab_buttons.append(btn)
             self._tab_keys.append(key)
@@ -450,8 +452,7 @@ class RightPanel(QWidget):
         """Every Roll card's settings in one picker. The cards themselves stay roll
         defaults; this carries their current values onto other frames, the same as the
         Film Strip's own apply with a narrower list."""
-        fields = tuple(f for card in _ROLL_TAB_CARDS for f in card_fields(card))
-        open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
+        open_apply_dialog(self, self.controller.session, rows=roll_card_rows(*_ROLL_TAB_CARDS))
 
     def _build_scan_page(self) -> QWidget:
         """Scanner choice and cards in a scroll area; the active scanner's footer stays pinned below."""
