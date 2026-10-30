@@ -102,3 +102,9 @@ def test_a_header_the_codec_ignores_is_dropped_quietly(light):
     light.serial.feed(4, b"\x01\x02\x03")  # D2H_DEFAULT_RGB in the firmware
     time.sleep(0.05)
     assert light.is_connected()  # the reader thread survived both
+
+
+def test_describe_names_the_model_and_its_channels(light):
+    word = (0 << 16) | 9  # firmware 9 on a Big Scanlight: white and infrared
+    threading.Timer(0.05, light.serial.feed, args=(proto.D2H_FW_VERSION, word.to_bytes(4, "big"))).start()
+    assert light.describe() == ("Big Scanlight (fw9)", True, True)

@@ -1406,7 +1406,7 @@ def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(brow
     assert "Export Selected Frames" in labels and "Export Current Frame" not in labels
     assert "Reset 1 Frame…" in labels and "Reset Settings" not in labels
     assert "Unload Selected…" in labels
-    assert "Edit RGB Triplet…" not in labels and "Stitch Selected Frames" not in labels
+    assert "Edit Trichrome…" not in labels and "Stitch Selected Frames" not in labels
 
     session.remove_current_file = MagicMock()
     session.remove_selected_files = MagicMock()

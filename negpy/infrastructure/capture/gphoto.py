@@ -59,6 +59,11 @@ _PROPERTIES: dict[str, tuple[str, ...]] = {
     "aperture": ("f-number", "aperture"),
 }
 
+#: An aperture label that names an f-number ("5.6", "f/8", "F11"). A Canon lens with no
+#: electronic diaphragm offers only labels outside it ("implicit auto", "Unknown value 0f00"),
+#: and the body refuses every write of them with `[-110] I/O in progress`.
+_FNUMBER = re.compile(r"[fF]?/?\s*[0-9]+(?:[.,][0-9]+)?")
+
 
 @dataclass(frozen=True)
 class _Magnifier:
@@ -592,6 +597,8 @@ class GphotoCamera:
                 choices = _choices(self._gp, widget)
                 if not choices:
                     continue  # nothing to offer, and reading its value would segfault
+                if key == "aperture" and not any(_FNUMBER.fullmatch(c) for c in choices):
+                    continue  # no electronic diaphragm: the stepper greys out
                 current = _safe_value(self._gp, widget)
                 options = [{"label": label, "raw": i} for i, label in enumerate(choices)]
                 cur = choices.index(current) if current in choices else -1
@@ -778,7 +785,7 @@ class GphotoCamera:
                 for prop, value in (("iso", iso), ("aperture", aperture)):
                     # Not fatal like the shutter: a warning plus the current setting beats
                     # aborting a scan, and the preset's value was settable at calibration.
-                    if value:
+                    if value and (prop != "aperture" or _FNUMBER.fullmatch(value)):
                         name = self._property(prop)
                         if name is None or not self._set_verified(name, value):
                             logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)

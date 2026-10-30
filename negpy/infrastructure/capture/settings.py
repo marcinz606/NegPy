@@ -50,6 +50,8 @@ class ScanlightSettings:
     white_process_mode: WhiteCaptureMode = WhiteCaptureMode.AUTO
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
     keep_light_on: bool = False  # re-light the framing light after each scan without Live View
+    film_transport: str = "off"  # a light that moves film: "off", "next" (one frame per Scan) or "strip" (the whole strip)
+    strip_flat: bool = False  # after a whole strip ejects, shoot the empty dock for the roll's Flat Field profile
     capture_delay_s: float = 0.0  # seconds Scan and Retake hold the first exposure
     adopted_presets: tuple[str, ...] = ()  # built-in presets added to the dropdown; the rest stay under +
 

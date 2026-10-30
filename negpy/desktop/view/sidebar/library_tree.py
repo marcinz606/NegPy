@@ -42,7 +42,7 @@ from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
 from negpy.services.assets.composites import frame_count, saved_composites
 from negpy.services.assets.library import folder_counts, folder_image_paths, folder_label
-from negpy.services.assets.triplets import saved_triplets
+from negpy.services.assets.triplets import applied_triplets
 from negpy.services.assets.presets import is_valid_preset_name
 from negpy.services.assets.gear import GearProfiles
 from negpy.features.process.models import ProcessMode
@@ -658,8 +658,7 @@ class LibraryTree(QWidget):
             paths = [p for p in folder_image_paths(entry.get("folder_path", "")) if os.path.normcase(os.path.normpath(p)) not in skip]
         else:
             paths = entry.get("member_paths") or ()
-        # Discovery re-attaches a remembered triplet in Trichrome Mode only.
-        triplets = saved_triplets(self.repo) if self.controller.rgb_scan_mode_for_roll(roll_id) else {}
+        triplets = applied_triplets(self.repo, self.controller.rgb_scan_mode_for_roll(roll_id))
         return frame_count(paths, saved_composites(self.repo), triplets)
 
     def refresh_active_count(self) -> None:

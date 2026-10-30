@@ -781,6 +781,7 @@ fn cubic_row_u8(
         );
         return;
     }
+    let _ = windows_fit;
     cubic_row_u8_scalar(padded, cn, starts, wts, out);
 }
 
@@ -860,12 +861,15 @@ fn cubic_column_u8(out: &mut [u8], r: [&[i32]; 4], b: [i16; 4], split: usize) {
     let bf = b.map(|v| v as f32 * scale);
     let n = out.len();
     let r = r.map(|x| &x[..n]);
-    let mut done = 0;
     #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("avx2") {
+    let done = if std::arch::is_x86_feature_detected!("avx2") {
         // SAFETY: AVX2 is present; the kernel reads and writes only below `split <= n`.
-        done = unsafe { cubic_column_u8_avx2(&mut out[..split], r, bf) };
-    }
+        unsafe { cubic_column_u8_avx2(&mut out[..split], r, bf) }
+    } else {
+        0
+    };
+    #[cfg(not(target_arch = "x86_64"))]
+    let done = 0;
     let (vec, rest) = out.split_at_mut(split);
     let vec = &mut vec[done..];
     let rows = r[0].iter().zip(r[1]).zip(r[2]).zip(r[3]);

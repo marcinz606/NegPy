@@ -92,6 +92,9 @@ jobs:
             --max-time 120 --retry 2
 
 
+      - name: Show runner CPU
+        run: lscpu | grep -E "Model name|^CPU\(s\)"
+
       - name: Run metrics tests
         env:
           NEGPY_METRICS_OUT: metrics-artifacts/preview_metrics.json

@@ -140,6 +140,11 @@ class Scanlight:
     def off(self) -> None:
         self.set_color(0, 0, 0, 0)
 
+    def describe(self) -> tuple[str, bool, bool]:
+        """(status text, has a white channel, has an infrared channel) for the Scan panel."""
+        fw, hw = self.get_fw_version()
+        return f"{proto.describe_hardware(hw)} (fw{fw})", proto.has_white_channel(hw), proto.has_ir_channel(hw)
+
     def get_fw_version(self, timeout: float = 2.0) -> tuple[int, int]:
         """Request (firmware_id, hardware_id). Raises TimeoutError on no reply."""
         return self._request(proto.H2D_GET_FW_VERSION, proto.D2H_FW_VERSION, proto.decode_fw_version, timeout)

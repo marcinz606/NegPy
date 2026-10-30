@@ -305,6 +305,7 @@ def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WI
         btn.setFixedWidth(width)
     btn.setFixedHeight(default_button_height())
     btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
     return btn
 
 

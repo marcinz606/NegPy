@@ -59,7 +59,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import SCENES_NEED_A_ROLL, AppController
-from negpy.desktop.session import AppState, composite_kind
+from negpy.desktop.session import AppState, can_edit_triplet, composite_kind, is_plain_triplet, trichrome_merge_indices
 from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 from negpy.desktop.view.confirm import (
     prompt_delete_scene,
@@ -2535,12 +2535,21 @@ class FileBrowser(QWidget):
             if multi:
                 menu.addAction(tr("Stitch Selected Frames")).triggered.connect(lambda: self.controller.request_stitch_selected())
                 self._add_hdr_merge_action(menu, state)
+                if trichrome_merge_indices(state.uploaded_files, state.selected_indices):
+                    menu.addAction(label_with_shortcut(tr("Merge Exposures (Trichrome)"), "triplet_merge")).triggered.connect(
+                        lambda: self.controller.request_trichrome_merge()
+                    )
             self._add_merge_to_tiff_action(menu, state, SCOPE_SELECTION)
         else:
             menu.addSeparator()
-            menu.addAction(tr("Edit RGB Triplet…")).triggered.connect(self._on_edit_triplet)
-            self._add_merge_to_tiff_action(menu, state, SCOPE_FRAME)
             active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
+            if active and can_edit_triplet(active):
+                menu.addAction(label_with_shortcut(tr("Edit Trichrome…"), "triplet_edit")).triggered.connect(self._on_edit_triplet)
+            if is_plain_triplet(active):
+                menu.addAction(label_with_shortcut(tr("Split Trichrome"), "triplet_split")).triggered.connect(
+                    lambda: self.controller.request_split_triplet()
+                )
+            self._add_merge_to_tiff_action(menu, state, SCOPE_FRAME)
             if active.get("stitch_paths"):
                 menu.addAction(tr("Unstitch")).triggered.connect(lambda: self.controller.request_unstitch())
             if active.get("hdr_paths"):
@@ -2730,7 +2739,7 @@ class FileBrowser(QWidget):
             act.triggered.connect(lambda _=False, p=path: self.controller.set_hdr_anchor(p))
 
     def _on_edit_triplet(self) -> None:
-        open_triplet_dialog(self, self.session)
+        open_triplet_dialog(self, self.controller)
 
     def _on_remove_from_menu(self) -> None:
         count = len(self.session.state.selected_indices)

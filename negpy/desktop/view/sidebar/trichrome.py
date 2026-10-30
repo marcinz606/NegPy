@@ -3,6 +3,7 @@ import os
 
 from PyQt6.QtWidgets import QHBoxLayout
 
+from negpy.desktop.session import can_edit_triplet, is_plain_triplet, trichrome_merge_indices
 from negpy.desktop.view.confirm import confirm_assembly_mode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, wrap_tooltip
@@ -21,9 +22,15 @@ class TrichromeSidebar(BaseSidebar):
             wrap_tooltip(tr("Make each frame from three exposures (red, green and blue), a setting that each roll keeps.")),
             align_left=True,
         )
-        self.edit_btn = self._icon_action("fa5s.pen", tr("Edit Triplet…: pick this frame's three exposures by hand."))
+        self.merge_btn = self._icon_action(
+            "fa5s.object-group", tr("Merge Exposures (Trichrome): join the three selected frames into one, finding red, green and blue.")
+        )
+        self.split_btn = self._icon_action("fa5s.object-ungroup", tr("Split Trichrome: turn this frame back into its three exposures."))
+        self.edit_btn = self._icon_action("fa5s.pen", tr("Edit Trichrome…: pick this frame's three exposures by hand."))
         row = QHBoxLayout()
         row.addWidget(self.enable_btn, 1)
+        row.addWidget(self.merge_btn)
+        row.addWidget(self.split_btn)
         row.addWidget(self.edit_btn)
         self.layout.addLayout(row)
 
@@ -33,8 +40,11 @@ class TrichromeSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.enable_btn.toggled.connect(self._on_toggled)
         self.controller.rgb_scan_mode_changed.connect(self._follow_mode)
-        self.edit_btn.clicked.connect(lambda: open_triplet_dialog(self, self.controller.session))
+        self.edit_btn.clicked.connect(lambda: open_triplet_dialog(self, self.controller))
+        self.merge_btn.clicked.connect(self.controller.request_trichrome_merge)
+        self.split_btn.clicked.connect(self.controller.request_split_triplet)
         self.controller.session.files_changed.connect(self.sync_ui)
+        self.controller.session.state_changed.connect(self._sync_buttons)
         self.sync_ui()
 
     def _on_toggled(self, checked: bool) -> None:
@@ -60,7 +70,7 @@ class TrichromeSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.enable_btn.setChecked(self.controller.rgb_scan_mode_for_roll(self.state.active_roll_id))
-            self.edit_btn.setEnabled(bool(self.state.uploaded_files))
+            self._sync_buttons()
             if is_rgb_triplet(conf):
                 parts = [os.path.basename(p) for p in (self.state.current_file_path or "", conf.green_path, conf.blue_path) if p]
                 self.hint.setText(tr("Assembled from {others} and {last}.", others=", ".join(parts[:-1]), last=parts[-1]))
@@ -69,6 +79,14 @@ class TrichromeSidebar(BaseSidebar):
         finally:
             self.block_signals(False)
 
+    def _sync_buttons(self) -> None:
+        """Runs on every selection change, so it reads only the loaded files."""
+        files = self.state.uploaded_files
+        idx = self.state.selected_file_idx
+        self.edit_btn.setEnabled(0 <= idx < len(files) and can_edit_triplet(files[idx]))
+        self.split_btn.setEnabled(0 <= idx < len(files) and is_plain_triplet(files[idx]))
+        self.merge_btn.setEnabled(bool(trichrome_merge_indices(files, self.state.selected_indices)))
+
     def block_signals(self, blocked: bool) -> None:
-        for w in (self.enable_btn, self.edit_btn):
+        for w in (self.enable_btn, self.edit_btn, self.merge_btn, self.split_btn):
             w.blockSignals(blocked)

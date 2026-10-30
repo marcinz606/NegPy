@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from negpy.desktop.session import can_edit_triplet
 from negpy.desktop.view.styles.templates import field_row, labeled_action, labeled_toggle, pin_button_box
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
@@ -19,7 +20,7 @@ class RgbTripletDialog(QDialog):
     def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "", *, repo=None) -> None:
         super().__init__(parent)
         self._start_dir = start_dir
-        self.setWindowTitle(tr("Edit RGB Triplet"))
+        self.setWindowTitle(tr("Edit Trichrome"))
         layout = QVBoxLayout(self)
         self._edits: dict[str, QLineEdit] = {}
         for label, path in ((mark("Red"), red), (mark("Green"), green), (mark("Blue"), blue)):
@@ -62,14 +63,17 @@ class RgbTripletDialog(QDialog):
         return self._align.isChecked()
 
 
-def open_triplet_dialog(parent, session) -> None:
-    """Assign the active frame's three exposures by hand — the Trichrome card and the
+def open_triplet_dialog(parent, controller) -> None:
+    """Assign the active frame's three exposures by hand. The Trichrome card and the
     film strip's right-click menu both open this."""
+    session = controller.session
     idx = session.state.selected_file_idx
     files = session.state.uploaded_files
     if not (0 <= idx < len(files)):
         return
     info = files[idx]
+    if not can_edit_triplet(info):
+        return
     dlg = RgbTripletDialog(
         parent,
         info["path"],
@@ -82,4 +86,4 @@ def open_triplet_dialog(parent, session) -> None:
     if dlg.exec():
         red, green, blue = dlg.paths()
         if red and green and blue:
-            session.set_triplet(idx, red, green, blue, dlg.align())
+            controller.set_triplet(red, green, blue, dlg.align(), index=idx)

@@ -784,7 +784,7 @@ def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int,
     made_text = f"{count_of(made, 'frame')} assembled, " if made else ""
     return (
         f"Trichrome Mode: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
-        "Right-click a frame and choose Edit RGB Triplet to pair them by hand."
+        "Select a frame's three files, right-click and choose Merge Exposures (Trichrome) to join them."
     )
 
 
@@ -821,7 +821,7 @@ def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
         "Each frame needs three captures — one under red light, one under green, one under blue — "
         "taken back to back before you move on to the next frame, and the folder should hold "
         f"nothing else. {naming}\n\n"
-        "You can also pair files by hand: right-click a frame and choose Edit RGB Triplet.",
+        "You can also join files by hand: select a frame's three files, right-click and choose Merge Exposures (Trichrome).",
     )
 
 
@@ -1042,6 +1042,7 @@ class AssetDiscoveryWorker(QObject):
         import os
 
         from negpy.kernel.image.logic import calculate_file_hash
+        from negpy.services.assets.triplets import made_by_hand
 
         hashes = {a["path"]: a["hash"] for a in assets}
         out = []
@@ -1067,6 +1068,7 @@ class AssetDiscoveryWorker(QObject):
                         "align": align,
                         "green_hash": hashes.get(gb[0], stored[1]),
                         "blue_hash": hashes.get(gb[1], stored[2]),
+                        "triplet_by_hand": made_by_hand(gb),
                     }
                 )
                 parts.update({gb[0], gb[1]})

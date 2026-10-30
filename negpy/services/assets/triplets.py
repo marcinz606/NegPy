@@ -5,22 +5,34 @@ Each record holds the three content hashes: a file changed on disk since the gro
 
 from typing import Any, Dict
 
-from negpy.services.assets.rolls import unforked_hash
+from negpy.services.assets.half_frame import base_hash
 
 TRIPLETS_KEY = "triplets_by_path"
 
 
 def saved_triplets(repo: Any) -> Dict[str, list]:
-    """``{red_path: [green_path, blue_path, align, [red_hash, green_hash, blue_hash]]}``.
-    A hash is empty when the grouping was made without it."""
+    """``{red_path: [green_path, blue_path, align, [red_hash, green_hash, blue_hash], by_hand]}``.
+    A hash is empty when the grouping was made without it; a record without ``by_hand`` was grouped
+    by Trichrome Mode."""
     saved = repo.get_global_setting(TRIPLETS_KEY, default=None)
     return dict(saved) if isinstance(saved, dict) else {}
 
 
-def _record(asset: dict) -> list:
-    # A roll fork suffixes the asset's hash; discovery finds the file's own.
-    hashes = [unforked_hash(asset.get("hash") or ""), asset.get("green_hash") or "", asset.get("blue_hash") or ""]
-    return [asset["green_path"], asset["blue_path"], bool(asset.get("align", True)), hashes]
+def made_by_hand(record: Any) -> bool:
+    """Whether the user grouped this triplet by hand. Such a triplet reopens with Trichrome Mode off too."""
+    return len(record) > 4 and bool(record[4])
+
+
+def applied_triplets(repo: Any, trichrome_mode: bool) -> Dict[str, list]:
+    """The saved triplets a discovery re-attaches: all in Trichrome Mode, else those made by hand."""
+    saved = saved_triplets(repo)
+    return saved if trichrome_mode else {red: rec for red, rec in saved.items() if made_by_hand(rec)}
+
+
+def triplet_record(asset: dict) -> list:
+    # A roll fork or a half frame suffixes the asset's hash; discovery finds the file's own.
+    hashes = [base_hash(asset.get("hash") or ""), asset.get("green_hash") or "", asset.get("blue_hash") or ""]
+    return [asset["green_path"], asset["blue_path"], bool(asset.get("align", True)), hashes, bool(asset.get("triplet_by_hand"))]
 
 
 def forget_triplets(repo: Any, red_paths: Any) -> None:
@@ -42,7 +54,7 @@ def remember_triplets(repo: Any, assets: Any) -> None:
         # A stitch of triplets carries its primary part's pair too, under the stitch's hash.
         if asset.get("stitch_paths") or asset.get("hdr_paths") or not (asset.get("green_path") and asset.get("blue_path")):
             continue
-        record = _record(asset)
+        record = triplet_record(asset)
         members = {asset["path"], record[0], record[1]}
         for red, other in list(updated.items()):
             if red != asset["path"] and members & {red, other[0], other[1]}:

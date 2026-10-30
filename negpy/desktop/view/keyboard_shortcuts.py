@@ -10,6 +10,7 @@ from negpy.desktop.session import ToolMode
 from negpy.services.assets import rolls
 from negpy.desktop.view.confirm import confirm_remove_from_roll, confirm_reset_frames, confirm_restore_removed, confirm_unload_all
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog, open_sync_bounds_dialog
+from negpy.desktop.view.widgets.rgb_triplet_dialog import open_triplet_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
     load_bindings,
@@ -460,6 +461,9 @@ class ShortcutManager:
             "toggle_advance_after_mark": lambda: self.window.file_browser.act_advance_after_mark.toggle(),
             "hdr_merge": controller.request_hdr_merge_selected,
             "hdr_unmerge": controller.request_unmerge_hdr,
+            "triplet_merge": controller.request_trichrome_merge,
+            "triplet_edit": lambda: open_triplet_dialog(self.window, controller),
+            "triplet_split": controller.request_split_triplet,
             # The view method, not the controller's: it carries the confirm the deletion needs.
             "half_frame_undiptych": self.window.file_browser.prompt_undiptych,
             "update_thumbnails_selection": (
@@ -500,6 +504,19 @@ class ShortcutManager:
             "scanlight_keep_light_on": lambda: (
                 right.scanlight_sidebar.keep_light_btn.toggle() if not right.scanlight_sidebar.keep_light_btn.isHidden() else None
             ),
+            "lento_film_off": lambda: (
+                right.scanlight_sidebar.film_choice.setCurrentIndex(0) if not right.scanlight_sidebar.dock_body.isHidden() else None
+            ),
+            "lento_film_next": lambda: (
+                right.scanlight_sidebar.film_choice.setCurrentIndex(1) if not right.scanlight_sidebar.dock_body.isHidden() else None
+            ),
+            "lento_film_strip": lambda: (
+                right.scanlight_sidebar.film_choice.setCurrentIndex(2) if not right.scanlight_sidebar.dock_body.isHidden() else None
+            ),
+            "lento_strip_flat": lambda: (
+                right.scanlight_sidebar.strip_flat_btn.toggle() if not right.scanlight_sidebar.strip_flat_btn.isHidden() else None
+            ),
+            "lento_eject": lambda: right.scanlight_sidebar.eject_btn.click() if not right.scanlight_sidebar.dock_body.isHidden() else None,
             "scanlight_infrared": lambda: (
                 right.scanlight_sidebar.ir_toggle.toggle() if not right.scanlight_sidebar._ir_exposure_widget.isHidden() else None
             ),

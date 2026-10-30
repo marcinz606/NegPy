@@ -259,6 +259,24 @@ def group_triplets(
     return triplets
 
 
+def place_triplet(probes: Dict[str, Optional[FrameProbe]], min_affinity: float = MIN_TRIPLET_AFFINITY) -> Tuple[Optional[Triplet], str]:
+    """Assign three hand-picked files to red, green and blue by their dominant channel.
+
+    Returns the triplet and "", or None and why: "channels" when the three are not one of each
+    (a file that could not be probed counts as unknown), "picture" when they do not show one frame.
+    """
+    if len(probes) != 3 or any(pr is None for pr in probes.values()):
+        return None, "channels"
+    by_channel = {classify_channel(pr.means): path for path, pr in probes.items() if pr is not None}
+    if set(by_channel) != {RED, GREEN, BLUE}:
+        return None, "channels"
+    triplet = Triplet(red=by_channel[RED], green=by_channel[GREEN], blue=by_channel[BLUE], ok=True)
+    score = triplet_affinity(triplet, {path: pr.signature for path, pr in probes.items() if pr is not None})
+    if score is not None and score < min_affinity:
+        return None, "picture"
+    return triplet, ""
+
+
 def estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, float]:
     """Sub-pixel translation of ``mov_gray`` relative to ``ref_gray`` (phase correlation)."""
     h, w = ref_gray.shape[:2]

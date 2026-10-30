@@ -9,7 +9,7 @@ from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
 from negpy.features.rgbscan import logic
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.triplets import TRIPLETS_KEY, remember_triplets, saved_triplets
+from negpy.services.assets.triplets import TRIPLETS_KEY, made_by_hand, remember_triplets, saved_triplets
 from negpy.services.rendering.preview_manager import PreviewManager
 
 _CHANNEL = {"r": 0, "g": 1, "b": 2}
@@ -38,7 +38,7 @@ def _triplet(red: str, green: str, blue: str) -> dict:
 def test_remember_stores_members_and_their_hashes():
     repo = _repo()
     remember_triplets(repo, [_triplet("/a/r", "/a/g", "/a/b"), {"name": "loose", "path": "/a/x", "hash": "hx"}])
-    assert saved_triplets(repo) == {"/a/r": ["/a/g", "/a/b", True, ["h/a/r", "h/a/g", "h/a/b"]]}
+    assert saved_triplets(repo) == {"/a/r": ["/a/g", "/a/b", True, ["h/a/r", "h/a/g", "h/a/b"], False]}
 
 
 def test_a_new_triplet_replaces_one_that_shares_an_exposure():
@@ -153,10 +153,21 @@ class TestDiscoveryReadsTheTripletStore(unittest.TestCase):
     def test_trichrome_off_leaves_the_files_loose(self):
         self.assertIsNone(self._open(False).restore_triplets)
 
+    def test_trichrome_off_reattaches_a_triplet_made_by_hand(self):
+        remember_triplets(self.session.repo, [{**_triplet("/roll/r2", "/roll/g2", "/roll/b2"), "triplet_by_hand": True}])
+        self.assertEqual(set(self._open(False).restore_triplets), {"/roll/r2"})
+
+    def test_a_requested_pair_keeps_the_saved_by_hand_flag(self):
+        """Unstitch hands over [green, blue, align]; the saved record carries the flag."""
+        remember_triplets(self.session.repo, [{**_triplet("/roll/r2", "/roll/g2", "/roll/b2"), "triplet_by_hand": True}])
+        self.session.repo.save_global_setting("rgbscan_mode", False)
+        self.controller.request_asset_discovery(["/roll"], restore_triplets={"/roll/r2": ["/roll/g2", "/roll/b2", True]})
+        self.assertTrue(made_by_hand(self.tasks[-1].restore_triplets["/roll/r2"]))
+
     def test_a_named_pair_keeps_the_stored_hashes_and_a_different_pair_wins(self):
         self.session.repo.save_global_setting("rgbscan_mode", True)
         self.controller.request_asset_discovery(["/roll"], restore_triplets={"/roll/r": ["/roll/g", "/roll/b", True]})
-        self.assertEqual(len(self.tasks[-1].restore_triplets["/roll/r"]), 4)
+        self.assertEqual(len(self.tasks[-1].restore_triplets["/roll/r"]), 5)
         self.controller._discovery_running = False
         self.controller._active_batch = None
         self.controller.request_asset_discovery(["/roll"], restore_triplets={"/roll/r": ["/roll/x", "/roll/b", True]})
@@ -198,3 +209,17 @@ def test_a_changed_member_outside_the_discovery_is_still_caught(tmp_path):
     assert worker._attach_restored_triplets([red], record)[0]["name"] == "f1_r (RGB)"
     (tmp_path / "f1_g.raw").write_bytes(b"recaptured" * 64)
     assert worker._attach_restored_triplets([red], record)[0]["name"] == "f1_r.raw"
+
+
+def test_a_triplet_made_by_hand_restores_with_its_flag(tmp_path):
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode() * 64)
+    r, g, b = (str(tmp_path / n) for n in names)
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+    restore = {r: [g, b, True, ["", "", ""], True]}
+    worker.process(AssetDiscoveryTask(paths=[r, g, b], supported_extensions=(".raw",), rgb_scan=False, restore_triplets=restore))
+    (asset,) = seen.pop()
+    assert asset["green_path"] == g and asset["triplet_by_hand"] is True

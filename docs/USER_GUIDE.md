@@ -580,7 +580,8 @@ How files become frames. Each roll keeps its own settings here.
 For a camera with narrowband light that takes three shots of each frame: red, green and blue.
 
 *   **Trichrome Mode**: joins the three shots into one color frame. Shots are grouped by capture time (or file name), so take each frame's three shots one after another. Shots that do not group stay separate.
-*   **Edit Triplet…**: pick the three shots of the current frame by hand. **Align Channels** lines them up to remove color fringes.
+*   **Merge Exposures (Trichrome)** (group icon, or right-click): select a frame's three shots to join them. NegPy finds which shot is red, green and blue.
+*   **Edit Trichrome…**: pick the three shots of the current frame by hand. **Align Channels** lines them up to remove color fringes. **Split Trichrome** (ungroup icon, or right-click) separates them again.
 *   **Merge Frame to TIFF Negative…** (right-click): saves a triplet or a stitch as one TIFF beside its first source file, with its edit. An option moves the source files to the Trash.
 
 #### Half Frame
@@ -793,6 +794,8 @@ Scans with a camera on a copy stand, connected over USB in **PC Remote** mode (m
 *   **Scan** shoots the next frame and imports it; **Retake** (the redo arrow) shoots the last frame again. When a scan clips, the status line tells you how much of the picture clipped. In the Live View window, `Space` or `S` scans and `R` retakes. With a Scanlight, **R**, **G**, **B** and **IR** pick which exposures Retake repeats.
 *   **Capture Delay**: waits before the first exposure, so a shaky table can settle.
 *   **Keep Light On** (the bulb): keeps the Scanlight lit after each scan, so you can frame the next shot.
+*   **Film** (with a Lento Dock): what the dock does when you click Scan. **Next Frame** moves the film one frame after each scan. **Whole Strip** scans every frame, then ejects the strip; Stop ends it. Retake never moves the film. **Eject** moves the strip out. The dock's S button works as Scan.
+*   **Shoot Flat Field**: after a whole strip ejects, shoots the empty dock and saves it as the roll's Flat Field profile.
 
 <!-- panel:scan_light -->
 ### Preset

@@ -43,7 +43,7 @@ from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
 from negpy.services.assets.composites import remember_composites
-from negpy.services.assets.triplets import remember_triplets
+from negpy.services.assets.triplets import remember_triplets, triplet_record
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets import rolls
 from negpy.services.assets import semantic_model
@@ -454,6 +454,23 @@ def composite_kind(asset: Dict[str, Any]) -> str:
     if asset.get("diptych"):
         return "diptych"
     return ""
+
+
+def can_edit_triplet(asset: Dict[str, Any]) -> bool:
+    """Edit Trichrome rebuilds a plain frame or a triplet; it would drop a composite's parts or a half's split."""
+    return composite_kind(asset) in ("", "rgb") and not asset.get("half")
+
+
+def is_plain_triplet(asset: Dict[str, Any]) -> bool:
+    return composite_kind(asset) == "rgb" and not asset.get("half")
+
+
+def trichrome_merge_indices(files: List[Dict[str, Any]], indices: Collection[int]) -> List[int]:
+    """The selection Merge Exposures (Trichrome) joins: three plain frames of three files, else []."""
+    picked = sorted({i for i in indices if 0 <= i < len(files)})
+    if len(picked) != 3 or any(composite_kind(files[i]) for i in picked):
+        return []
+    return picked if len({files[i]["path"] for i in picked}) == 3 else []
 
 
 #: Part rows a stitch tooltip lists before it folds the rest into "+N more".
@@ -2358,9 +2375,12 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("session_active_path", self.state.current_file_path)
         self.repo.save_global_setting("session_active_roll", self.state.active_roll_id or "")
         # RGB-scan triplets keep their green and blue exposures here so restore can rebuild the
-        # merged asset. Re-discovery from the red path alone cannot regroup it.
+        # merged asset. Re-discovery from the red path alone cannot regroup it. A composite's pair
+        # carries no member hashes: its own hash is not the red file's, and would refuse the restore.
         triplets = {
             f["path"]: [f["green_path"], f["blue_path"], bool(f.get("align", True))]
+            if f.get("stitch_paths") or f.get("hdr_paths")
+            else triplet_record(f)
             for f in self.state.uploaded_files
             if f.get("green_path") and f.get("blue_path")
         }
@@ -2444,7 +2464,7 @@ class DesktopSessionManager(QObject):
         """Replace the source assets with the composite built from them (inserted at the
         first source's position), then open it.
 
-        Stitch parts and HDR bracket frames both land here. Source edits stay in the DB
+        Stitch parts, HDR bracket frames and triplet exposures all land here. Source edits stay in the DB
         under their own content hashes, so an unstitch or unmerge restores them intact.
         """
         valid = sorted({i for i in indices if 0 <= i < len(self.state.uploaded_files)})
@@ -2454,9 +2474,11 @@ class DesktopSessionManager(QObject):
         for i in reversed(valid):
             self._drop_thumbnail(self.state.uploaded_files.pop(i))
         marks = self.repo.load_file_marks()
-        m = marks.get(composite["hash"])
+        m = marks.get(unforked_hash(composite["hash"]))
         composite = {**composite, "keeper": m == "keeper", "excluded": m == "excluded"}
         self.state.uploaded_files.insert(pos, composite)
+        self._stamp_scenes()
+        self._stamp_averages([composite["hash"]])
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
@@ -2513,30 +2535,6 @@ class DesktopSessionManager(QObject):
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
-
-    def set_triplet(self, index: int, red_path: str, green_path: str, blue_path: str, align: bool = True) -> None:
-        """Reassign the R/G/B exposures of an RGB-scan asset, then reload it."""
-        import os
-
-        from negpy.kernel.image.logic import calculate_file_hash
-
-        if not (0 <= index < len(self.state.uploaded_files)):
-            return
-        name = os.path.splitext(os.path.basename(red_path))[0] + tr(" (RGB)")
-        self.state.uploaded_files[index] = {
-            "name": name,
-            "path": red_path,
-            "hash": calculate_file_hash(red_path),
-            "green_path": green_path,
-            "blue_path": blue_path,
-            "green_hash": calculate_file_hash(green_path),
-            "blue_hash": calculate_file_hash(blue_path),
-            "align": align,
-        }
-        self.asset_model.refresh()
-        self.files_changed.emit()
-        self._persist_session()
-        self.select_file(index)
 
     def _reset_active_image_state(self) -> None:
         """Clears everything tied to the previously displayed image after the session

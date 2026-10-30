@@ -327,7 +327,7 @@ Die Scan-Angaben sind eine Einstellung für die ganze App. Die Liste darunter ze
 
 Eine Kamera zeigt die Karten Raw-Dekodierung und Optik. Eine Kamera mit Schmalbandlicht zeigt auch Trichrom und Kalibrierung. Eine Änderung aktualisiert jedes geöffnete Bild (Ctrl+Z macht sie pro Bild rückgängig), aber ein Papier, das du selbst gewählt hast, bleibt. Ein Kamera-Scan legt Dekodierung und Papier für jedes Bild aus seinem eigenen Licht fest.
 
-<!-- panel:assembly src:4fce6e79 -->
+<!-- panel:assembly src:96b2e550 -->
 ### 10.7 Bildzusammenstellung
 
 Wie aus Dateien Bilder werden. Jede Rolle behält hier ihre eigenen Einstellungen.
@@ -337,7 +337,8 @@ Wie aus Dateien Bilder werden. Jede Rolle behält hier ihre eigenen Einstellunge
 Für eine Kamera mit Schmalbandlicht, die von jedem Bild drei Aufnahmen macht: Rot, Grün und Blau.
 
 *   **Trichrom-Modus**: fügt die drei Aufnahmen zu einem Farbbild zusammen. Aufnahmen werden nach Aufnahmezeit (oder Dateiname) gruppiert, also mache die drei Aufnahmen jedes Bildes direkt nacheinander. Aufnahmen, die sich nicht gruppieren lassen, bleiben einzeln.
-*   **Tripel bearbeiten…**: wähle die drei Aufnahmen des aktuellen Bildes von Hand. **Kanäle ausrichten** richtet sie aus, um Farbsäume zu entfernen.
+*   **Belichtungen zusammenführen (Trichrome)** (Gruppensymbol oder Rechtsklick): wähle die drei Aufnahmen eines Bildes, um sie zusammenzuführen. NegPy erkennt, welche Aufnahme Rot, Grün und Blau ist.
+*   **Trichrome bearbeiten…**: wähle die drei Aufnahmen des aktuellen Bildes von Hand. **Kanäle ausrichten** richtet sie aus, um Farbsäume zu entfernen. **Trichrome aufteilen** (Symbol zum Aufheben der Gruppe oder Rechtsklick) trennt sie wieder.
 *   **Bild als TIFF-Negativ zusammenführen…** (Rechtsklick): speichert ein Tripel oder einen Stitch als ein TIFF neben seiner ersten Quelldatei, mit seiner Bearbeitung. Eine Option verschiebt die Quelldateien in den Papierkorb.
 
 #### Halbformat
@@ -578,7 +579,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Bild messen…** (Coolscan): misst die Belichtung an einem Bild und nutzt sie für jeden späteren Scan, damit alle Bilder einer Rolle zusammenpassen. **Entsperren** beendet das. Miss für jede Rolle neu.
 *   **Prescan…** (Plustek): eine schnelle Vorschau des ganzen Bereichs. Ziehe einen Zuschnitt auf, dann liest der nächste Scan nur diesen Bereich.
 
-<!-- panel:scan_camera src:813b8278 -->
+<!-- panel:scan_camera src:0145e5d1 -->
 ### Kamera
 
 Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** verbunden (macOS und Linux; sie braucht `python-gphoto2`). Mit einem NegPy-**Scanlight** steuert NegPy auch das Licht. CAMERA_SCANNING.md beschreibt die Einrichtung.
@@ -590,6 +591,8 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Scan** nimmt das nächste Bild auf und importiert es. **Neu aufnehmen** (der Wiederholungspfeil) nimmt das letzte Bild erneut auf. Wenn ein Scan beschneidet, zeigt die Statuszeile, wie viel vom Bild beschnitten wurde. Im Fenster der Live-Ansicht scannt `Space` oder `S` und `R` nimmt neu auf. Mit einem Scanlight wählen **R**, **G**, **B** und **IR**, welche Belichtungen Neu aufnehmen wiederholt.
 *   **Aufnahmeverzögerung**: wartet vor der ersten Belichtung, damit sich ein wackliger Tisch beruhigt.
 *   **Licht eingeschaltet lassen** (die Glühbirne): hält das Scanlight nach jedem Scan an, damit du das nächste Bild einrichten kannst.
+*   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
+*   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.
 
 <!-- panel:scan_light src:e58660c1 -->
 ### Vorgabe

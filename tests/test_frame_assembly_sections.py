@@ -116,25 +116,68 @@ def test_trichrome_hint_names_the_frames_exposures(trichrome):
     assert "b.cr2" in sidebar.hint.text()
 
 
-def test_trichrome_edit_needs_a_loaded_frame(trichrome):
+def test_trichrome_edit_needs_an_open_frame(trichrome):
     sidebar, controller = trichrome
     assert sidebar.edit_btn.isEnabled() is False
 
     controller.state.uploaded_files = [{"path": "/tmp/r.cr2", "hash": "h1"}]
+    controller.state.selected_file_idx = 0
     sidebar.sync_ui()
 
     assert sidebar.edit_btn.isEnabled() is True
 
 
+def test_trichrome_edit_is_grayed_on_a_stitch(trichrome):
+    sidebar, controller = trichrome
+    controller.state.uploaded_files = [{"path": "/tmp/a.cr2", "hash": "h1#stitch", "stitch_paths": ("/tmp/b.cr2",)}]
+    controller.state.selected_file_idx = 0
+    sidebar.sync_ui()
+
+    assert sidebar.edit_btn.isEnabled() is False
+
+
 def test_trichrome_edit_opens_the_triplet_dialog(trichrome):
     sidebar, controller = trichrome
     controller.state.uploaded_files = [{"path": "/tmp/r.cr2", "hash": "h1"}]
+    controller.state.selected_file_idx = 0
     sidebar.sync_ui()
 
     with patch("negpy.desktop.view.sidebar.trichrome.open_triplet_dialog") as opener:
         sidebar.edit_btn.click()
 
-    opener.assert_called_once_with(sidebar, controller.session)
+    opener.assert_called_once_with(sidebar, controller)
+
+
+def test_trichrome_split_needs_an_open_triplet(trichrome):
+    sidebar, controller = trichrome
+    controller.state.uploaded_files = [{"path": "/tmp/r.cr2", "hash": "h1"}]
+    controller.state.selected_file_idx = 0
+    sidebar.sync_ui()
+    assert sidebar.split_btn.isEnabled() is False
+
+    controller.state.uploaded_files = [{"path": "/tmp/r.cr2", "hash": "h1", "green_path": "/tmp/g.cr2", "blue_path": "/tmp/b.cr2"}]
+    sidebar.sync_ui()
+    assert sidebar.split_btn.isEnabled() is True
+    assert sidebar.merge_btn.isEnabled() is False
+
+    sidebar.split_btn.click()
+    controller.request_split_triplet.assert_called_once()
+
+
+def test_trichrome_merge_needs_three_selected_single_frames(trichrome):
+    sidebar, controller = trichrome
+    controller.state.uploaded_files = [{"path": f"/tmp/{n}.cr2", "hash": n} for n in "abcd"]
+    controller.state.selected_indices = [0, 1]
+    sidebar.sync_ui()
+    assert sidebar.merge_btn.isEnabled() is False
+
+    controller.session.state_changed.connect.assert_any_call(sidebar._sync_buttons)
+    controller.state.selected_indices = [0, 1, 2]
+    sidebar._sync_buttons()
+    assert sidebar.merge_btn.isEnabled() is True
+
+    sidebar.merge_btn.click()
+    controller.request_trichrome_merge.assert_called_once()
 
 
 def test_half_frame_toggle_on_auto_detects_without_opening_a_dialog(half_frame):
