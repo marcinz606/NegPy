@@ -456,11 +456,15 @@ def composite_kind(asset: Dict[str, Any]) -> str:
     return ""
 
 
+#: Part rows a stitch tooltip lists before it folds the rest into "+N more".
+STITCH_TOOLTIP_PARTS = 8
+
+
 def composite_summary(asset: Dict[str, Any]) -> str:
-    """One tooltip line naming what a frame is built from. Empty for a plain frame."""
+    """Tooltip text naming what a frame is built from. Empty for a plain frame."""
     kind = composite_kind(asset)
     if kind == "stitch":
-        return tr("Stitched composite of {value}", value=count_of(len(asset["stitch_paths"]) + 1, "frame"))
+        return _stitch_summary(asset)
     if kind == "hdr":
         return tr("HDR merge of {value}", value=count_of(len(hdr_frame_paths(asset)), "exposure"))
     if kind == "rgb":
@@ -470,6 +474,21 @@ def composite_summary(asset: Dict[str, Any]) -> str:
     if kind == "diptych":
         return tr("Diptych: both halves, each with its own edit")
     return ""
+
+
+def _stitch_summary(asset: Dict[str, Any]) -> str:
+    """The part count, then one file name per part. A Trichrome part shows by its red file only."""
+    parts = [asset["path"], *asset["stitch_paths"]]
+    count = count_of(len(parts), "frame")
+    if any(green and blue for green, blue in asset.get("stitch_triplets") or ()):
+        header = tr("Stitched composite of {value} (Trichrome)", value=count)
+    else:
+        header = tr("Stitched composite of {value}", value=count)
+    shown = parts if len(parts) <= STITCH_TOOLTIP_PARTS else parts[: STITCH_TOOLTIP_PARTS - 1]
+    lines = [header, *(f"  {os.path.basename(p)}" for p in shown)]
+    if len(shown) < len(parts):
+        lines.append("  " + tr("+{value} more", value=len(parts) - len(shown)))
+    return "\n".join(lines)
 
 
 class AssetListModel(QAbstractListModel):
@@ -1768,7 +1787,12 @@ class DesktopSessionManager(QObject):
             # even when the multi-selection was built without it (a Ctrl-toggle range).
             indices = set(self.state.selected_indices)
             indices.add(self.state.selected_file_idx)
-            target_indices = sorted(indices)
+            # Number visible, selected frames in Film Strip display order; a selected
+            # frame a filter hid stays a target, after the visible ones, in index order.
+            visible = self.asset_model.visible_actual_indices_ordered()
+            visible_set = set(visible)
+            target_indices = [i for i in visible if i in indices]
+            target_indices += sorted(i for i in indices if i not in visible_set)
         if skip_rejected:
             target_indices = [
                 i for i in target_indices if 0 <= i < len(self.state.uploaded_files) and not self.state.uploaded_files[i].get("excluded")

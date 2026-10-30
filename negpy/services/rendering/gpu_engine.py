@@ -60,6 +60,7 @@ from negpy.features.geometry.logic import (
 from negpy.features.geometry.models import GeometryConfig, crops_frame
 from negpy.features.lab.logic import (
     GLOW_AMOUNT_MAX,
+    chroma_denoise_radius,
     chroma_denoise_sigma,
     gaussian_kernel_1d,
     glow_reach_px,
@@ -1414,7 +1415,9 @@ class GPUEngine:
                     enc, "sharpen_grain_pick", [(0, self._buffers["grain_hist"]), (1, self._buffers["auto_mask"]), (2, lab_u)], 1, 1
                 )
             # The Chroma Denoise low-pass reads only its input and sigma, so a lab-only change reuses it too.
-            chroma_sigma = chroma_denoise_sigma(settings.lab.chroma_denoise, scale_factor)
+            chroma_sigma = chroma_denoise_sigma(
+                chroma_denoise_radius(settings.lab.chroma_denoise, settings.process.process_mode), scale_factor
+            )
             if chroma_sigma > 0.0:
                 tex_chroma_h = self._get_intermediate_texture(w_rot, h_rot, usage, "chroma_h")
                 tex_chroma_v = self._get_intermediate_texture(w_rot, h_rot, usage, "chroma_v")
@@ -2302,7 +2305,7 @@ class GPUEngine:
                 self._buffers["sharpen_k"].upload(kernel)
                 self._sharpen_kernel_key = kernel_key
         chroma_radius_px = 0
-        chroma_sigma = chroma_denoise_sigma(lab.chroma_denoise, scale_factor)
+        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(lab.chroma_denoise, settings.process.process_mode), scale_factor)
         if chroma_sigma > 0.0:
             chroma_kernel = gaussian_kernel_1d(chroma_sigma)
             chroma_radius_px = len(chroma_kernel) // 2
@@ -3062,7 +3065,7 @@ class GPUEngine:
         if settings.lab.halation_strength > 0.0:
             halo = max(halo, halation_reach_px((h_rot, w_rot)) + 1)
         # Chroma Denoise reads its low-pass kernel's half-width, plus one for the edge test's neighbors.
-        chroma_sigma = chroma_denoise_sigma(settings.lab.chroma_denoise, scale_factor)
+        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(settings.lab.chroma_denoise, settings.process.process_mode), scale_factor)
         if chroma_sigma > 0.0:
             halo = max(halo, len(gaussian_kernel_1d(chroma_sigma)) // 2 + 2)
         # The Mackie-line blur reads its kernel's half-width each side, sigma from the whole

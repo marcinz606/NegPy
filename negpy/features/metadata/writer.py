@@ -734,23 +734,24 @@ def _decode_ascii(value: object) -> str | None:
     return None
 
 
-def _exif_bytes_to_extratags(exif_bytes: bytes) -> tuple[str | None, list[tuple]]:
+def _exif_bytes_to_extratags(exif_bytes: bytes, *, fold_user_comment: bool = True) -> tuple[str | None, list[tuple]]:
     exif_dict = piexif.load(exif_bytes)
     description = _decode_ascii(exif_dict.get("0th", {}).get(piexif.ImageIFD.ImageDescription))
+    if fold_user_comment:
+        comment = (exif_dict.get("Exif") or {}).get(piexif.ExifIFD.UserComment)
+        description = _fold_user_comment_into_description(description, comment)
 
+    # Capture fields belong to the Exif IFD written by attach_exif_ifd.
     extratags: list[tuple] = []
-    for ifd_name in ("0th", "Exif"):
-        ifd_data = exif_dict.get(ifd_name) or {}
-        type_table = piexif.TAGS.get(ifd_name, {})
-        for tag, value in ifd_data.items():
-            if tag in _TIFFFILE_RESERVED_TAGS:
-                continue
-            tag_info = type_table.get(tag)
-            if not tag_info:
-                continue
-            entry = _build_extratag(tag, tag_info["type"], value)
-            if entry is not None:
-                extratags.append(entry)
+    for tag, value in (exif_dict.get("0th") or {}).items():
+        if tag in _TIFFFILE_RESERVED_TAGS:
+            continue
+        tag_info = piexif.TAGS["0th"].get(tag)
+        if not tag_info:
+            continue
+        entry = _build_extratag(tag, tag_info["type"], value)
+        if entry is not None:
+            extratags.append(entry)
 
     return description, extratags
 
@@ -805,9 +806,7 @@ def _tiff_metadata_from_exif_bytes(exif_bytes: bytes) -> tuple[dict | None, str 
 def tiff_metadata_kwargs(exif_bytes: bytes, xmp_bytes: Optional[bytes] = None, *, fold_user_comment: bool = True) -> dict:
     """tifffile.imwrite kwargs carrying the EXIF/XMP payload, for embedding at the
     first encode."""
-    description, extratags = _exif_bytes_to_extratags(exif_bytes)
-    if fold_user_comment:
-        description = _fold_user_comment_into_description(description, extratags)
+    description, extratags = _exif_bytes_to_extratags(exif_bytes, fold_user_comment=fold_user_comment)
     if xmp_bytes:
         extratags.append((_TIFF_XMP_TAG, 7, len(xmp_bytes), xmp_bytes, True))
     metadata, software = _tiff_metadata_from_exif_bytes(exif_bytes)
@@ -1167,18 +1166,14 @@ def _rewrite_tiff_with_metadata(
     _rewrite_tiff_preserve(image_bytes, exif_bytes, output, xmp_bytes, fold_user_comment=True)
 
 
-def _fold_user_comment_into_description(description: str | None, extratags: list[tuple]) -> str | None:
+def _fold_user_comment_into_description(description: str | None, comment: object) -> str | None:
     uc_text: str | None = None
-    for entry in extratags:
-        tag, _ttype, _count, value, _ = entry
-        if tag != piexif.ExifIFD.UserComment or not isinstance(value, (bytes, bytearray)):
-            continue
-        raw = bytes(value)
+    if isinstance(comment, (bytes, bytearray)):
+        raw = bytes(comment)
         if raw[:8] == b"ASCII\x00\x00\x00":
             uc_text = _decode_ascii(raw[8:])
             if uc_text is not None:
                 uc_text = uc_text.strip()
-        break
 
     if not uc_text:
         return description

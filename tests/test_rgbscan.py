@@ -81,8 +81,8 @@ def _scene_triplet(dx, dy):
     r = np.zeros((*base.shape, 3), np.float32)
     g = np.zeros_like(r)
     b = np.zeros_like(r)
-    r[..., 0] = base
-    g[..., 1] = _shift(base, dx, dy)  # green drifted relative to red
+    g[..., 1] = base
+    r[..., 0] = _shift(base, dx, dy)  # red drifted relative to green
     b[..., 2] = _shift(base, -dx, dy)
     return base, r, g, b
 
@@ -93,9 +93,15 @@ def test_assemble_rgb_alignment_reduces_misregistration():
     raw = assemble_rgb(r, g, b, align=False)
     # Ignore the warp border where REPLICATE/REFLECT differ; compare the interior.
     sl = (slice(8, -8), slice(8, -8))
-    err_aligned = np.abs(aligned[..., 1][sl] - base[sl]).mean()
-    err_raw = np.abs(raw[..., 1][sl] - base[sl]).mean()
-    assert err_aligned < err_raw * 0.5
+    for ch in (0, 2):
+        err_aligned = np.abs(aligned[..., ch][sl] - base[sl]).mean()
+        err_raw = np.abs(raw[..., ch][sl] - base[sl]).mean()
+        assert err_aligned < err_raw * 0.5
+
+
+def test_assemble_rgb_leaves_the_green_exposure_unresampled():
+    _base, r, g, b = _scene_triplet(0.5, 0.5)
+    assert np.array_equal(assemble_rgb(r, g, b, align=True)[..., 1], g[..., 1])
 
 
 def test_assemble_rgb_no_align_is_plain_stack():
@@ -111,10 +117,10 @@ def test_align_skips_implausible_shift():
     base = _texture()
     r = np.zeros((*base.shape, 3), np.float32)
     g = np.zeros_like(r)
-    r[..., 0] = base
-    g[..., 1] = _shift(base, 60.0, 0.0)  # > max_shift (0.02*128 -> floored to 16)
+    g[..., 1] = base
+    r[..., 0] = _shift(base, 60.0, 0.0)  # > max_shift (0.02*128 -> floored to 16)
     out = assemble_rgb(r, g, g, align=True)
-    assert np.array_equal(out[..., 1], g[..., 1])
+    assert np.array_equal(out[..., 0], r[..., 0])
 
 
 def test_rgbscan_token_changes_with_align(tmp_path):

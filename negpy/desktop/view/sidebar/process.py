@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_selector
+from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
+from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages, channel_selector
 from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
     clearable_tool_toggle,
@@ -283,6 +283,16 @@ class ProcessSidebar(BaseSidebar):
 
     def _channel_index(self) -> int:
         return self.ch_btn.currentIndex()
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        return channel_pages(
+            self.ch_btn,
+            self.state.config.process,
+            (
+                (tr("White Point"), self.white_point_slider, self.white_point_slider, "white_point_offset", "white_point_trim"),
+                (tr("Black Point"), self.black_point_slider, self.black_point_slider, "black_point_offset", "black_point_trim"),
+            ),
+        )
 
     def _wp_field(self) -> str:
         idx = self._channel_index()

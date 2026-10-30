@@ -185,6 +185,10 @@ class SegmentedChoice(QWidget):
     def count(self) -> int:
         return len(self._choices)
 
+    def choice_text(self, index: int) -> str:
+        """The name of choice *index*, also for an icon-only one."""
+        return self._choices[index][1]
+
     def currentIndex(self) -> int:  # noqa: N802
         return self._index
 

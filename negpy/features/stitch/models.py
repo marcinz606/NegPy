@@ -41,7 +41,7 @@ def stitch_token(config: StitchConfig) -> str:
     triplets = [path for pair in config.stitch_triplets for path in pair]
     # composite_token digests only StitchConfig fields, so an assembly detail with no
     # field of its own is versioned here or a cached source outlives it.
-    return composite_token("stitch-v2", config, [*config.stitch_paths, *triplets])
+    return composite_token("stitch-v3", config, [*config.stitch_paths, *triplets])
 
 
 def stitch_name(part_paths: Sequence[str]) -> str:

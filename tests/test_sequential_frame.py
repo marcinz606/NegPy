@@ -147,3 +147,59 @@ def test_dialog_reads_its_direction_and_scope_choices(qapp):
     dlg._scope_choice.setCurrentIndex(1)
     assert dlg.result() == (10, 1, "desc", "roll", False)
     assert dlg.preview.text().startswith("10, 9, 8 …")
+
+
+def _session_shuffled(active_idx: int = 0, n: int = 6) -> DesktopSessionManager:
+    """Like `_session`, but `uploaded_files` is in a load order that differs from name
+    order, so the Film Strip display order is not the internal index order. The active
+    frame is `uploaded_files[active_idx]`, which need not be first in display order."""
+    repo = MagicMock(spec=StorageRepository)
+    repo.get_global_setting.return_value = None
+    repo.load_file_settings.return_value = None
+    repo.load_file_settings_by_path.return_value = None
+    repo.get_max_history_index.return_value = 0
+    mgr = DesktopSessionManager(repo)
+    load_order = [3, 0, 5, 1, 4, 2][:n]
+    mgr.state.uploaded_files = [{"name": f"f{i}.tif", "path": f"/tmp/f{i}.tif", "hash": f"h{i}"} for i in load_order]
+    mgr.asset_model.refresh()
+    mgr.state.selected_file_idx = active_idx
+    mgr.state.selected_indices = list(range(n))
+    mgr.state.current_file_hash = mgr.state.uploaded_files[active_idx]["hash"]
+    mgr.state.current_file_path = mgr.state.uploaded_files[active_idx]["path"]
+    return mgr
+
+
+def _display_numbers(mgr: DesktopSessionManager) -> list[int]:
+    """Capture-frame numbers read in Film Strip display order."""
+    saved = _saved(mgr)
+    display = mgr.asset_model.visible_actual_indices_ordered()
+    return [saved[mgr.state.uploaded_files[i]["hash"]].metadata.capture_frame for i in display]
+
+
+def test_assign_sequential_selection_follows_display_order(qapp):
+    # The load order differs from name order; the run must number in display order.
+    mgr = _session_shuffled()
+    assert mgr.assign_sequential_frame_numbers(0, 1, "asc", "selection") == 6
+    assert _display_numbers(mgr) == [0, 1, 2, 3, 4, 5]
+
+
+def test_assign_sequential_selection_descending_display(qapp):
+    mgr = _session_shuffled()
+    mgr.asset_model.set_sort_descending(True)
+    assert mgr.assign_sequential_frame_numbers(0, 1, "asc", "selection") == 6
+    # The first frame in the descending display order takes the start value.
+    assert _display_numbers(mgr)[0] == 0
+
+
+def test_assign_sequential_hidden_selected_after_visible(qapp):
+    # The active frame (f4) is itself hidden by the filter; a filtered-out selected
+    # frame stays a target, numbered after the visible ones in index order.
+    mgr = _session_shuffled(active_idx=4)
+    mgr.asset_model.set_filter("f[0-3]", regex=True)
+    assert mgr.assign_sequential_frame_numbers(0, 1, "asc", "selection") == 6
+    saved = _saved(mgr)
+    # The four visible frames (f0-f3) take the first numbers in display order.
+    assert _display_numbers(mgr) == [0, 1, 2, 3]
+    # The two hidden selected frames follow, in index order (f5 before f4).
+    assert saved["h5"].metadata.capture_frame == 4
+    assert saved["h4"].metadata.capture_frame == 5

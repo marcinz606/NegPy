@@ -335,7 +335,7 @@ The adjustments a lab scanner makes after the print.
 
 *   **Chroma**: color strength. 1 is unchanged, 0 is black and white.
 *   **Skin Protection**: keeps skin tones from getting too strong in color.
-*   **Chroma Denoise**: removes colored speckles. Film grain stays.
+*   **Chroma Denoise**: removes colored speckles. Film grain stays. It is on at 2.5 for color film.
 *   **Sharpening**: sharpens detail without colored edges. Its fold holds **Method** (Unsharp Mask makes edges crisper; Deconvolution undoes the scanner's blur), **Radius** (the size of the detail, in exported pixels; judge it in **Export Size** or with the **Grain Focuser**) and **Masking** (sharpen only edges, so sky and skin stay smooth).
 *   **Auto Masking** (the wand beside Method, also on the tab header): sets Masking from the grain of each frame. Masking shows the value in use, and a drag moves it up or down from there. An export measures the grain again at its own size.
 *   **CLAHE**: local contrast, to bring out detail. Strong values can look unnatural.

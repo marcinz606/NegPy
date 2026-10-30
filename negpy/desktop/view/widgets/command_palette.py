@@ -7,14 +7,27 @@ from typing import Callable
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt, QTimer
-from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from negpy.desktop.view.shortcut_editor_search import HIGHLIGHT_MS
 from negpy.desktop.view.shortcut_registry import REGISTRY, display_key, key_for, label_with_shortcut
+from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUPS
 from negpy.desktop.view.styles.templates import BAR_BUTTON_HEIGHT, TOP_ROW_HEIGHT, hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, hidden_by_gating
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, align_slider_columns, clone_slider
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -91,12 +104,36 @@ class Entry:
     where: str
     target: object  # the widget, the action id, or the preset name
     words: str
+    # A slider on a [Global/R/G/B] card: the page that shows it, and its value there.
+    page: tuple[SegmentedChoice, int] | None = None
+    value: float | None = None
+    control: str = ""  # a paged slider's name without its page, for synonyms and order
+
+    @property
+    def stem(self) -> str:
+        return self.control or self.name
 
 
-def make_entry(kind: str, name: str, where: str, target: object) -> Entry:
-    aliases = [word for word, names in SYNONYMS.items() if any(name == tr(label) for label in names)]
-    originals = {label for names in SYNONYMS.values() for label in names if tr(label) == name}
-    return Entry(kind, name, where, target, " ".join([name, where, *aliases, *sorted(originals)]).casefold())
+def make_entry(
+    kind: str,
+    name: str,
+    where: str,
+    target: object,
+    page: tuple[SegmentedChoice, int] | None = None,
+    value: float | None = None,
+    control: str = "",
+) -> Entry:
+    stem = control or name
+    aliases = [word for word, names in SYNONYMS.items() if any(stem == tr(label) for label in names)]
+    originals = {label for names in SYNONYMS.values() for label in names if tr(label) == stem}
+    words = " ".join([name, where, *aliases, *sorted(originals)]).casefold()
+    return Entry(kind, name, where, target, words, page, value, control)
+
+
+def show_page(entry: Entry) -> None:
+    if entry.page is not None:
+        chooser, index = entry.page
+        chooser.setCurrentIndex(index)
 
 
 def rank(entries: list[Entry], query: str) -> list[Entry]:
@@ -115,9 +152,9 @@ def rank(entries: list[Entry], query: str) -> list[Entry]:
         if not all(token in entry.words for token in q.split()):
             continue
         name = entry.name.casefold()
-        if entry.name in synonym_rank:
-            score = (0, synonym_rank[entry.name])
-        elif name == q:
+        if entry.stem in synonym_rank:
+            score = (0, synonym_rank[entry.stem])
+        elif name == q or entry.stem.casefold() == q:
             score = (1, 0)
         elif name.startswith(q):
             score = (2, 0)
@@ -127,9 +164,9 @@ def rank(entries: list[Entry], query: str) -> list[Entry]:
             score = (4, 0)
         else:
             score = (5, 0)
-        scored.append((score, _KIND_ORDER[entry.kind], entry.name, entry))
-    scored.sort(key=lambda item: item[:3])
-    return [item[3] for item in scored]
+        scored.append((score, _KIND_ORDER[entry.kind], entry.stem, entry.page[1] if entry.page else 0, entry))
+    scored.sort(key=lambda item: item[:4])
+    return [item[4] for item in scored]
 
 
 def _card_of(widget: QWidget) -> CollapsibleSection | None:
@@ -137,6 +174,11 @@ def _card_of(widget: QWidget) -> CollapsibleSection | None:
     while parent is not None and not isinstance(parent, CollapsibleSection):
         parent = parent.parentWidget()
     return parent
+
+
+def _where(panel, slider: CompactSlider) -> str:
+    card = _card_of(slider)
+    return " › ".join(panel.tab_path(slider)[-1:] + ([card.title_label.text()] if card is not None else []))
 
 
 def build_index(window) -> list[Entry]:
@@ -147,12 +189,16 @@ def build_index(window) -> list[Entry]:
         if isinstance(section, TabHeader) or section.isHidden():
             continue
         entries.append(make_entry("card", section.title_label.text(), " › ".join(panel.tab_path(section)[-1:]), section))
+    pages = [page for sidebar in panel.findChildren(BaseSidebar) for page in sidebar.slider_pages()]
+    for page in pages:
+        name = tr("{control} ({page})", control=page.name, page=page.chooser.choice_text(page.index))
+        target = (page.chooser, page.index)
+        entries.append(make_entry("slider", name, _where(panel, page.slider), page.slider, target, page.value, page.name))
+    paged = {page.slider for page in pages}
     for slider in panel.findChildren(CompactSlider):
-        if panel.favourites_sidebar.isAncestorOf(slider) or hidden_by_gating(slider):
+        if slider in paged or panel.favourites_sidebar.isAncestorOf(slider) or hidden_by_gating(slider):
             continue
-        card = _card_of(slider)
-        where = panel.tab_path(slider)[-1:] + ([card.title_label.text()] if card is not None else [])
-        entries.append(make_entry("slider", slider.label.text(), " › ".join(where), slider))
+        entries.append(make_entry("slider", slider.label.text(), _where(panel, slider), slider))
     nudges = {group.inc_action for group in SLIDER_GROUPS} | {group.dec_action for group in SLIDER_GROUPS}
     for action_id, spec in REGISTRY.items():
         if action_id in nudges or action_id == "command_palette" or window.shortcut_manager.action_for(action_id) is None:
@@ -163,6 +209,12 @@ def build_index(window) -> list[Entry]:
         name = presets.item(row).text()
         entries.append(make_entry("preset", name, "Preset", name))
     return entries
+
+
+def _drive(entry: Entry, value: float, commit: bool) -> None:
+    # The card's page first: a shared widget writes the channel its card shows.
+    show_page(entry)
+    entry.target.mirror_value(value, commit=commit)
 
 
 def flash_widget(widget: QWidget) -> None:
@@ -190,6 +242,7 @@ def open_entry(window, entry: Entry) -> None:
         return
     if not window.drawer.isVisible():
         window.toggle_controls_dock()
+    show_page(entry)
     window.right_panel.reveal_widget(entry.target)
     if entry.kind == "slider":
         entry.target.slider.setFocus()
@@ -234,6 +287,7 @@ class CommandPalette(QDialog):
         super().__init__(window, Qt.WindowType.Popup)
         self.setObjectName("command_palette")
         self._window = window
+        self._watching_app = False
         self._entries = build_index(window)
 
         root = QVBoxLayout(self)
@@ -255,6 +309,7 @@ class CommandPalette(QDialog):
 
         self.empty = hint_label(tr("Type a slider, card or action, or another editor's word for it: contrast, white balance."))
         root.addWidget(self.empty)
+        root.addWidget(hint_label(tr("Press Esc to close.")))
 
         self.setFixedWidth(560)
         self._refresh("")
@@ -263,7 +318,25 @@ class CommandPalette(QDialog):
         super().showEvent(event)
         host = self._window.geometry()
         self.move(host.x() + (host.width() - self.width()) // 2, host.y() + host.height() // 8)
+        # On macOS the popup first lays out below a stale top inset, squeezing the query box.
+        self.layout().invalidate()
+        self.layout().activate()
         self.query.setFocus()
+        # Qt closes a popup on a click in the app, but not when another app takes the focus.
+        # Spontaneous show and hide events do not pair up, so the flag keeps one connection.
+        if not self._watching_app:
+            QApplication.instance().applicationStateChanged.connect(self._on_app_state)
+            self._watching_app = True
+
+    def hideEvent(self, event) -> None:
+        if self._watching_app:
+            QApplication.instance().applicationStateChanged.disconnect(self._on_app_state)
+            self._watching_app = False
+        super().hideEvent(event)
+
+    def _on_app_state(self, state: Qt.ApplicationState) -> None:
+        if state != Qt.ApplicationState.ApplicationActive:
+            self.reject()
 
     def _refresh(self, text: str) -> None:
         self.results.clear()
@@ -297,10 +370,12 @@ class CommandPalette(QDialog):
         if entry.kind == "slider":
             source = entry.target
             mirror = clone_slider(source)
-            mirror.setValue(source.value())
+            # A shared widget carries the label of the page its card shows, not this row's page.
+            mirror.label.setText(entry.name)
+            mirror.setValue(source.value() if entry.value is None else entry.value)
             mirror.setEnabled(source.isEnabled())
-            mirror.valueChanged.connect(lambda v, s=source: s.mirror_value(v, commit=False))
-            mirror.valueCommitted.connect(lambda v, s=source: s.mirror_value(v, commit=True))
+            mirror.valueChanged.connect(lambda v, e=entry: _drive(e, v, commit=False))
+            mirror.valueCommitted.connect(lambda v, e=entry: _drive(e, v, commit=True))
             layout.addWidget(mirror, 1)
         else:
             layout.addWidget(QLabel(entry.name), 1)

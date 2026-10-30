@@ -12,7 +12,7 @@ class RgbScanConfig:
     enabled: bool = False
     green_path: str = ""
     blue_path: str = ""
-    align: bool = True  # sub-pixel registration of green/blue to the red exposure
+    align: bool = True  # sub-pixel registration of red/blue to the green exposure
 
 
 def is_rgb_triplet(config: RgbScanConfig) -> bool:

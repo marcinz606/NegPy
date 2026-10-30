@@ -321,7 +321,7 @@ def test_apply_dialog_check_all_and_none(qapp):
     assert not any(box.isChecked() for box in dlg._all_boxes())
     assert not dlg.apply_btn.isEnabled()
     dlg._set_all_checked(True)
-    # unchanged rows stay hidden and unchecked until "Show unchanged settings"
+    # unchanged rows stay hidden and unchecked until "Show Defaults"
     assert {r.label for r in dlg.selected()} == {"Print Density", "Crop"}
     assert dlg.apply_btn.isEnabled()
 
@@ -1005,11 +1005,26 @@ def test_stitch_of_triplets_reads_as_a_stitch():
 
 def test_composite_summary_counts_every_source_frame():
     assets = _composite_assets()
-    assert composite_summary(assets["stitch"]) == "Stitched composite of 2 frames"
+    assert composite_summary(assets["stitch"]) == "Stitched composite of 2 frames\n  a.cr2\n  b.cr2"
     assert composite_summary(assets["hdr"]) == "HDR merge of 3 exposures"
     assert composite_summary(assets["rgb"]) == "Trichrome triplet"
     assert composite_summary(assets["half"]) == "Half-frame split (2 of 2)"
     assert composite_summary(assets["plain"]) == ""
+
+
+def test_stitch_of_triplets_lists_each_part_by_its_red_file():
+    asset = {**_composite_assets()["stitch"], "stitch_triplets": (("/tmp/ag.cr2", "/tmp/ab.cr2"), ("/tmp/bg.cr2", "/tmp/bb.cr2"))}
+    assert composite_summary(asset) == "Stitched composite of 2 frames (Trichrome)\n  a.cr2\n  b.cr2"
+
+
+def test_a_long_stitch_folds_the_extra_parts():
+    from negpy.desktop.session import STITCH_TOOLTIP_PARTS
+
+    others = tuple(f"/tmp/p{i:02d}.cr2" for i in range(STITCH_TOOLTIP_PARTS + 2))
+    lines = composite_summary({**_composite_assets()["stitch"], "stitch_paths": others}).split("\n")
+    assert lines[0] == f"Stitched composite of {STITCH_TOOLTIP_PARTS + 3} frames"
+    assert len(lines) == STITCH_TOOLTIP_PARTS + 1
+    assert lines[-1] == "  +4 more"
 
 
 def test_tooltip_names_what_the_frame_is_built_from(session):

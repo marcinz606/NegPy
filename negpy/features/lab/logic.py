@@ -6,6 +6,7 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.lab.models import LabConfig, SharpenMethod
+from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.logic import (
     WORKING_INV_GAMMA,
     WORKING_LAB,
@@ -209,6 +210,11 @@ def _saturation_block(img: ImageBuffer, saturation: float, skin_protection: floa
 
 # Below this blur sigma (px) both engines skip the stage.
 CHROMA_DENOISE_MIN_SIGMA = 0.25
+
+
+def chroma_denoise_radius(radius: float, process_mode: ProcessMode) -> float:
+    """B&W has no chroma to denoise, so the stage never runs there."""
+    return 0.0 if process_mode == ProcessMode.BW else radius
 
 
 def chroma_denoise_sigma(radius: float, scale_factor: float) -> float:

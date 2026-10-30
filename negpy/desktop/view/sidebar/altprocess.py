@@ -1,8 +1,9 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
-from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
@@ -190,6 +191,25 @@ class AltProcessSidebar(BaseSidebar):
             self.sabattier_block.setVisible(mode == AltProcess.SABATTIER)
         finally:
             self.block_signals(False)
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        # Picking a process is an edit, so Find offers one only where the card lets you pick it.
+        if not self.mode_btn.isEnabled() or hidden_by_gating(self.mode_btn):
+            return ()
+        blocks = (
+            (AltProcess.LITH, (self.exposure_slider, self.snatch_slider, self.abruptness_slider)),
+            (
+                AltProcess.CYANOTYPE,
+                (self.cyano_exposure_slider, self.cyano_scale_slider, self.cyano_bleach_slider, self.cyano_tannin_slider),
+            ),
+            (AltProcess.SABATTIER, (self.sabattier_strength_slider, self.sabattier_reexposure_slider, self.sabattier_agitation_slider)),
+        )
+        index = {mode: i for i, (mode, *_rest) in enumerate(self._modes)}
+        return tuple(
+            SliderPage(self.mode_btn, index[mode], slider.label.text(), slider, slider.value())
+            for mode, sliders in blocks
+            for slider in sliders
+        )
 
     def _sliders(self) -> list:
         return [

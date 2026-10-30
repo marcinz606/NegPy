@@ -469,7 +469,10 @@ class MainWindow(QMainWindow):
         box.exec()
 
     def show_command_palette(self) -> None:
-        CommandPalette(self).exec()
+        # Not exec(): on macOS a modal session drops the clicks outside that close a popup.
+        palette = CommandPalette(self)
+        palette.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        palette.show()
 
     def _restore_default_dock_state(self) -> None:
         """Restore the controls dock to the snapshot taken at startup (home edge + width)."""

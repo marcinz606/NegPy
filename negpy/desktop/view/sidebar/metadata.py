@@ -894,6 +894,8 @@ class MetadataSidebar(BaseSidebar):
             location_state=state,
             location_country=country,
         )
+        self.controller.sync_metadata_card_locks()
+        self._sync_scope_buttons()
         self._set_place_text_quiet()
         self._schedule_preview()
 
@@ -993,6 +995,8 @@ class MetadataSidebar(BaseSidebar):
             capture_frame=capture_frame,
             exposure_override=exposure_override,
         )
+        self.controller.sync_metadata_card_locks()
+        self._sync_scope_buttons()
 
     def sync_ui(self) -> None:
         # Before the dirty guard: a card's scope can change while an edit is uncommitted.
@@ -1072,6 +1076,8 @@ class MetadataSidebar(BaseSidebar):
                 readback_metrics=False,
                 exposure_override=text,
             )
+            self.controller.sync_metadata_card_locks()
+            self._sync_scope_buttons()
 
     def _update_exif_display(self) -> None:
         conf = self.state.config.metadata

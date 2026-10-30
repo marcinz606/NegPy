@@ -33,7 +33,7 @@ class RgbTripletDialog(QDialog):
             "fa5s.crosshairs",
             tr("Align Channels"),
             align,
-            tr("Register green and blue to the red exposure, to a fraction of a pixel, to remove fringing from capture drift."),
+            tr("Register red and blue to the green exposure, to a fraction of a pixel, to remove fringing from capture drift."),
         )
         layout.addWidget(self._align)
 

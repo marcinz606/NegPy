@@ -185,14 +185,14 @@ Zeichne eine Form. Nur dieser Bereich wird dann heller (Abwedeln) oder dunkler (
 
 **Abzugsnotizen** (`Shift+N`) markieren die Masken mit ihren Nummern und Werten im Bild, wie Notizen eines Druckers im Labor.
 
-<!-- panel:lab src:d973db86 -->
+<!-- panel:lab src:e8e4a89c -->
 ### 6.1 Lab: Farbe und Detail
 
 Die Anpassungen, die ein Lab-Scanner nach dem Abzug vornimmt.
 
 *   **Chroma**: Farbstärke. 1 ist unverändert, 0 ist Schwarzweiß.
 *   **Hautschutz**: verhindert, dass Hauttöne zu farbstark werden.
-*   **Chroma-Entrauschen**: entfernt farbige Punkte. Das Filmkorn bleibt.
+*   **Chroma-Entrauschen**: entfernt farbige Punkte. Das Filmkorn bleibt. Bei Farbfilm ist es auf 2,5 eingeschaltet.
 *   **Schärfen**: schärft Details ohne farbige Kanten. Die Falte enthält **Methode** (Unsharp Mask macht Kanten klarer, Dekonvolution macht die Unschärfe des Scanners rückgängig), **Radius** (die Größe des Details in exportierten Pixeln; beurteile ihn in der **Exportgröße** oder mit der **Kornschärfe-Lupe**) und **Maskierung** (schärft nur Kanten, damit Himmel und Haut glatt bleiben).
 *   **Auto-Maskierung** (der Zauberstab neben Methode, auch in der Kopfzeile des Tabs): stellt die Maskierung aus dem Korn jedes Bildes ein. Die Maskierung zeigt den verwendeten Wert, und ein Ziehen verschiebt ihn von dort nach oben oder unten. Ein Export misst das Korn in seiner eigenen Größe neu.
 *   **CLAHE**: lokaler Kontrast, um Details hervorzuheben. Hohe Werte können unnatürlich wirken.

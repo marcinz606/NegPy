@@ -6,10 +6,11 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
 from negpy.desktop.auto_sliders import shown_values, stored_value
 from negpy.desktop.view.confirm import warn_targets_affect_unbaked
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, TEST_STRIP_SWEEP, gradient_icon, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice, ToggleMenuButton
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.hdr.models import hdr_active
@@ -27,10 +28,30 @@ _CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_bl
 def channel_selector(tooltip: str) -> SegmentedChoice:
     """[Global/R/G/B]: Global edits the shared curve, a channel its per-layer trims."""
     return SegmentedChoice(
-        (("fa5s.globe", tr("Global")), *(("fa5s.circle", n, c) for n, c in zip(("Red", "Green", "Blue"), _CH_COLORS))),
+        (("fa5s.globe", tr("Global")), *(("fa5s.circle", n, c) for n, c in zip((tr("Red"), tr("Green"), tr("Blue")), _CH_COLORS))),
         tooltip,
         icon_only=(1, 2, 3),
     )
+
+
+def channel_pages(chooser: SegmentedChoice, config: object, rows) -> tuple[SliderPage, ...]:
+    """Every page of each (name, global slider, channel slider, global field, trim field) row; a card
+    that swaps widgets gives two different sliders. A hidden chooser holds the card on Global."""
+    if hidden_by_gating(chooser):
+        return ()
+    live = chooser.currentIndex()
+    pages = []
+    for name, global_slider, channel_slider, field, trim in rows:
+        if hidden_by_gating(global_slider if live == 0 else channel_slider):
+            continue
+        if global_slider is channel_slider:
+            pages.append(SliderPage(chooser, 0, name, global_slider, getattr(config, field)))
+        else:
+            # A swapped Global slider is never relabeled, and an auto may drive what it shows.
+            pages.append(SliderPage(chooser, 0, global_slider.label.text(), global_slider, global_slider.value()))
+        for i, ch in enumerate(_CH_SUFFIX, start=1):
+            pages.append(SliderPage(chooser, i, name, channel_slider, getattr(config, f"{trim}_{ch}")))
+    return tuple(pages)
 
 
 class ToneSidebar(BaseSidebar):
@@ -203,6 +224,14 @@ class ToneSidebar(BaseSidebar):
 
     def _channel_index(self) -> int:
         return self.ch_btn.currentIndex()
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        rows = (
+            (tr("Grade"), self.grade_slider, self.grade_trim_slider, "grade"),
+            (tr("Shadows Grade"), self.shadow_grade_slider, self.shadow_grade_slider, "shadow_grade"),
+            (tr("Highlights Grade"), self.highlight_grade_slider, self.highlight_grade_slider, "highlight_grade"),
+        )
+        return channel_pages(self.ch_btn, self.state.config.exposure, [(*row, f"{row[-1]}_trim") for row in rows])
 
     def _curve_field(self, base: str) -> str:
         idx = self._channel_index()

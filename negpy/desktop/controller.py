@@ -9239,9 +9239,6 @@ class AppController(QObject):
         if export_path is None:
             return
 
-        params = self.state.config
-        if self.state.flat_output:
-            params = flat_master_config(params)
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
@@ -9270,6 +9267,10 @@ class AppController(QObject):
 
         if self.state.bake_on_export:
             self._bake_auto_density_grade_for_export([file_info])
+
+        params = self.state.config
+        if self.state.flat_output:
+            params = flat_master_config(params)
 
         bounds_override = None
         if diptych is None and file_info.get("hash") == self.state.current_file_hash:
@@ -9321,11 +9322,11 @@ class AppController(QObject):
         if not self._confirm_unopened_frames(files):
             return
 
-        if self.state.config.export.export_sidecars_enabled:
-            self._write_edit_sidecars(files)
-
         if self.state.bake_on_export:
             self._bake_auto_density_grade_for_export(files)
+
+        if self.state.config.export.export_sidecars_enabled:
+            self._write_edit_sidecars(files)
 
         flat = self.state.flat_output
 
@@ -9481,11 +9482,11 @@ class AppController(QObject):
         if not self._confirm_unopened_frames(files):
             return
 
-        if self.state.config.export.export_sidecars_enabled:
-            self._write_edit_sidecars(files)
-
         if self.state.bake_on_export:
             self._bake_auto_density_grade_for_export(files)
+
+        if self.state.config.export.export_sidecars_enabled:
+            self._write_edit_sidecars(files)
 
         tasks = self._build_preset_export_tasks(files, presets)
         if tasks:
@@ -9691,9 +9692,10 @@ class AppController(QObject):
         self.set_status(", ".join(parts), 6000 if failed else 4000)
 
     def _baked_exposure_config(self, params: WorkspaceConfig, meters: Dict[str, Any]) -> Optional[WorkspaceConfig]:
-        """Freeze Auto Density / Auto Grade to this frame's metered values, or None when there is
-        nothing to freeze: no meters, or both autos already off. A freeze is a config change, not a
-        pixel write, so it renders identically and no render version moves."""
+        """Freeze the on Auto Density / Auto Grade to this frame's metered values, or None when
+        there is nothing to freeze. Each auto freezes only when its main value metered (density for
+        Auto Density, grade for Auto Grade), so a flag never turns off without its value fixed. A
+        freeze is a config change, not a pixel write, so it renders identically."""
         if not meters:
             return None
         exposure = params.exposure
@@ -9702,15 +9704,20 @@ class AppController(QObject):
         shown = shown_values(params, meters)
         if not shown:
             return None
-        return replace(
-            params,
-            exposure=replace(
-                exposure,
-                **shown,
-                auto_exposure=False,
-                auto_normalize_contrast=False,
-            ),
-        )
+        fields: Dict[str, Any] = {}
+        if "density" in shown:
+            fields["density"] = shown["density"]
+            fields["auto_exposure"] = False
+        if "grade" in shown:
+            fields["grade"] = shown["grade"]
+            if "highlight_density" in shown:
+                fields["highlight_density"] = shown["highlight_density"]
+            if "shadow_density" in shown:
+                fields["shadow_density"] = shown["shadow_density"]
+            fields["auto_normalize_contrast"] = False
+        if not fields:
+            return None
+        return replace(params, exposure=replace(exposure, **fields))
 
     def _params_for_file(self, f: dict) -> Optional[WorkspaceConfig]:
         """The config one file freezes from: the active frame's live config (unsaved edits
@@ -9797,15 +9804,23 @@ class AppController(QObject):
         self.set_status(", ".join(parts), 6000 if failed else 4000)
 
     def _bake_auto_density_grade_for_export(self, files: list[dict]) -> None:
-        """Freeze Auto Density / Auto Grade for each exported file into the DB before the export
-        runs. The export renders with the live config, which is identical to the frozen config, so
-        the output is unchanged; the freeze makes the saved edit independent of the meters."""
+        """Freeze Auto Density / Auto Grade for each exported file before the export runs, so the
+        saved edit no longer depends on the meters. The export renders with the live config, which
+        equals the frozen config, so the output is unchanged.
+        The open frame's truth is the live config, not the DB, so reflect it there: a DB-only write
+        would be clobbered by the pre-bake live config on the next save. Other frames keep the DB-only
+        write."""
+        current_hash = self.state.current_file_hash or ""
         for f in files:
             baked_cfg = self._baked_config_for_file(f)
             if baked_cfg is None:
                 continue
             try:
-                self.session.repo.save_file_settings(f["hash"], baked_cfg, file_path=f["path"])
+                if f["hash"] == current_hash:
+                    self.session.update_config(baked_cfg, persist=True, render=False, record_history=True)
+                    self.config_updated.emit()
+                else:
+                    self.session.repo.save_file_settings(f["hash"], baked_cfg, file_path=f["path"])
             except Exception as exc:
                 logger.warning("Bake auto density/grade failed for %s: %s", f.get("path", ""), exc)
 

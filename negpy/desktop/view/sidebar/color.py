@@ -3,8 +3,9 @@ from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, RING_AROUND_SWEEP, field_row, gradient_icon, wrap_tooltip
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.desktop.view.widgets.step_combo import StepCombo
@@ -111,6 +112,18 @@ class ColorSidebar(BaseSidebar):
     def _region_my(self, conf) -> tuple:
         m_field, y_field = self._REGION_MY[self._region_index()]
         return getattr(conf, m_field), getattr(conf, y_field)
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        if hidden_by_gating(self.region_btn):
+            return ()
+        conf = self.state.config.exposure
+        pages = []
+        for i, fields in enumerate(self._REGION_FIELDS):
+            kelvin = wb_to_kelvin(*(getattr(conf, f) for f in self._REGION_MY[i]))
+            pages.append(SliderPage(self.region_btn, i, self.temp_slider.label.text(), self.temp_slider, kelvin))
+            for slider, field in zip((self.cyan_slider, self.magenta_slider, self.yellow_slider), fields):
+                pages.append(SliderPage(self.region_btn, i, slider.label.text(), slider, getattr(conf, field)))
+        return tuple(pages)
 
     def _connect_signals(self) -> None:
         self.region_btn.currentChanged.connect(lambda _i: self.sync_ui())

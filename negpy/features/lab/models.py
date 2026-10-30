@@ -26,6 +26,6 @@ class LabConfig:
     sharpen_masking: float = 0.1
     # On, sharpen_masking is an offset on the grain measured in the buffer being sharpened.
     sharpen_auto_masking: bool = False
-    chroma_denoise: float = 0.0
+    chroma_denoise: float = 2.5
     glow_amount: float = 0.0
     halation_strength: float = 0.0

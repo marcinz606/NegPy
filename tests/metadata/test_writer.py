@@ -5,8 +5,9 @@ import io
 import imagecodecs
 import numpy as np
 import piexif
+import pytest
 import tifffile
-from PIL import Image
+from PIL import Image, ImageCms
 
 from negpy.features.metadata.models import MetadataConfig
 from negpy.features.metadata.writer import (
@@ -18,6 +19,9 @@ from negpy.features.metadata.writer import (
     preserve_source_metadata,
 )
 from negpy.infrastructure.loaders.jxl_boxes import JXL_SIGNATURE, jxl_boxes
+from negpy.domain.models import TiffCompression
+from negpy.features.metadata.resolution import Resolution
+from negpy.services.export.encoders import encode_tiff
 
 
 def _make_tiff_bytes() -> bytes:
@@ -120,7 +124,7 @@ class TestEmbedMetadata:
         sub-IFD pointer in source. Catches three regressions at once:
         - PIL round-trip would crush 16-bit to 8-bit
         - libtiff would reject the stale EXIFIFDOffset sub-IFD pointer
-        - sub-IFD tags must reach the main IFD where readers can find them
+        - capture fields must reach the Exif IFD where readers can find them
         """
         image_bytes = _make_tiff_bytes()
         source_exif = {
@@ -147,7 +151,8 @@ class TestEmbedMetadata:
             assert "Portra 400" in desc and "C-41" in desc
             assert tags.get(piexif.ImageIFD.Make).value == "Plustek"
             assert tags.get(piexif.ImageIFD.Model).value == "OpticFilm"
-            assert tags.get(piexif.ExifIFD.LensModel).value == "Nikkor 50mm"
+            assert piexif.ExifIFD.LensModel not in tags
+        assert piexif.load(out)["Exif"][piexif.ExifIFD.LensModel] == b"Nikkor 50mm"
 
     def test_filters_reserved_tags_and_flattens_multi_rational(self) -> None:
         """Real scanner EXIF carries core TIFF tags (256, 257, ...) tifffile
@@ -299,7 +304,8 @@ class TestPreserveSourceMetadata:
             assert tags.get(piexif.ImageIFD.Make).value == "Nikon"
             assert tags.get(piexif.ImageIFD.Model).value == "F6"
             assert tags.get(piexif.ImageIFD.Software).value == "MV-1 Recorder"
-            assert tags.get(piexif.ExifIFD.LensModel).value == "Nikkor 50mm f/1.8"
+            assert piexif.ExifIFD.LensModel not in tags
+        assert piexif.load(preserved)["Exif"][piexif.ExifIFD.LensModel] == b"Nikkor 50mm f/1.8"
 
     def test_does_not_normalize_orientation(self) -> None:
         from PIL import Image
@@ -685,6 +691,68 @@ class TestTiffSoftware:
             assert tf.pages[0].tags["Software"].value == "SilverFast"
 
 
+@pytest.mark.parametrize("compression", list(TiffCompression))
+@pytest.mark.parametrize("route", ["first_encode", "rewrite", "preserve"])
+def test_tiff_keeps_exif_in_its_own_directory(route: str, compression: TiffCompression) -> None:
+    """TIFF readers find capture fields in ExifIFD without duplicates in the image directory."""
+    from negpy.features.metadata.writer import attach_exif_ifd, export_embed_plan, tiff_metadata_kwargs
+
+    pixels = np.arange(16 * 16 * 3, dtype=np.uint16).reshape(16, 16, 3) * 79
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    resolution = Resolution.from_dpi(300)
+    comment = b"ASCII\x00\x00\x00Film: HP5 Plus"
+    capture = {
+        piexif.ExifIFD.DateTimeOriginal: b"2024:05:12 14:30:00",
+        piexif.ExifIFD.ExposureTime: (1, 125),
+        piexif.ExifIFD.FNumber: (2, 1),
+        piexif.ExifIFD.ISOSpeedRatings: 400,
+        piexif.ExifIFD.LensModel: b"Summitar 50mm",
+        piexif.ExifIFD.UserComment: comment,
+    }
+    source = _source_exif(capture)
+    source["0th"] = {
+        piexif.ImageIFD.Make: b"Canon",
+        piexif.ImageIFD.ImageDescription: b"Capture notes",
+        piexif.ImageIFD.Artist: b"Photographer",
+        piexif.ImageIFD.Copyright: b"Copyright Photographer",
+    }
+    plain = encode_tiff(pixels, icc=icc, resolution=resolution, compression=compression)
+    if route == "first_encode":
+        plan = export_embed_plan(MetadataConfig(), source, "/unused/source.tiff")
+        assert plan is not None
+        exif, xmp, fold = plan
+        out = encode_tiff(
+            pixels,
+            icc=icc,
+            resolution=resolution,
+            compression=compression,
+            **tiff_metadata_kwargs(exif, xmp, fold_user_comment=fold),
+        )
+        out = attach_exif_ifd(out, exif)
+    elif route == "rewrite":
+        out = embed_metadata(plain, MetadataConfig(), source)
+    else:
+        out = preserve_source_metadata(plain, "/unused/source.tiff", source)
+
+    with tifffile.TiffFile(io.BytesIO(out)) as tf:
+        page = tf.pages[0]
+        assert not set(capture).intersection(page.tags.keys())
+        assert page.tags[piexif.ImageIFD.ExifTag].value
+        assert page.tags["Make"].value == "Canon"
+        assert page.tags["Artist"].value == "Photographer"
+        assert page.tags["Copyright"].value == "Copyright Photographer"
+        expected_description = "Capture notes" if route == "preserve" else "Capture notes\nFilm: HP5 Plus"
+        assert page.tags["ImageDescription"].value == expected_description
+        assert page.iccprofile == icc
+        assert page.bitspersample == 16
+        np.testing.assert_array_equal(page.asarray(), pixels)
+    assert piexif.load(out)["Exif"] == capture
+    with tifffile.TiffFile(io.BytesIO(plain)) as before, tifffile.TiffFile(io.BytesIO(out)) as after:
+        assert after.pages[0].compression == before.pages[0].compression
+        for name in ("XResolution", "YResolution", "ResolutionUnit"):
+            assert after.pages[0].tags[name].value == before.pages[0].tags[name].value
+
+
 class TestJxlSourceMetadata:
     def test_xmp_is_read_back_out_of_a_jxl_scan(self, tmp_path) -> None:
         """A JXL source is as valid a scan as a TIFF, and protect-original has to
@@ -714,7 +782,7 @@ class TestExportEmbedPlan:
             return {t.name: t.value for t in tf.pages[0].tags}
 
     def test_tiff_first_encode_matches_rewrite(self) -> None:
-        from negpy.features.metadata.writer import export_embed_plan, tiff_metadata_kwargs
+        from negpy.features.metadata.writer import attach_exif_ifd, export_embed_plan, tiff_metadata_kwargs
 
         config = MetadataConfig(film="Portra 400", developer="C-41")
         plan = export_embed_plan(config, dict(self.SOURCE_EXIF), "/nonexistent.tif")
@@ -731,12 +799,17 @@ class TestExportEmbedPlan:
             predictor=True,
             **tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold),
         )
-        first_encode = self._tags(buf.getvalue())
+        first_bytes = attach_exif_ifd(buf.getvalue(), exif_bytes)
+        first_encode = self._tags(first_bytes)
 
-        rewrite = self._tags(embed_metadata(_make_tiff_bytes(), config, dict(self.SOURCE_EXIF)))
+        rewrite_bytes = embed_metadata(_make_tiff_bytes(), config, dict(self.SOURCE_EXIF))
+        rewrite = self._tags(rewrite_bytes)
 
-        for name in ("ImageDescription", "Make", "Model", "LensModel"):
+        for name in ("ImageDescription", "Make", "Model"):
             assert first_encode.get(name) == rewrite.get(name), name
+        assert "LensModel" not in first_encode and "LensModel" not in rewrite
+        assert piexif.load(first_bytes)["Exif"][piexif.ExifIFD.LensModel] == b"Nikkor 50mm"
+        assert piexif.load(rewrite_bytes)["Exif"][piexif.ExifIFD.LensModel] == b"Nikkor 50mm"
         assert ("XMP" in first_encode) == ("XMP" in rewrite)
 
     def test_preserve_mode_without_source_exif_is_none(self) -> None:

@@ -1,9 +1,22 @@
 from typing import Any
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from PyQt6.QtWidgets import QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, icon_button, labeled_action, labeled_toggle, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.sliders import CompactSlider
+
+
+@dataclass(frozen=True)
+class SliderPage:
+    """A slider as choice *index* of *chooser* shows it, for Find: picking it selects that choice first."""
+
+    chooser: SegmentedChoice
+    index: int
+    name: str  # without the card's own page suffix
+    slider: CompactSlider
+    value: float  # the slider's value on that page
 
 
 class BaseSidebar(QWidget):
@@ -41,6 +54,11 @@ class BaseSidebar(QWidget):
     def sync_ui(self) -> None:
         """Override to update widgets from current AppState."""
         pass
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        """Override on a card whose choice swaps the sliders it shows: every slider on every choice
+        that applies now, so Find reaches the ones out of view."""
+        return ()
 
     def _tool_toggle(self, icon_name: str, label: str, tooltip: str, align_left: bool = False) -> QPushButton:
         return tool_toggle(icon_name, label, tooltip, align_left)

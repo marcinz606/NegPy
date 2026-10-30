@@ -104,6 +104,23 @@ def test_task_marks_done_and_waits_for_next() -> None:
     assert overlay.index == 1
 
 
+def test_nav_keys_wait_for_the_task() -> None:
+    state = {"v": 0}
+    steps = [
+        TutorialStep("A", "Try", "x", lambda _: None, task="Change v.", watch=lambda _: state["v"]),
+        TutorialStep("A", "Next", "y", lambda _: None),
+    ]
+    overlay, _ = _started(_host(), steps)
+    assert "→" not in overlay._next_btn.toolTip()
+    QTest.keyClick(overlay, Qt.Key.Key_Right)
+    assert overlay.index == 0
+    state["v"] = 1
+    overlay._poll()
+    assert "→" in overlay._next_btn.toolTip()
+    QTest.keyClick(overlay, Qt.Key.Key_Return)
+    assert overlay.index == 1
+
+
 def test_skip_step_advances_without_the_task() -> None:
     steps = [
         TutorialStep("A", "Try", "x", lambda _: None, task="Never.", watch=lambda _: 0),

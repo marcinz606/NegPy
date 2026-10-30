@@ -289,15 +289,16 @@ def _align_to(ref_gray: np.ndarray, mov: np.ndarray, mov_ch: int, max_shift: flo
 def assemble_rgb(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True) -> np.ndarray:
     """Assemble one HxWx3 image: red channel from the red shot, green from green, blue from blue.
 
-    With ``align``, green/blue are registered to the red exposure first (sub-pixel
-    translation) to remove fringing from frame-to-frame drift during capture.
+    With ``align``, red and blue are registered to the green exposure first (sub-pixel
+    translation) to remove fringing from frame-to-frame drift during capture. Green is the
+    reference because resampling softens a channel and green carries the most detail.
     """
     if not (r.shape == g.shape == b.shape):
         raise ValueError(f"RGB-scan exposures differ in shape: {r.shape}, {g.shape}, {b.shape}")
     if align:
-        ref = negpy_core.extract_channel(np.ascontiguousarray(r, dtype=np.float32), RED)
+        ref = negpy_core.extract_channel(np.ascontiguousarray(g, dtype=np.float32), GREEN)
         max_shift = max(16.0, 0.02 * r.shape[1])
-        g = _align_to(ref, g, GREEN, max_shift)
+        r = _align_to(ref, r, RED, max_shift)
         b = _align_to(ref, b, BLUE, max_shift)
     return negpy_core.pick_channels(*(np.ascontiguousarray(x, dtype=r.dtype) for x in (r, g, b)))
 

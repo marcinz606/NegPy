@@ -1,5 +1,23 @@
 # Change Log
 
+## 0.67.0 (draft)
+
+- New: **B&W from color negatives** — print through a Yellow, Orange, Red or Green contrast filters.
+- New: **Improved Roll Average** — baselines always measure in the background, and a Roll Average peek (hold U) prints the frame on its roll or scene average.
+- New: **Export Size view** — see the frame and grain at export size; resized exports sharpen at their final size.
+- New: **German translation** @shearer.
+- New: **Auto Masking** sets Sharpening Masking from the film grain.
+- New: **Rolls** — Save to Folder Roll, Restore Removed Frames… and Unload All…; Film Base and Half Frame work with no roll. @kurtwindisch
+- New: **Scanning and merges** — scan exposure warnings, Trichrome aligns to green, better stitch seams. @seanharding @matthoosier @kurtwindisch
+- New: **Kodak Ektacolor Edge** print stock.
+- Change: **Contrast Mask** — refined and based on algorithm from Fuji Frontier Hypertone.
+- Change: **Halation, Glow and Diffusion** — more natural light spread
+- Change: **Interface** — more UI revinements, evenly spaced canvas backgrounds, new Roll tab card order, improved status/progress monitoring.
+- Change: **Speed** — more stuff moved to Rust negpy_core, faster export and TIFF/DNG previews.
+- Fix: **macOS** — pinch zoom, canvas resize and a wait-cursor crash. @PabloRuizCuevas @seanharding
+- Fix: **Export and metadata** — TIFF Exif, Bake on Export, Subfolder of Source, EV parsing and frame numbering. @jharlap @red-prs @kurtwindisch
+- Fix: **File loading** — trimmed Pakon frames and camera captures of B&W film. @thetalkingdrum @seanharding
+
 ## 0.66.0
 
 - New: **Interface redesign** — simpler panels with one shared look; fine-tune controls fold behind chevrons, and toggles replace checkboxes.

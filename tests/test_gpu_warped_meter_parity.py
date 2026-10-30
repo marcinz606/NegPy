@@ -8,6 +8,7 @@ import pytest
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.gpu.device import GPUDevice
+from negpy.kernel.system.config import render_scale_factor
 from negpy.services.rendering.engine import DarkroomEngine
 
 pytestmark = pytest.mark.skipif(not GPUDevice.get().is_available, reason="GPU not available")
@@ -31,7 +32,13 @@ def _warped(**geo) -> WorkspaceConfig:
 
 def _gpu(engine, img, cfg, source_hash=None):
     tex, metrics = engine.process_to_texture(
-        img, cfg, scale_factor=1.0, apply_layout=False, readback_metrics=False, source_hash=source_hash, analysis_source_hash=source_hash
+        img,
+        cfg,
+        scale_factor=render_scale_factor(img.shape),
+        apply_layout=False,
+        readback_metrics=False,
+        source_hash=source_hash,
+        analysis_source_hash=source_hash,
     )
     return engine._readback_downsampled(tex), metrics
 

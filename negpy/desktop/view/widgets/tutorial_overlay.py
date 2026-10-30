@@ -67,6 +67,9 @@ class TutorialStep:
         self.post_hook = post_hook
 
 
+_NEXT_TIP = tr("Next step (→ or Enter), or press Esc to end the tour")
+_SKIP_TIP = tr("Skip this step, or press Esc to end the tour")
+
 _NAV_KEYS = {Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space}
 
 
@@ -184,7 +187,7 @@ class TutorialOverlay(QWidget):
         self._prev_btn.clicked.connect(self._prev)
         self._skip_btn = labeled_action("", tr("Skip Chapter"), tr("Go to the next chapter of the tour, or to its last step"))
         self._skip_btn.clicked.connect(self._skip_chapter)
-        self._next_btn = labeled_action("", tr("Next"), tr("Next step (→ or Enter), or press Esc to end the tour"), primary=True)
+        self._next_btn = labeled_action("", tr("Next"), _NEXT_TIP, primary=True)
         self._next_btn.clicked.connect(self._next)
         btn_row.addWidget(self._prev_btn)
         btn_row.addWidget(self._skip_btn)
@@ -338,7 +341,9 @@ class TutorialOverlay(QWidget):
         )
         set_hint_kind(self._task_lbl, "success" if done else "muted")
         last = self._idx == len(self._steps) - 1
-        self._next_btn.setText(tr("Done") if last else (tr("Skip Step") if step.watch and not done else tr("Next")))
+        skip = not last and step.watch is not None and not done
+        self._next_btn.setText(tr("Done") if last else (tr("Skip Step") if skip else tr("Next")))
+        self._next_btn.setToolTip(_SKIP_TIP if skip else _NEXT_TIP)
 
     def _sync_offer(self) -> None:
         offer = self._steps[self._idx].offer
@@ -525,7 +530,8 @@ class TutorialOverlay(QWidget):
             a0.accept()
 
     def _on_task(self) -> bool:
-        return bool(self._steps) and self._steps[self._idx].watch is not None
+        """True while an open task may need the navigation keys; a done task gives them back."""
+        return bool(self._steps) and self._steps[self._idx].watch is not None and not self._task_done
 
     def event(self, a0: Optional[QEvent]) -> bool:  # type: ignore[override]
         # Claims the navigation keys ahead of the window's shortcuts, except on a task, which may need them.

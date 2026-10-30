@@ -124,12 +124,13 @@
    "hdr_ratios": "[]"
   },
   "lab": {
-   "chroma_denoise": "0.0",
+   "chroma_denoise": "2.5",
    "clahe_strength": "0.0",
    "glow_amount": "0.0",
    "halation_strength": "0.0",
    "saturation": "1.0",
    "sharpen": "0.25",
+   "sharpen_auto_masking": "false",
    "sharpen_masking": "0.1",
    "sharpen_method": "\"usm\"",
    "sharpen_radius": "1.0",
@@ -161,6 +162,7 @@
    "crosstalk_strength": "0.0",
    "demosaic_export": "\"Auto\"",
    "demosaic_preview": "\"Auto\"",
+   "film_base": "null",
    "highlight_reconstruction": "0",
    "hue_trim": "0.0",
    "linear_raw": "false",
@@ -216,5 +218,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 23
+ "render_version": 26
 }

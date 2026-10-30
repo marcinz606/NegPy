@@ -79,7 +79,7 @@ def build_scope_row(sel_count: int, roll_count: int, show_current: bool = False)
 class GranularSettingsDialog(QDialog):
     """Per-setting picker for paste / apply-to-many. Lists one collapsible section
     per edit area, each setting with a toggle and its value. Settings still at
-    their default are built but hidden until "Show unchanged settings" — they must
+    their default are built but hidden until "Show Defaults" — they must
     stay pickable so a roll can be reset back to a default value (#656). Reuses the
     shortcut-editor's CollapsibleSection look."""
 
@@ -181,7 +181,7 @@ class GranularSettingsDialog(QDialog):
         check_none = labeled_action("", tr("All Off"), tr("Turn off every listed setting"))
         check_none.clicked.connect(lambda: self._set_all_checked(False))
         self._show_unchanged = labeled_toggle(
-            "fa5s.eye", tr("Show Unchanged"), False, tr("List settings still at their default, so they can be applied too")
+            "fa5s.eye", tr("Show Defaults"), False, tr("List settings still at their default, so they can be applied too")
         )
         self._show_unchanged.toggled.connect(self._apply_visibility)
         self._show_unchanged.setVisible(self._preselect_ids is None)

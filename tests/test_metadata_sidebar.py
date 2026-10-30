@@ -204,6 +204,33 @@ class TestCapturePlace:
         assert sidebar.place_edit.text() == "Tokyo, Tokyo, Japan"
 
 
+class TestCardLockOnEdit:
+    """Editing a Capture value locks the card so a frame switch keeps the value."""
+
+    def test_editing_place_locks_the_card(self, sidebar: MetadataSidebar) -> None:
+        sidebar.controller.sync_metadata_card_locks.reset_mock()
+        sidebar.place_edit.setText("35.68, 139.69")
+        sidebar._on_place_edited()
+
+        sidebar.controller.sync_metadata_card_locks.assert_called_once()
+        meta = sidebar.state.config.metadata
+        assert (meta.gps_latitude, meta.gps_longitude) == (35.68, 139.69)
+
+    def test_persisting_metadata_locks_the_card(self, sidebar: MetadataSidebar) -> None:
+        sidebar.controller.sync_metadata_card_locks.reset_mock()
+        sidebar._mark_dirty()
+        sidebar._persist_all_metadata_settings()
+
+        sidebar.controller.sync_metadata_card_locks.assert_called_once()
+
+    def test_flushing_exposure_override_locks_the_card(self, sidebar: MetadataSidebar) -> None:
+        sidebar.controller.sync_metadata_card_locks.reset_mock()
+        sidebar.exposure_edit.setText("1/125s f/2.8")
+        sidebar._flush_exposure_override()
+
+        sidebar.controller.sync_metadata_card_locks.assert_called_once()
+
+
 class TestSourceGpsPrefill:
     _SCAN_GPS = {
         "GPS": {

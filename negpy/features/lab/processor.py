@@ -5,6 +5,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
+    chroma_denoise_radius,
     apply_glow_and_halation,
     apply_lab_sharpening,
     apply_saturation,
@@ -24,8 +25,9 @@ class PhotoLabProcessor:
         """
         img = image
 
-        if self.config.chroma_denoise > 0:
-            img = apply_chroma_denoise(img, self.config.chroma_denoise, context.scale_factor)
+        chroma_radius = chroma_denoise_radius(self.config.chroma_denoise, context.process_mode)
+        if chroma_radius > 0:
+            img = apply_chroma_denoise(img, chroma_radius, context.scale_factor)
 
         if self.config.saturation != 1.0 or self.config.skin_protection > 0:
             img = apply_saturation(img, self.config.saturation, self.config.skin_protection)

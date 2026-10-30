@@ -340,6 +340,23 @@ class TestLabLogic(unittest.TestCase):
         np.testing.assert_array_almost_equal(lab[:, :, 0], res_lab[:, :, 0], decimal=0)
         self.assertLess(float(np.var(res_lab[:, :, 1])), float(np.var(lab[:, :, 1])))
 
+    def test_chroma_denoise_runs_on_color_film_only(self) -> None:
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.lab.processor import PhotoLabProcessor
+        from negpy.features.process.models import ProcessMode
+
+        lab = rgb_to_lab_working(np.full((64, 64, 3), 0.5, dtype=np.float32))
+        lab[..., 1] += np.random.default_rng(0).normal(0, 5, (64, 64)).astype(np.float32)
+        img = np.clip(lab_to_rgb_working(lab), 0.0, 1.0).astype(np.float32)
+        proc = PhotoLabProcessor(LabConfig(saturation=1.0, skin_protection=0.0, sharpen=0.0))
+
+        def render(mode: ProcessMode) -> np.ndarray:
+            return proc.process(img.copy(), PipelineContext(original_size=(64, 64), scale_factor=1.0, process_mode=mode))
+
+        np.testing.assert_array_equal(render(ProcessMode.BW), np.clip(img, 0.0, 1.0))
+        for mode in (ProcessMode.C41, ProcessMode.E6):
+            self.assertGreater(float(np.abs(render(mode) - img).max()), 1e-3)
+
     def test_chroma_denoise_does_not_bleed_across_edge(self) -> None:
         """A saturated region must not tint its neighbours — an isotropic blur haloed."""
         rng = np.random.default_rng(0)

@@ -47,7 +47,7 @@ def _marked(w: "MainWindow", mark: str) -> bool:
 def _palette_open(_w: "MainWindow") -> bool:
     from negpy.desktop.view.widgets.command_palette import CommandPalette
 
-    return isinstance(QApplication.activeModalWidget(), CommandPalette)
+    return isinstance(QApplication.activePopupWidget(), CommandPalette)
 
 
 def _put_down(w: "MainWindow") -> None:

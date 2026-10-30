@@ -193,7 +193,15 @@ class TestAppController(unittest.TestCase):
         self.assertFalse(save_args.args[1].exposure.auto_exposure)
         self.assertFalse(save_args.args[1].exposure.auto_normalize_contrast)
 
-    def test_bake_for_export_persists_without_touching_live_config(self):
+    def _config_with_autos(self, *, density_on, grade_on, transfer=False):
+        cfg = replace(
+            self.controller.state.config,
+            exposure=replace(self.controller.state.config.exposure, auto_exposure=density_on, auto_normalize_contrast=grade_on),
+        )
+        return _slide_config(cfg) if transfer else cfg
+
+    def test_bake_for_export_reflects_current_frame_and_persists_others(self):
+        # the open frame truth is the live config, so the bake writes it there, not DB-only
         meters = self._bake_meters()
         files = [
             {"hash": "a", "path": "/tmp/a.jpg"},
@@ -201,16 +209,114 @@ class TestAppController(unittest.TestCase):
         ]
         self.controller.state.current_file_hash = "a"
         self.controller.state.auto_meters = {"a": meters, "b": meters}
-        live = self.controller.state.config
+        # update_config sets the live config and writes the current frame DB row (persist=True)
+        self.controller.session.update_config.side_effect = lambda cfg, **_kw: setattr(self.controller.state, "config", cfg)
         with patch("negpy.desktop.controller.load_or_promote", return_value=self.controller.state.config):
             self.controller._bake_auto_density_grade_for_export(files)
-        # both frames persisted, both frozen
-        self.assertEqual(self.controller.session.repo.save_file_settings.call_count, 2)
-        for call in self.controller.session.repo.save_file_settings.call_args_list:
-            self.assertFalse(call.args[1].exposure.auto_exposure)
-            self.assertFalse(call.args[1].exposure.auto_normalize_contrast)
-        # the live config the export renders with is untouched
-        self.assertIs(self.controller.state.config, live)
+        # the current frame is reflected into the live config and its DB row
+        self.controller.session.update_config.assert_called_once()
+        baked_a = self.controller.session.update_config.call_args.args[0]
+        self.assertFalse(baked_a.exposure.auto_exposure)
+        self.assertFalse(baked_a.exposure.auto_normalize_contrast)
+        # the live config a frame move would save now holds the frozen values
+        live = self.controller.state.config
+        self.assertFalse(live.exposure.auto_exposure)
+        self.assertFalse(live.exposure.auto_normalize_contrast)
+        # the other frame is written to the DB only and leaves the live config untouched
+        self.controller.session.repo.save_file_settings.assert_called_once()
+        save_args = self.controller.session.repo.save_file_settings.call_args
+        self.assertEqual(save_args.args[0], "b")
+        self.assertFalse(save_args.args[1].exposure.auto_exposure)
+        self.assertFalse(save_args.args[1].exposure.auto_normalize_contrast)
+
+    def test_baked_exposure_config_print_density_only(self):
+        from negpy.desktop.auto_sliders import shown_values
+
+        meters = self._bake_meters()
+        cfg = self._config_with_autos(density_on=True, grade_on=False)
+        shown = shown_values(cfg, meters)
+        baked = self.controller._baked_exposure_config(cfg, meters)
+        self.assertEqual(baked.exposure.density, shown["density"])
+        self.assertFalse(baked.exposure.auto_exposure)
+        self.assertFalse(baked.exposure.auto_normalize_contrast)
+        self.assertEqual(baked.exposure.grade, cfg.exposure.grade)
+        self.assertEqual(baked.exposure.highlight_density, cfg.exposure.highlight_density)
+        self.assertEqual(baked.exposure.shadow_density, cfg.exposure.shadow_density)
+
+    def test_baked_exposure_config_print_grade_only(self):
+        from negpy.desktop.auto_sliders import shown_values
+
+        meters = self._bake_meters()
+        cfg = self._config_with_autos(density_on=False, grade_on=True)
+        shown = shown_values(cfg, meters)
+        baked = self.controller._baked_exposure_config(cfg, meters)
+        self.assertEqual(baked.exposure.grade, shown["grade"])
+        self.assertEqual(baked.exposure.highlight_density, shown["highlight_density"])
+        self.assertEqual(baked.exposure.shadow_density, shown["shadow_density"])
+        self.assertFalse(baked.exposure.auto_normalize_contrast)
+        self.assertFalse(baked.exposure.auto_exposure)
+        self.assertEqual(baked.exposure.density, cfg.exposure.density)
+
+    def test_baked_exposure_config_transfer_both_autos_on(self):
+        from negpy.desktop.auto_sliders import shown_values
+
+        meters = self._bake_meters()
+        cfg = self._config_with_autos(density_on=True, grade_on=True, transfer=True)
+        shown = shown_values(cfg, meters)
+        baked = self.controller._baked_exposure_config(cfg, meters)
+        self.assertEqual(baked.exposure.density, shown["density"])
+        self.assertEqual(baked.exposure.grade, shown["grade"])
+        self.assertEqual(baked.exposure.highlight_density, shown["highlight_density"])
+        self.assertEqual(baked.exposure.shadow_density, shown["shadow_density"])
+        self.assertFalse(baked.exposure.auto_exposure)
+        self.assertFalse(baked.exposure.auto_normalize_contrast)
+
+    def test_baked_exposure_config_transfer_density_only(self):
+        from negpy.desktop.auto_sliders import shown_values
+
+        meters = self._bake_meters()
+        cfg = self._config_with_autos(density_on=True, grade_on=False, transfer=True)
+        shown = shown_values(cfg, meters)
+        baked = self.controller._baked_exposure_config(cfg, meters)
+        self.assertEqual(baked.exposure.density, shown["density"])
+        self.assertFalse(baked.exposure.auto_exposure)
+        self.assertFalse(baked.exposure.auto_normalize_contrast)
+        self.assertEqual(baked.exposure.grade, cfg.exposure.grade)
+        self.assertEqual(baked.exposure.highlight_density, cfg.exposure.highlight_density)
+        self.assertEqual(baked.exposure.shadow_density, cfg.exposure.shadow_density)
+
+    def test_baked_exposure_config_transfer_grade_only(self):
+        from negpy.desktop.auto_sliders import shown_values
+
+        meters = self._bake_meters()
+        cfg = self._config_with_autos(density_on=False, grade_on=True, transfer=True)
+        shown = shown_values(cfg, meters)
+        baked = self.controller._baked_exposure_config(cfg, meters)
+        self.assertEqual(baked.exposure.grade, shown["grade"])
+        self.assertEqual(baked.exposure.highlight_density, shown["highlight_density"])
+        self.assertEqual(baked.exposure.shadow_density, shown["shadow_density"])
+        self.assertFalse(baked.exposure.auto_normalize_contrast)
+        self.assertFalse(baked.exposure.auto_exposure)
+        self.assertEqual(baked.exposure.density, cfg.exposure.density)
+
+    def test_baked_exposure_config_guard_missing_main_value_keeps_flag(self):
+        # when an auto main value is absent from shown, its flag stays on
+        cfg = self._config_with_autos(density_on=True, grade_on=True)
+        with patch("negpy.desktop.controller.shown_values", return_value={"density": 0.5}):
+            baked = self.controller._baked_exposure_config(cfg, self._bake_meters())
+        self.assertIsNotNone(baked)
+        self.assertEqual(baked.exposure.density, 0.5)
+        self.assertFalse(baked.exposure.auto_exposure)
+        # grade is absent from shown, so Auto Grade stays on with its original values
+        self.assertTrue(baked.exposure.auto_normalize_contrast)
+        self.assertEqual(baked.exposure.grade, cfg.exposure.grade)
+        self.assertEqual(baked.exposure.highlight_density, cfg.exposure.highlight_density)
+        self.assertEqual(baked.exposure.shadow_density, cfg.exposure.shadow_density)
+
+    def test_baked_exposure_config_none_when_no_main_value_in_shown(self):
+        cfg = self._config_with_autos(density_on=True, grade_on=True)
+        with patch("negpy.desktop.controller.shown_values", return_value={}):
+            self.assertIsNone(self.controller._baked_exposure_config(cfg, self._bake_meters()))
 
     def test_set_bake_on_export_persists_and_emits(self):
         self.controller.state.bake_on_export = False

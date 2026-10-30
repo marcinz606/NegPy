@@ -2,8 +2,8 @@ from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtWidgets import QHBoxLayout
 
-from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_selector
+from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
+from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages, channel_selector
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
@@ -133,6 +133,17 @@ class PaperSidebar(BaseSidebar):
 
     def _channel_index(self) -> int:
         return self.ch_btn.currentIndex()
+
+    def slider_pages(self) -> tuple[SliderPage, ...]:
+        rows = (
+            (tr("Toe"), self.toe_slider, self.toe_slider, "toe"),
+            (tr("Toe Width"), self.toe_w_slider, self.toe_w_trim_slider, "toe_width"),
+            (tr("Shoulder"), self.sh_slider, self.sh_slider, "shoulder"),
+            (tr("Shoulder Width"), self.sh_w_slider, self.sh_w_trim_slider, "shoulder_width"),
+            (tr("Snap"), self.midtone_gamma_slider, self.midtone_gamma_slider, "midtone_gamma"),
+            (tr("Dye Separation"), self.dye_separation_slider, self.dye_separation_trim_slider, "dye_separation"),
+        )
+        return channel_pages(self.ch_btn, self.state.config.exposure, [(*row, f"{row[-1]}_trim") for row in rows])
 
     @staticmethod
     def _paper_strip_tooltip(printing: bool = False) -> str:
