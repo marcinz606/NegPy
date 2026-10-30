@@ -21,6 +21,60 @@ import negpy_core
 import numpy as np
 
 
+def _has_corrupt_colordata(raw) -> bool:
+    generic = int(raw.white_level or 0)
+    per_channel = raw.camera_white_level_per_channel
+    if not per_channel:
+        return False
+    positive = [int(v) for v in per_channel if v and v > 0]
+    if not positive:
+        return False
+    calibrated = min(positive)
+    black = max(getattr(raw, "black_level_per_channel", None) or [0])
+    return calibrated <= black or (generic > 0 and calibrated < generic // 2)
+
+
+def _optical_black(raw) -> int:
+    full = getattr(raw, "raw_image", None)
+    sizes = getattr(raw, "sizes", None)
+    if full is None or sizes is None:
+        return 0
+    tm = int(getattr(sizes, "top_margin", 0) or 0)
+    lm = int(getattr(sizes, "left_margin", 0) or 0)
+    if lm >= 24:
+        strip = full[tm:, 8 : lm - 8]
+    elif tm >= 24:
+        strip = full[8 : tm - 8, lm:]
+    else:
+        return 0
+    return int(np.median(strip)) if strip.size else 0
+
+
+def _repair_corrupt_black(raw) -> int:
+    """Compensate `raw_image_visible` when LibRaw misparsed `black_level_per_channel` from an
+    unrecognised MakerNote layout, using the masked optical-black margin."""
+    ob = _optical_black(raw)
+    cblack = list(getattr(raw, "black_level_per_channel", None) or [0, 0, 0, 0])
+    if ob <= max(cblack):
+        return 0
+    full = getattr(raw, "raw_image", None)
+    vis = getattr(raw, "raw_image_visible", None)
+    cols = getattr(raw, "raw_colors_visible", None)
+    pat = cols[:2, :2] if cols is not None and cols.shape >= (2, 2) else getattr(raw, "raw_pattern", None)
+    if full is not None and vis is not None and pat is not None and pat.shape == (2, 2) and full[0, 0] > 0:
+        for r in range(2):
+            for c in range(2):
+                ch = int(pat[r, c])
+                cb = int(cblack[ch])
+                d = ob - cb
+                if d > 0:
+                    plane = vis[r::2, c::2]
+                    np.maximum(plane, d + cb, out=plane)
+                    plane -= d
+        full[0, 0] = 0
+    return ob
+
+
 def _linearity_limit(raw, positions: Optional[Sequence[int]] = None) -> int:
     """The camera's calibrated linear-range ceiling (raw ADC scale), not the format's generic max.
 
@@ -33,10 +87,13 @@ def _linearity_limit(raw, positions: Optional[Sequence[int]] = None) -> int:
     """
     generic = int(raw.white_level or 0)
     per_channel = raw.camera_white_level_per_channel
-    if not per_channel:
+    if not per_channel or _has_corrupt_colordata(raw):
         return generic
     values = [per_channel[j] for j in positions] if positions is not None else per_channel
-    calibrated = int(min(values))
+    positive = [int(v) for v in values if v and v > 0]
+    if not positive:
+        return generic
+    calibrated = min(positive)
     # A calibrated limit can't legitimately exceed the format's own ADC ceiling; a body
     # reporting one anyway is bad metadata, not a wider range.
     return min(calibrated, generic) if generic > 0 else calibrated
@@ -52,7 +109,10 @@ def _user_sat(raw) -> Optional[int]:
     limit = _linearity_limit(raw)
     if limit <= 0:
         return None
-    black = min(raw.black_level_per_channel or [0])
+    if _has_corrupt_colordata(raw):
+        black = _repair_corrupt_black(raw)
+    else:
+        black = min(raw.black_level_per_channel or [0])
     return max(1, limit - black)
 
 
