@@ -12,6 +12,19 @@ def _label_event(event_type, x: float, button=Qt.MouseButton.LeftButton, buttons
     return QMouseEvent(event_type, pos, pos, button, buttons, Qt.KeyboardModifier.NoModifier)
 
 
+def test_a_slider_the_gc_cleared_ignores_the_events_of_its_children(qapp):
+    """The cycle GC clears the wrapper before Qt deletes its children, and a visible child still sends it Hide."""
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    children = (slider.label, slider.spin, slider.slider)
+    attributes = dict(slider.__dict__)
+    slider.__dict__.clear()
+    try:
+        for child in children:
+            assert slider.eventFilter(child, QEvent(QEvent.Type.Hide)) is False
+    finally:
+        slider.__dict__.update(attributes)
+
+
 def test_adjust_by_emits_change_and_commit(qapp):
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     changed = MagicMock()
