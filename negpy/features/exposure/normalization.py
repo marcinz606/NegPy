@@ -155,12 +155,40 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     negative stock, so without this gate a slide silently gets a negative's correction.
     Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
     profile that predates the field actually is.
+
+    Also composes in fade restoration for slides. Fade restores
+    the densities the unmix recovered as faded, so it applies after: `fade @ unmix`. Either
+    factor, both or neither can be None.
     """
 
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
-    if process_mode is not None and profile_mode != str(process_mode):
-        return None
-    return resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
+    unmix = None
+    if process_mode is None or profile_mode == str(process_mode):
+        unmix = resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
+
+    fade = (
+        resolve_fade_matrix(process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
+        if _fade_applies(process, process_mode)
+        else None
+    )
+    if fade is None:
+        return unmix
+    return fade if unmix is None else fade @ unmix
+
+
+def _fade_applies(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
+    """Whether a non-neutral fade factor is requested: slides only, and not at unit survival."""
+    if process_mode is not None and str(process_mode) != str(ProcessMode.E6):
+        return False
+    return any(float(r) - 1.0 != 0.0 for r in (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b))
+
+
+def crosstalk_unmix_active(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
+    """A crosstalk unmix for this film process runs ahead of the fade factor."""
+    profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
+    return (process_mode is None or profile_mode == str(process_mode)) and (
+        resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix) is not None
+    )
 
 
 def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Optional[np.ndarray]:
@@ -180,6 +208,16 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
     applied = np.eye(3) * (1.0 - float(strength)) + cal * float(strength)
     row_sums = np.sum(applied, axis=1, keepdims=True)
     return applied / np.maximum(row_sums, 1e-6)
+
+
+def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.ndarray:
+    """Restoration operator for a faded dye set: the inverse of diag(ar, ar*ag, ar*ab).
+
+    Not row-normalized: fade changes each layer's neutral density, and that is the signal.
+    `ratio_g` and `ratio_b` are survival ratios to red; `ratio_r` is red's absolute survival.
+    """
+    ar, ag, ab = float(ratio_r), float(ratio_g), float(ratio_b)
+    return np.diag([1.0 / ar, 1.0 / (ar * ag), 1.0 / (ar * ab)])
 
 
 def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:

@@ -64,6 +64,17 @@ class NormalizationProcessor:
     def __init__(self, config: ProcessConfig):
         self.config = config
 
+    def _unmix_key(self) -> tuple:
+        c = self.config
+        return (
+            c.crosstalk_strength,
+            c.crosstalk_matrix,
+            c.crosstalk_process,
+            c.fade_ratio_r,
+            c.fade_ratio_g,
+            c.fade_ratio_b,
+        )
+
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
         # above 1.0 occur only with flat-field gain and must match the GPU.
@@ -101,7 +112,7 @@ class NormalizationProcessor:
                 or cached_color_clip is None
                 or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
                 or cached_mode != context.process_mode
-                or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix, self.config.crosstalk_process)
+                or cached_unmix != self._unmix_key()
             )
 
             if not needs_reanalysis:
@@ -120,11 +131,7 @@ class NormalizationProcessor:
             context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
             context.metrics["log_bounds_mode_val"] = context.process_mode
-            context.metrics["log_bounds_crosstalk_val"] = (
-                self.config.crosstalk_strength,
-                self.config.crosstalk_matrix,
-                self.config.crosstalk_process,
-            )
+            context.metrics["log_bounds_crosstalk_val"] = self._unmix_key()
             return analyzed
 
         bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)

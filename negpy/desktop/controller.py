@@ -88,6 +88,7 @@ from negpy.features.process.logic import (
     effective_highlight_reconstruction,
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
+    should_fold_camera_wb,
 )
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -6716,6 +6717,7 @@ class AppController(QObject):
     _ROLL_CARDS = (
         "film",
         "sensor",
+        "fade",
         "process",
         "baseline",
         "demosaic",
@@ -6730,6 +6732,7 @@ class AppController(QObject):
     _ROLL_CARD_LABELS = {
         "film": tr("Film Mode"),
         "sensor": tr("Calibration"),
+        "fade": tr("Fade Restoration"),
         "demosaic": tr("Raw Decode"),
         "baseline": tr("Roll Analysis"),
         "process": tr("Metering"),
@@ -8200,6 +8203,11 @@ class AppController(QObject):
         if self.effective_input_icc():
             cam_xyz = wb_only_cam_xyz(cam_xyz)
         return cam_xyz, self.state.preview_camera_wb
+
+    def camera_working_matrix(self) -> Optional[np.ndarray]:
+        """The camera-to-working matrix the transparency render applies to the preview, or None."""
+        cam_xyz, camera_wb = self._effective_cam_xyz()
+        return camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(self.state.config.process) else None)
 
     def chart_fit_source(self) -> Optional[ChartSource]:
         """The open frame as the preview renders it, for Measure from Chart; None with no frame or on a diptych."""

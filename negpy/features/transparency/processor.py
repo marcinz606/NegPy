@@ -16,7 +16,6 @@ from negpy.features.exposure.normalization import (
     measure_anchor_from_log,
     measure_clip_fractions,
     measure_highlight_point_from_log,
-    measure_neutral_axis_from_log,
     measure_shadow_point_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
@@ -27,9 +26,11 @@ from negpy.features.exposure.normalization import (
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
+    measure_transfer_neutral_axis,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -100,11 +101,10 @@ class TransparencyBaseProcessor:
         # space than the GPU's. Pre-trim bounds, so a White/Black Point nudge cannot
         # perturb it.
         if self.cast_strength > 0.0:
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(
-                prefiltered, pre_trim_bounds, None, 0.0, exclude_subjects=False
-            )
+            positive = render_path(self.config) is RenderPath.POSITIVE
+            context.metrics["neutral_axis_refs"] = measure_transfer_neutral_axis(prefiltered, positive)
 
-        # Auto Density and Auto Grade meter against the same fixed pre-trim window.
+        # Auto Density and Auto Grade meter against the fixed pre-trim window.
         context.metrics["metered_anchor"] = measure_anchor_from_log(
             prefiltered, pre_trim_bounds, None, 0.0, assumed=transfer_assumed_anchor()
         )

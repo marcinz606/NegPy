@@ -8,12 +8,15 @@ from typing import Optional, Sequence
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
+from negpy.features.metadata.gear_models import EdgeColorLine
 from negpy.services.film_edge.barcodes import DX_CLOCK_TRACK
 from negpy.services.film_edge.edge import Band, EdgeCode, EdgeStyle, EdgeText, edge_items
 from negpy.services.film_edge.geometry import (
     PERF_ACROSS,
     PERF_ALONG,
     PERF_FROM_EDGE,
+    PERF_PHASE,
+    PERF_PITCH,
     PERF_RADIUS,
     FilmGeometry,
     perforation_centers,
@@ -27,6 +30,12 @@ EDGE_CAP_EM = 0.70
 PERF_RIM = 0.08
 # A DX clock track runs past the rebate, up between the holes.
 DX_BAND = DX_CLOCK_TRACK[1] + 0.1
+# A stock's printed color line, named in the edge data (green or red).
+COLOR_LINE_RGB = {"green": (52, 150, 67), "red": (239, 27, 4)}
+COLOR_LINE_THICK_MM = 0.3
+# A dashed color line (a few stocks print one color broken, the other solid): a run of this many
+# perforation pitches, solid, then the same number with no line, repeating; aligned to the holes.
+DASH_RUN_PITCHES = 5
 
 
 @dataclass(frozen=True)
@@ -209,6 +218,37 @@ def _draw_code(coverage: np.ndarray, band: _Band, code: EdgeCode, x_px: float, d
         coverage[r0:r1, c0:c1] = np.maximum(coverage[r0:r1, c0:c1], column[None, :])
 
 
+def _draw_color_line(canvas: np.ndarray, line: EdgeColorLine, x0: int, x1: int, edge_y: int, s: float, roll_start: float) -> None:
+    """A `line.color` at `line.at` mm in from `edge_y`, across the strip width; `dashed` breaks it into solid runs with gaps."""
+    color = COLOR_LINE_RGB.get(line.color.casefold())
+    if color is None:
+        return
+    height, width = canvas.shape[:2]
+    center = edge_y - px(line.at, s)
+    h = max(1, px(line.thickness if line.thickness is not None else COLOR_LINE_THICK_MM, s))
+    cy0, cy1 = max(0, center - h // 2), min(height, center - h // 2 + h)
+    if cy1 <= cy0:
+        return
+    if not line.dashed:
+        cx0, cx1 = max(0, x0), min(width, x1)
+        if cx1 > cx0:
+            canvas[cy0:cy1, cx0:cx1] = color
+        return
+    # dashed: DASH_RUN_PITCHES perforation pitches solid, then the same with no line, repeating; aligned to the holes
+    roll_left, roll_right = roll_start, roll_start + (x1 - x0) / s
+    j_first = math.floor((roll_left - PERF_PHASE) / PERF_PITCH)
+    j_last = math.ceil((roll_right - PERF_PHASE) / PERF_PITCH)
+    for j in range(j_first, j_last + 1):
+        if ((j + 4) % 10) >= DASH_RUN_PITCHES:
+            continue
+        r0 = PERF_PHASE + j * PERF_PITCH
+        r1 = PERF_PHASE + (j + 1) * PERF_PITCH
+        cx0 = max(x0, int(round(x0 + (r0 - roll_start) * s)))
+        cx1 = min(x1, int(round(x0 + (r1 - roll_start) * s)))
+        if cx1 > cx0:
+            canvas[cy0:cy1, cx0:cx1] = color
+
+
 def paint_strip(
     canvas: np.ndarray,
     x: float,
@@ -259,6 +299,10 @@ def paint_strip(
         if bx1 > bx0 and by1 > by0:
             alpha = coverage[by0 - band_top : by1 - band_top, bx0 - x0 : bx1 - x0]
             blend(canvas[by0:by1, bx0:bx1], alpha, palette.ink)
+
+    # The color lines are printed on the rebate; the perforation holes are punched through them, so the holes draw last, over the lines.
+    for line in style.color_lines:
+        _draw_color_line(canvas, line, x0, x1, y1, s, roll_start)
 
     if geometry.perforated:
         s_key = int(round(s * 100))

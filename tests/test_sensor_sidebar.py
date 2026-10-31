@@ -11,6 +11,7 @@ import sys
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from PyQt6.QtWidgets import QApplication
 
@@ -241,3 +242,27 @@ def test_a_saved_profile_reaches_only_a_frame_that_can_keep_it(tmp_path, file_ha
     else:
         assert not w.controller.set_roll_default.called
         assert "New Sensor" in w.controller.set_status.call_args.args[0]  # says it was saved
+
+
+def _fade_sidebar(**process):
+    cfg = WorkspaceConfig()
+    ctrl = MagicMock()
+    ctrl.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, **process))
+    ctrl.session.repo.get_global_setting.return_value = "midtone"
+    ctrl.camera_working_matrix.return_value = None
+    w = SensorSidebar(ctrl)
+    w.state = ctrl.state
+    return w, ctrl
+
+
+def test_a_failed_estimate_keeps_the_survivals_and_shows_why():
+    w, ctrl = _fade_sidebar(fade_ratio_g=0.6, fade_ratio_b=0.7)
+    ctrl.state.preview_raw = np.full((32, 32, 3), 0.5, dtype=np.float32)  # flat: no grays to read
+
+    w._on_estimate_fade()
+
+    ctrl.set_roll_default.assert_not_called()
+    assert w.fade_ratio_g_slider.value() == pytest.approx(0.6)
+    assert w.fade_ratio_b_slider.value() == pytest.approx(0.7)
+    assert w.fade_estimate_hint.text()
+    assert not w.fade_estimate_hint.isHidden()

@@ -74,7 +74,7 @@ class TestGearCombos:
 
     def test_other_pick_clones_the_catalog_camera_into_personal_gear(self, gear_sidebar: MetadataSidebar) -> None:
         cloned = Camera(id="cam-cloned", make="Leica", model="M6", is_bundled=False)
-        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=cloned):
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=(cloned, False)):
             gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
 
         new_id = gear_sidebar.state.config.metadata.camera_id
@@ -84,12 +84,35 @@ class TestGearCombos:
 
     def test_other_pick_add_custom_starts_a_blank_personal_camera(self, gear_sidebar: MetadataSidebar) -> None:
         custom = Camera(id="cam-custom", display_name="New Camera")
-        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=custom):
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=(custom, True)):
             gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
 
         new_id = gear_sidebar.state.config.metadata.camera_id
         assert new_id == "cam-custom"
         assert gear_sidebar.camera_combo.line_edit().text() == "New Camera"
+
+    def test_other_pick_add_custom_opens_the_blank_camera_in_my_gear(self, gear_sidebar: MetadataSidebar) -> None:
+        panel = GearLibraryPanel(gear_sidebar._gear_library)
+        gear_sidebar.attach_gear_panel(panel)
+        custom = Camera(id="cam-custom", display_name="New Camera")
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=(custom, True)):
+            gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
+        QApplication.processEvents()
+
+        assert gear_sidebar.tabs.current_key() == "gear"
+        selected = panel.items._selected_item()
+        assert selected is not None and selected.id == "cam-custom"
+        assert panel.items.display_name_edit.text() == "New Camera"
+
+    def test_other_pick_from_the_catalog_stays_on_the_shot_tab(self, gear_sidebar: MetadataSidebar) -> None:
+        gear_sidebar.attach_gear_panel(GearLibraryPanel(gear_sidebar._gear_library))
+        gear_sidebar.tabs.show_tab("shot")
+        cloned = Camera(id="cam-cloned", make="Leica", model="M6", is_bundled=False)
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=(cloned, False)):
+            gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
+        QApplication.processEvents()
+
+        assert gear_sidebar.tabs.current_key() == "shot"
 
     def test_other_pick_cancelled_reverts_to_the_previous_selection(self, gear_sidebar: MetadataSidebar) -> None:
         _set_metadata(gear_sidebar, camera_id="cam-mine")

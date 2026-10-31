@@ -82,6 +82,7 @@ from negpy.features.transparency.logic import (
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
+    measure_transfer_neutral_axis,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
@@ -244,6 +245,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         analysis_source_hash,
         film_base,
         p.process_mode,
+        p.positive_source,
         p.analysis_buffer,
         p.analysis_rect,
         p.meter_rect,
@@ -260,6 +262,9 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.crosstalk_process,
         p.use_cast_average,
         p.locked_neutral_axis,
+        p.fade_ratio_r,
+        p.fade_ratio_g,
+        p.fade_ratio_b,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -851,6 +856,9 @@ class GPUEngine:
                     p.crosstalk_strength,
                     p.crosstalk_matrix,
                     p.crosstalk_process,
+                    p.fade_ratio_r,
+                    p.fade_ratio_g,
+                    p.fade_ratio_b,
                     p.process_mode,
                     None if cam_m is None else tuple(np.asarray(cam_m).ravel().tolist()),
                 )
@@ -932,20 +940,20 @@ class GPUEngine:
                 density_above_base_value = density_above_base(source_base_log, bounds, prefiltered, unmix_m)
 
         # Neutral axis for the two-point Cast Removal; normalized at consumption. The
-        # transparency curve renders through the fixed window, so the axis is measured
-        # against it and on the working-space grid the curve consumes.
+        # transparency path measures it on the working-space grid the curve consumes.
         neutral_axis_refs = neutral_axis_override
         axis_grid = cam_prefiltered if transfer else prefiltered
         if needs_axis and axis_grid is not None:
-            axis_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
-            neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0, exclude_subjects=not transfer)
+            if transfer:
+                neutral_axis_refs = measure_transfer_neutral_axis(axis_grid, render_path(settings.process) is RenderPath.POSITIVE)
+            else:
+                neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, bounds, None, 0.0)
             pooled_axis = pooled_neutral_axis(settings.process)
             if pooled_axis is not None:
                 neutral_axis_refs = blend_neutral_axis(neutral_axis_refs, pooled_axis)
 
         # Auto Density/Auto Grade meter the working-space grid against the fixed window on
-        # a Positive frame, exactly like the neutral axis just above; both read the
-        # regular per-frame grid/bounds everywhere else.
+        # the transparency path, and the regular per-frame grid/bounds everywhere else.
         meter_grid = cam_prefiltered if transfer else prefiltered
         meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else anchor_bounds
         meter_assumed = transfer_assumed_anchor() if transfer else None
@@ -2993,8 +3001,10 @@ class GPUEngine:
 
         global_neutral_axis = None
         if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode != ProcessMode.BW:
-            axis_bounds = meter_bounds if transfer else global_bounds
-            global_neutral_axis = measure_neutral_axis_from_log(_meter_grid(), axis_bounds, None, 0.0, exclude_subjects=not transfer)
+            if transfer:
+                global_neutral_axis = measure_transfer_neutral_axis(_meter_grid(), render_path(settings.process) is RenderPath.POSITIVE)
+            else:
+                global_neutral_axis = measure_neutral_axis_from_log(_meter_grid(), global_bounds, None, 0.0)
             pooled_axis = pooled_neutral_axis(settings.process)
             if pooled_axis is not None:
                 global_neutral_axis = blend_neutral_axis(global_neutral_axis, pooled_axis)

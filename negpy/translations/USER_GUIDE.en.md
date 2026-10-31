@@ -541,6 +541,14 @@ Corrects color errors that come from your light, camera and film.
 
 **Hue Trim** (camera with narrowband light): turns all colors around the color wheel, for a light that makes yellows orange or greens olive. Keep 0 for white light. It also works on slides, where the sensor crosstalk profile does not.
 
+### 10.4.1 Fade Restoration: faded slides
+
+Gives a faded slide its dye layers back. It is on the Calibration card, for slides (Transparency) only. It works together with Crosstalk, before Cast Removal. Set the fade first, then let Cast Removal ([§5.1](#51-filtration-color-balance)) remove the rest of the cast. Run **Roll Analysis** again after a change. The Survival sliders follow the roll: Roll on the Calibration card gives every frame this frame's values, and a frame you change keeps its own.
+
+*   **Red Survival** (0.05 to 1.0, default 1.0): how much red dye is left. On a slide the cyan dye, read on red, fades fastest. At 1.0 a badly faded slide gets the right colors but looks washed out. Estimate with Midtone sets it; otherwise lower it by eye until the contrast comes back.
+*   **Green Survival** / **Blue Survival** (0.2 to 5.0, default 1.0): how much green and blue dye is left, against red. At 1.0 that layer faded as much as red; below 1.0, more.
+*   **Estimate**: sets the Survival sliders from the grays in this frame. **Midtone** reads the color of the middle grays and also sets Red Survival, so the best-kept layer is at 1.0. It suits a badly faded slide. **Gray Range** reads how far the grays reach into the shadows and leaves Red Survival as it is. It can suit a mild fade with deep shadows. A hint shows the result, or why there is none, and what the other method reads: a large gap means a cast that the fade does not explain. A value outside 0.2 to 5 stops at the limit, and the hint gives the value it read. Above 5, lower Red Survival by eye. A slide that is almost one color reads as faded: set the sliders by hand.
+
 <!-- panel:process -->
 ### 10.5 Metering: negative → positive
 
@@ -720,7 +728,7 @@ On the **Alongside Exports** tab. A contact sheet shows the whole roll as film s
 *   **Order**: by file name, by date, or by scene with a new strip or row for each scene.
 *   **Print**: **As Edited**, or **Straight Proof**: the whole roll at one exposure and normal contrast, so you see which negatives are thin or dense.
 *   **Pick Frames**: click a frame to leave it out or put it back. Rejects start out.
-*   **Edge Print**: the film maker's markings along the edges, such as the film name and frame numbers.
+*   **Edge Print**: the film maker's markings along the edges, such as the film name, frame numbers and the colored lines a stock prints by its perforations.
 *   **Roll Label**: the roll name, film, camera and date above the strips. Type your own text in **Label text** to print it instead.
 *   **White Paper**: prints on white, which saves ink on a home printer.
 *   **Film Edges**: off prints the frames upright, each at its own shape, in rows as on the Light Table. The sheet then has no perforations and no **Edge Print**.

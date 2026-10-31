@@ -65,6 +65,7 @@ def controller(_app, tmp_path, monkeypatch):
         if thread is not None and thread.isRunning():
             thread.quit()
             thread.wait()
+    QApplication.closeAllWindows()
     del ctrl
     gc.collect()
 

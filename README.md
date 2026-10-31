@@ -24,7 +24,7 @@
 
 NegPy turns scans of film negatives and slides into finished pictures. I wrote it because I wanted a tool made for film scans that does more than invert them. It models film and photographic paper, and adds the conveniences of a lab scanner. It runs on Linux, macOS and Windows. 
 
-![NegPy main window](docs/media/0660.webp)
+![NegPy main window](docs/media/0670.webp)
 
 The [User Guide](docs/USER_GUIDE.md) covers every panel and control (the ⓘ on each panel opens it in the app). [PIPELINE.md](docs/PIPELINE.md) explains the math.
 

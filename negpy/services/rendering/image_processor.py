@@ -173,8 +173,16 @@ def _grey_reencode_lut(working_color_space: Optional[str], bits: int) -> np.ndar
         gray = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1.0 / 2.4) - 0.055)
         out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
     if bits == 8:
-        out = np.clip(np.round(out.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
+        out = _u16_to_u8_lut()[out]
     out = np.ascontiguousarray(out)
+    out.setflags(write=False)
+    return out
+
+
+@lru_cache(maxsize=1)
+def _u16_to_u8_lut() -> np.ndarray:
+    """Round every uint16 code to the nearest uint8 code, as a table for negpy_core.lut_u16."""
+    out = np.clip(np.round(np.arange(65536, dtype=np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
     out.setflags(write=False)
     return out
 
@@ -1958,6 +1966,26 @@ class ImageProcessor:
             return self._apply_color_management_u16(float_to_uint16(buffer), working_color_space, color_space, icc_output, icc_input)
         if is_greyscale:
             return self._greyscale_to_u8(buffer, working_color_space, color_space, icc_output, icc_input)
+        if not self._has_custom_icc(icc_input, icc_output) and working_color_space == color_space:
+            return float_to_uint8(buffer), self._get_target_icc_bytes(color_space, None)
+        # Convert at 16 bits and round to 8 once: near the destination gamut edge, one 8-bit
+        # source step moves a near-zero destination channel by many codes. The 8-bit PIL
+        # transform is the fallback when the CMS codec cannot load or refuses the profiles.
+        src_bytes = self._get_target_icc_bytes(working_color_space, icc_input)
+        dst_bytes = self._get_target_icc_bytes(color_space, icc_output)
+        if src_bytes and dst_bytes:
+            img16 = float_to_uint16(buffer)
+            out16 = apply_matrix_trc_u16(img16, src_bytes, dst_bytes)
+            if out16 is None:
+                try:
+                    out16 = _cms_transform_strips(np.ascontiguousarray(img16), src_bytes, dst_bytes)
+                except ImportError as e:
+                    self._log_cms_codec_dlopen_error()
+                    logger.warning(f"imagecodecs CMS codec unavailable on this build ({e}); using the 8-bit transform")
+                except Exception as e:
+                    logger.warning(f"16-bit CMS transform failed ({e}); using the 8-bit transform")
+            if out16 is not None:
+                return negpy_core.lut_u16(out16, _u16_to_u8_lut()), dst_bytes
         return self.apply_color_management(float_to_uint8(buffer), working_color_space, color_space, icc_output, icc_input)
 
     def render_display_array(

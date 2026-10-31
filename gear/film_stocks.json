@@ -520,7 +520,11 @@
     "iso": 400,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Kodak-made consumer color negative; UltraMax 400 in all observed behaviour: warm, punchy, saturated."
+    "notes": "Kodak-made consumer color negative; UltraMax 400 in all observed behaviour: warm, punchy, saturated.",
+    "edge": {
+      "dx": "95-7",
+      "source": "photo of a Fujifilm 400 roll: FUJI and 400 on the rebate, DX 95-7 (frames 0A-3A)"
+    }
   },
   {
     "id": "film-fujifilm-superia-x-tra-400",
@@ -543,7 +547,19 @@
     "notes": "Fuji-made consumer color negative; fine tabular grain, bright, low contrast, mint greens, cool pleasant skin.",
     "edge": {
       "dx": "39-3",
-      "source": "DX: Big Film Database (Superia Premium 400)"
+      "source": "DX: Big Film Database (Superia Premium 400)",
+      "colorLines": [
+        {
+          "at": 2.6,
+          "color": "green",
+          "thickness": 0.22
+        },
+        {
+          "at": 3.5,
+          "color": "red",
+          "thickness": 0.45
+        }
+      ]
     }
   },
   {
@@ -554,7 +570,24 @@
     "iso": 100,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Fuji-made consumer color negative; fine tabular grain, bright, moderate saturation, medium-low contrast, holds its color across exposure."
+    "notes": "Fuji-made consumer color negative; fine tabular grain, bright, moderate saturation, medium-low contrast, holds its color across exposure.",
+    "edge": {
+      "dx": "39-1",
+      "source": "photo of a Fujicolor 100 roll: FUJI and frame numbers on the rebate, DX 39-1; green (3.5 mm, inner) and red (2.6 mm, outer) color lines, the green thicker than the red",
+      "colorLines": [
+        {
+          "at": 3.5,
+          "color": "green",
+          "thickness": 0.45,
+          "dashed": true
+        },
+        {
+          "at": 2.6,
+          "color": "red",
+          "thickness": 0.22
+        }
+      ]
+    }
   },
   {
     "id": "film-fujifilm-provia-100f",
@@ -1154,7 +1187,11 @@
     "iso": 400,
     "format": "35mm",
     "colorType": "ColorNegative",
-    "notes": "Kodak consumer-family color negative; moderate-coarse grain, vibrant with muted brownish midtones and vintage shadows."
+    "notes": "Kodak consumer-family color negative; moderate-coarse grain, vibrant with muted brownish midtones and vintage shadows.",
+    "edge": {
+      "dx": "97-9",
+      "source": "photo of a Lomography CN 400 roll: DX 97-9 (frames 0A-3A)"
+    }
   },
   {
     "id": "film-lomography-cine200-tungsten",
@@ -1614,7 +1651,10 @@
     "iso": 200,
     "format": "35mm",
     "colorType": "B&W Negative",
-    "notes": "Aviphot Pan 200 emulsion; fine grain, super-panchromatic."
+    "notes": "Aviphot Pan 200 emulsion; fine grain, super-panchromatic.",
+    "edge": {
+      "source": "photo of a Superpan 200 roll: ROLLEI SUPERPAN 200 and frame numbers on the rebate; no DX barcode visible"
+    }
   },
   {
     "id": "film-rollei-ortho-25-plus",

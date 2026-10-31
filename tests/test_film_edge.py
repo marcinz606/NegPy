@@ -1,8 +1,9 @@
 import re
 
+import numpy as np
 import pytest
 
-from negpy.features.metadata.gear_models import FilmEdge, FilmStock, GearLibrary
+from negpy.features.metadata.gear_models import EdgeColorLine, FilmEdge, FilmStock, GearLibrary
 from negpy.services.film_edge.barcodes import _CODE128, DX_MODULE, KEYKODE_MODULE, code128c_bits, dx_bits
 from negpy.services.film_edge.edge import (
     DX_START,
@@ -20,6 +21,7 @@ from negpy.services.film_edge.edge import (
 )
 from negpy.services.film_edge.geometry import PERF_PHASE, PERF_PITCH, SheetFormat, film_geometry
 from negpy.services.film_edge.layouts import KEY_DOT, LAYOUTS, MARK_GAP
+from negpy.services.film_edge.paint import Palette, paint_strip
 
 FULL = film_geometry(SheetFormat.FULL_FRAME)
 HALF = film_geometry(SheetFormat.HALF_FRAME)
@@ -264,6 +266,21 @@ def test_a_personal_copy_reads_the_bundled_stock_of_the_same_name():
     assert edge_style(personal).dx_number is None
 
 
+def test_a_personal_copy_with_a_partial_edge_borrows_the_bundled_color_lines():
+    # A stock added by the edge-print-from-photo skill keeps its own DX edge but no color lines; a bundled stock
+    # of the same name carries them. The personal copy borrows the bundled color lines and keeps its own edge.
+    bundled = FilmStock(
+        manufacturer="Fujifilm",
+        stock_name="Superia Premium 400",
+        edge=FilmEdge(dx="39-3", color_lines=(EdgeColorLine(2.6, "green"), EdgeColorLine(3.5, "red"))),
+        is_bundled=True,
+    )
+    personal = FilmStock(manufacturer="Fujifilm", stock_name="Superia Premium 400", edge=FilmEdge(dx="39-3"))
+    style = edge_style(personal, GearLibrary(film_stocks=[bundled, personal]))
+    assert style.color_lines == (EdgeColorLine(2.6, "green"), EdgeColorLine(3.5, "red"))
+    assert style.dx_number == (39, 3)
+
+
 def test_a_respool_prints_its_source_stock():
     vision = FilmStock(id="v3", manufacturer="Kodak", stock_name="Vision3 500T", edge=FilmEdge(style="cine", maker="EASTMAN", text="5219"))
     respool = FilmStock(manufacturer="CineStill", stock_name="800T", edge=FilmEdge(prints_as="v3"))
@@ -278,3 +295,27 @@ def test_an_unknown_style_prints_the_generic_layout():
 def test_a_free_text_film_name_guesses_the_style():
     style = edge_style(None, None, "Ilford HP5 Plus", "")
     assert (style.layout, style.maker, style.text) == ("ilford", "ILFORD", "HP5 PLUS")
+
+
+def test_edge_style_carries_color_lines_from_the_stock():
+    stock = FilmStock(
+        manufacturer="Fujifilm",
+        stock_name="Superia Premium 400",
+        edge=FilmEdge(color_lines=(EdgeColorLine(2.6, "green"), EdgeColorLine(3.5, "red"))),
+    )
+    assert edge_style(stock).color_lines == (EdgeColorLine(2.6, "green"), EdgeColorLine(3.5, "red"))
+
+
+def test_color_lines_draw_as_solid_bands_on_the_bottom_edge():
+    # A stock's printed green and red lines sit on the rebate, the bottom (DX) film edge.
+    style = EdgeStyle(
+        "fuji", "FUJIFILM", "SUPERIA PREMIUM 400", dx=True, color_lines=(EdgeColorLine(2.6, "green"), EdgeColorLine(3.5, "red"))
+    )
+    s = 10.0
+    canvas = np.zeros((int(round(FULL.width * s)), 200, 3), dtype=np.uint8)
+    paint_strip(canvas, 0.0, 0.0, FULL, style, 1, 0.0, 20.0, s, Palette((20, 20, 20), (40, 40, 40), None, (210, 210, 210), (180, 180, 180)))
+    y1 = int(round(FULL.width * s))
+    green = tuple(int(v) for v in canvas[y1 - int(round(2.6 * s)), 100])
+    red = tuple(int(v) for v in canvas[y1 - int(round(3.5 * s)), 100])
+    assert green == (52, 150, 67)
+    assert red == (239, 27, 4)

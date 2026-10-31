@@ -678,15 +678,18 @@ class MetadataSidebar(BaseSidebar):
         previous = self._gear_selected_id(combo, self.state.config.metadata)
         category = self._gear_combo_category[id(combo)]
         library = self._gear_library
-        new_item = resolve_other_gear_pick(self, category, library, repo=self.controller.session.repo)
-        if new_item is None:
+        picked = resolve_other_gear_pick(self, category, library, repo=self.controller.session.repo)
+        if picked is None:
             combo.set_selected_id(previous)
             return
+        new_item, blank = picked
         setattr(library, category, [*getattr(library, category), new_item])
         GearProfiles.save_library(library)
         self.gear_library_saved.emit()
         self._refresh_gear_combos(force=True)
         combo.set_selected_id(new_item.id)
+        if blank:
+            QTimer.singleShot(0, lambda: self._edit_gear_item(category, new_item.id))
 
     def _on_dev_time_changed(self, text: str) -> None:
         self._flag_invalid(self.dev_time_edit, bool(text.strip()) and parse_dev_time(text) is None)
@@ -1168,8 +1171,15 @@ class MetadataSidebar(BaseSidebar):
             self._gear_pages[key].insertWidget(0, panel.sections[section_key])
         panel.library_changed.connect(self._on_library_changed)
         panel.presets.apply_requested.connect(self._apply_preset)
+        panel.edit_requested.connect(self._edit_gear_item)
         self.gear_library_saved.connect(panel.reload_library)
         panel.presets.set_apply_allowed(not self.state.config.metadata.protect_original_metadata)
+
+    def _edit_gear_item(self, category: str, item_id: str) -> None:
+        if self._gear_panel is None:
+            return
+        self.tabs.show_tab("gear")
+        self._gear_panel.items.edit_item(category, item_id)
 
     def block_signals(self, blocked: bool) -> None:
         gear = tuple(self._gear_panel.sections.values()) if self._gear_panel is not None else ()

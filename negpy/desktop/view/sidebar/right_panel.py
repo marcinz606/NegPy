@@ -51,6 +51,7 @@ _SCAN_BASE_TIP = tr("Base Relative: line up each channel at its film base, so th
 _ROLL_TAB_CARDS = (
     "film",
     "sensor",
+    "fade",
     "baseline",
     "process",
     "demosaic",
@@ -914,10 +915,12 @@ class RightPanel(QWidget):
         """The scan parade's per-channel stretch ends (0..1 up the panel) and its caption, which
         names the unmix when the parade reads unmixed density."""
         from negpy.features.exposure.analysis import scan_density_axis
-        from negpy.features.exposure.normalization import effective_crosstalk_matrix
+        from negpy.features.exposure.normalization import crosstalk_unmix_active, effective_crosstalk_matrix
 
         config = self.controller.state.config
-        unmixed = effective_crosstalk_matrix(config.process, config.process.process_mode) is not None
+        mode = config.process.process_mode
+        unmixed = crosstalk_unmix_active(config.process, mode)
+        restored = not unmixed and effective_crosstalk_matrix(config.process, mode) is not None
         caption = tr("Scan density")
         if self.scan_base_btn.isChecked():
             if self._scan_base_density is None:
@@ -926,6 +929,8 @@ class RightPanel(QWidget):
                 caption = tr("Scan density above film base") if self._scan_base_source == "picked" else tr("Scan density above rebate base")
         if unmixed:
             caption = tr("{caption}, unmixed", caption=caption)
+        elif restored:
+            caption = tr("{caption}, restored", caption=caption)
         bounds = self._scan_bounds
         if bounds is None:
             return None, caption

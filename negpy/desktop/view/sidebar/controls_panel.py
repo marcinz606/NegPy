@@ -77,6 +77,9 @@ _SENSOR_FIELDS = (
     "crosstalk_strength",
     "crosstalk_matrix",
     "crosstalk_process",
+    "fade_ratio_r",
+    "fade_ratio_g",
+    "fade_ratio_b",
     "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
@@ -128,6 +131,7 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 # Roll-tab sections that drive more than one roll card, keyed by section key.
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {
     "optics": ("lens", "flatfield"),
+    "sensor": ("sensor", "fade"),
 }
 
 

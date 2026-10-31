@@ -165,6 +165,18 @@ class Lens:
 
 
 @dataclass(frozen=True)
+class EdgeColorLine:
+    """A colored line printed on the film edge, `at` mm in from the edge, in a named `color` (green or red).
+    `thickness` is the line's height in mm; `None` takes the shared default, so the inner and outer lines can differ in weight.
+    `dashed` marks a line broken into solid segments with gaps, the other color staying solid (a few stocks print it so)."""
+
+    at: float
+    color: str
+    thickness: Optional[float] = None
+    dashed: bool = False
+
+
+@dataclass(frozen=True)
 class FilmEdge:
     """What a stock prints on its rebate; an empty field falls back to the stock's name.
 
@@ -178,8 +190,9 @@ class FilmEdge:
     dx: str = ""
     prints_as: str = ""
     source: str = ""
+    color_lines: tuple[EdgeColorLine, ...] = ()
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         values = {
             "style": self.style,
             "maker": self.maker,
@@ -189,7 +202,18 @@ class FilmEdge:
             "printsAs": self.prints_as,
             "source": self.source,
         }
-        return {key: value for key, value in values.items() if value}
+        result = {key: value for key, value in values.items() if value}
+        if self.color_lines:
+            color_lines = []
+            for line in self.color_lines:
+                entry = {"at": line.at, "color": line.color}
+                if line.thickness is not None:
+                    entry["thickness"] = line.thickness
+                if line.dashed:
+                    entry["dashed"] = True
+                color_lines.append(entry)
+            result["colorLines"] = color_lines
+        return result
 
     @classmethod
     def from_dict(cls, data: Any) -> Optional["FilmEdge"]:
@@ -203,6 +227,16 @@ class FilmEdge:
             dx=str(data.get("dx") or ""),
             prints_as=str(data.get("printsAs") or data.get("prints_as") or ""),
             source=str(data.get("source") or ""),
+            color_lines=tuple(
+                EdgeColorLine(
+                    float(line["at"]),
+                    str(line["color"]),
+                    thickness=(float(line["thickness"]) if line.get("thickness") is not None else None),
+                    dashed=bool(line.get("dashed", False)),
+                )
+                for line in (data.get("colorLines") or [])
+                if isinstance(line, dict) and "at" in line and "color" in line
+            ),
         )
 
 

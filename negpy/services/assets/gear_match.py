@@ -71,28 +71,31 @@ def _squash(text: str) -> str:
     return "".join(_TOKEN_RE.findall(text.lower()))
 
 
-def _match_strength(folder_tokens: set, folder_squashed: str, name_parts: list) -> int:
-    """2 for a folder token that carries a digit (portra400, hp5) or the whole name as a run
-    (penf); 1 for a shared word; 0 for none. A stock's speed is in its name, so a token with a
-    digit names the stock, while a plain word may be the subject (street, gold, lucky)."""
+def _match_strength(folder_tokens: set, folder_squashed: str, name_parts: list) -> tuple[int, int]:
+    """(score, specificity). Score 2 for a folder token that carries a digit (portra400, hp5) or the
+    whole name as a run (penf); 1 for a shared word; 0 for none. Specificity counts the shared folder
+    tokens but is 0 at score 1, where a plain word (gold, street, lucky) may be the subject, not the stock."""
     name = " ".join(p for p in name_parts if p)
     if not name:
-        return 0
+        return (0, 0)
     candidate_tokens = _tokens(name)
     candidate_squashed = _squash(name)
     shared = folder_tokens & candidate_tokens
     runs = {t for t in folder_tokens if len(t) >= 3 and t in candidate_squashed}
+    specificity = len(shared | runs)
     if any(any(c.isdigit() for c in t) for t in shared | runs):
-        return 2
+        return (2, specificity)
     if len(candidate_squashed) >= _MIN_SQUASH_LEN and candidate_squashed in folder_squashed:
-        return 2
-    return 1 if shared or runs else 0
+        return (2, specificity)
+    return (1, 0) if shared or runs else (0, 0)
 
 
 def _best_match(folder_tokens: set, folder_squashed: str, items: list, name_parts) -> Optional[str]:
-    scored = [(item.id, _match_strength(folder_tokens, folder_squashed, name_parts(item))) for item in items]
-    best = max((s for _, s in scored), default=0)
-    matches = [item_id for item_id, s in scored if s == best and s > 0]
+    # Rank by (score, specificity, bundled): a stock that shares more of the folder name wins a tie, and
+    # a bundled stock wins over a user-added duplicate.
+    scored = [(item.id, _match_strength(folder_tokens, folder_squashed, name_parts(item)), item.is_bundled) for item in items]
+    best = max(((*strength, bundled) for _, strength, bundled in scored), default=(0, 0, False))
+    matches = [item_id for item_id, strength, bundled in scored if (*strength, bundled) == best and strength[0] > 0]
     return matches[0] if len(matches) == 1 else None
 
 

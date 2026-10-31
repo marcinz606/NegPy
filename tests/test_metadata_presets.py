@@ -909,13 +909,25 @@ class TestPresetGearCombosDefaultToOwnGear:
         from negpy.desktop.view.widgets.gear_library_panel import OTHER_ID
 
         cloned = Camera(id="c-cloned", make="Leica", model="M6", is_bundled=False)
-        with patch("negpy.desktop.view.widgets.gear_library_panel.resolve_other_gear_pick", return_value=cloned):
+        with patch("negpy.desktop.view.widgets.gear_library_panel.resolve_other_gear_pick", return_value=(cloned, False)):
             dlg.presets.preset_camera_combo._commit_id(OTHER_ID)
 
         stored = MetadataPresets.load_preset("Kit")
         assert stored["camera_id"] == "c-cloned"
         assert stored["camera_make"] == "Leica"
         assert any(c.id == "c-cloned" for c in _library.cameras)
+
+    def test_other_pick_add_custom_asks_for_the_my_gear_form(self, dialog):
+        dlg, _library = dialog
+        from negpy.desktop.view.widgets.gear_library_panel import OTHER_ID
+
+        requested = []
+        dlg.edit_requested.connect(lambda category, item_id: requested.append((category, item_id)))
+        custom = Camera(id="c-custom", display_name="New Camera")
+        with patch("negpy.desktop.view.widgets.gear_library_panel.resolve_other_gear_pick", return_value=(custom, True)):
+            dlg.presets.preset_camera_combo._commit_id(OTHER_ID)
+
+        assert requested == [("cameras", "c-custom")]
 
     def test_other_pick_cancelled_reverts_to_no_selection(self, dialog):
         dlg, _library = dialog

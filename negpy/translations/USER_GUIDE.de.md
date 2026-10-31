@@ -511,7 +511,7 @@ Zusätzliche Dateien neben dem Abzug. Jede hat links einen Schalter und rechts e
 *   **Auto-Dichte / Gradation**: **Beim Export festschreiben** fixiert die automatische Helligkeit und den Kontrast jedes exportierten Bildes, damit sie sich später nicht ändern. **In Rolle festschreiben** tut das jetzt für jedes sichtbare Bild.
 *   **Bearbeitungs-Sidecar-Dateien**: **Beim Export speichern** schreibt neben jede Quelle eine `.negpy`-Datei mit der Bearbeitung. **Sidecar-Dateien exportieren** schreibt sie für alle sichtbaren Bilder. Rechtsklick auf ein Bild → **Bearbeitung aus Sidecar-Datei laden…** liest eine zurück.
 
-<!-- panel:contact_sheet src:e27d234d -->
+<!-- panel:contact_sheet src:3ab6797d -->
 ### Kontaktbogen
 
 Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Filmstreifen auf einem Blatt Papier, wie ein Kontaktabzug in der Dunkelkammer.
@@ -523,7 +523,7 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 *   **Reihenfolge**: nach Dateiname, nach Datum oder nach Szene, mit einem neuen Streifen oder einer neuen Zeile für jede Szene.
 *   **Abzug**: **Wie bearbeitet** oder **Reiner Probeabzug**: die ganze Rolle mit einer Belichtung und normalem Kontrast. So siehst du, welche Negative dünn oder dicht sind.
 *   **Bilder wählen**: Klicke auf ein Bild, um es auszulassen oder wieder aufzunehmen. Verworfene Bilder sind zu Beginn ausgelassen.
-*   **Randaufdruck**: die Markierungen des Filmherstellers am Rand, zum Beispiel Filmname und Bildnummern.
+*   **Randaufdruck**: die Markierungen des Filmherstellers am Rand, zum Beispiel Filmname, Bildnummern und die farbigen Linien, die ein Film neben seinen Perforationen druckt.
 *   **Rollenbeschriftung**: Rollenname, Film, Kamera und Datum über den Streifen. Gib in **Beschriftungstext** deinen eigenen Text ein, um ihn stattdessen zu drucken.
 *   **Weißes Papier**: druckt auf Weiß und spart so Tinte auf einem Heimdrucker.
 *   **Filmränder**: Aus druckt die Bilder aufrecht, jedes in seiner eigenen Form, in Zeilen wie auf dem Leuchttisch. Der Bogen hat dann keine Perforation und keinen **Randaufdruck**.

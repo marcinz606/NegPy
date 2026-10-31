@@ -82,15 +82,15 @@ class GearCatalogDialog(QDialog):
         return "" if self._custom else self.combo.selected_id()
 
 
-def resolve_other_gear_pick(parent, category: str, library: GearLibrary, *, repo=None) -> Optional[GearItem]:
+def resolve_other_gear_pick(parent, category: str, library: GearLibrary, *, repo=None) -> Optional[tuple[GearItem, bool]]:
     """The Other… row's flow, shared by every gear combo that defaults to personal gear:
     search the shipped catalog for this category, clone a pick into a personal item, or
-    start a blank custom one. Returns the item to add to the library, or None if
-    cancelled -- the caller still owns saving it and refreshing its own combo."""
+    start a blank custom one. Returns the item to add to the library and whether it is
+    blank, or None if cancelled. The caller saves it and opens a blank one in My Gear."""
     items = getattr(library, category)
     catalog = [item for item in items if item.is_bundled]
     if not catalog:
-        return blank_gear_item(category)
+        return blank_gear_item(category), True
     dlg = GearCatalogDialog(
         parent,
         tr(CATEGORY_SINGULAR[category]),
@@ -102,6 +102,6 @@ def resolve_other_gear_pick(parent, category: str, library: GearLibrary, *, repo
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
     if dlg.wants_custom():
-        return blank_gear_item(category)
+        return blank_gear_item(category), True
     picked = next((item for item in catalog if item.id == dlg.selected_id()), None)
-    return clone_into_personal(picked) if picked is not None else None
+    return (clone_into_personal(picked), False) if picked is not None else None

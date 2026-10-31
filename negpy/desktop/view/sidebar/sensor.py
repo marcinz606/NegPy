@@ -10,12 +10,16 @@ from negpy.desktop.view.sidebar.scan_setup import resolved_rig
 from negpy.desktop.view.widgets.fold import group_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, EstimateMethod, FadeEstimate
 from negpy.features.process.models import ProcessMode, SensorUnmix, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.stitch.models import stitch_has_triplets
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
+
+#: The manual sliders share the estimator's bounds.
+_RATIO_SLIDER_RANGE = RATIO_BOUNDS
 
 
 _UNMIX_CHOICES = (
@@ -34,6 +38,29 @@ _UNMIX_CHOICES = (
 )
 
 _CROSSTALK_FIELDS = ("crosstalk_profile", "crosstalk_matrix", "crosstalk_strength", "crosstalk_process")
+
+
+# The Estimate method the panel last used, kept across sessions.
+_ESTIMATE_METHOD_KEY = "fade_estimate_method"
+
+
+def _estimate_hint(method: "EstimateMethod", chosen: "FadeEstimate", other: "FadeEstimate") -> str:
+    """The result, or why there is none, then what the other method reads: a large gap says the
+    frame holds a cast the fade does not explain."""
+    if chosen.reason and chosen.green == 1.0 and chosen.blue == 1.0:
+        return chosen.reason
+    if chosen.red is not None:
+        text = tr("Estimated: red {r}, green {g}, blue {b}.", r=f"{chosen.red:.2f}", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}")
+    else:
+        text = tr(
+            "Estimated: green {g}, blue {b}. Red Survival is not changed: set it by eye.", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}"
+        )
+    if chosen.reason:
+        text = chosen.reason + ". " + text
+    if not (other.reason and other.green == 1.0 and other.blue == 1.0):
+        name = tr("Gray Range") if method == EstimateMethod.MIDTONE else tr("Midtone")
+        text += " " + tr("{method} reads green {g}, blue {b}.", method=name, g=f"{other.green:.2f}", b=f"{other.blue:.2f}")
+    return text
 
 
 class SensorSidebar(BaseSidebar):
@@ -128,6 +155,63 @@ class SensorSidebar(BaseSidebar):
         self.crosstalk_header = crosstalk_fold.button
         self.layout.addLayout(crosstalk_header)
         self.layout.addWidget(crosstalk_fold)
+
+        # Green and blue are ratios to red, all a neutral can constrain; red's absolute survival has its own control.
+        self.fade_ratio_r_slider = CompactSlider(
+            tr("Red Survival"), *RED_SURVIVAL_BOUNDS, conf.fade_ratio_r, step=0.01, precision=1000, has_neutral=True
+        )
+        self.fade_ratio_r_slider.setToolTip(tr("How much red dye is left in the slide. Lower it if the faded slide still looks flat."))
+        self.fade_ratio_g_slider = CompactSlider(
+            tr("Green Survival"), *_RATIO_SLIDER_RANGE, conf.fade_ratio_g, step=0.01, precision=1000, has_neutral=True
+        )
+        self.fade_ratio_g_slider.setToolTip(tr("How much green dye is left, compared with red. Below 1.0 means green faded more than red."))
+        self.fade_ratio_b_slider = CompactSlider(
+            tr("Blue Survival"), *_RATIO_SLIDER_RANGE, conf.fade_ratio_b, step=0.01, precision=1000, has_neutral=True
+        )
+        self.fade_ratio_b_slider.setToolTip(tr("How much blue dye is left, compared with red. Below 1.0 means blue faded more than red."))
+
+        estimate_row = QHBoxLayout()
+        self.estimate_fade_btn = self._icon_action(
+            "fa5s.magic", tr("Set Green and Blue Survival from the grays in this frame. If it finds no result, set them by hand.")
+        )
+        self.estimate_fade_label = field_label(tr("Estimate"))
+        self.estimate_method_combo = StepCombo.of(
+            [tr("Midtone"), tr("Gray Range")],
+            tr("How Estimate reads the grays: Midtone suits a badly faded slide, Gray Range a mild fade with deep shadows."),
+            [m.value for m in EstimateMethod],
+        )
+        self.estimate_method_combo.set_item_tooltip(0, tr("Midtone: from the color of the middle grays. It also sets Red Survival."))
+        self.estimate_method_combo.set_item_tooltip(
+            1, tr("Gray Range: from how far the grays reach into the shadows. It leaves Red Survival as it is.")
+        )
+        saved = self.controller.session.repo.get_global_setting(_ESTIMATE_METHOD_KEY, EstimateMethod.MIDTONE)
+        self.estimate_method_combo.setCurrentIndex(
+            max(0, self.estimate_method_combo.findData(str(saved) if isinstance(saved, str) else ""))
+        )
+        estimate_row.addWidget(self.estimate_fade_label)
+        estimate_row.addWidget(self.estimate_fade_btn)
+        estimate_row.addWidget(self.estimate_method_combo, 1)
+
+        # The estimate, or which fail-closed condition fired.
+        self.fade_estimate_hint = hint_label("")
+        self.fade_estimate_hint.setVisible(False)
+
+        fade_header, self.fade_fold = group_fold(
+            "sensor_fade",
+            tr("Fade Restoration"),
+            self.fade_ratio_r_slider,
+            self.fade_ratio_g_slider,
+            self.fade_ratio_b_slider,
+            estimate_row,
+            self.fade_estimate_hint,
+        )
+
+        self.fade_header = self.fade_fold.button
+        self.fade_header.setToolTip(
+            wrap_tooltip(tr("Fade Restoration: brings back the colors and contrast of a slide whose dyes have faded with age."))
+        )
+        self.layout.addLayout(fade_header)
+        self.layout.addWidget(self.fade_fold)
 
         self.hue_trim_slider = CompactSlider(tr("Hue Trim"), -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
         self.hue_trim_slider.setToolTip(
@@ -227,6 +311,24 @@ class SensorSidebar(BaseSidebar):
         self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
         self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
 
+        self.fade_ratio_r_slider.valueChanged.connect(lambda v: self._on_fade_ratio_r_changed(v, persist=False))
+        self.fade_ratio_r_slider.valueCommitted.connect(lambda v: self._on_fade_ratio_r_changed(v, persist=True))
+        self.fade_ratio_g_slider.valueChanged.connect(
+            lambda v: self._on_fade_ratio_changed(v, self.fade_ratio_b_slider.value(), persist=False)
+        )
+        self.fade_ratio_g_slider.valueCommitted.connect(
+            lambda v: self._on_fade_ratio_changed(v, self.fade_ratio_b_slider.value(), persist=True)
+        )
+        self.fade_ratio_b_slider.valueChanged.connect(
+            lambda v: self._on_fade_ratio_changed(self.fade_ratio_g_slider.value(), v, persist=False)
+        )
+        self.fade_ratio_b_slider.valueCommitted.connect(
+            lambda v: self._on_fade_ratio_changed(self.fade_ratio_g_slider.value(), v, persist=True)
+        )
+        self.estimate_fade_btn.clicked.connect(self._on_estimate_fade)
+        self.estimate_method_combo.currentIndexChanged.connect(
+            lambda _i: self.controller.session.repo.save_global_setting(_ESTIMATE_METHOD_KEY, str(self.estimate_method_combo.currentData()))
+        )
         self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
         self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
 
@@ -347,16 +449,20 @@ class SensorSidebar(BaseSidebar):
         if dlg is None:
             return
         self._crosstalk_dialog = None
-        if self.state.current_file_hash and self._crosstalk_previewed:
-            self.controller.session.discard_preview()
-            # A persisted edit made during the preview stored it too; only a field the user has not
-            # changed since goes back, and the bounds re-meter instead of taking stale values.
-            conf = self.state.config.process
-            snapshot = self._crosstalk_snapshot
-            changes = {f: snapshot[f] for f, v in self._crosstalk_previewed.items() if getattr(conf, f) == v != snapshot[f]}
-            if changes:
-                self.update_config_section("process", render=False, **changes, **invalidate_local_bounds(conf))
+        self._take_back_preview(self._crosstalk_snapshot, self._crosstalk_previewed)
         dlg.reject()
+
+    def _take_back_preview(self, snapshot: dict, previewed: dict) -> None:
+        """Drop an editor's pending preview from the active frame before its edit is stored."""
+        if not (self.state.current_file_hash and previewed):
+            return
+        self.controller.session.discard_preview()
+        # A persisted edit made during the preview stored it too; only a field the user has not
+        # changed since goes back, and the bounds re-meter instead of taking stale values.
+        conf = self.state.config.process
+        changes = {f: snapshot[f] for f, v in previewed.items() if getattr(conf, f) == v != snapshot[f]}
+        if changes:
+            self.update_config_section("process", render=False, **changes, **invalidate_local_bounds(conf))
 
     def _on_crosstalk_editor_finished(self, dlg, result: int) -> None:
         if dlg is not self._crosstalk_dialog:
@@ -378,6 +484,60 @@ class SensorSidebar(BaseSidebar):
         else:
             self.controller.set_roll_default("sensor", **self._crosstalk_snapshot, **invalidate_local_bounds(self.state.config.process))
         self.sync_ui()
+
+    def _on_fade_ratio_r_changed(self, val: float, persist: bool = True) -> None:
+        self.controller.set_roll_default(
+            "fade",
+            persist=persist,
+            readback_metrics=persist,
+            fade_ratio_r=val,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
+    def _on_fade_ratio_changed(self, ratio_g: float, ratio_b: float, persist: bool = True) -> None:
+        self.controller.set_roll_default(
+            "fade",
+            persist=persist,
+            readback_metrics=persist,
+            fade_ratio_g=ratio_g,
+            fade_ratio_b=ratio_b,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
+    def _on_estimate_fade(self) -> None:
+        from negpy.features.exposure.normalization import resolve_analysis_region
+        from negpy.features.process.fade import estimate_fade
+
+        image = self.state.preview_raw
+        if image is None:
+            self.fade_estimate_hint.setText(tr("No image loaded to estimate from."))
+            self.fade_estimate_hint.setVisible(True)
+            return
+        conf = self.state.config.process
+        roi, buffer = resolve_analysis_region(image.shape, None, conf.analysis_buffer, conf.analysis_rect)
+        method = EstimateMethod(self.estimate_method_combo.currentData())
+        estimates = estimate_fade(image, conf.process_mode, roi, buffer, self.controller.camera_working_matrix())
+        chosen, other = estimates[method], estimates[next(m for m in EstimateMethod if m != method)]
+        self.fade_estimate_hint.setText(_estimate_hint(method, chosen, other))
+        self.fade_estimate_hint.setVisible(True)
+        if chosen.reason and chosen.green == 1.0 and chosen.blue == 1.0:
+            return
+        red = chosen.red if chosen.red is not None else conf.fade_ratio_r
+        for slider, value in (
+            (self.fade_ratio_r_slider, red),
+            (self.fade_ratio_g_slider, chosen.green),
+            (self.fade_ratio_b_slider, chosen.blue),
+        ):
+            slider.blockSignals(True)
+            slider.setValue(value)
+            slider.blockSignals(False)
+        self.controller.set_roll_default(
+            "fade",
+            fade_ratio_r=red,
+            fade_ratio_g=chosen.green,
+            fade_ratio_b=chosen.blue,
+            **invalidate_local_bounds(conf),
+        )
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
         # Sticky on commit only, so a drag doesn't write every intermediate value.
@@ -416,6 +576,14 @@ class SensorSidebar(BaseSidebar):
             self.crosstalk_combo.setEnabled(has_profiles)
             self.crosstalk_strength_slider.setEnabled(has_profiles)
 
+            self.fade_ratio_r_slider.setValue(conf.fade_ratio_r)
+            self.fade_ratio_g_slider.setValue(conf.fade_ratio_g)
+            self.fade_ratio_b_slider.setValue(conf.fade_ratio_b)
+            e6 = conf.process_mode == ProcessMode.E6
+            # The content, never the fold: the fold's visibility is its open state.
+            self.fade_fold.content.setVisible(e6)
+            self.fade_estimate_hint.setVisible(e6 and bool(self.fade_estimate_hint.text()))
+
             self.hue_trim_slider.setValue(conf.hue_trim)
 
             # Only a single-exposure narrowband camera rig leaks between bands or turns hues; a group
@@ -430,7 +598,9 @@ class SensorSidebar(BaseSidebar):
 
     def has_controls(self) -> bool:
         """Whether any group shows, so the card can hide when the rig and film leave it empty."""
-        return any(not w.isHidden() for w in (self.narrowband_fold.content, self.light_fold.content, self.crosstalk_header))
+        return any(
+            not w.isHidden() for w in (self.narrowband_fold.content, self.light_fold.content, self.crosstalk_header, self.fade_fold.content)
+        )
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
@@ -438,6 +608,9 @@ class SensorSidebar(BaseSidebar):
             self.unmix_btn,
             self.crosstalk_combo,
             self.crosstalk_strength_slider,
+            self.fade_ratio_r_slider,
+            self.fade_ratio_g_slider,
+            self.fade_ratio_b_slider,
             self.hue_trim_slider,
         ):
             w.blockSignals(blocked)

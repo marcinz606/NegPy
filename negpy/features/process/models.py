@@ -208,6 +208,13 @@ class ProcessConfig:
     # E-6, so a mismatch resolves to identity instead of mixing in the wrong matrix.
     crosstalk_process: str = ProcessMode.C41
 
+    # Fade restoration of faded transparencies, composed with the crosstalk unmix
+    # (`effective_crosstalk_matrix`). The ratios describe one slide: green and
+    # blue relative to red, and red's own survival. All three at 1.0 is the identity.
+    fade_ratio_r: float = 1.0
+    fade_ratio_g: float = 1.0
+    fade_ratio_b: float = 1.0
+
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
     # per-setup property calibrated from three bare-light R/G/B exposures
     # (features/process/sensor.py). 9 floats row-major; None = off.

@@ -674,6 +674,21 @@ class TestRollDefaults:
         set_frame_override(repo, roll_id, "h1", "flatfield", locked=True)
         assert resolve_roll_config(repo, roll_id, "h1", WorkspaceConfig()).flatfield.profile_id == ""
 
+    def test_the_fade_survivals_follow_the_roll_on_their_own_card(self):
+        """The survivals are their own "fade" card, so a frame can keep its own Estimate
+        while it still takes the roll's crosstalk, and the other way round."""
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Velvia", [])
+        set_roll_defaults(repo, roll_id, fade_ratio_g=0.5, fade_ratio_r=0.5, crosstalk_strength=0.4)
+        frame = WorkspaceConfig(process=ProcessConfig(fade_ratio_g=0.8))
+
+        resolved = resolve_roll_config(repo, roll_id, "h1", frame).process
+        assert resolved.fade_ratio_g == 0.5 and resolved.fade_ratio_r == 0.5
+
+        set_frame_override(repo, roll_id, "h1", "fade", locked=True)
+        own = resolve_roll_config(repo, roll_id, "h1", frame).process
+        assert own.fade_ratio_g == 0.8 and own.fade_ratio_r == 1.0 and own.crosstalk_strength == 0.4
+
     def test_positive_source_can_be_locked_away_on_the_film_card(self):
         repo = _repo()
         roll_id = create_virtual_roll(repo, "Portra", [])

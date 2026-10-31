@@ -100,6 +100,46 @@ class TestExportColorManagement(unittest.TestCase):
                 msg=f"{target} export diverges from sRGB export in CM view: {arr.ravel()} vs {ref.ravel()}",
             )
 
+    def test_8bit_export_rounds_once_after_the_conversion(self):
+        """An 8-bit export converts at 16 bits, so it is the 16-bit export rounded to 8 bits.
+        Rounding to 8 bits before an Adobe RGB to sRGB conversion moves a near-zero sRGB
+        channel at the gamut edge by many codes."""
+        from negpy.kernel.image.logic import float_to_uint8
+
+        rng = np.random.default_rng(11)
+        buffer = rng.random((48, 64, 3), dtype=np.float32)
+        buffer[:8, :, 0] = 0.0  # saturated greens and blues, at the sRGB gamut edge
+        for target in (ColorSpace.SRGB.value, ColorSpace.PROPHOTO.value):
+            out16, icc16 = self.proc._export_pixels(buffer, 16, False, WORKING_COLOR_SPACE, target, None, None)
+            out8, icc8 = self.proc._export_pixels(buffer, 8, False, WORKING_COLOR_SPACE, target, None, None)
+            self.assertEqual(out8.dtype, np.uint8)
+            self.assertEqual(icc8, icc16)
+            expected = np.clip(np.round(out16.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
+            np.testing.assert_array_equal(out8, expected)
+
+        same, _ = self.proc._export_pixels(buffer, 8, False, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, None, None)
+        np.testing.assert_array_equal(same, float_to_uint8(buffer))
+
+    def test_8bit_export_with_a_lut_output_icc_rounds_once(self):
+        """A LUT Output ICC converts at 16 bits too; without the CMS codec it takes the 8-bit transform."""
+        import os
+        from unittest import mock
+
+        from negpy.kernel.image.logic import float_to_uint8
+
+        lut_icc = os.path.join(os.path.dirname(__file__), "fixtures", "RGBScan.icc")
+        buffer = np.random.default_rng(12).random((32, 48, 3), dtype=np.float32)
+        out16, _ = self.proc._export_pixels(buffer, 16, False, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, lut_icc, None)
+        out8, _ = self.proc._export_pixels(buffer, 8, False, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, lut_icc, None)
+        expected = np.clip(np.round(out16.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
+        np.testing.assert_array_equal(out8, expected)
+
+        target = "negpy.services.rendering.image_processor._cms_transform_strips"
+        with mock.patch(target, side_effect=ImportError("no codec")):
+            fallback, _ = self.proc._export_pixels(buffer, 8, False, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, lut_icc, None)
+        legacy, _ = self.proc.apply_color_management(float_to_uint8(buffer), WORKING_COLOR_SPACE, ColorSpace.SRGB.value, lut_icc, None)
+        np.testing.assert_array_equal(fallback, legacy)
+
     def test_same_space_export_is_noop(self):
         """working == target with no custom profile leaves pixels untouched."""
         img_u16 = np.random.randint(0, 65535, size=(4, 4, 3), dtype=np.uint16)

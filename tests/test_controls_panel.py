@@ -339,6 +339,23 @@ def test_sync_modified_dots_leaves_the_scanning_setup_uncounted():
     panel.process_section.set_modified.assert_called_once_with(0)
 
 
+def test_resetting_calibration_restores_the_fade_survivals():
+    panel = MagicMock()
+    panel.controller.state = AppState()
+    cfg = DEFAULT_WORKSPACE_CONFIG
+    panel.controller.state.config = replace(cfg, process=replace(cfg.process, fade_ratio_r=0.5, fade_ratio_g=0.6, fade_ratio_b=0.7))
+
+    ControlsPanel._reset_process_fields(panel, _SENSOR_FIELDS)
+
+    process = panel.controller.apply_config.call_args[0][0].process
+    defaults = DEFAULT_WORKSPACE_CONFIG.process
+    assert (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b) == (
+        defaults.fade_ratio_r,
+        defaults.fade_ratio_g,
+        defaults.fade_ratio_b,
+    )
+
+
 def test_a_card_reset_leaves_the_scanning_setup_alone():
     panel = MagicMock()
     panel.controller.state = AppState()
