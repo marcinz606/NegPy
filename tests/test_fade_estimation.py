@@ -5,13 +5,20 @@ A measure step, a build step, and the fail-closed reasons in between.
 
 import numpy as np
 
+from negpy.features.exposure.normalization import prefilter_log_grid
 from negpy.features.process.fade import (
     RATIO_BOUNDS,
     SPREAD_FLOOR,
-    estimate_fade_ratios,
+    EstimateMethod,
+    estimate_fade,
     fade_ratios_from_neutral_axis,
 )
-from negpy.features.process.models import ProcessMode
+
+
+def _ratios(image: np.ndarray) -> tuple[float, float, str]:
+    """Gray Range's (green, blue, reason) on the meter grid of a linear capture."""
+    est = estimate_fade(prefilter_log_grid(image, None, 0.0))[EstimateMethod.SPREAD]
+    return est.green, est.blue, est.reason
 
 
 def _synthetic_neutral_slide(
@@ -37,7 +44,7 @@ def test_recovers_known_ratios_through_the_real_detector():
     ratio_g_true, ratio_b_true = 0.6, 0.85
     image = _synthetic_neutral_slide(ratio_g_true, ratio_b_true)
 
-    ratio_g, ratio_b, reason = estimate_fade_ratios(image, ProcessMode.E6, None, 0.0)
+    ratio_g, ratio_b, reason = _ratios(image)
     assert reason == ""
     assert abs(ratio_g - ratio_g_true) < 1e-2
     assert abs(ratio_b - ratio_b_true) < 1e-2
@@ -49,7 +56,7 @@ def test_recovers_a_mild_fade_without_overshooting():
     ratio_g_true, ratio_b_true = 0.85, 0.9
     image = _synthetic_neutral_slide(ratio_g_true, ratio_b_true)
 
-    ratio_g, ratio_b, reason = estimate_fade_ratios(image, ProcessMode.E6, None, 0.0)
+    ratio_g, ratio_b, reason = _ratios(image)
     assert reason == ""
     assert abs(ratio_g - ratio_g_true) < 1e-2
     assert abs(ratio_b - ratio_b_true) < 1e-2
@@ -65,7 +72,7 @@ def test_recovers_known_ratios_on_a_severely_faded_frame():
     ratio_g_true, ratio_b_true = 0.6, 0.85
     image = _synthetic_neutral_slide(ratio_g_true, ratio_b_true, ratio_r=0.1)
 
-    ratio_g, ratio_b, reason = estimate_fade_ratios(image, ProcessMode.E6, None, 0.0)
+    ratio_g, ratio_b, reason = _ratios(image)
     assert reason == ""
     assert abs(ratio_g - ratio_g_true) < 1e-2
     assert abs(ratio_b - ratio_b_true) < 1e-2
@@ -76,7 +83,7 @@ def test_documented_wrong_behavior_on_unequal_unfaded_spreads():
     Documented wrong behavior -- a monochromatic slide defeats any estimator built on this
     assumption -- not a bug for a future pass to "fix"."""
     image = _synthetic_neutral_slide(1.6, 1.0)  # a genuinely more colorful green channel
-    ratio_g, ratio_b, reason = estimate_fade_ratios(image, ProcessMode.E6, None, 0.0)
+    ratio_g, ratio_b, reason = _ratios(image)
     assert reason == ""
     assert ratio_g != 1.0
 
@@ -99,15 +106,15 @@ def test_clamps_and_reports_an_out_of_bounds_ratio():
     ratio_g, ratio_b, reason = fade_ratios_from_neutral_axis(((1.0, 10.0, 1.0), (0.0, 0.0, 0.0), None, 1.0))
     assert ratio_g == hi
     assert ratio_b == 1.0
-    assert reason.startswith("Implied green 10.0 is outside 0.2–5, set to 5.0")
+    assert reason.startswith("Green read 10.0, outside 0.2 to 5, so it is set to 5.0.")
     assert "Red Survival" in reason
-    assert "blue" not in reason
+    assert "Blue" not in reason
 
 
 def test_a_ratio_below_the_range_does_not_point_at_red_survival():
     _g, ratio_b, reason = fade_ratios_from_neutral_axis(((1.0, 1.0, 0.1), (0.0, 0.0, 0.0), None, 1.0))
     assert ratio_b == RATIO_BOUNDS[0]
-    assert reason == "Implied blue 0.1 is outside 0.2–5, set to 0.2"
+    assert reason == "Blue read 0.1, outside 0.2 to 5, so it is set to 0.2."
 
 
 def test_no_neutral_axis_found_fails_closed():
@@ -116,19 +123,10 @@ def test_no_neutral_axis_found_fails_closed():
     assert reason
 
 
-def test_fails_closed_for_non_transparency():
-    image = _synthetic_neutral_slide(0.7, 1.4)
-    ratio_g, ratio_b, reason = estimate_fade_ratios(image, ProcessMode.C41, None, 0.0)
-    assert (ratio_g, ratio_b) == (1.0, 1.0)
-    assert reason
-
-
 def test_both_methods_recover_a_pure_fade_and_midtone_sets_red():
     """On a pure fade both methods read the same ratios; Midtone also puts the best-kept layer at 1.0."""
-    from negpy.features.process.fade import EstimateMethod, estimate_fade
-
     image = _synthetic_neutral_slide(1.4, 1.2, ratio_r=0.7)
-    estimates = estimate_fade(image, ProcessMode.E6, None, 0.0)
+    estimates = estimate_fade(prefilter_log_grid(image, None, 0.0))
     midtone, spread = estimates[EstimateMethod.MIDTONE], estimates[EstimateMethod.SPREAD]
     for est in (midtone, spread):
         assert est.reason == ""
@@ -139,8 +137,6 @@ def test_both_methods_recover_a_pure_fade_and_midtone_sets_red():
 
 def test_midtone_ignores_a_lifted_shadow_that_misleads_spread():
     """A flat, lifted shadow in one channel compresses its spread; the midtone density does not move."""
-    from negpy.features.process.fade import EstimateMethod, fade_ratios_from_neutral_axis
-
     refs = ((-1.0, -1.2, -1.1), (-1.3, -1.5, -1.25), None, 0.9)
     g_mid, b_mid, _ = fade_ratios_from_neutral_axis(refs, EstimateMethod.MIDTONE)
     g_spread, b_spread, _ = fade_ratios_from_neutral_axis(refs, EstimateMethod.SPREAD)
@@ -148,32 +144,46 @@ def test_midtone_ignores_a_lifted_shadow_that_misleads_spread():
     assert abs(b_spread - 0.5) < 1e-9 and g_spread == 1.0
 
 
-def test_estimate_fails_closed_for_both_methods_off_a_slide():
-    from negpy.features.process.fade import estimate_fade
+def test_estimate_meters_the_render_grid_before_the_fade():
+    """A rotated, cropped slide with an E-6 crosstalk matrix: Estimate's grid is the render's
+    meter grid with the fade taken out."""
+    from dataclasses import replace
 
-    image = _synthetic_neutral_slide(0.7, 1.4)
-    for est in estimate_fade(image, ProcessMode.C41, None, 0.0).values():
-        assert (est.red, est.green, est.blue) == (None, 1.0, 1.0) and est.reason
-
-
-def test_estimate_reads_a_camera_buffer_in_working_space():
-    """The render applies the camera matrix before the fade, so Estimate must too."""
-    from negpy.features.process.capture_color import camera_to_working_matrix
-    from negpy.features.process.fade import EstimateMethod, estimate_fade
+    from negpy.desktop.workers.chart_fit import ChartSource, fade_estimate_grid
+    from negpy.features.process.fade import resolve_fade_matrix
     from negpy.features.process.models import ProcessMode
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+    from negpy.services.rendering.image_processor import ImageProcessor
     from tests.test_fade_fixtures import clean_slide, forward_fade_matrix
 
-    cam_xyz = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.2460, 0.2028], [-0.0908, 0.2162, 0.5668], [0, 0, 0]]
-    matrix = camera_to_working_matrix(cam_xyz, None)
-    assert matrix is not None
-    ratio_g, ratio_b = 0.75, 0.62
-    working = 10.0 ** (np.log10(clean_slide(256, 0)) @ forward_fade_matrix(ratio_g, ratio_b).T)
-    camera = np.clip(working @ np.linalg.inv(matrix).T, 1e-6, 1.0).astype(np.float32)
+    ratio_g, ratio_b = 0.7, 0.85
+    faded = 10.0 ** (np.log10(clean_slide(256, 3)) @ forward_fade_matrix(ratio_g, ratio_b).T)
+    image = np.ascontiguousarray(faded[:, :192], dtype=np.float32)
+    cfg = DEFAULT_WORKSPACE_CONFIG
+    cfg = replace(
+        cfg,
+        process=replace(
+            cfg.process,
+            process_mode=ProcessMode.E6,
+            crosstalk_matrix=(1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0),
+            crosstalk_strength=1.0,
+            crosstalk_process=ProcessMode.E6,
+            fade_ratio_g=ratio_g,
+            fade_ratio_b=ratio_b,
+        ),
+        geometry=replace(cfg.geometry, rotation=1, crop_rect=(0.1, 0.15, 0.85, 0.9), crop_from_auto=False),
+    )
+    grid = fade_estimate_grid(ChartSource(image, cfg, "fade-grid", None, None, (), 1))
+    whole = fade_estimate_grid(
+        ChartSource(image, replace(cfg, geometry=replace(cfg.geometry, crop_rect=None)), "fade-grid", None, None, (), 1)
+    )
+    assert grid is not None and whole is not None and grid.shape != whole.shape
 
-    bare = estimate_fade(camera, ProcessMode.E6, None, 0.1)[EstimateMethod.MIDTONE]
-    mapped = estimate_fade(camera, ProcessMode.E6, None, 0.1, matrix)[EstimateMethod.MIDTONE]
-    assert abs(mapped.green - ratio_g) < 0.03 and abs(mapped.blue - ratio_b) < 0.03
-    assert abs(bare.blue - ratio_b) > 2 * abs(mapped.blue - ratio_b)
+    _, metrics = ImageProcessor(use_gpu=False).run_pipeline(
+        image, cfg, "fade-grid", render_size_ref=256.0, prefer_gpu=False, cache_stages=False
+    )
+    fade = resolve_fade_matrix(1.0, ratio_g, ratio_b)
+    np.testing.assert_allclose(metrics["transfer_grid"], grid @ fade.T, atol=1e-5)
 
 
 def _record_axis(monkeypatch, confidences):

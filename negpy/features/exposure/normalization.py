@@ -24,8 +24,6 @@ MASK_BLUR_PERCENT = 4.0
 # (weight, sigma in per-cent of the printed frame's short side) Gaussians that fit a sum of
 # radial exponentials, a halo and a bloom with a power-law tail. The weights sum to 1.
 DIFFUSION_PSF = ((0.0421, 0.213), (0.1576, 0.449), (0.2723, 0.926), (0.3540, 2.017), (0.1740, 5.48))
-# Remove Stain puts the white at least this log density below full scale, so clear areas do not clip.
-FADE_WHITE_HEADROOM = 0.1
 
 
 class LogNegativeBounds:
@@ -157,61 +155,16 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     negative stock, so without this gate a slide silently gets a negative's correction.
     Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
     profile that predates the field actually is.
-
-    Also composes in fade restoration for slides. Fade restores
-    the densities the unmix recovered as faded, so it applies after: `fade @ unmix`. Either
-    factor, both or neither can be None. With White Anchor on, the result is a (3, 4) affine
-    `M (L - w) + t`: the last column is the log offset `-M w + t` that `unmix_log_image` adds.
-    The neutral target t is the cleanest channel's white, capped at FADE_WHITE_HEADROOM below
-    full scale, so a dim scan keeps its exposure.
     """
 
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
-    unmix = None
     if process_mode is None or profile_mode == str(process_mode):
-        unmix = resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
-
-    fade = (
-        resolve_fade_matrix(process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
-        if _fade_applies(process, process_mode)
-        else None
-    )
-    matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
-    white = _fade_white(process, process_mode)
-    if white is None:
-        return matrix
-    linear = np.eye(3) if matrix is None else matrix
-    target = _white_target(white)
-    return np.hstack([linear, (target - linear @ white)[:, None]])
-
-
-def _fade_white(process: "ProcessConfig", process_mode: Optional[str]) -> Optional[np.ndarray]:
-    """The stored per-channel white (log transmittance) when White Anchor acts, else None."""
-    if not process.fade_white_anchor or (process_mode is not None and str(process_mode) != str(ProcessMode.E6)):
-        return None
-    white = np.array([process.fade_white_r, process.fade_white_g, process.fade_white_b], dtype=np.float64)
-    return white if bool(np.any(white != 0.0)) else None
-
-
-def _white_target(white: np.ndarray) -> float:
-    return min(float(white.max()), -FADE_WHITE_HEADROOM)
-
-
-def fade_white_target(process: "ProcessConfig", process_mode: Optional[str]) -> Optional[float]:
-    """The neutral log level Remove Stain maps the stored white to in this render, else None."""
-    white = _fade_white(process, process_mode)
-    return None if white is None else _white_target(white)
-
-
-def _fade_applies(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
-    """Whether a non-neutral fade factor is requested: slides only, and not at unit survival."""
-    if process_mode is not None and str(process_mode) != str(ProcessMode.E6):
-        return False
-    return any(float(r) - 1.0 != 0.0 for r in (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b))
+        return resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
+    return None
 
 
 def crosstalk_unmix_active(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
-    """A crosstalk unmix for this film process runs ahead of the fade factor."""
+    """A crosstalk unmix for this film process applies."""
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
     return (process_mode is None or profile_mode == str(process_mode)) and (
         resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix) is not None
@@ -237,23 +190,14 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
     return applied / np.maximum(row_sums, 1e-6)
 
 
-def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.ndarray:
-    """Restoration operator for a faded dye set: the inverse of diag(ar, ar*ag, ar*ab).
-
-    Not row-normalized: fade changes each layer's neutral density, and that is the signal.
-    `ratio_g` and `ratio_b` are survival ratios to red; `ratio_r` is red's absolute survival.
-    """
-    ar, ag, ab = float(ratio_r), float(ratio_g), float(ratio_b)
-    return np.diag([1.0 / ar, 1.0 / (ar * ag), 1.0 / (ar * ab)])
-
-
 def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
     """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None. A (3, 4)
     matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does."""
     if matrix is None:
         return img_log
-    m = matrix.astype(np.float32)
-    out = np.einsum("hwc,kc->hwk", img_log.astype(np.float32, copy=False), m[:, :3])
+    m = np.ascontiguousarray(matrix, dtype=np.float32)
+    out = negpy_core.unmix_log(np.ascontiguousarray(img_log, dtype=np.float32), np.ascontiguousarray(m[:, :3]))
+    # A (3, 4) matrix is Remove Stain's affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
 
 

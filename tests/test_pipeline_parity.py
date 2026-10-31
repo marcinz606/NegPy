@@ -354,6 +354,16 @@ class TestExposureParity:
         s = replace(base, process=replace(base.process, crosstalk_strength=0.7))
         self._run_and_compare(s)
 
+    def test_slide_fade_restoration(self):
+        # Both engines compose the fade after the unmix; a fade one of them drops moves the render past this tolerance.
+        base = _make_base_settings()
+        fade = dict(fade_ratio_r=0.8, fade_ratio_g=0.7, fade_ratio_b=1.3)
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, **fade))
+        cpu, gpu = self._render_both(s)
+        plain, _ = self._render_both(replace(s, process=replace(s.process, fade_ratio_r=1.0, fade_ratio_g=1.0, fade_ratio_b=1.0)))
+        assert float(np.abs(cpu - plain).mean()) > 0.02
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab color/sharpening shader."""

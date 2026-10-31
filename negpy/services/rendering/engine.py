@@ -25,10 +25,10 @@ from negpy.features.exposure.normalization import (
     diffusion_plane,
     base_scan_density,
     effective_crosstalk_matrix,
-    fade_white_target,
     geometry_kwargs,
     normalized_roi,
 )
+from negpy.features.process.fade import fade_white_target
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
@@ -64,7 +64,7 @@ def exposure_processor(settings: WorkspaceConfig) -> Any:
     return TransferProcessor(
         settings.exposure,
         settings.process.positive_source,
-        fade_white_target(settings.process, settings.process.process_mode),
+        fade_white_target(settings.process),
     )
 
 

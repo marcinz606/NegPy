@@ -8,21 +8,17 @@ import pytest
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.normalization import (
-    FADE_WHITE_HEADROOM,
-    LogNegativeBounds,
-    effective_crosstalk_matrix,
-    fade_white_target,
-    prefilter_log_grid,
-    unmix_log_image,
-)
+from negpy.features.exposure.normalization import LogNegativeBounds, prefilter_log_grid, unmix_log_image
 from negpy.features.process.fade import (
+    FADE_WHITE_HEADROOM,
     STAIN_BLUE_MIN,
     STAIN_FULL_SCALE_TOLERANCE,
     EstimateMethod,
     estimate_fade,
+    fade_white_target,
     measure_white,
     stain_suggested,
+    unmix_with_fade,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import STAIN_PIVOT_MIN_ARM, transfer_bounds, transfer_cast_affine
@@ -68,11 +64,20 @@ def _chroma_rms(out: np.ndarray, ref: np.ndarray) -> float:
     return float(np.sqrt(np.mean(diff[ok][:, [0, 2]] ** 2)))
 
 
+def _slide(**fields) -> ProcessConfig:
+    return ProcessConfig(process_mode=ProcessMode.E6, **fields)
+
+
+def _grid(image: np.ndarray) -> np.ndarray:
+    """The meter grid Estimate reads, for a slide with no crop, unmix or fade."""
+    return prefilter_log_grid(image, None, 0.0)
+
+
 def test_off_keeps_the_square_matrix_whatever_white_is_stored():
-    stored = ProcessConfig(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, **_WHITE)
-    bare = ProcessConfig(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B)
-    np.testing.assert_array_equal(effective_crosstalk_matrix(stored, ProcessMode.E6), effective_crosstalk_matrix(bare, ProcessMode.E6))
-    assert effective_crosstalk_matrix(ProcessConfig(**_WHITE), ProcessMode.E6) is None
+    stored = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, **_WHITE)
+    bare = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B)
+    np.testing.assert_array_equal(unmix_with_fade(stored, ProcessMode.E6), unmix_with_fade(bare, ProcessMode.E6))
+    assert unmix_with_fade(_slide(**_WHITE), ProcessMode.E6) is None
 
 
 def test_off_renders_bit_identical_with_a_stored_white():
@@ -83,8 +88,8 @@ def test_off_renders_bit_identical_with_a_stored_white():
 
 
 def test_on_maps_a_bright_white_just_under_full_scale_before_the_fade():
-    process = ProcessConfig(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **_WHITE)
-    matrix = effective_crosstalk_matrix(process, ProcessMode.E6)
+    process = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **_WHITE)
+    matrix = unmix_with_fade(process, ProcessMode.E6)
     assert matrix.shape == (3, 4)
     white = np.array([[[_WHITE["fade_white_r"], _WHITE["fade_white_g"], _WHITE["fade_white_b"]]]], dtype=np.float32)
     np.testing.assert_allclose(unmix_log_image(white, matrix), -FADE_WHITE_HEADROOM, atol=1e-6)
@@ -95,9 +100,9 @@ def test_on_maps_a_bright_white_just_under_full_scale_before_the_fade():
 
 def test_on_keeps_a_dim_white_at_its_cleanest_channel():
     dim = {"fade_white_r": -0.8, "fade_white_g": -1.0, "fade_white_b": -1.1}
-    process = ProcessConfig(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **dim)
+    process = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **dim)
     white = np.array([[list(dim.values())]], dtype=np.float32)
-    np.testing.assert_allclose(unmix_log_image(white, effective_crosstalk_matrix(process, ProcessMode.E6)), -0.8, atol=1e-6)
+    np.testing.assert_allclose(unmix_log_image(white, unmix_with_fade(process, ProcessMode.E6)), -0.8, atol=1e-6)
 
 
 def test_white_headroom_is_the_documented_one():
@@ -105,16 +110,22 @@ def test_white_headroom_is_the_documented_one():
 
 
 def test_on_with_no_white_measured_changes_nothing():
-    process = ProcessConfig(fade_ratio_g=_RATIO_G, fade_white_anchor=True)
+    process = _slide(fade_ratio_g=_RATIO_G, fade_white_anchor=True)
     np.testing.assert_array_equal(
-        effective_crosstalk_matrix(process, ProcessMode.E6),
-        effective_crosstalk_matrix(ProcessConfig(fade_ratio_g=_RATIO_G), ProcessMode.E6),
+        unmix_with_fade(process, ProcessMode.E6),
+        unmix_with_fade(_slide(fade_ratio_g=_RATIO_G), ProcessMode.E6),
     )
 
 
+def test_remove_stain_skips_a_positive_frame():
+    process = _slide(positive_source=True, fade_white_anchor=True, **_WHITE)
+    assert unmix_with_fade(process, ProcessMode.E6) is None
+    assert fade_white_target(process) is None
+
+
 def test_white_anchor_applies_to_slides_only():
-    process = ProcessConfig(fade_white_anchor=True, **_WHITE)
-    assert effective_crosstalk_matrix(process, ProcessMode.C41) is None
+    process = _slide(fade_white_anchor=True, **_WHITE)
+    assert unmix_with_fade(replace(process, process_mode=ProcessMode.C41), ProcessMode.C41) is None
 
 
 def test_a_stained_slide_restores_closer_to_the_clean_one_with_the_anchor_on():
@@ -132,7 +143,7 @@ def test_cast_removal_meters_the_anchored_film():
     """Cast Removal's neutral axis reads the grid after the affine, so the stain is gone from it."""
     _clean, faded = _stained_slide()
     white = measure_white(prefilter_log_grid(faded, None, 0.0))
-    process = ProcessConfig(
+    process = _slide(
         fade_ratio_g=_RATIO_G,
         fade_ratio_b=_RATIO_B,
         fade_white_anchor=True,
@@ -140,7 +151,7 @@ def test_cast_removal_meters_the_anchored_film():
         fade_white_g=white[1],
         fade_white_b=white[2],
     )
-    grid = unmix_log_image(prefilter_log_grid(faded, None, 0.0), effective_crosstalk_matrix(process, ProcessMode.E6))
+    grid = unmix_log_image(prefilter_log_grid(faded, None, 0.0), unmix_with_fade(process, ProcessMode.E6))
     top = np.percentile(grid.reshape(-1, 3), 99.9, axis=0)
     np.testing.assert_allclose(top, -FADE_WHITE_HEADROOM, atol=0.02)
 
@@ -197,7 +208,7 @@ def test_no_white_without_a_film_cell():
 
 
 def test_an_anchored_estimate_with_no_film_cell_says_so():
-    est = estimate_fade(np.ones((32, 32, 3), np.float32), ProcessMode.E6, None, 0.0, white_anchor=True)[EstimateMethod.MIDTONE]
+    est = estimate_fade(np.zeros((32, 32, 3), np.float32), white_anchor=True)[EstimateMethod.MIDTONE]
     assert est.white is None and est.reason
     assert (est.green, est.blue) == (1.0, 1.0)
 
@@ -212,21 +223,21 @@ def test_an_anchored_estimate_with_no_film_cell_says_so():
     ],
 )
 def test_the_transfer_stage_knows_where_the_white_is_anchored(process, target):
-    cfg = _config(positive_source=True, **process)
+    cfg = _config(**process)
     assert exposure_processor(cfg).white_target == target
-    assert fade_white_target(cfg.process, cfg.process.process_mode) == target
+    assert fade_white_target(cfg.process) == target
 
 
 def test_estimate_measures_the_stain_as_the_white():
     _clean, faded = _stained_slide()
-    est = estimate_fade(faded, ProcessMode.E6, None, 0.0)[EstimateMethod.MIDTONE]
+    est = estimate_fade(_grid(faded))[EstimateMethod.MIDTONE]
     np.testing.assert_allclose(est.white, _STAIN, atol=0.02)
 
 
 def test_the_anchored_estimate_reads_the_true_survivals_through_a_stain():
     _clean, faded = _stained_slide()
-    plain = estimate_fade(faded, ProcessMode.E6, None, 0.0)[EstimateMethod.MIDTONE]
-    anchored = estimate_fade(faded, ProcessMode.E6, None, 0.0, white_anchor=True)[EstimateMethod.MIDTONE]
+    plain = estimate_fade(_grid(faded))[EstimateMethod.MIDTONE]
+    anchored = estimate_fade(_grid(faded), white_anchor=True)[EstimateMethod.MIDTONE]
     assert anchored.reason == ""
     assert anchored.green == pytest.approx(_RATIO_G, abs=0.03)
     assert anchored.blue == pytest.approx(_RATIO_B, abs=0.03)

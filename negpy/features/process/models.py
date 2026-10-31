@@ -209,7 +209,7 @@ class ProcessConfig:
     crosstalk_process: str = ProcessMode.C41
 
     # Fade restoration of faded transparencies, composed with the crosstalk unmix
-    # (`effective_crosstalk_matrix`). The ratios describe one slide: green and
+    # (`fade.unmix_with_fade`). The ratios describe one slide: green and
     # blue relative to red, and red's own survival. All three at 1.0 is the identity.
     fade_ratio_r: float = 1.0
     fade_ratio_g: float = 1.0

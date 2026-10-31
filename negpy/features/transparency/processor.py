@@ -13,7 +13,6 @@ from negpy.features.exposure.logic import filtration_offsets
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
-    effective_crosstalk_matrix,
     luminance_density_range,
     measure_anchor_from_log,
     measure_clip_fractions,
@@ -25,6 +24,7 @@ from negpy.features.exposure.normalization import (
     resolve_analysis_region,
     unmix_log_image,
 )
+from negpy.features.process.fade import unmix_with_fade
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig
@@ -77,7 +77,7 @@ class TransparencyBaseProcessor:
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
-        unmix = effective_crosstalk_matrix(self.config, context.process_mode)
+        unmix = unmix_with_fade(self.config, context.process_mode)
         img_log = unmix_log_image(img_log, unmix)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
@@ -98,6 +98,9 @@ class TransparencyBaseProcessor:
             linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
         )
         prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
+        if context.readback_metrics:
+            # Fade Estimate meters this grid, rendered with the fade at identity.
+            context.metrics["transfer_grid"] = prefiltered
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different

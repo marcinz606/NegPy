@@ -87,7 +87,6 @@ from negpy.features.process.logic import (
     effective_highlight_reconstruction,
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
-    should_fold_camera_wb,
 )
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -3756,7 +3755,8 @@ class AppController(QObject):
         zeroed on the rebate. The patch is read back through the frame's window and its crosstalk
         unmix, so the roll keeps a raw base that every render unmixes like the rebate reader's.
         One click: the tool disarms, and leaving it re-renders the roll's frame above the base."""
-        from negpy.features.exposure.normalization import effective_crosstalk_matrix, log_from_val
+        from negpy.features.exposure.normalization import log_from_val
+        from negpy.features.process.fade import unmix_with_fade
 
         bounds = self.state.last_metrics.get("final_bounds") or self.state.last_metrics.get("log_bounds")
         patch = self._sample_normalized_patch(nx, ny, radius=4)
@@ -3769,7 +3769,7 @@ class AppController(QObject):
             self.set_status(tr("Film Base: that spot is not flat film; click the clear rebate"), 4000, "warning")
             return
         base = logs.mean(axis=0)
-        unmix = effective_crosstalk_matrix(self.state.config.process, self.state.config.process.process_mode)
+        unmix = unmix_with_fade(self.state.config.process, self.state.config.process.process_mode)
         if unmix is not None:
             unmix = np.asarray(unmix, dtype=np.float64)
             if unmix.shape[1] == 4:
@@ -7910,11 +7910,6 @@ class AppController(QObject):
         if self.effective_input_icc():
             cam_xyz = wb_only_cam_xyz(cam_xyz)
         return cam_xyz, self.state.preview_camera_wb
-
-    def camera_working_matrix(self) -> Optional[np.ndarray]:
-        """The camera-to-working matrix the transparency render applies to the preview, or None."""
-        cam_xyz, camera_wb = self._effective_cam_xyz()
-        return camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(self.state.config.process) else None)
 
     def chart_fit_source(self) -> Optional[ChartSource]:
         """The open frame as the preview renders it, for Measure from Chart; None with no frame or on a diptych."""

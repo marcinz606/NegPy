@@ -524,14 +524,14 @@ Corrects color errors that come from your light, camera and film.
 
 **Hue Trim** (camera with narrowband light): turns all colors around the color wheel, for a light that makes yellows orange or greens olive. Keep 0 for white light. It also works on slides, where the sensor crosstalk profile does not.
 
-### 10.4.1 Fade Restoration: faded slides
+#### 10.4.1 Fade Restoration: faded slides
 
-Gives a faded slide its dye layers back. It is on the Calibration card, for slides (Transparency) only. It works together with Crosstalk, before Cast Removal. Set the fade first, then let Cast Removal ([§5.1](#51-filtration-color-balance)) remove the rest of the cast. Run **Roll Analysis** again after a change. The Survival sliders follow the roll: Roll on the Calibration card gives every frame this frame's values, and a frame you change keeps its own.
+Gives a faded slide its dye layers back.
 
-*   **Red Survival** (0.05 to 1.0, default 1.0): how much red dye is left. On a slide the cyan dye, read on red, fades fastest. At 1.0 a badly faded slide gets the right colors but looks washed out. Estimate with Midtone sets it; otherwise lower it by eye until the contrast comes back.
-*   **Green Survival** / **Blue Survival** (0.2 to 5.0, default 1.0): how much green and blue dye is left, against red. At 1.0 that layer faded as much as red; below 1.0, more.
-*   **Remove Stain** (default off): for a slide whose clear areas turned yellow. Estimate then measures each layer's white and stores it, and the fade is restored above that white. The clear areas become white, just under full white, so they do not clip. Turn it on only when Estimate suggests it: on a scan with no white object it gives a pale, hazy picture.
-*   **Estimate**: sets the Survival sliders from the grays in this frame. **Midtone** reads the color of the middle grays and also sets Red Survival, so the best-kept layer is at 1.0. It suits a badly faded slide. **Gray Range** reads how far the grays reach into the shadows and leaves Red Survival as it is. It can suit a mild fade with deep shadows. A hint shows the result, or why there is none, and what the other method reads: a large gap means a cast that the fade does not explain. A value outside 0.2 to 5 stops at the limit, and the hint gives the value it read. Above 5, lower Red Survival by eye. A slide that is almost one color reads as faded: set the sliders by hand.
+*   **Red Survival**: how much red dye is left. Lower it until the contrast comes back.
+*   **Green Survival** / **Blue Survival**: the same for green and blue, against red.
+*   **Remove Stain**: makes yellowed clear areas white. Turn it on only when Estimate suggests it.
+*   **Estimate**: sets the sliders from the grays in this frame. **Midtone** also sets Red Survival and suits a badly faded slide. **Gray Range** suits a mild fade with deep shadows.
 
 <!-- panel:process -->
 ### 10.5 Metering: negative → positive

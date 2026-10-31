@@ -83,7 +83,7 @@ def test_control_fixture_matches_clean_reference():
 
 
 def test_restoration_inverts_the_forward_matrix():
-    from negpy.features.exposure.normalization import resolve_fade_matrix
+    from negpy.features.process.fade import resolve_fade_matrix
 
     for ratio_r, ratio_g, ratio_b in ((1.0, 0.85, 0.9), (1.0, 0.35, 0.5), (0.25, 0.4, 0.95)):
         restore = resolve_fade_matrix(ratio_r, ratio_g, ratio_b)

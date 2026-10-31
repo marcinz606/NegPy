@@ -249,7 +249,6 @@ def _fade_sidebar(**process):
     ctrl = MagicMock()
     ctrl.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, **process))
     ctrl.session.repo.get_global_setting.return_value = "midtone"
-    ctrl.camera_working_matrix.return_value = None
     ctrl.state.current_file_hash = "frame-a"
     w = SensorSidebar(ctrl)
     w.state = ctrl.state
@@ -258,7 +257,10 @@ def _fade_sidebar(**process):
 
 def test_a_failed_estimate_keeps_the_survivals_and_shows_why():
     w, ctrl = _fade_sidebar(fade_ratio_g=0.6, fade_ratio_b=0.7)
-    ctrl.state.preview_raw = np.full((32, 32, 3), 0.5, dtype=np.float32)  # flat: no grays to read
+    from negpy.desktop.workers.chart_fit import ChartSource
+
+    flat = np.full((32, 32, 3), 0.5, dtype=np.float32)  # no grays to read
+    ctrl.chart_fit_source.return_value = ChartSource(flat, ctrl.state.config, "flat", None, None, (), 1)
 
     w._on_estimate_fade()
 
@@ -276,10 +278,17 @@ def _stained_slide():
     return np.power(10.0, fx.faded_log).astype(np.float32)
 
 
+def _open(ctrl, image):
+    """The frame Estimate renders: the controller's chart source over this image."""
+    from negpy.desktop.workers.chart_fit import ChartSource
+
+    ctrl.chart_fit_source.return_value = ChartSource(image, ctrl.state.config, "frame", None, None, (), 1)
+
+
 def test_an_estimate_on_a_stained_slide_suggests_remove_stain_and_stores_no_white():
     # No analysis border: the fixture's clear end is its left edge.
     w, ctrl = _fade_sidebar(analysis_buffer=0.0)
-    ctrl.state.preview_raw = _stained_slide()
+    _open(ctrl, _stained_slide())
 
     w._on_estimate_fade()
 
@@ -291,7 +300,7 @@ def test_an_estimate_on_a_stained_slide_suggests_remove_stain_and_stores_no_whit
 
 def test_an_estimate_with_remove_stain_on_stores_the_white_with_the_survivals():
     w, ctrl = _fade_sidebar(fade_white_anchor=True, analysis_buffer=0.0)
-    ctrl.state.preview_raw = _stained_slide()
+    _open(ctrl, _stained_slide())
 
     w._on_estimate_fade()
 
@@ -303,7 +312,7 @@ def test_an_estimate_with_remove_stain_on_stores_the_white_with_the_survivals():
 
 def test_a_failed_estimate_with_remove_stain_on_stores_no_white_off_clear_film():
     w, ctrl = _fade_sidebar(fade_white_anchor=True)
-    ctrl.state.preview_raw = np.full((32, 32, 3), 0.5, dtype=np.float32)  # no grays, and no white near full scale
+    _open(ctrl, np.full((32, 32, 3), 0.5, dtype=np.float32))  # no grays, and no white near full scale
 
     w._on_estimate_fade()
 
@@ -322,7 +331,7 @@ def test_turning_remove_stain_off_clears_its_hint():
 
 def test_the_estimate_hint_stays_with_its_frame():
     w, ctrl = _fade_sidebar(analysis_buffer=0.0)
-    ctrl.state.preview_raw = _stained_slide()
+    _open(ctrl, _stained_slide())
     w._on_estimate_fade()
     w.sync_ui()
     assert "Remove Stain" in w.fade_estimate_hint.text()
@@ -338,3 +347,14 @@ def test_remove_stain_is_a_fade_roll_default():
     w.fade_white_anchor_btn.setChecked(True)
     args = ctrl.set_roll_default.call_args
     assert args.args[0] == "fade" and args.kwargs["fade_white_anchor"] is True
+
+
+@pytest.mark.parametrize(
+    ("mode", "positive", "shown"), [(ProcessMode.E6, False, True), (ProcessMode.E6, True, False), (ProcessMode.C41, False, False)]
+)
+def test_fade_restoration_shows_only_on_a_slide_as_captured(mode, positive, shown):
+    w, _ctrl = _fade_sidebar()
+    w.state.config = replace(w.state.config, process=replace(w.state.config.process, process_mode=mode, positive_source=positive))
+    w.sync_ui()
+    assert w.fade_fold.content.isHidden() is not shown
+    assert w.fade_header.isHidden() is not shown

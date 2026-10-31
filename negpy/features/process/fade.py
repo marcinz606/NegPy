@@ -1,25 +1,21 @@
-"""Per-image estimate of the green and blue dye survival for Fade Restoration.
-
-Neutral content constrains only the ratios between channels, so red's absolute survival is
-never estimated.
-"""
+"""Fade Restoration: the restoration matrix a Slide as captured renders with, and the
+per-image estimate of the dye survivals."""
 
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
+    effective_crosstalk_matrix,
     measure_neutral_axis_from_log,
-    prefilter_log_grid,
 )
-from negpy.features.process.capture_color import apply_camera_matrix
-from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.models import ProcessConfig
+from negpy.features.process.path import RenderPath, render_path
 
 #: Below this density spread a channel's neutral axis is too flat to be signal.
 SPREAD_FLOOR = 0.02
@@ -45,16 +41,71 @@ WHITE_PCT = 99.9
 STAIN_FULL_SCALE_TOLERANCE = 0.1
 #: To suggest Remove Stain, blue is the darkest channel at the white, by at least this density.
 STAIN_BLUE_MIN = 0.2
+#: Remove Stain puts the white at least this log density below full scale, so clear areas do not clip.
+FADE_WHITE_HEADROOM = 0.1
+
+
+def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.ndarray:
+    """Restoration operator for a faded dye set: the inverse of diag(ar, ar*ag, ar*ab).
+
+    Not row-normalized: fade changes each layer's neutral density, and that is the signal.
+    `ratio_g` and `ratio_b` are survival ratios to red; `ratio_r` is red's absolute survival.
+    """
+    ar, ag, ab = float(ratio_r), float(ratio_g), float(ratio_b)
+    return np.diag([1.0 / ar, 1.0 / (ar * ag), 1.0 / (ar * ab)])
+
+
+def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
+    """The restoration matrix, or None at unit survival or off the TRANSFER path: a Positive
+    file is already a positive, so a dye-density scale has no meaning there."""
+    ratios = (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
+    if render_path(process) is not RenderPath.TRANSFER or all(r == 1.0 for r in ratios):
+        return None
+    return resolve_fade_matrix(*ratios)
+
+
+def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str]) -> Optional[np.ndarray]:
+    """The log-density matrix a render applies: the crosstalk unmix, then the fade restoration of
+    the densities it recovers (`fade @ unmix`). None when neither applies. With Remove Stain on it
+    is a (3, 4) affine `M (L - w) + t`; the last column is the log offset `t - M w`."""
+    unmix = effective_crosstalk_matrix(process, process_mode)
+    fade = fade_matrix(process)
+    matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
+    white = _fade_white(process)
+    if white is None:
+        return matrix
+    linear = np.eye(3) if matrix is None else matrix
+    return np.hstack([linear, (_white_target(white) - linear @ white)[:, None]])
+
+
+def _fade_white(process: ProcessConfig) -> Optional[np.ndarray]:
+    """The stored per-channel white (log transmittance) when Remove Stain acts, else None."""
+    if not process.fade_white_anchor or render_path(process) is not RenderPath.TRANSFER:
+        return None
+    white = np.array([process.fade_white_r, process.fade_white_g, process.fade_white_b], dtype=np.float64)
+    return white if bool(np.any(white != 0.0)) else None
+
+
+def _white_target(white: np.ndarray) -> float:
+    """The cleanest channel's white, capped FADE_WHITE_HEADROOM below full scale, so a dim scan keeps its exposure."""
+    return min(float(white.max()), -FADE_WHITE_HEADROOM)
+
+
+def fade_white_target(process: ProcessConfig) -> Optional[float]:
+    """The neutral log level Remove Stain maps the stored white to in this render, else None."""
+    white = _fade_white(process)
+    return None if white is None else _white_target(white)
+
 
 #: The return shape of `measure_neutral_axis_from_log`: midtone, shadow, highlight or None, confidence.
 NeutralAxisRefs = tuple[tuple[float, float, float], tuple[float, float, float], object, float]
 
 
-def measure_neutral_axis_ratios(image: ImageBuffer, roi: Optional[tuple], analysis_buffer: float) -> tuple[Optional[NeutralAxisRefs], str]:
-    """(refs, reason) from the raw capture, metered against this frame's own bounds: the fixed
-    transfer window finds no grays in a faded slide. `refs` is None, with a reason, when no
-    trustworthy neutral axis exists."""
-    return neutral_axis_from_grid(prefilter_log_grid(image, roi, analysis_buffer))
+def measure_neutral_axis_ratios(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
+    """(refs, reason) from the transparency meter's grid, metered against this frame's own
+    bounds: the fixed transfer window finds no grays in a faded slide. `refs` is None, with a
+    reason, when no trustworthy neutral axis exists."""
+    return neutral_axis_from_grid(grid)
 
 
 def neutral_axis_from_grid(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
@@ -167,59 +218,31 @@ def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs], method: str =
     if not (lo <= ratio_g <= hi) or not (lo <= ratio_b <= hi):
         clamped_g = min(max(ratio_g, lo), hi)
         clamped_b = min(max(ratio_b, lo), hi)
-        out = [(n, raw, c) for n, raw, c in ((tr("green"), ratio_g, clamped_g), (tr("blue"), ratio_b, clamped_b)) if raw != c]
-        reason = "; ".join(
-            tr(
-                "Implied {channel} {raw} is outside {lo}–{hi}, set to {clamped}",
-                channel=n,
-                raw=f"{raw:.1f}",
-                lo=f"{lo:g}",
-                hi=f"{hi:g}",
-                clamped=f"{c:.1f}",
+        sentences = [
+            tr(template, raw=f"{raw:.1f}", lo=f"{lo:g}", hi=f"{hi:g}", clamped=f"{c:.1f}")
+            for template, raw, c in (
+                (mark("Green read {raw}, outside {lo} to {hi}, so it is set to {clamped}."), ratio_g, clamped_g),
+                (mark("Blue read {raw}, outside {lo} to {hi}, so it is set to {clamped}."), ratio_b, clamped_b),
             )
-            for n, raw, c in out
-        )
-        if any(raw > hi for _n, raw, _c in out):
-            reason += ". " + tr("Red has faded further than this range covers: lower Red Survival by eye")
+            if raw != c
+        ]
+        if ratio_g > hi or ratio_b > hi:
+            sentences.append(tr("Red faded more than this range covers. Lower Red Survival by eye."))
+        reason = " ".join(sentences)
         return clamped_g, clamped_b, reason
     return ratio_g, ratio_b, ""
 
 
-def estimate_fade_ratios(
-    image: ImageBuffer, process_mode: Optional[str], roi: Optional[tuple], analysis_buffer: float
-) -> tuple[float, float, str]:
-    """(ratio_g, ratio_b, reason) from the raw capture, failing closed to 1.0 with a reason.
-    Runs on request, never during a render."""
-    if process_mode is not None and str(process_mode) != str(ProcessMode.E6):
-        return 1.0, 1.0, tr("This frame is not a slide.")
-    refs, reason = measure_neutral_axis_ratios(image, roi, analysis_buffer)
-    if refs is None:
-        return 1.0, 1.0, reason
-    return fade_ratios_from_neutral_axis(refs)
-
-
-def estimate_fade(
-    image: ImageBuffer,
-    process_mode: Optional[str],
-    roi: Optional[tuple],
-    analysis_buffer: float,
-    cam_matrix: Optional[np.ndarray] = None,
-    white_anchor: bool = False,
-) -> dict[EstimateMethod, FadeEstimate]:
-    """Both methods' estimates from one measurement of the grays. MIDTONE also sets Red Survival so
-    the best-kept layer lands at 1.0; a ratio above 1 says red faded most. `cam_matrix` takes a
-    camera buffer into the working space the render applies the fade in. With `white_anchor`, the
-    grays are read as density above the frame's white, as Remove Stain renders them."""
-    if process_mode is not None and str(process_mode) != str(ProcessMode.E6):
-        reason = tr("This frame is not a slide.")
-        return {m: FadeEstimate(None, 1.0, 1.0, reason) for m in EstimateMethod}
-    if cam_matrix is not None:
-        image = apply_camera_matrix(negpy_core.nan_to_num(np.ascontiguousarray(image, dtype=np.float32), 1e-6, 1.0, 1e-6), cam_matrix)
-    grid = prefilter_log_grid(image, roi, analysis_buffer)
+def estimate_fade(grid: ImageBuffer, white_anchor: bool = False) -> dict[EstimateMethod, FadeEstimate]:
+    """Both methods' estimates from one measurement of the grays. `grid` is the transparency
+    meter's grid with the crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`).
+    MIDTONE also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
+    faded most. With `white_anchor`, the grays are read as density above the frame's white, as
+    Remove Stain renders them."""
     white = measure_white(grid)
     if white_anchor and white is None:
         return {m: FadeEstimate(None, 1.0, 1.0, tr("No clear area to measure the stain on this frame.")) for m in EstimateMethod}
-    refs, reason = neutral_axis_from_grid(white_anchored_grid(grid, white) if white_anchor else grid)
+    refs, reason = neutral_axis_from_grid(white_anchored_grid(grid, white) if white_anchor and white is not None else grid)
     out = {}
     for method in EstimateMethod:
         if refs is None:
@@ -232,8 +255,3 @@ def estimate_fade(
             red = min(max(1.0 / max(g, b, 1.0), lo), hi)
         out[method] = FadeEstimate(red, g, b, why, white)
     return out
-
-
-def fade_estimate_available(process: ProcessConfig) -> bool:
-    """Whether the Estimate action can run: Transparency only."""
-    return process.process_mode == ProcessMode.E6
