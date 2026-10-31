@@ -392,11 +392,12 @@ Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Film
 *   **Szenen**: Gruppen von Bildern mit eigener Basislinie, zum Beispiel ein Motiv unter einem Licht ([Szenen](#scenes)). **Analysieren** misst die Szene, **Auswählen** wählt ihre Bilder aus und **Löschen** entfernt die Gruppe.
 *   **Szenen erkennen**: findet die Gruppen von Bildern unter anderem Licht als die Rolle, in beliebiger Bildreihenfolge, und zeigt sie auf dem Leuchttisch. Jede Gruppe wartet unter **Gefunden**. Um eine Gruppe zu ändern, ziehe Bilder auf eine andere Gruppe oder auf ein Bild ohne Szene, um sie auszuschließen. Rechtsklick › **Szene** macht dasselbe. Gib ihr einen Namen und **Übernehme** sie als Szene mit eigener Basislinie, oder **Verwirf** sie.
 
-<!-- panel:demosaic src:99177ab3 -->
+<!-- panel:demosaic src:9b273284 -->
 ### 10.6 Raw-Dekodierung
 
 Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angezeigt.
 
+*   **Aufnahmen**: Eine RAW-Datei mit mehreren Aufnahmen, etwa ein HDR aus der Kamera, öffnet eine davon. Bei einer Pentax-Pixel-Shift-Datei kombiniert **Pixel Shift** ihre vier Aufnahmen, sodass jedes Pixel gemessenes Rot, Grün und Blau hat. Die Zeile darunter zeigt das Ergebnis. Eine Warnung erscheint, wenn die Aufnahmen nicht übereinstimmen. Nimm Pixel Shift mit dem Selbstauslöser oder einem Fernauslöser auf, denn der Auslöser bewegt die Kamera.
 *   **Kamera-WB / Lineares RAW**: Kamera-WB nutzt den Weißabgleich der Kamera. Lineares RAW dekodiert neutral, für schmalbandiges Licht. Die Einrichtung stellt es für dich ein.
 *   **Vorschau** / **Export**: die Demosaicing-Methode, die die Farben ergänzt, die ein Sensorpixel nicht sieht. **Auto** ist am Bildschirm schnell und nutzt für den Export **AHD**. **VNG** ist glatt und **PPG** schnell. **DCB** und **DHT** erhalten mehr feine Details, können aber Korn in Muster verwandeln. **AAHD** macht Kanten weicher. Es werden nur die Methoden deines LibRaw-Builds aufgeführt.
 *   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen.

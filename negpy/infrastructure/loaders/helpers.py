@@ -642,6 +642,22 @@ def embedded_preview(raw: Any, file_path: str) -> Optional[Image.Image]:
     return None
 
 
+def open_shot(file_path: str, index: int) -> rawpy.RawPy:
+    """Open shot `index` (0 is the first) of a camera RAW that holds several shots.
+
+    LibRaw selects the shot while it opens the file, so shot_select is set before open_file.
+    rawpy.imread sets it after the open, which gives the first shot for every index.
+    """
+    raw = rawpy.RawPy()
+    try:
+        raw.set_unpack_params(shot_select=index)
+        raw.open_file(file_path)
+    except Exception:
+        raw.close()
+        raise
+    return raw
+
+
 class NonStandardFileWrapper:
     """
     numpy -> rawpy-like interface.

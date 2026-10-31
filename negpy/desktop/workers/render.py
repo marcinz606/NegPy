@@ -36,6 +36,7 @@ from negpy.features.process.path import positive_decode
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
+from negpy.infrastructure.loaders.raw_shots import thumbnail_shot
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
 from negpy.features.geometry.models import squares_on_arm
@@ -337,6 +338,7 @@ class PreviewLoadTask:
     lens_corrections: LensCorrections = LensCorrections()
     lens_flatfield: FlatFieldConfig = FlatFieldConfig()
     demosaic: str = DemosaicMode.AUTO  # CFA interpolation for the preview decode
+    raw_shot: int = 0  # shot of a multi-shot RAW, 0 Auto (see loaders/raw_shots)
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = (
         None  # (half, split_x, crop_rect, gutter_thickness, split_axis)
     )
@@ -1282,6 +1284,8 @@ class PreviewLoadWorker(QObject):
     # (file_path, applied long-edge cap px): an HQ load exceeded the GPU's VRAM budget
     # and was downsampled instead of crashing. Emitted alongside `finished`.
     vram_capped = pyqtSignal(str, int)
+    # (file_path, ShotsInfo or None): what a multi-shot RAW decoded to, before finished for the same load.
+    raw_shots = pyqtSignal(str, object)
     # (file_path, message): the error carries no path, so badge attribution needs this
     load_failed = pyqtSignal(str, str)
     prefetch_finished = pyqtSignal(int, str)
@@ -1322,6 +1326,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     positive_decode=task.positive_decode,
                     integrated_gpu=task.integrated_gpu,
                     protected_file_hashes=task.protected_file_hashes,
@@ -1340,6 +1345,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     positive_decode=task.positive_decode,
                     highlight_mode=task.highlight_mode,
                     bake_camera_wb=task.bake_camera_wb,
@@ -1377,6 +1383,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     flatfield_profile_id=task.flatfield_profile_id,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     should_cancel=cancelled,
                     highlight_mode=task.highlight_mode,
                     bake_camera_wb=task.bake_camera_wb,
@@ -1394,6 +1401,7 @@ class PreviewLoadWorker(QObject):
                 capped = metadata.get("vram_capped_long_edge")
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
+                self.raw_shots.emit(task.file_path, metadata.get("raw_shots"))
                 self.finished.emit(
                     task.file_path,
                     raw,
@@ -1424,6 +1432,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     should_cancel=cancelled,
                     highlight_mode=task.highlight_mode,
                     bake_camera_wb=task.bake_camera_wb,
@@ -1441,6 +1450,7 @@ class PreviewLoadWorker(QObject):
                 capped = metadata.get("vram_capped_long_edge")
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
+                self.raw_shots.emit(task.file_path, metadata.get("raw_shots"))
                 self.finished.emit(
                     task.file_path,
                     raw,
@@ -1471,6 +1481,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     should_cancel=cancelled,
                 )
                 if not self._is_current(task):
@@ -1486,6 +1497,7 @@ class PreviewLoadWorker(QObject):
                 capped = metadata.get("vram_capped_long_edge")
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
+                self.raw_shots.emit(task.file_path, metadata.get("raw_shots"))
                 self.finished.emit(
                     task.file_path,
                     raw,
@@ -1516,6 +1528,7 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     positive_decode=task.positive_decode,
                     should_cancel=cancelled,
                     highlight_mode=task.highlight_mode,
@@ -1538,6 +1551,7 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    raw_shot=task.raw_shot,
                     positive_decode=task.positive_decode,
                     should_cancel=cancelled,
                     highlight_mode=task.highlight_mode,
@@ -1558,6 +1572,7 @@ class PreviewLoadWorker(QObject):
             capped = metadata.get("vram_capped_long_edge")
             if capped:
                 self.vram_capped.emit(task.file_path, int(capped))
+            self.raw_shots.emit(task.file_path, metadata.get("raw_shots"))
             self.finished.emit(
                 task.file_path,
                 raw,
@@ -1641,10 +1656,15 @@ def _decode_asset_preview_with_meta(
     file_info: dict,
     config: WorkspaceConfig,
     workspace_color_space: str,
+    *,
+    raw_shot: Optional[int] = None,
 ) -> tuple[np.ndarray, dict]:
     """Decode one asset the way the render path does, with its loader metadata: a stitch
     through its stored registration, a composite through the merge that assembles it, a
     plain frame direct — the same branch order `PreviewLoadWorker.process` uses.
+
+    `raw_shot` overrides the edit's own shot choice; a thumbnail passes `thumbnail_shot`
+    so that it never combines, while meters keep the shots the render combines.
 
     A batch that decodes only ``file_info["path"]`` sees one member of the composite. For a
     triplet that member holds real signal in the red channel alone, so anything measured off
@@ -1659,6 +1679,7 @@ def _decode_asset_preview_with_meta(
         "full_resolution": False,
         "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         "demosaic": config.process.demosaic_preview,
+        "raw_shot": config.process.raw_shot if raw_shot is None else raw_shot,
     }
     hdr = config.hdr
     if stitch_active(stitch):
@@ -1953,6 +1974,7 @@ class ThumbnailRenderWorker(QObject):
             use_camera_wb=not effective_linear_raw(config.process),
             file_hash=base_hash(frame.file_info.get("hash")),
             demosaic=config.process.demosaic_preview,
+            raw_shot=thumbnail_shot(frame.file_info["path"], config.process.raw_shot),
             positive_decode=positive_decode(config.process),
             highlight_mode=effective_highlight_reconstruction(config.process),
             bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
@@ -1971,7 +1993,13 @@ class ThumbnailRenderWorker(QObject):
         hit = self._peek_live_preview(frame, workspace_color_space)
         if hit is not None:
             return hit
-        return _decode_asset_preview_with_meta(self._preview_service, frame.file_info, frame.config, workspace_color_space)
+        return _decode_asset_preview_with_meta(
+            self._preview_service,
+            frame.file_info,
+            frame.config,
+            workspace_color_space,
+            raw_shot=thumbnail_shot(frame.file_info["path"], frame.config.process.raw_shot),
+        )
 
     def _emit_finished_unless_cancelled(self, generation: int, rendered_count: int) -> None:
         """Atomically choose the terminal signal for a generation, so a `cancel()` racing

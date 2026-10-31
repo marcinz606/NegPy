@@ -145,6 +145,10 @@ def _fmt_highlights(values: tuple) -> str:
     return HIGHLIGHT_LEVELS[highlight_bucket(values[0])][1]
 
 
+def _fmt_shots(values: tuple) -> str:
+    return tr("Shot {n}", n=values[0]) if values[0] else tr("Auto")
+
+
 # fmt: off
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     (mark("Setup"), (
@@ -177,6 +181,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Hue Trim"), "process", "hue_trim", sticky=True),
     )),
     (mark("Raw Decode"), (
+        _row(mark("Shots"), "process", "raw_shot", fmt=_fmt_shots),
         _row(mark("White Balance"), "process", "linear_raw", fmt=_fmt_white_balance),
         _row(mark("Demosaic Preview"), "process", "demosaic_preview"),
         _row(mark("Demosaic Export"), "process", "demosaic_export"),
@@ -394,6 +399,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "source_encoding",
         "highlight_reconstruction",
         "demosaic_preview",
+        "raw_shot",
         "crop_from_auto",
         "autocrop_offset",
         "autocrop_rebate_trim",

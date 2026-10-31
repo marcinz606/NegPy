@@ -149,6 +149,9 @@ class ProcessConfig:
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
     demosaic_export: DemosaicMode = DemosaicMode.AUTO
+    # Shot of a RAW that holds several (loaders/raw_shots): 0 is Auto, which combines a Pentax
+    # Pixel Shift and takes the first shot of any other file; N is shot N.
+    raw_shot: int = 0
     # libraw HighlightMode: 0=Clip (current behaviour), 2=Blend, 3-9=Reconstruct(level).
     # 1 (Ignore) is reserved for a separate decode-correctness fix and is never valid here.
     # Only meaningful on the positive path; see effective_highlight_reconstruction.
@@ -241,6 +244,13 @@ class ProcessConfig:
         object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
         object.__setattr__(self, "source_encoding", SourceEncoding(self.source_encoding))
         object.__setattr__(self, "sensor_unmix", SensorUnmix(self.sensor_unmix))
+        # Roll defaults and sticky values overlay raw JSON through replace, so a bad value
+        # lands here and must read as Auto.
+        try:
+            shot = int(self.raw_shot)
+        except (TypeError, ValueError):
+            shot = 0
+        object.__setattr__(self, "raw_shot", max(shot, 0))
         # Same reach for renamed crosstalk profiles: roll defaults overlay this field
         # raw through dataclasses.replace, so the rename must run on every build too.
         if isinstance(self.crosstalk_profile, str) and self.crosstalk_profile in CROSSTALK_PROFILE_RENAMES:

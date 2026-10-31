@@ -52,6 +52,7 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",
+        raw_shot=0,
         positive_decode="",  # noqa: ARG002 (accepted, not asserted on)
         highlight_mode=0,  # noqa: ARG002 (accepted, not asserted on)
         bake_camera_wb=False,  # noqa: ARG002 (accepted, not asserted on)
@@ -71,6 +72,7 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
+        raw_shot=0,
     ):
         self.rgb_calls.append({"red_path": red_path, "file_hash": file_hash})
         raw = np.full((4, 6, 3), 0.25, dtype=np.float32)
@@ -86,6 +88,7 @@ class _PreviewService:
         file_hash,
         flatfield_profile_id="",
         demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
+        raw_shot=0,
     ):
         self.stitch_calls.append({"primary_path": primary_path, "file_hash": file_hash, "flatfield_profile_id": flatfield_profile_id})
         raw = np.full((4, 6, 3), 0.35, dtype=np.float32)
@@ -335,9 +338,9 @@ def test_thumbnail_render_frame_started_fires_before_each_decode(qapp, monkeypat
     order: list[str] = []
     real_decode = render_workers._decode_asset_preview_with_meta
 
-    def _decode(service, file_info, config, color_space):
+    def _decode(service, file_info, config, color_space, **kwargs):
         order.append(f"decode:{file_info['name']}")
-        return real_decode(service, file_info, config, color_space)
+        return real_decode(service, file_info, config, color_space, **kwargs)
 
     monkeypatch.setattr(render_workers, "_decode_asset_preview_with_meta", _decode)
     worker.frame_started.connect(lambda _index, _total, name: order.append(f"started:{name}"))
@@ -353,7 +356,7 @@ def test_thumbnail_render_failed_decode_reports_the_time_it_took(qapp, monkeypat
     ticks = iter([10.0, 40.0])
     monkeypatch.setattr(render_workers.time, "perf_counter", lambda: next(ticks))
 
-    def _decode(*_args):
+    def _decode(*_args, **_kwargs):
         raise OSError("share went away")
 
     monkeypatch.setattr(render_workers, "_decode_asset_preview_with_meta", _decode)
@@ -443,7 +446,7 @@ def _counting_decode(monkeypatch, wait: threading.Barrier | None = None) -> dict
     lock = threading.Lock()
     real_decode = render_workers._decode_asset_preview_with_meta
 
-    def _decode(*args):
+    def _decode(*args, **kwargs):
         with lock:
             seen["now"] += 1
             seen["most"] = max(seen["most"], seen["now"])
@@ -451,7 +454,7 @@ def _counting_decode(monkeypatch, wait: threading.Barrier | None = None) -> dict
         try:
             if wait is not None:
                 wait.wait()
-            return real_decode(*args)
+            return real_decode(*args, **kwargs)
         finally:
             with lock:
                 seen["now"] -= 1

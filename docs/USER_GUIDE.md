@@ -481,6 +481,7 @@ A camera shows the Raw Decode and Optics cards. A camera with narrowband light a
 
 How a camera RAW file is turned into pixels. Shown for a camera.
 
+*   **Shots**: a RAW file that holds several shots, such as an in-camera HDR, opens one of them. For a Pentax Pixel Shift file, **Pixel Shift** combines its four shots, so that every pixel has measured red, green and blue. The line below reports the result. A warning shows when the shots do not match. Shoot Pixel Shift with the self-timer or a remote, because the shutter button moves the camera.
 *   **Camera WB / Linear RAW**: Camera WB uses the camera's white balance. Linear RAW decodes neutral, for narrowband light. Setup sets it for you.
 *   **Preview** / **Export**: the demosaic method, which fills in the colors each sensor pixel cannot see. **Auto** is fast on screen and uses **AHD** for export. **VNG** is smooth and **PPG** fast. **DCB** and **DHT** keep more fine detail but can turn grain into patterns. **AAHD** softens edges. Only the methods in your LibRaw build are listed.
 *   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong.

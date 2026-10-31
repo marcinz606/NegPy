@@ -40,6 +40,8 @@ from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_path
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.lens.models import LensMetadata
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+from negpy.infrastructure.loaders.pixel_shift import MISMATCH_WARNING
+from negpy.infrastructure.loaders.raw_shots import ShotsInfo
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
@@ -145,6 +147,9 @@ class AppState:
     preview_lens: Optional[LensMetadata] = None
     preview_lens_path: str = ""
     preview_lens_token: str = ""
+    # What a multi-shot RAW decoded to, for preview_raw_shots_path only. None for a file with one shot.
+    preview_raw_shots: Optional[ShotsInfo] = None
+    preview_raw_shots_path: str = ""
     # Preview-resolution stand-in for preview_raw while HQ is on. Interactive frames render
     # against it. None when preview_raw is already small enough.
     preview_proxy: Optional[Any] = None
@@ -467,6 +472,48 @@ def trichrome_merge_indices(files: List[Dict[str, Any]], indices: Collection[int
 
 #: Part rows a stitch tooltip lists before it folds the rest into "+N more".
 STITCH_TOOLTIP_PARTS = 8
+
+
+def _percent(share: float) -> str:
+    return f"{100.0 * share:.2f}%"
+
+
+def raw_shots_summary(info: Optional[ShotsInfo]) -> str:
+    """One line naming what a multi-shot RAW decoded to. Empty for a file with one shot."""
+    if info is None:
+        return ""
+    if info.shot == 0:
+        return tr("Pixel Shift: {value} combined.", value=count_of(info.count, "shot"))
+    return tr("Shot {shot} of {count}.", shot=info.shot, count=info.count)
+
+
+def raw_shots_details(info: Optional[ShotsInfo]) -> str:
+    """The statistics of a Pixel Shift combine, for a tooltip. Empty when no shots were combined."""
+    stats = info.stats if info is not None else None
+    if stats is None:
+        return ""
+    return tr(
+        "The shots differ in {mismatch} of the picture. Shot brightness: {levels}. Time: {seconds} s.",
+        mismatch=_percent(stats.mismatch),
+        levels=" / ".join(f"{100.0 * level:.1f}%" for level in stats.levels),
+        seconds=f"{stats.seconds:.1f}",
+    )
+
+
+def raw_shots_warning(info: Optional[ShotsInfo]) -> str:
+    """What went wrong with the shots of a multi-shot RAW, or what to do about a Pixel Shift
+    whose shots disagree. Empty when the shots decoded and agree."""
+    if info is not None and info.failed:
+        return tr("NegPy could not decode the chosen shots, so the first shot shows.")
+    stats = info.stats if info is not None else None
+    if stats is None or not stats.shots_disagree:
+        return ""
+    if stats.mismatch > MISMATCH_WARNING:
+        return tr(
+            "The shots do not match in {value} of the picture. Use the self-timer or a remote, or pick one shot.",
+            value=_percent(stats.mismatch),
+        )
+    return tr("The light changed by {value} between the shots. Use a steady light, or pick one shot.", value=_percent(stats.light_change))
 
 
 def composite_summary(asset: Dict[str, Any]) -> str:

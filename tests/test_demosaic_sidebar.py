@@ -33,7 +33,15 @@ def _sidebar(preview, export):
     # No active roll (state.active_roll_id absent -> getattr below reads None): set_roll_default
     # falls back to a plain per-frame apply_config, same as demosaic always behaved before it.
     controller = SimpleNamespace(
-        state=SimpleNamespace(config=config, active_roll_id=None, preview_cam_xyz=None, current_file_hash=None),
+        state=SimpleNamespace(
+            config=config,
+            active_roll_id=None,
+            preview_cam_xyz=None,
+            current_file_hash=None,
+            current_file_path=None,
+            preview_raw_shots=None,
+            preview_raw_shots_path="",
+        ),
         session=SimpleNamespace(repo=repo, update_config=lambda *a, **k: None),
         apply_config=lambda cfg, **k: applied.append(cfg),
     )
@@ -173,3 +181,57 @@ def test_the_capture_choice_reaches_the_controller():
     w.linear_raw_btn.setCurrentIndex(w.linear_raw_btn.findData(False))
     _args, kwargs = w.controller.set_roll_default.call_args
     assert kwargs["linear_raw"] is False
+
+
+def _with_shots(sidebar, info, raw_shot=0):
+    state = sidebar.controller.state
+    state.config = replace(state.config, process=replace(state.config.process, raw_shot=raw_shot))
+    state.current_file_path = "/x/ps.pef"
+    state.preview_raw_shots = info
+    state.preview_raw_shots_path = "/x/ps.pef"
+    sidebar.sync_ui()
+
+
+def test_shots_row_hides_for_a_single_shot_file() -> None:
+    sidebar, _ = _sidebar(DemosaicMode.AUTO, DemosaicMode.AUTO)
+    sidebar.sync_ui()
+    assert sidebar.shot_combo.isHidden() and sidebar.shots_hint.isHidden()
+
+
+def test_pixel_shift_offers_the_combine_and_each_shot() -> None:
+    from negpy.infrastructure.loaders.pixel_shift import PixelShiftStats
+    from negpy.infrastructure.loaders.raw_shots import ShotKind, ShotsInfo
+
+    sidebar, applied = _sidebar(DemosaicMode.AUTO, DemosaicMode.AUTO)
+    stats = PixelShiftStats(0.0001, (0.0001, 0.0001), (1.0, 1.0, 1.0, 1.0), (2.0, 800.0), 3.0)
+    _with_shots(sidebar, ShotsInfo(4, ShotKind.PIXEL_SHIFT, 0, stats))
+    assert not sidebar.shot_combo.isHidden()
+    labels = [sidebar.shot_combo.itemText(i) for i in range(sidebar.shot_combo.count())]
+    assert labels == ["Pixel Shift", "Shot 1", "Shot 2", "Shot 3", "Shot 4"]
+    assert sidebar.shot_combo.currentData() == 0
+    assert sidebar.shots_hint.text() == "Pixel Shift: 4 shots combined."
+    assert not sidebar.preview_combo.isEnabled() and not sidebar.combined_hint.isHidden()
+    sidebar.shot_combo.setCurrentIndex(3)
+    assert applied[-1].process.raw_shot == 3
+
+
+def test_disagreeing_shots_warn() -> None:
+    from negpy.infrastructure.loaders.pixel_shift import PixelShiftStats
+    from negpy.infrastructure.loaders.raw_shots import ShotKind, ShotsInfo
+
+    sidebar, _ = _sidebar(DemosaicMode.AUTO, DemosaicMode.AUTO)
+    stats = PixelShiftStats(0.05, (0.07, 0.03), (1.0, 1.0, 1.0, 1.0), (2.0, 800.0), 3.0)
+    _with_shots(sidebar, ShotsInfo(4, ShotKind.PIXEL_SHIFT, 0, stats))
+    assert sidebar.shots_hint.property("hint") == "warning"
+    assert "self-timer" in sidebar.shots_hint.text()
+
+
+def test_hdr_offers_only_its_shots() -> None:
+    from negpy.infrastructure.loaders.raw_shots import ShotKind, ShotsInfo
+
+    sidebar, _ = _sidebar(DemosaicMode.AUTO, DemosaicMode.AUTO)
+    _with_shots(sidebar, ShotsInfo(3, ShotKind.SHOTS, 1))
+    labels = [sidebar.shot_combo.itemText(i) for i in range(sidebar.shot_combo.count())]
+    assert labels == ["Shot 1", "Shot 2", "Shot 3"]
+    assert sidebar.shot_combo.currentData() == 1  # Auto reads as the first shot
+    assert sidebar.preview_combo.isEnabled()

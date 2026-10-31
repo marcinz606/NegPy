@@ -37,6 +37,7 @@ from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SU
 from negpy.infrastructure.loaders.lens_metadata import bind_decode, read_lens_metadata
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation, resolve_demosaic
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+from negpy.infrastructure.loaders.raw_shots import shot_source
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, detect_noritsu_dims
@@ -48,6 +49,9 @@ from negpy.infrastructure.loaders.rawpy_loader import (
     _peek_linearraw_4ch,
 )
 from negpy.kernel.image.logic import _to_uint16_jit, apply_exif_orientation, ensure_rgb, uint16_to_float32
+from negpy.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -389,6 +393,7 @@ def _decode_source(
     """
     wb_blocked = bool(wb_bake_block_reason(rgbscan, process))
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
+    raw_shot = process.raw_shot if process is not None else 0
     if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
         rgb, ir, wb, meta = _decode_stitch(file_path, stitch, flatfield, process)
         if apply_wb and not wb_blocked and wb is not None:
@@ -428,14 +433,14 @@ def _decode_source(
         return rgb, ir, None, meta
     if _is_camera_raw(file_path):
         if rgbscan is not None and is_rgb_triplet(rgbscan):
-            rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, demosaic)
+            rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, demosaic, raw_shot)
             if apply_flatfield and flatfield is not None:
                 rgb = _apply_flatfield_correction(rgb, flatfield, orientation=read_orientation(file_path))
             if apply_wb and not wb_blocked and wb is not None:
                 rgb = _apply_white_balance(rgb, wb)
             return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
-        rgb, wb, decode_meta, lens_meta = _decode_camera_raw_buffer(file_path, demosaic)
+        rgb, wb, decode_meta, lens_meta = _decode_camera_raw_buffer(file_path, demosaic, raw_shot=raw_shot)
         if apply_flatfield and flatfield is not None:
             rgb = _apply_flatfield_correction(rgb, flatfield, orientation=read_orientation(file_path))
         warped = bool(lens.distortion and lens_meta.distortion or lens.ca and lens_meta.ca)
@@ -653,12 +658,24 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
     return rgb, ir
 
 
-def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO) -> tuple[np.ndarray, _CameraWB, _SourceMeta, LensMetadata]:
+def _decode_camera_raw_buffer(
+    file_path: str, demosaic: str = DemosaicMode.AUTO, *, raw_shot: int = 0
+) -> tuple[np.ndarray, _CameraWB, _SourceMeta, LensMetadata]:
     """Decode a camera RAW to an oriented float32 buffer without applying user geometry.
 
+    `raw_shot` picks the shot of a multi-shot RAW, or combines a Pixel Shift (see raw_shots).
     Returns (f32, camera_wb, source_meta, lens); `lens` is bound to this decode's visible area.
     """
-    raw = rawpy.imread(file_path)
+    source = shot_source(file_path, raw_shot)
+    shots = None
+    raw = None
+    if source is not None:
+        try:
+            raw, shots = source.open(export=True)
+        except Exception:
+            logger.warning("multi-shot decode failed, first shot used: %s", file_path, exc_info=True)
+    if raw is None:
+        raw = rawpy.imread(file_path)
     wb = _CameraWB(
         as_shot=tuple(raw.camera_whitebalance),  # type: ignore[arg-type]
         daylight=tuple(raw.daylight_whitebalance),  # type: ignore[arg-type]
@@ -666,6 +683,8 @@ def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO)
     ts = raw.other.timestamp
     dt_str = ts.strftime("%Y:%m:%d %H:%M:%S") if ts else None
     algo, label = resolve_demosaic(raw, demosaic)
+    if shots is not None:
+        label = "Pixel Shift" if shots.shot == 0 else f"{label}, shot {shots.shot}"
     rgb = raw.postprocess(
         gamma=(1, 1),
         no_auto_bright=True,
@@ -720,10 +739,10 @@ def _decode_hdr(
 
 
 def _decode_camera_raw_triplet(
-    file_path: str, rgbscan: RgbScanConfig, demosaic: str = DemosaicMode.AUTO
+    file_path: str, rgbscan: RgbScanConfig, demosaic: str = DemosaicMode.AUTO, raw_shot: int = 0
 ) -> tuple[np.ndarray, None, Optional[_CameraWB], _SourceMeta]:
     """Decode three narrowband exposures and merge into one RGB buffer."""
-    primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic)
+    primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic, raw_shot=raw_shot)
     file_meta = _read_source_meta_tiff(file_path)
     merged_meta = _SourceMeta(
         make=file_meta.make or meta.make,
@@ -737,7 +756,7 @@ def _decode_camera_raw_triplet(
     def _decode(path: str) -> np.ndarray:
         if path in cache:
             return cache[path]
-        buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic)
+        buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic, raw_shot=raw_shot)
         cache[path] = buf
         return buf
 
@@ -763,17 +782,18 @@ def _decode_stitch_part(
     source metadata)."""
     is_triplet = rgbscan is not None and is_rgb_triplet(rgbscan)
     demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
+    raw_shot = process.raw_shot if process is not None else 0
 
     wb: Optional[_CameraWB] = None
     meta = _SourceMeta()
     if is_triplet:
-        primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic)
+        primary_f32, wb, meta, _ = _decode_camera_raw_buffer(file_path, demosaic, raw_shot=raw_shot)
         cache: dict[str, np.ndarray] = {file_path: primary_f32}
 
         def _decode(path: str) -> np.ndarray:
             if path in cache:
                 return cache[path]
-            buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic)
+            buf, _, _, _ = _decode_camera_raw_buffer(path, demosaic, raw_shot=raw_shot)
             cache[path] = buf
             return buf
 
