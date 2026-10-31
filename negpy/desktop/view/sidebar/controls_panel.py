@@ -59,7 +59,7 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-_DEMOSAIC_FIELDS = ("highlight_reconstruction",)
+_DEMOSAIC_FIELDS = ("highlight_reconstruction", "raw_shot")
 # GeometryConfig is split across three cards: Crop and Geometry are this frame's own,
 # and how the scanning lens bends is the roll's (Optics).
 _LENS_FIELDS = (
@@ -1050,7 +1050,14 @@ class ControlsPanel(QWidget):
             (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
-        self.demosaic_section.setVisible(camera or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction)
+        # A multi-shot RAW offers its shots on any rig, and a stored shot choice stays in view.
+        multi_shot = state.preview_raw_shots is not None and state.preview_raw_shots_path == state.current_file_path
+        self.demosaic_section.setVisible(
+            camera
+            or multi_shot
+            or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
+            or cfg.process.raw_shot != _DEFAULT_PROCESS.raw_shot
+        )
         optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
         self.optics_section.setVisible(camera or optics_edited)
 

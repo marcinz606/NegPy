@@ -682,8 +682,8 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # A roll's slides usually faded alike, so one Estimate or hand-tuned survival serves them
     # all; its own card, so a per-frame Estimate never locks the crosstalk.
     "fade": ("process", ("fade_ratio_r", "fade_ratio_g", "fade_ratio_b")),
-    # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
-    "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
+    # How the roll's camera RAWs decode: shot, white balance, demosaic and highlight recovery.
+    "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction", "raw_shot")),
     "process": (
         "process",
         (

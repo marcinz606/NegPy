@@ -20,6 +20,7 @@ from negpy.infrastructure.loaders.helpers import (
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
 from negpy.infrastructure.loaders.lens_metadata import bind_decode, read_lens_metadata
 from negpy.infrastructure.loaders.memory import PreviewMemoryEstimate
+from negpy.infrastructure.loaders.raw_shots import ShotSource, ShotsInfo, shot_source
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -482,7 +483,10 @@ class RawpyLoader(IImageLoader):
         file_path: str,
         preview_max_edge: Optional[int] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
+        raw_shot: Optional[int] = None,
     ) -> Tuple[ContextManager[Any], dict]:
+        """`raw_shot` is the per-edit shot choice of a multi-shot RAW (see raw_shots). None keeps
+        LibRaw's first shot and reports no shots, for callers that need no decode choice."""
         preview_dims: Optional[Tuple[int, int]] = None
         preview_ir: Optional[np.ndarray] = None
         if preview_max_edge is not None:
@@ -529,6 +533,14 @@ class RawpyLoader(IImageLoader):
             }
             return NonStandardFileWrapper(rgb), metadata
 
+        source = shot_source(file_path, raw_shot) if raw_shot is not None else None
+        fallback_shots: Optional[ShotsInfo] = None
+        if source is not None:
+            loaded = self._load_shots(file_path, source, should_cancel)
+            if loaded is not None:
+                return loaded
+            fallback_shots = ShotsInfo(source.layout.count, source.layout.kind, 1, failed=True)
+
         if _is_dng(file_path):
             raw = None
             try:
@@ -569,9 +581,38 @@ class RawpyLoader(IImageLoader):
             "color_space": None,
             "ir": _peek_hdri_ir_page(file_path),
         }
+        if fallback_shots is not None:
+            metadata["raw_shots"] = fallback_shots
 
         metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), raw)
         return raw, metadata
+
+    @staticmethod
+    def _load_shots(
+        file_path: str, source: ShotSource, should_cancel: Optional[Callable[[], bool]]
+    ) -> Optional[Tuple[ContextManager[Any], dict]]:
+        """One shot, or the shots combined, of a multi-shot RAW, with the metadata of a plain decode
+        plus the `raw_shots` the panel reads. None when LibRaw refuses the shot or the combine
+        fails: the caller then decodes the first shot and reports the failure."""
+        try:
+            decoder, shots = source.open(should_cancel)
+        except InterruptedError:
+            raise
+        except Exception:
+            logger.warning("multi-shot decode failed, first shot used: %s", file_path, exc_info=True)
+            return None
+        if should_cancel is not None and should_cancel():
+            decoder.close()
+            raise InterruptedError("preview load cancelled")
+        metadata = {
+            "orientation": read_orientation(file_path),
+            "raw_flip": 0,
+            "color_space": None,
+            "ir": None,
+            "raw_shots": shots,
+        }
+        metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), decoder)
+        return decoder, metadata
 
     def load_bounded_preview(
         self,

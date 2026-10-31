@@ -932,7 +932,7 @@ class TestTripletExport:
     def _patch_decode(self, paths: tuple[str, str, str], bufs: dict[str, np.ndarray]):
         mapping = {paths[0]: bufs["r"], paths[1]: bufs["g"], paths[2]: bufs["b"]}
 
-        def fake_decode(path: str, demosaic="Auto"):
+        def fake_decode(path: str, demosaic="Auto", **_kw):
             return mapping[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
@@ -1116,7 +1116,7 @@ class TestStitchExport:
     """Linear Output with stitch composites."""
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
-        def fake_decode(path: str, demosaic="Auto"):
+        def fake_decode(path: str, demosaic="Auto", **_kw):
             return path_to_buf[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
@@ -1342,7 +1342,7 @@ class TestLinearCorrections:
     """Tests for optional per-step corrections (WB, flatfield, sensor)."""
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
-        def fake_decode(path: str, demosaic="Auto"):
+        def fake_decode(path: str, demosaic="Auto", **_kw):
             return path_to_buf[path], _MOCK_WB, _MOCK_META, LensMetadata()
 
         return mock.patch(
@@ -2360,7 +2360,7 @@ class TestFlatFieldBeforeUserGeometry:
             open(p, "wb").close()
             paths[p] = np.full((self._H, self._W, 3), levels[name], dtype=np.float32)
 
-        def fake_decode(path: str, demosaic="Auto"):
+        def fake_decode(path: str, demosaic="Auto", **_kw):
             return paths[path].copy(), _MOCK_WB, _MOCK_META, LensMetadata()
 
         first = next(iter(paths))
@@ -2441,7 +2441,7 @@ class TestLinearLensCorrection:
             bufs[p] = np.full((self._H, self._W, 3), 0.4, dtype=np.float32)
         lens = LensMetadata(source="test", warps=(_MirrorWarp(),))
 
-        def fake_decode(path: str, demosaic="Auto"):
+        def fake_decode(path: str, demosaic="Auto", **_kw):
             return bufs[path].copy(), _MOCK_WB, _MOCK_META, lens
 
         with (
