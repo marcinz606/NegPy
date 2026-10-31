@@ -17,6 +17,7 @@ from negpy.features.geometry.models import (  # noqa: F401  (re-exported: the cr
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
 from negpy.features.retouch.models import RetouchConfig
+from negpy.features.leak.models import LeakConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
@@ -364,6 +365,7 @@ class WorkspaceConfig:
     lab: LabConfig = field(default_factory=LabConfig)
     local: LocalAdjustmentsConfig = field(default_factory=LocalAdjustmentsConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
+    leak: LeakConfig = field(default_factory=LeakConfig)
     altproc: AltProcessConfig = field(default_factory=AltProcessConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
     finish: FinishConfig = field(default_factory=FinishConfig)
@@ -407,6 +409,7 @@ class WorkspaceConfig:
         res.update(asdict(self.lab))
         res["local_masks"] = asdict(self.local)
         res.update(asdict(self.retouch))
+        res.update(asdict(self.leak))
         res.update(asdict(self.altproc))
         res.update(asdict(self.toning))
         res.update(asdict(self.finish))
@@ -434,6 +437,7 @@ class WorkspaceConfig:
             GeometryConfig,
             LabConfig,
             RetouchConfig,
+            LeakConfig,
             AltProcessConfig,
             ToningConfig,
             FinishConfig,
@@ -534,6 +538,7 @@ class WorkspaceConfig:
             lab=_plain(LabConfig),
             local=_build_local(local_data),
             retouch=_plain(RetouchConfig),
+            leak=_plain(LeakConfig),
             altproc=_plain(AltProcessConfig),
             toning=_plain(ToningConfig),
             finish=_plain(FinishConfig),

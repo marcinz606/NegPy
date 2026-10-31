@@ -206,7 +206,9 @@ class RetouchSidebar(BaseSidebar):
         # The brush is sized from the canvas while an exclusion is painted, which happens with
         # no tool active, so Optical Removal shows the value too. Sensitivity stands in for brush
         # size on a line: the band grows from the scratch, so what is tuned is how readily it is followed.
+        # The Light Leak card's Paint brush is sized here too.
         brush = any(b.isChecked() for b in (self.pick_dust_btn, self.pick_scratch_btn, self.clone_btn, self.auto_dust_btn))
+        brush = brush or self.state.active_tool == ToolMode.LEAK_PAINT
         self.manual_size_slider.setVisible(brush)
         self.line_threshold_slider.setVisible(self.pick_line_btn.isChecked())
         self.clone_rail.setVisible(self.clone_btn.isChecked())

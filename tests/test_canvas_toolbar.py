@@ -963,7 +963,7 @@ class TestToolsMenu(unittest.TestCase):
 
         tb = _make_toolbar()
         headers = [a.defaultWidget().text() for a in tb.btn_tools.choice_menu.actions() if isinstance(a, QWidgetAction)]
-        self.assertEqual(headers, ["CROP", "STRAIGHTEN", "METERING", "FILTRATION", "DODGE & BURN", "RETOUCH"])
+        self.assertEqual(headers, ["CROP", "STRAIGHTEN", "METERING", "FILTRATION", "DODGE & BURN", "LIGHT LEAK", "RETOUCH"])
 
     def test_tools_is_on_the_stock_row_and_collapses(self):
         from negpy.desktop.view.canvas.toolbar import _COLLAPSE_ORDER

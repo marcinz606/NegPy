@@ -302,6 +302,13 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Border Bottom Weight"), "finish", "border_bottom_weight"),
         _row(mark("Border Paper White"), "finish", "border_match_paper"),
     )),
+    (mark("Light Leak"), (
+        _row(mark("Reduce Light Leak"), "leak", "leak_remove"),
+        _row(mark("Film Dmax"), "leak", "leak_dmax"),
+        _row(mark("Recover Layers"), "leak", "leak_recover"),
+        _row(mark("Leak Grain"), "leak", "leak_grain"),
+        _row(mark("Leak Contrast"), "leak", "leak_contrast"),
+    )),
     (mark("Retouch"), (
         _row(mark("Optical Removal"), "retouch", "dust_remove", sticky=True),
         _row(mark("Optical Spot Threshold"), "retouch", "dust_threshold"),
@@ -575,6 +582,7 @@ FRAME_CARD_FIELDS: dict[str, tuple | None] = {
     "altproc": None,
     "toning": None,
     "retouch": None,
+    "leak": None,
     "finish": None,
 }
 

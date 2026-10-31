@@ -248,8 +248,25 @@ Auf einem Lith-Abzug wirken nur Selen und Gold. Auf einer Cyanotypie wirkt kein 
 
 **Splittonung** (alle Abzüge): **Schattenstärke** und **Lichterstärke** geben den Schatten und den Lichtern Farbe. **Schattenfarbton** und **Lichterfarbton** wählen die Farbe und erscheinen, sobald die Stärke über 0 liegt.
 
+<!-- panel:leak src:d58b56d6 -->
+### 7.1 Lichteinfall
+
+Mindert den Schleier, den ein Lichteinfall einem Negativ oder Dia hinzufügt, vor jeder Staubreparatur und nur unter den Lichteinfällen, die du setzt. Ausgebrannter Film bleibt: Repariere oder klone ihn. Nicht verfügbar für Positiv-Bilder und Komposite.
+
+*   **Lichteinfall mindern** schaltet die Korrektur ein. **Auto** (Zauberstab) setzt eine Form auf jeden Lichteinfall, den der Film belegt: eine Kante, wo belichteter Filmrand ins Bild weiterläuft, einen Streifen entlang eines geraden Lichteinfalls. Ein Schleier, der an der Bildgrenze endet, ist Randschleier oder Randaufdruck, und Auto lässt ihn.
+*   **Von der Rolle** (Filmsymbol): Sind andere Bilder ausgewählt, überträgt es die Lichteinfälle dieses Bildes auf jedes davon, und jedes Bild liest Stärke und Farbe selbst. Ohne Auswahl wählt es die Bilder aus, auf denen Auto einen Lichteinfall findet.
+*   **Film-Dmax** (Aus, oder 0,05 bis 4,0 D): die maximale Dichte des Films, für einen Film, dessen dichtes Ende gesättigt ist.
+*   **Schichten wiederherstellen**: baut eine Farbschicht, die der Lichteinfall bis zur höchsten Dichte getrieben hat, aus den Schichten wieder auf, die das Bild noch enthalten.
+*   **Korn** und **Kontrast** wirken nur, wo Lichteinfall entfernt wurde: Korn beruhigt gestrecktes Korn, Kontrast stellt abgeflachten Kontrast wieder her.
+*   **Streifen**: Ziehe entlang der stärksten Linie des Lichteinfalls und ziehe dann jede gestrichelte Kante dorthin, wo er ausläuft.
+*   **Kante**: Ziehe entlang der Seite, von der der Lichteinfall kommt. Die Linie rastet dort ein. Nimmt der Beschnitt den belichteten Spalt zwischen den Bildern auf, entfernt die Kante ihn entlang der ganzen Seite.
+*   **Fleck**: Ziehe ein Oval über einen runden Lichteinfall.
+*   **Malen**: Male über einen Lichteinfall ohne Linie oder Mitte, breiter als der Lichteinfall.
+*   **Ausgewählter Lichteinfall**: **Stärke** (0 bis 400%) legt fest, wie viel des Lichteinfalls entfernt wird, **Auslauf**, wie ein Streifen, Fleck oder gemalter Bereich zum Rand hin ausläuft, **Farbe**, woher seine Farbe kommt (**Auto**, **Rückseite** für Licht durch den Träger, **Vorderseite** für Licht auf der Schichtseite), und **Farbabgleich** nimmt mehr oder weniger von seiner Hauptfarbe heraus. Farbe und Farbabgleich sind bei S/W-Film ausgeblendet.
+*   **Ausgebranntes zeigen** (Flamme) markiert Film, den der Lichteinfall in jeder Schicht ausgebrannt hat.
+
 <!-- panel:retouch src:8d07a6c2 -->
-### 7.1 Retusche: Staub, Haare, Kratzer
+### 7.2 Retusche: Staub, Haare, Kratzer
 
 Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film darum herum aufgebaut.
 
@@ -264,7 +281,7 @@ Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film dar
 *   **Letzte rückgängig** und **Alle entfernen** entfernen manuelle Reparaturen. Klicke mit der rechten Maustaste auf eine im Bild, um sie zu löschen.
 
 <!-- panel:finish src:0e98fdde -->
-### 7.2 Finish: Vignette, Bildbühne, Rand
+### 7.3 Finish: Vignette, Bildbühne, Rand
 
 Wie der Abzug präsentiert wird. Die übrigen Regler jedes Effekts erscheinen, sobald sein erster Regler nicht 0 ist.
 

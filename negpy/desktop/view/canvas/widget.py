@@ -53,6 +53,10 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.LOCAL_OVAL: Qt.CursorShape.CrossCursor,
     ToolMode.LOCAL_GRADIENT: Qt.CursorShape.CrossCursor,
+    ToolMode.LEAK_BAND: Qt.CursorShape.CrossCursor,
+    ToolMode.LEAK_EDGE: Qt.CursorShape.CrossCursor,
+    ToolMode.LEAK_SPOT: Qt.CursorShape.CrossCursor,
+    ToolMode.LEAK_PAINT: Qt.CursorShape.BlankCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.FILM_BASE: Qt.CursorShape.CrossCursor,
     ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
@@ -127,6 +131,9 @@ class ImageCanvas(QWidget):
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
     local_mask_created = pyqtSignal(str, list)
+    leak_shape_created = pyqtSignal(str, list)
+    leak_shape_edited = pyqtSignal(int, object)
+    leak_paint_completed = pyqtSignal(list)
     scratch_completed = pyqtSignal(list)
     clone_stroke_completed = pyqtSignal(list)
     clone_source_picked = pyqtSignal(float, float)
@@ -195,6 +202,9 @@ class ImageCanvas(QWidget):
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.local_mask_created.connect(self.local_mask_created.emit)
+        self.overlay.leak_shape_created.connect(self.leak_shape_created.emit)
+        self.overlay.leak_shape_edited.connect(self.leak_shape_edited.emit)
+        self.overlay.leak_paint_completed.connect(self.leak_paint_completed.emit)
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.clone_stroke_completed.connect(self.clone_stroke_completed.emit)
         self.overlay.clone_source_picked.connect(self.clone_source_picked.emit)
@@ -545,7 +555,7 @@ class ImageCanvas(QWidget):
     def _pinch_sizes_brush(self) -> bool:
         """A live brush takes the pinch. The wheel still zooms in that state, so no context
         is left without a zoom route."""
-        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE):
+        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE, ToolMode.LEAK_PAINT):
             return True
         return bool(self.state.config.retouch.dust_remove and self.state.right_click_excludes)
 
