@@ -23,6 +23,7 @@ from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.sticky import STICKY_CONFIG_KEY
 from negpy.desktop.session import (
     AppState,
+    raw_shots_warning,
     DesktopSessionManager,
     ToolMode,
     REVERTIBLE_TOOLS,
@@ -240,6 +241,7 @@ from negpy.features.pickbetter.models import PICK_PARAMS, PickBetterProgress
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.capture.settings import WhiteCaptureMode
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.infrastructure.loaders.raw_shots import ShotsInfo
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -747,6 +749,8 @@ class AppController(QObject):
         self._scan_as_roll = False
         self._batch_frame_selected = False
         self._gpu_fallback_notified = False
+        # Files whose Pixel Shift warning has shown this session: once per file, not per decode.
+        self._raw_shots_warned: Set[str] = set()
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
         self._active_batch_title = ""
@@ -1193,6 +1197,7 @@ class AppController(QObject):
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
         self.preview_load_worker.vram_capped.connect(self._on_hq_preview_vram_capped)
+        self.preview_load_worker.raw_shots.connect(self._on_raw_shots_loaded)
         self.preview_load_worker.error.connect(self._on_preview_load_error)
         self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
         self.prefetch_load_requested.connect(self.prefetch_load_worker.process)
@@ -3246,6 +3251,7 @@ class AppController(QObject):
                 flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
                 half_slice=half_info,
                 demosaic=self.state.config.process.demosaic_preview,
+                raw_shot=self.state.config.process.raw_shot,
                 lens_corrections=metadata_lens_corrections(self.state.config),
                 lens_flatfield=self.state.config.flatfield,
             )
@@ -3296,6 +3302,18 @@ class AppController(QObject):
                 f["decode_failed"] = message
                 self.session.asset_model.refresh()
                 return
+
+    def _on_raw_shots_loaded(self, file_path: str, info: Optional[ShotsInfo]) -> None:
+        """What a multi-shot RAW decoded to, ahead of the preview_loaded of the same load. The
+        Raw Decode card reads it; a Pixel Shift whose shots disagree warns once per file."""
+        if self._requested_file_path != file_path:
+            return
+        self.state.preview_raw_shots = info
+        self.state.preview_raw_shots_path = file_path
+        warning = raw_shots_warning(info)
+        if warning and file_path not in self._raw_shots_warned:
+            self._raw_shots_warned.add(file_path)
+            self.set_status(warning, 8000, kind="warning")
 
     def _on_hq_preview_vram_capped(self, file_path: str, capped_long_edge: int) -> None:
         """An HQ load exceeded the GPU's VRAM budget and was downsampled instead of
@@ -3443,6 +3461,7 @@ class AppController(QObject):
             protected_file_hashes=protected_file_hashes,
             half_slice=half_slice,
             demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
+            raw_shot=(saved or self.state.config).process.raw_shot,
             lens_corrections=metadata_lens_corrections(saved or self.state.config),
             lens_flatfield=(saved or self.state.config).flatfield,
             base_settings=base_settings,

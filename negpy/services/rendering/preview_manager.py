@@ -1,6 +1,6 @@
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, Sequence, Tuple
 
 import negpy_core
@@ -12,6 +12,7 @@ from negpy.domain.types import Dimensions, ImageBuffer
 from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.factory import loader_factory
+from negpy.infrastructure.loaders.raw_shots import ShotsInfo, composite_shots
 from negpy.infrastructure.loaders.helpers import (
     NonStandardFileWrapper,
     camera_wb_multipliers,
@@ -81,6 +82,7 @@ def _linear_preview_key(
     full_resolution: bool,
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None,
     demosaic: str,
+    raw_shot: int = 0,
     positive_decode: str,
     highlight_mode: int,
     bake_camera_wb: bool,
@@ -94,6 +96,7 @@ def _linear_preview_key(
         workspace_color_space=color_space,
         full_resolution=full_resolution,
         demosaic=demosaic,
+        raw_shot=raw_shot,
         lens_token=lens_decode_token(lens_corrections, lens_flatfield),
         half=half_slice[0] if half_slice else 0,
         split_x=half_slice[1] if half_slice else 0.5,
@@ -104,6 +107,19 @@ def _linear_preview_key(
         highlight_mode=highlight_mode,
         bake_camera_wb=bake_camera_wb,
     )
+
+
+def _shots_failed(shots: Optional[ShotsInfo]) -> bool:
+    """A decode that fell back to the first shot is not what the cache key names: the next load tries again."""
+    return shots is not None and shots.failed
+
+
+def _with_composite_shots(meta: dict, part_metas: Iterable[dict]) -> Optional[ShotsInfo]:
+    """Put the shots of every part of a composite in *meta*, so a failed or moving part warns as well."""
+    shots = composite_shots([m.get("raw_shots") for m in part_metas])
+    if shots is not None:
+        meta["raw_shots"] = shots
+    return shots
 
 
 class PreviewManager:
@@ -123,6 +139,7 @@ class PreviewManager:
         file_hash: str | None,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         positive_decode: str = "",
         integrated_gpu: bool = False,
         protected_file_hashes: tuple[str, ...] = (),
@@ -142,6 +159,7 @@ class PreviewManager:
             full_resolution=False,
             half_slice=half_slice,
             demosaic=demosaic,
+            raw_shot=raw_shot,
             positive_decode=positive_decode,
             highlight_mode=highlight_mode,
             bake_camera_wb=bake_camera_wb,
@@ -186,6 +204,7 @@ class PreviewManager:
             file_hash=file_hash,
             half_slice=half_slice,
             demosaic=demosaic,
+            raw_shot=raw_shot,
             positive_decode=positive_decode,
             cache_protected_file_hashes=protected_hashes,
             cache_preserve_full_resolution=True,
@@ -207,6 +226,7 @@ class PreviewManager:
         full_resolution: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         positive_decode: str = "",
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
@@ -223,6 +243,7 @@ class PreviewManager:
             full_resolution=full_resolution,
             half_slice=half_slice,
             demosaic=demosaic,
+            raw_shot=raw_shot,
             positive_decode=positive_decode,
             highlight_mode=highlight_mode,
             bake_camera_wb=bake_camera_wb,
@@ -286,6 +307,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         positive_decode: str = "",
         cache_protected_file_hashes: frozenset[str] = frozenset(),
         cache_preserve_full_resolution: bool = False,
@@ -504,7 +526,7 @@ class PreviewManager:
         )
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview load cancelled")
-        if file_hash:
+        if file_hash and not _shots_failed(metadata.get("raw_shots")):
             ck = _linear_preview_key(
                 file_hash,
                 color_space=color_space,
@@ -512,6 +534,7 @@ class PreviewManager:
                 full_resolution=full_resolution,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
@@ -562,6 +585,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         positive_decode: str = "",
         cache_protected_file_hashes: frozenset[str] = frozenset(),
         cache_preserve_full_resolution: bool = False,
@@ -592,6 +616,7 @@ class PreviewManager:
                 full_resolution=full_resolution,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
@@ -609,6 +634,7 @@ class PreviewManager:
             positive_decode=positive_decode,
             preview_max_edge=None if full_resolution else APP_CONFIG.preview_render_size,
             should_cancel=should_cancel,
+            raw_shot=raw_shot,
         )
 
         if color_space is None:
@@ -622,6 +648,7 @@ class PreviewManager:
                     full_resolution=full_resolution,
                     half_slice=half_slice,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     positive_decode=positive_decode,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
@@ -646,6 +673,7 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode,
                 cache_protected_file_hashes=cache_protected_file_hashes,
                 cache_preserve_full_resolution=cache_preserve_full_resolution,
@@ -704,6 +732,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
@@ -728,19 +757,20 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
         red_out, dims, meta = self.load_linear_preview(
-            red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic, should_cancel=should_cancel
+            red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic, raw_shot=raw_shot, should_cancel=should_cancel
         )
-        green_out, _, _ = self.load_linear_preview(
-            green_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
+        green_out, _, green_meta = self.load_linear_preview(
+            green_path, color_space, False, full_resolution, None, demosaic=demosaic, raw_shot=raw_shot, should_cancel=should_cancel
         )
-        blue_out, _, _ = self.load_linear_preview(
-            blue_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
+        blue_out, _, blue_meta = self.load_linear_preview(
+            blue_path, color_space, False, full_resolution, None, demosaic=demosaic, raw_shot=raw_shot, should_cancel=should_cancel
         )
 
         red = np.asarray(red_out, dtype=np.float32)
@@ -758,7 +788,8 @@ class PreviewManager:
         # must never reach the capture-matrix fold downstream — not even the primary's alone.
         meta = dict(meta)
         meta["camera_wb"] = None
-        if merged_key is not None:
+        shots = _with_composite_shots(meta, (meta, green_meta, blue_meta))
+        if merged_key is not None and not _shots_failed(shots):
             # A freshly assembled buffer: the cache and the caller alias it, read-only.
             self._cache.put(merged_key, out, dims, dict(meta))
         return out, dims, meta
@@ -772,6 +803,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         should_cancel: Optional[Callable[[], bool]] = None,
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
@@ -801,6 +833,7 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
             )
@@ -820,6 +853,7 @@ class PreviewManager:
             full_resolution,
             file_hash,
             demosaic=demosaic,
+            raw_shot=raw_shot,
             should_cancel=should_cancel,
             highlight_mode=highlight_mode,
             bake_camera_wb=bake_camera_wb,
@@ -829,23 +863,23 @@ class PreviewManager:
         # decoded, so this is available whether or not bake_camera_wb baked it into ref's
         # own pixels.
         bracket_wb = meta.get("camera_wb") if bake_camera_wb else None
+        part_metas: dict[str, dict] = {}
 
         def _load(path: str) -> np.ndarray:
-            arr = np.asarray(
-                self.load_linear_preview(
-                    path,
-                    color_space,
-                    use_camera_wb,
-                    full_resolution,
-                    None,
-                    demosaic=demosaic,
-                    should_cancel=should_cancel,
-                    highlight_mode=highlight_mode,
-                    bake_camera_wb=bake_camera_wb,
-                    wb_override=bracket_wb,
-                )[0],
-                dtype=np.float32,
+            out, _, part_metas[path] = self.load_linear_preview(
+                path,
+                color_space,
+                use_camera_wb,
+                full_resolution,
+                None,
+                demosaic=demosaic,
+                raw_shot=raw_shot,
+                should_cancel=should_cancel,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
+                wb_override=bracket_wb,
             )
+            arr = np.asarray(out, dtype=np.float32)
             if arr.shape[:2] != ref.shape[:2]:
                 # Preview sizing rounds per file, so a pixel or two between frames of one
                 # bracket is ordinary and resampling is right. A different *aspect* is not: a
@@ -861,7 +895,9 @@ class PreviewManager:
 
         providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]
         merged = merge_providers(providers, list(ratios), reference=0, align=align)
-        if merged_key is not None:
+        meta = dict(meta)
+        shots = _with_composite_shots(meta, (meta, *(part_metas.get(p, {}) for p in other_paths)))
+        if merged_key is not None and not _shots_failed(shots):
             # Cache it unscaled: the exposure is applied below and can change without costing
             # another merge.
             self._cache.put(merged_key, ensure_image(merged), dims, dict(meta))
@@ -877,6 +913,7 @@ class PreviewManager:
         file_hash: str | None = None,
         flatfield_profile_id: str = "",
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         should_cancel: Optional[Callable[[], bool]] = None,
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
@@ -899,6 +936,7 @@ class PreviewManager:
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
                 )
@@ -906,7 +944,7 @@ class PreviewManager:
                 if hit is not None:
                     return hit  # cache hit — caller must not mutate this buffer
 
-        parts, irs = [], []
+        parts, irs, part_metas = [], [], []
         meta: dict = {}
         for i, path in enumerate((primary_path, *stitch.stitch_paths)):
             green, blue = stitch.stitch_triplets[i] if i < len(stitch.stitch_triplets) else ("", "")
@@ -921,6 +959,7 @@ class PreviewManager:
                     full_resolution,
                     None,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     should_cancel=should_cancel,
                 )
             else:
@@ -931,20 +970,23 @@ class PreviewManager:
                     full_resolution,
                     None,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     should_cancel=should_cancel,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
                 )
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield, orientation=part_meta.get("orientation", 1)))
             irs.append(part_meta.get("ir_preview"))
+            part_metas.append(part_meta)
             if i == 0:
                 meta = dict(part_meta)
 
         rgb, ir = stitch_composite(parts, irs, stitch)
         meta["ir_preview"] = ir
+        shots = _with_composite_shots(meta, part_metas)
         out_buf = ensure_image(rgb)
         dims = (stitch.stitch_canvas[1], stitch.stitch_canvas[0])
-        if key is not None:
+        if key is not None and not _shots_failed(shots):
             self._cache.put(key, out_buf, dims, meta)
         return out_buf, dims, meta
 
@@ -958,6 +1000,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float, str] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        raw_shot: int = 0,
         positive_decode: str = "",
         should_cancel: Optional[Callable[[], bool]] = None,
         highlight_mode: int = 0,
@@ -986,6 +1029,7 @@ class PreviewManager:
                 full_resolution=full_resolution,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
@@ -1004,6 +1048,7 @@ class PreviewManager:
                 positive_decode=positive_decode,
                 preview_max_edge=None if full_resolution else APP_CONFIG.preview_render_size,
                 should_cancel=should_cancel,
+                raw_shot=raw_shot,
             )
         except Exception as e:
             logger.debug("preview load_splash_and_linear open failed: %s", e)
@@ -1020,6 +1065,7 @@ class PreviewManager:
                     full_resolution=full_resolution,
                     half_slice=half_slice,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     positive_decode=positive_decode,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
@@ -1048,6 +1094,7 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode,
                 should_cancel=should_cancel,
                 highlight_mode=highlight_mode,

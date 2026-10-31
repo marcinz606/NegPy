@@ -30,6 +30,7 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",
+        raw_shot=0,
         positive_decode="",  # noqa: ARG002 (accepted, not asserted on)
         highlight_mode=0,  # noqa: ARG002 (accepted, not asserted on)
         bake_camera_wb=False,  # noqa: ARG002 (accepted, not asserted on)
@@ -58,6 +59,7 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
+        raw_shot=0,
     ):
         self.rgb_calls.append(
             {
