@@ -35,6 +35,7 @@ from negpy.features.process.logic import (
     highlight_reconstruction_bright_gain,
     highlight_reconstruction_token,
     linear_raw_token,
+    raw_shot_token,
 )
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
@@ -362,6 +363,7 @@ def precorrect_key(
         shape,
         linear_raw_token(settings.process),
         demosaic_token(settings.process.demosaic_preview),
+        raw_shot_token(settings.process.raw_shot),
         positive_decode(settings.process),
         skip_flatfield,
         gain_slices,
@@ -834,6 +836,7 @@ class ImageProcessor:
             + highlight_reconstruction_bakes_wb_token(settings.process)
             + sensor_token(settings.process)
             + demosaic_token(settings.process.demosaic_preview)
+            + raw_shot_token(settings.process.raw_shot)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + heal_token
             + luma_bake_token(settings.retouch)
@@ -1024,6 +1027,7 @@ class ImageProcessor:
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
         load_ir: bool = True,
+        raw_shot: int = 0,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
@@ -1051,7 +1055,9 @@ class ImageProcessor:
 
         Returns (rgb_uint16, loader_metadata).
         """
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir)
+        ctx_mgr, metadata = loader_factory.get_loader(
+            file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir, raw_shot=raw_shot
+        )
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw, demosaic)
             # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
@@ -1126,6 +1132,7 @@ class ImageProcessor:
             flatfield_token(params.flatfield),
             sensor_token(params.process),
             demosaic_token(params.process.demosaic_export),
+            raw_shot_token(params.process.raw_shot),
             fast_decode,
             unmix,
             params.retouch.ir_dust_remove,
@@ -1181,6 +1188,7 @@ class ImageProcessor:
         highlight_mode = effective_highlight_reconstruction(params.process)
         bake_wb = highlight_reconstruction_bakes_wb(params.process)
         demosaic = params.process.demosaic_export
+        raw_shot = params.process.raw_shot
         rgbcfg = params.rgbscan
         # A bracket wins over a triplet. The UI refuses the two together, and the export
         # decode branches in this order, so an asset carrying both must not assemble
@@ -1206,6 +1214,7 @@ class ImageProcessor:
                     fast=fast_decode,
                     wb_override=_NEUTRAL_WB,
                     demosaic=demosaic,
+                    raw_shot=raw_shot,
                     positive_decode=positive_decode(params.process),
                     highlight_mode=highlight_mode,
                 )
@@ -1218,6 +1227,7 @@ class ImageProcessor:
                                 linear_raw,
                                 wb_override=_NEUTRAL_WB,
                                 demosaic=demosaic,
+                                raw_shot=raw_shot,
                                 positive_decode=positive_decode(params.process),
                                 highlight_mode=highlight_mode,
                             )[0],
@@ -1233,6 +1243,7 @@ class ImageProcessor:
                 fast=fast_decode,
                 wb_override=wb_override,
                 demosaic=demosaic,
+                raw_shot=raw_shot,
                 positive_decode=positive_decode(params.process),
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_wb,
@@ -1285,6 +1296,7 @@ class ImageProcessor:
                                 fast=fast_decode,
                                 wb_override=bracket_wb,
                                 demosaic=demosaic,
+                                raw_shot=raw_shot,
                                 positive_decode=positive_decode(params.process),
                                 highlight_mode=highlight_mode,
                             )[0],
@@ -1413,6 +1425,7 @@ class ImageProcessor:
             + highlight_reconstruction_bakes_wb_token(params.process)
             + sensor_token(params.process)
             + demosaic_token(params.process.demosaic_export)
+            + raw_shot_token(params.process.raw_shot)
             + ir_bake_token(params.retouch, ir_full is not None)
             + manual_bake_token(params.retouch)
             + luma_bake_token(params.retouch)
@@ -2039,6 +2052,7 @@ class ImageProcessor:
                 + highlight_reconstruction_token(params.process)
                 + highlight_reconstruction_bakes_wb_token(params.process)
                 + sensor_token(params.process)
+                + raw_shot_token(params.process.raw_shot)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
                 + luma_bake_token(params.retouch)

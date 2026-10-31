@@ -177,6 +177,7 @@
    "meter_rect": "null",
    "positive_source": "false",
    "process_mode": "\"Color Negative\"",
+   "raw_shot": "0",
    "roll_name": "null",
    "sensor_matrix": "null",
    "sensor_profile": "\"None\"",
@@ -219,5 +220,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 32
+ "render_version": 33
 }
