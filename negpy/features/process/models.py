@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from negpy.domain.migrations import CROSSTALK_PROFILE_RENAMES
+from negpy.kernel.system.i18n import mark
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 if TYPE_CHECKING:
@@ -104,6 +105,26 @@ def mode_aware_exposure_reset(mode: str, base: ExposureConfig) -> ExposureConfig
     )
 
 
+class SourceEncoding(StrEnum):
+    """How a Positive TIFF's samples encode light. AUTO reads the file: its profile, else linear above 8 bits and sRGB at 8 bits. LINEAR and GAMMA_22 override it."""
+
+    AUTO = "auto"
+    LINEAR = "linear"
+    GAMMA_22 = "gamma22"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "SourceEncoding":
+        return cls.AUTO
+
+
+# Lookup keys: display them through tr.
+SOURCE_ENCODING_LABELS = {
+    SourceEncoding.AUTO: mark("Auto"),
+    SourceEncoding.LINEAR: mark("Linear"),
+    SourceEncoding.GAMMA_22: mark("2.2"),
+}
+
+
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
@@ -121,10 +142,10 @@ class ProcessConfig:
     linear_raw: bool = False
     # The source is a finished positive (a scanned print, an export from other software, a
     # scanner's own positive) rather than a raw capture. Slide only, held in __post_init__.
-    # It decodes on its embedded profile, sRGB when untagged, instead of as literal linear
-    # data, and skips metering, negative inversion, the baseline lift and the filmic curve.
-    # See effective_linear_raw and path.render_path.
+    # A TIFF decodes by source_encoding; it skips metering, negative inversion, the
+    # baseline lift and the filmic curve. See path.render_path and path.positive_decode.
     positive_source: bool = False
+    source_encoding: SourceEncoding = SourceEncoding.AUTO
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
     demosaic_export: DemosaicMode = DemosaicMode.AUTO
@@ -211,6 +232,7 @@ class ProcessConfig:
         # Not a MIGRATIONS entry: the old mode names also reach us from sticky settings
         # and asset dicts, not only a loaded flat config, so this runs on every build.
         object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
+        object.__setattr__(self, "source_encoding", SourceEncoding(self.source_encoding))
         object.__setattr__(self, "sensor_unmix", SensorUnmix(self.sensor_unmix))
         # Same reach for renamed crosstalk profiles: roll defaults overlay this field
         # raw through dataclasses.replace, so the rename must run on every build too.
@@ -299,13 +321,24 @@ def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "Workspace
 
 
 def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
-    """*config* with the Film card's fields in *fields* applied through with_process_mode and
-    with_positive_source, popping them from *fields* so the caller overlays only the rest."""
+    """*config* with the Film card's fields in *fields* applied through with_process_mode,
+    with_positive_source and with_source_encoding, popping them from *fields* so the caller
+    overlays only the rest."""
     if "process_mode" in fields:
         config = with_process_mode(config, fields.pop("process_mode"))
     if "positive_source" in fields:
         config = with_positive_source(config, fields.pop("positive_source"))
+    if "source_encoding" in fields:
+        config = with_source_encoding(config, fields.pop("source_encoding"))
     return config
+
+
+def with_source_encoding(config: "WorkspaceConfig", encoding: str) -> "WorkspaceConfig":
+    """*config* decoding by *encoding*; the local bounds were measured on the old decode."""
+    proc = config.process
+    if proc.source_encoding == SourceEncoding(encoding):
+        return config
+    return replace(config, process=replace(proc, source_encoding=SourceEncoding(encoding), **invalidate_local_bounds(proc)))
 
 
 # The print stocks the scanning-setup wizard picks between; a frame on any other stock keeps it.

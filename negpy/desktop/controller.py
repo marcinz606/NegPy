@@ -195,7 +195,7 @@ from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.path import RenderPath, render_path
+from negpy.features.process.path import RenderPath, positive_decode, render_path
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
     ProcessConfig,
@@ -204,9 +204,11 @@ from negpy.features.process.models import (
     mode_aware_exposure_reset,
     scan_setup_values,
     with_film_fields,
+    with_source_encoding,
     with_positive_source,
     with_process_mode,
 )
+from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
 from negpy.desktop.settings_catalog import (
     BOUNDS_INPUT_FIELDS,
     FRAME_CARD_FIELDS,
@@ -3253,7 +3255,7 @@ class AppController(QObject):
                 workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=not effective_linear_raw(self.state.config.process),
                 generation=self._prefetch_gen,
-                positive_source=self.state.config.process.positive_source,
+                positive_decode=positive_decode(self.state.config.process),
                 highlight_mode=effective_highlight_reconstruction(self.state.config.process),
                 bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process),
                 full_resolution=self.state.hq_preview,
@@ -3458,7 +3460,7 @@ class AppController(QObject):
             workspace_color_space=self.state.workspace_color_space,
             use_camera_wb=not linear_raw,
             generation=generation,
-            positive_source=saved.process.positive_source if saved else False,
+            positive_decode=positive_decode(saved.process) if saved else "",
             highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
             bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process) if saved else False),
             full_resolution=False,
@@ -3502,8 +3504,17 @@ class AppController(QObject):
         """
         if not detected_mode or detected_mode == self.state.config.process.process_mode:
             return
-        self.state.config = with_process_mode(self.state.config, detected_mode)
+        path = self.state.current_file_path or ""
+        self.state.config = with_scanner_positive_default(with_process_mode(self.state.config, detected_mode), path)
         self.state.is_dirty = True
+        if positive_decode(self.state.config.process) and path:
+            # The buffer was decoded for the transfer; a finished image's Positive decodes by its encoding.
+            QTimer.singleShot(0, lambda: self._reload_if_open(path))
+
+    def _reload_if_open(self, path: str) -> None:
+        """A deferred reload that a frame change since has made stale does nothing."""
+        if self.state.current_file_path == path:
+            self.load_file(path, preserve_zoom=True)
 
     def _store_source_color(self, source_color: Optional[bool]) -> None:
         """Store the measured film fact once; it never changes the saved mode."""
@@ -6813,8 +6824,12 @@ class AppController(QObject):
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
         the roll the instant it changes and was not already -- same as any other
-        Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out."""
-        self.apply_config(with_process_mode(self.state.config, mode), persist=True)
+        Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out. A switch to
+        Slide starts a scanner file Positive."""
+        config = with_process_mode(self.state.config, mode)
+        if config.process.process_mode != self.state.config.process.process_mode:
+            config = with_scanner_positive_default(config, self.state.current_file_path or "")
+        self.apply_config(config, persist=True)
         self._lock_roll_card("film")
 
     def set_positive_source(self, checked: bool) -> None:
@@ -6825,6 +6840,14 @@ class AppController(QObject):
             # The shortcut still reaches the hidden button.
             return
         self.apply_config(with_positive_source(self.state.config, checked), persist=True)
+        self._lock_roll_card("film")
+
+    def set_source_encoding(self, encoding: str) -> None:
+        """Sets the active frame's Source Encoding, locking the "film" card away from the roll
+        like Positive: one scanner and one workflow usually make a whole roll."""
+        if str(self.state.config.process.source_encoding) == encoding:
+            return
+        self.apply_config(with_source_encoding(self.state.config, encoding), persist=True)
         self._lock_roll_card("film")
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
@@ -9950,12 +9973,9 @@ class AppController(QObject):
         self.set_status(", ".join(parts), 6000 if failed else 4000)
 
     def _bake_auto_density_grade_for_export(self, files: list[dict]) -> None:
-        """Freeze Auto Density / Auto Grade for each exported file before the export runs, so the
-        saved edit no longer depends on the meters. The export renders with the live config, which
-        equals the frozen config, so the output is unchanged.
-        The open frame's truth is the live config, not the DB, so reflect it there: a DB-only write
-        would be clobbered by the pre-bake live config on the next save. Other frames keep the DB-only
-        write."""
+        """Freeze Auto Density / Auto Grade in each exported file's saved edit, so it no longer
+        reads the meters; the frozen values render the same pixels. The open frame goes through
+        the live config, because the next save would overwrite a DB-only write."""
         current_hash = self.state.current_file_hash or ""
         for f in files:
             baked_cfg = self._baked_config_for_file(f)

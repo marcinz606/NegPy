@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from negpy.kernel.system.text import count_of
 import math
+import os
 
 import numpy as np
 from PyQt6.QtWidgets import (
@@ -15,6 +16,7 @@ from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages
 from negpy.desktop.view.styles.templates import (
     ICON_BUTTON_WIDTH,
     clearable_tool_toggle,
+    field_row,
     hint_label,
     header_row,
     section_subheader,
@@ -26,12 +28,23 @@ from negpy.features.exposure.stats import clipping_row
 from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import RightClickToggleAll, SegmentedChoice
+from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
-from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.features.process.models import SOURCE_ENCODING_LABELS, ProcessMode, SourceEncoding, invalidate_local_bounds
+from negpy.infrastructure.loaders.constants import SUPPORTED_TIFF_EXTENSIONS
+
+# The files whose Positive decode follows Source Encoding.
+_ENCODED_EXTENSIONS = SUPPORTED_TIFF_EXTENSIONS
+
+_SOURCE_ENCODING_TIPS = {
+    SourceEncoding.AUTO: tr("Auto: the file's profile or color tag; untagged, linear above 8 bits and sRGB at 8 bits."),
+    SourceEncoding.LINEAR: tr("Linear: the samples are linear light, such as a scanner's raw output."),
+    SourceEncoding.GAMMA_22: tr("2.2: the samples carry a 2.2 gamma in Adobe RGB primaries."),
+}
 
 # Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
 # negative positions map to an outward log-density margin, a gentler-than-zero stretch.
@@ -123,6 +136,19 @@ class ProcessSidebar(BaseSidebar):
             (tr("Positive, slides only: the file is already a positive, such as a scanned print or another app's export.")),
         )
         mode_col.addWidget(self.positive_source_btn)
+
+        self.source_encoding_btn = StepCombo.of(
+            [tr(SOURCE_ENCODING_LABELS[enc]) for enc in SourceEncoding],
+            tr("Encoding: how the file's samples encode light."),
+            [enc.value for enc in SourceEncoding],
+        )
+        for i, enc in enumerate(SourceEncoding):
+            self.source_encoding_btn.set_item_tooltip(i, _SOURCE_ENCODING_TIPS[enc])
+        self.source_encoding_row = QWidget()
+        self.source_encoding_row.setLayout(field_row(tr("Encoding"), self.source_encoding_btn))
+        self.source_encoding_row.layout().setContentsMargins(0, 0, 0, 0)
+        self.source_encoding_row.setVisible(False)
+        mode_col.addWidget(self.source_encoding_row)
 
         self.lock_bounds_btn = self._small_toggle(
             "fa5s.lock",
@@ -269,6 +295,7 @@ class ProcessSidebar(BaseSidebar):
         self.color_range_clip_slider.valueCommitted.connect(lambda v: self._on_color_range_clip_changed(v, persist=True))
 
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
+        self.source_encoding_btn.currentIndexChanged.connect(self._on_source_encoding_changed)
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
         self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
         self.use_cast_avg_btn.toggled.connect(self._on_use_cast_average_toggled)
@@ -318,6 +345,9 @@ class ProcessSidebar(BaseSidebar):
 
     def _on_positive_source_toggled(self, checked: bool) -> None:
         self.controller.set_positive_source(checked)
+
+    def _on_source_encoding_changed(self, _index: int) -> None:
+        self.controller.set_source_encoding(str(self.source_encoding_btn.currentData()))
 
     def _on_use_luma_average_toggled(self, checked: bool) -> None:
         self._toggle_roll_axis(use_luma_average=checked)
@@ -446,6 +476,10 @@ class ProcessSidebar(BaseSidebar):
 
             self.positive_source_btn.setVisible(is_e6)
             self.positive_source_btn.setChecked(conf.positive_source)
+            path = self.state.current_file_path or ""
+            encodes = os.path.splitext(path)[1].lower() in _ENCODED_EXTENSIONS
+            self.source_encoding_row.setVisible(is_e6 and conf.positive_source and encodes)
+            self.source_encoding_btn.setCurrentIndex(self.source_encoding_btn.findData(SourceEncoding(conf.source_encoding).value))
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
@@ -538,6 +572,7 @@ class ProcessSidebar(BaseSidebar):
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
             self.positive_source_btn,
+            self.source_encoding_btn,
             self.ch_btn,
             self.white_point_slider,
             self.black_point_slider,

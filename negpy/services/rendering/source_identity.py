@@ -18,6 +18,7 @@ from negpy.features.process.logic import (
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
 )
+from negpy.features.process.path import positive_decode
 from negpy.features.rgbscan.logic import rgbscan_token
 from negpy.features.stitch.models import stitch_token
 from negpy.services.rendering.lens import lens_decode_token, metadata_lens_corrections
@@ -42,6 +43,9 @@ def source_token(config: WorkspaceConfig) -> str:
         hdr_token(config.hdr),
         lens_decode_token(metadata_lens_corrections(config), config.flatfield),
     ]
+    if decode := positive_decode(config.process):
+        # A Positive TIFF decodes by its Source Encoding instead.
+        parts.append(f"|pd{decode}")
     if config.stitch.stitch_enabled:
         # Stitch flat-fields each part before assembly; embedded lens mode carries this
         # dependency in lens_decode_token. Other frames flat-field at render time.

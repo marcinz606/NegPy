@@ -30,11 +30,11 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",
-        positive_source=False,  # noqa: ARG002 — accepted, not asserted on
-        highlight_mode=0,  # noqa: ARG002 — accepted, not asserted on
-        bake_camera_wb=False,  # noqa: ARG002 — accepted, not asserted on
-        lens_corrections=LensCorrections(),  # noqa: ARG002 — accepted, not asserted on
-        lens_flatfield=None,  # noqa: ARG002 — accepted, not asserted on
+        positive_decode="",  # noqa: ARG002 (accepted, not asserted on)
+        highlight_mode=0,  # noqa: ARG002 (accepted, not asserted on)
+        bake_camera_wb=False,  # noqa: ARG002 (accepted, not asserted on)
+        lens_corrections=LensCorrections(),  # noqa: ARG002 (accepted, not asserted on)
+        lens_flatfield=None,  # noqa: ARG002 (accepted, not asserted on)
     ):
         self.linear_calls.append(
             {
@@ -57,7 +57,7 @@ class _PreviewService:
         use_camera_wb,
         full_resolution,
         file_hash,
-        demosaic="Auto",  # noqa: ARG002 — accepted, not asserted on
+        demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
     ):
         self.rgb_calls.append(
             {

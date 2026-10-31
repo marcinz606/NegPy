@@ -372,7 +372,7 @@ class LentoDock:
                     line = raw.rstrip(b"\r").decode("ascii", errors="replace").strip()
                     if line:
                         self._dispatch(line)
-        except BaseException as exc:  # noqa: BLE001 — surfaced to the caller
+        except BaseException as exc:  # noqa: BLE001 (surfaced to the caller)
             self._reader_error = exc
         finally:
             self._replies.put(_READER_DIED)

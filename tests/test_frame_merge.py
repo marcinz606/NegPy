@@ -48,7 +48,7 @@ def _exposures(red: str, green: str, blue: str) -> dict:
 
 
 def _fake_sensor_decode(buffers: dict, orientation: int = 1):
-    def decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False, highlight_mode=0, **_kw):
+    def decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_decode="", highlight_mode=0, **_kw):
         return buffers[path], {"orientation": orientation, "cam_xyz": None, "camera_wb": [1.0, 1.0, 1.0]}
 
     return decode

@@ -1529,7 +1529,7 @@ class TestAppController(unittest.TestCase):
     def test_set_roll_default_unlocks_when_edited_back_to_the_rolls_own_value(self):
         """Editing a value away and then back to what the roll already says is not a
         divergence -- the card must not stay marked This Frame Only just because it
-        was touched in between. "film" (2 fields) rather than "sensor" (9): every
+        was touched in between. "film" (3 fields) rather than "sensor" (9): every
         field in the card needs its own roll default before a match is possible, and
         this keeps the fixture to exactly the fields under test."""
         from negpy.features.process.models import ProcessMode
@@ -1537,14 +1537,16 @@ class TestAppController(unittest.TestCase):
 
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
-        rolls.set_roll_defaults(self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False)
+        rolls.set_roll_defaults(
+            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+        )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h1", "film", locked=True)
         state = self.mock_session_manager.state
         state.active_roll_id = roll_id
         state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
         state.current_file_hash = "h1"
 
-        self.controller.set_roll_default("film", process_mode=ProcessMode.C41, positive_source=False)
+        self.controller.set_roll_default("film", process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto")
 
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), set())
 
@@ -1569,7 +1571,9 @@ class TestAppController(unittest.TestCase):
 
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
-        rolls.set_roll_defaults(self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False)
+        rolls.set_roll_defaults(
+            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+        )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state
         state.active_roll_id = roll_id
@@ -1585,7 +1589,9 @@ class TestAppController(unittest.TestCase):
 
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
-        rolls.set_roll_defaults(self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True)
+        rolls.set_roll_defaults(
+            self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True, source_encoding="auto"
+        )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state
         state.active_roll_id = roll_id

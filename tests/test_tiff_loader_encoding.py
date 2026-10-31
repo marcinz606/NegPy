@@ -13,8 +13,6 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 from negpy.kernel.image.logic import srgb_to_linear, working_oetf_decode
-from negpy.features.process.logic import effective_linear_raw
-from negpy.features.process.models import ProcessConfig, ProcessMode
 
 # The standard Adobe RGB (1998) ICC profile — real-world scanner/export software tags
 # TIFFs with exactly this, so the loader's Adobe RGB branch is tested against what
@@ -36,8 +34,8 @@ def _rgb16(seed: int = 0) -> np.ndarray:
     return rng.integers(0, 30000, (32, 48, 3), dtype=np.uint16)
 
 
-def _load(path: str, linear_raw: bool = False, positive_source: bool = False) -> tuple[np.ndarray, dict]:
-    ctx, metadata = TiffLoader().load(path, linear_raw=linear_raw, positive_source=positive_source)
+def _load(path: str, linear_raw: bool = False) -> tuple[np.ndarray, dict]:
+    ctx, metadata = TiffLoader().load(path, linear_raw=linear_raw)
     with ctx as raw:
         return raw.data, metadata
 
@@ -51,38 +49,6 @@ class TestTiffEncodingAssumptions:
             f32, metadata = _load(path)
             np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
             # Scanner-raw linear: no ColorSpace names it, so it must not claim one.
-            assert metadata["color_space"] is None
-
-    def test_untagged_uint16_positive_source_gets_srgb_decode(self) -> None:
-        """The ambiguity an untagged 16-bit file usually carries — scanner-linear or a
-        finished positive — is already resolved once the caller says positive_source."""
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "positivized.tif")
-            tifffile.imwrite(path, data, photometric="rgb")
-            f32, metadata = _load(path, positive_source=True)
-            np.testing.assert_allclose(f32, srgb_to_linear(data.astype(np.float32) / 65535.0), atol=1e-6)
-            assert metadata["color_space"] == ColorSpace.SRGB.value
-
-    def test_positive_source_does_not_override_an_actual_tag(self) -> None:
-        """A real profile still wins — positive_source only fills the gap an untagged
-        file leaves, it does not second-guess a tag that is already there."""
-        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "tagged.tif")
-            tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
-            f32, metadata = _load(path, positive_source=True)
-            np.testing.assert_allclose(f32, srgb_to_linear(data.astype(np.float32) / 65535.0), atol=1e-6)
-            assert metadata["color_space"] == ColorSpace.SRGB.value
-
-    def test_positive_source_off_keeps_the_untagged_default(self) -> None:
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "scan.tif")
-            tifffile.imwrite(path, data, photometric="rgb")
-            f32, metadata = _load(path, positive_source=False)
-            np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
             assert metadata["color_space"] is None
 
     def test_untagged_uint8_gets_srgb_decode(self) -> None:
@@ -128,17 +94,6 @@ class TestTiffEncodingAssumptions:
             np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
             assert metadata["color_space"] is None
 
-    def test_linear_raw_still_wins_over_positive_source(self) -> None:
-        """An explicit request for literal linear data overrides positive_source too,
-        same precedence as effective_linear_raw's own stored-flag check."""
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "scan.tif")
-            tifffile.imwrite(path, data, photometric="rgb")
-            f32, metadata = _load(path, linear_raw=True, positive_source=True)
-            np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
-            assert metadata["color_space"] is None
-
     def test_linear_raw_ignores_untagged_uint8_srgb_assumption(self) -> None:
         data = np.linspace(0, 255, 32 * 48 * 3).reshape(32, 48, 3).astype(np.uint8)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -146,37 +101,6 @@ class TestTiffEncodingAssumptions:
             tifffile.imwrite(path, data, photometric="rgb")
             f32, metadata = _load(path, linear_raw=True)
             np.testing.assert_allclose(f32, data.astype(np.float32) / 255.0, atol=1e-7)
-            assert metadata["color_space"] is None
-
-
-class TestPositiveSourceOnTheTransferPath:
-    """An already-positive TIFF loaded as Transparency is not a raw
-    scanner capture: Positive must reach the loader through effective_linear_raw
-    so its sRGB tag decodes instead of being read as literal linear data."""
-
-    def test_positive_source_reaches_the_srgb_decode(self) -> None:
-        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "positivized.tif")
-            tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
-
-            process = ProcessConfig(process_mode=ProcessMode.E6, positive_source=True)
-            f32, metadata = _load(path, linear_raw=effective_linear_raw(process))
-            np.testing.assert_allclose(f32, srgb_to_linear(data.astype(np.float32) / 65535.0), atol=1e-6)
-            assert metadata["color_space"] == ColorSpace.SRGB.value
-
-    def test_without_positive_source_the_tag_is_still_ignored(self) -> None:
-        """The default: the same frame, minus the toggle, keeps today's forced-linear read."""
-        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-        data = _rgb16()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "positivized.tif")
-            tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
-
-            process = ProcessConfig(process_mode=ProcessMode.E6, positive_source=False)
-            f32, metadata = _load(path, linear_raw=effective_linear_raw(process))
-            np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
             assert metadata["color_space"] is None
 
 

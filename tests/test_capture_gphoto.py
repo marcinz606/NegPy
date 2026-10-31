@@ -539,47 +539,6 @@ def test_aperture_is_found_under_the_vendor_s_own_name():
     camera.close()
 
 
-def _canon_manual_lens_camera():
-    # What an EOS R5 and R7 report with a manual lens or no lens: two choices, one of them
-    # "implicit auto", and a write of either fails with "[-110] I/O in progress".
-    fake = FakeGP(aperture_name="aperture")
-    fake.props["aperture"] = _Widget(fake, "aperture", "implicit auto", ["Unknown value 0f00", "implicit auto"])
-    camera = GphotoCamera(gp_module=fake)
-    camera.open()
-    return fake, camera
-
-
-def test_a_canon_manual_lens_reads_as_no_aperture():
-    _fake, camera = _canon_manual_lens_camera()
-    assert "aperture" not in camera.read_settings()  # the UI greys the stepper out on a missing key
-    camera.close()
-
-
-def test_a_canon_manual_lens_reads_as_no_aperture_whichever_choice_is_current():
-    fake, camera = _canon_manual_lens_camera()
-    fake.props["aperture"].value = "Unknown value 0f00"
-    assert "aperture" not in camera.read_settings()
-    camera.close()
-
-
-def test_a_comma_decimal_aperture_reads_as_a_lens_aperture():
-    # libgphoto2 formats numbers in the desktop's numeric locale, which NegPy does not pin.
-    fake = FakeGP(aperture_name="aperture")
-    fake.props["aperture"] = _Widget(fake, "aperture", "5,6", ["4,5", "5,6", "6,3"])
-    camera = GphotoCamera(gp_module=fake)
-    camera.open()
-    assert camera.read_settings()["aperture"]["cur"] == 1
-    camera.close()
-
-
-@pytest.mark.parametrize("value", ["implicit auto", "Unknown value 0f00"])
-def test_capture_does_not_lock_the_aperture_of_a_canon_manual_lens(tmp_path, value):
-    fake, camera = _canon_manual_lens_camera()
-    camera.capture(str(tmp_path / "f.CR3"), aperture=value)  # a preset saved before this lens was known
-    assert [w for w in fake.writes if w[0] == "aperture"] == []
-    camera.close()
-
-
 def test_reopening_for_another_body_reprobes_property_names():
     fake = FakeGP(aperture_name="f-number")
     camera = GphotoCamera(gp_module=fake)

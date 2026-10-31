@@ -307,7 +307,7 @@ class PhotometricProcessor:
         )
 
         if context.process_mode == ProcessMode.BW:
-            # Collapse to a single density BEFORE the curve, so the curve shapes one channel
+            # Collapse to a single density before the curve, so the curve shapes one channel
             # instead of mixing three.
             image = negpy_core.matmul_3x3(np.ascontiguousarray(image, dtype=np.float32), collapse_matrix(self.bw_weights))
 

@@ -58,7 +58,7 @@ def test_triplet_render_decode_pins_every_exposure_neutral(tmp_path):
     processor = ImageProcessor()
     calls: list = []
 
-    def fake_decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False, highlight_mode=0):
+    def fake_decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_decode="", highlight_mode=0):
         calls.append((path, wb_override))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"cam_xyz": None, "camera_wb": [1.9, 1.0, 1.55]}
 
@@ -82,7 +82,7 @@ def test_triplet_render_ignores_the_primarys_own_camera_wb_downstream(tmp_path):
 
     processor = ImageProcessor()
     processor._decode_sensor_rgb = (
-        lambda path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False, highlight_mode=0: (
+        lambda path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_decode="", highlight_mode=0: (
             np.zeros((4, 4, 3), dtype=np.uint16),
             {"cam_xyz": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "camera_wb": [1.9, 1.0, 1.55]},
         )
@@ -111,7 +111,7 @@ def test_triplet_with_linear_raw_off_still_decodes_neutral_at_the_rawpy_call(tmp
 
     spies = {path: _SpyRaw() for path in (red, green, blue)}
 
-    def fake_get_loader(path, linear_raw=False, positive_source=False, load_ir=True):
+    def fake_get_loader(path, linear_raw=False, positive_decode="", load_ir=True):
         return spies[path], {}
 
     processor = ImageProcessor()

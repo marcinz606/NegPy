@@ -58,11 +58,16 @@ class LoaderFactory:
 
         return self._rawpy
 
+    def is_camera_raw(self, file_path: str) -> bool:
+        """Whether *file_path* decodes as a camera RAW. A TIFF, JPEG, JXL or a film scanner's own
+        raw (Pakon, Noritsu, Coolscan NEF, Flextight FFF) does not."""
+        return self._select_loader(file_path) is self._rawpy
+
     def get_loader(
         self,
         file_path: str,
         linear_raw: bool = False,
-        positive_source: bool = False,
+        positive_decode: str = "",
         preview_max_edge: Optional[int] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
         load_ir: bool = True,
@@ -70,7 +75,7 @@ class LoaderFactory:
         loader = self._select_loader(file_path)
 
         if loader is self._tiff:
-            return loader.load(file_path, linear_raw=linear_raw, positive_source=positive_source, load_ir=load_ir)
+            return loader.load(file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir)
         if loader is self._nef or loader is self._fff:
             return loader.load(file_path, linear_raw=linear_raw)
         if loader is self._rawpy:

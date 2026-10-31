@@ -33,6 +33,7 @@ from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, 
 from negpy.features.exposure.models import apply_targets
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
 from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
+from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -1477,7 +1478,13 @@ class DesktopSessionManager(QObject):
         # Not a bare WorkspaceConfig(): only this config holds the shipped autocrop fields, and the
         # print/transfer curves are an identity at it (transfer_grade_ref, test_transparency_transfer.py).
         config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset, fresh=True)
-        return self._asset_defaults(config, asset)
+        config = self._asset_defaults(config, asset)
+        return config if self._roll_sets_positive(asset) else with_scanner_positive_default(config, asset["path"])
+
+    def _roll_sets_positive(self, asset: dict) -> bool:
+        """The frame's roll holds a Positive value on its Film card, which beats the scanner default."""
+        roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
+        return roll_id is not None and "positive_source" in rolls.roll_defaults(self.repo, roll_id)
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
         """Return an asset's hydrated config without changing the active session state.

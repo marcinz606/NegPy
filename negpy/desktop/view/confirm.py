@@ -96,12 +96,8 @@ def confirm_unload_all(parent, roll_name: str | None) -> bool:
 
 
 def confirm_unload(parent, *, count: int = 1) -> bool:
-    """Ask the user to confirm removing image(s) from the session.
-
-    Unloading only drops the frames from the current list — saved edits stay in the
-    database keyed by content hash — but re-adding a large roll is tedious, so we gate
-    it behind a prompt. Enter confirms (default button); Esc cancels.
-    """
+    """Ask before frames leave the session. Saved edits stay in the database, but a large
+    roll is slow to add again. Enter confirms; Esc cancels."""
     verb = tr("Unload")
     if count > 1:
         title = tr("Unload Selected")
@@ -115,10 +111,8 @@ def confirm_unload(parent, *, count: int = 1) -> bool:
 
 
 def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "") -> bool:
-    """Ask before deleting a named, user-created item — a work print, a roll, a
-    flat-field profile. None of them are undoable and none can be re-derived from the
-    frame, so each one asks first. Enter confirms; Esc cancels.
-    """
+    """Ask before deleting a named item the user made: a work print, a roll, a flat-field
+    profile. No undo brings one back, and the frame cannot rebuild it. Enter confirms; Esc cancels."""
     return confirm_action(
         parent,
         tr("Delete {kind}", kind=kind),
@@ -155,11 +149,8 @@ def confirm_delete_mask(parent) -> bool:
 
 
 def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
-    """Ask before resetting several frames to their defaults at once.
-
-    Each frame's reset is still an ordinary undo step, but reverting many frames at
-    once in the wrong roll or selection is disruptive, so it asks first.
-    """
+    """Ask before several frames reset to their defaults. Each reset is an undo step, but
+    undoing many frames one by one is slow."""
     if roll:
         title = tr("Reset Roll to Defaults")
         text = tr("Reset all {value} in this roll to their default settings?", value=count_of(count, "frame"))
@@ -181,11 +172,8 @@ def confirm_reset_tab(parent, tab: str, count: int) -> bool:
 
 
 def confirm_clear_heals(parent, count: int) -> bool:
-    """Ask before wiping every manual heal/scratch on the frame.
-
-    Unlike single-heal undo this is not step-recoverable, so it asks first.
-    Enter confirms (default button); Esc cancels.
-    """
+    """Ask before every manual heal and scratch on the frame goes. No undo step brings them
+    back. Enter confirms; Esc cancels."""
     return confirm_action(
         parent,
         tr("Clear All Heals"),

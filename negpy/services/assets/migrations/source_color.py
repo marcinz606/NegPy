@@ -1,10 +1,9 @@
 """One-time re-measure of source_color on B&W frames.
 
-The chroma-spread test replaced a channel-correlation test that read many camera captures of
-B&W film as color film. source_color is measured once, when it is None, so this clears it on
-B&W rows with no contrast filter and the next load measures it again. Without a filter the
-print takes the default weights on either source, so no render changes. Best-effort and
-idempotent: guarded by a done flag, and it never raises into app startup.
+The old channel-correlation test read many camera captures of B&W film as color film.
+source_color is measured only while it is None, so this clears it on B&W rows with no contrast
+filter. Without a filter the print takes the default weights on either source, so no render
+changes. Runs once (a done flag) and never raises into app startup.
 """
 
 import json

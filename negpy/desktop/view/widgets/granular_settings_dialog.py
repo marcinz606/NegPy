@@ -79,8 +79,8 @@ def build_scope_row(sel_count: int, roll_count: int, show_current: bool = False)
 class GranularSettingsDialog(QDialog):
     """Per-setting picker for paste / apply-to-many. Lists one collapsible section
     per edit area, each setting with a toggle and its value. Settings still at
-    their default are built but hidden until "Show Defaults" — they must
-    stay pickable so a roll can be reset back to a default value (#656). Reuses the
+    their default are built but hidden until "Show Defaults": they stay
+    pickable so a roll can be reset to a default value (#656). Reuses the
     shortcut-editor's CollapsibleSection look."""
 
     def __init__(

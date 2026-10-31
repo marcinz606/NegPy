@@ -40,7 +40,7 @@ struct TransferUniforms {
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: TransferUniforms;
 
-// width * log(1 + exp(x / width)), overflow-safe — mirrors softplus in negpy_core/src/transfer.rs.
+// width * log(1 + exp(x / width)), overflow-safe; mirrors softplus in negpy_core/src/transfer.rs.
 fn softplus(x: f32, width: f32) -> f32 {
     let t = x / width;
     return width * (log(1.0 + exp(-abs(t))) + max(t, 0.0));

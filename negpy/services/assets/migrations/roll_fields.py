@@ -27,6 +27,7 @@ _PAPER_SPLIT_FLAG = "paper_card_split_v1"
 _AUTO_CROP_FLAG = "auto_crop_roll_card_v1"
 _RAW_DECODE_SPLIT_FLAG = "raw_decode_linear_raw_v1"
 _CROP_TO_FRAMES_FLAG = "crop_to_frames_v1"
+_FILM_ENCODING_FLAG = "film_card_source_encoding_v1"
 
 # The Crop card's settings, which were the roll's "autocrop" card; Auto Crop was its "auto_crop" card.
 _CROP_SHAPE_FIELDS = ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio", "autocrop_square")
@@ -264,6 +265,21 @@ def migrate_crop_to_frames(repo) -> None:
     except Exception:
         logger.exception("Crop move to the frames failed; continuing without it")
     repo.save_global_setting(_CROP_TO_FRAMES_FLAG, True)
+
+
+def migrate_film_card_source_encoding(repo) -> None:
+    """Encoding joined the Film card. A roll with Film defaults gets Auto, the value every
+    frame had before, because a field the roll never set never matches and would lock the card."""
+    if repo.get_global_setting(_FILM_ENCODING_FLAG):
+        return
+    try:
+        for roll_id, entry in rolls.saved_rolls(repo).items():
+            defaults = entry.get("defaults", {})
+            if "source_encoding" not in defaults and ("process_mode" in defaults or "positive_source" in defaults):
+                rolls.set_roll_defaults(repo, roll_id, source_encoding=ProcessConfig().source_encoding.value)
+    except Exception:
+        logger.exception("Film card Encoding migration failed; continuing without it")
+    repo.save_global_setting(_FILM_ENCODING_FLAG, True)
 
 
 def with_frame_seed(config: WorkspaceConfig, seed: dict) -> WorkspaceConfig:

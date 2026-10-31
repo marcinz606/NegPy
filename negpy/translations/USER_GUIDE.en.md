@@ -484,7 +484,8 @@ These cards hold what the frames of a roll share: the film, how it was scanned a
 What the film is and how you scanned it. These choices decide which cards and controls show.
 
 *   **Color / B&W / Slide**: color negative (C-41), a black-and-white print, or slide (E-6 and similar). B&W prints a B&W negative or a color negative in black and white. On a color negative, the Filtration card then gives a contrast Filter.
-*   **Positive** (Slide only): for a file that is already a positive, such as a scanned print or another app's export. NegPy then skips inversion and metering.
+*   **Positive** (Slide only): for a file that is already a positive, such as a scanned print or another app's export. NegPy then skips inversion and metering. A Slide that is not a camera RAW, such as a TIFF, JPEG, JXL or a Pakon, Noritsu, Coolscan or Flextight scan, starts Positive. Turn it off to give a faded scan the slide tone curve. A JXL loads as linear.
+*   **Encoding** (Positive TIFF): how the samples encode light. **Auto** reads the file's ICC profile, else takes linear above 8 bits and sRGB at 8 bits. **Linear** is a scanner's linear output, such as Nikon Scan with color management off. **2.2** is a 2.2 gamma in Adobe RGB primaries. Auto skips a scanner's own calibration profile and reads the file as untagged. Pick Linear or 2.2 to match the scanner software.
 *   **Camera / Film Scanner**: what you scanned with. NegPy reads it from each file (a camera RAW is a camera) until you pick one. Your pick holds for every frame and sets the Scan tab's scanner.
 *   **White Light / Narrowband Light** (not for a B&W negative): the light behind the negative. White light is a lightbox or LED panel. Narrowband is a light with pure red, green and blue, such as a Scanlight.
 

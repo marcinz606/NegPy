@@ -20,3 +20,9 @@ def render_path(process: ProcessConfig) -> RenderPath:
     if process.process_mode != ProcessMode.E6:
         return RenderPath.PRINT
     return RenderPath.POSITIVE if process.positive_source else RenderPath.TRANSFER
+
+
+def positive_decode(process: ProcessConfig) -> str:
+    """The Source Encoding a Positive frame's TIFF decodes by, "" off Positive. Every load
+    asks this, so a Positive decode and any other one never share a cached buffer."""
+    return str(process.source_encoding) if render_path(process) is RenderPath.POSITIVE else ""

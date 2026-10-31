@@ -313,13 +313,14 @@ Ein **Arbeitsabzug** ist eine Version dieses Bildes, die du unter einem Namen be
 
 Jede Änderung, die du gemacht hast, die neueste oben (die letzten 100). **Jetzt** markiert den aktuellen Stand. Nach einem Rückgängig erscheinen spätere Schritte als **Rückgängig gemacht**, bis zu deiner nächsten Bearbeitung. Klicke auf einen Schritt, um dorthin zurückzugehen. **⋮** oder Rechtsklick → **Diese Version exportieren…** exportiert einen früheren Stand. **Mit diesem Schritt vergleichen** öffnet **Vorher / Nachher** mit diesem Schritt links, auf deinem aktuellen Zuschnitt. Drücke `\`, um den Vergleich zu schließen.
 
-<!-- panel:film src:84c36b77 -->
+<!-- panel:film src:b72d2369 -->
 ### 10.1 Einrichtung
 
 Was der Film ist und wie du ihn gescannt hast. Diese Angaben bestimmen, welche Karten und Regler erscheinen.
 
 *   **Farbe / S/W / Dia**: Farbnegativ (C-41), ein Schwarzweißabzug oder Dia (E-6 und ähnlich). S/W druckt ein S/W-Negativ oder ein Farbnegativ in Schwarzweiß. Bei einem Farbnegativ bietet die Karte Filterung dann einen Kontrast-Filter.
-*   **Positiv** (nur Dia): für eine Datei, die schon ein Positiv ist, etwa ein gescannter Abzug oder der Export einer anderen App. NegPy überspringt dann Inversion und Messung.
+*   **Positiv** (nur Dia): für eine Datei, die schon ein Positiv ist, etwa ein gescannter Abzug oder der Export einer anderen App. NegPy überspringt dann Inversion und Messung. Ein Dia, das keine Kamera-RAW ist, etwa ein TIFF, JPEG, JXL oder ein Pakon-, Noritsu-, Coolscan- oder Flextight-Scan, startet als Positiv. Schalte es aus, um einem verblassten Scan die Dia-Tonkurve zu geben. Eine JXL-Datei lädt als linear.
+*   **Kodierung** (Positiv, TIFF): wie die Werte das Licht kodieren. **Auto** liest das ICC-Profil der Datei, sonst gilt linear über 8 Bit und sRGB bei 8 Bit. **Linear** ist die lineare Ausgabe eines Scanners, etwa Nikon Scan mit ausgeschaltetem Farbmanagement. **2.2** ist ein Gamma von 2,2 in Adobe-RGB-Primärfarben. Auto übergeht das eigene Kalibrierprofil eines Scanners und liest die Datei wie ohne Profil. Wähle Linear oder 2.2 passend zur Scansoftware.
 *   **Kamera / Filmscanner**: womit du gescannt hast. NegPy liest das aus jeder Datei (eine Kamera-RAW-Datei ist eine Kamera), bis du eine Wahl triffst. Deine Wahl gilt für jedes Bild und legt den Scanner im Scan-Reiter fest.
 *   **Weißlicht / Schmalbandlicht** (nicht für ein S/W-Negativ): das Licht hinter dem Negativ. Weißlicht ist ein Leuchtkasten oder LED-Panel. Schmalband ist ein Licht mit reinem Rot, Grün und Blau, etwa ein Scanlight.
 

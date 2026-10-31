@@ -11,6 +11,7 @@ import numpy as np
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.path import positive_decode
 
 
 def effective_linear_raw(process: ProcessConfig) -> bool:
@@ -23,8 +24,7 @@ def effective_linear_raw(process: ProcessConfig) -> bool:
     was reading the stored flag regardless, so a hidden, stale toggle silently decided
     whether white balance was applied. `positive_source` exempts this forced case on
     any mode: a finished positive has no camera matrix to fold multipliers back in, so
-    it decodes on its own embedded profile, same as when the source is a plain Color
-    or B&W scan already.
+    a Positive TIFF decodes by its Source Encoding (`path.positive_decode`).
 
     Every site that decides `use_camera_wb` must ask this one question. The decode and the
     matrix have to agree: apply white balance at both, or at neither. Splitting them tints
@@ -48,9 +48,10 @@ def linear_raw_token(process: ProcessConfig) -> str:
 
     Keyed on the *effective* value: the transfer path decodes without white balance
     whatever the stored flag says, so keying on the flag alone would serve a buffer decoded
-    the other way.
+    the other way. A Positive frame decodes by its Source Encoding instead, so that joins it.
     """
-    return f"|lr:{int(effective_linear_raw(process))}"
+    decode = positive_decode(process)
+    return f"|lr:{int(effective_linear_raw(process))}" + (f"|pd:{decode}" if decode else "")
 
 
 def demosaic_token(mode: str) -> str:

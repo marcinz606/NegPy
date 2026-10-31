@@ -21,7 +21,7 @@ from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
-from negpy.features.process.models import invalidate_local_bounds, with_film_fields
+from negpy.features.process.models import SOURCE_ENCODING_LABELS, SourceEncoding, invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
 from negpy.services.assets.rolls import card_fields
@@ -80,6 +80,10 @@ def _format(row: SettingRow, values: tuple) -> str:
 
 def _row(label, section, *fields, channels="", fmt=None, sticky=False) -> SettingRow:
     return SettingRow(label, section, tuple(fields), channels, fmt, sticky)
+
+
+def _fmt_source_encoding(values: tuple) -> str:
+    return tr(SOURCE_ENCODING_LABELS[SourceEncoding(values[0])])
 
 
 def _fmt_print_stock(values: tuple) -> str:
@@ -146,6 +150,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     (mark("Setup"), (
         _row(mark("Film Mode"), "process", "process_mode", sticky=True),
         _row(mark("Positive"), "process", "positive_source", sticky=True),
+        _row(mark("Encoding"), "process", "source_encoding", sticky=True, fmt=_fmt_source_encoding),
     )),
     (mark("Metering"), (
         _row(mark("Analysis Buffer"), "process", "analysis_buffer", sticky=True),
@@ -389,6 +394,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "sensor_unmix",
         # Each changes the decoded preview the meters read.
         "linear_raw",
+        "source_encoding",
         "highlight_reconstruction",
         "demosaic_preview",
         "crop_from_auto",

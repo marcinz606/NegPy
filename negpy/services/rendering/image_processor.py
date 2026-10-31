@@ -25,7 +25,7 @@ from negpy.domain.models import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode, invalidate_local_bounds
-from negpy.features.process.path import RenderPath, render_path
+from negpy.features.process.path import RenderPath, positive_decode, render_path
 from negpy.features.process.logic import (
     demosaic_token,
     effective_highlight_reconstruction,
@@ -355,7 +355,7 @@ def precorrect_key(
         shape,
         linear_raw_token(settings.process),
         demosaic_token(settings.process.demosaic_preview),
-        settings.process.positive_source,
+        positive_decode(settings.process),
         skip_flatfield,
         gain_slices,
         source_orientation,
@@ -1034,7 +1034,7 @@ class ImageProcessor:
         fast: bool = False,
         wb_override: Optional[Sequence[float]] = None,
         demosaic: str = DemosaicMode.AUTO,
-        positive_source: bool = False,
+        positive_decode: str = "",
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
         load_ir: bool = True,
@@ -1065,7 +1065,7 @@ class ImageProcessor:
 
         Returns (rgb_uint16, loader_metadata).
         """
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_source=positive_source, load_ir=load_ir)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw, demosaic)
             # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
@@ -1131,6 +1131,7 @@ class ImageProcessor:
             mtime,
             lens_decode_token(metadata_lens_corrections(params), params.flatfield),
             effective_linear_raw(params.process),
+            positive_decode(params.process),
             effective_highlight_reconstruction(params.process),
             highlight_reconstruction_bakes_wb(params.process),
             rgbscan_token(params.rgbscan),
@@ -1219,7 +1220,7 @@ class ImageProcessor:
                     fast=fast_decode,
                     wb_override=_NEUTRAL_WB,
                     demosaic=demosaic,
-                    positive_source=params.process.positive_source,
+                    positive_decode=positive_decode(params.process),
                     highlight_mode=highlight_mode,
                 )
                 decoded = dict(
@@ -1231,7 +1232,7 @@ class ImageProcessor:
                                 linear_raw,
                                 wb_override=_NEUTRAL_WB,
                                 demosaic=demosaic,
-                                positive_source=params.process.positive_source,
+                                positive_decode=positive_decode(params.process),
                                 highlight_mode=highlight_mode,
                             )[0],
                             siblings,
@@ -1246,7 +1247,7 @@ class ImageProcessor:
                 fast=fast_decode,
                 wb_override=wb_override,
                 demosaic=demosaic,
-                positive_source=params.process.positive_source,
+                positive_decode=positive_decode(params.process),
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_wb,
                 load_ir=params.retouch.ir_dust_remove,
@@ -1300,7 +1301,7 @@ class ImageProcessor:
                                 fast=fast_decode,
                                 wb_override=bracket_wb,
                                 demosaic=demosaic,
-                                positive_source=params.process.positive_source,
+                                positive_decode=positive_decode(params.process),
                                 highlight_mode=highlight_mode,
                             )[0],
                             hdr_siblings,
@@ -2291,7 +2292,7 @@ class ImageProcessor:
                 return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
 
             # Matrix/TRC pairs take the exact kernel: lcms resamples a 16-bit transform to a
-            # grid, off by up to 8% near the destination gamut edge. LUT profiles keep lcms.
+            # grid, which drifts near the destination gamut edge. LUT profiles keep lcms.
             if img_u16.ndim == 3:
                 fast = apply_matrix_trc_u16(img_u16, src_bytes, dst_bytes)
                 if fast is not None:

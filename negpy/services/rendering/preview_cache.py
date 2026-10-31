@@ -37,7 +37,7 @@ class PreviewCacheKey:
     crop_rect: tuple[float, float, float, float] | None = None
     gutter_thickness: float = 0.0
     split_axis: str = "x"
-    positive_source: bool = False
+    positive_decode: str = ""
     highlight_mode: int = 0
     bake_camera_wb: bool = False
     lens_token: str = ""
@@ -54,7 +54,7 @@ class PreviewCacheKey:
             self.crop_rect,
             round(self.gutter_thickness, 6),
             self.split_axis,
-            self.positive_source,
+            self.positive_decode,
             self.highlight_mode,
             self.bake_camera_wb,
             self.lens_token,

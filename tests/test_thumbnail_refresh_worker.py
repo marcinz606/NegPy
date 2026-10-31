@@ -52,11 +52,11 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",
-        positive_source=False,  # noqa: ARG002 — accepted, not asserted on
-        highlight_mode=0,  # noqa: ARG002 — accepted, not asserted on
-        bake_camera_wb=False,  # noqa: ARG002 — accepted, not asserted on
-        lens_corrections=LensCorrections(),  # noqa: ARG002 — accepted, not asserted on
-        lens_flatfield=None,  # noqa: ARG002 — accepted, not asserted on
+        positive_decode="",  # noqa: ARG002 (accepted, not asserted on)
+        highlight_mode=0,  # noqa: ARG002 (accepted, not asserted on)
+        bake_camera_wb=False,  # noqa: ARG002 (accepted, not asserted on)
+        lens_corrections=LensCorrections(),  # noqa: ARG002 (accepted, not asserted on)
+        lens_flatfield=None,  # noqa: ARG002 (accepted, not asserted on)
     ):
         self.linear_calls.append({"file_path": file_path, "file_hash": file_hash})
         raw = np.full((4, 6, 3), 0.5, dtype=np.float32)
@@ -70,7 +70,7 @@ class _PreviewService:
         use_camera_wb,
         full_resolution,
         file_hash,
-        demosaic="Auto",  # noqa: ARG002 — accepted, not asserted on
+        demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
     ):
         self.rgb_calls.append({"red_path": red_path, "file_hash": file_hash})
         raw = np.full((4, 6, 3), 0.25, dtype=np.float32)
@@ -85,7 +85,7 @@ class _PreviewService:
         full_resolution,
         file_hash,
         flatfield_profile_id="",
-        demosaic="Auto",  # noqa: ARG002 — accepted, not asserted on
+        demosaic="Auto",  # noqa: ARG002 (accepted, not asserted on)
     ):
         self.stitch_calls.append({"primary_path": primary_path, "file_hash": file_hash, "flatfield_profile_id": flatfield_profile_id})
         raw = np.full((4, 6, 3), 0.35, dtype=np.float32)

@@ -17,6 +17,7 @@ from negpy.infrastructure.loaders.helpers import (
     identify_color_space_from_icc,
     read_orientation,
 )
+from negpy.infrastructure.loaders.source_encoding import PROFILE, apply_decode, resolve_decode
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane, normalize_ir_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -180,8 +181,10 @@ class TiffLoader(IImageLoader):
     """
 
     def load(
-        self, file_path: str, linear_raw: bool = False, positive_source: bool = False, load_ir: bool = True
+        self, file_path: str, linear_raw: bool = False, positive_decode: str = "", load_ir: bool = True
     ) -> Tuple[ContextManager[Any], dict]:
+        """*positive_decode* is the frame's Source Encoding on Positive (path.positive_decode); it
+        replaces the Linear RAW decision for a Positive frame."""
         img = planar_to_chunky(iio.imread(file_path), _planarconfig(file_path))
         img = decode_photometric(img, *_photometric(file_path))
         ir: Optional[np.ndarray] = None
@@ -215,12 +218,28 @@ class TiffLoader(IImageLoader):
             icc_bytes = None
 
         color_space = None
+        if positive_decode:
+            ran, decode = resolve_decode(positive_decode, icc_bytes, img.dtype)
+            # Decoded to the working space, so Same as Source names it only for a profile.
+            color_space = identify_color_space_from_icc(icc_bytes) if ran == PROFILE else None
+            if decode.identity and img.dtype == np.uint16:
+                wrapper = NonStandardFileWrapper(source_u16=np.ascontiguousarray(img))
+            else:
+                wrapper = NonStandardFileWrapper(apply_decode(img, decode))
+            metadata = {
+                "orientation": read_orientation(file_path),
+                "color_space": color_space,
+                "icc_profile": icc_bytes,
+                "ir": ir,
+                "ir_valid_mask": ir_valid_mask,
+                "source_encoding": ran,
+            }
+            return wrapper, metadata
         if not linear_raw:
             color_space = identify_color_space_from_icc(icc_bytes)
-            if color_space is None and (img.dtype == np.uint8 or positive_source):
+            if color_space is None and img.dtype == np.uint8:
                 # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is scanner-raw
-                # linear, which no ColorSpace names, so it stays None; a positive source has
-                # resolved that ambiguity and takes the 8-bit assumption.
+                # linear, which no ColorSpace names, so it stays None.
                 color_space = ColorSpace.SRGB.value
         decodes = color_space in (ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value)
         if img.dtype == np.uint16 and not decodes:

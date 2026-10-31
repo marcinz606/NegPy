@@ -91,8 +91,7 @@ class CanvasHud(QWidget):
         for lbl in (self.lbl_left, self.lbl_right):
             lbl.setStyleSheet(side_qss)
 
-        # Wraps rather than eliding: a message that explains why a file will not open and what to
-        # do about it does not fit one line, so the strip grows for it.
+        # Wraps: a message that says why a file will not open, and what to do, needs more than one line.
         self.message = QLabel()
         self.message.setWordWrap(True)
         self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)

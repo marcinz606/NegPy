@@ -564,7 +564,7 @@ class TestThumbnailRefreshController:
                 full_resolution=task.full_resolution,
                 half_slice=task.half_slice,
                 demosaic=task.demosaic,
-                positive_source=task.positive_source,
+                positive_decode=task.positive_decode,
                 highlight_mode=task.highlight_mode,
                 bake_camera_wb=task.bake_camera_wb,
                 lens_corrections=task.lens_corrections,

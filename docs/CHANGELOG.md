@@ -8,14 +8,18 @@
 - New: **German translation** @shearer.
 - New: **Auto Masking** sets Sharpening Masking from the film grain.
 - New: **Rolls** — Save to Folder Roll, Restore Removed Frames… and Unload All…; Film Base and Half Frame work with no roll. @kurtwindisch
-- New: **Scanning and merges** — scan exposure warnings, Trichrome aligns to green, better stitch seams. @seanharding @matthoosier @kurtwindisch
+- New: **Scanning and merges** — scan exposure warnings, Trichrome aligns to green, the three Trichrome shots join into one Film Strip frame with Edit Trichrome and Split Trichrome, better stitch seams. @seanharding @matthoosier @kurtwindisch
 - New: **Kodak Ektacolor Edge** print stock.
+- New: **Lento Dock** as a camera-scanning light — Next Frame and Whole Strip film advance, Eject, a Flat Field shot of the empty dock after the strip, and the dock's S button as Scan. @cimelab
+- New: **Source Encoding** for Positive TIFFs — Auto reads the ICC profile, or pick Linear or 2.2. @thetalkingdrum
 - Change: **Contrast Mask** — refined and based on algorithm from Fuji Frontier Hypertone.
 - Change: **Halation, Glow and Diffusion** — more natural light spread
 - Change: **Interface** — more UI revinements, evenly spaced canvas backgrounds, new Roll tab card order, improved status/progress monitoring.
+- Change: **Chroma Denoise** — on at 2.5 by default, skipped in B&W.
 - Change: **Speed** — more stuff moved to Rust negpy_core, faster export and TIFF/DNG previews.
 - Fix: **macOS** — pinch zoom, canvas resize and a wait-cursor crash. @PabloRuizCuevas @seanharding
 - Fix: **Export and metadata** — TIFF Exif, Bake on Export, Subfolder of Source, EV parsing and frame numbering. @jharlap @red-prs @kurtwindisch
+- Fix: **Camera scanning** — a manual Canon lens grays out the aperture stepper, and a scan leaves its aperture alone. @RafatH0ssain
 - Fix: **File loading** — trimmed Pakon frames and camera captures of B&W film. @thetalkingdrum @seanharding
 
 ## 0.66.0

@@ -250,7 +250,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     var color = textureLoad(input_tex, coords, 0);
 
-    // B&W: one weighted density BEFORE the curve, in matmul_3x3's fma order.
+    // B&W: one weighted density before the curve, in matmul_3x3's fma order.
     if (params.mode == 1u) {
         let v = fma(color.b, params.bw.z, fma(color.g, params.bw.y, color.r * params.bw.x));
         color = vec4<f32>(v, v, v, color.a);

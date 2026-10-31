@@ -72,7 +72,7 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # Optical-removal exclusions became strokes (dust_exclusion_strokes); the loose
         # patch list they replaced cannot be unpacked as one.
         "dust_exclusions",
-        # The Contrast Mask's blur scale (spacer), fixed since the mask became the tone mask.
+        # The Contrast Mask's blur scale (spacer); the tone mask's blur is fixed.
         "mask_blur",
         "mask_spacer",
         # Slide Normalize (a metered stretch through the print curve) was retired: every slide

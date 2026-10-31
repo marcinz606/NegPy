@@ -1,4 +1,4 @@
-"""Roll membership: a Roll is a named, navigable group of frames -- either a folder roll,
+"""Roll membership: a Roll is a named, navigable group of frames: either a folder roll,
 the image files of one library folder minus those removed from it, or a virtual roll, a
 fixed list of frames saved from whatever the Film Strip held (a search result, a
 hand-picked selection).
@@ -662,7 +662,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # edited and locked away from the roll exactly like every other card here, even
     # though a roll being one film type, scanned one way, means the common case is
     # every frame following it.
-    "film": ("process", ("process_mode", "positive_source")),
+    "film": ("process", ("process_mode", "positive_source", "source_encoding")),
     "sensor": (
         "process",
         (
