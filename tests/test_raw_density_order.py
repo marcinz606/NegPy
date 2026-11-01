@@ -14,7 +14,7 @@ from negpy.features.process.capture_color import (
     camera_to_working_matrix,
     wb_only_cam_xyz,
 )
-from negpy.features.process.fade import measure_white, unmix_with_fade
+from negpy.features.process.fade import fade_white_space, measure_white, unmix_with_fade
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
@@ -121,11 +121,13 @@ def test_remove_stain_leaves_a_white_border_neutral_and_converts_after(positive)
     white = measure_white(ctx.metrics["transfer_grid"])
     assert white is not None
     np.testing.assert_allclose(white, np.log10(0.8), atol=1e-4)
-    config = _slide(positive, fade_white_anchor=True, fade_white_r=white[0], fade_white_g=white[1], fade_white_b=white[2], **_FADE)
+    space = fade_white_space(_CAMERA, _WB)
+    stored = dict(fade_white_r=white[0], fade_white_g=white[1], fade_white_b=white[2], fade_white_space=space)
+    config = _slide(positive, fade_white_anchor=True, **stored, **_FADE)
     _, ctx = _render(config, img)
     restored = _restored_log(ctx)
     np.testing.assert_allclose(restored[:5].reshape(-1, 3), -0.1, atol=1e-4)
-    unmix = unmix_with_fade(config, ProcessMode.E6)
+    unmix = unmix_with_fade(config, ProcessMode.E6, space)
     expected = relog_matrix_image(unmix_log_image(np.log10(balanced), unmix), camera_matrix_parts(_CAMERA, _WB)[1])
     np.testing.assert_allclose(restored, expected, atol=1e-4)
     converted_first = unmix_log_image(np.log10(img @ camera_to_working_matrix(_CAMERA, _WB).T), unmix)
@@ -170,3 +172,15 @@ def test_a_render_stores_the_fade_grid_only_on_request():
     img = _unbalanced(np.full((40, 60, 3), 0.5, np.float32))
     _, ctx = _render(_slide(False), img)
     assert "transfer_grid" not in ctx.metrics
+
+
+def test_a_white_read_in_working_space_reads_as_stale():
+    """A tag that hashes the camera matrix alone named a white read after the matrix, in working space."""
+    import hashlib
+
+    from negpy.features.process.fade import fade_white_stale
+
+    working = hashlib.sha1(np.round(np.asarray(camera_to_working_matrix(_CAMERA, _WB), dtype=np.float64), 4).tobytes()).hexdigest()[:12]
+    config = _slide(False, fade_white_r=-0.5, fade_white_g=-0.4, fade_white_b=-0.6, fade_white_space=working, **_FADE)
+    assert working != fade_white_space(_CAMERA, _WB)
+    assert fade_white_stale(config, fade_white_space(_CAMERA, _WB))

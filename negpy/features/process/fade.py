@@ -67,15 +67,21 @@ def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
 
 
 def fade_white_space(cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]]) -> str:
-    """The space a camera RAW's log white is measured in: its camera matrix with the as-shot white
-    balance, which every RAW decode applies at the decode or in the matrix. "" for a source with no
-    camera matrix, whose white is the file's own full scale."""
+    """The space a camera RAW's log white is measured in: its white-balanced camera channels
+    (`density_channels`), named by its camera matrix with the as-shot white balance, which every RAW
+    decode applies at the decode or in the matrix. "" for a source with no camera matrix, whose white
+    is the file's own full scale."""
     if cam_xyz is None or is_source_profile(cam_xyz):
         return ""
     matrix = camera_to_working_matrix(cam_xyz, camera_wb)
     if matrix is None:
         return ""
-    return hashlib.sha1(np.round(np.asarray(matrix, dtype=np.float64), 4).tobytes()).hexdigest()[:12]
+    return hashlib.sha1(_WHITE_SPACE_CHANNELS + np.round(np.asarray(matrix, dtype=np.float64), 4).tobytes()).hexdigest()[:12]
+
+
+# Names the channels in `fade_white_space`, so a white read in working space (the camera matrix
+# before the log) reads as stale and is measured again.
+_WHITE_SPACE_CHANNELS = b"camera-channels"
 
 
 def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[np.ndarray]:
