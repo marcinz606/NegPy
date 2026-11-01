@@ -523,7 +523,7 @@ class SensorSidebar(BaseSidebar):
         from negpy.features.process.fade import estimate_fade
 
         conf = self.state.config.process
-        if render_path(conf) is not RenderPath.TRANSFER:
+        if render_path(conf) is RenderPath.PRINT:
             return
         source = self.controller.chart_fit_source()
         grid = None if source is None else fade_estimate_grid(source)
@@ -605,12 +605,12 @@ class SensorSidebar(BaseSidebar):
             self.fade_ratio_g_slider.setValue(conf.fade_ratio_g)
             self.fade_ratio_b_slider.setValue(conf.fade_ratio_b)
             self.fade_white_anchor_btn.setChecked(conf.fade_white_anchor)
-            transfer = render_path(conf) is RenderPath.TRANSFER
+            slide = render_path(conf) is not RenderPath.PRINT
             # The content, never the fold: the fold's visibility is its open state.
-            self.fade_fold.content.setVisible(transfer)
+            self.fade_fold.content.setVisible(slide)
             if self._fade_hint_hash != self.state.current_file_hash:
                 self.fade_estimate_hint.setText("")
-            self.fade_estimate_hint.setVisible(transfer and bool(self.fade_estimate_hint.text()))
+            self.fade_estimate_hint.setVisible(slide and bool(self.fade_estimate_hint.text()))
 
             self.hue_trim_slider.setValue(conf.hue_trim)
 

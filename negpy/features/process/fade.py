@@ -1,5 +1,5 @@
-"""Fade Restoration: the restoration matrix a Slide as captured renders with, and the
-per-image estimate of the dye survivals."""
+"""Fade Restoration: the restoration matrix a Slide renders with, and the per-image estimate
+of the dye survivals."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -56,10 +56,10 @@ def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.nd
 
 
 def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
-    """The restoration matrix, or None at unit survival or off the TRANSFER path: a Positive
-    file is already a positive, so a dye-density scale has no meaning there."""
+    """The restoration matrix, or None at unit survival or on a negative. A Positive slide takes
+    it too, since a scanner file opens Positive."""
     ratios = (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
-    if render_path(process) is not RenderPath.TRANSFER or all(r == 1.0 for r in ratios):
+    if render_path(process) is RenderPath.PRINT or all(r == 1.0 for r in ratios):
         return None
     return resolve_fade_matrix(*ratios)
 
@@ -80,7 +80,7 @@ def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str]) -> Opti
 
 def _fade_white(process: ProcessConfig) -> Optional[np.ndarray]:
     """The stored per-channel white (log transmittance) when Remove Stain acts, else None."""
-    if not process.fade_white_anchor or render_path(process) is not RenderPath.TRANSFER:
+    if not process.fade_white_anchor or render_path(process) is RenderPath.PRINT:
         return None
     white = np.array([process.fade_white_r, process.fade_white_g, process.fade_white_b], dtype=np.float64)
     return white if bool(np.any(white != 0.0)) else None

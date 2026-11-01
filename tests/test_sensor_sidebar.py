@@ -350,9 +350,9 @@ def test_remove_stain_is_a_fade_roll_default():
 
 
 @pytest.mark.parametrize(
-    ("mode", "positive", "shown"), [(ProcessMode.E6, False, True), (ProcessMode.E6, True, False), (ProcessMode.C41, False, False)]
+    ("mode", "positive", "shown"), [(ProcessMode.E6, False, True), (ProcessMode.E6, True, True), (ProcessMode.C41, False, False)]
 )
-def test_fade_restoration_shows_only_on_a_slide_as_captured(mode, positive, shown):
+def test_fade_restoration_shows_only_on_a_slide(mode, positive, shown):
     w, _ctrl = _fade_sidebar()
     w.state.config = replace(w.state.config, process=replace(w.state.config.process, process_mode=mode, positive_source=positive))
     w.sync_ui()

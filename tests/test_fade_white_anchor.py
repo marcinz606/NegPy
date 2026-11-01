@@ -117,10 +117,10 @@ def test_on_with_no_white_measured_changes_nothing():
     )
 
 
-def test_remove_stain_skips_a_positive_frame():
+def test_remove_stain_applies_to_a_positive_frame():
     process = _slide(positive_source=True, fade_white_anchor=True, **_WHITE)
-    assert unmix_with_fade(process, ProcessMode.E6) is None
-    assert fade_white_target(process) is None
+    assert unmix_with_fade(process, ProcessMode.E6) is not None
+    assert fade_white_target(process) == fade_white_target(_slide(fade_white_anchor=True, **_WHITE))
 
 
 def test_white_anchor_applies_to_slides_only():
