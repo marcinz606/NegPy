@@ -483,24 +483,38 @@ def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, 
     return (-wp3[0], -wp3[1], -wp3[2]), (-bp3[0], -bp3[1], -bp3[2])
 
 
-def source_channels_first(process: ProcessConfig, cam_xyz: Optional[list]) -> bool:
-    """True when the density stage acts on a Positive source profile's own channels, so its
-    primaries convert after it. A camera matrix always applies before the log."""
-    from negpy.features.process.capture_color import is_source_profile
+def density_channel_matrices(
+    process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list]
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """(before the log, after the density matrix) when a density matrix acts. The pre matrix gives
+    the channels the crosstalk unmix, fade and stain offset act on. A camera splits at its white-balance
+    fold: the gains go before the log, the primaries after. A Positive source profile's primaries go after;
+    off Positive the whole matrix goes before. `camera_wb` is the as-shot white balance, folded only
+    when `should_fold_camera_wb` says so."""
+    from negpy.features.process.capture_color import camera_matrix_parts, camera_to_working_matrix, is_source_profile
+    from negpy.features.process.logic import should_fold_camera_wb
     from negpy.features.process.path import RenderPath, render_path
 
-    return is_source_profile(cam_xyz) and render_path(process) is RenderPath.POSITIVE
+    fold = camera_wb if should_fold_camera_wb(process) else None
+    if is_source_profile(cam_xyz) and render_path(process) is not RenderPath.POSITIVE:
+        return camera_to_working_matrix(cam_xyz, fold), None
+    return camera_matrix_parts(cam_xyz, fold)
 
 
 def density_stage_matrices(
-    process: ProcessConfig, cam_xyz: Optional[list], cam: Optional[np.ndarray], unmix: Optional[np.ndarray]
+    process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list], unmix: Optional[np.ndarray]
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """(before the log, after the density matrix): where the source-to-working 3x3 *cam* applies.
-    A Positive source's primaries convert after the crosstalk unmix, fade and stain offset, which
-    act on the source's own channels; the conversion mixes them. Else it applies before the log."""
-    if cam is not None and unmix is not None and source_channels_first(process, cam_xyz):
-        return None, cam
-    return cam, None
+    """(before the log, after the density matrix) for the source-to-working matrix. With a density
+    matrix *unmix* on a slide path it splits as `density_channel_matrices` says, because the primaries
+    mix the dye channels the density corrections act on. Else the whole matrix applies before the log."""
+    from negpy.features.process.path import RenderPath, render_path
+
+    if unmix is None or render_path(process) is RenderPath.PRINT:
+        from negpy.features.process.capture_color import camera_to_working_matrix
+        from negpy.features.process.logic import should_fold_camera_wb
+
+        return camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(process) else None), None
+    return density_channel_matrices(process, cam_xyz, camera_wb)
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

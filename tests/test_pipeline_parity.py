@@ -388,6 +388,37 @@ class TestExposureParity:
         )
         _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
 
+    @pytest.mark.parametrize("positive", [False, True])
+    def test_camera_raw_split_at_the_white_balance_fold(self, positive):
+        # With a fade and Remove Stain, both engines apply a camera's white-balance gains before
+        # the log and its primaries after the density matrix.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
+        wb = [2.0, 1.0, 1.5, 1.0]
+        img = (self.img / np.asarray(wb[:3], dtype=np.float32)).astype(np.float32)
+        base = _make_base_settings()
+        fade = dict(
+            fade_ratio_r=0.6,
+            fade_ratio_g=1.4,
+            fade_ratio_b=1.2,
+            fade_white_anchor=True,
+            fade_white_r=-0.2,
+            fade_white_g=-0.1,
+            fade_white_b=-0.15,
+        )
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=positive, linear_raw=True, **fade))
+        h, w = img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        cpu = self.cpu.process(img, s, f"parity_raw_split_{positive}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab color/sharpening shader."""

@@ -20,9 +20,9 @@ struct NormUniforms {
     cam0: vec4<f32>,
     cam1: vec4<f32>,
     cam2: vec4<f32>,
-    // A Positive source's primaries, applied in LINEAR after the density matrix so the unmix,
-    // fade and stain offset act on its own channels (density_stage_matrices). post0.w is 1.0
-    // when it applies; the cam rows are then identity.
+    // A camera's or a Positive source's primaries, applied in LINEAR after the density matrix so
+    // the unmix, fade and stain offset act on its own channels (density_stage_matrices). post0.w
+    // is 1.0 when it applies; the cam rows then hold only the white-balance gains, or identity.
     post0: vec4<f32>,
     post1: vec4<f32>,
     post2: vec4<f32>,

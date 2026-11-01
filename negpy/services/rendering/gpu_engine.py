@@ -80,7 +80,6 @@ from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
     density_stage_matrices,
-    source_channels_first,
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
@@ -96,8 +95,7 @@ from negpy.features.transparency.logic import (
     zone_geometry,
 )
 from negpy.features.process.fade import fade_white_target, unmix_with_fade
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.logic import should_fold_camera_wb
+from negpy.features.process.capture_color import apply_camera_matrix
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -833,8 +831,8 @@ class GPUEngine:
         analysis_source = None
         unmix_m = unmix_with_fade(settings.process, settings.process.process_mode)
         # The transparency curve reads working space, so its meter must too: the same
-        # camera matrix TransparencyBaseProcessor applies, on the grid.
-        cam_m = camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None) if transfer else None
+        # camera matrices TransparencyBaseProcessor applies, on the grid.
+        pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, camera_wb, unmix_m) if transfer else (None, None)
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
@@ -873,8 +871,8 @@ class GPUEngine:
                     p.fade_white_b,
                     p.process_mode,
                     p.positive_source,
-                    source_channels_first(p, cam_xyz),
-                    None if cam_m is None else tuple(np.asarray(cam_m).ravel().tolist()),
+                    None if pre_m is None else tuple(np.asarray(pre_m).ravel().tolist()),
+                    None if post_m is None else tuple(np.asarray(post_m).ravel().tolist()),
                 )
                 if analysis_source_hash is not None and not tiling_mode
                 else None
@@ -902,15 +900,12 @@ class GPUEngine:
                 if transfer:
                     # No camera matrix (a scanner TIFF) means the buffer is already in
                     # working space, so the shared grid is the working-space grid.
-                    pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, cam_m, unmix_m)
-                    if cam_m is None:
-                        cam_prefiltered = prefiltered
-                    elif post_m is not None:
-                        cam_prefiltered = relog_matrix_image(prefiltered, post_m)
-                    else:
-                        cam_prefiltered = unmix_log_image(
-                            prefilter_log_grid(apply_camera_matrix(analysis_source, pre_m), None, an_buffer), unmix_m
-                        )
+                    channel_grid = (
+                        prefiltered
+                        if pre_m is None
+                        else unmix_log_image(prefilter_log_grid(apply_camera_matrix(analysis_source, pre_m), None, an_buffer), unmix_m)
+                    )
+                    cam_prefiltered = relog_matrix_image(channel_grid, post_m)
                 if prefilter_key is not None:
                     self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None, cam_prefiltered)
             if analysis_key is not None:
@@ -1926,16 +1921,11 @@ class GPUEngine:
         # and the render stops depending on which decode produced the buffer — unless the
         # capture is narrowband, where an as-shot WB estimate has no scene to describe and
         # never folds (see should_fold_camera_wb).
-        cam, post = density_stage_matrices(
-            settings.process,
-            cam_xyz,
-            camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None),
-            unmix_or_none,
-        )
+        cam, post = density_stage_matrices(settings.process, cam_xyz, camera_wb, unmix_or_none)
         if cam is None:
             cam = np.eye(3, dtype=np.float32)
-        # After the density matrix, a Positive source's primaries (density_stage_matrices); the
-        # w lane of the first row turns the conversion on.
+        # After the density matrix, a camera's or a Positive source's primaries
+        # (density_stage_matrices); the w lane of the first row turns the conversion on.
         post_on = 1.0 if post is not None else 0.0
         if post is None:
             post = np.eye(3, dtype=np.float32)
@@ -3021,16 +3011,13 @@ class GPUEngine:
             if not transfer:
                 return _prefiltered()
             if transfer_grid is None:
-                cam_m = camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None)
-                pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, cam_m, unmix_m)
-                if cam_m is None:
-                    transfer_grid = _prefiltered()
-                elif post_m is not None:
-                    transfer_grid = relog_matrix_image(_prefiltered(), post_m)
-                else:
-                    transfer_grid = unmix_log_image(
-                        prefilter_log_grid(apply_camera_matrix(_analysis_img(), pre_m), meter_roi, meter_buffer), unmix_m
-                    )
+                pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, camera_wb, unmix_m)
+                channel_grid = (
+                    _prefiltered()
+                    if pre_m is None
+                    else unmix_log_image(prefilter_log_grid(apply_camera_matrix(_analysis_img(), pre_m), meter_roi, meter_buffer), unmix_m)
+                )
+                transfer_grid = relog_matrix_image(channel_grid, post_m)
             return transfer_grid
 
         meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else global_anchor_bounds
