@@ -123,16 +123,16 @@ def test_no_neutral_axis_found_fails_closed():
     assert reason
 
 
-def test_both_methods_recover_a_pure_fade_and_midtone_sets_red():
-    """On a pure fade both methods read the same ratios; Midtone also puts the best-kept layer at 1.0."""
+def test_both_methods_recover_a_pure_fade_and_set_red():
+    """On a pure fade both methods read the same ratios and put the best-kept layer at 1.0."""
     image = _synthetic_neutral_slide(1.4, 1.2, ratio_r=0.7)
     estimates = estimate_fade(prefilter_log_grid(image, None, 0.0))
     midtone, spread = estimates[EstimateMethod.MIDTONE], estimates[EstimateMethod.SPREAD]
     for est in (midtone, spread):
         assert est.reason == ""
         assert abs(est.green - 1.4) < 2e-2 and abs(est.blue - 1.2) < 2e-2
-    assert spread.red is None
-    assert abs(midtone.red - 1.0 / midtone.green) < 1e-9
+    for est in (midtone, spread):
+        assert abs(est.red - 1.0 / est.green) < 1e-9
 
 
 def test_midtone_ignores_a_lifted_shadow_that_misleads_spread():
