@@ -249,10 +249,14 @@ def test_the_anchored_estimate_reads_the_true_survivals_through_a_stain():
     [
         ((-0.05, -0.18, -0.73), True),  # NORAD 106-25: bright, heavy yellow stain
         ((-0.04, -0.16, -0.28), True),  # NORAD 106-5: blue below red by more than the minimum
+        ((-0.14, -0.12, -0.49), True),  # a heavy stain on a scan placed under full scale
+        ((-0.01, -0.04, -0.16), True),  # a mild stain on a bright white
         ((-0.76, -1.05, -1.05), False),  # SilverFast at gamma 2.2: no white near full scale
         ((-2.9, -3.4, -3.25), False),  # a scan with no white object
         ((-0.25, -0.12, -0.01), False),  # bluish whites: a snow or sky frame
-        ((0.0, -0.05, -0.15), False),  # a stain under the minimum
+        ((0.0, -0.05, -0.10), False),  # a stain under the minimum
+        ((-0.09, -0.02, -0.13), False),  # a red cast: blue barely below red
+        ((-0.25, -0.30, -0.60), False),  # a stain on a white too far under full scale
         ((0.0, -0.4, -0.3), False),  # green, not blue, is darkest
     ],
 )
@@ -261,7 +265,7 @@ def test_stain_suggestion_rule(white, expected):
 
 
 def test_stain_suggestion_thresholds_are_the_documented_ones():
-    assert (STAIN_FULL_SCALE_TOLERANCE, STAIN_BLUE_MIN) == (0.1, 0.2)
+    assert (STAIN_FULL_SCALE_TOLERANCE, STAIN_BLUE_MIN) == (0.2, 0.08)
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")

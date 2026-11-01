@@ -38,9 +38,9 @@ CLIPPED_LOG = -5.0
 #: Percentile of the analysis grid that Remove Stain reads as each channel's white.
 WHITE_PCT = 99.9
 #: To suggest Remove Stain, the brightest channel's white is within this density of full scale.
-STAIN_FULL_SCALE_TOLERANCE = 0.1
-#: To suggest Remove Stain, blue is the darkest channel at the white, by at least this density.
-STAIN_BLUE_MIN = 0.2
+STAIN_FULL_SCALE_TOLERANCE = 0.2
+#: To suggest Remove Stain, blue's white is at least this density below both red's and green's.
+STAIN_BLUE_MIN = 0.08
 #: Remove Stain puts the white at least this log density below full scale, so clear areas do not clip.
 FADE_WHITE_HEADROOM = 0.1
 
@@ -167,9 +167,9 @@ def white_anchored_grid(grid: ImageBuffer, white: tuple[float, float, float]) ->
 
 def stain_suggested(white: tuple[float, float, float]) -> bool:
     """Whether the white reads as a yellow stain on clear film: the brightest channel near full
-    scale, and blue clearly the darkest. A dim scan with no white object never qualifies."""
-    brightest = max(white)
-    return brightest >= -STAIN_FULL_SCALE_TOLERANCE and white[2] <= min(white[0], white[1]) and brightest - white[2] >= STAIN_BLUE_MIN
+    scale, and blue below both red and green. A red cast leaves blue near green, and a dim scan
+    with no white object never qualifies."""
+    return max(white) >= -STAIN_FULL_SCALE_TOLERANCE and min(white[0], white[1]) - white[2] >= STAIN_BLUE_MIN
 
 
 class EstimateMethod(StrEnum):
