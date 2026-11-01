@@ -82,6 +82,7 @@ _SENSOR_FIELDS = (
     "fade_white_r",
     "fade_white_g",
     "fade_white_b",
+    "fade_white_space",
     "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and

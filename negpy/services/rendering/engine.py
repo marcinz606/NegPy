@@ -28,7 +28,7 @@ from negpy.features.exposure.normalization import (
     geometry_kwargs,
     normalized_roi,
 )
-from negpy.features.process.fade import fade_white_target
+from negpy.features.process.fade import fade_white_space, fade_white_target
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
@@ -55,7 +55,7 @@ def base_processor(settings: WorkspaceConfig) -> Any:
     return TransparencyBaseProcessor(settings.process, settings.exposure.cast_removal_strength)
 
 
-def exposure_processor(settings: WorkspaceConfig) -> Any:
+def exposure_processor(settings: WorkspaceConfig, white_space: str = "") -> Any:
     """The exposure stage's curve: the print or a slide's transfer, or the Flat master on either base."""
     if settings.exposure.render_intent == RenderIntent.FLAT or render_path(settings.process) is RenderPath.PRINT:
         return PhotometricProcessor(
@@ -64,7 +64,7 @@ def exposure_processor(settings: WorkspaceConfig) -> Any:
     return TransferProcessor(
         settings.exposure,
         settings.process.positive_source,
-        fade_white_target(settings.process),
+        fade_white_target(settings.process, white_space),
     )
 
 
@@ -246,6 +246,7 @@ class DarkroomEngine:
             settings.process.fade_white_r,
             settings.process.fade_white_g,
             settings.process.fade_white_b,
+            settings.process.fade_white_space,
             settings.process.lock_bounds,
             settings.process.use_cast_average,
             settings.process.locked_neutral_axis,
@@ -338,7 +339,7 @@ class DarkroomEngine:
         timing.lap("diffusion")
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_out = exposure_processor(settings).process(img_in, ctx)
+            img_out = exposure_processor(settings, fade_white_space(ctx.cam_xyz, ctx.camera_wb)).process(img_in, ctx)
             # Rides this stage: it needs the print, and its own stage would re-run everything behind
             # it on a drag. Stays inside the flat intent below, being a capture fix, not a look.
             return apply_hue_trim(img_out, settings.process.hue_trim)

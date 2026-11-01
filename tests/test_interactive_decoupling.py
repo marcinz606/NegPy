@@ -85,6 +85,7 @@ class TestSettleOnlyWorkIsSkipped(unittest.TestCase):
             _gpu_fallback_notified=True,
             _freeze_resolved_auto_crop=MagicMock(),
             _freeze_resolved_meter=MagicMock(),
+            _refresh_stale_fade_white=MagicMock(),
             state=SimpleNamespace(
                 config=object(),
                 metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),

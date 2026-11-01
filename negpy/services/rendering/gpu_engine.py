@@ -94,7 +94,7 @@ from negpy.features.transparency.logic import (
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import fade_white_target, unmix_with_fade
+from negpy.features.process.fade import fade_white_space, fade_white_target, unmix_with_fade
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -270,6 +270,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.fade_white_r,
         p.fade_white_g,
         p.fade_white_b,
+        p.fade_white_space,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -828,7 +829,7 @@ class GPUEngine:
         sorted_grid = None
         scan_clip_fractions = None
         analysis_source = None
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode)
+        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
         # The transparency curve reads working space, so its meter must too: the same
         # camera matrices TransparencyBaseProcessor applies, on the grid.
         slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m) if transfer else None
@@ -868,6 +869,7 @@ class GPUEngine:
                     p.fade_white_r,
                     p.fade_white_g,
                     p.fade_white_b,
+                    p.fade_white_space,
                     p.process_mode,
                     p.positive_source,
                     None
@@ -1982,7 +1984,7 @@ class GPUEngine:
             LogNegativeBounds(adj_floors, adj_ceils),
             neutral_axis_refs,
             settings.exposure.cast_removal_strength,
-            fade_white_target(settings.process),
+            fade_white_target(settings.process, fade_white_space(cam_xyz, camera_wb)),
         )
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
         # the shader to skip display_rendering too. Matches transparency/logic.py.
@@ -2955,7 +2957,7 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
         # auto refs, anchor or textural range need it.
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode)
+        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
         log_grid_cache: Optional[np.ndarray] = None
         prefiltered_cache: Optional[np.ndarray] = None
         sorted_cache: Optional[np.ndarray] = None

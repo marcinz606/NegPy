@@ -221,6 +221,9 @@ class ProcessConfig:
     fade_white_r: float = 0.0
     fade_white_g: float = 0.0
     fade_white_b: float = 0.0
+    # `fade.fade_white_space` of the decode the whites were measured on, "" for a source with no
+    # camera matrix. A render in another space ignores them.
+    fade_white_space: str = ""
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
     # per-setup property calibrated from three bare-light R/G/B exposures

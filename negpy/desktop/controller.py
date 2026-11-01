@@ -3756,7 +3756,7 @@ class AppController(QObject):
         unmix, so the roll keeps a raw base that every render unmixes like the rebate reader's.
         One click: the tool disarms, and leaving it re-renders the roll's frame above the base."""
         from negpy.features.exposure.normalization import log_from_val
-        from negpy.features.process.fade import unmix_with_fade
+        from negpy.features.process.fade import fade_white_space, unmix_with_fade
 
         bounds = self.state.last_metrics.get("final_bounds") or self.state.last_metrics.get("log_bounds")
         patch = self._sample_normalized_patch(nx, ny, radius=4)
@@ -3769,7 +3769,9 @@ class AppController(QObject):
             self.set_status(tr("Film Base: that spot is not flat film; click the clear rebate"), 4000, "warning")
             return
         base = logs.mean(axis=0)
-        unmix = unmix_with_fade(self.state.config.process, self.state.config.process.process_mode)
+        unmix = unmix_with_fade(
+            self.state.config.process, self.state.config.process.process_mode, fade_white_space(*self._effective_cam_xyz())
+        )
         if unmix is not None:
             unmix = np.asarray(unmix, dtype=np.float64)
             if unmix.shape[1] == 4:
@@ -9935,8 +9937,28 @@ class AppController(QObject):
             AppController._continue_background_work(self)
             return
 
+        if self._pending_render_task is None and not metrics.get("ephemeral") and not metrics.get("interactive"):
+            self._refresh_stale_fade_white()
         self._dispatch_pending_render()
         AppController._continue_background_work(self)
+
+    def _refresh_stale_fade_white(self) -> None:
+        """Measure a camera RAW's fade white again once the stored one belongs to another decode
+        space (`fade_white_stale`). It is a reading of this frame's decode, so it locks no card."""
+        from negpy.desktop.workers.chart_fit import fade_estimate_grid
+        from negpy.features.process.fade import fade_white_space, fade_white_stale, measure_white
+
+        process = self.state.config.process
+        space = fade_white_space(*self._effective_cam_xyz())
+        if not fade_white_stale(process, space):
+            return
+        source = self.chart_fit_source()
+        grid = None if source is None else fade_estimate_grid(source)
+        if grid is None:
+            return
+        r, g, b = measure_white(grid) or (0.0, 0.0, 0.0)
+        refreshed = replace(process, fade_white_r=r, fade_white_g=g, fade_white_b=b, fade_white_space=space)
+        self.apply_config(replace(self.state.config, process=refreshed), persist=True)
 
     def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
         """Store the crop this render detected, so nothing detects it a second time.
