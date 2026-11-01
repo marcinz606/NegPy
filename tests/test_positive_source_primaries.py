@@ -13,7 +13,7 @@ from negpy.features.exposure.normalization import relog_matrix_image, unmix_log_
 from negpy.features.process.capture_color import camera_to_working_matrix, is_source_profile, source_cam_xyz
 from negpy.features.process.fade import unmix_with_fade
 from negpy.features.process.models import ProcessConfig, ProcessMode
-from negpy.features.transparency.logic import density_stage_matrices
+from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
 from negpy.infrastructure.loaders.helpers import camera_xyz_matrix
 from negpy.infrastructure.loaders.jpeg_loader import JpegLoader
@@ -46,18 +46,27 @@ def test_source_cam_xyz_gives_back_the_profile_matrix():
 )
 def test_the_primaries_follow_the_density_matrix_only_for_a_positive_source_profile(positive, unmix, expected):
     m = np.eye(3) * 2.0 if unmix else None
-    pre, post = density_stage_matrices(_slide(positive_source=positive), _SOURCE, None, m)
-    moved = post if expected == "post" else pre
-    assert (pre is None, post is None) == ((expected == "post"), (expected == "pre"))
+    stage = density_stage(_slide(positive_source=positive), _SOURCE, None, m)
+    moved = stage.post if expected == "post" else stage.pre
+    assert (stage.pre is None, stage.post is None) == ((expected == "post"), (expected == "pre"))
     np.testing.assert_array_equal(moved, camera_to_working_matrix(_SOURCE))
+    assert stage.unmix is m
 
 
 def test_no_source_matrix_has_nothing_to_move():
-    assert density_stage_matrices(_slide(positive_source=True), None, None, np.eye(3)) == (None, None)
+    stage = density_stage(_slide(positive_source=True), None, None, np.eye(3))
+    assert stage.pre is None and stage.post is None
 
 
 def _render(config: ProcessConfig, img: np.ndarray, cam_xyz=_SOURCE, camera_wb=None):
-    ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=camera_wb)
+    ctx = PipelineContext(
+        original_size=img.shape[:2],
+        scale_factor=1.0,
+        process_mode=ProcessMode.E6,
+        cam_xyz=cam_xyz,
+        camera_wb=camera_wb,
+        wants_fade_grid=True,
+    )
     return TransparencyBaseProcessor(config).process(img, ctx), ctx
 
 

@@ -132,5 +132,6 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         cache_stages=False,
         gain_slices=source.gain_slices,
         source_orientation=source.orientation,
+        wants_fade_grid=True,
     )
     return metrics.get("transfer_grid")

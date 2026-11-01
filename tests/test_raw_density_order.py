@@ -6,11 +6,17 @@ import numpy as np
 import pytest
 
 from negpy.domain.interfaces import PipelineContext
-from negpy.features.exposure.normalization import normalize_log_image
-from negpy.features.process.capture_color import _primaries, apply_camera_matrix, camera_matrix_parts, camera_to_working_matrix
+from negpy.features.exposure.normalization import normalize_log_image, relog_matrix_image, unmix_log_image
+from negpy.features.process.capture_color import (
+    _primaries,
+    apply_camera_matrix,
+    camera_matrix_parts,
+    camera_to_working_matrix,
+    wb_only_cam_xyz,
+)
 from negpy.features.process.fade import measure_white, unmix_with_fade
 from negpy.features.process.models import ProcessConfig, ProcessMode
-from negpy.features.transparency.logic import density_stage_matrices
+from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
 
 _CAMERA = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
@@ -23,14 +29,14 @@ def _slide(positive: bool, **kw) -> ProcessConfig:
     return ProcessConfig(process_mode=ProcessMode.E6, positive_source=positive, linear_raw=True, **kw)
 
 
-def _render(config: ProcessConfig, img: np.ndarray, readback: bool = False):
+def _render(config: ProcessConfig, img: np.ndarray, fade_grid: bool = False, cam_xyz=_CAMERA):
     ctx = PipelineContext(
         original_size=img.shape[:2],
         scale_factor=1.0,
         process_mode=ProcessMode.E6,
-        cam_xyz=_CAMERA,
+        cam_xyz=cam_xyz,
         camera_wb=_WB,
-        readback_metrics=readback,
+        wants_fade_grid=fade_grid,
     )
     return TransparencyBaseProcessor(config).process(img, ctx), ctx
 
@@ -57,44 +63,73 @@ def test_the_parts_rebuild_the_matrix_and_leave_its_bits():
     assert camera_matrix_parts(None, _WB) == (None, None)
 
 
+_LOG_GAINS = np.log10([2.0, 1.0, 1.5])
+
+
 @pytest.mark.parametrize("positive", _PATHS)
 def test_a_camera_splits_at_the_fold_only_with_a_density_matrix(positive):
+    """The gains become a log offset in the density matrix; the primaries move after it."""
     config = _slide(positive)
-    gains, primaries = camera_matrix_parts(_CAMERA, _WB)
-    pre, post = density_stage_matrices(config, _CAMERA, _WB, np.eye(3))
-    np.testing.assert_array_equal(pre, gains)
-    np.testing.assert_array_equal(post, primaries)
-    pre, post = density_stage_matrices(config, _CAMERA, _WB, None)
-    np.testing.assert_array_equal(pre, camera_to_working_matrix(_CAMERA, _WB))
-    assert post is None
+    unmix = np.array([[1.0, -0.1, 0.0], [0.0, 1.0, -0.2], [-0.05, 0.0, 1.0]])
+    stage = density_stage(config, _CAMERA, _WB, unmix)
+    assert stage.pre is None
+    np.testing.assert_allclose(stage.unmix, np.hstack([unmix, (unmix @ _LOG_GAINS)[:, None]]), atol=1e-12)
+    np.testing.assert_array_equal(stage.post, camera_matrix_parts(_CAMERA, _WB)[1])
+    stage = density_stage(config, _CAMERA, _WB, None)
+    np.testing.assert_array_equal(stage.pre, camera_to_working_matrix(_CAMERA, _WB))
+    assert stage.unmix is None and stage.post is None
+
+
+def test_the_gains_add_to_a_stain_offset():
+    affine = np.hstack([np.eye(3) * 2.0, np.array([[0.1], [0.2], [0.3]])])
+    stage = density_stage(_slide(False), _CAMERA, _WB, affine)
+    np.testing.assert_allclose(stage.unmix[:, 3], affine[:, 3] + 2.0 * _LOG_GAINS, atol=1e-12)
 
 
 def test_a_balanced_decode_moves_only_the_primaries():
     """Highlight reconstruction bakes the white balance into the decode, so there is no fold."""
     config = ProcessConfig(process_mode=ProcessMode.E6, linear_raw=False, highlight_reconstruction=5)
-    pre, post = density_stage_matrices(config, _CAMERA, _WB, np.eye(3))
-    assert pre is None
-    np.testing.assert_array_equal(post, camera_matrix_parts(_CAMERA, None)[1])
+    unmix = np.eye(3) * 2.0
+    stage = density_stage(config, _CAMERA, _WB, unmix)
+    assert stage.pre is None and stage.unmix is unmix
+    np.testing.assert_array_equal(stage.post, camera_matrix_parts(_CAMERA, None)[1])
+
+
+def test_identity_primaries_do_not_convert():
+    """An Input ICC leaves the camera only its white-balance fold (`wb_only_cam_xyz`): nothing to convert after."""
+    stage = density_stage(_slide(False), wb_only_cam_xyz(_CAMERA), _WB, np.eye(3))
+    assert stage.pre is None and stage.post is None
+    np.testing.assert_allclose(stage.unmix[:, 3], _LOG_GAINS, atol=1e-12)
 
 
 def test_a_negative_keeps_the_whole_matrix_before_the_log():
     config = ProcessConfig(process_mode=ProcessMode.C41, linear_raw=True)
-    pre, post = density_stage_matrices(config, _CAMERA, _WB, np.eye(3))
-    np.testing.assert_array_equal(pre, camera_to_working_matrix(_CAMERA, _WB))
-    assert post is None
+    unmix = np.eye(3) * 2.0
+    stage = density_stage(config, _CAMERA, _WB, unmix)
+    np.testing.assert_array_equal(stage.pre, camera_to_working_matrix(_CAMERA, _WB))
+    assert stage.unmix is unmix and stage.post is None
 
 
 @pytest.mark.parametrize("positive", _PATHS)
-def test_remove_stain_leaves_a_white_border_neutral(positive):
-    """Estimate meters the white in white-balanced camera channels, and the primaries keep it neutral."""
-    img = _unbalanced(np.full((40, 60, 3), 0.8, np.float32))
-    _, ctx = _render(_slide(positive), img, readback=True)
+def test_remove_stain_leaves_a_white_border_neutral_and_converts_after(positive):
+    """Estimate meters the white in white-balanced camera channels, the primaries keep the border
+    neutral, and a colored patch takes the primaries after the stain offset."""
+    balanced = np.full((40, 60, 3), 0.8, np.float32)
+    balanced[10:30, 15:45] = (0.3, 0.15, 0.08)
+    img = _unbalanced(balanced)
+    _, ctx = _render(_slide(positive), img, fade_grid=True)
     white = measure_white(ctx.metrics["transfer_grid"])
     assert white is not None
     np.testing.assert_allclose(white, np.log10(0.8), atol=1e-4)
     config = _slide(positive, fade_white_anchor=True, fade_white_r=white[0], fade_white_g=white[1], fade_white_b=white[2], **_FADE)
     _, ctx = _render(config, img)
-    np.testing.assert_allclose(_restored_log(ctx).reshape(-1, 3), -0.1, atol=1e-4)
+    restored = _restored_log(ctx)
+    np.testing.assert_allclose(restored[:5].reshape(-1, 3), -0.1, atol=1e-4)
+    unmix = unmix_with_fade(config, ProcessMode.E6)
+    expected = relog_matrix_image(unmix_log_image(np.log10(balanced), unmix), camera_matrix_parts(_CAMERA, _WB)[1])
+    np.testing.assert_allclose(restored, expected, atol=1e-4)
+    converted_first = unmix_log_image(np.log10(img @ camera_to_working_matrix(_CAMERA, _WB).T), unmix)
+    assert float(np.abs(restored - converted_first)[10:30, 15:45].max()) > 0.05
 
 
 @pytest.mark.parametrize("positive", _PATHS)
@@ -127,5 +162,11 @@ def test_no_density_matrix_renders_as_the_whole_matrix_first(positive):
 @pytest.mark.parametrize("positive", _PATHS)
 def test_estimate_reads_white_balanced_camera_channels(positive):
     flat = _unbalanced(np.full((40, 60, 3), (0.5, 0.2, 0.1), np.float32))
-    _, ctx = _render(_slide(positive), flat, readback=True)
+    _, ctx = _render(_slide(positive), flat, fade_grid=True)
     np.testing.assert_allclose(ctx.metrics["transfer_grid"].reshape(-1, 3)[0], np.log10((0.5, 0.2, 0.1)), atol=1e-4)
+
+
+def test_a_render_stores_the_fade_grid_only_on_request():
+    img = _unbalanced(np.full((40, 60, 3), 0.5, np.float32))
+    _, ctx = _render(_slide(False), img)
+    assert "transfer_grid" not in ctx.metrics

@@ -180,7 +180,7 @@ def test_estimate_meters_the_render_grid_before_the_fade():
     assert grid is not None and whole is not None and grid.shape != whole.shape
 
     _, metrics = ImageProcessor(use_gpu=False).run_pipeline(
-        image, cfg, "fade-grid", render_size_ref=256.0, prefer_gpu=False, cache_stages=False
+        image, cfg, "fade-grid", render_size_ref=256.0, prefer_gpu=False, cache_stages=False, wants_fade_grid=True
     )
     fade = resolve_fade_matrix(1.0, ratio_g, ratio_b)
     np.testing.assert_allclose(metrics["transfer_grid"], grid @ fade.T, atol=1e-5)

@@ -32,8 +32,8 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
-    density_channel_matrices,
-    density_stage_matrices,
+    density_channels,
+    density_stage,
     measure_transfer_neutral_axis,
     transfer_assumed_anchor,
     transfer_auto_terms,
@@ -66,25 +66,15 @@ class TransparencyBaseProcessor:
         slide starts with both off (auto_meter_for_mode).
         """
         epsilon = 1e-6
-        # Linear RAW decodes without white balance, which the row-normalized camera matrix
-        # assumes. Folding the as-shot multipliers back in makes this render independent of which
-        # decode produced the buffer, so the toggle cannot cast the image here — except under
-        # narrowband light, where the fold never runs: an as-shot WB estimate describes a
-        # continuous-spectrum scene, and there is no such scene to describe (see
-        # should_fold_camera_wb).
         image = np.ascontiguousarray(image, dtype=np.float32)
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
         unmix = unmix_with_fade(self.config, context.process_mode)
-        pre, post = density_stage_matrices(self.config, context.cam_xyz, context.camera_wb, unmix)
-
-        def to_linear(matrix: Optional[np.ndarray]) -> np.ndarray:
-            return image if matrix is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), matrix)
-
-        linear = to_linear(pre)
+        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, unmix)
+        linear = image if stage.pre is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), stage.pre)
         img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
-        img_log = relog_matrix_image(unmix_log_image(img_log, unmix), post)
+        img_log = relog_matrix_image(unmix_log_image(img_log, stage.unmix), stage.post)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
@@ -103,16 +93,15 @@ class TransparencyBaseProcessor:
         an_roi, an_buffer = resolve_analysis_region(
             linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
         )
-        source_grid = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
-        prefiltered = relog_matrix_image(source_grid, post)
-        if context.readback_metrics:
+        log_grid = prefilter_log_grid(linear, an_roi, an_buffer)
+        prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix), stage.post)
+        if context.wants_fade_grid:
             # Fade Estimate meters this grid, rendered with the fade at identity, in the channels
             # the fade acts on: a camera's white-balanced channels or a Positive source's own.
-            if unmix is None:
-                channel_pre, channel_post = density_channel_matrices(self.config, context.cam_xyz, context.camera_wb)
-                if channel_post is not None:
-                    source_grid = prefilter_log_grid(to_linear(channel_pre), an_roi, an_buffer)
-            context.metrics["transfer_grid"] = source_grid
+            channels = stage if unmix is not None else density_channels(self.config, context.cam_xyz, context.camera_wb)
+            if channels.pre is None and stage.pre is not None:
+                log_grid = prefilter_log_grid(image, an_roi, an_buffer)
+            context.metrics["transfer_grid"] = unmix_log_image(log_grid, channels.unmix)
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different
