@@ -174,16 +174,19 @@ def _context_cancel(controller, window) -> None:
     controller.revert_active_tool()
 
 
-def _toggle_tool_button(window, tab_key: str, button) -> None:
+def _toggle_tool_button(window, tab_key: str | None, button) -> None:
     """Reveal the tool's tab first: the tab-switch suspend/restore logic only runs
     on switches, so activating a tool while its tab is hidden would leave it live
-    with its controls off-screen."""
-    window.right_panel.show_tab_by_key(tab_key)
+    with its controls off-screen. None for a tool above the tabs."""
+    if tab_key is not None:
+        window.right_panel.show_tab_by_key(tab_key)
     # toggle() bypasses the enabled state: a gated tool must not arm, but an armed one always goes down.
     if button.isChecked() or (button.isEnabled() and not hidden_by_gating(button)):
         button.toggle()
     else:
-        window.controller.set_status(tr("{value} not available", value=button.text().strip()), 1500, kind="warning")
+        # An icon-only tool names itself in its tooltip ("Film Base: ...").
+        name = button.text().strip() or getattr(button, "plain_tooltip", "").split(":")[0]
+        window.controller.set_status(tr("{value} not available", value=name), 1500, kind="warning")
 
 
 def _slider_name(slider: object, group: SliderShortcutGroup) -> str:
@@ -544,7 +547,9 @@ class ShortcutManager:
             "local_oval": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.oval_btn),
             "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
             "analysis_draw": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.analysis_region_btn),
-            "film_base": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.film_base_btn),
+            "film_base": lambda: _toggle_tool_button(self.window, None, self.window.right_panel.film_base_btn),
+            "dmin_pick": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.dmin_btn),
+            "dmax_pick": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.dmax_btn),
             "open_tools_menu": lambda: self.window.toolbar.open_tools_menu(),
             "toggle_flat_peek": controller.toggle_flat_peek,
             "toggle_negative_peek": controller.toggle_negative_peek,

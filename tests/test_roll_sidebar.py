@@ -111,10 +111,11 @@ def test_the_baseline_buttons_sit_on_the_rolls_header(qapp):
     assert widgets[0].text() == "ROLLS"
 
 
-def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):
+def test_the_baseline_actions_carry_a_short_label_and_their_full_name_in_the_tooltip(qapp):
     _, sidebar, ids = _sidebar(roll_names=["Portra 400"], active_name="Portra 400")
     sidebar._on_roll_picked(ids["Portra 400"])
-    assert sidebar.reanalyze_btn.text() == ""
+    assert sidebar.reanalyze_btn.text().strip() == "Reanalyze"
+    assert sidebar.from_frame_btn.text().strip() == "Use Frame"
     assert "Roll Analysis" in sidebar.reanalyze_btn.toolTip()
     assert "Use This Frame" in sidebar.from_frame_btn.toolTip()
 

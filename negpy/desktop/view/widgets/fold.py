@@ -33,7 +33,7 @@ class FoldButton(QAbstractButton):
         self._marked = False
         self._warning = False
         self._font = QFont(self.font())
-        self._font.setPixelSize(THEME.font_size_small)
+        self._font.setPixelSize(THEME.font_size_base)
         self._font.setWeight(QFont.Weight(THEME.weight_semibold))
         if not text:
             self.setFixedWidth(self.GUTTER)
@@ -66,7 +66,7 @@ class FoldButton(QAbstractButton):
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = THEME.text_primary if self.underMouse() else THEME.text_hint
+        color = THEME.text_primary if self.underMouse() else THEME.text_secondary if self.text() else THEME.text_hint
         icon = qta.icon("fa5s.chevron-down" if self.isChecked() else "fa5s.chevron-right", color=color)
         top = (self.height() - _CHEVRON) // 2
         p.drawPixmap(0, top, icon.pixmap(_CHEVRON, _CHEVRON))
@@ -113,8 +113,8 @@ class Fold(QWidget):
         layout.setSpacing(0)
         layout.addWidget(content)
         content.installEventFilter(self)
-        for dot in content.findChildren(EditedDot):
-            dot.installEventFilter(self)
+        for mark in self._marks():
+            mark.installEventFilter(self)
         self.setVisible(False)
         self._add(button)
         self.set_open(default_open)
@@ -162,8 +162,13 @@ class Fold(QWidget):
         self._warning = warning
         self._sync_mark()
 
+    def _marks(self) -> list[QWidget]:
+        """What marks the closed fold as edited: an edited dot, or a clearable tool's × (clearable_tool_toggle)."""
+        clears = [b.clear_btn for b in self.content.findChildren(QAbstractButton) if getattr(b, "clear_btn", None) is not None]
+        return [*self.content.findChildren(EditedDot), *clears]
+
     def _sync_mark(self) -> None:
-        edited = not self._open and any(not dot.isHidden() for dot in self.content.findChildren(EditedDot))
+        edited = not self._open and any(not mark.isHidden() for mark in self._marks())
         warning = not self._open and self._warning and not edited
         for button in self.buttons:
             button.set_marked(edited or warning, warning)

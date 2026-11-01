@@ -181,18 +181,18 @@ A scene is a group of frames shot in the same light. It gets its own Roll Analys
 <!-- panel:analysis -->
 ## 3. Analysis readout
 
-The readout above the Roll and Frame tabs describes the current frame while you edit.
+This readout describes the current frame while you edit.
 
 #### Chart
 
-The buttons above the chart pick one view:
+Pick a chart view:
 
-*   **Curve**: the paper's curve, from the negative (left to right) to the print (bottom to top). Steeper means more contrast. The gray histogram is the negative, the colored one the print.
+*   **Curve**: the paper's curve, from the negative (across) to the print (up). Steeper means more contrast. The gray histogram is the negative, the colored one the print.
 *   **Waveform**: print brightness across the frame.
 *   **Parade**: red, green and blue side by side; a gray subject sits at one height in all three. **Parade Overlay** puts the three on one plot.
 *   **Vectorscope**: the print's colors around a center point. A cluster off center is a color cast.
 
-**Log** shows small areas, such as clipped ends.
+**Log** shows small areas, like clipping.
 
 #### Clipping
 
@@ -208,10 +208,12 @@ Click a zone on the strip, then a spot on the picture, and NegPy sets the print 
 
 The **Readouts** fold holds numbers about the scan. An amber value is a warning; hover a row for details.
 
+**Film Base** (the crosshair): click the clear film between frames to set the base the readouts measure from.
+
 *   **Negative**: the negative's density range (Δ). Hover for flat, normal or contrasty.
 *   **Exposure**: bright (positive) or dark (negative) frame, in stops.
 *   **Clipping**: share of the print that is pure black, then pure white.
-*   **Scan clip**: share of each channel, red, green and blue, at the scanner's maximum. No edit fixes it; expose the scan lower.
+*   **Scan clip**: share of each channel at the scanner's maximum. No edit fixes it; expose the scan lower.
 *   **Repair**: share of the picture that dust removal rewrote.
 *   **Gamut**: share the proof printer cannot print, while proofing.
 
@@ -539,12 +541,12 @@ To turn a negative into a positive, NegPy measures its darkest and brightest par
 
 *   **Reanalyze Frame**: measures this frame, or each selected frame, again from its current crop. The frame then uses its own bounds, not the roll or scene baseline.
 *   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside or press `Enter` to confirm, and `Esc` puts back the region you had before. **×** clears it.
-*   **Film Base**: click the clear film between frames to set the film base for the Analysis readout. It is the roll's base, or this frame's own with no roll open. **×** clears it.
 *   **Analysis Buffer**: ignores a border around the frame when measuring, so film edges and holders do not count.
 *   **Clipping**: how much of the print is pure black or pure white.
 *   **Lock Bounds**: keeps this frame's black and white points, even when the crop or Roll Analysis changes.
 *   **Luma Range Clip** (fold): how tightly black and white are set. Positive gives more contrast, for dense or foggy negatives. Negative keeps more shadow and highlight detail.
 *   **Color Clip** (fold): how tightly the color balance is set.
+*   **Dmin** / **Dmax** (Pick by Hand fold): for a frame that NegPy measures badly. Click **Dmin**, then the film base or the deepest shadow, to set the black point. Click **Dmax**, then the brightest highlight, to set the white point. Each **×** clears its own point.
 *   **White Point** / **Black Point** (fold): move the measured white and black points. A positive white point brightens the print; a positive black point lifts the blacks. **R / G / B** moves one color only.
 
 A **slide** needs no inversion: the tone controls shape the picture directly. Auto Density and Auto Grade start off; turn them on for a faded slide. In Lightroom terms, Exposure is Print Density (lower is brighter), Contrast is ISO-R Grade, and Shadows and Highlights are Shadows and Highlights Density.

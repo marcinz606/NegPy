@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.color_vision import palette_for
-from negpy.desktop.view.styles.templates import gradient_icon, header_row, hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.styles.templates import gradient_icon, header_actions, hint_label, section_subheader, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -92,6 +92,10 @@ _FILM_FIELDS = (
 _METERING_FIELDS = (
     "analysis_buffer",
     "analysis_rect",
+    "manual_dmin",
+    "manual_dmax",
+    "manual_dmin_at",
+    "manual_dmax_at",
     "lock_bounds",
     "luma_range_clip",
     "color_range_clip",
@@ -197,7 +201,9 @@ class ControlsPanel(QWidget):
         optics_layout.addWidget(section_subheader(tr("LENS CORRECTION")))
         optics_layout.addWidget(self.lens_sidebar)
         optics_layout.addLayout(
-            header_row(section_subheader(tr("FLAT FIELD CORRECTION")), self.flatfield_sidebar.add_btn, self.flatfield_sidebar.delete_btn)
+            header_actions(
+                section_subheader(tr("FLAT FIELD CORRECTION")), self.flatfield_sidebar.add_btn, self.flatfield_sidebar.delete_btn
+            )
         )
         optics_layout.addWidget(self.flatfield_sidebar)
         self.optics_section = self._make_section(
@@ -1298,7 +1304,7 @@ class ControlsPanel(QWidget):
 
         proc = cfg.process
         film_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FILM_FIELDS)
-        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS)
+        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS if not f.endswith("_at"))
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
 

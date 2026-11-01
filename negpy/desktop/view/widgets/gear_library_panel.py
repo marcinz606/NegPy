@@ -47,7 +47,7 @@ from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import (
     field_label,
-    header_row,
+    header_actions,
     hint_label,
     icon_button,
     labeled_action,
@@ -766,9 +766,9 @@ class GearPresetsPanel(QWidget):
         root.addLayout(apply_row)
         self._apply_allowed = True
 
-        self.edit_btn = icon_button("fa5s.pen", tr("Rename the preset, or change which fields it stores"))
+        self.edit_btn = labeled_action("fa5s.pen", tr("Edit"), tr("Rename the preset, or change which fields it stores"))
         self.edit_btn.clicked.connect(self._edit_preset)
-        root.addLayout(header_row(section_subheader(tr("DETAILS")), self.edit_btn))
+        root.addLayout(header_actions(section_subheader(tr("DETAILS")), self.edit_btn))
 
         self.preset_panel = QWidget()
         preset_layout = QVBoxLayout(self.preset_panel)

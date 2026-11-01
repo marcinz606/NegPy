@@ -257,6 +257,8 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.locked_ceils,
         p.local_floors,
         p.local_ceils,
+        p.manual_dmin,
+        p.manual_dmax,
         p.crosstalk_strength,
         p.crosstalk_matrix,
         p.crosstalk_process,

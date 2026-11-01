@@ -14,11 +14,11 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages, channel_selector
 from negpy.desktop.view.styles.templates import (
-    ICON_BUTTON_WIDTH,
+    channel_markup,
     clearable_tool_toggle,
     field_row,
+    header_actions,
     hint_label,
-    header_row,
     section_subheader,
     set_hint_kind,
     wrap_tooltip,
@@ -97,6 +97,14 @@ def _color_value_to_slider(v: float) -> float:
     return -100.0 * (lv - ln) / (math.log10(_COLOR_CLIP_MIN) - ln)
 
 
+def _picked_densities(picked: tuple | None) -> str:
+    """A picked end as per-channel density (minus log10 transmittance), or Auto."""
+    if picked is None:
+        return tr("Auto")
+    values = channel_markup([f"{name} {-v:.2f}" for name, v in zip("RGB", picked)])
+    return tr("Picked: {values}", values=values)
+
+
 class ProcessSidebar(BaseSidebar):
     """
     Panel for core film processing, normalization, and roll management.
@@ -152,7 +160,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.lock_bounds_btn = self._small_toggle(
             "fa5s.lock",
-            "",
+            tr("Lock"),
             False,
             tr("Lock Bounds: keep this frame's measured black and white points, even when the crop or Roll Analysis changes."),
         )
@@ -167,10 +175,11 @@ class ProcessSidebar(BaseSidebar):
         analysis_col.setContentsMargins(0, 0, 0, 0)
         analysis_col.setSpacing(THEME.space_sm)
         self.analysis_buffer_slider = CompactSlider(tr("Analysis Buffer"), 0.0, 0.25, conf.analysis_buffer)
-        self.reanalyze_frame_btn = self._icon_action("fa5s.redo", tr("Reanalyze Frame: measure this frame again from its current crop."))
-        self.lock_bounds_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.reanalyze_frame_btn = self._labeled_action(
+            "fa5s.redo", tr("Reanalyze Frame"), tr("Reanalyze Frame: measure this frame again from its current crop.")
+        )
         self.analysis_header = section_subheader(tr("ANALYSIS"))
-        analysis_col.addLayout(header_row(self.analysis_header, self.reanalyze_frame_btn, self.lock_bounds_btn))
+        analysis_col.addLayout(header_actions(self.analysis_header, self.lock_bounds_btn))
         self.clipping_hint = hint_label("")
         self.clipping_hint.setToolTip(wrap_tooltip(CLIPPING_TOOLTIP))
         analysis_col.addWidget(self.clipping_hint)
@@ -183,16 +192,9 @@ class ProcessSidebar(BaseSidebar):
             tr("Clear Region: measure with the Analysis Buffer again."),
         )
         self.clear_analysis_region_btn = self.analysis_region_btn.clear_btn
-        self.film_base_btn = clearable_tool_toggle(
-            "fa5s.crosshairs",
-            tr("Film Base"),
-            tr("Film Base: click the clear film between frames to set the film base of the open roll, or of this frame without one."),
-            tr("Clear Film Base: forget the film base this frame uses."),
-        )
-        self.clear_film_base_btn = self.film_base_btn.clear_btn
         tools_row = QHBoxLayout()
+        tools_row.addWidget(self.reanalyze_frame_btn, 1)
         tools_row.addWidget(self.analysis_region_btn, 1)
-        tools_row.addWidget(self.film_base_btn, 1)
         analysis_col.addLayout(tools_row)
 
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
@@ -206,6 +208,26 @@ class ProcessSidebar(BaseSidebar):
         self.clip_fold = rail_fold("metering_clip", self.analysis_buffer_slider, self.luma_range_clip_slider, self.color_range_clip_slider)
         analysis_col.addWidget(self.analysis_buffer_slider)
         analysis_col.addWidget(self.clip_fold)
+
+        self.dmin_btn = clearable_tool_toggle(
+            "mdi6.circle-outline",
+            tr("Dmin: Thinnest Spot"),
+            tr("Dmin: click the film base or the deepest shadow to set this frame's black point by hand."),
+            tr("Clear Dmin: measure the black point automatically again."),
+        )
+        self.dmax_btn = clearable_tool_toggle(
+            "mdi6.circle",
+            tr("Dmax: Densest Spot"),
+            tr("Dmax: click the brightest highlight to set this frame's white point by hand."),
+            tr("Clear Dmax: measure the white point automatically again."),
+        )
+        self.dmin_hint = hint_label("")
+        self.dmax_hint = hint_label("")
+        pick_row, self.pick_fold = group_fold(
+            "metering_picks", tr("Pick by Hand"), self.dmin_btn, self.dmin_hint, self.dmax_btn, self.dmax_hint
+        )
+        analysis_col.addLayout(pick_row)
+        analysis_col.addWidget(self.pick_fold)
 
         self.ch_btn = channel_selector(
             tr("Global changes all colors, and R, G or B changes one color layer."),
@@ -285,8 +307,9 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.dragEnded.connect(lambda: self.controller.analysis_buffer_drag_changed.emit(False))
         self.analysis_region_btn.toggled.connect(self._on_analysis_region_toggled)
         self.clear_analysis_region_btn.clicked.connect(self.controller.clear_analysis_region)
-        self.film_base_btn.toggled.connect(lambda on: self.controller.set_active_tool(ToolMode.FILM_BASE if on else ToolMode.NONE))
-        self.clear_film_base_btn.clicked.connect(self.controller.clear_film_base)
+        for btn, mode, field in ((self.dmin_btn, ToolMode.DMIN_PICK, "manual_dmin"), (self.dmax_btn, ToolMode.DMAX_PICK, "manual_dmax")):
+            btn.toggled.connect(lambda on, mode=mode: self.controller.set_active_tool(mode if on else ToolMode.NONE))
+            btn.clear_btn.clicked.connect(lambda _=False, field=field: self.controller.clear_bounds_pick(field))
 
         self.luma_range_clip_slider.valueChanged.connect(lambda v: self._on_luma_range_clip_changed(v, persist=False))
         self.luma_range_clip_slider.valueCommitted.connect(lambda v: self._on_luma_range_clip_changed(v, persist=True))
@@ -502,14 +525,18 @@ class ProcessSidebar(BaseSidebar):
             has_region = conf.analysis_rect is not None
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
             self.clear_analysis_region_btn.setVisible(has_region)
-            has_base = self.controller.clearable_film_base()
-            self.film_base_btn.setChecked(self.state.active_tool == ToolMode.FILM_BASE)
-            self.clear_film_base_btn.setVisible(has_base)
+            for btn, hint, mode, picked in (
+                (self.dmin_btn, self.dmin_hint, ToolMode.DMIN_PICK, conf.manual_dmin),
+                (self.dmax_btn, self.dmax_hint, ToolMode.DMAX_PICK, conf.manual_dmax),
+            ):
+                btn.setChecked(self.state.active_tool == mode)
+                btn.clear_btn.setVisible(picked is not None)
+                hint.setText(_picked_densities(picked))
 
             for w in (
                 self.analysis_buffer_slider,
                 self.analysis_region_btn,
-                self.film_base_btn,
+                self.pick_fold.content,
                 self.avg_header,
                 self.use_luma_avg_btn,
                 self.use_color_avg_btn,
@@ -552,8 +579,9 @@ class ProcessSidebar(BaseSidebar):
             # region overrides it entirely.
             self.analysis_buffer_slider.setEnabled(not locked and not has_region and not (conf.use_luma_average and conf.use_color_average))
             self._sync_reanalyze_btn(locked)
-            self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
-            self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average)
+            both_picked = conf.manual_dmin is not None and conf.manual_dmax is not None
+            self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average and not both_picked)
+            self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average and not both_picked)
         finally:
             self.block_signals(False)
 

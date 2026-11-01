@@ -225,3 +225,15 @@ def test_the_analysis_stats_report_a_warning(qapp):
     stats.update_stats([StatRow("Clipping", "Sh 3.0%", warn=True)])
     stats.update_stats([StatRow("Clipping", "Sh 0.0%")])
     assert seen == [True, False]
+
+
+def test_a_clearable_tools_visible_clear_marks_the_closed_fold():
+    from negpy.desktop.view.styles.templates import clearable_tool_toggle
+
+    btn = clearable_tool_toggle("fa5s.crosshairs", "Dmin", "tip", "clear")
+    _row, fold = group_fold("test_picks", "Pick by Hand", btn)
+    assert not fold.button.is_marked()
+    btn.clear_btn.setVisible(True)
+    assert fold.button.is_marked()
+    fold.set_open(True)
+    assert not fold.button.is_marked()

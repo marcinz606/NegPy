@@ -321,6 +321,14 @@ class Sweep:
 # Each sweep shows what its tool changes or paints.
 # Red to green to blue, for a tool that works on the whole image at once (Pick Better).
 RGB_SWEEP = Sweep((THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text))
+
+
+def channel_markup(parts: Iterable[str]) -> str:
+    """Rich text for an R · G · B readout, each part in its channel's text color."""
+    colors = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
+    return " · ".join(f'<span style="color:{color}">{part}</span>' for color, part in zip(colors, parts))
+
+
 # The two filters a ring-around varies.
 RING_AROUND_SWEEP = Sweep((THEME.filter_magenta, THEME.filter_yellow))
 # Light to dark on the diagonal: a test strip's density runs across it and its grade down it.
@@ -624,13 +632,29 @@ def header_row(header: QLabel, *buttons: QWidget) -> QHBoxLayout:
     return row
 
 
+def header_actions(header: QLabel, *buttons: QPushButton) -> QHBoxLayout:
+    """header_row for labeled actions (labeled_action, labeled_toggle): a pair shares the row's
+    right half and a lone action takes a quarter, in line with a pair above it."""
+    row = header_row(header)
+    row.setStretch(0, 2 * max(len(buttons), 2) - len(buttons))
+    # Never narrower than the longest label: a _LabeledButton below its size hint drops its text.
+    widest = max(btn.sizeHint().width() for btn in buttons)
+    for btn in buttons:
+        # Ignored: the stretch alone sets the width, so every action in a card lines up.
+        btn.setSizePolicy(QSizePolicy.Policy.Ignored, btn.sizePolicy().verticalPolicy())
+        btn.setMinimumWidth(widest)
+        row.addWidget(btn, 1)
+    return row
+
+
 def section_subheader(text: str) -> QLabel:
-    """Small all-caps label for section grouping in sidebars; wraps in a panel too narrow for it."""
+    """All-caps label for section grouping in sidebars; wraps in a panel too narrow for it.
+    FoldButton draws a folding sub-header in the same size and color."""
     lbl = QLabel(tr(text).upper())
     lbl.setWordWrap(True)
     lbl.setStyleSheet(
-        f"font-size: {THEME.font_size_small}px; "
-        f"color: {THEME.text_hint}; "
+        f"font-size: {THEME.font_size_base}px; "
+        f"color: {THEME.text_secondary}; "
         f"font-weight: {THEME.weight_semibold}; "
         f"margin-top: {THEME.space_xl}px;"
     )
