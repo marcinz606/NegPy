@@ -2557,10 +2557,10 @@ class GPUEngine:
                 # Same formulas as PrintService.apply_layout, or the mat gains a 1 px line.
                 if cw >= ch:
                     content_w = max(10, paper_long_px - 2 * border_px)
-                    content_h = max(1, int(content_w / (cw / ch)))
+                    content_h = max(1, content_w * ch // cw)
                 else:
                     content_h = max(10, paper_long_px - border_y_px)
-                    content_w = max(1, int(content_h * (cw / ch)))
+                    content_w = max(1, content_h * cw // ch)
                 paper_w, paper_h = content_w + 2 * border_px, content_h + border_y_px
                 off_x, off_y = border_px, border_px
             else:
