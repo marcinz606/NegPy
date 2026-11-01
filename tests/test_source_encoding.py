@@ -10,10 +10,12 @@ import tifffile
 from PIL import Image
 
 from negpy.domain.models import ColorSpace, ExportFormat, WorkspaceConfig
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.process.models import ProcessConfig, ProcessMode, SourceEncoding, with_positive_source
 from negpy.features.process.path import positive_decode
 from negpy.infrastructure.loaders import source_encoding as se
+from negpy.infrastructure.loaders.helpers import camera_xyz_matrix
 from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 from negpy.kernel.image.logic import working_oetf_decode
@@ -62,16 +64,25 @@ def test_auto_decodes_an_adobe_rgb_profile_even_with_linear_raw(tmp_path, linear
     assert metadata["color_space"] == ColorSpace.ADOBE_RGB.value
 
 
+def _load_working(path: str, encoding: str) -> np.ndarray:
+    """The decode as the engines see it: the source primaries the loader keeps, then the
+    source-to-working matrix it carries in the camera-matrix slot."""
+    ctx, _ = TiffLoader().load(path, linear_raw=True, positive_decode=encoding)
+    with ctx as raw:
+        return apply_camera_matrix(raw.data, camera_to_working_matrix(camera_xyz_matrix(raw)))
+
+
 def test_an_srgb_profile_converts_to_adobe_primaries(tmp_path) -> None:
     """Pure sRGB red is inside Adobe RGB, so it lands at a smaller red and a nonzero green."""
     data = np.zeros((4, 4, 3), dtype=np.uint16)
     data[..., 0] = 65535
-    f32, _ = _load(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)
-    r, g, b = f32[0, 0]
-    assert 0.70 < r < 0.73 and 0.0 <= g < 0.01 and b < 0.01
+    path = _write(tmp_path, data, _icc("sRGB-v4.icc"))
+    source, _ = _load(path, SourceEncoding.AUTO)
+    np.testing.assert_allclose(source[0, 0], (1.0, 0.0, 0.0), atol=1e-6)
+    r, g, b = _load_working(path, SourceEncoding.AUTO)[0, 0]
+    assert 0.70 < r < 0.73 and abs(g) < 0.01 and abs(b) < 0.01
     data[..., :] = 65535
-    f32, _ = _load(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)
-    np.testing.assert_allclose(f32[0, 0], 1.0, atol=2e-3)
+    np.testing.assert_allclose(_load_working(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)[0, 0], 1.0, atol=2e-3)
 
 
 def test_linear_and_gamma_override_the_profile(tmp_path) -> None:

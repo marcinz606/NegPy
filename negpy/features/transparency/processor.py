@@ -21,6 +21,7 @@ from negpy.features.exposure.normalization import (
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
+    relog_matrix_image,
     resolve_analysis_region,
     unmix_log_image,
 )
@@ -32,6 +33,8 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
+    density_stage_matrices,
+    source_channels_first,
     measure_transfer_neutral_axis,
     transfer_assumed_anchor,
     transfer_auto_terms,
@@ -54,7 +57,7 @@ class TransparencyBaseProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
-        Camera primaries -> working space, then a FIXED log-density window.
+        Camera or source primaries -> working space, then a FIXED log-density window.
 
         No meter shapes the window itself. Measured bounds are exactly what makes two
         exposures of one slide render alike, and a raw slide was exposed deliberately
@@ -72,13 +75,14 @@ class TransparencyBaseProcessor:
         # should_fold_camera_wb).
         matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
         image = np.ascontiguousarray(image, dtype=np.float32)
-        linear = image if matrix is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), matrix)
-        img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
         unmix = unmix_with_fade(self.config, context.process_mode)
-        img_log = unmix_log_image(img_log, unmix)
+        pre, post = density_stage_matrices(self.config, context.cam_xyz, matrix, unmix)
+        linear = image if pre is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), pre)
+        img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
+        img_log = relog_matrix_image(unmix_log_image(img_log, unmix), post)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
@@ -97,10 +101,14 @@ class TransparencyBaseProcessor:
         an_roi, an_buffer = resolve_analysis_region(
             linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
         )
-        prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
+        source_grid = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
+        prefiltered = relog_matrix_image(source_grid, post)
         if context.readback_metrics:
-            # Fade Estimate meters this grid, rendered with the fade at identity.
-            context.metrics["transfer_grid"] = prefiltered
+            # Fade Estimate meters this grid, rendered with the fade at identity, in the channels
+            # the fade acts on: a Positive source's own primaries.
+            if post is None and pre is not None and source_channels_first(self.config, context.cam_xyz):
+                source_grid = unmix_log_image(prefilter_log_grid(image, an_roi, an_buffer), unmix)
+            context.metrics["transfer_grid"] = source_grid
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different

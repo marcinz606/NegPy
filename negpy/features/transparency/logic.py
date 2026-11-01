@@ -483,6 +483,26 @@ def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, 
     return (-wp3[0], -wp3[1], -wp3[2]), (-bp3[0], -bp3[1], -bp3[2])
 
 
+def source_channels_first(process: ProcessConfig, cam_xyz: Optional[list]) -> bool:
+    """True when the density stage acts on a Positive source profile's own channels, so its
+    primaries convert after it. A camera matrix always applies before the log."""
+    from negpy.features.process.capture_color import is_source_profile
+    from negpy.features.process.path import RenderPath, render_path
+
+    return is_source_profile(cam_xyz) and render_path(process) is RenderPath.POSITIVE
+
+
+def density_stage_matrices(
+    process: ProcessConfig, cam_xyz: Optional[list], cam: Optional[np.ndarray], unmix: Optional[np.ndarray]
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """(before the log, after the density matrix): where the source-to-working 3x3 *cam* applies.
+    A Positive source's primaries convert after the crosstalk unmix, fade and stain offset, which
+    act on the source's own channels; the conversion mixes them. Else it applies before the log."""
+    if cam is not None and unmix is not None and source_channels_first(process, cam_xyz):
+        return None, cam
+    return cam, None
+
+
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:
     """
     The fixed (floors, ceils) the transparency path normalizes with — the decoder's

@@ -365,6 +365,29 @@ class TestExposureParity:
         assert float(np.abs(cpu - plain).mean()) > 0.02
         _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
 
+    @pytest.mark.parametrize("fade", [False, True])
+    def test_positive_source_primaries(self, fade):
+        # A Positive source's primaries ride the camera-matrix slot; with a fade both engines
+        # convert them after the density matrix, the GPU in the normalization shader.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.process.capture_color import source_cam_xyz
+        from negpy.infrastructure.loaders.source_encoding import _SRGB_COLORANTS_D50, _to_working
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = source_cam_xyz(_to_working(_SRGB_COLORANTS_D50))
+        base = _make_base_settings()
+        ratios = dict(fade_ratio_r=0.5, fade_ratio_g=1.6, fade_ratio_b=1.3) if fade else {}
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=True, **ratios))
+        h, w = self.img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(self.img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz
+        )
+        cpu = self.cpu.process(self.img, s, f"parity_positive_primaries_{fade}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            self.img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz
+        )
+        _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab color/sharpening shader."""

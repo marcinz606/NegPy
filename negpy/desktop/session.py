@@ -31,6 +31,7 @@ from negpy.desktop.sticky import (
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
+from negpy.features.process.capture_color import is_source_profile
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
 from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
 from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
@@ -137,7 +138,8 @@ class AppState:
     auto_meters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     preview_raw: Optional[Any] = None
     # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it.
-    # None for sources that carry no camera matrix (scanner TIFF, JPEG).
+    # None for sources that carry no camera matrix (scanner TIFF, JPEG). A Positive decode carries
+    # its profile's primaries here instead (source_cam_xyz), so a camera is camera_raw_preview().
     preview_cam_xyz: Optional[list] = None
     preview_camera_wb: Optional[list] = None
     # EXIF orientation the decode baked into preview_raw; the flat-field gain takes it.
@@ -408,6 +410,11 @@ class AppState:
         if peek is not None and key in peek:
             return peek[key]
         return self.last_metrics.get(key, default)
+
+
+def camera_raw_preview(state: Any) -> bool:
+    """The open frame carries a camera's matrix, not a Positive decode's source primaries."""
+    return state.preview_cam_xyz is not None and not is_source_profile(state.preview_cam_xyz)
 
 
 def _asset_key(asset: Dict[str, Any]) -> tuple:
