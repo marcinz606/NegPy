@@ -81,6 +81,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "local_gradient": ShortcutEntry("", tr("Toggle dodge & burn card-edge mask draw"), tr("Tools")),
     "analysis_draw": ShortcutEntry("Ctrl+R", tr("Toggle analysis region draw"), tr("Tools")),
     "film_base": ShortcutEntry("", tr("Toggle film base pick"), tr("Tools")),
+    "dmin_pick": ShortcutEntry("", tr("Toggle Dmin pick"), tr("Tools")),
+    "dmax_pick": ShortcutEntry("", tr("Toggle Dmax pick"), tr("Tools")),
     "open_tools_menu": ShortcutEntry("", tr("Open the Tools menu: every canvas tool"), tr("Tools")),
     "toggle_flat_peek": ShortcutEntry("M", tr("Peek flat scan (digital intermediate); hold to peek only while down"), tr("Tools")),
     "toggle_negative_peek": ShortcutEntry("N", tr("Peek negative (source as loaded); hold to peek only while down"), tr("Tools")),

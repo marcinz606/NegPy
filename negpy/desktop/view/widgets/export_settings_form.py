@@ -18,7 +18,15 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
-from negpy.desktop.view.styles.templates import field_row, header_row, hint_label, icon_button, section_subheader, tool_toggle
+from negpy.desktop.view.styles.templates import (
+    field_row,
+    header_actions,
+    hint_label,
+    icon_button,
+    labeled_action,
+    section_subheader,
+    tool_toggle,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup, align_slider_columns
 from negpy.desktop.view.widgets.step_combo import StepCombo
@@ -306,11 +314,11 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._color_section)
 
-        self.icc_import_btn = icon_button(
-            "fa5s.folder-open", tr("Import an ICC profile into {user_icc_dir}", user_icc_dir=APP_CONFIG.user_icc_dir)
+        self.icc_import_btn = labeled_action(
+            "fa5s.folder-open", tr("Import"), tr("Import an ICC profile into {user_icc_dir}", user_icc_dir=APP_CONFIG.user_icc_dir)
         )
         self.icc_import_btn.clicked.connect(self._import_icc)
-        root.addLayout(header_row(section_subheader(tr("COLOR MANAGEMENT")), self.icc_import_btn))
+        root.addLayout(header_actions(section_subheader(tr("COLOR MANAGEMENT")), self.icc_import_btn))
 
         self.input_combo = StepCombo()
         constrain_combo(self.input_combo)

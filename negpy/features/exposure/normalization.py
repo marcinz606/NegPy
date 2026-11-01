@@ -1050,6 +1050,8 @@ def resolve_bounds_detailed(process, analyze_fn) -> tuple[LogNegativeBounds, Log
     if roll_luma and roll_color:
         return locked, locked
     base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
+    if process.manual_dmin is not None or process.manual_dmax is not None:
+        base = LogNegativeBounds(process.manual_dmax or base.floors, process.manual_dmin or base.ceils)
     final = mix_luma_color_bounds(locked if roll_luma else base, locked if roll_color else base)
     return final, base
 
