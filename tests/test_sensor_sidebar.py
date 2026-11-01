@@ -292,10 +292,54 @@ def test_an_estimate_on_a_stained_slide_suggests_remove_stain_and_stores_no_whit
 
     w._on_estimate_fade()
 
-    assert "Remove Stain" in w.fade_estimate_hint.text()
+    assert "Remove Stain" in w.fade_stain_hint.text()
+    assert "Remove Stain" not in w.fade_estimate_hint.text()
+    assert w.fade_white_anchor_btn.property("suggested") is True
     stored = ctrl.set_roll_default.call_args.kwargs
     assert "fade_white_b" not in stored
     assert not w.fade_white_anchor_btn.isChecked()
+
+
+def test_turning_on_a_suggested_remove_stain_estimates_again_with_it():
+    w, ctrl = _fade_sidebar(analysis_buffer=0.0)
+    _open(ctrl, _stained_slide())
+    w._on_estimate_fade()
+
+    w.fade_white_anchor_btn.setChecked(True)
+
+    calls = [c.kwargs for c in ctrl.set_roll_default.call_args_list[-2:]]
+    assert calls[0] == {"fade_white_anchor": True}
+    assert calls[1]["fade_white_b"] == pytest.approx(-0.4, abs=0.02)
+    assert calls[1]["fade_ratio_b"] == pytest.approx(0.6, abs=0.03)
+    assert w.fade_stain_hint.text() == ""
+    assert w.fade_white_anchor_btn.property("suggested") is False
+
+
+def test_turning_on_remove_stain_unsuggested_estimates_too():
+    w, ctrl = _fade_sidebar(analysis_buffer=0.0)
+    _open(ctrl, _stained_slide())
+
+    w.fade_white_anchor_btn.setChecked(True)
+
+    assert ctrl.set_roll_default.call_args_list[0].kwargs == {"fade_white_anchor": True}
+    assert ctrl.set_roll_default.call_args.kwargs["fade_white_b"] == pytest.approx(-0.4, abs=0.02)
+
+
+def test_turning_on_remove_stain_with_no_stain_says_so():
+    w, ctrl = _fade_sidebar()
+    _open(ctrl, np.full((32, 32, 3), 0.5, dtype=np.float32))
+
+    w.fade_white_anchor_btn.setChecked(True)
+
+    assert ctrl.set_roll_default.call_args.kwargs == {"fade_white_anchor": True}
+    assert "No stain found to remove." in w.fade_estimate_hint.text()
+
+
+def test_remove_stain_ends_the_estimate_row():
+    w, _ctrl = _fade_sidebar()
+    row = w.fade_estimate_row
+    widgets = [row.itemAt(i).widget() for i in range(row.count())]
+    assert widgets == [w.estimate_fade_btn, w.estimate_method_combo, w.fade_white_anchor_btn]
 
 
 def test_an_estimate_with_remove_stain_on_stores_the_white_with_the_survivals():
@@ -307,7 +351,7 @@ def test_an_estimate_with_remove_stain_on_stores_the_white_with_the_survivals():
     stored = ctrl.set_roll_default.call_args.kwargs
     assert stored["fade_white_b"] == pytest.approx(-0.4, abs=0.02)
     assert stored["fade_ratio_b"] == pytest.approx(0.6, abs=0.03)
-    assert "Remove Stain" not in w.fade_estimate_hint.text()
+    assert w.fade_stain_hint.text() == ""
 
 
 def test_a_failed_estimate_with_remove_stain_on_stores_no_white_off_clear_film():
@@ -320,9 +364,10 @@ def test_a_failed_estimate_with_remove_stain_on_stores_no_white_off_clear_film()
 
 
 def test_turning_remove_stain_off_clears_its_hint():
-    w, ctrl = _fade_sidebar()
+    w, ctrl = _fade_sidebar(analysis_buffer=0.0)
+    _open(ctrl, _stained_slide())
     w.fade_white_anchor_btn.setChecked(True)
-    assert "Estimate" in w.fade_estimate_hint.text()
+    assert w.fade_estimate_hint.text()
 
     w.fade_white_anchor_btn.setChecked(False)
 
@@ -334,19 +379,23 @@ def test_the_estimate_hint_stays_with_its_frame():
     _open(ctrl, _stained_slide())
     w._on_estimate_fade()
     w.sync_ui()
-    assert "Remove Stain" in w.fade_estimate_hint.text()
+    assert "Remove Stain" in w.fade_stain_hint.text()
 
     ctrl.state.current_file_hash = "frame-b"
     w.sync_ui()
 
     assert w.fade_estimate_hint.text() == ""
+    assert w.fade_stain_hint.text() == ""
+    assert w.fade_white_anchor_btn.property("suggested") is False
 
 
 def test_remove_stain_is_a_fade_roll_default():
     w, ctrl = _fade_sidebar()
+    ctrl.chart_fit_source.return_value = None
     w.fade_white_anchor_btn.setChecked(True)
     args = ctrl.set_roll_default.call_args
     assert args.args[0] == "fade" and args.kwargs["fade_white_anchor"] is True
+    assert w.fade_estimate_hint.text() == "No image loaded to estimate from."
 
 
 @pytest.mark.parametrize(

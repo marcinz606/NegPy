@@ -265,6 +265,14 @@ def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> Q
     return btn
 
 
+def set_toggle_suggested(btn: QPushButton, icon_name: str, suggested: bool) -> None:
+    """Paints an off toggle's icon `warn_amber` while the panel suggests turning it on; on, it is
+    `text_primary` as usual."""
+    color = THEME.warn_amber if suggested else THEME.text_hint
+    btn.setIcon(qta.icon(icon_name, color=color, color_on=THEME.text_primary, color_disabled=THEME.text_muted))
+    btn.setProperty("suggested", suggested)
+
+
 def box_toggle(label: str, checked: bool = False, tooltip: str = "") -> QCheckBox:
     """A labeled toggle for QMessageBox.setCheckBox, which takes only a QCheckBox; the QSS draws
     it as a toggle (QCheckBox#box_toggle). Everywhere else a toggle is labeled_toggle."""

@@ -4,7 +4,7 @@ from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, labeled_action, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, labeled_action, set_toggle_suggested, wrap_tooltip
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.sidebar.scan_setup import resolved_rig
 from negpy.desktop.view.widgets.fold import group_fold
@@ -39,6 +39,7 @@ _CROSSTALK_FIELDS = ("crosstalk_profile", "crosstalk_matrix", "crosstalk_strengt
 
 # The Estimate method the panel last used, kept across sessions.
 _ESTIMATE_METHOD_KEY = "fade_estimate_method"
+_REMOVE_STAIN_ICON = "fa5s.tint-slash"
 
 
 def _estimate_hint(method: "EstimateMethod", chosen: "FadeEstimate", other: "FadeEstimate") -> str:
@@ -168,9 +169,9 @@ class SensorSidebar(BaseSidebar):
         self.fade_ratio_b_slider.setToolTip(tr("How much blue dye is left, compared with red. Below 1.0 means blue faded more than red."))
 
         # Tooltip set with its shortcut in controls_panel.apply_shortcut_tooltips.
-        self.fade_white_anchor_btn = self._labeled_toggle("fa5s.tint-slash", tr("Remove Stain"), conf.fade_white_anchor, "")
+        self.fade_white_anchor_btn = self._labeled_toggle(_REMOVE_STAIN_ICON, tr("Remove Stain"), conf.fade_white_anchor, "")
 
-        estimate_row = QHBoxLayout()
+        self.fade_estimate_row = QHBoxLayout()
         self.estimate_fade_btn = labeled_action(
             "fa5s.magic",
             tr("Estimate"),
@@ -189,12 +190,16 @@ class SensorSidebar(BaseSidebar):
         self.estimate_method_combo.setCurrentIndex(
             max(0, self.estimate_method_combo.findData(str(saved) if isinstance(saved, str) else ""))
         )
-        estimate_row.addWidget(self.estimate_fade_btn)
-        estimate_row.addWidget(self.estimate_method_combo, 1)
+        self.fade_estimate_row.addWidget(self.estimate_fade_btn)
+        self.fade_estimate_row.addWidget(self.estimate_method_combo, 1)
+        self.fade_estimate_row.addWidget(self.fade_white_anchor_btn)
 
         # The estimate, or which fail-closed condition fired.
         self.fade_estimate_hint = hint_label("")
         self.fade_estimate_hint.setVisible(False)
+        # Estimate's suggestion to turn on Remove Stain, which also paints the toggle's icon amber.
+        self.fade_stain_hint = hint_label("", kind="warning")
+        self.fade_stain_hint.setVisible(False)
         self._fade_hint_hash: Optional[str] = None
 
         fade_header, self.fade_fold = group_fold(
@@ -203,9 +208,9 @@ class SensorSidebar(BaseSidebar):
             self.fade_ratio_r_slider,
             self.fade_ratio_g_slider,
             self.fade_ratio_b_slider,
-            self.fade_white_anchor_btn,
-            estimate_row,
+            self.fade_estimate_row,
             self.fade_estimate_hint,
+            self.fade_stain_hint,
         )
 
         self.fade_header = self.fade_fold.button
@@ -505,20 +510,32 @@ class SensorSidebar(BaseSidebar):
             fade_ratio_b=ratio_b,
         )
 
-    def _show_fade_hint(self, text: str) -> None:
-        """The hint belongs to the frame it was written on; sync_ui clears it on another frame."""
+    def _show_fade_hint(self, text: str, stain: str = "") -> None:
+        """The hints belong to the frame they were written on; sync_ui clears them on another frame.
+        `stain` is the suggestion to turn on Remove Stain, "" for none."""
         self._fade_hint_hash = self.state.current_file_hash
         self.fade_estimate_hint.setText(text)
         self.fade_estimate_hint.setVisible(bool(text))
+        self._show_stain_suggestion(stain)
+
+    def _show_stain_suggestion(self, text: str) -> None:
+        self.fade_stain_hint.setText(text)
+        self.fade_stain_hint.setVisible(bool(text))
+        set_toggle_suggested(self.fade_white_anchor_btn, _REMOVE_STAIN_ICON, bool(text))
 
     def _on_fade_white_anchor_toggled(self, checked: bool) -> None:
-        conf = self.state.config.process
-        no_white = (conf.fade_white_r, conf.fade_white_g, conf.fade_white_b) == (0.0, 0.0, 0.0)
-        # An earlier Estimate's hint was read with the other setting.
-        self._show_fade_hint(tr("Click Estimate to measure the stain.") if checked and no_white else "")
         self.controller.set_roll_default("fade", fade_white_anchor=checked)
+        if checked:
+            # The white is this frame's own, and the survivals read again above it.
+            self._run_estimate(white_anchor=True)
+        else:
+            # An earlier Estimate's hint was read with the other setting.
+            self._show_fade_hint("")
 
     def _on_estimate_fade(self) -> None:
+        self._run_estimate(self.state.config.process.fade_white_anchor)
+
+    def _run_estimate(self, white_anchor: bool) -> None:
         from negpy.desktop.workers.chart_fit import fade_estimate_grid
         from negpy.features.process.fade import estimate_fade
 
@@ -531,20 +548,24 @@ class SensorSidebar(BaseSidebar):
             self._show_fade_hint(tr("No image loaded to estimate from."))
             return
         method = EstimateMethod(self.estimate_method_combo.currentData())
-        anchor = conf.fade_white_anchor
+        anchor = white_anchor
         estimates = estimate_fade(grid, white_anchor=anchor)
         chosen, other = estimates[method], estimates[next(m for m in EstimateMethod if m != method)]
-        hint = _estimate_hint(method, chosen, other)
-        if not anchor and chosen.white is not None and stain_suggested(chosen.white):
-            hint += " " + tr("The clear areas have a yellow stain: turn on Remove Stain, then click Estimate again.")
-        self._show_fade_hint(hint)
-        # The white is stored with the survivals and never measured per render.
+        failed = bool(chosen.reason) and chosen.green == 1.0 and chosen.blue == 1.0
+        # The white is stored with the survivals and never measured per render. A failed reading
+        # stores it only where it is plainly a stain on clear film.
         white = {}
-        if anchor and chosen.white is not None:
+        if anchor and chosen.white is not None and (not failed or stain_suggested(chosen.white)):
             white = dict(zip(("fade_white_r", "fade_white_g", "fade_white_b"), chosen.white))
-        if chosen.reason and chosen.green == 1.0 and chosen.blue == 1.0:
-            # A failed reading writes the roll's white only where it is plainly a stain on clear film.
-            if white and stain_suggested(chosen.white):
+        stain = ""
+        if not anchor and chosen.white is not None and stain_suggested(chosen.white):
+            stain = tr("The clear areas have a yellow stain: turn on Remove Stain.")
+        hint = _estimate_hint(method, chosen, other)
+        if anchor and not white and (conf.fade_white_r, conf.fade_white_g, conf.fade_white_b) == (0.0, 0.0, 0.0):
+            hint += " " + tr("No stain found to remove.")
+        self._show_fade_hint(hint, stain)
+        if failed:
+            if white:
                 self.controller.set_roll_default("fade", **white)
             return
         red = chosen.red if chosen.red is not None else conf.fade_ratio_r
@@ -610,7 +631,9 @@ class SensorSidebar(BaseSidebar):
             self.fade_fold.content.setVisible(slide)
             if self._fade_hint_hash != self.state.current_file_hash:
                 self.fade_estimate_hint.setText("")
+                self._show_stain_suggestion("")
             self.fade_estimate_hint.setVisible(slide and bool(self.fade_estimate_hint.text()))
+            self.fade_stain_hint.setVisible(slide and bool(self.fade_stain_hint.text()))
 
             self.hue_trim_slider.setValue(conf.hue_trim)
 
