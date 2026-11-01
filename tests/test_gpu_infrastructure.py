@@ -29,6 +29,20 @@ class TestGPUInfrastructure(unittest.TestCase):
             module2 = ShaderLoader.load(shader_path)
             self.assertIs(module, module2)
 
+    def test_shader_loader_follows_a_new_device(self):
+        """A module compiled on a destroyed device is never handed to the next one."""
+        import os
+
+        if not self.gpu.is_available:
+            self.skipTest("GPU not available")
+        shader_path = os.path.join("negpy", "features", "geometry", "shaders", "transform.wgsl")
+        before = ShaderLoader.load(shader_path)
+        GPUDevice.destroy_singleton()
+        device = GPUDevice.get().device
+        after = ShaderLoader.load(shader_path)
+        self.assertIsNot(before, after)
+        device.create_compute_pipeline(layout="auto", compute={"module": after, "entry_point": "main"})
+
     def test_gpu_texture(self):
         """GPUTexture should initialize and upload data."""
         if not self.gpu.is_available:

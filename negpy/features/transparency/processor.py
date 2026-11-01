@@ -92,7 +92,7 @@ class TransparencyBaseProcessor:
         # working-space (post camera matrix) and post-unmix, since that is what this curve
         # itself consumes.
         an_roi, an_buffer = resolve_analysis_region(
-            linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
+            linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
         )
         prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
         if context.readback_metrics:
@@ -120,7 +120,7 @@ class TransparencyBaseProcessor:
         context.metrics["final_bounds"] = bounds
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
         context.metrics["density_above_base"] = None  # a slide has no clear base to read above
-        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
+        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, an_roi, an_buffer)
         context.metrics["normalized_log"] = res
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         # The Crop tool shows the whole frame, so the parade's columns span it too (the GPU's full_frame).
