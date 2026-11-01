@@ -214,6 +214,13 @@ class ProcessConfig:
     fade_ratio_r: float = 1.0
     fade_ratio_g: float = 1.0
     fade_ratio_b: float = 1.0
+    # Remove Stain (White Anchor): restore density above each channel's own white, (D - w) / a, for a slide whose
+    # clear areas carry a per-channel stain. The whites are log transmittance (<= 0) of the
+    # brightest cells, measured by the Estimate and never per render.
+    fade_white_anchor: bool = False
+    fade_white_r: float = 0.0
+    fade_white_g: float = 0.0
+    fade_white_b: float = 0.0
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
     # per-setup property calibrated from three bare-light R/G/B exposures

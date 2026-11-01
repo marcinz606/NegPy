@@ -78,6 +78,10 @@ _SENSOR_FIELDS = (
     "fade_ratio_r",
     "fade_ratio_g",
     "fade_ratio_b",
+    "fade_white_anchor",
+    "fade_white_r",
+    "fade_white_g",
+    "fade_white_b",
     "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
@@ -793,6 +797,12 @@ class ControlsPanel(QWidget):
             tooltip_with_shortcut(
                 tr("Color negatives only: use the roll's gray balance for Cast Removal, so frames under one light match."),
                 "cast_average_toggle",
+            )
+        )
+        self.sensor_sidebar.fade_white_anchor_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr("Remove Stain: makes the clear areas white again, for a faded slide whose highlights turned yellow."),
+                "fade_white_anchor_toggle",
             )
         )
         proc.analysis_buffer_slider.setToolTip(

@@ -85,13 +85,14 @@ from negpy.features.transparency.logic import (
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
+    transfer_cast_affine,
     transfer_point_offsets,
     transfer_curve_params,
     transfer_widths,
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import unmix_with_fade
+from negpy.features.process.fade import fade_white_target, unmix_with_fade
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
@@ -265,6 +266,10 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.fade_ratio_r,
         p.fade_ratio_g,
         p.fade_ratio_b,
+        p.fade_white_anchor,
+        p.fade_white_r,
+        p.fade_white_g,
+        p.fade_white_b,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -859,6 +864,10 @@ class GPUEngine:
                     p.fade_ratio_r,
                     p.fade_ratio_g,
                     p.fade_ratio_b,
+                    p.fade_white_anchor,
+                    p.fade_white_r,
+                    p.fade_white_g,
+                    p.fade_white_b,
                     p.process_mode,
                     None if cam_m is None else tuple(np.asarray(cam_m).ravel().tolist()),
                 )
@@ -1896,9 +1905,10 @@ class GPUEngine:
             adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
 
         # Capture-side dye-unmix rows, resolved once per frame by the caller and shared
-        # with NormalizationProcessor. Identity when off.
+        # with NormalizationProcessor. Identity when off; a (3, 4) affine packs its offset in w.
         if unmix is None:
             unmix = np.eye(3)
+        unmix_w = unmix[:, 3] if unmix.shape[1] == 4 else (0.0, 0.0, 0.0)
 
         # Working-space-from-camera rows, identity when the source carries no matrix. The
         # shader reads them only on the transfer path.
@@ -1920,9 +1930,9 @@ class GPUEngine:
                 0.0,
                 0.0,
             )
-            + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], 0.0)
-            + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], 0.0)
-            + struct.pack("ffff", unmix[2, 0], unmix[2, 1], unmix[2, 2], 0.0)
+            + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], unmix_w[0])
+            + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], unmix_w[1])
+            + struct.pack("ffff", unmix[2, 0], unmix[2, 1], unmix[2, 2], unmix_w[2])
             + struct.pack("ffff", float(cam[0, 0]), float(cam[0, 1]), float(cam[0, 2]), 0.0)
             + struct.pack("ffff", float(cam[1, 0]), float(cam[1, 1]), float(cam[1, 2]), 0.0)
             + struct.pack("ffff", float(cam[2, 0]), float(cam[2, 1]), float(cam[2, 2]), 0.0)
@@ -1933,7 +1943,6 @@ class GPUEngine:
             cast_solve_inputs,
             contrast_mask_coeffs,
             filtration_offsets,
-            neutral_axis_affine,
             per_channel_dye_separation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
@@ -1970,12 +1979,12 @@ class GPUEngine:
         t_cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         # Cast Removal on the transparency curve: a per-channel affine on density, since
         # this curve has no per-channel slope to re-solve. Identity when there is no axis.
-        t_strength, t_axis = cast_solve_inputs(
+        t_cast_gain, t_cast_off = transfer_cast_affine(
             LogNegativeBounds(adj_floors, adj_ceils),
             neutral_axis_refs,
             settings.exposure.cast_removal_strength,
+            fade_white_target(settings.process),
         )
-        t_cast_gain, t_cast_off = neutral_axis_affine(t_axis, t_strength)
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
         # the shader to skip display_rendering too. Matches transparency/logic.py.
         t_positive_source = bool(settings.process.positive_source)

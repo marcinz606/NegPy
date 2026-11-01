@@ -42,7 +42,10 @@ from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B, ImageBuffer
 from negpy.features.exposure.logic import (
     _fast_sigmoid,
     effective_grade_range,
+    cast_solve_inputs,
     grade_to_slope,
+    neutral_axis_affine,
+    normalize_refs,
     per_channel_dye_separation,
     per_channel_toe_shoulder,
     per_channel_widths,
@@ -64,6 +67,9 @@ POSITIVE_AXIS_PERCENTILES = (1.0, 99.0)
 POSITIVE_AXIS_MIN_RANGE = 1e-3
 #: Decades above the window's dark end that a cell must clear to count in the retry window.
 POSITIVE_AXIS_FLOOR_MARGIN = 0.1
+# Cast Removal pivots on the anchored white only when the midtone sits at least this far under it:
+# a shorter lever arm turns a small midtone cast into a large gain on every darker tone.
+STAIN_PIVOT_MIN_ARM = 0.5
 
 #: Dye Separation's channel cap: a soft ceiling at the higher of this density and the
 #: pixel's lightest channel plus the spread below. Mirrored in transfer.wgsl.
@@ -456,6 +462,18 @@ def apply_transfer_curve(
         "gain": 2.0 ** float(c["transfer_baseline_ev"]),
     }
     return ensure_image(negpy_core.apply_transfer_curve(np.ascontiguousarray(img_norm, dtype=np.float32), params))
+
+
+def transfer_cast_affine(
+    bounds: Any, neutral_axis_refs: Any, slider_strength: float, white_target: Optional[float]
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """Cast Removal's per-channel (gain, offset) on normalized density; one source for the CPU and the GPU.
+    With Remove Stain on, the anchored white (log `white_target` on every channel) is neutral by construction,
+    so the line runs through the midtone and that white, unless the midtone is within STAIN_PIVOT_MIN_ARM of it."""
+    strength, axis = cast_solve_inputs(bounds, neutral_axis_refs, slider_strength)
+    if axis is not None and white_target is not None and white_target - float(neutral_axis_refs[0][1]) >= STAIN_PIVOT_MIN_ARM:
+        axis = (axis[0], normalize_refs((white_target,) * 3, bounds.floors, bounds.ceils), axis[2])
+    return neutral_axis_affine(axis, strength)
 
 
 def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:

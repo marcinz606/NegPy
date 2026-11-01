@@ -191,10 +191,14 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
 
 
 def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
-    """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None."""
+    """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None. A (3, 4)
+    matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does."""
     if matrix is None:
         return img_log
-    return negpy_core.unmix_log(np.ascontiguousarray(img_log, dtype=np.float32), np.ascontiguousarray(matrix, dtype=np.float32))
+    m = np.ascontiguousarray(matrix, dtype=np.float32)
+    out = negpy_core.unmix_log(np.ascontiguousarray(img_log, dtype=np.float32), np.ascontiguousarray(m[:, :3]))
+    # A (3, 4) matrix is Remove Stain's affine: the last column is a log offset added after the 3x3.
+    return out + m[:, 3] if m.shape[1] == 4 else out
 
 
 def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:

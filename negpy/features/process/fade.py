@@ -1,5 +1,5 @@
-"""Fade Restoration: the restoration matrix a Slide as captured renders with, and the
-per-image estimate of the dye survivals."""
+"""Fade Restoration: the restoration matrix a Slide renders with, and the per-image estimate
+of the dye survivals."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -25,6 +25,24 @@ AGREEMENT_TOLERANCE = 0.05
 RATIO_BOUNDS = (0.2, 5.0)
 #: Bound on `fade_ratio_r`, a fraction of the original density, so it cannot exceed 1.0.
 RED_SURVIVAL_BOUNDS = (0.05, 1.0)
+#: Percentile of each channel's extremes for the frame's own bounds, read first.
+COLOR_EXTREME_PCT = 0.00001
+#: Below this confidence the first reading holds colored content, not grays.
+MIN_CONFIDENCE = 0.2
+#: The fallback bounds' percentile: a scan whose extreme cells are noise or scanner zeros sets no bounds.
+ROBUST_EXTREME_PCT = 0.1
+#: The fallback's own gate, stricter because its sector-free pass reads more colored content.
+ROBUST_MIN_CONFIDENCE = 0.4
+#: A cell at or below this log transmittance holds a decoded zero, not a density.
+CLIPPED_LOG = -5.0
+#: Percentile of the analysis grid that Remove Stain reads as each channel's white.
+WHITE_PCT = 99.9
+#: To suggest Remove Stain, the brightest channel's white is within this density of full scale.
+STAIN_FULL_SCALE_TOLERANCE = 0.1
+#: To suggest Remove Stain, blue is the darkest channel at the white, by at least this density.
+STAIN_BLUE_MIN = 0.2
+#: Remove Stain puts the white at least this log density below full scale, so clear areas do not clip.
+FADE_WHITE_HEADROOM = 0.1
 
 
 def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.ndarray:
@@ -38,22 +56,45 @@ def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.nd
 
 
 def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
-    """The restoration matrix, or None at unit survival or off the TRANSFER path: a Positive
-    file is already a positive, so a dye-density scale has no meaning there."""
+    """The restoration matrix, or None at unit survival or on a negative. A Positive slide takes
+    it too, since a scanner file opens Positive."""
     ratios = (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
-    if render_path(process) is not RenderPath.TRANSFER or all(r == 1.0 for r in ratios):
+    if render_path(process) is RenderPath.PRINT or all(r == 1.0 for r in ratios):
         return None
     return resolve_fade_matrix(*ratios)
 
 
 def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str]) -> Optional[np.ndarray]:
     """The log-density matrix a render applies: the crosstalk unmix, then the fade restoration of
-    the densities it recovers (`fade @ unmix`). None when neither applies."""
+    the densities it recovers (`fade @ unmix`). None when neither applies. With Remove Stain on it
+    is a (3, 4) affine `M (L - w) + t`; the last column is the log offset `t - M w`."""
     unmix = effective_crosstalk_matrix(process, process_mode)
     fade = fade_matrix(process)
-    if fade is None:
-        return unmix
-    return fade if unmix is None else fade @ unmix
+    matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
+    white = _fade_white(process)
+    if white is None:
+        return matrix
+    linear = np.eye(3) if matrix is None else matrix
+    return np.hstack([linear, (_white_target(white) - linear @ white)[:, None]])
+
+
+def _fade_white(process: ProcessConfig) -> Optional[np.ndarray]:
+    """The stored per-channel white (log transmittance) when Remove Stain acts, else None."""
+    if not process.fade_white_anchor or render_path(process) is RenderPath.PRINT:
+        return None
+    white = np.array([process.fade_white_r, process.fade_white_g, process.fade_white_b], dtype=np.float64)
+    return white if bool(np.any(white != 0.0)) else None
+
+
+def _white_target(white: np.ndarray) -> float:
+    """The cleanest channel's white, capped FADE_WHITE_HEADROOM below full scale, so a dim scan keeps its exposure."""
+    return min(float(white.max()), -FADE_WHITE_HEADROOM)
+
+
+def fade_white_target(process: ProcessConfig) -> Optional[float]:
+    """The neutral log level Remove Stain maps the stored white to in this render, else None."""
+    white = _fade_white(process)
+    return None if white is None else _white_target(white)
 
 
 #: The return shape of `measure_neutral_axis_from_log`: midtone, shadow, highlight or None, confidence.
@@ -64,29 +105,71 @@ def measure_neutral_axis_ratios(grid: ImageBuffer) -> tuple[Optional[NeutralAxis
     """(refs, reason) from the transparency meter's grid, metered against this frame's own
     bounds: the fixed transfer window finds no grays in a faded slide. `refs` is None, with a
     reason, when no trustworthy neutral axis exists."""
-    refs = measure_neutral_axis_from_log(grid, _measured_slide_bounds(grid), None, 0.0)
-    if refs is None:
-        return None, tr("No reliable grays found on this frame.")
-    return refs, ""
+    return neutral_axis_from_grid(grid)
 
 
-def _measured_slide_bounds(grid: ImageBuffer) -> LogNegativeBounds:
+def neutral_axis_from_grid(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
+    """`measure_neutral_axis_ratios` on a prefiltered log grid."""
+    refs = measure_neutral_axis_from_log(grid, _measured_slide_bounds(grid, COLOR_EXTREME_PCT), None, 0.0)
+    if refs is not None and refs[3] >= MIN_CONFIDENCE:
+        return refs, ""
+    # A faded slide's grays carry the fade's cast, which can put them in the foliage or sky
+    # sector; the unfiltered set is the last try.
+    bounds = _measured_slide_bounds(grid, ROBUST_EXTREME_PCT)
+    for exclude in (True, False):
+        refs = measure_neutral_axis_from_log(grid, bounds, None, 0.0, exclude_subjects=exclude)
+        if refs is not None and refs[3] >= ROBUST_MIN_CONFIDENCE:
+            return refs, ""
+    return None, tr("No reliable grays found on this frame.")
+
+
+def _measured_slide_bounds(grid: ImageBuffer, extreme_pct: float = COLOR_EXTREME_PCT) -> LogNegativeBounds:
     """This frame's own bounds in the slide orientation (floor above ceiling): the luma span
     from the base clip, each channel's offset from its extreme percentiles. The negative
     analyzer does not fit, since its dense end is chroma-gated for an orange mask."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
+    cells = grid.reshape(-1, 3)
+    unclipped = cells[(cells > CLIPPED_LOG).all(axis=1)]
+    if len(unclipped):
+        cells = unclipped
+
     def _pct(p: float) -> list:
-        return [float(np.percentile(grid[:, :, ch], p)) for ch in range(3)]
+        return [float(np.percentile(cells[:, ch], p)) for ch in range(3)]
 
     base = float(EXPOSURE_CONSTANTS["base_luma_clip"])
     luma_f, luma_c = _pct(100.0 - base), _pct(base)
-    color_f, color_c = _pct(100.0 - 0.00001), _pct(0.00001)
+    color_f, color_c = _pct(100.0 - extreme_pct), _pct(extreme_pct)
     mean_f, mean_c = sum(luma_f) / 3.0, sum(luma_c) / 3.0
     mid_f, mid_c = sorted(color_f)[1], sorted(color_c)[1]
     floors = tuple(mean_f + (color_f[ch] - mid_f) for ch in range(3))
     ceils = tuple(mean_c + (color_c[ch] - mid_c) for ch in range(3))
     return LogNegativeBounds(floors, ceils)
+
+
+def measure_white(grid: ImageBuffer) -> Optional[tuple[float, float, float]]:
+    """Each channel's white: the log transmittance of its brightest cells in the analysis grid, or
+    None with no cell left. A cell at full scale in every channel is light past the film (a mount gap,
+    a leak or a blown specular), and a decoded zero is no reading, so neither counts."""
+    cells = grid.reshape(-1, 3)
+    cells = cells[(cells > CLIPPED_LOG).all(axis=1) & (cells < 0.0).any(axis=1)]
+    if not len(cells):
+        return None
+    r, g, b = (float(v) for v in np.percentile(cells, WHITE_PCT, axis=0))
+    return r, g, b
+
+
+def white_anchored_grid(grid: ImageBuffer, white: tuple[float, float, float]) -> np.ndarray:
+    """The grid as density above each channel's white, the space Remove Stain renders in.
+    A cell brighter than the white stops at full scale, as a decode of the divided scan would."""
+    return np.minimum(grid - np.asarray(white, dtype=np.float32), 0.0).astype(np.float32)
+
+
+def stain_suggested(white: tuple[float, float, float]) -> bool:
+    """Whether the white reads as a yellow stain on clear film: the brightest channel near full
+    scale, and blue clearly the darkest. A dim scan with no white object never qualifies."""
+    brightest = max(white)
+    return brightest >= -STAIN_FULL_SCALE_TOLERANCE and white[2] <= min(white[0], white[1]) and brightest - white[2] >= STAIN_BLUE_MIN
 
 
 class EstimateMethod(StrEnum):
@@ -100,12 +183,14 @@ class EstimateMethod(StrEnum):
 @dataclass(frozen=True)
 class FadeEstimate:
     """Survivals from one Estimate. red is None when the method leaves Red Survival as it is;
-    reason is "" for a real estimate (see fade_ratios_from_neutral_axis)."""
+    reason is "" for a real estimate (see fade_ratios_from_neutral_axis). white is the frame's
+    measured white, None when the frame is not a slide or has no cell to read it from."""
 
     red: Optional[float]
     green: float
     blue: float
     reason: str
+    white: Optional[tuple[float, float, float]] = None
 
 
 def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs], method: str = EstimateMethod.SPREAD) -> tuple[float, float, str]:
@@ -148,20 +233,25 @@ def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs], method: str =
     return ratio_g, ratio_b, ""
 
 
-def estimate_fade(grid: ImageBuffer) -> dict[EstimateMethod, FadeEstimate]:
+def estimate_fade(grid: ImageBuffer, white_anchor: bool = False) -> dict[EstimateMethod, FadeEstimate]:
     """Both methods' estimates from one measurement of the grays. `grid` is the transparency
-    meter's grid with the crosstalk unmix and no fade (`TransparencyBaseProcessor`). MIDTONE
-    also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red faded most."""
-    refs, reason = measure_neutral_axis_ratios(grid)
+    meter's grid with the crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`).
+    MIDTONE also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
+    faded most. With `white_anchor`, the grays are read as density above the frame's white, as
+    Remove Stain renders them."""
+    white = measure_white(grid)
+    if white_anchor and white is None:
+        return {m: FadeEstimate(None, 1.0, 1.0, tr("No clear area to measure the stain on this frame.")) for m in EstimateMethod}
+    refs, reason = neutral_axis_from_grid(white_anchored_grid(grid, white) if white_anchor and white is not None else grid)
     out = {}
     for method in EstimateMethod:
         if refs is None:
-            out[method] = FadeEstimate(None, 1.0, 1.0, reason)
+            out[method] = FadeEstimate(None, 1.0, 1.0, reason, white)
             continue
         g, b, why = fade_ratios_from_neutral_axis(refs, method)
         red = None
         if method == EstimateMethod.MIDTONE and not (why and g == 1.0 and b == 1.0):
             lo, hi = RED_SURVIVAL_BOUNDS
             red = min(max(1.0 / max(g, b, 1.0), lo), hi)
-        out[method] = FadeEstimate(red, g, b, why)
+        out[method] = FadeEstimate(red, g, b, why, white)
     return out

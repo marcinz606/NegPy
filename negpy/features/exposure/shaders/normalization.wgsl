@@ -10,6 +10,7 @@ struct NormUniforms {
     // Log-density matrix rows, computed CPU-side (`unmix_with_fade`): the row-normalized
     // crosstalk unmix, times the fade restoration on a slide, which is not row-normalized.
     // Identity rows when neither applies. Applied before the stretch, as on the CPU.
+    // The w lanes carry Remove Stain's log offset, added after the 3x3; 0.0 when it is off.
     unmix0: vec4<f32>,
     unmix1: vec4<f32>,
     unmix2: vec4<f32>,
@@ -58,9 +59,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // does not apply, so there is nothing to branch on here (and branching here is
     // exactly how this silently stopped working on the GPU once before).
     log_color = vec3<f32>(
-        dot(params.unmix0.xyz, log_color),
-        dot(params.unmix1.xyz, log_color),
-        dot(params.unmix2.xyz, log_color),
+        dot(params.unmix0.xyz, log_color) + params.unmix0.w,
+        dot(params.unmix1.xyz, log_color) + params.unmix1.w,
+        dot(params.unmix2.xyz, log_color) + params.unmix2.w,
     );
 
     var res: vec3<f32>;

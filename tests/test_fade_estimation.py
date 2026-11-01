@@ -184,3 +184,67 @@ def test_estimate_meters_the_render_grid_before_the_fade():
     )
     fade = resolve_fade_matrix(1.0, ratio_g, ratio_b)
     np.testing.assert_allclose(metrics["transfer_grid"], grid @ fade.T, atol=1e-5)
+
+
+def _record_axis(monkeypatch, confidences):
+    """Stub the neutral-axis meter: each call returns the next confidence and logs its inputs."""
+    from negpy.features.process import fade
+
+    calls = []
+    axis = ((-1.7, -2.0, -1.0), (-2.5, -2.9, -1.4), None)
+
+    def fake_axis(grid, bounds, roi, buffer, exclude_subjects=True):
+        calls.append(((bounds.floors, bounds.ceils), exclude_subjects))
+        conf = confidences[len(calls) - 1]
+        return None if conf is None else (*axis, conf)
+
+    monkeypatch.setattr(fade, "measure_neutral_axis_from_log", fake_axis)
+    return calls
+
+
+def _gray_grid():
+    rng = np.random.default_rng(0)
+    t = np.linspace(-0.1, -2.6, 64, dtype=np.float32)[None, :].repeat(64, axis=0)
+    return np.stack([t, t * 1.2, t * 0.7], axis=-1) + rng.normal(0, 0.02, (64, 64, 3)).astype(np.float32)
+
+
+def test_the_first_reading_takes_a_low_confidence_axis_with_the_sectors_excluded(monkeypatch):
+    from negpy.features.process import fade
+
+    calls = _record_axis(monkeypatch, [0.3])
+    grid = _gray_grid()
+    refs, reason = fade.neutral_axis_from_grid(grid)
+    assert reason == "" and refs[3] == 0.3
+    assert len(calls) == 1 and calls[0][1] is True
+    first = fade._measured_slide_bounds(grid, fade.COLOR_EXTREME_PCT)
+    assert calls[0][0] == (first.floors, first.ceils)
+
+
+def test_a_failed_first_reading_falls_back_to_the_robust_bounds(monkeypatch):
+    from negpy.features.process import fade
+
+    calls = _record_axis(monkeypatch, [0.1, 0.3, 0.5])
+    grid = _gray_grid()
+    refs, reason = fade.neutral_axis_from_grid(grid)
+    assert reason == "" and refs[3] == 0.5
+    robust = fade._measured_slide_bounds(grid, fade.ROBUST_EXTREME_PCT)
+    assert calls[1:] == [((robust.floors, robust.ceils), True), ((robust.floors, robust.ceils), False)]
+
+
+def test_no_reading_over_its_gate_refuses(monkeypatch):
+    from negpy.features.process import fade
+
+    _record_axis(monkeypatch, [0.19, None, 0.39])
+    refs, reason = fade.neutral_axis_from_grid(_gray_grid())
+    assert refs is None and reason
+
+
+def test_scanner_zeros_do_not_set_the_frame_bounds():
+    from negpy.features.process.fade import _measured_slide_bounds
+
+    grid = _gray_grid()
+    zeros = grid.copy()
+    zeros[0, :3, 1] = -6.0  # decoded zeros in green
+    with_zeros = _measured_slide_bounds(zeros)
+    without = _measured_slide_bounds(grid[1:])
+    np.testing.assert_allclose(with_zeros.floors, without.floors, atol=0.02)

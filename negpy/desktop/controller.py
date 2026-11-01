@@ -3771,8 +3771,11 @@ class AppController(QObject):
         base = logs.mean(axis=0)
         unmix = unmix_with_fade(self.state.config.process, self.state.config.process.process_mode)
         if unmix is not None:
+            unmix = np.asarray(unmix, dtype=np.float64)
+            if unmix.shape[1] == 4:
+                base = base - unmix[:, 3]
             try:
-                base = np.linalg.solve(np.asarray(unmix, dtype=np.float64), base)
+                base = np.linalg.solve(unmix[:, :3], base)
             except np.linalg.LinAlgError:
                 pass  # a singular matrix never reaches a render; the unmixed value is the best there is
         picked = tuple(float(v) for v in base)

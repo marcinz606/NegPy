@@ -526,10 +526,11 @@ Corrects color errors that come from your light, camera and film.
 
 #### 10.4.1 Fade Restoration: faded slides
 
-Gives a faded slide its dye layers back. Cast Removal ([§5.1](#51-filtration-color-balance)) then removes the rest of the cast.
+Gives a faded slide its dye layers back.
 
 *   **Red Survival**: how much red dye is left. Lower it until the contrast comes back.
-*   **Green Survival** / **Blue Survival**: how much green and blue dye is left, against red. Below 1.0, that layer faded more than red.
+*   **Green Survival** / **Blue Survival**: the same for green and blue, against red.
+*   **Remove Stain**: makes yellowed clear areas white, and runs Estimate. Try it when Estimate turns its icon amber.
 *   **Estimate**: sets the sliders from the grays in this frame. **Midtone** also sets Red Survival and suits a badly faded slide. **Gray Range** suits a mild fade with deep shadows.
 
 <!-- panel:process -->

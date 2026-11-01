@@ -168,6 +168,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", tr("Toggle Lock Bounds"), tr("Process")),
     "reanalyze_frame": ShortcutEntry("", tr("Reanalyze the frame or the selection"), tr("Process")),
     "cast_average_toggle": ShortcutEntry("", tr("Toggle cast average"), tr("Process")),
+    "fade_white_anchor_toggle": ShortcutEntry("", tr("Toggle Remove Stain (Fade Restoration)"), tr("Process")),
     "metadata_preset_load": ShortcutEntry("", tr("Apply the selected metadata preset to this frame"), tr("Actions")),
     "metadata_clear_gear": ShortcutEntry("", tr("Clear the frame's camera, lens and film stock"), tr("Actions")),
     "metadata_clear_process": ShortcutEntry("", tr("Clear the frame's development process"), tr("Actions")),

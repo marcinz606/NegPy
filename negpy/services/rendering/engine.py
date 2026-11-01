@@ -28,6 +28,7 @@ from negpy.features.exposure.normalization import (
     geometry_kwargs,
     normalized_roi,
 )
+from negpy.features.process.fade import fade_white_target
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
@@ -60,7 +61,11 @@ def exposure_processor(settings: WorkspaceConfig) -> Any:
         return PhotometricProcessor(
             printed_exposure(settings.process, settings.exposure), settings.local, collapse_weights(settings.process, settings.exposure)
         )
-    return TransferProcessor(settings.exposure, settings.process.positive_source)
+    return TransferProcessor(
+        settings.exposure,
+        settings.process.positive_source,
+        fade_white_target(settings.process),
+    )
 
 
 def print_stages(settings: WorkspaceConfig, img: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -237,6 +242,10 @@ class DarkroomEngine:
             settings.process.fade_ratio_r,
             settings.process.fade_ratio_g,
             settings.process.fade_ratio_b,
+            settings.process.fade_white_anchor,
+            settings.process.fade_white_r,
+            settings.process.fade_white_g,
+            settings.process.fade_white_b,
             settings.process.lock_bounds,
             settings.process.use_cast_average,
             settings.process.locked_neutral_axis,

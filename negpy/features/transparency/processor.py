@@ -1,13 +1,15 @@
 """The slide renders: a Slide as captured and a Positive frame. The engine routes here by
 process.path.render_path."""
 
+from typing import Optional
+
 import negpy_core
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.analysis import density_histogram, density_parade, scan_full_scale_columns
-from negpy.features.exposure.logic import cast_solve_inputs, filtration_offsets, neutral_axis_affine
+from negpy.features.exposure.logic import filtration_offsets
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
@@ -34,6 +36,7 @@ from negpy.features.transparency.logic import (
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
+    transfer_cast_affine,
     transfer_curve_params,
     transfer_point_offsets,
     transfer_widths,
@@ -135,9 +138,10 @@ class TransparencyBaseProcessor:
 class TransferProcessor:
     """Normalized log density -> scene-linear positive through the transfer curve."""
 
-    def __init__(self, config: ExposureConfig, positive_source: bool = False):
+    def __init__(self, config: ExposureConfig, positive_source: bool = False, white_target: Optional[float] = None):
         self.config = config
         self.positive_source = positive_source
+        self.white_target = white_target
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
@@ -177,12 +181,12 @@ class TransferProcessor:
             self.config.highlight_yellow * cmy_max,
         )
         # With no neutral axis this solves to the identity and the capture passes through.
-        strength, neutral_axis_norm = cast_solve_inputs(
+        cast_gain, cast_offset_norm = transfer_cast_affine(
             final_bounds,
             context.metrics.get("neutral_axis_refs"),
             self.config.cast_removal_strength,
+            self.white_target,
         )
-        cast_gain, cast_offset_norm = neutral_axis_affine(neutral_axis_norm, strength)
         cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
 
         tw3, sw3 = transfer_widths(self.config)
