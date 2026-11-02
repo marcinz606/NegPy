@@ -914,7 +914,7 @@ def move_section_push_fields(repo: Any, section_key: str, to_key: str, fields: C
     _write(repo, store)
 
 
-def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Optional[tuple]]]:
+def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Any]]:
     """The roll's saved Roll Analysis baseline (floors, ceils, cast, the pooled neutral
     ``axis`` or None, the hashes of the frames that keep their own bounds, ``outliers``, and of
     the frames measured, ``frames``, None before frames were recorded), or None if it
@@ -1106,7 +1106,7 @@ def delete_scene(repo: Any, roll_id: str, scene_id: str) -> None:
     _edit_scenes(repo, roll_id, lambda scenes: scenes.pop(scene_id, None))
 
 
-def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, Optional[tuple]]]:
+def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, Any]]:
     """The scene's saved Scene Analysis baseline (floors, ceils, axis, outliers, and the ``frames``
     measured, None before frames were recorded), or None before one."""
     saved = dict(roll_scenes(repo, roll_id)).get(scene_id, {}).get("normalization")
