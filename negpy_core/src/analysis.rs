@@ -180,16 +180,42 @@ pub fn unmix_log_anchored(img: &[f32], m: [[f32; 3]; 3], anchor: [f32; 3], dst: 
 /// value goes to 10^v, each row is float32 products summed in channel order with no `mul_add`, and
 /// the log clamps below at 1e-6 as `log_density_open` does.
 pub fn relog_matrix(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
-    crate::par_zip(
-        dst.as_chunks_mut::<3>().0,
-        img.as_chunks::<3>().0,
-        move |d, p| {
-            let lin = p.map(|v| crate::mathf::exp10_f64(v as f64) as f32);
-            *d = m.map(|r| {
-                crate::mathf::log10f((lin[0] * r[0] + lin[1] * r[1] + lin[2] * r[2]).max(1e-6))
-            });
-        },
-    );
+    const BLOCK: usize = 1 << 14;
+    dst.as_chunks_mut::<3>()
+        .0
+        .par_chunks_mut(BLOCK)
+        .zip(img.as_chunks::<3>().0.par_chunks(BLOCK))
+        .for_each(move |(d, p)| {
+            for (d, p) in d.chunks_mut(RELOG_RUN).zip(p.chunks(RELOG_RUN)) {
+                relog_run(p, m, d);
+            }
+        });
+}
+
+/// Pixels per `relog_run`: each step runs as a flat loop over a run, one channel at a time, so it
+/// vectorizes.
+const RELOG_RUN: usize = 256;
+
+#[multiversion(targets("x86_64+avx2+fma", "aarch64+neon"))]
+fn relog_run(px: &[[f32; 3]], m: [[f32; 3]; 3], out: &mut [[f32; 3]]) {
+    let n = px.len();
+    let mut lin = [[0f32; RELOG_RUN]; 3];
+    for (c, lin) in lin.iter_mut().enumerate() {
+        for (l, p) in lin[..n].iter_mut().zip(px) {
+            *l = crate::mathf::exp10_f64(p[c] as f64) as f32;
+        }
+    }
+    let mut row = [0f32; RELOG_RUN];
+    for (k, r) in m.iter().enumerate() {
+        for (i, v) in row[..n].iter_mut().enumerate() {
+            *v = crate::mathf::log10f(
+                (lin[0][i] * r[0] + lin[1][i] * r[1] + lin[2][i] * r[2]).max(1e-6),
+            );
+        }
+        for (o, v) in out.iter_mut().zip(&row[..n]) {
+            o[k] = *v;
+        }
+    }
 }
 
 /// `normalize_log_image`: `(v - floor) / (ceil - floor)` per channel of an HxWx3 log image,
