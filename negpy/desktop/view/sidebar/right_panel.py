@@ -22,7 +22,7 @@ from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.color_vision import palette_for
-from negpy.desktop.view.styles.templates import clipping_sweep, gradient_icon, tool_toggle
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, clipping_sweep, gradient_icon, icon_button, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import align_slider_columns
@@ -45,6 +45,9 @@ from negpy.desktop.view.widgets.stats import NegativeStatsWidget, ZonePlacementR
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.widgets.panel_tab import PanelTab
 
+_FILM_BASE_TIP = tr(
+    "Film Base: click the clear film between frames to set the base these readouts measure from, for the open roll or this frame."
+)
 _SCAN_BASE_TIP = tr("Base Relative: line up each channel at its film base, so the channels compare at one height.")
 
 # The Roll tab's cards that own settings, for its header's Apply picker.
@@ -315,7 +318,12 @@ class RightPanel(QWidget):
         analysis_layout.addLayout(chart_row)
         analysis_layout.addWidget(ChartWell(self.chart_stack, self.step_wedge, self.zone_strip), 1)
         analysis_layout.addWidget(self.zone_placement, 0)
-        readouts_header, self.readouts_fold = group_fold("analysis_readouts", tr("Readouts"), self.stats_widget)
+        self.film_base_btn = tool_toggle("fa5s.crosshairs", "", _FILM_BASE_TIP)
+        self.film_base_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.clear_film_base_btn = icon_button("fa5s.times", tr("Clear Film Base: forget the film base this frame uses."))
+        readouts_header, self.readouts_fold = group_fold(
+            "analysis_readouts", tr("Readouts"), self.stats_widget, buttons=(self.clear_film_base_btn, self.film_base_btn)
+        )
         self.stats_widget.warning_changed.connect(self.readouts_fold.set_warning)
         analysis_layout.addLayout(readouts_header)
         analysis_layout.addWidget(self.readouts_fold, 0)
@@ -759,6 +767,29 @@ class RightPanel(QWidget):
         self._sync_debounce.timeout.connect(self.export_sidebar.sync_ui)
         self._sync_debounce.timeout.connect(self.metadata_sidebar.sync_ui)
         self.controller.config_updated.connect(self._sync_debounce.start)
+
+        from negpy.desktop.session import ToolMode
+
+        self.film_base_btn.toggled.connect(lambda on: self.controller.set_active_tool(ToolMode.FILM_BASE if on else ToolMode.NONE))
+        self.clear_film_base_btn.clicked.connect(self.controller.clear_film_base)
+        self.controller.config_updated.connect(self._sync_film_base)
+        self.controller.tool_sync_requested.connect(self._sync_film_base)
+        self._sync_film_base()
+
+    def _sync_film_base(self) -> None:
+        """Film Base sits on the Readouts header: armed state, the dot and × for a picked base, and none on a slide."""
+        from negpy.desktop.session import ToolMode
+        from negpy.features.process.path import RenderPath, render_path
+
+        state = self.controller.state
+        negative = render_path(state.config.process) is RenderPath.PRINT
+        has_base = negative and self.controller.clearable_film_base()
+        self.film_base_btn.blockSignals(True)
+        self.film_base_btn.setChecked(state.active_tool == ToolMode.FILM_BASE)
+        self.film_base_btn.blockSignals(False)
+        self.film_base_btn.setVisible(negative)
+        self.film_base_btn.edited_dot.set_active(has_base)
+        self.clear_film_base_btn.setVisible(has_base)
 
     def _sync_tab_edited(self) -> None:
         """Mark control-group tabs whose sections have edits (corner dot, like edited sliders)."""

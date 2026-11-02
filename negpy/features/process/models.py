@@ -168,6 +168,13 @@ class ProcessConfig:
     # transmittance; a roll's picked base (rolls.roll_film_base) wins inside that roll. Only the
     # preview's base readouts use it.
     film_base: Optional[tuple] = None
+    # Manual Pick Points: per-channel log10 in the bounds (unmixed) space. Dmin replaces the
+    # analyzed thin end (ceils), Dmax the dense end (floors). None keeps that end auto.
+    manual_dmin: Optional[tuple] = None
+    manual_dmax: Optional[tuple] = None
+    # Where each end was picked, content-normalized in the uncropped pick-tool view; only the canvas marks read it.
+    manual_dmin_at: Optional[tuple] = None
+    manual_dmax_at: Optional[tuple] = None
     # Two normalization clip axes: luma sets the black/white-point span, color sets
     # the per-channel balance clip (orange-mask cast removal).
     luma_range_clip: float = 0.0
@@ -275,6 +282,9 @@ class ProcessConfig:
             object.__setattr__(self, "meter_rect", tuple(self.meter_rect))
         if self.film_base is not None:
             object.__setattr__(self, "film_base", tuple(float(v) for v in self.film_base))
+        for name in ("manual_dmin", "manual_dmax", "manual_dmin_at", "manual_dmax_at"):
+            if getattr(self, name) is not None:
+                object.__setattr__(self, name, tuple(float(v) for v in getattr(self, name)))
 
     @property
     def is_local_initialized(self) -> bool:

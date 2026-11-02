@@ -3530,6 +3530,10 @@ class AppController(QObject):
             self._handle_zone_pin(nx, ny)
         elif self.state.active_tool == ToolMode.FILM_BASE:
             self._handle_film_base_pick(nx, ny)
+        elif self.state.active_tool == ToolMode.DMIN_PICK:
+            self._handle_bounds_pick(nx, ny, "manual_dmin")
+        elif self.state.active_tool == ToolMode.DMAX_PICK:
+            self._handle_bounds_pick(nx, ny, "manual_dmax")
 
     def set_active_tool(self, mode: ToolMode) -> None:
         if mode != ToolMode.NONE and self._diptych_blocks_canvas():
@@ -3793,6 +3797,39 @@ class AppController(QObject):
         else:
             self.set_status(tr("Film Base: this frame's roll is not in the library"), 4000, "warning")
         self.set_active_tool(ToolMode.NONE)  # leaving the uncropped tool view re-renders
+
+    def _handle_bounds_pick(self, nx: float, ny: float, field: str) -> None:
+        """Set one picked end (manual_dmin, the thin end, or manual_dmax, the dense end) from the
+        patch median, read back through the window that rendered it, so it lands in the bounds'
+        own unmixed log space. One click: the tool disarms."""
+        from negpy.features.exposure.normalization import log_from_val
+
+        bounds = self.state.last_metrics.get("final_bounds")
+        patch = self._sample_normalized_patch(nx, ny, radius=4)
+        if bounds is None or patch is None:
+            self.set_status(tr("Pick by Hand: click once the frame has rendered"), 3000, "warning")
+            return
+        logs = np.asarray([log_from_val(tuple(px), bounds) for px in patch], dtype=np.float64)
+        picked = tuple(float(v) for v in np.median(logs, axis=0))
+        self._set_bounds_picks(**{field: picked, f"{field}_at": (float(nx), float(ny))})
+        self.set_status(tr("Dmin set for this frame") if field == "manual_dmin" else tr("Dmax set for this frame"), 3000)
+        self.set_active_tool(ToolMode.NONE)
+
+    def _set_bounds_picks(self, **picks: Optional[tuple]) -> None:
+        # The persisted base holds the picks once rendered, so it is measured again even under Lock Bounds.
+        conf = self.state.config
+        proc = replace(conf.process, **picks, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        self.apply_config(replace(conf, process=proc), persist=True)
+
+    def has_bounds_picks(self) -> bool:
+        proc = self.state.config.process
+        return proc.manual_dmin is not None or proc.manual_dmax is not None
+
+    def clear_bounds_pick(self, field: str) -> None:
+        if getattr(self.state.config.process, field) is None:
+            return
+        self._set_bounds_picks(**{field: None, f"{field}_at": None})
+        self.tool_sync_requested.emit()
 
     def film_base_for(self, asset: dict, process: Any) -> Optional[tuple]:
         """The clear film base a frame's readouts measure from. In an open roll, the roll's

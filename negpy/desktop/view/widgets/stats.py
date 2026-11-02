@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 import qtawesome as qta
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from negpy.desktop.view.styles.templates import header_button, labeled_action
+from negpy.desktop.view.styles.templates import channel_markup, header_button, labeled_action
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
 
@@ -19,12 +19,6 @@ _TOOLTIPS = {
     mark("Gamut"): (tr("Share of the picture that the proof printer or paper cannot print, shown while soft proofing.")),
     mark("Repair"): (tr("Share of the scan that dust removal rewrote, which can change the picture itself above 5%.")),
 }
-
-
-def _channel_markup(value: str) -> str:
-    """R · G · B in the channel colors; a warning stays all amber, so the amber reads."""
-    colors = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
-    return " · ".join(f'<span style="color:{color}">{part}</span>' for color, part in zip(colors, value.split(" · ")))
 
 
 # One per zone-placement pin, in pin order. The canvas overlay draws its rings in these
@@ -230,7 +224,8 @@ class NegativeStatsWidget(QWidget):
             if row.detail:
                 tip = f"{tip}\n\n{row.detail}" if tip else row.detail
             self._names[i].setText(tr(row.name))
-            self._values[i].setText(_channel_markup(row.value) if row.per_channel and not row.warn else row.value)
+            # A warning stays all amber, so the amber reads.
+            self._values[i].setText(channel_markup(row.value.split(" · ")) if row.per_channel and not row.warn else row.value)
             self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
             # Tooltip per stat (hover its name or value), not merged across the pair.
             self._names[i].setToolTip(tip)

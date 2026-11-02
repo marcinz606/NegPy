@@ -38,14 +38,16 @@ from negpy.desktop.view.sidebar.roi_image import zebra_image
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    SCAN_BUTTON_HEIGHT,
     field_row,
+    header_actions,
     header_row,
     hint_label,
-    ICON_BUTTON_WIDTH,
     icon_button,
     icon_text,
+    labeled_action,
     labeled_toggle,
-    SCAN_BUTTON_HEIGHT,
     section_subheader,
     set_hint_kind,
     StatusStrip,
@@ -465,11 +467,12 @@ class ScanlightSidebar(QWidget):
         _exp = QVBoxLayout(self._exposure_widget)
         _exp.setContentsMargins(0, 0, 0, 0)
         _exp.setSpacing(THEME.space_md)
-        self.meter_btn = icon_button(
+        self.meter_btn = labeled_action(
             "fa5s.tachometer-alt",
+            tr("Meter"),
             tr("Meter: set the shutter so the film base lands just under clipping, at this ISO and aperture."),
         )
-        _exp.addLayout(header_row(section_subheader(tr("CAMERA EXPOSURE")), self.meter_btn))
+        _exp.addLayout(header_actions(section_subheader(tr("CAMERA EXPOSURE")), self.meter_btn))
         self.capture_btn = StepCombo.of(CAPTURE_MODES, CAPTURE_MODE_TOOLTIP)
         self.capture_btn.setEnabled(False)  # the preset's mode, editable only while building a manual preset
         self.capture_mode_row = QWidget()  # a white-light preset has one exposure, so the row hides there

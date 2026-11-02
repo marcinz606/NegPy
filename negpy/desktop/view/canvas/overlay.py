@@ -194,6 +194,28 @@ def draw_view_badge(painter: QPainter, text: str, x: float, y: float, width: Opt
     painter.drawText(badge.adjusted(left, 0, -THEME.space_lg, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
 
+def draw_point_mark(painter: QPainter, p: QPointF, label: str, color: QColor, radius: float = _PIN_RADIUS_PX) -> None:
+    """A probed spot on the photo: a ring on a mark_shadow edge, a center dot and a caption to its right."""
+    shadow = with_alpha(THEME.mark_shadow, 160)
+    painter.save()
+    painter.setFont(_overlay_label_font(painter))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for pen_color, width in ((shadow, 3.5), (color, 1.5)):
+        pen = QPen(pen_color, width)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.drawEllipse(p, radius, radius)
+        # Centre dot: the ring alone leaves the probed pixel to guesswork.
+        painter.drawEllipse(p, width * 0.25, width * 0.25)
+    box = QRectF(p.x() + radius + 4.0, p.y() - 11.0, 140.0, 22.0)
+    align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+    painter.setPen(shadow)
+    painter.drawText(box.translated(1.0, 1.0), align, label)
+    painter.setPen(color)
+    painter.drawText(box, align, label)
+    painter.restore()
+
+
 def probe_lines(reading: Any) -> Tuple[str, str]:
     """The cursor probe's two lines: zone and print density, then ΔD per channel."""
     dd = reading.dd_rgb
@@ -1157,6 +1179,9 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.ANALYSIS_DRAW:
             self._draw_analysis_tool(painter)
 
+        if self._tool_mode in (ToolMode.DMIN_PICK, ToolMode.DMAX_PICK):
+            self._draw_bounds_picks(painter)
+
         if (
             self._buffer_overlay_visible
             and self._buffer_overlay_ratio > 1e-4
@@ -1895,28 +1920,18 @@ class CanvasOverlay(QWidget):
 
     def _draw_zone_pins(self, painter: QPainter) -> None:
         """Zone-placement pins: a numbered ring per probed spot with its caption."""
-        shadow = with_alpha(THEME.mark_shadow, 160)
-        painter.save()
-        painter.setFont(_overlay_label_font(painter))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
         for i, (pin, p) in enumerate(zip(self.state.zone_pins, self._zone_pin_screen_points())):
             color = QColor(PIN_COLORS[i]) if i < len(PIN_COLORS) else with_alpha(THEME.mark_photo, 230)
             radius = _PIN_RADIUS_PX + (2.0 if i == self._pin_drag_index else 0.0)
-            for pen_color, width in ((shadow, 3.5), (color, 1.5)):
-                pen = QPen(pen_color, width)
-                pen.setCosmetic(True)
-                painter.setPen(pen)
-                painter.drawEllipse(p, radius, radius)
-                # Centre dot: the ring alone leaves the probed pixel to guesswork.
-                painter.drawEllipse(p, width * 0.25, width * 0.25)
-            label = zone_pin_caption(i, pin)
-            tr = QRectF(p.x() + radius + 4.0, p.y() - 11.0, 140.0, 22.0)
-            align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-            painter.setPen(shadow)
-            painter.drawText(tr.translated(1.0, 1.0), align, label)
-            painter.setPen(color)
-            painter.drawText(tr, align, label)
-        painter.restore()
+            draw_point_mark(painter, p, zone_pin_caption(i, pin), color, radius)
+
+    def _draw_bounds_picks(self, painter: QPainter) -> None:
+        """Where Dmin and Dmax were picked, while either pick tool shows the uncropped frame."""
+        proc, rect = self.state.config.process, self._content_view_rect()
+        for at, label in ((proc.manual_dmin_at, tr("Dmin")), (proc.manual_dmax_at, tr("Dmax"))):
+            if at is not None and not rect.isEmpty():
+                p = QPointF(rect.x() + at[0] * rect.width(), rect.y() + at[1] * rect.height())
+                draw_point_mark(painter, p, label, QColor(THEME.mark_photo))
 
     def _draw_grain_loupe(self, painter: QPainter) -> None:
         """The darkroom grain magnifier: a circular window at the cursor showing the frame's

@@ -51,21 +51,21 @@ Ein einfaches Wort passt auf den Dateinamen. Begriffe der Form `field:value` pas
 
 Begriffe lassen sich kombinieren: `film:portra iso:>=400 -rejected:`. Metadaten-Begriffe passen nur auf Bilder, deren Metadaten du ausgefüllt hast. **Suche nach Bedeutung** (aktiviere sie unter Einstellungen → Leistung) findet Bilder über eine Beschreibung, zum Beispiel "ein Hund am Strand".
 
-<!-- panel:analysis src:b296e118 -->
+<!-- panel:analysis src:cf165609 -->
 ## 3. Analyse-Anzeige
 
-Die Anzeige über den Tabs Rolle und Bild beschreibt das aktuelle Bild, während du bearbeitest.
+Diese Anzeige beschreibt das aktuelle Bild, während du bearbeitest.
 
 #### Diagramm
 
-Die Schaltflächen über dem Diagramm wählen eine Ansicht:
+Wähle eine Diagrammansicht:
 
-*   **Kurve**: die Kurve des Papiers, vom Negativ (links nach rechts) zum Abzug (unten nach oben). Steiler bedeutet mehr Kontrast. Das graue Histogramm zeigt das Negativ, das farbige den Abzug.
+*   **Kurve**: die Kurve des Papiers, vom Negativ (quer) zum Abzug (nach oben). Steiler bedeutet mehr Kontrast. Das graue Histogramm zeigt das Negativ, das farbige den Abzug.
 *   **Waveform**: Helligkeit des Abzugs über die Bildbreite.
 *   **Parade**: Rot, Grün und Blau nebeneinander. Ein graues Motiv liegt in allen drei auf einer Höhe. **Parade-Überlagerung** legt die drei in einem Diagramm übereinander.
 *   **Vektorskop**: die Farben des Abzugs rund um einen Mittelpunkt. Eine Gruppe neben der Mitte ist ein Farbstich.
 
-**Log** zeigt kleine Bereiche, zum Beispiel beschnittene Enden.
+**Log** zeigt kleine Bereiche, wie Beschneidung.
 
 #### Beschneidung
 
@@ -81,10 +81,12 @@ Klicke auf eine Zone im Streifen, dann auf eine Stelle im Bild. NegPy stellt den
 
 Die Falte **Messwerte** enthält Zahlen zum Scan. Ein bernsteinfarbener Wert ist eine Warnung. Bewege den Mauszeiger über eine Zeile für Details.
 
+**Filmbasis** (das Fadenkreuz): Klicke auf den klaren Film zwischen den Bildern, um die Basis festzulegen, von der die Messwerte messen.
+
 *   **Negativ**: der Dichteumfang des Negativs (Δ). Der Mauszeiger zeigt flach, normal oder kontrastreich.
 *   **Belichtung**: helles (positiv) oder dunkles (negativ) Bild, in Blenden.
 *   **Beschneidung**: Anteil des Abzugs in reinem Schwarz, dann in reinem Weiß.
-*   **Scan-Beschneidung**: Anteil jedes Kanals, Rot, Grün und Blau, am Maximum des Scanners. Keine Bearbeitung behebt das. Belichte den Scan niedriger.
+*   **Scan-Beschneidung**: Anteil jedes Kanals am Maximum des Scanners. Keine Bearbeitung behebt das. Belichte den Scan niedriger.
 *   **Reparatur**: Anteil des Bildes, den die Staubentfernung neu geschrieben hat.
 *   **Gamut**: Anteil, den der Proof-Drucker nicht drucken kann, solange du einen Softproof nutzt.
 
@@ -335,7 +337,7 @@ Für eine Kamera mit Schmalbandlicht, die von jedem Bild drei Aufnahmen macht: R
 
 Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bild anpassen…** und **Teilung auf Rollenstandard zurücksetzen**. Wenn du Halbformat ausschaltest, bleiben bearbeitete Hälften als **Diptychon** nebeneinander. Schalte es wieder ein, um sie zu bearbeiten.
 
-<!-- panel:sensor src:4f287366 -->
+<!-- panel:sensor src:3a992073 -->
 ### 10.3 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
@@ -361,21 +363,21 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
 *   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe für Grün und Blau, im Vergleich zu Rot.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
-*   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** stellt auch den Rot-Erhalt ein und passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
+*   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
 
-<!-- panel:process src:61c1c291 -->
+<!-- panel:process src:b1fdce87 -->
 ### 10.5 Messung: Negativ → Positiv
 
 Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
 
 *   **Bild neu analysieren**: misst dieses Bild oder jedes ausgewählte Bild erneut anhand seines aktuellen Zuschnitts. Das Bild nutzt dann eigene Grenzen, nicht die Basislinie der Rolle oder Szene.
 *   **Region zeichnen**: Zeichne einen Bereich, dann misst NegPy nur diesen Bereich. Doppelklicke hinein oder drücke `Enter` zum Bestätigen. `Esc` stellt die vorherige Region wieder her. **×** löscht sie.
-*   **Filmbasis**: Klicke auf den klaren Film zwischen den Bildern, um die Filmbasis für die Analyseanzeige festzulegen. Es ist die Basis der Rolle, ohne geöffnete Rolle die des Bildes selbst. **×** löscht sie.
 *   **Analysepuffer**: ignoriert beim Messen einen Rand um das Bild, damit Filmkanten und Halter nicht zählen.
 *   **Beschneidung**: wie viel des Abzugs reines Schwarz oder reines Weiß ist.
 *   **Grenzen sperren**: behält Schwarz- und Weißpunkt dieses Bildes, auch wenn sich der Zuschnitt oder die Rollenanalyse ändert.
 *   **Luma-Bereichsbeschnitt** (Klappbereich): wie eng Schwarz und Weiß gesetzt werden. Positive Werte geben mehr Kontrast, für dichte oder verschleierte Negative. Negative Werte erhalten mehr Details in Schatten und Lichtern.
 *   **Farbbeschnitt** (Klappbereich): wie eng die Farbbalance gesetzt wird.
+*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt.
 *   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
 
 Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.

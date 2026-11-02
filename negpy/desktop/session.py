@@ -72,11 +72,15 @@ class ToolMode(Enum):
     KEYSTONE_LINES = auto()
     ZONE_PLACE = auto()
     FILM_BASE = auto()
+    DMIN_PICK = auto()
+    DMAX_PICK = auto()
 
 
 # These tools' renders carry crop_preview_full, which skips the crop, the border and the filed carrier.
 # Film Base shows the whole scan too: the rebate it reads lies outside the crop.
-UNCROPPED_PREVIEW_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE})
+UNCROPPED_PREVIEW_TOOLS = frozenset(
+    {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE, ToolMode.DMIN_PICK, ToolMode.DMAX_PICK}
+)
 # Esc puts back what these changed since they opened: each adjusts one thing as often as it likes.
 REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
 

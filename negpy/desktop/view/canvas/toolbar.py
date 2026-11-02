@@ -241,6 +241,8 @@ _TOOL_ROWS: dict[ToolMode, tuple[str, str, str]] = {
     ToolMode.LOCAL_GRADIENT: (tr("Card Edge"), tr("Drag from the full-exposure edge to where it fades out"), ""),
     ToolMode.ANALYSIS_DRAW: (tr("Draw Region"), tr("Drag the area the meters read"), ""),
     ToolMode.FILM_BASE: (tr("Film Base"), tr("Click the clear rebate to set the roll's film base"), ""),
+    ToolMode.DMIN_PICK: (tr("Dmin"), tr("Click the thinnest spot of the negative: the film base or the deepest shadow"), ""),
+    ToolMode.DMAX_PICK: (tr("Dmax"), tr("Click the densest spot of the negative: the brightest highlight"), ""),
     ToolMode.STRAIGHTEN: (tr("Level"), tr("Draw a line along a horizon or an edge to level the frame"), _FINE_ROTATION),
     ToolMode.KEYSTONE_LINES: (
         tr("Keystone Lines"),
@@ -254,6 +256,8 @@ _CLONE_SOURCE_HINT = tr("Click the photo to pick the area to copy from")
 # The Tools menu, in panel order: a panel section's title, then its tools as (tool, action id, sidebar button
 # path from MainWindow). Zone Placement has no entry: it arms only with a zone picked on the zone strip.
 _CANVAS_TOOLS: tuple[tuple[ToolMode, str, str] | str, ...] = (
+    tr("Analysis"),
+    (ToolMode.FILM_BASE, "film_base", "right_panel.film_base_btn"),
     tr("Crop"),
     (ToolMode.CROP_MANUAL, "manual_crop", "controls_panel.autocrop_sidebar.manual_crop_btn"),
     tr("Straighten"),
@@ -261,7 +265,8 @@ _CANVAS_TOOLS: tuple[tuple[ToolMode, str, str] | str, ...] = (
     (ToolMode.KEYSTONE_LINES, "keystone_lines", "controls_panel.geometry_sidebar.keystone_lines_btn"),
     tr("Metering"),
     (ToolMode.ANALYSIS_DRAW, "analysis_draw", "controls_panel.process_sidebar.analysis_region_btn"),
-    (ToolMode.FILM_BASE, "film_base", "controls_panel.process_sidebar.film_base_btn"),
+    (ToolMode.DMIN_PICK, "dmin_pick", "controls_panel.process_sidebar.dmin_btn"),
+    (ToolMode.DMAX_PICK, "dmax_pick", "controls_panel.process_sidebar.dmax_btn"),
     tr("Filtration"),
     (ToolMode.WB_PICK, "pick_wb", "controls_panel.color_sidebar.pick_wb_btn"),
     tr("Dodge & Burn"),

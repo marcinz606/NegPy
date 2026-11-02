@@ -55,6 +55,8 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.LOCAL_GRADIENT: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.FILM_BASE: Qt.CursorShape.CrossCursor,
+    ToolMode.DMIN_PICK: Qt.CursorShape.CrossCursor,
+    ToolMode.DMAX_PICK: Qt.CursorShape.CrossCursor,
     ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
     ToolMode.KEYSTONE_LINES: Qt.CursorShape.CrossCursor,
     ToolMode.ZONE_PLACE: Qt.CursorShape.CrossCursor,

@@ -40,9 +40,9 @@ CLIPPED_LOG = -5.0
 #: Percentile of the analysis grid that Remove Stain reads as each channel's white.
 WHITE_PCT = 99.9
 #: To suggest Remove Stain, the brightest channel's white is within this density of full scale.
-STAIN_FULL_SCALE_TOLERANCE = 0.1
-#: To suggest Remove Stain, blue is the darkest channel at the white, by at least this density.
-STAIN_BLUE_MIN = 0.2
+STAIN_FULL_SCALE_TOLERANCE = 0.2
+#: To suggest Remove Stain, blue's white is at least this density below both red's and green's.
+STAIN_BLUE_MIN = 0.08
 #: Remove Stain puts the white at least this log density below full scale, so clear areas do not clip.
 FADE_WHITE_HEADROOM = 0.1
 
@@ -276,9 +276,9 @@ def white_anchored_grid(grid: ImageBuffer, white: tuple[float, float, float]) ->
 
 def stain_suggested(white: tuple[float, float, float]) -> bool:
     """Whether the white reads as a yellow stain on clear film: the brightest channel near full
-    scale, and blue clearly the darkest. A dim scan with no white object never qualifies."""
-    brightest = max(white)
-    return brightest >= -STAIN_FULL_SCALE_TOLERANCE and white[2] <= min(white[0], white[1]) and brightest - white[2] >= STAIN_BLUE_MIN
+    scale, and blue below both red and green. A red cast leaves blue near green, and a dim scan
+    with no white object never qualifies."""
+    return max(white) >= -STAIN_FULL_SCALE_TOLERANCE and min(white[0], white[1]) - white[2] >= STAIN_BLUE_MIN
 
 
 class EstimateMethod(StrEnum):
@@ -291,7 +291,7 @@ class EstimateMethod(StrEnum):
 
 @dataclass(frozen=True)
 class FadeEstimate:
-    """Survivals from one Estimate. red is None when the method leaves Red Survival as it is;
+    """Survivals from one Estimate. red is None when no estimate was made;
     reason is "" for a real estimate (see fade_ratios_from_neutral_axis). white is the frame's
     measured white, None when the frame is not a slide or has no cell to read it from."""
 
@@ -345,7 +345,7 @@ def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs], method: str =
 def estimate_fade(grid: ImageBuffer, white_anchor: bool = False, camera_raw: bool = False) -> dict[EstimateMethod, FadeEstimate]:
     """Both methods' estimates from one measurement of the grays. `grid` is the transparency
     meter's grid with the crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`).
-    MIDTONE also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
+    Both methods set Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
     faded most. With `white_anchor`, or on a `camera_raw` whose render scales density above its
     white (`unmix_with_fade`), the grays are read as density above the point the render scales about
     (`density_anchor`)."""
@@ -361,7 +361,7 @@ def estimate_fade(grid: ImageBuffer, white_anchor: bool = False, camera_raw: boo
             continue
         g, b, why = fade_ratios_from_neutral_axis(refs, method)
         red = None
-        if method == EstimateMethod.MIDTONE and not (why and g == 1.0 and b == 1.0):
+        if not (why and g == 1.0 and b == 1.0):
             lo, hi = RED_SURVIVAL_BOUNDS
             red = min(max(1.0 / max(g, b, 1.0), lo), hi)
         out[method] = FadeEstimate(red, g, b, why, white)

@@ -47,12 +47,8 @@ def _estimate_hint(method: "EstimateMethod", chosen: "FadeEstimate", other: "Fad
     frame holds a cast the fade does not explain."""
     if chosen.reason and chosen.green == 1.0 and chosen.blue == 1.0:
         return chosen.reason
-    if chosen.red is not None:
-        text = tr("Estimated: red {r}, green {g}, blue {b}.", r=f"{chosen.red:.2f}", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}")
-    else:
-        text = tr(
-            "Estimated: green {g}, blue {b}. Red Survival is not changed: set it by eye.", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}"
-        )
+    red = chosen.red if chosen.red is not None else 1.0
+    text = tr("Estimated: red {r}, green {g}, blue {b}.", r=f"{red:.2f}", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}")
     if chosen.reason:
         text = chosen.reason + " " + text
     if not (other.reason and other.green == 1.0 and other.blue == 1.0):
@@ -182,10 +178,8 @@ class SensorSidebar(BaseSidebar):
             tr("How Estimate reads the grays: Midtone suits a badly faded slide, Gray Range a mild fade with deep shadows."),
             [m.value for m in EstimateMethod],
         )
-        self.estimate_method_combo.set_item_tooltip(0, tr("Midtone: from the color of the middle grays. It also sets Red Survival."))
-        self.estimate_method_combo.set_item_tooltip(
-            1, tr("Gray Range: from how far the grays reach into the shadows. It leaves Red Survival as it is.")
-        )
+        self.estimate_method_combo.set_item_tooltip(0, tr("Midtone: from the color of the middle grays."))
+        self.estimate_method_combo.set_item_tooltip(1, tr("Gray Range: from how far the grays reach into the shadows."))
         saved = self.controller.session.repo.get_global_setting(_ESTIMATE_METHOD_KEY, EstimateMethod.MIDTONE)
         self.estimate_method_combo.setCurrentIndex(
             max(0, self.estimate_method_combo.findData(str(saved) if isinstance(saved, str) else ""))

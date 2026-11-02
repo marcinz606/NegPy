@@ -244,3 +244,30 @@ def test_with_no_roll_open_clear_leaves_the_library_rolls_base_alone():
     ctrl.clear_film_base()
     assert rolls.roll_film_base(repo, roll_id) == ROLL_BASE
     assert _controller(repo, roll_id=roll_id).clearable_film_base()
+
+
+def test_the_film_base_tool_sits_on_the_readouts_header_and_hides_on_a_slide(qapp):
+    from dataclasses import replace
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.session import AppState, ToolMode
+    from negpy.desktop.view.sidebar.right_panel import RightPanel
+
+    controller = MagicMock()
+    controller.state = AppState()
+    controller.session.repo.get_global_setting.side_effect = lambda key, default=None: default
+    controller.clearable_film_base.return_value = True
+    panel = RightPanel(controller)
+    panel._sync_film_base()
+    header = panel.readouts_fold.button.parentWidget()
+    assert panel.film_base_btn.parentWidget() is header
+    assert not panel.film_base_btn.isHidden() and not panel.clear_film_base_btn.isHidden()
+    assert not panel.film_base_btn.edited_dot.isHidden()
+
+    panel.film_base_btn.click()
+    controller.set_active_tool.assert_called_with(ToolMode.FILM_BASE)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, positive_source=True))
+    panel._sync_film_base()
+    assert panel.film_base_btn.isHidden() and panel.clear_film_base_btn.isHidden()
