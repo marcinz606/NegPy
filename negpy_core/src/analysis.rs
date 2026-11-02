@@ -154,6 +154,22 @@ pub fn unmix_log(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
     );
 }
 
+/// `relog_matrix_image`: a 3x3 matrix on each pixel of an HxWx3 log image, in linear light. Each
+/// value goes to 10^v, each row is float32 products summed in channel order with no `mul_add`, and
+/// the log clamps below at 1e-6 as `log_density_open` does.
+pub fn relog_matrix(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
+    crate::par_zip(
+        dst.as_chunks_mut::<3>().0,
+        img.as_chunks::<3>().0,
+        move |d, p| {
+            let lin = p.map(|v| crate::mathf::exp10_f64(v as f64) as f32);
+            *d = m.map(|r| {
+                crate::mathf::log10f((lin[0] * r[0] + lin[1] * r[1] + lin[2] * r[2]).max(1e-6))
+            });
+        },
+    );
+}
+
 /// `normalize_log_image`: `(v - floor) / (ceil - floor)` per channel of an HxWx3 log image,
 /// unclamped. A span under 1e-6 divides by +-1e-6, by the span's sign.
 pub fn normalize_log_image(img: &[f32], floors: [f32; 3], ceils: [f32; 3], dst: &mut [f32]) {

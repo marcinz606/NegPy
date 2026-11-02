@@ -1,5 +1,5 @@
-"""Positive decode of a TIFF by Source Encoding: the samples' tone curve to linear,
-then the embedded profile's primaries to the working space (Adobe RGB 1998)."""
+"""Positive decode of a TIFF by Source Encoding: the samples' tone curve to linear, and the
+embedded profile's source-to-working primaries (Adobe RGB 1998), which the engines apply."""
 
 import struct
 from dataclasses import dataclass
@@ -213,6 +213,20 @@ def _into_gamut(rgb: np.ndarray) -> np.ndarray:
         t = np.minimum(np.where(lo < 0.0, y / (y - lo), 1.0), np.where(hi > 1.0, (1.0 - y) / (hi - y), 1.0))
     t = np.clip(np.nan_to_num(t, nan=0.0), 0.0, 1.0)
     return np.clip(y + t * (rgb - y), 0.0, 1.0)
+
+
+# A source matrix with no entry below this maps the source's cube into the working space's: the
+# source gamut fits, so the engines can convert it without a gamut pass.
+_INSIDE_TOLERANCE = -1e-3
+
+
+def decode_positive(img: np.ndarray, decode: ProfileDecode) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    """(linear float32 RGB, source-to-working 3x3 or None) for a Positive source. A source whose
+    gamut fits Adobe RGB keeps its own primaries and returns the matrix for the engines, which
+    apply it after the density corrections. A wider source converts here, through the gamut pass."""
+    if decode.to_working is not None and float(np.min(decode.to_working)) >= _INSIDE_TOLERANCE:
+        return np.ascontiguousarray(_apply_curves(img, decode.curves), dtype=np.float32), decode.to_working
+    return apply_decode(img, decode), None
 
 
 def apply_decode(img: np.ndarray, decode: ProfileDecode) -> np.ndarray:

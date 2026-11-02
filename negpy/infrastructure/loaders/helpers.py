@@ -10,6 +10,7 @@ import rawpy
 from PIL import Image, ImageCms
 
 from negpy.domain.models import ColorSpace
+from negpy.features.process.capture_color import is_source_profile
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
@@ -665,6 +666,9 @@ class NonStandardFileWrapper:
         # for camera WB. None means the source has no WB to offer, as with NegPy's own scanner
         # DNGs, which are always neutral. postprocess() then leaves the data untouched.
         self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
+        # A Positive source decoded in its own primaries carries them here (source_cam_xyz), read
+        # by camera_xyz_matrix like a camera's. None for every other source.
+        self.rgb_xyz_matrix: Optional[list] = None
 
     @property
     def data(self) -> np.ndarray:
@@ -793,7 +797,8 @@ def camera_xyz_matrix(raw: Any) -> Optional[list]:
     # All-zero is libraw's "no color data" sentinel, not a valid transform.
     if float(np.abs(m[:3]).max()) < 1e-12:
         return None
-    return [[float(v) for v in row] for row in m[:3]]
+    rows = [[float(v) for v in row] for row in m[:3]]
+    return rows + [[float(v) for v in m[3]]] if is_source_profile(raw.rgb_xyz_matrix) else rows
 
 
 def camera_wb_multipliers(raw: Any) -> Optional[list]:
