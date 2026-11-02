@@ -792,9 +792,6 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     if entry is None:
         return
     defaults = dict(entry.get("defaults", {}))
-    if fields.get("fade_white_space"):
-        # A camera RAW's white replaces the roll's white with none, so each frame keeps its own.
-        defaults = {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
     defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
