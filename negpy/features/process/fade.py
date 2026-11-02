@@ -16,6 +16,7 @@ from negpy.features.exposure.normalization import (
     measure_neutral_axis_from_log,
 )
 from negpy.features.process.capture_color import camera_matrix_parts, is_source_profile
+from negpy.features.process.logic import effective_highlight_reconstruction
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
 
@@ -67,12 +68,16 @@ def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
 
 
 def fade_white_space(
-    cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]], crosstalk: Optional[np.ndarray] = None
+    cam_xyz: Optional[Sequence[Sequence[float]]],
+    camera_wb: Optional[Sequence[float]],
+    crosstalk: Optional[np.ndarray] = None,
+    highlight_mode: int = 0,
 ) -> str:
     """The space a camera RAW's log white is measured in: its white-balanced camera channels
-    (`density_channels`) after the *crosstalk* unmix, named by the as-shot white balance and the
-    unmix. The primaries after them do not name it. "" for a source with no camera matrix, whose
-    white is the file's own full scale."""
+    (`density_channels`) after the *crosstalk* unmix, named by the as-shot white balance, the unmix
+    and the decode's *highlight_mode*, which rebuilds the clipped pixels the white is read from. The
+    primaries after them do not name it. "" for a source with no camera matrix, whose white is the
+    file's own full scale."""
     if cam_xyz is None or is_source_profile(cam_xyz):
         return ""
     gains, primaries = camera_matrix_parts(cam_xyz, camera_wb)
@@ -81,14 +86,19 @@ def fade_white_space(
     named = b"" if gains is None else np.round(np.diag(gains).astype(np.float64), 4).tobytes()
     if crosstalk is not None:
         named += b"unmix" + np.round(np.asarray(crosstalk, dtype=np.float64), 4).tobytes()
+    named += b"highlight" + int(highlight_mode).to_bytes(1, "little")
     return hashlib.sha1(_WHITE_SPACE_CHANNELS + named).hexdigest()[:12]
 
 
 def render_white_space(
     process: ProcessConfig, process_mode: Optional[str], cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]]
 ) -> str:
-    """`fade_white_space` of a render with *process*, its crosstalk unmix included."""
-    return fade_white_space(cam_xyz, camera_wb, effective_crosstalk_matrix(process, process_mode))
+    """`fade_white_space` of a render with *process*: its crosstalk unmix and highlight mode included,
+    "" on a negative, which takes no fade."""
+    if render_path(process) is RenderPath.PRINT:
+        return ""
+    crosstalk = effective_crosstalk_matrix(process, process_mode)
+    return fade_white_space(cam_xyz, camera_wb, crosstalk, effective_highlight_reconstruction(process))
 
 
 # Names the channels in `fade_white_space`, so a tag hashed any other way reads as stale.

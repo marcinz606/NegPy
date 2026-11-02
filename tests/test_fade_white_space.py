@@ -338,3 +338,18 @@ def test_the_gpu_measures_a_stale_white_once_per_frame(monkeypatch):
         assert len(calls) == 1
     finally:
         engine.destroy_all()
+
+
+@pytest.mark.parametrize("level", [2, 5])
+def test_highlight_reconstruction_makes_a_stored_white_stale(level):
+    """Highlight Reconstruction rebuilds the clipped pixels the white is read from, so a new level measures it again."""
+    process = _slide(**_FADE, **_white(space=render_white_space(_slide(), ProcessMode.E6, _CAMERA, _WB)))
+    assert not fade_white_stale(process, render_white_space(process, ProcessMode.E6, _CAMERA, _WB))
+    rebuilt = replace(process, highlight_reconstruction=level)
+    assert fade_white_stale(rebuilt, render_white_space(rebuilt, ProcessMode.E6, _CAMERA, _WB))
+
+
+def test_a_negative_and_a_scanner_source_take_no_white_space():
+    negative = ProcessConfig(process_mode=ProcessMode.C41, highlight_reconstruction=5)
+    assert render_white_space(negative, ProcessMode.C41, _CAMERA, _WB) == ""
+    assert render_white_space(_slide(highlight_reconstruction=5), ProcessMode.E6, None, None) == ""
