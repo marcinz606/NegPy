@@ -37,9 +37,7 @@ from negpy.desktop.view.widgets.charts import (
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, fit_pane, make_section
 from negpy.desktop.view.widgets.fold import Fold, group_fold
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
-from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
-from negpy.desktop.settings_catalog import roll_card_rows
 from negpy.features.process.models import ProcessMode
 from negpy.desktop.view.widgets.stats import NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
@@ -49,18 +47,6 @@ _FILM_BASE_TIP = tr(
     "Film Base: click the clear film between frames to set the base these readouts measure from, for the open roll or this frame."
 )
 _SCAN_BASE_TIP = tr("Base Relative: line up each channel at its film base, so the channels compare at one height.")
-
-# The Roll tab's cards that own settings, for its header's Apply picker.
-_ROLL_TAB_CARDS = (
-    "film",
-    "sensor",
-    "fade",
-    "baseline",
-    "process",
-    "demosaic",
-    "lens",
-    "flatfield",
-)
 
 # ControlsPanel sections built into the Roll tab (_build_roll_page): reveal_section routes them to the Roll group.
 _ROLL_SECTION_ATTRS = frozenset(
@@ -415,7 +401,7 @@ class RightPanel(QWidget):
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(THEME.space_lg)
 
-        self.roll_tab_header = TabHeader(tr("Roll"))
+        self.roll_tab_header = TabHeader(tr("Roll"), linked=True)
         self.roll_tab_header.bind(
             (
                 cp.film_section,
@@ -426,7 +412,7 @@ class RightPanel(QWidget):
                 cp.baseline_section,
             )
         )
-        self.roll_tab_header.apply_requested.connect(self._apply_roll_tab)
+        self.roll_tab_header.apply_requested.connect(cp.push_roll_cards)
         self.roll_tab_header.roll_revert_requested.connect(lambda: cp.revert_cards_to_roll(tuple(key for key, _ in cp._roll_sections())))
         self.controls_panel.modified_synced.connect(self.roll_tab_header.refresh)
         page_layout.addWidget(self.roll_tab_header)
@@ -456,12 +442,6 @@ class RightPanel(QWidget):
         if group == "frame":
             return self._frame_tab_headers.get(self._tab_keys[self._active_index])
         return None
-
-    def _apply_roll_tab(self) -> None:
-        """Every Roll card's settings in one picker. The cards themselves stay roll
-        defaults; this carries their current values onto other frames, the same as the
-        Film Strip's own apply with a narrower list."""
-        open_apply_dialog(self, self.controller.session, rows=roll_card_rows(*_ROLL_TAB_CARDS))
 
     def _build_scan_page(self) -> QWidget:
         """Scanner choice and cards in a scroll area; the active scanner's footer stays pinned below."""

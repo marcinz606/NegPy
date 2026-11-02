@@ -59,17 +59,17 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 On a slider, click the value to type a number, drag the name to adjust (**Shift** for fine steps), and double-click to reset. A chevron hides fine-tune controls; a dot on a closed fold, a card or a tab marks a changed value. On a dropdown, **‹** and **›** step through the choices. Each card has a reset arrow and an **ⓘ** that opens its part of this guide.
 
-A tab with several cards has a bar such as **3 of 5 cards edited**, with reset, **Reset to Roll**, **Apply** (to the selection or the roll) and collapse for the whole tab.
+A tab with several cards has a bar such as **3 of 5 cards edited**, with reset, **Reset to Roll**, **Apply** and collapse for the whole tab. On the Roll and Metadata tabs, **Apply** gives the roll every card this frame changed. On a Frame tab, it copies the tab to other frames.
 
 ### Frame or roll
 
-Each card header has **Frame** (amber) and **Roll** (red). The lit one shows where the card's values live.
+Each card on the **Roll** and **Metadata** tabs has **Frame** (amber) and **Roll** (red). The lit one shows where the card's values live.
 
-*   On a **Roll** tab or **Metadata** card, the card follows the roll until you edit it on this frame. **Roll** pushes this frame's values to the roll; **Frame** keeps them on this frame only.
-*   On a **Frame** card, **Roll** copies your changes to the selection or the whole roll.
+*   The card follows the roll until you edit it on this frame. **Roll** gives the roll this frame's values; **Frame** keeps them on this frame only.
 *   **Reset to Roll** puts the roll's values back on the card.
+*   A card on a **Frame** tab holds this frame's own values. Its copy button, **Apply to Frames**, copies them once to the selection or the whole roll.
 
-Right-click a card header for **Copy Card Settings** and **Undo Apply to Roll**. Frames that are not one roll show only **Frame** until you save them as a roll.
+Right-click a card header for **Copy Card Settings**, and on a Roll tab card for **Undo Apply to Roll**. Frames that are not one roll show only **Frame** until you save them as a roll.
 
 ### What carries to the next frame
 
@@ -221,7 +221,7 @@ The **Readouts** fold holds numbers about the scan. An amber value is a warning;
 
 ## 4. Geometry tab
 
-Two cards: **Crop** sets the part of the picture you keep, and **Straighten** turns and levels it. Both hold this frame's own values. Their **Roll** button copies them to the selection or the whole roll ([§1](#frame-or-roll)).
+Two cards: **Crop** sets the part of the picture you keep, and **Straighten** turns and levels it. Both hold this frame's own values. Their **Apply to Frames** button copies them to the selection or the whole roll ([§1](#frame-or-roll)).
 
 <!-- panel:autocrop -->
 ### 4.1 Crop

@@ -2369,9 +2369,7 @@ class FileBrowser(QWidget):
         return os.path.basename(files[idx]["path"]) if 0 <= idx < len(files) else ""
 
     def _open_apply_dialog(self) -> None:
-        applied = open_apply_dialog(self, self.session)
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        open_apply_dialog(self, self.session)
 
     def _open_roll_settings_dialog(self) -> None:
         """The tag-icon button: always opens, and silently pre-fills a gear match too

@@ -470,7 +470,6 @@ class ControlsPanel(QWidget):
         header = TabHeader(title)
         header.bind(sections)
         header.apply_requested.connect(lambda keys=tuple(card_keys): self._apply_tab(keys))
-        header.roll_revert_requested.connect(lambda keys=tuple(card_keys): self.revert_cards_to_roll(keys))
         self.tab_headers.append(header)
         return header
 
@@ -510,16 +509,11 @@ class ControlsPanel(QWidget):
         self.pick_better_btn.setToolTip(wrap_tooltip(self._pick_better_tooltip(printing=state.pick_better_pending)))
 
     def _apply_tab(self, card_keys: tuple) -> None:
-        """Every card on the tab in one picker. A whole-roll apply is recorded per card,
-        the same record a card's own Roll button writes, so each header still reads back
-        what went out."""
+        """Every card on the tab in one picker: a one-time copy to other frames."""
         live = [k for k in card_keys if not getattr(self, f"{k}_section").isHidden()]
         rows = list(dict.fromkeys(r for k in live for r in frame_card_rows(k)))
-        if not rows:
-            return
-        applied = open_apply_dialog(self, self.controller.session, rows=rows)
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        if rows:
+            open_apply_dialog(self, self.controller.session, rows=rows)
 
     def _make_section(
         self,
@@ -574,9 +568,14 @@ class ControlsPanel(QWidget):
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
         self.controller.batch_finished.connect(self._sync_crop_block)
 
-        for key, section in self._roll_sections() + self._frame_sections():
+        for key, section in self._roll_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll(_SECTION_CARDS.get(k, (k,))))
+        for key, section in self._frame_sections():
+            apply_btn = section.add_header_button(
+                "fa5s.clone", tr("Apply to Frames: copy this card to the selected frames or the whole roll…")
+            )
+            apply_btn.clicked.connect(lambda _=False, k=key: open_apply_dialog(self, self.controller.session, rows=frame_card_rows(k)))
         for key, section in self._roll_sections() + self._frame_sections():
             section.toggle_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             section.toggle_button.customContextMenuRequested.connect(lambda pos, k=key, s=section: self._show_card_menu(k, s, pos))
@@ -1084,8 +1083,7 @@ class ControlsPanel(QWidget):
 
     def _sync_scope_buttons(self) -> None:
         """Each card's Frame/Roll pair and Reset to Roll, and roll_override_summary's one-line
-        answer to "roll-wide or this frame's own" alongside them. A Roll-tab card reads its
-        own lock; a frame card reads the whole-roll apply recorded for it.
+        answer to "roll-wide or this frame's own" alongside them, from each Roll-tab card's lock.
 
         Frames that are not one roll (a library search's results, several folders at once)
         read Frame with Roll disabled: every value there is the frame's own, since no roll
@@ -1094,10 +1092,7 @@ class ControlsPanel(QWidget):
         overridden = []
         locked_cards = self.controller.locked_roll_cards()
         roll_sections = self._roll_sections()
-        frame_sections = self._frame_sections()
-        revertible = self.controller.roll_revert_cards(
-            [card for key, _ in roll_sections + frame_sections for card in _SECTION_CARDS.get(key, (key,))]
-        )
+        revertible = self.controller.roll_revert_cards([card for key, _ in roll_sections for card in _SECTION_CARDS.get(key, (key,))])
         for section_key, section in roll_sections:
             cards = _SECTION_CARDS.get(section_key, (section_key,))
             locked = any(card in locked_cards for card in cards)
@@ -1119,16 +1114,6 @@ class ControlsPanel(QWidget):
             if locked:
                 overridden.append(label)
 
-        scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
-        for key, section in frame_sections:
-            section.set_scope_buttons(
-                True,
-                scopes[key],
-                roll_tooltip="" if has_roll else NO_ROLL_SCOPE_HINT,
-                roll_enabled=has_roll,
-            )
-            section.set_roll_revert(key in revertible)
-
         if overridden:
             set_hint_kind(self.roll_override_summary, "warning")
             self.roll_override_summary.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
@@ -1145,17 +1130,16 @@ class ControlsPanel(QWidget):
     def _frame_sections(self) -> tuple:
         return tuple((key, getattr(self, f"{key}_section")) for key in FRAME_CARD_FIELDS)
 
+    def push_roll_cards(self) -> None:
+        """The Roll tab bar's Apply: the roll takes every card this frame changed."""
+        live = [key for key, section in self._roll_sections() if not section.isHidden()]
+        self.controller.set_card_scope(tuple(card for key in live for card in _SECTION_CARDS.get(key, (key,))), "roll")
+        self._sync_scope_buttons()
+
     def _on_scope_selected(self, key: str, scope: str) -> None:
-        """Roll on a Roll-tab card pushes that card out; on a frame card it opens the
-        picker over that card's own settings. Frame on a Roll-tab card locks it here;
-        a frame card is already there, so the pair's own click guard swallows it."""
-        if key in dict(self._roll_sections()):
-            self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
-            self._sync_scope_buttons()
-            return
-        applied = open_apply_dialog(self, self.controller.session, rows=frame_card_rows(key))
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        """Roll pushes the card out to the roll; Frame locks it here."""
+        self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
+        self._sync_scope_buttons()
 
     def _sync_clip_colors(self) -> None:
         self.tone_histogram.set_clip_colors(*palette_for(self.controller.state.color_vision).pair)

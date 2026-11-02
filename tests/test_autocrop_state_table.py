@@ -220,7 +220,6 @@ def test_A11_a_frame_cropped_by_hand_mid_run_is_kept(ctl):
 
 def test_A13_every_crop_edit_is_refused_while_the_run_goes(ctl):
     ctl.state.config = _cfg("auto", autocrop_ratio="3:2")
-    rolls.set_section_push(ctl.repo, ctl.roll, "autocrop", {"autocrop_ratio": "5:4"})
     before = ctl.state.config
     ctl.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
     c = ctl.controller
@@ -231,7 +230,6 @@ def test_A13_every_crop_edit_is_refused_while_the_run_goes(ctl):
         lambda: c.set_crop_ratio("4:3"),
         c.detect_aspect_ratio,
         lambda: c.set_crop_settings(autocrop_offset=20),
-        lambda: c.revert_to_roll(("autocrop",)),
         lambda: c.set_active_tool(ToolMode.CROP_MANUAL),
     ):
         c.set_status.reset_mock()
@@ -279,9 +277,8 @@ def test_A14_crop_controls_are_disabled_while_the_run_goes(qapp):
     assert all(w.isEnabled() for w in widgets)
 
 
-def test_A13_reset_to_roll_settings_during_the_run_resets_all_but_crop(ctl):
+def test_A13_reset_to_roll_settings_during_the_run_leaves_the_crop(ctl):
     rolls.set_roll_defaults(ctl.repo, ctl.roll, hue_trim=4.0)
-    rolls.set_section_push(ctl.repo, ctl.roll, "autocrop", {"autocrop_ratio": "5:4"})
     ctl.state.config = replace(_cfg("auto", autocrop_ratio="3:2"), process=replace(WorkspaceConfig().process, hue_trim=-6.0))
     rolls.set_frame_override(ctl.repo, ctl.roll, "h1", "sensor", True)
     ctl.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
@@ -291,7 +288,7 @@ def test_A13_reset_to_roll_settings_during_the_run_resets_all_but_crop(ctl):
     assert moved == 1
     assert ctl.state.config.process.hue_trim == 4.0
     assert ctl.state.config.geometry.autocrop_ratio == "3:2"
-    assert _status(ctl) == "Reset to the roll: Calibration; Crop waits for Auto Crop"
+    assert _status(ctl) == "Reset to the roll: Calibration"
 
 
 # --- Copying settings (paste, apply dialog, presets, carried settings) ---------------------
@@ -343,26 +340,6 @@ def test_E17_a_recorded_crop_carries_its_auto_flag():
     flat = selected_flat_dict(_cfg("auto"), _rows("geometry.crop_rect"))
 
     assert flat["crop_from_auto"] is True and flat["crop_rect"] == RECT
-
-
-def test_E17_crop_reset_to_roll_switches_auto_through_with_auto_crop(ctl):
-    rolls.set_section_push(ctl.repo, ctl.roll, "autocrop", {"crop_from_auto": True})
-    ctl.state.config = _cfg("hand-drawn")
-
-    ctl.controller.revert_to_roll(("autocrop",))
-
-    assert _kind(ctl.state.config) == "armed"
-
-
-def test_E18_crop_reset_to_roll_waits_for_the_run(ctl):
-    rolls.set_section_push(ctl.repo, ctl.roll, "autocrop", {"crop_from_auto": True})
-    ctl.state.config = _cfg("hand-drawn")
-    ctl.controller._begin_batch("autocrop", "Auto-cropping all frames", True)
-
-    assert ctl.controller.revert_to_roll(("autocrop",)) == 0
-
-    assert _kind(ctl.state.config) == "hand-drawn"
-    assert _status(ctl) == "Crop is locked while Auto Crop runs"
 
 
 def _session_with_roll(repo):

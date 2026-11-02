@@ -41,8 +41,7 @@ from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
 from negpy.desktop.view.widgets.tab_header import TabHeader
-from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_sequential_frame_dialog
-from negpy.desktop.settings_catalog import rows_for_fields
+from negpy.desktop.view.widgets.granular_settings_dialog import open_sequential_frame_dialog
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_catalog_dialog import resolve_other_gear_pick
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
@@ -327,7 +326,7 @@ class MetadataSidebar(BaseSidebar):
         pages = []
         for key, title in (("shot", tr("Shot")), ("process", tr("Process"))):
             sections = self._tab_sections[key]
-            header = TabHeader(title)
+            header = TabHeader(title, linked=True)
             header.bind(sections)
             card_keys = [k for k, section in self._scope_sections() if section in sections]
             header.apply_requested.connect(lambda keys=card_keys: self._apply_cards(keys))
@@ -412,9 +411,8 @@ class MetadataSidebar(BaseSidebar):
         )
 
     def _apply_cards(self, card_keys) -> None:
-        """A tab's metadata cards in one picker, the tab-wide twin of a card's Roll button."""
-        fields = tuple(f for key in card_keys for f in ROLL_DEFAULT_FIELDS[key][1])
-        open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
+        """Gives the roll every card on the tab this frame changed: the tab-wide twin of a card's Roll button."""
+        self.controller.set_card_scope(tuple(card_keys), "roll")
 
     def _on_scope_selected(self, card_key: str, scope: str) -> None:
         self.controller.set_card_scope(card_key, scope)

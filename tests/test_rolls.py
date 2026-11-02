@@ -48,8 +48,6 @@ from negpy.services.assets.rolls import (
     resolve_roll_baseline,
     resolve_roll_config,
     roll_defaults,
-    section_push,
-    set_section_push,
     roll_edit_hash,
     roll_for_id,
     roll_normalization,
@@ -700,42 +698,6 @@ class TestRollDefaults:
         )
 
         assert resolved.process.positive_source is False
-
-
-class TestSectionPush:
-    """What a frame-level card last pushed to the roll: a record, not a binding -- it
-    never overlays onto another frame, it only lets the card say whether the frame in
-    front of you still agrees with the roll."""
-
-    def test_a_roll_with_no_push_reads_empty(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        assert section_push(repo, roll_id, "tone") == {}
-
-    def test_it_reads_back_what_was_pushed(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        assert section_push(repo, roll_id, "tone") == {"dye_separation": 0.4}
-
-    def test_a_second_push_merges_rather_than_replaces(self):
-        """Applying two of a card's settings in two goes leaves both at the roll."""
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        set_section_push(repo, roll_id, "tone", {"toe": 0.2})
-        assert section_push(repo, roll_id, "tone") == {"dye_separation": 0.4, "toe": 0.2}
-
-    def test_cards_do_not_share_a_record(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        assert section_push(repo, roll_id, "finish") == {}
-
-    def test_pushing_to_an_unknown_roll_is_a_noop(self):
-        repo = _repo()
-        set_section_push(repo, "not-a-real-id", "tone", {"dye_separation": 0.4})
-        assert saved_rolls(repo) == {}
 
 
 class TestRollNormalization:

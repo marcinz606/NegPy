@@ -187,7 +187,6 @@ from negpy.features.geometry.models import (
     crops_frame,
     squares_on_arm,
     with_auto_crop,
-    with_auto_crop_field,
 )
 from negpy.features.geometry.skew import squared_geometry
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
@@ -210,11 +209,7 @@ from negpy.features.process.models import (
 from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
 from negpy.desktop.settings_catalog import (
     BOUNDS_INPUT_FIELDS,
-    FRAME_CARD_FIELDS,
     changed_settings,
-    frame_card_rows,
-    section_of_field,
-    selected_flat_dict,
 )
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.services.assets.thumbnail_fingerprint import (
@@ -6490,18 +6485,6 @@ class AppController(QObject):
         "metadata_exposure": tr("Exposure"),
     }
     METADATA_CARDS = ("metadata_gear", "metadata_capture", "metadata_process", "metadata_scanning", "metadata_exposure")
-    _FRAME_CARD_LABELS = {
-        "autocrop": tr("Crop"),
-        "geometry": tr("Straighten"),
-        "color": tr("Filtration"),
-        "tone": tr("Tone"),
-        "paper": tr("Paper Response"),
-        "lab": tr("Lab"),
-        "altproc": tr("Alternative Processes"),
-        "toning": tr("Toning"),
-        "retouch": tr("Retouch"),
-        "finish": tr("Finishing"),
-    }
 
     @staticmethod
     def _card_values(config, card_key: str) -> dict:
@@ -6719,72 +6702,25 @@ class AppController(QObject):
         for card_key in self.METADATA_CARDS:
             self._lock_roll_card(card_key)
 
-    def frame_section_scope(self, section_key: str) -> str:
-        """Where a frame-level card's values live: "roll" once a whole-roll apply put them
-        there and this frame still matches every field it pushed, "frame" otherwise. Edit
-        one of those fields and it reads Frame again on its own, with nothing to clear."""
-        return self.frame_section_scopes((section_key,))[section_key]
-
-    def frame_section_scopes(self, section_keys: tuple) -> Dict[str, str]:
-        """frame_section_scope for many cards, off one read of the roll."""
-        pushes = self._section_pushes()
-        return {key: "roll" if pushes.get(key) and self._matches_push(pushes[key]) else "frame" for key in section_keys}
-
-    def _section_pushes(self) -> Dict[str, dict]:
-        roll_id = self.state.active_roll_id
-        entry = rolls.roll_for_id(self.session.repo, roll_id) if roll_id is not None else None
-        return entry.get("section_pushes", {}) if entry else {}
-
-    def _matches_push(self, pushed: dict) -> bool:
-        sections = section_of_field()
-        return all(rolls.same_value(getattr(getattr(self.state.config, sections[f]), f), v) for f, v in pushed.items() if f in sections)
-
-    def record_roll_apply(self, rows) -> None:
-        """Files a whole-roll apply of *rows*, split per frame card, so each card's scope
-        pair reads Roll and Reset to Roll has a value to return to."""
-        roll_id = self.state.active_roll_id
-        rows = list(rows)
-        if roll_id is None or not rows:
-            return
-        for key in FRAME_CARD_FIELDS:
-            own = [r for r in frame_card_rows(key) if r in rows]
-            if own:
-                rolls.set_section_push(self.session.repo, roll_id, key, selected_flat_dict(self.state.config, own))
-        self.config_updated.emit()
-
     def roll_revert_cards(self, card_keys: Collection[str]) -> Set[str]:
-        """Which of *card_keys* the active frame can reset to the roll: a Roll-tab card it
-        has locked while the roll holds a value for it, or a frame card that no longer
-        matches its recorded whole-roll apply. Empty with no active roll."""
+        """Which of *card_keys* the active frame can reset to the roll: a Roll-tab card it has
+        locked while the roll holds a value for it. Empty with no active roll."""
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
             return set()
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
-        pushes = self._section_pushes()
         locked = self.locked_roll_cards()
-        available = set()
-        for key in card_keys:
-            if key in rolls.ROLL_DEFAULT_FIELDS:
-                if key in locked and any(f in defaults for f in rolls.card_fields(key)):
-                    available.add(key)
-            elif pushes.get(key) and not self._matches_push(pushes[key]):
-                available.add(key)
-        return available
+        return {
+            key
+            for key in card_keys
+            if key in rolls.ROLL_DEFAULT_FIELDS and key in locked and any(f in defaults for f in rolls.card_fields(key))
+        }
 
     def revert_to_roll(self, card_keys: Collection[str]) -> int:
         """Resets *card_keys* on the active frame to the roll, as one edit and one undo
-        step. A Roll-tab card rejoins the roll and takes its values; a frame card takes
-        back what its whole-roll apply recorded, and a field that apply never carried keeps
-        the frame's own value. Returns how many cards moved."""
+        step: each card rejoins the roll and takes its values. Returns how many cards moved."""
         available = self.roll_revert_cards(card_keys)
         cards = [k for k in dict.fromkeys(card_keys) if k in available]
-        pushes = self._section_pushes()
-        crop_held = self.crop_edits_blocked() and "autocrop" in cards
-        if crop_held:
-            cards = [k for k in cards if k != "autocrop"]
-            if not cards:
-                self.refuse_crop_edit()
-                return 0
         if not cards:
             return 0
         roll_id = self.state.active_roll_id
@@ -6792,33 +6728,23 @@ class AppController(QObject):
         defaults = rolls.roll_defaults(self.session.repo, roll_id)
         config = self.state.config
         for key in cards:
-            if key in rolls.ROLL_DEFAULT_FIELDS:
-                config = self._with_roll_card(config, key, defaults)
-                rolls.set_frame_override(self.session.repo, roll_id, file_hash, key, False)
-            else:
-                config = self._with_frame_card_push(config, pushes[key])
+            config = self._with_roll_card(config, key, defaults)
+            rolls.set_frame_override(self.session.repo, roll_id, file_hash, key, False)
         if all(key in self.METADATA_CARDS for key in cards):
             # Metadata never reaches the pixels.
             self.session.update_config(config, persist=True, render=False)
         else:
             self.apply_config(config, persist=True)
         self.config_updated.emit()
-        labels = {**self._ROLL_CARD_LABELS, **self._FRAME_CARD_LABELS}
-        names = ", ".join(dict.fromkeys(labels[k] for k in cards))
-        self.set_status(
-            tr("Reset to the roll: {value}; Crop waits for Auto Crop", value=names)
-            if crop_held
-            else tr("Reset to the roll: {value}", value=names),
-            3000,
-        )
+        self.set_status(tr("Reset to the roll: {value}", value=self._roll_card_names(cards)), 3000)
         return len(cards)
 
     def can_revert_frame_to_roll(self) -> bool:
-        return bool(self.roll_revert_cards(self._ROLL_CARDS + tuple(FRAME_CARD_FIELDS)))
+        return bool(self.roll_revert_cards(self._ROLL_CARDS))
 
     def revert_frame_to_roll(self) -> int:
         """Reset to Roll Settings: every card on the active frame that differs from the roll."""
-        return self.revert_to_roll(self._ROLL_CARDS + tuple(FRAME_CARD_FIELDS))
+        return self.revert_to_roll(self._ROLL_CARDS)
 
     def _with_roll_card(self, config: WorkspaceConfig, card_key: str, defaults: dict) -> WorkspaceConfig:
         """*config* with *card_key* holding the roll's value for every field the roll has
@@ -6831,30 +6757,6 @@ class AppController(QObject):
             file_hash = rolls.unforked_hash(self.state.current_file_hash)
             config = rolls.resolve_roll_baseline(self.session.repo, self.state.active_roll_id, file_hash, config)
         return config
-
-    @staticmethod
-    def _with_frame_card_push(config: WorkspaceConfig, pushed: dict) -> WorkspaceConfig:
-        """*config* carrying a frame card's recorded whole-roll apply. The cached per-frame
-        bounds drop when a field that feeds the meter moves."""
-        sections = section_of_field()
-        by_section: Dict[str, dict] = {}
-        for name, value in pushed.items():
-            if name in sections:
-                by_section.setdefault(sections[name], {})[name] = rolls.config_value(value)
-        new = config
-        geometry = by_section.get("geometry", {})
-        if "crop_from_auto" in geometry and "crop_rect" not in geometry:
-            new = with_auto_crop_field(new, geometry)
-        for section, values in by_section.items():
-            new = replace(new, **{section: replace(getattr(new, section), **values)})
-        remeter = any(
-            name in BOUNDS_INPUT_FIELDS and getattr(getattr(new, section), name) != getattr(getattr(config, section), name)
-            for section, values in by_section.items()
-            for name in values
-        )
-        if remeter:
-            new = replace(new, process=replace(new.process, **invalidate_local_bounds(new.process)))
-        return new
 
     def set_roll_card_locked(self, card_key: str, locked: bool) -> None:
         """Lock or unlock one Roll-tab card for the active frame, within the active

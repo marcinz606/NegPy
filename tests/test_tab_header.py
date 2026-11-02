@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QPushButton, QWidget
 
-from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS, rows_for_fields, rows_for_section
+from negpy.desktop.settings_catalog import GEOMETRY_FIELDS, rows_for_fields, rows_for_section
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.tab_header import TabHeader
@@ -141,28 +141,10 @@ def test_a_card_with_no_catalog_rows_travels_with_nothing():
     dialog.assert_not_called()
 
 
-def test_a_whole_roll_apply_is_recorded():
-    """The controller splits the rows per card (record_roll_apply)."""
-    panel = _panel_stub()
-    applied = (rows_for_fields(GEOMETRY_FIELDS) + rows_for_fields(COLOR_FIELDS), "roll")
-
-    with patch("negpy.desktop.view.sidebar.controls_panel.open_apply_dialog", return_value=applied):
-        ControlsPanel._apply_tab(panel, ("geometry", "color"))
-
-    panel.controller.record_roll_apply.assert_called_once_with(applied[0])
-
-
-def test_a_selection_apply_records_nothing():
-    """section_push is what a whole-roll apply put on the roll; a selection is not that."""
-    panel = _panel_stub()
-
-    with patch(
-        "negpy.desktop.view.sidebar.controls_panel.open_apply_dialog",
-        return_value=(rows_for_fields(GEOMETRY_FIELDS), "selection"),
-    ):
-        ControlsPanel._apply_tab(panel, ("geometry",))
-
-    panel.controller.record_roll_apply.assert_not_called()
+def test_a_frame_tab_copies_and_a_roll_tab_pushes():
+    """The copy icon copies to other frames; the film icon gives the roll this frame's changed cards."""
+    assert "Apply to Frames" in TabHeader("Exposure").apply_btn.toolTip()
+    assert "Give the roll" in TabHeader("Roll", linked=True).apply_btn.toolTip()
 
 
 def _revertible(available: bool, hidden: bool = False) -> CollapsibleSection:
