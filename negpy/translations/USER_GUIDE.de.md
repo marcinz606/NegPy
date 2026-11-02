@@ -365,12 +365,12 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
 *   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** stellt auch den Rot-Erhalt ein und passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
 
-<!-- panel:process src:9d65a945 -->
+<!-- panel:process src:6572d2a7 -->
 ### 10.5 Messung: Negativ → Positiv
 
 Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
 
-*   **Bild neu analysieren**: misst dieses Bild oder jedes ausgewählte Bild erneut anhand seines aktuellen Zuschnitts. Das Bild nutzt dann eigene Grenzen, nicht die Basislinie der Rolle oder Szene.
+*   **Allein messen**: nimmt dieses Bild oder jedes ausgewählte Bild vom Mittelwert der Rolle oder Szene und misst es allein, aus seinem aktuellen Zuschnitt.
 *   **Region zeichnen**: Zeichne einen Bereich, dann misst NegPy nur diesen Bereich. Doppelklicke hinein oder drücke `Enter` zum Bestätigen. `Esc` stellt die vorherige Region wieder her. **×** löscht sie.
 *   **Analysepuffer**: ignoriert beim Messen einen Rand um das Bild, damit Filmkanten und Halter nicht zählen.
 *   **Beschneidung**: wie viel des Abzugs reines Schwarz oder reines Weiß ist.
@@ -382,12 +382,12 @@ Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellst
 
 Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
 
-<!-- panel:baseline src:5536f77d -->
+<!-- panel:baseline src:7fc2c469 -->
 ### 10.6 Rollenanalyse
 
-Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
+Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen, und erneut, wenn sich ein Zuschnitt oder eine Messeinstellung ändert. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
 
-*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für diese Bilder ein. Bilder, die stark von den anderen abweichen, behalten ihre eigene. Zuerst werden die Bilder zugeschnitten, die auf den Auto-Zuschnitt warten.
+*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für die Rolle ein, sodass auch neue Bilder sie nutzen. Bilder, die stark von den anderen abweichen, behalten ihre eigene.
 *   **Dieses Bild verwenden**: macht die eigene Messung dieses Bildes zur Basislinie der Rolle; Farbstich schaltet sich aus.
 *   **Mittelwert verwenden**: Ein Rechtsklick auf einen der drei schaltet alle Mittelwerte ein oder aus. **Luma** nutzt Schwarz- und Weißpunkt der Rolle, **Farbe** die Farbbalance der Rolle und **Farbstich** (Farbnegative) die Graubalance der Rolle für die Farbstichentfernung. Bei aktivem Farbstich behält ein Bild unter anderem Licht etwas von diesem Licht, wie bei einem Frontier-Abzug. Ein Magenta-Stich bleibt, ein warmer oder grüner Stich bleibt teilweise, und ein blauer Stich verschwindet. Mit Luma und Farbe wird die Rolle gleichmäßig abgezogen. Sind beide aus, wird jedes Bild einzeln gemessen.
 *   **Basislinie**: zeigt, woher die Basislinie stammt (Rolle, Szene oder Bild). Sie warnt, wenn keine vorhanden ist, wenn sie veraltet ist oder wenn die Farbe dieses Bildes stark vom Durchschnitt abweicht.

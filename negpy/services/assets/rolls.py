@@ -933,6 +933,7 @@ def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Optional[t
         "axis": _saved_axis(saved),
         "outliers": tuple(saved.get("outliers", ())),
         "frames": tuple(saved["frames"]) if "frames" in saved else None,
+        "inputs": dict(saved["inputs"]) if "inputs" in saved else None,
     }
 
 
@@ -951,9 +952,10 @@ def set_roll_normalization(
     axis: Optional[tuple] = None,
     bounds_version: int = BOUNDS_VERSION,
     frames: Optional[tuple] = None,
+    inputs: Optional[Dict[str, str]] = None,
 ) -> None:
-    """Records a Roll Analysis result as the roll's own baseline, overwriting
-    whatever was there. No-op for an unknown roll id."""
+    """Records a Roll Analysis result as the roll's own baseline, overwriting whatever was
+    there. *inputs* is each measured frame's meter_inputs_key. No-op for an unknown roll id."""
     store = _read(repo)
     entry = store.get(roll_id)
     if entry is None:
@@ -968,6 +970,8 @@ def set_roll_normalization(
     }
     if frames is not None:
         entry["normalization"]["frames"] = list(frames)
+    if inputs is not None:
+        entry["normalization"]["inputs"] = dict(inputs)
     _write(repo, store)
 
 
@@ -1114,6 +1118,7 @@ def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict
         "axis": _saved_axis(saved),
         "outliers": tuple(saved.get("outliers", ())),
         "frames": tuple(saved["frames"]) if "frames" in saved else None,
+        "inputs": dict(saved["inputs"]) if "inputs" in saved else None,
     }
 
 
@@ -1126,6 +1131,7 @@ def set_scene_normalization(
     outliers: tuple = (),
     axis: Optional[tuple] = None,
     frames: Optional[tuple] = None,
+    inputs: Optional[Dict[str, str]] = None,
 ) -> None:
     def edit(scenes: Dict[str, dict]) -> None:
         if scene_id in scenes:
@@ -1138,6 +1144,8 @@ def set_scene_normalization(
             }
             if frames is not None:
                 saved["frames"] = list(frames)
+            if inputs is not None:
+                saved["inputs"] = dict(inputs)
             scenes[scene_id] = {**scenes[scene_id], "normalization": saved}
 
     _edit_scenes(repo, roll_id, edit)

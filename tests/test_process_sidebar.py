@@ -151,7 +151,7 @@ def test_lock_bounds_sits_on_the_analysis_header(qapp):
     col = sidebar.analysis_bar.layout()
     header_i = _row_index_containing(col, sidebar.analysis_header)
     assert _row_index_containing(col, sidebar.lock_bounds_btn) == header_i
-    assert sidebar.reanalyze_frame_btn.text().strip() == "Reanalyze Frame"
+    assert sidebar.reanalyze_frame_btn.text().strip() == "Measure Alone"
     assert sidebar.lock_bounds_btn.text().strip() == "Lock"
 
 
@@ -337,7 +337,7 @@ def test_reanalyze_names_the_selection(qapp):
     controller.state.config = replace(cfg, process=replace(cfg.process, lock_bounds=True))
     sidebar.sync_ui()
     assert sidebar.reanalyze_frame_btn.isEnabled()
-    assert "Reanalyze 3 Frames" in sidebar.reanalyze_frame_btn.toolTip()
+    assert "Measure 3 Frames Alone" in sidebar.reanalyze_frame_btn.toolTip()
 
 
 def test_baseline_hint_names_where_the_bounds_came_from(qapp):

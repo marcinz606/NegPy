@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from negpy.kernel.system.i18n import mark, tr
 
+import hashlib
 from dataclasses import fields as dataclass_fields, replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -406,6 +407,22 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "crop_detect_key",
     }
 )
+
+
+# Fields a frame's own measurement reads: the average flags pick a measurement, they feed none.
+_METER_INPUTS = tuple(sorted(BOUNDS_INPUT_FIELDS - {"use_luma_average", "use_color_average"} | {"analysis_rect"}))
+
+
+def meter_inputs_key(config: WorkspaceConfig) -> str:
+    """A fingerprint of what metering a frame reads. A roll average records one per frame, so
+    a change to a crop or a Metering setting shows which frames it must measure again."""
+    values = [
+        (name, getattr(getattr(config, section), name))
+        for name in _METER_INPUTS
+        for section in ("process", "geometry")
+        if hasattr(getattr(config, section), name)
+    ]
+    return hashlib.sha1(repr(values).encode()).hexdigest()[:16]
 
 
 def all_rows() -> list[SettingRow]:

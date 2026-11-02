@@ -1419,7 +1419,7 @@ def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(brow
 def test_context_menu_reanalyze_follows_the_selection(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Reanalyze Frame" in _action_labels(browser.build_frame_menu())
+    assert "Measure Alone" in _action_labels(browser.build_frame_menu())
 
     session.state.selected_indices = [0, 2]
-    assert "Reanalyze 2 Frames" in _action_labels(browser.build_frame_menu())
+    assert "Measure 2 Frames Alone" in _action_labels(browser.build_frame_menu())

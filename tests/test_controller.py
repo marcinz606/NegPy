@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1893,6 +1893,23 @@ class TestAppController(unittest.TestCase):
         self.controller.apply_roll_card("process")
 
         self.assertEqual(self.controller.set_status.call_args[0][0], "Applied to the roll: Metering. Frames that keep their own value: 1")
+
+    def test_measure_alone_keeps_the_frame_off_the_rolls_average(self):
+        """With the roll on its average, Measure Alone locks the Roll Analysis card, or the
+        roll's Use Average would come back on the next load."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        rolls.set_roll_defaults(
+            self.controller.session.repo, roll_id, use_luma_average=True, use_color_average=True, use_cast_average=False
+        )
+        state = self.mock_session_manager.state
+        state.selected_indices = []
+        state.config = replace(state.config, process=replace(state.config.process, use_luma_average=True, use_color_average=True))
+
+        self.controller.reanalyze_selection()
+
+        self.assertIn("baseline", self.controller.locked_roll_cards())
 
     def test_nothing_to_reset_to_the_roll(self):
         from negpy.services.assets import rolls
@@ -3899,7 +3916,14 @@ class TestPresetExportSelected(unittest.TestCase):
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
         mock_set.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None, frames=("h1", "h2", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            (0.1, 0.1, 0.1),
+            (0.9, 0.9, 0.9),
+            outliers=(),
+            axis=None,
+            frames=("h1", "h2", "h3"),
+            inputs=ANY,
         )
 
     def test_outlier_keeps_its_own_bounds(self):
@@ -3983,16 +4007,73 @@ class TestPresetExportSelected(unittest.TestCase):
                 self.controller._run_background_baseline()
         self.assertEqual(tasks, [])
 
+    def test_background_run_measures_again_when_a_frames_crop_or_metering_changed(self):
+        tasks = self._capture_background_runs()
+        frames = [f for f in self.mock_session_manager.state.uploaded_files]
+        current = self.controller._meter_inputs(frames)
+        hashes = tuple(current)
+
+        with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": current}):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
+        stale = {**current, hashes[0]: "a crop ago"}
+        with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": stale}):
+            self.controller._run_background_baseline()
+        self.assertEqual(len(tasks), 1)
+        self.assertTrue(self.controller._background_baseline[4])
+
+    def test_a_background_run_that_moves_the_average_says_so(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        base = WorkspaceConfig().process
+        riding = WorkspaceConfig(
+            process=replace(base, use_luma_average=True, locked_floors=(0.2,) * 3, locked_ceils=(0.8,) * 3, baseline_source="roll:roll-1")
+        )
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller.set_status = MagicMock()
+
+        with patch.object(rolls, "set_roll_normalization"):
+            self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
+
+        self.controller.set_status.assert_called_once_with("Roll average measured again: 1 frame took the new average", 4000)
+
+    def test_roll_analysis_makes_use_average_the_rolls_value_and_outliers_keep_their_own(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        with (
+            patch.object(rolls, "set_roll_normalization"),
+            patch.object(rolls, "set_roll_defaults") as defaults,
+            patch.object(rolls, "set_frame_override") as override,
+        ):
+            self.controller._on_normalization_finished((0.1,) * 3, (0.9,) * 3, ["h1"], None)
+
+        defaults.assert_called_once_with(
+            self.mock_session_manager.repo, "roll-1", use_luma_average=True, use_color_average=True, use_cast_average=False
+        )
+        locks = {c.args[2]: c.args[4] for c in override.call_args_list if c.args[3] == "baseline"}
+        self.assertEqual(locks, {"h1": True, "h2": False, "h3": False})
+
     def test_background_baseline_is_saved_and_turns_no_average_on(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"))
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, False)
 
         with patch.object(rolls, "set_roll_normalization") as mock_set:
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, ["h1"], None)
 
         mock_set.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", (0.1,) * 3, (0.9,) * 3, outliers=("h1",), axis=None, frames=("h1", "h2", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            (0.1,) * 3,
+            (0.9,) * 3,
+            outliers=("h1",),
+            axis=None,
+            frames=("h1", "h2", "h3"),
+            inputs=ANY,
         )
         self.mock_session_manager.repo.save_file_settings.assert_not_called()
         self.mock_session_manager.update_config.assert_not_called()
@@ -4006,7 +4087,7 @@ class TestPresetExportSelected(unittest.TestCase):
             process=replace(base, use_luma_average=True, locked_floors=(0.2,) * 3, locked_ceils=(0.8,) * 3, baseline_source="roll:roll-1")
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"))
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, False)
 
         with patch.object(rolls, "set_roll_normalization"):
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
@@ -4031,7 +4112,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         (task,) = tasks
         self.assertEqual([f.file_info["hash"] for f in task.frames], ["h2", "h3"])
-        self.assertEqual(self.controller._background_baseline, ("roll-1", "s1", ("h2", "h3")))
+        self.assertEqual(self.controller._background_baseline[:3], ("roll-1", "s1", ("h2", "h3")))
 
     def test_background_scene_baseline_moves_only_the_frames_riding_that_scene(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
@@ -4045,7 +4126,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         configs = {"h1": riding("roll:roll-1"), "h3": riding("scene:s1")}
         self.mock_session_manager.repo.load_file_settings.side_effect = configs.get
-        self.controller._background_baseline = ("roll-1", "s1", ("h2", "h3"))
+        self.controller._background_baseline = ("roll-1", "s1", ("h2", "h3"), {}, False)
 
         with (
             patch.object(rolls, "scene_by_hash", return_value={"h3": (1, "s1", "Woods")}),
@@ -4239,7 +4320,15 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(saved["h1"].process.baseline_source, "scene:s1")
         mock_roll.assert_not_called()
         mock_scene.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None, frames=("h1", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            "s1",
+            (0.1, 0.1, 0.1),
+            (0.9, 0.9, 0.9),
+            outliers=(),
+            axis=None,
+            frames=("h1", "h3"),
+            inputs=ANY,
         )
         # h2, the active frame, is outside the scene, so its in-memory config is untouched.
         self.mock_session_manager.update_config.assert_not_called()

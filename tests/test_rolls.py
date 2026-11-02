@@ -724,6 +724,7 @@ class TestRollNormalization:
             "axis": None,
             "outliers": (),
             "frames": None,
+            "inputs": None,
         }
 
     def test_records_the_measured_frames(self):
@@ -855,6 +856,7 @@ class TestScenes:
             "axis": axis,
             "outliers": ("a",),
             "frames": None,
+            "inputs": None,
         }
         assert roll_normalization(repo, roll_id) is None
         set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), frames=("a",))

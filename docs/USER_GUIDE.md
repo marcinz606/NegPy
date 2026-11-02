@@ -540,7 +540,7 @@ Gives a faded slide its dye layers back.
 
 To turn a negative into a positive, NegPy measures its darkest and brightest parts (the black and white points) and the color of the film. These controls set what it measures.
 
-*   **Reanalyze Frame**: measures this frame, or each selected frame, again from its current crop. The frame then uses its own bounds, not the roll or scene baseline.
+*   **Measure Alone**: takes this frame, or each selected frame, off the roll or scene average and measures it on its own, from its current crop.
 *   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside or press `Enter` to confirm, and `Esc` puts back the region you had before. **×** clears it.
 *   **Analysis Buffer**: ignores a border around the frame when measuring, so film edges and holders do not count.
 *   **Clipping**: how much of the print is pure black or pure white.
@@ -555,9 +555,9 @@ A **slide** needs no inversion: the tone controls shape the picture directly. Au
 <!-- panel:baseline -->
 ### 10.6 Roll Analysis
 
-Measures the whole roll once and shares the result, so the frames of one film print alike. NegPy measures the roll and each scene on its own, as frames arrive, but no frame uses a baseline until you turn on an average. With no roll open, the card is grayed out: open or save a roll first.
+Measures the whole roll once and shares the result, so the frames of one film print alike. NegPy measures the roll and each scene as frames arrive, and again after a crop or Metering change. No frame uses a baseline until you turn on an average. With no roll open, the card is grayed out: open or save a roll first.
 
-*   **Reanalyze**: measures every visible frame outside a scene, saves the average as the roll's baseline and turns the averages on for those frames. Frames far from the rest keep their own. It first crops the frames that wait for Auto Crop.
+*   **Reanalyze**: measures every visible frame outside a scene, saves the average as the roll's baseline and turns the averages on for the roll and its new frames. Frames far from the rest keep their own.
 *   **Use This Frame**: makes this frame's own measurement the roll's baseline; Cast turns off.
 *   **Use Average**: right-click any of the three to turn every average on or off. **Luma** uses the roll's black and white points, **Color** the roll's color balance, and **Cast** (color negatives) the roll's gray balance for Cast Removal. With Cast on, a frame shot under a different light keeps some of that light, as on a Frontier print. A magenta cast stays, a warm or green cast stays in part, and a blue cast goes. With Luma and Color on, the roll prints evenly; with both off, each frame is measured on its own.
 *   **Baseline**: says where the baseline came from (roll, scene or frame). It warns when there is none, when it is out of date, or when this frame's color is far from the average.

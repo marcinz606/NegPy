@@ -2528,7 +2528,7 @@ class FileBrowser(QWidget):
         menu.addAction(label_with_shortcut(tr("Sync Bounds…"), "sync_bounds")).triggered.connect(
             lambda: open_sync_bounds_dialog(self, self.session)
         )
-        reanalyze = tr("Reanalyze {value}", value=count_of(n, "frame").title()) if on_selection else tr("Reanalyze Frame")
+        reanalyze = tr("Measure {value} Alone", value=count_of(n, "frame").title()) if on_selection else tr("Measure Alone")
         menu.addAction(reanalyze).triggered.connect(lambda: self.controller.reanalyze_selection())
         if state.active_roll_id:
             menu.addAction(tr("Use Average")).triggered.connect(lambda: self.controller.set_selection_average(True))
