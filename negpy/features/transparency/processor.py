@@ -25,7 +25,7 @@ from negpy.features.exposure.normalization import (
     resolve_analysis_region,
     unmix_log_image,
 )
-from negpy.features.process.fade import fade_density, fade_white_space, resolve_fade_white, with_fade_white
+from negpy.features.process.fade import fade_density, render_white_space, resolve_fade_white, with_fade_white
 from negpy.features.process.capture_color import apply_camera_matrix
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
@@ -74,7 +74,7 @@ class TransparencyBaseProcessor:
         def white_grid() -> ImageBuffer:
             return fade_white_grid(self.config, context.process_mode, context.cam_xyz, context.camera_wb, image, an_roi, an_buffer)
 
-        white_space = fade_white_space(context.cam_xyz, context.camera_wb)
+        white_space = render_white_space(self.config, context.process_mode, context.cam_xyz, context.camera_wb)
         measured = resolve_fade_white(self.config, white_space, white_grid)
         if measured is not None:
             context.metrics["fade_white"] = measured

@@ -96,7 +96,14 @@ from negpy.features.transparency.logic import (
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import fade_density, fade_white_space, fade_white_target, resolve_fade_white, with_fade_white
+from negpy.features.process.fade import (
+    fade_density,
+    fade_white_stale,
+    fade_white_target,
+    render_white_space,
+    resolve_fade_white,
+    with_fade_white,
+)
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -421,6 +428,8 @@ class GPUEngine:
         self._clip_cache: Optional[tuple] = None
         # (key, prefiltered grid, clip fractions), keyed without the clip sliders.
         self._prefilter_cache: Optional[tuple] = None
+        # (key, white) of the last fade white measured for a stale one, so drag ticks reuse it.
+        self._fade_white_cache: Optional[Tuple[Any, Any]] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
@@ -797,8 +806,23 @@ class GPUEngine:
             return fade_white_grid(settings.process, settings.process.process_mode, cam_xyz, camera_wb, source, None, buffer)
 
         # Before every key and matrix below, which read the white. A tile takes its export's white.
-        white_space = fade_white_space(cam_xyz, camera_wb)
-        measured_white = None if tiling_mode else resolve_fade_white(settings.process, white_space, _white_grid)
+        white_space = render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb)
+        proc = settings.process
+        white_key = (
+            None
+            if analysis_source_hash is None or tiling_mode
+            else (analysis_source_hash, white_space, roi, settings.geometry, proc.analysis_buffer, proc.analysis_rect, proc.meter_rect)
+            + (proc.process_mode, proc.positive_source, proc.linear_raw, proc.highlight_reconstruction)
+        )
+        measured_white = None
+        if not tiling_mode and fade_white_stale(proc, white_space):
+            cached = self._fade_white_cache
+            if white_key is not None and cached is not None and cached[0] == white_key:
+                measured_white = cached[1]
+            else:
+                measured_white = resolve_fade_white(proc, white_space, _white_grid)
+                if white_key is not None:
+                    self._fade_white_cache = (white_key, measured_white)
         settings = replace(settings, process=with_fade_white(settings.process, measured_white))
 
         # Reuse the per-source meter across creative-slider previews: fill any missing
@@ -2987,7 +3011,11 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
         # auto refs, anchor or textural range need it.
-        unmix_m, fade_anchor_m = fade_density(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
+        unmix_m, fade_anchor_m = fade_density(
+            settings.process,
+            settings.process.process_mode,
+            render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb),
+        )
         log_grid_cache: Optional[np.ndarray] = None
         prefiltered_cache: Optional[np.ndarray] = None
         sorted_cache: Optional[np.ndarray] = None

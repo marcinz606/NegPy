@@ -29,7 +29,7 @@ from negpy.features.exposure.normalization import (
     geometry_kwargs,
     normalized_roi,
 )
-from negpy.features.process.fade import fade_white_space, fade_white_target, with_fade_white
+from negpy.features.process.fade import fade_white_target, render_white_space, with_fade_white
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.processor import TransferProcessor, TransparencyBaseProcessor
@@ -342,7 +342,9 @@ class DarkroomEngine:
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             # The base stage reports a white it measured for itself (`resolve_fade_white`).
             measured = replace(settings, process=with_fade_white(settings.process, ctx.metrics.get("fade_white")))
-            img_out = exposure_processor(measured, fade_white_space(ctx.cam_xyz, ctx.camera_wb)).process(img_in, ctx)
+            img_out = exposure_processor(
+                measured, render_white_space(settings.process, ctx.process_mode, ctx.cam_xyz, ctx.camera_wb)
+            ).process(img_in, ctx)
             # Rides this stage: it needs the print, and its own stage would re-run everything behind
             # it on a drag. Stays inside the flat intent below, being a capture fix, not a look.
             return apply_hue_trim(img_out, settings.process.hue_trim)

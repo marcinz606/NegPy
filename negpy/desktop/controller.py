@@ -3756,7 +3756,7 @@ class AppController(QObject):
         unmix, so the roll keeps a raw base that every render unmixes like the rebate reader's.
         One click: the tool disarms, and leaving it re-renders the roll's frame above the base."""
         from negpy.features.exposure.normalization import log_from_val
-        from negpy.features.process.fade import fade_white_space, unmix_with_fade
+        from negpy.features.process.fade import render_white_space, unmix_with_fade
 
         bounds = self.state.last_metrics.get("final_bounds") or self.state.last_metrics.get("log_bounds")
         patch = self._sample_normalized_patch(nx, ny, radius=4)
@@ -3770,7 +3770,9 @@ class AppController(QObject):
             return
         base = logs.mean(axis=0)
         unmix = unmix_with_fade(
-            self.state.config.process, self.state.config.process.process_mode, fade_white_space(*self._effective_cam_xyz())
+            self.state.config.process,
+            self.state.config.process.process_mode,
+            render_white_space(self.state.config.process, self.state.config.process.process_mode, *self._effective_cam_xyz()),
         )
         if unmix is not None:
             unmix = np.asarray(unmix, dtype=np.float64)
@@ -9945,27 +9947,22 @@ class AppController(QObject):
             AppController._continue_background_work(self)
             return
 
-        if self._pending_render_task is None and not metrics.get("ephemeral") and not metrics.get("interactive"):
-            self._store_measured_fade_white(metrics)
         self._dispatch_pending_render()
         AppController._continue_background_work(self)
 
-    def _store_measured_fade_white(self, metrics: Dict[str, Any]) -> None:
-        """Store the fade white a render measured for a stale one (`resolve_fade_white`), so the
-        next render reads it. It is a reading of this frame's decode, so it locks no card."""
-        from negpy.features.process.fade import fade_white_space, fade_white_stale, with_fade_white
+    def _measured_fade_white(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """The fade white fields a render measured for a stale one (`resolve_fade_white`), to store
+        with its bounds. A reading of this frame's decode, so it locks no card."""
+        from negpy.features.process.fade import fade_white_stale, render_white_space
 
         measured = metrics.get("fade_white")
         process = self.state.config.process
-        if measured is None or measured[3] != fade_white_space(*self._effective_cam_xyz()):
-            return
+        cam_xyz, camera_wb = self._effective_cam_xyz()
+        if measured is None or measured[3] != render_white_space(process, process.process_mode, cam_xyz, camera_wb):
+            return {}
         if not fade_white_stale(process, measured[3]):
-            return
-        refreshed = with_fade_white(process, measured)
-        refreshed = replace(refreshed, **invalidate_local_bounds(refreshed))
-        # No render: the frame on screen already shows this white. No undo step: undoing to the
-        # stale white would measure it again and drop the redo branch.
-        self.session.update_config(replace(self.state.config, process=refreshed), persist=True, render=False, record_history=False)
+            return {}
+        return dict(zip(("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space"), measured))
 
     def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
         """Store the crop this render detected, so nothing detects it a second time.
@@ -10086,35 +10083,33 @@ class AppController(QObject):
         # stacks edits. Skip only when both axes ride the roll baseline.
         proc = self.state.config.process
         bounds = metrics.get("log_bounds_base") or metrics.get("log_bounds")
+        changes = self._measured_fade_white(metrics)
         if bounds and not (proc.use_luma_average and proc.use_color_average):
-            changes = {}
             if not proc.lock_bounds and (bounds.floors != proc.local_floors or bounds.ceils != proc.local_ceils):
                 changes["local_floors"] = bounds.floors
                 changes["local_ceils"] = bounds.ceils
 
-            if changes:
-                before = self.state.config
-                new_process = replace(self.state.config.process, **changes)
-                self.session.update_config(
-                    replace(self.state.config, process=new_process),
-                    persist=self._may_persist_measured_bounds(),
-                    render=False,
-                    record_history=False,
+        if changes:
+            before = self.state.config
+            new_process = replace(self.state.config.process, **changes)
+            self.session.update_config(
+                replace(self.state.config, process=new_process),
+                persist=self._may_persist_measured_bounds(),
+                render=False,
+                record_history=False,
+            )
+            self._carry_render_identity(before)
+            # render=False: the displayed pixels already reflect these measured bounds and white.
+            # Move the frame's memo entry to the updated config's key so the first
+            # navigate-back after an initial render still hits. A GPU render is not filed
+            # until navigate-away, so its identity follows too.
+            self._render_memo.rekey(src or self.state.current_file_hash or "", self._render_memo_key(), old_key=metrics.get("memo_key", ""))
+            if self._last_render_identity is not None:
+                self._last_render_identity = (
+                    self._last_render_identity[0],
+                    self._render_memo_key(),
+                    self._last_render_identity[2],
                 )
-                self._carry_render_identity(before)
-                # render=False: the displayed pixels already reflect these measured bounds.
-                # Move the frame's memo entry to the updated config's key so the first
-                # navigate-back after an initial render still hits. A GPU render is not filed
-                # until navigate-away, so its identity follows too.
-                self._render_memo.rekey(
-                    src or self.state.current_file_hash or "", self._render_memo_key(), old_key=metrics.get("memo_key", "")
-                )
-                if self._last_render_identity is not None:
-                    self._last_render_identity = (
-                        self._last_render_identity[0],
-                        self._render_memo_key(),
-                        self._last_render_identity[2],
-                    )
 
     def _may_persist_measured_bounds(self) -> bool:
         """Whether an auto-measured bounds write may reach the database.

@@ -489,7 +489,7 @@ class DensityStage(NamedTuple):
     pre: Optional[np.ndarray]  # linear 3x3 before the log
     unmix: Optional[np.ndarray]  # log-density matrix, (3, 3) or affine (3, 4)
     post: Optional[np.ndarray]  # linear 3x3 after the log-density matrix
-    anchor: Optional[tuple[float, float, float]] = None  # `fade_anchor` in the stage's input log
+    anchor: Optional[tuple[float, float, float]] = None  # `fade_density`'s anchor in the stage's input log
 
 
 def _whole_matrix(process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> Optional[np.ndarray]:
@@ -541,8 +541,8 @@ def density_stage(
 ) -> DensityStage:
     """The stage a render applies. With a log-density matrix *unmix* on a slide path the source stays in
     its own channels through it (`density_channels`), because the primaries mix the dye channels the
-    density corrections act on. Else the whole matrix applies before the log. *anchor* is the fade's
-    `fade_anchor`, in those channels."""
+    density corrections act on. Else the whole matrix applies before the log. *anchor* is
+    `fade_density`'s, in those channels."""
     from negpy.features.process.path import RenderPath, render_path
 
     if unmix is None or render_path(process) is RenderPath.PRINT:

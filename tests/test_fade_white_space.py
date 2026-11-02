@@ -15,11 +15,11 @@ from negpy.features.process.capture_color import source_cam_xyz, wb_only_cam_xyz
 from negpy.features.process.fade import (
     EstimateMethod,
     estimate_fade,
-    fade_anchor,
     fade_density,
     fade_white_space,
     fade_white_stale,
     fade_white_target,
+    render_white_space,
     resolve_fade_matrix,
     unmix_with_fade,
 )
@@ -126,7 +126,7 @@ def test_remove_stain_on_a_scanner_file_restores_its_highlights_too():
     past the film, so the restoration acts on it."""
     img = np.random.default_rng(5).uniform(0.03, 1.0, (40, 60, 3)).astype(np.float32)
     config = _slide(fade_white_anchor=True, **_FADE, **_white((-0.05, -0.08, -0.12), space=""))
-    assert fade_anchor(config, ProcessMode.E6, "") is None
+    assert fade_density(config, ProcessMode.E6, "").anchor is None
     ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6)
     TransparencyBaseProcessor(config).process(img, ctx)
     b = ctx.metrics["log_bounds"]
@@ -174,26 +174,16 @@ def test_a_render_measures_a_stale_white_for_itself(stored):
     assert "fade_white" not in ctx.metrics
 
 
-def test_a_measured_white_is_stored_without_a_roll_lock_a_render_or_an_undo_step():
-    applied = []
+def test_a_measured_white_is_stored_with_the_bounds():
+    """The render's white joins the measured-bounds write: no render, no undo step, no roll lock."""
     cfg = WorkspaceConfig()
-    fake = SimpleNamespace(
-        state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE, local_floors=(-2.0, -2.0, -2.0)))),
-        _effective_cam_xyz=lambda: (_CAMERA, _WB),
-        session=SimpleNamespace(
-            update_config=lambda config, persist, render, record_history: applied.append((config.process, persist, render, record_history))
-        ),
-    )
-    AppController._store_measured_fade_white(fake, {"fade_white": (-0.5, -0.45, -0.6, _SPACE)})
-    ((process, persist, render, record_history),) = applied
-    assert persist and not render and not record_history
-    assert process.fade_white_space == _SPACE and process.local_floors == (0.0, 0.0, 0.0)
-    assert (process.fade_white_r, process.fade_white_g, process.fade_white_b) == (-0.5, -0.45, -0.6)
+    fake = SimpleNamespace(state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE))), _effective_cam_xyz=lambda: (_CAMERA, _WB))
+    measured = (-0.5, -0.45, -0.6, _SPACE)
+    assert AppController._measured_fade_white(fake, {"fade_white": measured}) == dict(_white(measured[:3]))
     # Another frame's white, or one already stored, is left alone.
-    AppController._store_measured_fade_white(fake, {"fade_white": (-0.5, -0.45, -0.6, "other")})
-    fake.state.config = replace(cfg, process=process)
-    AppController._store_measured_fade_white(fake, {"fade_white": (-0.4, -0.4, -0.4, _SPACE)})
-    assert len(applied) == 1
+    assert AppController._measured_fade_white(fake, {"fade_white": (-0.5, -0.45, -0.6, "other")}) == {}
+    fake.state.config = replace(cfg, process=_slide(**_FADE, **_white()))
+    assert AppController._measured_fade_white(fake, {"fade_white": measured}) == {}
 
 
 def _crosstalk(**kw) -> ProcessConfig:
@@ -201,21 +191,36 @@ def _crosstalk(**kw) -> ProcessConfig:
     return _slide(crosstalk_matrix=unmix, crosstalk_strength=1.0, crosstalk_process=ProcessMode.E6, **kw)
 
 
+def _crosstalk_space(process: ProcessConfig) -> str:
+    return render_white_space(process, ProcessMode.E6, _CAMERA, _WB)
+
+
 def test_crosstalk_alone_takes_no_white():
     """Crosstalk keeps a neutral neutral, so it renders the same whatever white is stored."""
-    assert not fade_white_stale(_crosstalk(), _SPACE)
-    assert fade_anchor(_crosstalk(**_white()), ProcessMode.E6, _SPACE) is None
+    space = _crosstalk_space(_crosstalk())
+    assert not fade_white_stale(_crosstalk(), space)
+    assert fade_density(_crosstalk(**_white(space=space)), ProcessMode.E6, space).anchor is None
+
+
+def test_a_crosstalk_change_makes_the_white_stale():
+    """w is read after the unmix, so a new unmix names a new space."""
+    space = _crosstalk_space(_crosstalk())
+    assert space not in ("", _SPACE)
+    stronger = _crosstalk(**_FADE, **_white(space=space))
+    stronger = replace(stronger, crosstalk_strength=0.5)
+    assert fade_white_stale(stronger, _crosstalk_space(stronger))
 
 
 @pytest.mark.parametrize("remove_stain", [False, True])
 def test_with_crosstalk_the_white_maps_to_its_target(remove_stain):
     """w is read after the crosstalk unmix, so the restoration scales about the point the unmix maps to w."""
-    process = _crosstalk(fade_white_anchor=remove_stain, **_FADE, **_white())
-    matrix, anchor = fade_density(process, ProcessMode.E6, _SPACE)
+    space = _crosstalk_space(_crosstalk())
+    process = _crosstalk(fade_white_anchor=remove_stain, **_FADE, **_white(space=space))
+    matrix, anchor = fade_density(process, ProcessMode.E6, space)
     unmix = effective_crosstalk_matrix(process, ProcessMode.E6)
     white = np.asarray(_RAW_WHITE) if remove_stain else np.full(3, max(_RAW_WHITE))
     np.testing.assert_allclose(unmix @ np.asarray(anchor), white, atol=1e-9)
-    target = fade_white_target(process, _SPACE) if remove_stain else max(_RAW_WHITE)
+    target = fade_white_target(process, space) if remove_stain else max(_RAW_WHITE)
     np.testing.assert_allclose(matrix[:, :3] @ np.asarray(anchor) + matrix[:, 3], target, atol=1e-9)
 
 
@@ -310,3 +315,26 @@ def test_an_export_renders_a_stale_white_as_the_measured_one():
     stored, _ = render(replace(stale, process=replace(stale.process, **_white((r, g, b)))))
     np.testing.assert_array_equal(np.asarray(out), np.asarray(stored))
     assert metrics["neutral_axis_refs"] is not None
+
+
+@pytest.mark.skipif(not GPUDevice.get().is_available, reason="GPU not available")
+def test_the_gpu_measures_a_stale_white_once_per_frame(monkeypatch):
+    """Drag ticks render with the white still stale until a settled render stores it."""
+    import negpy.services.rendering.gpu_engine as gpu_engine
+
+    calls = []
+    real = gpu_engine.resolve_fade_white
+    monkeypatch.setattr(gpu_engine, "resolve_fade_white", lambda *a: calls.append(1) or real(*a))
+    engine = gpu_engine.GPUEngine()
+    try:
+        img = np.random.default_rng(2).uniform(0.03, 0.25, (64, 96, 3)).astype(np.float32)
+        settings = replace(WorkspaceConfig(), process=_slide(linear_raw=True, **_FADE, **_white(space="old")))
+        for strength in (0.0, 0.5):
+            moved = replace(settings, exposure=replace(settings.exposure, cast_removal_strength=strength))
+            _, metrics = engine.process_to_texture(
+                img, moved, scale_factor=1.0, apply_layout=False, cam_xyz=_CAMERA, camera_wb=_WB, analysis_source_hash="frame"
+            )
+            assert metrics["fade_white"][3] == _SPACE
+        assert len(calls) == 1
+    finally:
+        engine.destroy_all()

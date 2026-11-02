@@ -537,7 +537,7 @@ class SensorSidebar(BaseSidebar):
 
     def _run_estimate(self, white_anchor: bool) -> None:
         from negpy.desktop.workers.chart_fit import fade_estimate_grid
-        from negpy.features.process.fade import estimate_fade, fade_white_space
+        from negpy.features.process.fade import estimate_fade, render_white_space
 
         conf = self.state.config.process
         if render_path(conf) is RenderPath.PRINT:
@@ -549,7 +549,7 @@ class SensorSidebar(BaseSidebar):
             return
         method = EstimateMethod(self.estimate_method_combo.currentData())
         anchor = white_anchor
-        space = fade_white_space(source.cam_xyz, source.camera_wb)
+        space = render_white_space(conf, conf.process_mode, source.cam_xyz, source.camera_wb)
         estimates = estimate_fade(grid, white_anchor=anchor, camera_raw=bool(space))
         chosen, other = estimates[method], estimates[next(m for m in EstimateMethod if m != method)]
         failed = bool(chosen.reason) and chosen.green == 1.0 and chosen.blue == 1.0

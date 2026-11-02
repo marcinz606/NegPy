@@ -66,18 +66,29 @@ def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
     return resolve_fade_matrix(*ratios)
 
 
-def fade_white_space(cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]]) -> str:
+def fade_white_space(
+    cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]], crosstalk: Optional[np.ndarray] = None
+) -> str:
     """The space a camera RAW's log white is measured in: its white-balanced camera channels
-    (`density_channels`), named by the as-shot white balance, which every RAW decode applies at the
-    decode or in the matrix. The primaries after the white do not name it. "" for a source with no
-    camera matrix, whose white is the file's own full scale."""
+    (`density_channels`) after the *crosstalk* unmix, named by the as-shot white balance and the
+    unmix. The primaries after them do not name it. "" for a source with no camera matrix, whose
+    white is the file's own full scale."""
     if cam_xyz is None or is_source_profile(cam_xyz):
         return ""
     gains, primaries = camera_matrix_parts(cam_xyz, camera_wb)
     if primaries is None:
         return ""
     named = b"" if gains is None else np.round(np.diag(gains).astype(np.float64), 4).tobytes()
+    if crosstalk is not None:
+        named += b"unmix" + np.round(np.asarray(crosstalk, dtype=np.float64), 4).tobytes()
     return hashlib.sha1(_WHITE_SPACE_CHANNELS + named).hexdigest()[:12]
+
+
+def render_white_space(
+    process: ProcessConfig, process_mode: Optional[str], cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]]
+) -> str:
+    """`fade_white_space` of a render with *process*, its crosstalk unmix included."""
+    return fade_white_space(cam_xyz, camera_wb, effective_crosstalk_matrix(process, process_mode))
 
 
 # Names the channels in `fade_white_space`, so a tag hashed any other way reads as stale.
@@ -85,24 +96,17 @@ _WHITE_SPACE_CHANNELS = b"camera-gains"
 
 
 class FadeDensity(NamedTuple):
-    """The log-density matrix a render applies (`unmix_with_fade`) and the point it scales about
-    (`fade_anchor`)."""
+    """`fade_density`'s result."""
 
     matrix: Optional[np.ndarray]
     anchor: Optional[tuple[float, float, float]]
 
 
 def fade_density(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> FadeDensity:
-    """The crosstalk unmix U, then the fade restoration F of the densities it recovers (`F @ U`).
-    The matrix is None when neither applies. *white_space* is the render's `fade_white_space`. A
-    stored white w makes it a (3, 4) affine `F (U L - w) + t`, the last column the log offset. w is
-    read after U, so the affine scales about `a = U^-1 w`. Remove Stain maps each channel's white to
-    a neutral t. On a camera RAW, whose white sits below full scale, Remove Stain off scales density
-    above the neutral level w = t of the white's cleanest channel (`density_anchor`).
-
-    The anchor is a camera RAW's a. A pixel above it in every channel is light past the film, with no
-    dye to restore: `unmix_log_image` passes that part through as a neutral, so a blown highlight
-    stays white. Any other source's white is at full scale, with no light past it."""
+    """The log-density matrix a render applies, `F @ U` (the fade after the crosstalk unmix), and
+    the anchor it scales about. A stored white w, read after U, makes the matrix the affine
+    `F (U L - w) + t` about `a = U^-1 w`. The anchor is a camera RAW's a, else None
+    (docs/PIPELINE.md, Fade restoration)."""
     unmix = effective_crosstalk_matrix(process, process_mode)
     fade = fade_matrix(process)
     matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
@@ -127,11 +131,6 @@ def _unmixed_point(unmix: np.ndarray, point: np.ndarray) -> np.ndarray:
 def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[np.ndarray]:
     """`fade_density`'s matrix."""
     return fade_density(process, process_mode, white_space).matrix
-
-
-def fade_anchor(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[tuple[float, float, float]]:
-    """`fade_density`'s anchor."""
-    return fade_density(process, process_mode, white_space).anchor
 
 
 def _white_terms(process: ProcessConfig, white_space: str, fade_acts: bool) -> Optional[tuple[np.ndarray, np.ndarray]]:
