@@ -71,8 +71,19 @@ class TransparencyBaseProcessor:
             image.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
         )
 
+        image_grid: Optional[ImageBuffer] = None
+
+        def image_log_grid() -> ImageBuffer:
+            """The prefiltered *image*, built once: the white and, with no matrix before the log, the meters read it."""
+            nonlocal image_grid
+            if image_grid is None:
+                image_grid = prefilter_log_grid(image, an_roi, an_buffer)
+            return image_grid
+
         def white_grid() -> ImageBuffer:
-            return fade_white_grid(self.config, context.process_mode, context.cam_xyz, context.camera_wb, image, an_roi, an_buffer)
+            return fade_white_grid(
+                self.config, context.process_mode, context.cam_xyz, context.camera_wb, image, an_roi, an_buffer, image_log_grid
+            )
 
         white_space = render_white_space(self.config, context.process_mode, context.cam_xyz, context.camera_wb)
         measured = resolve_fade_white(self.config, white_space, white_grid)
@@ -101,20 +112,10 @@ class TransparencyBaseProcessor:
         # Shared prefilter for the neutral axis and Auto Density/Grade's four meters --
         # working-space (post camera matrix) and post-unmix, since that is what this curve
         # itself consumes.
-        log_grid = prefilter_log_grid(linear, an_roi, an_buffer)
+        log_grid = image_log_grid() if stage.pre is None else prefilter_log_grid(linear, an_roi, an_buffer)
         prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix, stage.anchor), stage.post)
         if context.wants_fade_grid:
-            # *log_grid* is the prefiltered *image* itself when no matrix runs before the log.
-            context.metrics["transfer_grid"] = fade_white_grid(
-                self.config,
-                context.process_mode,
-                context.cam_xyz,
-                context.camera_wb,
-                image,
-                an_roi,
-                an_buffer,
-                (lambda: log_grid) if stage.pre is None else None,
-            )
+            context.metrics["transfer_grid"] = white_grid()
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different

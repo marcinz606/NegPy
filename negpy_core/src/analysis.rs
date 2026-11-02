@@ -156,8 +156,15 @@ pub fn unmix_log(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
 
 /// `unmix_log_image` with an anchor: each channel is capped at its anchor before the 3x3, and the
 /// amount the pixel is above the anchor in every channel, if any, is added to each channel after.
-/// Light past the film carries no dye, so it passes through the density matrix as a neutral.
-pub fn unmix_log_anchored(img: &[f32], m: [[f32; 3]; 3], anchor: [f32; 3], dst: &mut [f32]) {
+/// Light past the film carries no dye, so it passes through the density matrix as a neutral. Each
+/// channel then takes its `offset`, the affine's last column, as `unmix_log_image` adds it after.
+pub fn unmix_log_anchored(
+    img: &[f32],
+    m: [[f32; 3]; 3],
+    anchor: [f32; 3],
+    offset: [f32; 3],
+    dst: &mut [f32],
+) {
     crate::par_zip(
         dst.as_chunks_mut::<3>().0,
         img.as_chunks::<3>().0,
@@ -171,7 +178,8 @@ pub fn unmix_log_anchored(img: &[f32], m: [[f32; 3]; 3], anchor: [f32; 3], dst: 
                 p[1].min(anchor[1]),
                 p[2].min(anchor[2]),
             ];
-            *d = m.map(|r| q[0] * r[0] + q[1] * r[1] + q[2] * r[2] + excess);
+            let r = m.map(|r| q[0] * r[0] + q[1] * r[1] + q[2] * r[2] + excess);
+            *d = [r[0] + offset[0], r[1] + offset[1], r[2] + offset[2]];
         },
     );
 }
@@ -1867,12 +1875,15 @@ mod tests {
         let anchor = [-0.4, -0.5, -0.6];
         let img = [-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, -0.2, -0.8, 0.0];
         let mut out = [0f32; 9];
-        unmix_log_anchored(&img, m, anchor, &mut out);
+        unmix_log_anchored(&img, m, anchor, [0.0; 3], &mut out);
         assert_eq!(&out[..3], &[-2.0, -1.0, -0.5]);
         // Above the anchor in every channel by at least 0.4: capped, then 0.4 added to each.
         assert_eq!(&out[3..6], &[-0.8 + 0.4, -0.5 + 0.4, -0.3 + 0.4]);
         // Below the anchor in green: capped where above, nothing added.
         assert_eq!(&out[6..], &[-0.8, -0.8, -0.3]);
+        // The offset joins each channel last.
+        unmix_log_anchored(&img, m, anchor, [0.25, -0.5, 1.0], &mut out);
+        assert_eq!(&out[..3], &[-2.0 + 0.25, -1.0 - 0.5, -0.5 + 1.0]);
     }
 
     #[test]

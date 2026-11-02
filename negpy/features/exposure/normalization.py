@@ -200,11 +200,11 @@ def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: 
     m = np.ascontiguousarray(matrix, dtype=np.float32)
     img = np.ascontiguousarray(img_log, dtype=np.float32)
     lin = np.ascontiguousarray(m[:, :3])
-    if anchor is None:
-        out = negpy_core.unmix_log(img, lin)
-    else:
-        out = negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor])
-    # A (3, 4) matrix is Remove Stain's affine: the last column is a log offset added after the 3x3.
+    if anchor is not None:
+        offset = [float(v) for v in m[:, 3]] if m.shape[1] == 4 else [0.0, 0.0, 0.0]
+        return negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor], offset)
+    out = negpy_core.unmix_log(img, lin)
+    # A (3, 4) matrix is an affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
 
 

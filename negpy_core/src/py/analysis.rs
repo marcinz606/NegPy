@@ -467,13 +467,14 @@ fn unmix_log<'py>(
     Ok(out)
 }
 
-/// `unmix_log_image(img_log, matrix, anchor)` of an HxWx3 float32 log image.
+/// `unmix_log_image(img_log, matrix, anchor)` of an HxWx3 float32 log image, with the affine's offset.
 #[pyfunction]
 fn unmix_log_anchored<'py>(
     py: Python<'py>,
     img: PyReadonlyArrayDyn<'py, f32>,
     m: numpy::PyReadonlyArray2<'py, f32>,
     anchor: [f32; 3],
+    offset: [f32; 3],
 ) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
     let shape = img.shape().to_vec();
     if shape.len() != 3 || shape[2] != 3 {
@@ -490,7 +491,7 @@ fn unmix_log_anchored<'py>(
             .as_slice_mut()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         super::detach(py, dst.len(), || {
-            analysis::unmix_log_anchored(data, m, anchor, dst)
+            analysis::unmix_log_anchored(data, m, anchor, offset, dst)
         });
     }
     Ok(out)
