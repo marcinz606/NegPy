@@ -15,7 +15,7 @@ from negpy.features.exposure.normalization import (
     effective_crosstalk_matrix,
     measure_neutral_axis_from_log,
 )
-from negpy.features.process.capture_color import camera_to_working_matrix, is_source_profile
+from negpy.features.process.capture_color import camera_matrix_parts, is_source_profile
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
 
@@ -68,20 +68,20 @@ def fade_matrix(process: ProcessConfig) -> Optional[np.ndarray]:
 
 def fade_white_space(cam_xyz: Optional[Sequence[Sequence[float]]], camera_wb: Optional[Sequence[float]]) -> str:
     """The space a camera RAW's log white is measured in: its white-balanced camera channels
-    (`density_channels`), named by its camera matrix with the as-shot white balance, which every RAW
-    decode applies at the decode or in the matrix. "" for a source with no camera matrix, whose white
-    is the file's own full scale."""
+    (`density_channels`), named by the as-shot white balance, which every RAW decode applies at the
+    decode or in the matrix. The primaries after the white do not name it. "" for a source with no
+    camera matrix, whose white is the file's own full scale."""
     if cam_xyz is None or is_source_profile(cam_xyz):
         return ""
-    matrix = camera_to_working_matrix(cam_xyz, camera_wb)
-    if matrix is None:
+    gains, primaries = camera_matrix_parts(cam_xyz, camera_wb)
+    if primaries is None:
         return ""
-    return hashlib.sha1(_WHITE_SPACE_CHANNELS + np.round(np.asarray(matrix, dtype=np.float64), 4).tobytes()).hexdigest()[:12]
+    named = b"" if gains is None else np.round(np.diag(gains).astype(np.float64), 4).tobytes()
+    return hashlib.sha1(_WHITE_SPACE_CHANNELS + named).hexdigest()[:12]
 
 
-# Names the channels in `fade_white_space`, so a white read in working space (the camera matrix
-# before the log) reads as stale and is measured again.
-_WHITE_SPACE_CHANNELS = b"camera-channels"
+# Names the channels in `fade_white_space`, so a tag hashed any other way reads as stale.
+_WHITE_SPACE_CHANNELS = b"camera-gains"
 
 
 def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[np.ndarray]:

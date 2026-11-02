@@ -11,7 +11,7 @@ from negpy.desktop.controller import AppController
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import prefilter_log_grid, unmix_log_image
-from negpy.features.process.capture_color import source_cam_xyz
+from negpy.features.process.capture_color import source_cam_xyz, wb_only_cam_xyz
 from negpy.features.process.fade import (
     EstimateMethod,
     estimate_fade,
@@ -49,6 +49,11 @@ def test_the_space_names_a_camera_and_its_white_balance():
     assert fade_white_space(_CAMERA, None) != _SPACE
     assert fade_white_space(None, _WB) == ""
     assert fade_white_space(source_cam_xyz(np.eye(3)), None) == ""
+
+
+def test_an_input_icc_keeps_the_space():
+    """The white is read before the primaries, so a camera profile that swaps them leaves it valid."""
+    assert fade_white_space(wb_only_cam_xyz(_CAMERA), _WB) == _SPACE
 
 
 def test_a_camera_raw_scales_density_above_a_neutral_level_at_its_white():
