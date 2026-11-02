@@ -9958,6 +9958,7 @@ class AppController(QObject):
             return
         r, g, b = measure_white(grid) or (0.0, 0.0, 0.0)
         refreshed = replace(process, fade_white_r=r, fade_white_g=g, fade_white_b=b, fade_white_space=space)
+        refreshed = replace(refreshed, **invalidate_local_bounds(refreshed))
         # No undo step: undoing to the stale white would measure it again and drop the redo branch.
         self.session.update_config(replace(self.state.config, process=refreshed), persist=True, record_history=False)
         self.request_render()

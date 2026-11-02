@@ -180,7 +180,7 @@ def test_a_stale_white_is_measured_again_without_a_roll_lock_or_an_undo_step(mon
     applied = []
     cfg = WorkspaceConfig()
     fake = SimpleNamespace(
-        state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE))),
+        state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE, local_floors=(-2.0, -2.0, -2.0)))),
         _effective_cam_xyz=lambda: (_CAMERA, _WB),
         chart_fit_source=lambda: object(),
         session=SimpleNamespace(
@@ -192,7 +192,7 @@ def test_a_stale_white_is_measured_again_without_a_roll_lock_or_an_undo_step(mon
     AppController._refresh_stale_fade_white(fake)
     ((process, persist, record_history),) = applied
     assert persist and not record_history and rendered
-    assert process.fade_white_space == _SPACE
+    assert process.fade_white_space == _SPACE and process.local_floors == (0.0, 0.0, 0.0)
     assert process.fade_white_r == pytest.approx(-0.5, abs=0.01) and process.fade_white_b == pytest.approx(-0.6, abs=0.01)
 
 
