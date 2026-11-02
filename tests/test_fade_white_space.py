@@ -50,16 +50,38 @@ def test_the_space_names_a_camera_and_its_white_balance():
     assert fade_white_space(source_cam_xyz(np.eye(3)), None) == ""
 
 
-def test_a_camera_raw_scales_density_above_its_white_and_keeps_the_white():
+def test_a_camera_raw_scales_density_above_a_neutral_level_at_its_white():
+    """Without Remove Stain the anchor is the white's cleanest channel on all three, so the white keeps its color."""
     process = _slide(**_FADE, **_white())
     matrix = unmix_with_fade(process, ProcessMode.E6, _SPACE)
+    level = max(_RAW_WHITE)
     density = np.array([-0.3, -0.24, -0.18])
-    pixel = (np.asarray(_RAW_WHITE) + density)[None, None, :].astype(np.float32)
-    expected = np.asarray(_RAW_WHITE) + resolve_fade_matrix(1.0, 0.8, 0.6) @ density
+    pixel = (level + density)[None, None, :].astype(np.float32)
+    expected = level + resolve_fade_matrix(1.0, 0.8, 0.6) @ density
     np.testing.assert_allclose(unmix_log_image(pixel, matrix)[0, 0], expected, atol=1e-6)
-    white = np.asarray(_RAW_WHITE, dtype=np.float32)[None, None, :]
-    np.testing.assert_allclose(unmix_log_image(white, matrix)[0, 0], _RAW_WHITE, atol=1e-6)
+    anchor = np.full((1, 1, 3), level, dtype=np.float32)
+    np.testing.assert_allclose(unmix_log_image(anchor, matrix)[0, 0], level, atol=1e-6)
     assert fade_white_target(process, _SPACE) is None
+
+
+def test_estimate_then_render_keeps_grays_neutral_with_a_colored_white():
+    """A slide with no clear film: its white is the brightest picture color, here a blue sky. The
+    survivals Estimate finds against the render's own anchor restore the grays to neutral."""
+    rng = np.random.default_rng(3)
+    true_log = np.empty((120, 180, 3))
+    true_log[:] = np.linspace(-2.2, -0.35, 180)[None, :, None]
+    true_log[:30, 20:150] = np.log10((0.15, 0.32, 0.55))
+    true_log += rng.normal(0, 0.01, true_log.shape)
+    faded = true_log @ np.linalg.inv(resolve_fade_matrix(0.7, 1.4, 1.25)).T - 0.6
+    grid = faded[30:].astype(np.float32)
+    whole = faded.astype(np.float32)
+    for remove_stain in (False, True):
+        est = estimate_fade(whole, white_anchor=remove_stain, camera_raw=True)[EstimateMethod.MIDTONE]
+        stored = _white(est.white)
+        process = _slide(fade_ratio_r=est.red, fade_ratio_g=est.green, fade_ratio_b=est.blue, fade_white_anchor=remove_stain, **stored)
+        out = unmix_log_image(grid, unmix_with_fade(process, ProcessMode.E6, _SPACE))[20:80, 5:175].reshape(-1, 3)
+        cast = out - out[:, 1:2]
+        assert np.all(np.abs(cast.mean(axis=0)) < 0.03), (remove_stain, cast.mean(axis=0))
 
 
 def test_the_render_is_the_same_at_any_exposure():
@@ -129,7 +151,7 @@ def test_the_processor_reads_the_space_from_the_capture():
     assert not np.allclose(tagged, plain)
 
 
-def test_a_stale_white_is_measured_again_without_a_roll_lock(monkeypatch):
+def test_a_stale_white_is_measured_again_without_a_roll_lock_or_an_undo_step(monkeypatch):
     import negpy.desktop.workers.chart_fit as chart_fit
 
     grid = np.full((8, 8, 3), -0.7, dtype=np.float32)
@@ -141,11 +163,16 @@ def test_a_stale_white_is_measured_again_without_a_roll_lock(monkeypatch):
         state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE))),
         _effective_cam_xyz=lambda: (_CAMERA, _WB),
         chart_fit_source=lambda: object(),
-        apply_config=lambda config, persist: applied.append((config.process, persist)),
+        session=SimpleNamespace(
+            update_config=lambda config, persist, record_history: applied.append((config.process, persist, record_history))
+        ),
+        request_render=lambda: rendered.append(True),
     )
+    rendered = []
     AppController._refresh_stale_fade_white(fake)
-    ((process, persist),) = applied
-    assert persist and process.fade_white_space == _SPACE
+    ((process, persist, record_history),) = applied
+    assert persist and not record_history and rendered
+    assert process.fade_white_space == _SPACE
     assert process.fade_white_r == pytest.approx(-0.5, abs=0.01) and process.fade_white_b == pytest.approx(-0.6, abs=0.01)
 
 

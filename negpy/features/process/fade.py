@@ -87,9 +87,10 @@ _WHITE_SPACE_CHANNELS = b"camera-channels"
 def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[np.ndarray]:
     """The log-density matrix a render applies: the crosstalk unmix, then the fade restoration of
     the densities it recovers (`fade @ unmix`). None when neither applies. *white_space* is the
-    render's `fade_white_space`. A stored white makes it a (3, 4) affine `M (L - w) + t`, the last
-    column the log offset `t - M w`: Remove Stain maps the white to a neutral t; on a camera RAW,
-    whose white sits below full scale, t = w keeps the white and scales density above it."""
+    render's `fade_white_space`. A stored white makes it a (3, 4) affine `M (L - a) + t`, the last
+    column the log offset `t - M a`. Remove Stain maps each channel's white a = w to a neutral t. On a
+    camera RAW, whose white sits below full scale, Remove Stain off scales density above the neutral
+    level a = t of the white's cleanest channel (`density_anchor`), so the white keeps its color."""
     unmix = effective_crosstalk_matrix(process, process_mode)
     fade = fade_matrix(process)
     matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
@@ -97,13 +98,23 @@ def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_s
     if white is None:
         return matrix
     if process.fade_white_anchor:
-        target = np.full(3, _white_target(white))
+        anchor, target = white, np.full(3, _white_target(white))
     elif white_space and matrix is not None:
-        target = white
+        anchor = target = np.asarray(density_anchor(white, False), dtype=np.float64)
     else:
         return matrix
     linear = np.eye(3) if matrix is None else matrix
-    return np.hstack([linear, (target - linear @ white)[:, None]])
+    return np.hstack([linear, (target - linear @ anchor)[:, None]])
+
+
+def density_anchor(white: Sequence[float], remove_stain: bool) -> tuple[float, float, float]:
+    """The log point a camera RAW's fade scales density about: each channel's white with Remove Stain,
+    else the white's cleanest channel on all three. A neutral point keeps a gray neutral when the white
+    is a colored highlight, which is all a slide shows when it holds no clear film."""
+    if remove_stain:
+        return (float(white[0]), float(white[1]), float(white[2]))
+    level = float(max(white))
+    return (level, level, level)
 
 
 def _fade_white(process: ProcessConfig, white_space: str = "") -> Optional[np.ndarray]:
@@ -275,12 +286,13 @@ def estimate_fade(grid: ImageBuffer, white_anchor: bool = False, camera_raw: boo
     meter's grid with the crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`).
     MIDTONE also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
     faded most. With `white_anchor`, or on a `camera_raw` whose render scales density above its
-    white (`unmix_with_fade`), the grays are read as density above the frame's white."""
+    white (`unmix_with_fade`), the grays are read as density above the point the render scales about
+    (`density_anchor`)."""
     white = measure_white(grid)
     if white_anchor and white is None:
         return {m: FadeEstimate(None, 1.0, 1.0, tr("No clear area to measure the stain on this frame.")) for m in EstimateMethod}
     anchored = white is not None and (white_anchor or camera_raw)
-    refs, reason = neutral_axis_from_grid(white_anchored_grid(grid, white) if anchored else grid)
+    refs, reason = neutral_axis_from_grid(white_anchored_grid(grid, density_anchor(white, white_anchor)) if anchored else grid)
     out = {}
     for method in EstimateMethod:
         if refs is None:
