@@ -10,12 +10,13 @@ import pytest
 from negpy.desktop.controller import AppController
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.normalization import prefilter_log_grid, unmix_log_image
+from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
 from negpy.features.process.capture_color import source_cam_xyz, wb_only_cam_xyz
 from negpy.features.process.fade import (
     EstimateMethod,
     estimate_fade,
     fade_anchor,
+    fade_density,
     fade_white_space,
     fade_white_stale,
     fade_white_target,
@@ -153,59 +154,82 @@ def test_a_camera_raw_estimate_ignores_the_exposure():
         assert (a.green, a.blue) == pytest.approx((b.green, b.blue), abs=1e-3)
 
 
-def test_the_processor_reads_the_space_from_the_capture():
-    """The CPU render tags the white with the context's camera, so a stale white falls back to no zero shift."""
+def _restored(process, img):
+    ctx = PipelineContext(
+        original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6, cam_xyz=_CAMERA, camera_wb=_WB, wants_uv_grid=False
+    )
+    TransparencyBaseProcessor(process).process(img, ctx)
+    return ctx.metrics["normalized_log"], ctx
+
+
+@pytest.mark.parametrize("stored", ["", "old"])
+def test_a_render_measures_a_stale_white_for_itself(stored):
+    """Export and thumbnails read no desktop state, so the render measures the white it needs."""
     img = np.random.default_rng(1).uniform(0.05, 0.25, (32, 48, 3)).astype(np.float32)
-
-    def restored(process):
-        ctx = PipelineContext(
-            original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6, cam_xyz=_CAMERA, camera_wb=_WB, wants_uv_grid=False
-        )
-        TransparencyBaseProcessor(process).process(img, ctx)
-        return ctx.metrics["normalized_log"]
-
-    plain = restored(_slide(linear_raw=True, **_FADE))
-    stale = restored(_slide(linear_raw=True, **_FADE, **_white(space="old")))
-    tagged = restored(_slide(linear_raw=True, **_FADE, **_white()))
-    np.testing.assert_array_equal(stale, plain)
-    assert not np.allclose(tagged, plain)
+    stale, ctx = _restored(_slide(linear_raw=True, **_FADE, **_white(space=stored)), img)
+    r, g, b, space = ctx.metrics["fade_white"]
+    assert space == _SPACE
+    tagged, ctx = _restored(_slide(linear_raw=True, **_FADE, **_white((r, g, b))), img)
+    np.testing.assert_array_equal(stale, tagged)
+    assert "fade_white" not in ctx.metrics
 
 
-def test_a_stale_white_is_measured_again_without_a_roll_lock_or_an_undo_step(monkeypatch):
-    import negpy.desktop.workers.chart_fit as chart_fit
-
-    grid = np.full((8, 8, 3), -0.7, dtype=np.float32)
-    grid[:2] = (-0.5, -0.45, -0.6)
-    monkeypatch.setattr(chart_fit, "fade_estimate_grid", lambda source: grid)
+def test_a_measured_white_is_stored_without_a_roll_lock_a_render_or_an_undo_step():
     applied = []
     cfg = WorkspaceConfig()
     fake = SimpleNamespace(
         state=SimpleNamespace(config=replace(cfg, process=_slide(**_FADE, local_floors=(-2.0, -2.0, -2.0)))),
         _effective_cam_xyz=lambda: (_CAMERA, _WB),
-        chart_fit_source=lambda: object(),
         session=SimpleNamespace(
-            update_config=lambda config, persist, record_history: applied.append((config.process, persist, record_history))
+            update_config=lambda config, persist, render, record_history: applied.append((config.process, persist, render, record_history))
         ),
-        request_render=lambda: rendered.append(True),
     )
-    rendered = []
-    AppController._refresh_stale_fade_white(fake)
-    ((process, persist, record_history),) = applied
-    assert persist and not record_history and rendered
+    AppController._store_measured_fade_white(fake, {"fade_white": (-0.5, -0.45, -0.6, _SPACE)})
+    ((process, persist, render, record_history),) = applied
+    assert persist and not render and not record_history
     assert process.fade_white_space == _SPACE and process.local_floors == (0.0, 0.0, 0.0)
-    assert process.fade_white_r == pytest.approx(-0.5, abs=0.01) and process.fade_white_b == pytest.approx(-0.6, abs=0.01)
+    assert (process.fade_white_r, process.fade_white_g, process.fade_white_b) == (-0.5, -0.45, -0.6)
+    # Another frame's white, or one already stored, is left alone.
+    AppController._store_measured_fade_white(fake, {"fade_white": (-0.5, -0.45, -0.6, "other")})
+    fake.state.config = replace(cfg, process=process)
+    AppController._store_measured_fade_white(fake, {"fade_white": (-0.4, -0.4, -0.4, _SPACE)})
+    assert len(applied) == 1
+
+
+def _crosstalk(**kw) -> ProcessConfig:
+    unmix = ((1.0, -0.12, -0.03), (-0.08, 1.0, -0.15), (-0.02, -0.1, 1.0))
+    return _slide(crosstalk_matrix=unmix, crosstalk_strength=1.0, crosstalk_process=ProcessMode.E6, **kw)
+
+
+def test_crosstalk_alone_takes_no_white():
+    """Crosstalk keeps a neutral neutral, so it renders the same whatever white is stored."""
+    assert not fade_white_stale(_crosstalk(), _SPACE)
+    assert fade_anchor(_crosstalk(**_white()), ProcessMode.E6, _SPACE) is None
+
+
+@pytest.mark.parametrize("remove_stain", [False, True])
+def test_with_crosstalk_the_white_maps_to_its_target(remove_stain):
+    """w is read after the crosstalk unmix, so the restoration scales about the point the unmix maps to w."""
+    process = _crosstalk(fade_white_anchor=remove_stain, **_FADE, **_white())
+    matrix, anchor = fade_density(process, ProcessMode.E6, _SPACE)
+    unmix = effective_crosstalk_matrix(process, ProcessMode.E6)
+    white = np.asarray(_RAW_WHITE) if remove_stain else np.full(3, max(_RAW_WHITE))
+    np.testing.assert_allclose(unmix @ np.asarray(anchor), white, atol=1e-9)
+    target = fade_white_target(process, _SPACE) if remove_stain else max(_RAW_WHITE)
+    np.testing.assert_allclose(matrix[:, :3] @ np.asarray(anchor) + matrix[:, 3], target, atol=1e-9)
 
 
 @pytest.mark.skipif(not GPUDevice.get().is_available, reason="GPU not available")
+@pytest.mark.parametrize("stored", [_SPACE, "old"])
 @pytest.mark.parametrize("anchor", [False, True])
-def test_gpu_matches_cpu_on_a_camera_raw(anchor):
+def test_gpu_matches_cpu_on_a_camera_raw(anchor, stored):
     from negpy.services.rendering.image_processor import ImageProcessor
 
     processor = ImageProcessor()
     if processor.engine_gpu is None:
         pytest.skip("GPU engine not initialised")
     cfg = WorkspaceConfig()
-    settings = replace(cfg, process=_slide(linear_raw=True, fade_white_anchor=anchor, **_FADE, **_white()))
+    settings = replace(cfg, process=_slide(linear_raw=True, fade_white_anchor=anchor, **_FADE, **_white(space=stored)))
     img = np.random.default_rng(2).uniform(0.03, 0.25, (96, 128, 3)).astype(np.float32)
 
     def render(prefer_gpu):
@@ -264,3 +288,25 @@ def test_estimate_reads_the_grid_without_the_stored_white(monkeypatch):
     (process,) = seen
     assert (process.fade_white_r, process.fade_white_g, process.fade_white_b) == (0.0, 0.0, 0.0)
     assert not process.fade_white_anchor and process.fade_ratio_g == 1.0
+
+
+def test_an_export_renders_a_stale_white_as_the_measured_one():
+    """The exposure stage reads the white the base stage measured, as Remove Stain's target sets Cast Removal."""
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    # A faded gray card under a stained white, two stops below full scale.
+    img = (_synthetic_neutral_slide(0.8, 0.6, size=96) * np.float32((0.22, 0.25, 0.18))).astype(np.float32)
+    base = WorkspaceConfig()
+    stale = replace(base, process=_slide(linear_raw=True, fade_white_anchor=True, **_FADE, **_white(space="old")))
+    stale = replace(stale, exposure=replace(stale.exposure, cast_removal_strength=1.0))
+
+    def render(settings):
+        return ImageProcessor(use_gpu=False).run_pipeline(
+            img.copy(), settings, "stale-export", render_size_ref=96.0, prefer_gpu=False, cache_stages=False, cam_xyz=_CAMERA, camera_wb=_WB
+        )
+
+    out, metrics = render(stale)
+    r, g, b, _space = metrics["fade_white"]
+    stored, _ = render(replace(stale, process=replace(stale.process, **_white((r, g, b)))))
+    np.testing.assert_array_equal(np.asarray(out), np.asarray(stored))
+    assert metrics["neutral_axis_refs"] is not None

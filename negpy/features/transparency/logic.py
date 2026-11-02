@@ -573,6 +573,31 @@ def density_stage_grid(
     return relog_matrix_image(unmix_log_image(grid, stage.unmix, stage.anchor), stage.post)
 
 
+def fade_white_grid(
+    process: ProcessConfig,
+    process_mode: Optional[str],
+    cam_xyz: Optional[list],
+    camera_wb: Optional[list],
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]] = None,
+) -> ImageBuffer:
+    """The grid Fade Estimate meters and the render reads its white on: *image*'s white-balanced
+    camera channels (a Positive source's own) after the crosstalk unmix, with no fade or white.
+    *log_grid* gives the prefiltered grid of *image* when the caller has it."""
+    from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
+    from negpy.features.process.capture_color import apply_camera_matrix
+
+    crosstalk = effective_crosstalk_matrix(process, process_mode)
+    channels = density_channels(process, cam_xyz, camera_wb) if crosstalk is None else density_stage(process, cam_xyz, camera_wb, crosstalk)
+    if channels.pre is None and log_grid is not None:
+        grid = log_grid()
+    else:
+        grid = prefilter_log_grid(image if channels.pre is None else apply_camera_matrix(image, channels.pre), roi, analysis_buffer)
+    return unmix_log_image(grid, channels.unmix)
+
+
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:
     """
     The fixed (floors, ceils) the transparency path normalizes with — the decoder's

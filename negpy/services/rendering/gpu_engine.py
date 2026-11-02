@@ -3,6 +3,7 @@ import math
 import os
 import struct
 import time
+from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
 import negpy_core
@@ -80,6 +81,7 @@ from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
     density_stage,
     density_stage_grid,
+    fade_white_grid,
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
@@ -94,7 +96,7 @@ from negpy.features.transparency.logic import (
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import fade_anchor, fade_white_space, fade_white_target, unmix_with_fade
+from negpy.features.process.fade import fade_density, fade_white_space, fade_white_target, resolve_fade_white, with_fade_white
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -321,11 +323,6 @@ def _update_analysis_cache(cache, key, bounds, anchor, textural, neutral, shadow
         highlight if highlight is not None else ch,
         density if density is not None else cd,
     )
-
-
-def _fade_anchor(settings: WorkspaceConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> Optional[tuple[float, float, float]]:
-    """The fade's anchor for this source (`fade.fade_anchor`), as TransparencyBaseProcessor reads it."""
-    return fade_anchor(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
 
 
 class GPUEngine:
@@ -786,6 +783,24 @@ class GPUEngine:
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
+        def _white_grid() -> np.ndarray:
+            source, buffer = _build_analysis_source(
+                img,
+                settings.geometry,
+                roi,
+                settings.process.analysis_buffer,
+                settings.process.analysis_rect,
+                tiling_mode,
+                APP_CONFIG.preview_render_size,
+                meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
+            )
+            return fade_white_grid(settings.process, settings.process.process_mode, cam_xyz, camera_wb, source, None, buffer)
+
+        # Before every key and matrix below, which read the white. A tile takes its export's white.
+        white_space = fade_white_space(cam_xyz, camera_wb)
+        measured_white = None if tiling_mode else resolve_fade_white(settings.process, white_space, _white_grid)
+        settings = replace(settings, process=with_fade_white(settings.process, measured_white))
+
         # Reuse the per-source meter across creative-slider previews: fill any missing
         # override from the cache so the needs_* gates below skip the analysis entirely.
         analysis_key = None
@@ -834,12 +849,10 @@ class GPUEngine:
         sorted_grid = None
         scan_clip_fractions = None
         analysis_source = None
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
+        unmix_m, fade_anchor_m = fade_density(settings.process, settings.process.process_mode, white_space)
         # The transparency curve reads working space, so its meter must too: the same
         # camera matrices TransparencyBaseProcessor applies, on the grid.
-        slide_stage = (
-            density_stage(settings.process, cam_xyz, camera_wb, unmix_m, _fade_anchor(settings, cam_xyz, camera_wb)) if transfer else None
-        )
+        slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m) if transfer else None
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
@@ -1146,6 +1159,8 @@ class GPUEngine:
             shadow_point=shadow_point,
             highlight_point=highlight_point,
             unmix=unmix_m,
+            fade_anchor=fade_anchor_m,
+            white_space=white_space,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
             contrast_mask=mask_uniform,
@@ -1748,6 +1763,8 @@ class GPUEngine:
             # Raw cast refs so the chart can re-solve the exact render curves.
             "neutral_axis_refs": neutral_axis_refs,
         }
+        if measured_white is not None:
+            metrics["fade_white"] = measured_white
         # A drag with no read leaves the base out, so the merged metrics keep the last frame's.
         if not transfer and film_base is None and source_base_log is NOT_READ:
             del metrics["film_base_density"]
@@ -1865,6 +1882,8 @@ class GPUEngine:
         shadow_point: Optional[float] = None,
         highlight_point: Optional[float] = None,
         unmix: Optional[np.ndarray] = None,
+        fade_anchor: Optional[Tuple[float, float, float]] = None,
+        white_space: str = "",
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask: Optional[Tuple[Any, ...]] = None,
@@ -1916,7 +1935,7 @@ class GPUEngine:
         # before the log, read only on the transfer path, and the post rows after. Identity when
         # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on. The fade
         # anchor rides its own row, its w lane on when one acts.
-        cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, _fade_anchor(settings, cam_xyz, camera_wb))
+        cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, fade_anchor)
         if unmix is None:
             unmix = np.eye(3)
         unmix_w = unmix[:, 3] if unmix.shape[1] == 4 else (0.0, 0.0, 0.0)
@@ -1993,7 +2012,7 @@ class GPUEngine:
             LogNegativeBounds(adj_floors, adj_ceils),
             neutral_axis_refs,
             settings.exposure.cast_removal_strength,
-            fade_white_target(settings.process, fade_white_space(cam_xyz, camera_wb)),
+            fade_white_target(settings.process, white_space),
         )
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
         # the shader to skip display_rendering too. Matches transparency/logic.py.
@@ -2913,6 +2932,8 @@ class GPUEngine:
             )
 
         global_cdfs = self._readback_clahe_cdf()
+        # Every tile and global meter below takes the white the reference pass measured.
+        settings = replace(settings, process=with_fade_white(settings.process, metrics_ref.get("fade_white")))
 
         if transient_tiles:
             normalized_log = metrics_ref.get("normalized_log")
@@ -2966,7 +2987,7 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
         # auto refs, anchor or textural range need it.
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
+        unmix_m, fade_anchor_m = fade_density(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
         log_grid_cache: Optional[np.ndarray] = None
         prefiltered_cache: Optional[np.ndarray] = None
         sorted_cache: Optional[np.ndarray] = None
@@ -3015,7 +3036,7 @@ class GPUEngine:
             if not transfer:
                 return _prefiltered()
             if transfer_grid is None:
-                slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, _fade_anchor(settings, cam_xyz, camera_wb))
+                slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m)
                 transfer_grid = density_stage_grid(slide_stage, _analysis_img(), meter_roi, meter_buffer, _log_grid)
             return transfer_grid
 

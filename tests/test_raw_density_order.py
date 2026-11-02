@@ -136,7 +136,8 @@ def test_remove_stain_leaves_a_white_border_neutral_and_converts_after(positive)
 
 @pytest.mark.parametrize("positive", _PATHS)
 def test_a_faded_gray_ramp_restores_to_neutral(positive):
-    config = _slide(positive, **_FADE)
+    # A white measured as none: the fade scales about L = 0, as the ramp was faded.
+    config = _slide(positive, fade_white_space=fade_white_space(_CAMERA, _WB), **_FADE)
     restore = unmix_with_fade(config, ProcessMode.E6)
     gray = np.repeat(np.linspace(-1.5, -0.05, 60, dtype=np.float64)[None, :, None], 3, axis=2)
     faded_log = gray @ np.linalg.inv(restore).T

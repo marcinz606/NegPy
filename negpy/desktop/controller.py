@@ -9943,30 +9943,26 @@ class AppController(QObject):
             return
 
         if self._pending_render_task is None and not metrics.get("ephemeral") and not metrics.get("interactive"):
-            self._refresh_stale_fade_white()
+            self._store_measured_fade_white(metrics)
         self._dispatch_pending_render()
         AppController._continue_background_work(self)
 
-    def _refresh_stale_fade_white(self) -> None:
-        """Measure a camera RAW's fade white again once the stored one belongs to another decode
-        space (`fade_white_stale`). It is a reading of this frame's decode, so it locks no card."""
-        from negpy.desktop.workers.chart_fit import fade_estimate_grid
-        from negpy.features.process.fade import fade_white_space, fade_white_stale, measure_white
+    def _store_measured_fade_white(self, metrics: Dict[str, Any]) -> None:
+        """Store the fade white a render measured for a stale one (`resolve_fade_white`), so the
+        next render reads it. It is a reading of this frame's decode, so it locks no card."""
+        from negpy.features.process.fade import fade_white_space, fade_white_stale, with_fade_white
 
+        measured = metrics.get("fade_white")
         process = self.state.config.process
-        space = fade_white_space(*self._effective_cam_xyz())
-        if not fade_white_stale(process, space):
+        if measured is None or measured[3] != fade_white_space(*self._effective_cam_xyz()):
             return
-        source = self.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
-        if grid is None:
+        if not fade_white_stale(process, measured[3]):
             return
-        r, g, b = measure_white(grid) or (0.0, 0.0, 0.0)
-        refreshed = replace(process, fade_white_r=r, fade_white_g=g, fade_white_b=b, fade_white_space=space)
+        refreshed = with_fade_white(process, measured)
         refreshed = replace(refreshed, **invalidate_local_bounds(refreshed))
-        # No undo step: undoing to the stale white would measure it again and drop the redo branch.
-        self.session.update_config(replace(self.state.config, process=refreshed), persist=True, record_history=False)
-        self.request_render()
+        # No render: the frame on screen already shows this white. No undo step: undoing to the
+        # stale white would measure it again and drop the redo branch.
+        self.session.update_config(replace(self.state.config, process=refreshed), persist=True, render=False, record_history=False)
 
     def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
         """Store the crop this render detected, so nothing detects it a second time.
