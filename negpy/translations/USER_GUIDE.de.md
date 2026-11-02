@@ -18,7 +18,7 @@ Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus 
 
 Um die Bilder im Filmstreifen als Rolle zu speichern, nutze den Filmstreifen. **In Ordnerrolle speichern** macht aus Bildern, die alle aus einem Ordner stammen, die Rolle dieses Ordners. Seine anderen Dateien erscheinen als entfernt. **Als virtuelle Rolle speichern…** behält genau diese Bilder, aus beliebigen Ordnern. In Ordnerrolle speichern macht auch aus einer virtuellen Rolle eines Ordners die Rolle dieses Ordners. Die neue Rolle startet mit den Einstellungen, den Kartensperren und den nur in dieser Rolle gemachten Bearbeitungen der geöffneten Rolle. Ein Bild hat in jeder Rolle, die es enthält, dieselbe Bearbeitung. Rechtsklick → **In dieser Rolle unabhängig bearbeiten** gibt ihm in einer Rolle eine eigene Bearbeitung.
 
-<!-- panel:frames src:b724d5df -->
+<!-- panel:frames src:7dc6c65a -->
 ### Filmstreifen
 
 Der **Filmstreifen** unter der Arbeitsfläche zeigt die geöffneten Bilder in einer Reihe. Ziehe seinen oberen Rand, um die Bilder zu vergrößern.
@@ -31,7 +31,7 @@ Die Zeile **Rolle** der Werkzeugleiste enthält:
 *   **Bogenfilter**: alle Bilder, nur behaltene, verworfene ausblenden oder nur unmarkierte. Die Schaltfläche ist hervorgehoben, solange ein Filter Bilder ausblendet.
 *   **Rolleneinstellungen** (das Etikett): Ausrüstung und Filmdetails für dieses Bild, die Auswahl oder die Rolle.
 *   **Anwenden**: kopiert gewählte Einstellungen dieses Bildes auf die Auswahl oder die Rolle.
-*   **⋮**: **Dateien hinzufügen…**, **Ordner hinzufügen…**, **In Ordnerrolle speichern**, **Als virtuelle Rolle speichern…**, **Vorschaubilder aktualisieren**, **Hot Folder** (lädt neue Dateien, die ein Scanner im Ordner des neuesten Bildes speichert), **Entladen…**, **Alle entladen…** (leert den Filmstreifen; die Rolle bleibt in der Bibliothek), **Rolle auf Standard zurücksetzen…**, **Entfernte Bilder wiederherstellen…** und **Hilfe zum Filmstreifen…**.
+*   **⋮**: **Dateien hinzufügen…**, **Ordner hinzufügen…**, **In Ordnerrolle speichern**, **Als virtuelle Rolle speichern…**, **Vorschaubilder aktualisieren**, **Hot Folder** (lädt neue Dateien, die ein Scanner im Ordner des neuesten Bildes speichert), **Entladen…**, **Alle entladen…** (leert den Filmstreifen; die Rolle bleibt in der Bibliothek), **Bilder auf Standard zurücksetzen…**, **Entfernte Bilder wiederherstellen…** und **Hilfe zum Filmstreifen…**.
 
 Die Raster-Schaltfläche öffnet den **Leuchttisch** (`Shift+G`): die ganze Rolle in Zeilen, zum Sortieren. Ein Klick wählt ein Bild, ein Doppelklick oder `Enter` öffnet es. Die Werkzeugleiste wirkt auf die gewählten Bilder: **Behalten**, **Verwerfen**, Drehen und Spiegeln, **Auto-Zuschnitt** und **Export**. ⋯ enthält den Rest des Rechtsklick-Menüs. Der Regler **Bilder pro Zeile**, `+` und `-` oder `Ctrl` mit dem Mausrad ändern die Bildgröße. `Esc` geht zurück.
 
@@ -274,12 +274,12 @@ Wie der Abzug präsentiert wird. Die übrigen Regler jedes Effekts erscheinen, s
 *   **Ausgefeilte Bildbühne**: **Breite** zeichnet einen rauen schwarzen Rahmen um das Bild, wie eine im Labor breiter gefeilte Negativbühne. **Rauheit**, **Streulicht** (ein graues Glühen außerhalb des Rahmens) und **Ecken** formen ihn.
 *   **Rand**: **Breite** legt ein Passepartout um den Abzug. **Unteres Gewicht** macht den unteren Rand breiter, wie bei einem Bilderrahmen. **Farbe**: **Papierweiß** passt zum Papier, **Benutzerdefiniert** nutzt eine Farbe, die du wählst.
 
-<!-- panel:presets src:8338af2d -->
+<!-- panel:presets src:32c2813a -->
 ### Vorgaben
 
 Gespeicherte Einstellungen, die du auf andere Bilder anwenden kannst.
 
-*   **Anwenden** (oder Doppelklick auf eine Vorgabe): wendet die ausgewählte Vorgabe auf dieses Bild an.
+*   **Anwenden** (oder Doppelklick auf eine Vorgabe): wendet die ausgewählte Vorgabe auf dieses Bild, die gewählten Bilder oder die ganze Rolle an.
 *   **Speichern…**: wähle, welche der aktuellen Einstellungen du als neue Vorgabe behältst. Eine Vorgabe kann die Einstellungen für Zuschnitt und Optik mit dem Flat-Field-Profil enthalten, aber nie Zuschnitt, Drehung oder Spiegelung eines einzelnen Bildes.
 *   **Stift** und **Papierkorb**: bearbeiten oder löschen die ausgewählte Vorgabe.
 
@@ -365,7 +365,7 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
 *   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** stellt auch den Rot-Erhalt ein und passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
 
-<!-- panel:process src:b1fdce87 -->
+<!-- panel:process src:9d65a945 -->
 ### 10.5 Messung: Negativ → Positiv
 
 Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
@@ -377,18 +377,18 @@ Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellst
 *   **Grenzen sperren**: behält Schwarz- und Weißpunkt dieses Bildes, auch wenn sich der Zuschnitt oder die Rollenanalyse ändert.
 *   **Luma-Bereichsbeschnitt** (Klappbereich): wie eng Schwarz und Weiß gesetzt werden. Positive Werte geben mehr Kontrast, für dichte oder verschleierte Negative. Negative Werte erhalten mehr Details in Schatten und Lichtern.
 *   **Farbbeschnitt** (Klappbereich): wie eng die Farbbalance gesetzt wird.
-*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt.
+*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt. Beide sind aus, solange das Bild auf dem Rollenmittelwert druckt.
 *   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
 
 Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
 
-<!-- panel:baseline src:371ff87f -->
+<!-- panel:baseline src:5536f77d -->
 ### 10.6 Rollenanalyse
 
 Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
 
-*   **Neu analysieren**: misst jedes geladene Bild (außer Szenen- und gesperrte Bilder) speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für diese Bilder ein. Bilder, die stark von den anderen abweichen, behalten ihre eigene. Zuerst werden die Bilder zugeschnitten, die auf den Auto-Zuschnitt warten.
-*   **Dieses Bild verwenden**: macht die Messung dieses Bildes zur Basislinie der Rolle.
+*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für diese Bilder ein. Bilder, die stark von den anderen abweichen, behalten ihre eigene. Zuerst werden die Bilder zugeschnitten, die auf den Auto-Zuschnitt warten.
+*   **Dieses Bild verwenden**: macht die eigene Messung dieses Bildes zur Basislinie der Rolle; Farbstich schaltet sich aus.
 *   **Mittelwert verwenden**: Ein Rechtsklick auf einen der drei schaltet alle Mittelwerte ein oder aus. **Luma** nutzt Schwarz- und Weißpunkt der Rolle, **Farbe** die Farbbalance der Rolle und **Farbstich** (Farbnegative) die Graubalance der Rolle für die Farbstichentfernung. Bei aktivem Farbstich behält ein Bild unter anderem Licht etwas von diesem Licht, wie bei einem Frontier-Abzug. Ein Magenta-Stich bleibt, ein warmer oder grüner Stich bleibt teilweise, und ein blauer Stich verschwindet. Mit Luma und Farbe wird die Rolle gleichmäßig abgezogen. Sind beide aus, wird jedes Bild einzeln gemessen.
 *   **Basislinie**: zeigt, woher die Basislinie stammt (Rolle, Szene oder Bild). Sie warnt, wenn keine vorhanden ist, wenn sie veraltet ist oder wenn die Farbe dieses Bildes stark vom Durchschnitt abweicht.
 *   **Rollen**: wähle die gespeicherte Basislinie einer anderen Rolle. Eine Rolle mit Häkchen hat eine.

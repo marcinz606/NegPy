@@ -138,6 +138,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
         self._average_icon = qta.icon("mdi6.filmstrip", color=THEME.mark_photo)
         self._outlier_icon = qta.icon("mdi6.alert", color=THEME.warn_amber)
+        # The Frame half of a card's Frame/Roll pair: this frame keeps its own value.
+        self._own_icon = qta.icon("fa5s.image", color=THEME.border_scope_frame)
         self._activity_key = ""
         self._activity_index = QPersistentModelIndex()
         self._activity_phase = 0.0
@@ -255,6 +257,16 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
         icon = self._outlier_icon if outlier else self._average_icon
         icon.paint(painter, QRect(cx - 6, cy - 6, 12, 12))
+
+    def _draw_own_badge(self, painter: QPainter, img_rect: QRect, beside_average: bool) -> None:
+        """Top-right, left of the average mark: the frame keeps its own value on a Roll-tab card."""
+        r = 9
+        cx = img_rect.right() - r - 4 - (2 * r + 4 if beside_average else 0)
+        cy = img_rect.top() + r + 4
+        painter.setPen(QPen(CHIP_RING, 1))
+        painter.setBrush(CHIP_FILL)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        self._own_icon.paint(painter, QRect(cx - 6, cy - 6, 12, 12))
 
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int, split_axis: str = "x") -> None:
         """Bottom-left mark: this frame was assembled from more than one file.
@@ -402,6 +414,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0), str(file_info.get("split_axis") or "x"))
         if file_info.get("average"):
             self._draw_average_badge(painter, img_rect, file_info["average"] == "outlier")
+        if file_info.get("own_cards"):
+            self._draw_own_badge(painter, img_rect, bool(file_info.get("average")))
         if not failed and self._is_stale_thumbnail(file_info):
             self._draw_stale_dot(painter, img_rect)
         painter.setClipping(False)
@@ -1668,7 +1682,7 @@ class FileBrowser(QWidget):
         self.unload_all_action.triggered.connect(lambda: _unload_all(self, self.controller))
         roll_menu.aboutToShow.connect(self._sync_unload_all_action)
         roll_menu.aboutToShow.connect(self._sync_save_actions)
-        roll_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
+        roll_menu.addAction(label_with_shortcut(tr("Reset Frames to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
         self.restore_removed_action = roll_menu.addAction(label_with_shortcut(tr("Restore Removed Frames…"), "restore_removed_frames"))
         self.restore_removed_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
         self.restore_removed_action.triggered.connect(lambda: restore_removed_frames(self, self.controller))
@@ -2525,7 +2539,7 @@ class FileBrowser(QWidget):
             menu.addAction(
                 tr("Update {value}", value=count_of(n, "thumbnail")) if on_selection else tr("Update Thumbnail")
             ).triggered.connect(lambda: self.controller.request_thumbnail_refresh("selection"))
-        menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(
+        menu.addAction(label_with_shortcut(tr("Reset Frames to Defaults…"), "reset_roll")).triggered.connect(
             lambda: _reset_roll(self, self.controller)
         )
         if on_selection:

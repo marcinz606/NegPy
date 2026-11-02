@@ -556,14 +556,14 @@ class ControlsPanel(QWidget):
         self.geometry_section.reset_requested.connect(self._reset_geometry_fields)
         self.autocrop_section.reset_requested.connect(self._reset_crop_card)
         self.optics_section.reset_requested.connect(self._reset_optics)
-        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS))
-        self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS))
+        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS, ("process",)))
+        self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS, ("baseline",)))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.film_section.reset_requested.connect(self._reset_film_fields)
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
-        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
+        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS, ("demosaic",)))
 
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
         self.controller.batch_finished.connect(self._sync_crop_block)
@@ -1155,7 +1155,7 @@ class ControlsPanel(QWidget):
         self.metering_histogram.update_data(buf)
 
     def _reset_sensor_fields(self) -> None:
-        self._reset_process_fields(_SENSOR_FIELDS)
+        self._reset_process_fields(_SENSOR_FIELDS, ("sensor", "fade"))
 
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not
@@ -1170,16 +1170,18 @@ class ControlsPanel(QWidget):
     def _reset_tone_fields(self) -> None:
         self._reset_exposure_fields(TONE_FIELDS)
 
-    def _reset_process_fields(self, fields) -> None:
+    def _reset_process_fields(self, fields, cards=()) -> None:
         """Calibration, Demosaic and Normalization all live on ProcessConfig, so each
         reset is scoped to its own fields -- a plain session.reset_section("process")
         would reset all three cards (and Film Mode, and Positive) at once. apply_config,
-        not update_config: some of these fields are a decode or a source bake."""
+        not update_config: some of these fields are a decode or a source bake. *cards* lock
+        as an edit by hand would, or the roll's value returns on the next load."""
         from dataclasses import replace
 
         cfg = self.controller.state.config
         new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in fields})
         self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
+        self.controller.sync_roll_card_locks(cards)
 
     def _reset_optics(self) -> None:
         self._reset_card_fields("lens")

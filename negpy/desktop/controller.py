@@ -27,7 +27,6 @@ from negpy.desktop.session import (
     ToolMode,
     REVERTIBLE_TOOLS,
     UNCROPPED_PREVIEW_TOOLS,
-    _source_effective_bounds,
     can_edit_triplet,
     composite_kind,
     is_plain_triplet,
@@ -749,6 +748,7 @@ class AppController(QObject):
         self._batch_serial = 0
         self._active_batch_token: Optional[int] = None
         self._normalization_scope: Optional[str] = None
+        self._normalization_measured: Optional[Set[str]] = None
         self._scene_queue: List[str] = []
         # (roll id, frame hashes) of the running background Roll Analysis.
         self._background_baseline: Optional[Tuple[str, Tuple[str, ...]]] = None
@@ -1086,6 +1086,8 @@ class AppController(QObject):
         self.set_status(tr("Brush Size {size} px", size=size), 1500)
 
     def _connect_signals(self) -> None:
+        # A lock moves with an edit, a push, a paste or a reset; each ends in config_updated.
+        self.config_updated.connect(self.session.refresh_own_marks)
         self.render_requested.connect(self.render_worker.process)
         self.strip_requested.connect(self.render_worker.build_strip)
         self.pick_better_requested.connect(self.render_worker.build_pick_better)
@@ -5777,6 +5779,8 @@ class AppController(QObject):
 
     def _dispatch_normalization(self, scene_id: Optional[str], frames: List[dict], detect: bool = False) -> None:
         self._normalization_scope = scene_id
+        # Only the frames measured take the result: a frame the Sheet filter hid stays as it was.
+        self._normalization_measured = {f["hash"] for f in frames}
         task = NormalizationTask(
             frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in frames],
             workspace_color_space=self.state.workspace_color_space,
@@ -6056,7 +6060,8 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         source = f"scene:{scene_id}" if scene_id else (f"roll:{roll_id}" if roll_id else "")
         outliers = tuple(outlier_hashes)
-        targets = self._normalization_targets(scene_id)
+        measured = self._normalization_measured
+        targets = [f for f in self._normalization_targets(scene_id) if measured is None or f["hash"] in measured]
         locked_skipped = self._push_bounds(targets, locked_floors, locked_ceils, None, source, outliers, axis)
 
         if scene_id is None:
@@ -6364,14 +6369,14 @@ class AppController(QObject):
         self.request_render()
 
     def set_roll_baseline_from_frame(self, roll_id: str) -> None:
-        """Save the active frame's rendered bounds as the roll's baseline, then push them
-        out the way a Roll Analysis result is pushed. A standing rule, not a one-shot
-        copy: a frame loaded later reads the same baseline."""
-        bounds = _source_effective_bounds(self.state.config.process)
-        if bounds is None:
-            self.set_status(tr("Render this frame before taking its bounds"), 3000)
+        """Save the active frame's own measurement as the roll's baseline, then push it out the
+        way a Roll Analysis result is pushed. Its own, not what it renders: a frame on the
+        average renders the average. A frame loaded later reads the same baseline."""
+        process = self.state.config.process
+        if not process.is_local_initialized:
+            self.set_status(tr("Measure this frame on its own first: click Reanalyze Frame."), 4000)
             return
-        floors, ceils = bounds
+        floors, ceils = process.local_floors, process.local_ceils
         rolls.set_roll_normalization(self.session.repo, roll_id, floors, ceils)
         self.apply_normalization_roll(roll_id)
 
@@ -6636,8 +6641,18 @@ class AppController(QObject):
             rolls.set_roll_defaults(repo, roll_id, **self._card_values(self.state.config, card_key))
             rolls.set_frame_override(repo, roll_id, frame_hash, card_key, False)
         self._roll_defaults_changed(roll_id, set(pushed))
-        self.set_status(tr("Applied to the roll: {value}", value=self._roll_card_names(pushed)), 3000)
+        message = tr("Applied to the roll: {value}", value=self._roll_card_names(pushed))
+        own = self._frames_keeping_own(roll_id, set(pushed))
+        if own:
+            message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
+        self.set_status(message, 5000 if own else 3000)
         return len(set(pushed))
+
+    def _frames_keeping_own(self, roll_id: str, cards: set) -> int:
+        """Loaded frames locked on any of *cards*: a push to the roll does not reach them."""
+        entry = rolls.roll_for_id(self.session.repo, roll_id) or {}
+        overrides = entry.get("frame_overrides", {})
+        return sum(1 for f in self.state.uploaded_files if cards & set(overrides.get(rolls.unforked_hash(f["hash"]), ())))
 
     def can_undo_roll_push(self, cards=None) -> bool:
         """Only on the frame that pushed, while the roll is open: elsewhere the live config
@@ -6698,8 +6713,13 @@ class AppController(QObject):
     def sync_metadata_card_locks(self) -> None:
         """Re-reads every Metadata card's lock after a write that touched several at once.
         The Metadata panel commits its fields in one go rather than control by control, so
-        no single edit knows which cards it moved; _lock_roll_card settles each either way."""
-        for card_key in self.METADATA_CARDS:
+        no single edit knows which cards it moved."""
+        self.sync_roll_card_locks(self.METADATA_CARDS)
+
+    def sync_roll_card_locks(self, card_keys: Collection[str]) -> None:
+        """Locks each of *card_keys* where the active frame now differs from the roll, and
+        unlocks it where it matches again."""
+        for card_key in card_keys:
             self._lock_roll_card(card_key)
 
     def roll_revert_cards(self, card_keys: Collection[str]) -> Set[str]:

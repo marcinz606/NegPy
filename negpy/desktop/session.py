@@ -1648,9 +1648,32 @@ class DesktopSessionManager(QObject):
         return changed
 
     def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
-        if self._stamp_averages(hashes):
+        changed = self._stamp_averages(hashes)
+        if self._stamp_own_cards() or changed:
             self.asset_model.refresh()
             self.files_changed.emit()
+
+    def refresh_own_marks(self) -> None:
+        """Re-reads which loaded frames keep their own value on a Roll-tab card."""
+        if self._stamp_own_cards():
+            self.asset_model.refresh()
+            self.files_changed.emit()
+
+    def _stamp_own_cards(self) -> bool:
+        """Marks each loaded frame locked away from the active roll on any card, ``own_cards``,
+        for the Film Strip. True when a mark changed."""
+        entry = rolls.roll_for_id(self.repo, self.state.active_roll_id) if self.state.active_roll_id else None
+        overrides = (entry or {}).get("frame_overrides", {})
+        changed = False
+        for f in self.state.uploaded_files:
+            own = bool(overrides.get(unforked_hash(f["hash"])))
+            if own != bool(f.get("own_cards")):
+                changed = True
+                if own:
+                    f["own_cards"] = True
+                else:
+                    f.pop("own_cards", None)
+        return changed
 
     def refresh_scene_marks(self) -> None:
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""

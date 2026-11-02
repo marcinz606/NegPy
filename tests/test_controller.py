@@ -1863,6 +1863,37 @@ class TestAppController(unittest.TestCase):
         self.assertEqual((state.config.process.analysis_buffer, state.config.geometry.distortion_k1), (0.2, 0.05))
         self.assertFalse(self.controller.can_revert_frame_to_roll())
 
+    def test_a_card_reset_away_from_the_roll_locks_and_back_to_it_unlocks(self):
+        """A card's Reset is an edit: a default unlike the roll's stays on reload."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(self.mock_session_manager.state.config, "process"))
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)
+
+        self.controller.sync_roll_card_locks(("process",))
+        self.assertIn("process", self.controller.locked_roll_cards())
+
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=self.mock_session_manager.state.config.process.analysis_buffer)
+        self.controller.sync_roll_card_locks(("process",))
+        self.assertNotIn("process", self.controller.locked_roll_cards())
+
+    def test_a_roll_push_counts_the_frames_that_keep_their_own_value(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        state.uploaded_files = state.uploaded_files + [{"name": "b.dng", "path": "/b.dng", "hash": "h2"}]
+        rolls.set_frame_override(repo, roll_id, "h1", "process", True)
+        rolls.set_frame_override(repo, roll_id, "h2", "process", True)
+        self.controller.set_status = MagicMock()
+
+        self.controller.apply_roll_card("process")
+
+        self.assertEqual(self.controller.set_status.call_args[0][0], "Applied to the roll: Metering. Frames that keep their own value: 1")
+
     def test_nothing_to_reset_to_the_roll(self):
         from negpy.services.assets import rolls
 
@@ -3810,6 +3841,18 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(pushed, {"h1", "h3"})
         self.mock_session_manager.update_config.assert_called()
 
+    def test_batch_normalization_writes_only_the_frames_it_measured(self):
+        """A frame the Sheet filter hid was not measured, so it keeps what it had."""
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._normalization_measured = {"h2", "h3"}
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertNotIn("h1", saved)
+        self.assertIn("h3", saved)
+
     def test_locked_frame_keeps_its_own_exposure_after_batch_analysis(self):
         locked_cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, lock_bounds=True))
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: locked_cfg if h == "h1" else None
@@ -4480,6 +4523,27 @@ class TestPresetExportSelected(unittest.TestCase):
 
         mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.2, 0.3), (0.9, 0.8, 0.7))
         mock_apply.assert_called_once_with("roll-1")
+
+    def test_set_roll_baseline_from_frame_takes_its_own_measurement_not_the_average(self):
+        """A frame on the average renders the average; Use This Frame means the frame itself."""
+        cfg = WorkspaceConfig()
+        self.mock_session_manager.state.config = replace(
+            cfg,
+            process=replace(
+                cfg.process,
+                local_floors=(0.1, 0.2, 0.3),
+                local_ceils=(0.9, 0.8, 0.7),
+                locked_floors=(0.4, 0.4, 0.4),
+                locked_ceils=(0.6, 0.6, 0.6),
+                use_luma_average=True,
+                use_color_average=True,
+            ),
+        )
+
+        with patch.object(rolls, "set_roll_normalization") as mock_set, patch.object(self.controller, "apply_normalization_roll"):
+            self.controller.set_roll_baseline_from_frame("roll-1")
+
+        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.2, 0.3), (0.9, 0.8, 0.7))
 
     def test_set_roll_baseline_from_frame_needs_a_metered_frame(self):
         """An unrendered frame has all-zero bounds; writing those would blank the roll."""

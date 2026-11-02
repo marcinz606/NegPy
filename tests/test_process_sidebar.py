@@ -438,3 +438,19 @@ def test_average_toggles_gray_out_without_a_roll(qapp):
     controller.state.active_roll_id = "roll-1"
     sidebar.sync_ui()
     assert sidebar.use_luma_avg_btn.isEnabled() and sidebar.use_color_avg_btn.isEnabled()
+
+
+def test_hand_picks_gray_out_while_the_frame_prints_on_the_roll_average(qapp):
+    """The render ignores Dmin/Dmax when Luma and Color both ride, so the picks say so."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=True))
+    sidebar.sync_ui()
+
+    assert not sidebar.dmin_btn.isEnabled() and not sidebar.dmax_btn.isEnabled()
+    assert "roll average" in sidebar.dmin_hint.text()
+
+    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=False))
+    sidebar.sync_ui()
+
+    assert sidebar.dmin_btn.isEnabled() and sidebar.dmax_btn.isEnabled()

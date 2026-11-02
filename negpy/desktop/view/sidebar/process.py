@@ -525,13 +525,18 @@ class ProcessSidebar(BaseSidebar):
             has_region = conf.analysis_rect is not None
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
             self.clear_analysis_region_btn.setVisible(has_region)
+            # Both axes on the roll average leave nothing for a hand pick to move.
+            rides = conf.use_luma_average and conf.use_color_average
             for btn, hint, mode, picked in (
                 (self.dmin_btn, self.dmin_hint, ToolMode.DMIN_PICK, conf.manual_dmin),
                 (self.dmax_btn, self.dmax_hint, ToolMode.DMAX_PICK, conf.manual_dmax),
             ):
                 btn.setChecked(self.state.active_tool == mode)
+                btn.setEnabled(not rides)
                 btn.clear_btn.setVisible(picked is not None)
                 hint.setText(_picked_densities(picked))
+            if rides:
+                self.dmin_hint.setText(tr("Off while this frame prints on the roll average: turn off Luma and Color to pick by hand."))
 
             for w in (
                 self.analysis_buffer_slider,

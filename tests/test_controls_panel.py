@@ -546,3 +546,12 @@ def test_the_crop_card_copies_a_crop_with_its_auto_crop():
     fields = {f for row in frame_card_rows("autocrop") for f in row.fields}
     assert {"crop_rect", "crop_detect_key", "crop_from_auto", "autocrop_ratio", "autocrop_mode"} <= fields
     assert not fields & {f for row in frame_card_rows("geometry") for f in row.fields}
+
+
+def test_a_roll_card_reset_settles_its_lock():
+    panel = MagicMock()
+    panel.controller.state.config = DEFAULT_WORKSPACE_CONFIG
+
+    ControlsPanel._reset_process_fields(panel, ("analysis_buffer",), ("process",))
+
+    panel.controller.sync_roll_card_locks.assert_called_once_with(("process",))

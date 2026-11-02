@@ -894,7 +894,7 @@ def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
 
 def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
     menu = browser.roll_menu_btn.menu()
-    action = next(a for a in menu.actions() if a.text() == "Reset Roll to Defaults…")
+    action = next(a for a in menu.actions() if a.text() == "Reset Frames to Defaults…")
     with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=True) as confirm:
         action.trigger()
     confirm.assert_called_once_with(browser, 4, roll=True)  # the session fixture's 4 uploaded_files
