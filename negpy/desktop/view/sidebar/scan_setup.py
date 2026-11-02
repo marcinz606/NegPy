@@ -5,6 +5,7 @@ from PyQt6.QtCore import pyqtSignal
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.session import camera_raw_preview
 from negpy.features.exposure.papers import resolve_paper
 from negpy.features.process.models import SCAN_SETUP_PAPERS, ProcessMode, scan_setup_rig, scan_setup_values
 
@@ -36,7 +37,7 @@ def detected_capture(state) -> str:
     """A camera RAW (it has a camera matrix) reads as "camera", anything else as "scanner"; with no frame open, "camera"."""
     if not state.current_file_hash:
         return "camera"
-    return "camera" if state.preview_cam_xyz is not None else "scanner"
+    return "camera" if camera_raw_preview(state) else "scanner"
 
 
 def resolved_rig(repo, state) -> tuple[str, str]:

@@ -14,7 +14,8 @@ from negpy.infrastructure.loaders.helpers import (
     identify_color_space_from_icc,
     read_orientation,
 )
-from negpy.infrastructure.loaders.source_encoding import PROFILE, apply_decode, resolve_decode
+from negpy.features.process.capture_color import source_cam_xyz
+from negpy.infrastructure.loaders.source_encoding import PROFILE, decode_positive, resolve_decode
 from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32
 
 
@@ -52,7 +53,10 @@ class JpegLoader(IImageLoader):
                 "ir": None,
                 "source_encoding": ran,
             }
-            return NonStandardFileWrapper(apply_decode(np.ascontiguousarray(img), decode)), metadata
+            linear, to_working = decode_positive(np.ascontiguousarray(img), decode)
+            wrapper = NonStandardFileWrapper(linear)
+            wrapper.rgb_xyz_matrix = source_cam_xyz(to_working)
+            return wrapper, metadata
 
         if img.dtype == np.uint8:
             f32 = uint8_to_float32(np.ascontiguousarray(img))

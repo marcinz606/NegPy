@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Bump in any change that alters the bounds a frame measures for unchanged settings. Saved
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
-BOUNDS_VERSION = 2
+BOUNDS_VERSION = 3
 
 # Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
@@ -199,6 +199,15 @@ def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> Image
     out = negpy_core.unmix_log(np.ascontiguousarray(img_log, dtype=np.float32), np.ascontiguousarray(m[:, :3]))
     # A (3, 4) matrix is Remove Stain's affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
+
+
+def relog_matrix_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
+    """Apply a linear-light 3x3 to a (H, W, 3) log-density image: 10^v, the matrix, then the log
+    clamped at 1e-6 as `log_density_open` clamps it. Identity when None."""
+    if matrix is None:
+        return img_log
+    m = np.ascontiguousarray(np.asarray(matrix, dtype=np.float32)[:, :3])
+    return negpy_core.relog_matrix(np.ascontiguousarray(img_log, dtype=np.float32), m)
 
 
 def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:

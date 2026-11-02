@@ -98,6 +98,26 @@ def wb_only_cam_xyz(cam_xyz: Optional[Sequence[Sequence[float]]]) -> Optional[li
     return _XYZ_TO_WORKING.tolist()
 
 
+# The 4th row of a source profile's `cam_xyz`. A camera's reaches the pipeline as 3 rows
+# (helpers.camera_xyz_matrix), and `camera_to_working_matrix` reads only the first 3.
+_SOURCE_PROFILE_ROW = (-1.0, -1.0, -1.0)
+
+
+def source_cam_xyz(to_working: Optional[np.ndarray]) -> Optional[list]:
+    """The `cam_xyz` of a Positive source decoded in its own primaries: the one that
+    `camera_to_working_matrix` turns into *to_working*, the profile's source-to-working 3x3. The
+    engines apply it like a camera's, so the density stage can act on the source channels first."""
+    if to_working is None:
+        return None
+    rows = (np.linalg.inv(np.asarray(to_working, dtype=np.float64)) @ _XYZ_TO_WORKING).tolist()
+    return rows + [list(_SOURCE_PROFILE_ROW)]
+
+
+def is_source_profile(cam_xyz: Optional[Sequence[Sequence[float]]]) -> bool:
+    """True when *cam_xyz* came from a source profile (`source_cam_xyz`), not from a camera."""
+    return cam_xyz is not None and len(cam_xyz) > 3 and tuple(float(v) for v in cam_xyz[3]) == _SOURCE_PROFILE_ROW
+
+
 def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.ndarray:
     """
     Camera primaries -> working space. A None matrix passes the buffer through.

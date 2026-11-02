@@ -6,6 +6,7 @@ from negpy.desktop.view.styles.templates import field_row, hint_label, section_s
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.hdr.models import hdr_active
+from negpy.desktop.session import camera_raw_preview
 from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.infrastructure.loaders.helpers import supported_demosaic_modes
@@ -145,11 +146,11 @@ class DemosaicSidebar(BaseSidebar):
             is_e6 = conf.process_mode == ProcessMode.E6
             merged = hdr_active(self.state.config.hdr)
             # No camera matrix: not a camera RAW decode, so nothing here is demosaiced.
-            self.hint.setVisible(bool(self.state.current_file_hash) and self.state.preview_cam_xyz is None)
+            self.hint.setVisible(bool(self.state.current_file_hash) and not camera_raw_preview(self.state))
             self.highlight_header.setVisible(is_e6)
             self.highlight_label.setVisible(is_e6)
             self.highlight_combo.setVisible(is_e6)
-            self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None and not merged)
+            self.highlight_combo.setEnabled(camera_raw_preview(self.state) and not merged)
             self.highlight_combo.setCurrentIndex(highlight_bucket(conf.highlight_reconstruction))
             self.highlight_merged_hint.setVisible(is_e6 and merged)
         finally:
