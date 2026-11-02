@@ -1182,3 +1182,27 @@ def test_home_roll_lookup_answers_as_home_roll(tmp_path):
     for path in (str(folder / "1.tif"), "/elsewhere/2.tif", "/nowhere/3.tif", str(folder / "sub" / "4.tif")):
         assert lookup(path) == home_roll(repo, path), path
     assert lookup(str(folder)) == folder_id
+
+
+def test_a_camera_raw_fade_white_stays_on_its_frame():
+    """A RAW's white moves with each frame's exposure, so the roll keeps a scanner white only."""
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "R", ["/a.tif"])
+    scanner = dict(fade_white_r=-0.1, fade_white_g=-0.2, fade_white_b=-0.3, fade_white_space="")
+    set_roll_defaults(repo, roll_id, fade_ratio_g=2.0, **scanner)
+    assert roll_defaults(repo, roll_id) == dict(fade_ratio_g=2.0, **scanner)
+    raw = dict(fade_white_r=-0.4, fade_white_g=-0.5, fade_white_b=-0.6, fade_white_space="abc123")
+    set_roll_defaults(repo, roll_id, fade_ratio_g=1.5, **raw)
+    assert roll_defaults(repo, roll_id) == dict(fade_ratio_g=1.5)
+    frame = WorkspaceConfig(process=ProcessConfig(fade_white_r=-0.7, fade_white_g=-0.8, fade_white_b=-0.9, fade_white_space="abc123"))
+    resolved = resolve_roll_config(repo, roll_id, "h1", frame).process
+    assert (resolved.fade_ratio_g, resolved.fade_white_r, resolved.fade_white_space) == (1.5, -0.7, "abc123")
+
+
+def test_a_stored_camera_raw_roll_white_is_not_read():
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "R", ["/a.nef"])
+    store = repo.get_global_setting(ROLLS_KEY)
+    store[roll_id]["defaults"] = dict(fade_ratio_r=0.5, fade_white_r=-0.4, fade_white_g=-0.5, fade_white_b=-0.6, fade_white_space="abc123")
+    repo.save_global_setting(ROLLS_KEY, store)
+    assert roll_defaults(repo, roll_id) == dict(fade_ratio_r=0.5)

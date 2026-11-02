@@ -680,7 +680,8 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
         ),
     ),
     # A roll's slides usually faded alike, so one Estimate or hand-tuned survival serves them
-    # all; its own card, so a per-frame Estimate never locks the crosstalk.
+    # all; its own card, so a per-frame Estimate never locks the crosstalk. A camera RAW's white
+    # stays per frame (`_without_decode_white`).
     "fade": (
         "process",
         (
@@ -754,12 +755,23 @@ def same_value(a: Any, b: Any) -> bool:
     return config_value(a) == config_value(b)
 
 
+# The fade white of a camera RAW: a reading of one frame's decode, which moves with its exposure.
+_DECODE_WHITE_FIELDS = ("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space")
+
+
+def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """*fields* without a camera RAW's fade white (a set `fade_white_space`), which no other frame can use."""
+    if not fields.get("fade_white_space"):
+        return fields
+    return {k: v for k, v in fields.items() if k not in _DECODE_WHITE_FIELDS}
+
+
 def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
     """The roll's own value for each field it has set at least once. A field absent
     here has no roll default yet -- the frame's own saved value is what is used,
     exactly as before roll defaults existed."""
     entry = roll_for_id(repo, roll_id)
-    return dict(entry["defaults"]) if entry and entry.get("defaults") else {}
+    return _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
 
 
 def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
@@ -772,7 +784,10 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     if entry is None:
         return
     defaults = dict(entry.get("defaults", {}))
-    defaults.update(fields)
+    if fields.get("fade_white_space"):
+        # A camera RAW's white replaces the roll's white with none, so each frame keeps its own.
+        defaults = {k: v for k, v in defaults.items() if k not in _DECODE_WHITE_FIELDS}
+    defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
 
