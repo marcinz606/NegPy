@@ -49,6 +49,7 @@ ADVANCE_TIMEOUT_S = 15.0
 EXPOSE_WAIT_S = 5.0  # the dock's own exposure on an S press lasts 3 s
 EJECT_TIMEOUT_S = 30.0
 HOLD_INTERVAL_S = 30.0
+KEEPALIVE_TICK_S = 1.0
 
 _KV = re.compile(r"(\w+)=(\S+)")
 
@@ -149,7 +150,11 @@ class LentoDock:
             self._port = port
             self._serial = serial.Serial(port, baudrate=baudrate, timeout=read_timeout_s)
 
+        # One command waits for its replies at a time; the write lock guards only the write,
+        # so the keep-alive still reaches the dock while a command waits for a slow move.
+        self._command_lock = threading.Lock()
         self._write_lock = threading.Lock()
+        self._link_error: Optional[BaseException] = None
         self._state: dict[str, str] = {}
         self._replies: queue.Queue[str] = queue.Queue()
         self._booted = threading.Event()
@@ -185,7 +190,7 @@ class LentoDock:
         return None
 
     def is_connected(self) -> bool:
-        return self._reader.is_alive() and self._reader_error is None
+        return self._reader.is_alive() and self._reader_error is None and self._link_error is None
 
     def describe(self) -> tuple[str, bool, bool]:
         """(status text, has a white channel, has an infrared channel) for the Scan panel."""
@@ -213,6 +218,23 @@ class LentoDock:
             self._command("CONTHOLD 1", r"^(CONTHOLD|ERR)")
             self._last_hold = time.monotonic()
         self._light_on = True
+
+    def set_color_now(self, r: int = 0, g: int = 0, b: int = 0) -> None:
+        """Switch the panel without waiting for the dock's reply, for a light that NegPy times itself.
+        The reply time varies, so a light switched by waited commands stays lit for a varying extra time.
+        A call with the hold not yet confirmed confirms it first, so make the first call in the dark."""
+        duties = [to_duty(v) for v in (r, g, b)]
+        if not (self._continuous and self._light_on):
+            self._enter_continuous()
+            self._command("CONTHOLD 1", r"^(CONTHOLD|ERR)")
+            self._last_hold = time.monotonic()
+            self._light_on = True  # the keep-alive refreshes the hold from here on
+        self._send(f"CONTRGB {duties[0]} {duties[1]} {duties[2]}")
+
+    def take_control(self) -> None:
+        """Put the dock under host control now. The dock finds the first frame of a strip only when
+        the strip goes in while the dock is in SEMI mode."""
+        self._enter_continuous()
 
     def off(self) -> None:
         if self._continuous:
@@ -312,14 +334,15 @@ class LentoDock:
         timeout)` in `then` waits for a later line in turn, and the last line matched is returned."""
         if self._reader_error is not None:
             raise ConnectionError(f"Lento Dock reader stopped: {self._reader_error}")
-        with self._write_lock:
+        if self._link_error is not None:
+            raise ConnectionError(f"Lento Dock link lost: {self._link_error}")
+        with self._command_lock:
             while not self._replies.empty():
                 try:
                     self._replies.get_nowait()
                 except queue.Empty:
                     break
-            self._serial.write((cmd + "\r\n").encode("ascii"))
-            self._last_tx = time.monotonic()
+            self._send(cmd)
             self._in_command = True
             try:
                 line = self._await(cmd, expect, timeout)
@@ -351,7 +374,11 @@ class LentoDock:
                 return line
 
     def _keepalive_loop(self) -> None:
-        while not self._stop.wait(1.0):
+        """Ends when the link does: a dock that is gone gets no more writes, and `is_connected`
+        turns false so the caller connects again."""
+        while not self._stop.wait(KEEPALIVE_TICK_S):
+            if not self._reader.is_alive() or self._reader_error is not None:
+                return
             try:
                 now = time.monotonic()
                 if self._light_on and now - self._last_hold >= HOLD_INTERVAL_S:
@@ -359,8 +386,10 @@ class LentoDock:
                     self._last_hold = now
                 elif now - self._last_tx >= PING_INTERVAL_S:
                     self._send("PING")
-            except Exception:
-                logger.debug("Lento Dock keep-alive failed", exc_info=True)
+            except Exception as exc:
+                self._link_error = exc
+                logger.warning("Lento Dock link lost: %s", exc)
+                return
 
     def _reader_loop(self) -> None:
         buf = b""

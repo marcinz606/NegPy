@@ -576,7 +576,7 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
 *   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.
 
-<!-- panel:scan_light src:e58660c1 -->
+<!-- panel:scan_light src:417cc437 -->
 ### Vorgabe
 
 Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwerte und die Kamerabelichtung für eine Filmart.
@@ -586,8 +586,10 @@ Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwe
     *   **Auf der Filmbasis kalibrieren…**: Setze das Rechteck auf klaren Film und starte die Kalibrierung. NegPy ermittelt die Lichtwerte und die Verschlusszeit.
     *   **Von Hand einstellen**: Stelle die Regler selbst ein und speichere sie als Vorgabe. Ohne verbundene Kamera speichert sie keine Belichtung, und ein Scan nutzt die eigene der Kamera.
 *   **Rot**, **Grün**, **Blau**, **Weiß**: die Lichtwerte (0 bis 255). **Licht an** schaltet das Licht ein, um den Film einzurichten, oder aus.
-*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an.
-*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung): speichert zusätzlich ein Sensor-Farbvermischungsprofil für diese Vorgabe (siehe Kalibrierung, §10.4).
+*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an. **Mischen** hält die Kamera in Bulb offen und schaltet Rot, Grün und Blau nacheinander ein, für eine Datei. Ein Trichrom- oder Misch-Preset kann zwischen beiden wechseln.
+*   **Auslösung** (Mischen): was den Verschluss offen hält. **USB** nutzt die Bulb-Steuerung der Kamera. **Kabel** nutzt ein Fernauslöserkabel in der 3,5-mm-Buchse des Scanlight, für Belichtungen bis 2,55 s.
+*   **Sensorprofil** (Misch-Vorgabe ohne eigenes Profil): das Sensor-Farbvermischungsprofil für ihre Scans. Scannen wartet auf eines. Die Schaltfläche mit den Röhrchen erstellt eines.
+*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung oder Mischen): speichert zusätzlich ein Sensor-Farbvermischungsprofil, das die Scans dieser Vorgabe nutzen (siehe Kalibrierung, §10.4).
 *   **ISO**, **Verschlusszeit**, **Blende**: die Belichtung der Vorgabe. Eine Änderung gilt, bis du die Vorgabe erneut wählst. Die Messtaste misst.
 *   **IR-Verschlusszeit** und **Infrarot** (Lichter mit Infrarot-LEDs): fügt jedem Scan eine Infrarotbelichtung für die Staubentfernung hinzu, gespeichert als `_IR`-Datei. Es braucht eine Kamera, die Infrarot sieht (Vollspektrum oder umgebaut), und manuellen Fokus. Nur für Farbfilm.
 *   **Kanalverzögerung**: eine Pause zwischen den Belichtungen für Rot, Grün und Blau, für Kameras, die sie brauchen.

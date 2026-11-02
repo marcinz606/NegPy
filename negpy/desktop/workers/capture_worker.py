@@ -11,11 +11,11 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field, replace
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from negpy.infrastructure.capture.base import CAPTURE_ORDER, CaptureSettings, Channel
+from negpy.infrastructure.capture.base import CAPTURE_ORDER, BulbRelease, CaptureSettings, Channel
 from negpy.infrastructure.capture.gphoto import (
     CameraCapabilities,
     CameraClaimedError,
@@ -93,6 +93,9 @@ class CaptureRequest:
     aperture: str = ""
     as_roll: bool = False
     single_capture: bool = False  # RGB preset shot as one exposure with all three LEDs lit
+    blend_capture: bool = False  # triplet preset shot as one Bulb exposure, the LEDs lit in turn
+    bulb_release: BulbRelease = BulbRelease.USB  # what holds the Blend exposure's shutter open
+    keep_bulb: bool = False  # a strip frame: leave the camera in Bulb for the next Blend frame
     sensor_profile: str = ""  # the single-capture preset's sensor profile, for the frame's roll
     channels: tuple[str, ...] = ("R", "G", "B")  # the visible exposures to shoot; a subset shoots alone, into its own files
     shutter_ir: str = ""  # the infrared exposure's own shutter; "" = the body's current
@@ -134,6 +137,7 @@ class CalibrationRequest:
     start_levels: tuple[int, int, int] = REFERENCE_LEVELS
     start_shutter: str = REFERENCE_SHUTTER
     single_capture: bool = False  # solve for R, G and B lit together in one exposure
+    measure_sensor: bool = False  # a triplet run also measures a sensor unmix, for a Blend preset
 
 
 # The central half of the frame, the region a sensor profile built from files measures.
@@ -165,6 +169,21 @@ def _setting_label(info) -> str:
     if not isinstance(info, dict):
         return ""
     return next((str(o.get("label", "")) for o in info.get("options", []) if o.get("raw") == info.get("cur")), "")
+
+
+def _blend_seconds(camera, shutter: str) -> float:
+    """The true time of the Trichrome shutter, which each Blend channel gets as its light. A built-in
+    Trichrome preset names none, so the body's current step stands in."""
+    info = camera.read_settings().get("shutter", {}) if hasattr(camera, "read_settings") else {}
+    ladder = scan_ladder(str(o.get("label", "")) for o in info.get("options", [])) if isinstance(info, dict) else ()
+    label = shutter.strip() or _setting_label(info)
+    try:
+        seconds = true_seconds(label, ladder)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    if seconds <= 0:
+        raise CaptureError(tr("Blend needs a shutter time. Set the camera's shutter to a time, not Bulb, then scan again."))
+    return seconds
 
 
 def _shutters_or_none(shutters: tuple[str, str, str]):
@@ -223,6 +242,8 @@ class CaptureWorker(QObject):
         # single PTP claim, and GphotoCamera serialises the three internally. Held open across
         # frames, closed on error and at shutdown.
         self._camera: Optional[GphotoCamera] = None
+        # Set by a Blend strip: runs once a frame's shutter closes, to move the film while the camera finishes.
+        self._after_shutter: Optional[Callable[[], None]] = None
         self._model = ""
         # True after an open failed because another program holds the USB claim; drives the
         # "in use by another app" camera status. Cleared by the next open attempt that does
@@ -307,6 +328,12 @@ class CaptureWorker(QObject):
             self._light = None
         self._light = open_light(port or None)
         self._light_port = port
+        take_control = getattr(self._light, "take_control", None)
+        if take_control is not None:
+            try:
+                take_control()
+            except Exception:
+                logger.exception("could not put the light under host control")
         if hasattr(self._light, "on_scan_button"):
             self._light.on_scan_button = self.scan_button_pressed.emit
         return self._light
@@ -443,6 +470,22 @@ class CaptureWorker(QObject):
                 self._report_clipping(path)
                 return True
 
+            if req.blend_capture:  # R, G and B in turn inside one Bulb exposure, imported as a single RAW
+                self.status.emit(tr("Capturing Blend exposure…"))
+                path = service.capture_blend(
+                    settings,
+                    seconds=_blend_seconds(camera, req.shutters[0]),
+                    release=BulbRelease(req.bulb_release),
+                    cancel=self._cancel,
+                    on_channel=self.channel.emit,
+                    end_light=visible_end,
+                    keep_bulb=req.keep_bulb,
+                    on_closed=self._after_shutter,
+                )
+                self._finish_frame(req, _with_ir([path]))
+                self._report_clipping(path)
+                return True
+
             if tuple(req.channels) != ("R", "G", "B"):  # a subset of the visible exposures, each shot alone
                 paths = []
                 last = [ch for ch in CAPTURE_ORDER if ch.letter in req.channels][-1:]
@@ -561,20 +604,39 @@ class CaptureWorker(QObject):
         The dock cannot advance after it moves the film out of the window and back, so the flat
         never comes first."""
         scanned, at_end = 0, False
-        for frame_number in range(req.frame_number, req.frame_number + _STRIP_FRAME_LIMIT):
-            if self._cancel.is_set():
-                self.cancelled.emit()
-                return
-            one = replace(req, frame_number=frame_number, whole_strip=False, strip_flat=False, advance_film=False)
-            if not self.run_capture(one):
-                return
-            scanned += 1
-            moved = self._advance_film(req.port, eject=False)
-            if moved is None:
-                break
-            if moved:
-                at_end = True
-                break
+        try:
+            for frame_number in range(req.frame_number, req.frame_number + _STRIP_FRAME_LIMIT):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
+                one = replace(req, frame_number=frame_number, whole_strip=False, strip_flat=False, advance_film=False, keep_bulb=True)
+                early: dict = {}
+                if req.blend_capture:
+                    self._after_shutter = lambda: self._start_advance(req.port, early)
+                try:
+                    captured = self.run_capture(one)
+                finally:
+                    self._after_shutter = None
+                    if "thread" in early:
+                        early["thread"].join()
+                if not captured:
+                    if "thread" in early:
+                        self.status.emit(
+                            tr(
+                                "Frame {frame} failed after the film moved on. Move the film back one frame, then click Retake.",
+                                frame=frame_number,
+                            )
+                        )
+                    return
+                scanned += 1
+                moved = early["moved"] if "thread" in early else self._advance_film(req.port, eject=False)
+                if moved is None:
+                    break
+                if moved:
+                    at_end = True
+                    break
+        finally:
+            self._release_bulb()  # before the flat, which meters from the camera's own shutter step
         flat_error = ""
         if at_end and self._eject(self._ensure_light(req.port)) and req.strip_flat and not self._cancel.is_set():
             try:
@@ -586,6 +648,28 @@ class CaptureWorker(QObject):
         self.strip_finished.emit(scanned, at_end)
         if flat_error:
             self.status.emit(flat_error)
+
+    def _start_advance(self, port: str, result: dict) -> None:
+        """Move the film on a thread of its own once a Blend frame's shutter has closed, so the move
+        overlaps the camera's processing of the shot. `result` gets the thread and the move's outcome."""
+
+        def _run() -> None:
+            result["moved"] = self._advance_film(port, eject=False)
+
+        thread = threading.Thread(target=_run, name="film-advance", daemon=True)
+        result["thread"] = thread
+        thread.start()
+
+    def _release_bulb(self) -> None:
+        """Put back the shutter step a Blend strip held at Bulb. A failure is logged, never raised:
+        the next plain capture and the session's close put it back as well."""
+        release = getattr(self._camera, "release_bulb", None)
+        if release is None:
+            return
+        try:
+            release()
+        except Exception:  # noqa: BLE001
+            logger.exception("could not put the camera's shutter back after the strip")
 
     def _capture_flat(self, req: CaptureRequest) -> str:
         """Shoot the empty dock at the frame's LED levels and a shutter that puts the brightest
@@ -659,7 +743,7 @@ class CaptureWorker(QObject):
         Skipped for white-light captures (a single frame is already complete, not a triplet)
         and for retakes (the frame existed complete; overwriting leaves three files in place).
         """
-        if req.white_mode or req.single_capture or req.is_retake or not req.rgb_mode:
+        if req.white_mode or req.single_capture or req.blend_capture or req.is_retake or not req.rgb_mode:
             return  # single-file captures (white / single RGB / normal) aren't triplets → nothing to keep aligned
         prefix = f"{req.roll_name}_Frame{req.frame_number:03d}_"  # trailing _ → only channel files
         try:
@@ -910,6 +994,7 @@ class CaptureWorker(QObject):
                     progress=self.calibration_progress.emit,
                     cancel=self._cancel,
                     single_capture=req.single_capture,
+                    measure_sensor=req.measure_sensor,
                 )
             self.calibration_finished.emit(result)
         except CalibrationExposureError as e:

@@ -42,6 +42,7 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
+from negpy.services.assets.capture_modes import BLEND, SINGLE, capture_modes
 from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.triplets import remember_triplets
 from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -452,7 +453,7 @@ STITCH_TOOLTIP_PARTS = 8
 
 
 def composite_summary(asset: Dict[str, Any]) -> str:
-    """Tooltip text naming what a frame is built from. Empty for a plain frame."""
+    """Tooltip text naming what a frame is built from, or how a capture shot it. Empty for a plain frame."""
     kind = composite_kind(asset)
     if kind == "stitch":
         return _stitch_summary(asset)
@@ -464,6 +465,10 @@ def composite_summary(asset: Dict[str, Any]) -> str:
         return tr("Half-frame split ({value} of 2)", value=int(asset["half"]))
     if kind == "diptych":
         return tr("Diptych: both halves, each with its own edit")
+    if asset.get("capture") == BLEND:
+        return tr("Blend capture")
+    if asset.get("capture") == SINGLE:
+        return tr("Single Exposure capture")
     return ""
 
 
@@ -1612,6 +1617,21 @@ class DesktopSessionManager(QObject):
                     f.pop("average", None)
         return changed
 
+    def _stamp_capture_modes(self) -> None:
+        """Marks each loaded single-file frame that a Blend or Single Exposure capture shot, ``capture``."""
+        modes = capture_modes(self.repo, [f["path"] for f in self.state.uploaded_files if f.get("path")])
+        for f in self.state.uploaded_files:
+            mode = modes.get(f.get("path", ""))
+            if mode:
+                f["capture"] = mode
+            else:
+                f.pop("capture", None)
+
+    def refresh_capture_marks(self) -> None:
+        self._stamp_capture_modes()
+        self.asset_model.refresh()
+        self.files_changed.emit()
+
     def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
         if self._stamp_averages(hashes):
             self.asset_model.refresh()
@@ -1621,6 +1641,7 @@ class DesktopSessionManager(QObject):
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
 
@@ -2422,6 +2443,7 @@ class DesktopSessionManager(QObject):
             f["excluded"] = m == "excluded"
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
 
         self.asset_model.refresh()
         self.files_changed.emit()
@@ -2470,6 +2492,7 @@ class DesktopSessionManager(QObject):
             self.state.uploaded_files[i] = {**asset, "keeper": m == "keeper", "excluded": m == "excluded"}
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
@@ -2497,6 +2520,7 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = [shifted(i) for i in self.state.selected_indices]
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()

@@ -2,28 +2,36 @@
 
 Sets the Scanlight to one narrowband channel, fires the camera, repeats for red,
 green, blue — then turns the light off. The three RAWs are handed to NegPy's
-RGB-Scan mode, which aligns/merges/inverts them. Hardware is injected, so the
-whole flow is unit-testable with fakes.
+RGB-Scan mode, which aligns/merges/inverts them. A Blend capture lights the same
+three channels in turn inside one Bulb exposure, into one RAW. Hardware is injected,
+so the whole flow is unit-testable with fakes.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import tempfile
 import threading
 import time
-from typing import Callable, Optional
+from dataclasses import dataclass
+from typing import Callable, Optional, cast
 
 from negpy.infrastructure.capture.base import (
     CAPTURE_ORDER,
+    BulbCamera,
+    BulbRelease,
     Camera,
     CaptureResult,
     CaptureSettings,
     Channel,
     LightSource,
+    ShutterRelease,
 )
+from negpy.infrastructure.capture.protocol import MAX_SHUTTER_PULSE_S
 from negpy.kernel.system.logging import get_logger
+from negpy.services.capture.calibration import PWM_MAX, PWM_MIN
 
 logger = get_logger(__name__)
 
@@ -36,8 +44,62 @@ ProgressCb = Callable[[float], None]
 LightLevels = tuple[int, int, int, int]  # r, g, b, w
 
 
+#: The host times each Blend channel with a sleep, so a channel shorter than this takes a timing
+#: error of a few percent. The plan dims the LEDs to make a short channel longer.
+BLEND_MIN_CHANNEL_S = 0.2
+#: Dark time inside the Bulb exposure before the first LED, so the shutter's lag after the press
+#: never shortens the first channel.
+BULB_LEAD_S = 0.35
+#: Dark time after the last LED, by cable only: the light's timer ends the pulse, so the host's
+#: latency must fit inside it. Over USB the light is off before the release, so a slow close loses nothing.
+BULB_TAIL_S = 0.2
+
+
 class CaptureError(RuntimeError):
     """Raised when a triplet capture cannot complete."""
+
+
+@dataclass(frozen=True)
+class BlendStep:
+    """One channel of a Blend exposure: its LED level and how long it stays lit."""
+
+    channel: Channel
+    level: int
+    seconds: float
+
+
+def blend_plan(levels: tuple[int, int, int], seconds: float, *, max_light_s: Optional[float] = None) -> tuple[BlendStep, ...]:
+    """Each channel's LED level and time for one Blend exposure. Each channel gets the light of its
+    Trichrome exposure (level times `seconds`). One factor scales every level, so the channels keep
+    their balance. The factor stays 1 unless a channel would be too short to time, or the channels
+    together would last longer than `max_light_s`."""
+    lit = [(ch, level) for ch, level in zip(CAPTURE_ORDER, levels) if level > 0]
+    if not lit or seconds <= 0:
+        raise CaptureError("a Blend exposure needs a shutter time and at least one lit channel")
+    low = min(level for _, level in lit)
+    high = max(level for _, level in lit)
+    floor = min(PWM_MIN, low) / low  # dims no channel under the calibration's LED floor
+    if max_light_s is not None:
+        floor = max(floor, len(lit) * seconds / max_light_s)
+    ceiling = PWM_MAX / high
+    if floor > ceiling:
+        raise CaptureError(
+            f"the Blend exposure needs {len(lit) * seconds * high / PWM_MAX:.1f} s of light, more than the "
+            f"release cable holds ({max_light_s:.1f} s); open the aperture or raise the ISO, then calibrate again"
+        )
+    factor = min(max(min(1.0, seconds / BLEND_MIN_CHANNEL_S), floor), ceiling)
+    steps = []
+    for ch, level in lit:
+        # Under a pulse limit, a level rounds up: a brighter step is a shorter one, so the plan still fits.
+        scaled = max(1, min(PWM_MAX, math.ceil(level * factor - 1e-9) if max_light_s is not None else round(level * factor)))
+        steps.append(BlendStep(ch, scaled, seconds * level / scaled))  # exact against the rounding
+    if max_light_s is not None and sum(s.seconds for s in steps) > max_light_s + 1e-9:
+        raise CaptureError(f"the Blend exposure is longer than the release cable holds ({max_light_s:.1f} s)")
+    if min(s.seconds for s in steps) < BLEND_MIN_CHANNEL_S:
+        logger.warning(
+            "blend: %.3f s per channel is short to time; close the aperture or lower the ISO for longer channels", steps[0].seconds
+        )
+    return tuple(steps)
 
 
 def verify_raw_size(path: str, min_bytes: int, max_bytes: int) -> None:
@@ -64,13 +126,18 @@ def _capture_validated_single(
     cancel: Optional[threading.Event] = None,
     iso: Optional[str] = None,
     aperture: Optional[str] = None,
+    shoot: Optional[Callable[[str], str]] = None,
 ) -> str:
-    """Capture beside the destination and replace it only after size validation."""
+    """Capture beside the destination and replace it only after size validation. `shoot` takes the
+    staged path and returns the file's, in place of one plain `camera.capture`."""
     output_folder = os.path.dirname(final_stem)
     staging_dir = tempfile.mkdtemp(prefix=f".{os.path.basename(final_stem)}-", suffix=".capture", dir=output_folder)
     try:
         staged_stem = os.path.join(staging_dir, os.path.basename(final_stem))
-        staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter, iso=iso, aperture=aperture)
+        if shoot is not None:
+            staged_path = shoot(staged_stem + _RAW_SUFFIX)
+        else:
+            staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter, iso=iso, aperture=aperture)
         verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
         final_path = os.path.join(output_folder, os.path.basename(staged_path))
         if cancel is not None and cancel.is_set():
@@ -275,6 +342,97 @@ class CaptureService:
                 cancel=cancel,
                 iso=settings.iso,
                 aperture=settings.aperture,
+            )
+            ok = True
+            return path
+        finally:
+            self._release_light(ok, end_light)
+
+    def capture_blend(
+        self,
+        settings: CaptureSettings,
+        *,
+        seconds: float,
+        release: BulbRelease = BulbRelease.USB,
+        cancel: Optional[threading.Event] = None,
+        on_channel: Optional[Callable[[str], None]] = None,
+        end_light: Optional[LightLevels] = None,
+        keep_bulb: bool = False,
+        on_closed: Optional[Callable[[], None]] = None,
+    ) -> str:
+        """One Bulb exposure with red, green and blue lit in turn (one file, no R/G/B split).
+        `keep_bulb` leaves the camera in Bulb for the next frame of a strip. `on_closed` runs once the
+        shutter has closed and the light is off, while the camera still processes the shot.
+        `seconds` is the Trichrome shutter's true time; see `blend_plan`. The shutter opens and
+        closes in the dark. A Stop between channels ends the light and discards the file."""
+        if not isinstance(self._camera, BulbCamera):
+            raise CaptureError("this camera cannot take a Bulb exposure")
+        camera = cast(BulbCamera, self._camera)
+        cable = release is BulbRelease.CABLE
+        if cable and not isinstance(self._light, ShutterRelease):
+            raise CaptureError("this light has no shutter release output for a cable")
+        pulse = cast(ShutterRelease, self._light) if cable else None
+        budget = MAX_SHUTTER_PULSE_S - BULB_LEAD_S - BULB_TAIL_S if cable else None
+        plan = blend_plan(settings.levels, seconds, max_light_s=budget)
+        light_s = sum(step.seconds for step in plan)
+        os.makedirs(settings.output_folder, exist_ok=True)
+
+        # A light whose set_color waits for a reply switches through set_color_now, so each color
+        # is lit for the planned time and not for the reply's as well.
+        now = getattr(self._light, "set_color_now", None)
+
+        def _switch(r: int = 0, g: int = 0, b: int = 0) -> None:
+            if now is not None:
+                now(r=r, g=g, b=b)
+            elif r or g or b:
+                self._light.set_color(r=r, g=g, b=b)
+            else:
+                self._light.off()
+
+        def _expose() -> None:
+            _switch()  # dark, and any confirmation the light needs, before the timed part
+            if pulse is not None:
+                pulse.shutter_pulse(BULB_LEAD_S + light_s + BULB_TAIL_S)
+            self._sleep(BULB_LEAD_S)
+            for step in plan:
+                if cancel is not None and cancel.is_set():
+                    break
+                if on_channel is not None:
+                    on_channel(step.channel.letter)
+                _switch(*step.channel.rgb(step.level))
+                self._sleep(step.seconds)
+            _switch()
+            if pulse is not None:
+                self._sleep(BULB_TAIL_S)
+
+        def _shoot(path: str) -> str:
+            return camera.capture_bulb(
+                path,
+                _expose,
+                usb_release=not cable,
+                iso=settings.iso,
+                aperture=settings.aperture,
+                keep_bulb=keep_bulb,
+                on_closed=on_closed,
+            )
+
+        ok = False
+        try:
+            stem = os.path.join(settings.output_folder, f"{settings.roll_name}_Frame{settings.frame_number:03d}")
+            logger.info(
+                "capturing blend frame → %s (%s release): %s",
+                stem,
+                release.value,
+                ", ".join(f"{s.channel.letter} {s.level} for {s.seconds:.3f} s" for s in plan),
+            )
+            path = _capture_validated_single(
+                self._camera,
+                final_stem=stem,
+                shutter=None,
+                min_raw_bytes=settings.min_raw_bytes,
+                max_raw_bytes=settings.max_raw_bytes,
+                cancel=cancel,
+                shoot=_shoot,
             )
             ok = True
             return path

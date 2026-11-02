@@ -119,7 +119,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     """Scales each cached thumbnail into its cell; a frame not selected or under the pointer is
     dimmed. Triage marks are small bottom-right badges: check = keeper, cross + heavy dim =
     rejected; the bottom-left badge says the frame was built from several files
-    (stitch, HDR merge, RGB triplet, half-frame split). Top-right says the frame prints on the
+    (stitch, HDR merge, RGB triplet, half-frame split) or shot by a Blend or Single Exposure capture. Top-right says the frame prints on the
     roll average, amber when it is far from the roll color. Top-left holds the
     decode-failure badge, else a small dot saying the bitmap shown predates a settings
     change (a bulk apply reaches the file before a render reaches its thumbnail)."""
@@ -257,7 +257,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         icon.paint(painter, QRect(cx - 6, cy - 6, 12, 12))
 
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int, split_axis: str = "x") -> None:
-        """Bottom-left mark: this frame was assembled from more than one file.
+        """Bottom-left mark: this frame was assembled from more than one file, or a Blend or
+        Single Exposure capture shot it.
 
         One glyph per kind, so a merge is told from a stitch without opening the menu.
         The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
@@ -281,6 +282,21 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             for dx, color in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
                 painter.setBrush(QColor(color))
                 painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "blend":  # the three LEDs in turn in one exposure: overlapping, mixed as light
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+            for dx, color in ((-3, THEME.channel_red), (0, THEME.channel_green), (3, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
+                painter.drawEllipse(QRect(cx + dx - 3, cy - 3, 6, 6))
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "single":  # the three LEDs lit together: one disc of three sectors
+            painter.setPen(Qt.PenStyle.NoPen)
+            disc = QRect(cx - 5, cy - 5, 10, 10)
+            for start, color in ((90, THEME.channel_red), (210, THEME.channel_green), (330, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
+                painter.drawPie(disc, start * 16, 120 * 16)
             painter.setBrush(Qt.BrushStyle.NoBrush)
         elif kind == "half":  # a split frame, this asset's own half filled
             painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
@@ -323,7 +339,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
-        kind = composite_kind(file_info)
+        kind = composite_kind(file_info) or file_info.get("capture", "")
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():

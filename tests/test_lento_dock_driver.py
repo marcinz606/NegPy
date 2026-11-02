@@ -110,6 +110,14 @@ def test_close_without_light_leaves_the_mode_alone(sim):
     assert not any(line.startswith(("MODE", "EXPMODE")) for line in sim.lines)
 
 
+def test_take_control_enters_host_control_at_once(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.take_control()
+        assert (sim.mode, sim.expmode) == ("SEMI", "CONT")
+        assert sim.lit == (0, 0, 0)
+    assert (sim.mode, sim.expmode) == ("AUTO", "BRGB")
+
+
 def test_a_refused_command_raises(dock, sim):
     sim._answer = lambda line: sim._say("ERR")  # the dock refuses everything from now on
     with pytest.raises(ValueError):
@@ -269,3 +277,62 @@ def test_the_s_button_calls_the_scan_handler(sim):
         assert pressed == [1]  # at the press, not at the end of the dock's exposure
         assert dock.advance_frame() == 1  # the film waits for the dock's exposure to end
     assert pressed == [1]
+
+
+def test_set_color_now_confirms_the_hold_once_then_writes_without_waiting(dock, sim, monkeypatch):
+    dock.set_color_now()  # the first call, in the dark: continuous mode and the hold, both confirmed
+    assert sim.expmode == "CONT" and sim.lines.count("CONTHOLD 1") == 1
+
+    def _no_waiting(*_a, **_k):
+        raise AssertionError("a timed switch must not wait for the dock's reply")
+
+    monkeypatch.setattr(dock, "_await", _no_waiting)
+    dock.set_color_now(r=255)
+    dock.set_color_now(g=128)
+    dock.set_color_now()
+    deadline = time.monotonic() + 1.0
+    while sim.lines[-1] != "CONTRGB 0 0 0" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert sim.lines[-3:] == ["CONTRGB 1000 0 0", "CONTRGB 0 502 0", "CONTRGB 0 0 0"]
+    assert sim.lines.count("CONTHOLD 1") == 1
+
+
+def test_set_color_now_confirms_the_hold_again_after_off(dock, sim):
+    dock.set_color_now(r=255)
+    dock.off()
+    dock.set_color_now()
+    assert sim.lines.count("CONTHOLD 1") == 2
+
+
+def test_the_keep_alive_reaches_the_dock_while_a_command_waits(sim, monkeypatch):
+    monkeypatch.setattr(lento_dock, "KEEPALIVE_TICK_S", 0.02)
+    monkeypatch.setattr(lento_dock, "PING_INTERVAL_S", 0.1)
+    with LentoDock(serial_obj=sim) as dock:
+        sent = len(sim.lines)
+        with pytest.raises(TimeoutError):
+            dock._command("SLOW", r"^NEVER", timeout=0.5)
+        assert "PING" in sim.lines[sent:]
+
+
+class _UnpluggedSerial(SimDockSerial):
+    unplugged = False
+
+    def write(self, data: bytes) -> None:
+        if self.unplugged:
+            raise OSError(6, "Device not configured")
+        super().write(data)
+
+
+def test_an_unplugged_dock_ends_the_keep_alive_with_one_warning(monkeypatch, caplog):
+    monkeypatch.setattr(lento_dock, "KEEPALIVE_TICK_S", 0.02)
+    monkeypatch.setattr(lento_dock, "PING_INTERVAL_S", 0.0)
+    sim = _UnpluggedSerial()
+    dock = LentoDock(serial_obj=sim)
+    sim.unplugged = True
+    dock._keepalive.join(timeout=2.0)
+    assert not dock._keepalive.is_alive()
+    assert not dock.is_connected()
+    assert sum("link lost" in r.getMessage() for r in caplog.records) == 1
+    with pytest.raises(ConnectionError):
+        dock.set_color(255, 0, 0)
+    dock.close()

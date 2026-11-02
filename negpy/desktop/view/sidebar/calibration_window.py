@@ -27,10 +27,11 @@ from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
-# The index is the preset's `single_capture` flag.
-CAPTURE_MODES = (tr("Trichrome"), tr("Single Exposure"))
+# The Capture mode index. Blend solves as Trichrome does, then shoots the three LEDs in one Bulb exposure.
+SINGLE_MODE, BLEND_MODE = 1, 2
+CAPTURE_MODES = (tr("Trichrome"), tr("Single Exposure"), tr("Blend"))
 CAPTURE_MODE_TOOLTIP = tr(
-    "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together."
+    "Trichrome takes one exposure per LED, Single Exposure lights all three together, and Blend lights each LED in turn in one Bulb exposure."
 )
 
 
@@ -39,9 +40,13 @@ _GUIDE = tr(
     "Click a patch of clear film base: the gap between frames, the leader or a blank frame. Name the stock, then "
     "Calibrate & Save. The shutter is solved here, so set the ISO and aperture you scan with."
 )
-_SENSOR_PROFILE_OFF_TOOLTIP = tr("Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.")
+_SENSOR_PROFILE_OFF_TOOLTIP = tr(
+    "Single Exposure and Blend only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix."
+)
 
-SENSOR_PROFILE_TOOLTIP = tr("Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.")
+SENSOR_PROFILE_TOOLTIP = tr(
+    "Single Exposure and Blend only: also save a sensor crosstalk profile for this preset, from the same exposures."
+)
 
 
 def _reserve_checked_width(btn: QPushButton) -> None:
@@ -138,14 +143,14 @@ class CalibrationWindow(QDialog):
         self._sensor_profile_wanted = checked
 
     def _sync_sensor_profile(self) -> None:
-        single = self.capture_btn.currentIndex() == 1
-        self.sensor_profile_btn.setChecked(single and self._sensor_profile_wanted)
-        self.sensor_profile_btn.setEnabled(single and not self._running)
-        self.sensor_profile_btn.setToolTip(SENSOR_PROFILE_TOOLTIP if single else _SENSOR_PROFILE_OFF_TOOLTIP)
+        profiled = self.capture_btn.currentIndex() in (SINGLE_MODE, BLEND_MODE)
+        self.sensor_profile_btn.setChecked(profiled and self._sensor_profile_wanted)
+        self.sensor_profile_btn.setEnabled(profiled and not self._running)
+        self.sensor_profile_btn.setToolTip(SENSOR_PROFILE_TOOLTIP if profiled else _SENSOR_PROFILE_OFF_TOOLTIP)
 
     def wants_sensor_profile(self) -> bool:
         """Whether a finished run saves a sensor crosstalk profile with the preset."""
-        return self.capture_btn.currentIndex() == 1 and self._sensor_profile_wanted
+        return self.capture_btn.currentIndex() in (SINGLE_MODE, BLEND_MODE) and self._sensor_profile_wanted
 
     def set_inputs_locked(self, locked: bool) -> None:
         """Freeze the calibration inputs while a run is in progress: film-stock name, capture mode,
