@@ -276,23 +276,19 @@ def test_a_reconstructed_highlight_stays_white_through_the_fade(positive, remove
     assert not np.allclose(restored[20:, 30:], np.log10(img[20:, 30:]), atol=1e-3)
 
 
-def test_estimate_reads_the_grid_without_the_stored_white(monkeypatch):
-    """A stored white caps the render at its anchor; the grid a new white is read from must not be capped."""
+def test_estimate_reads_the_grid_without_the_stored_white():
+    """The grid a new white is read from takes no fade and no white, so a stored white does not move it."""
     from negpy.desktop.workers import chart_fit
-    from negpy.services.rendering import image_processor
 
-    seen = []
+    img = (_synthetic_neutral_slide(0.8, 0.6, size=96) * np.float32((0.22, 0.25, 0.18))).astype(np.float32)
 
-    def run_pipeline(self, buf, settings, *args, **kwargs):
-        seen.append(settings.process)
-        return None, {"transfer_grid": np.zeros((2, 2, 3), np.float32)}
+    def grid(**white):
+        cfg = replace(WorkspaceConfig(), process=_slide(linear_raw=True, fade_white_anchor=True, **_FADE, **white))
+        return chart_fit.fade_estimate_grid(chart_fit.ChartSource(img, cfg, "h", _CAMERA, _WB, (), 1))
 
-    monkeypatch.setattr(image_processor.ImageProcessor, "run_pipeline", run_pipeline)
-    cfg = replace(WorkspaceConfig(), process=_slide(fade_white_anchor=True, **_FADE, **_white()))
-    chart_fit.fade_estimate_grid(chart_fit.ChartSource(np.zeros((4, 4, 3), np.float32), cfg, "h", _CAMERA, _WB, (), 1))
-    (process,) = seen
-    assert (process.fade_white_r, process.fade_white_g, process.fade_white_b) == (0.0, 0.0, 0.0)
-    assert not process.fade_white_anchor and process.fade_ratio_g == 1.0
+    stored = grid(**_white(white=(-0.9, -0.95, -1.0)))
+    assert stored is not None
+    np.testing.assert_array_equal(stored, grid(**_white(white=(0.0, 0.0, 0.0))))
 
 
 def test_an_export_renders_a_stale_white_as_the_measured_one():

@@ -118,17 +118,7 @@ class ChartFitWorker(QThread):
 def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
     """The transparency meter's grid for the open frame, rendered on the CPU with the fade at
     identity and Remove Stain off, so Estimate never reads its own correction. None on a negative."""
-    # The stored white is zeroed too: on a camera RAW it would cap the grid the new white is read from.
-    process = replace(
-        source.config.process,
-        fade_ratio_r=1.0,
-        fade_ratio_g=1.0,
-        fade_ratio_b=1.0,
-        fade_white_anchor=False,
-        fade_white_r=0.0,
-        fade_white_g=0.0,
-        fade_white_b=0.0,
-    )
+    process = replace(source.config.process, fade_ratio_r=1.0, fade_ratio_g=1.0, fade_ratio_b=1.0, fade_white_anchor=False)
     buf = np.asarray(source.buffer, dtype=np.float32)
     _, metrics = ImageProcessor(use_gpu=False).run_pipeline(
         buf,
