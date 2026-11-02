@@ -193,7 +193,7 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
 def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: Optional[Sequence[float]] = None) -> ImageBuffer:
     """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None. A (3, 4)
     matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does.
-    With an *anchor* (`fade.fade_anchor`), each channel is capped at it before the 3x3, and the
+    With an *anchor*, each channel is capped at it before the 3x3, and the
     amount the pixel is above it in every channel passes through as a neutral."""
     if matrix is None:
         return img_log

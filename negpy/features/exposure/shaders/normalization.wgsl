@@ -26,7 +26,7 @@ struct NormUniforms {
     post0: vec4<f32>,
     post1: vec4<f32>,
     post2: vec4<f32>,
-    // The fade's anchor (fade_anchor), on when w is 1.0: each channel is capped at it before the unmix,
+    // The density anchor, on when w is 1.0: each channel is capped at it before the unmix,
     // and the amount the pixel is above it in every channel is added after, as a neutral.
     anchor: vec4<f32>,
 };
