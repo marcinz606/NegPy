@@ -182,7 +182,7 @@ class EstimateMethod(StrEnum):
 
 @dataclass(frozen=True)
 class FadeEstimate:
-    """Survivals from one Estimate. red is None when the method leaves Red Survival as it is;
+    """Survivals from one Estimate. red is None when no estimate was made;
     reason is "" for a real estimate (see fade_ratios_from_neutral_axis). white is the frame's
     measured white, None when the frame is not a slide or has no cell to read it from."""
 
@@ -236,7 +236,7 @@ def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs], method: str =
 def estimate_fade(grid: ImageBuffer, white_anchor: bool = False) -> dict[EstimateMethod, FadeEstimate]:
     """Both methods' estimates from one measurement of the grays. `grid` is the transparency
     meter's grid with the crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`).
-    MIDTONE also sets Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
+    Both methods set Red Survival so the best-kept layer lands at 1.0; a ratio above 1 says red
     faded most. With `white_anchor`, the grays are read as density above the frame's white, as
     Remove Stain renders them."""
     white = measure_white(grid)
@@ -250,7 +250,7 @@ def estimate_fade(grid: ImageBuffer, white_anchor: bool = False) -> dict[Estimat
             continue
         g, b, why = fade_ratios_from_neutral_axis(refs, method)
         red = None
-        if method == EstimateMethod.MIDTONE and not (why and g == 1.0 and b == 1.0):
+        if not (why and g == 1.0 and b == 1.0):
             lo, hi = RED_SURVIVAL_BOUNDS
             red = min(max(1.0 / max(g, b, 1.0), lo), hi)
         out[method] = FadeEstimate(red, g, b, why, white)

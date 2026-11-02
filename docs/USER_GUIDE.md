@@ -533,7 +533,7 @@ Gives a faded slide its dye layers back.
 *   **Red Survival**: how much red dye is left. Lower it until the contrast comes back.
 *   **Green Survival** / **Blue Survival**: the same for green and blue, against red.
 *   **Remove Stain**: makes yellowed clear areas white, and runs Estimate. Try it when Estimate turns its icon amber.
-*   **Estimate**: sets the sliders from the grays in this frame. **Midtone** also sets Red Survival and suits a badly faded slide. **Gray Range** suits a mild fade with deep shadows.
+*   **Estimate**: sets the sliders from the grays in this frame. **Midtone** suits a badly faded slide. **Gray Range** suits a mild fade with deep shadows.
 
 <!-- panel:process -->
 ### 10.5 Metering: negative → positive
