@@ -467,6 +467,35 @@ fn unmix_log<'py>(
     Ok(out)
 }
 
+/// `unmix_log_image(img_log, matrix, anchor)` of an HxWx3 float32 log image.
+#[pyfunction]
+fn unmix_log_anchored<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    m: numpy::PyReadonlyArray2<'py, f32>,
+    anchor: [f32; 3],
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let shape = img.shape().to_vec();
+    if shape.len() != 3 || shape[2] != 3 {
+        return Err(PyValueError::new_err(
+            "unmix_log_anchored needs an HxWx3 array",
+        ));
+    }
+    let m = super::sensor::matrix(&m)?;
+    let data = slice(&img)?;
+    let out = empty::<f32>(py, &shape, "float32")?;
+    {
+        let mut rw = out.readwrite();
+        let dst = rw
+            .as_slice_mut()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        super::detach(py, dst.len(), || {
+            analysis::unmix_log_anchored(data, m, anchor, dst)
+        });
+    }
+    Ok(out)
+}
+
 /// `relog_matrix_image(img_log, matrix)` of an HxWx3 float32 log image.
 #[pyfunction]
 fn relog_matrix<'py>(
@@ -832,6 +861,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(log_density_open, m)?)?;
     m.add_function(wrap_pyfunction!(unmix_log, m)?)?;
     m.add_function(wrap_pyfunction!(relog_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(unmix_log_anchored, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_to_uint8, m)?)?;
     m.add_function(wrap_pyfunction!(detection_luma, m)?)?;
     m.add_function(wrap_pyfunction!(base_blocks, m)?)?;

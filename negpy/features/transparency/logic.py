@@ -489,6 +489,7 @@ class DensityStage(NamedTuple):
     pre: Optional[np.ndarray]  # linear 3x3 before the log
     unmix: Optional[np.ndarray]  # log-density matrix, (3, 3) or affine (3, 4)
     post: Optional[np.ndarray]  # linear 3x3 after the log-density matrix
+    anchor: Optional[tuple[float, float, float]] = None  # `fade_anchor` in the stage's input log
 
 
 def _whole_matrix(process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> Optional[np.ndarray]:
@@ -531,17 +532,27 @@ def density_channels(process: ProcessConfig, cam_xyz: Optional[list], camera_wb:
     return DensityStage(None, _with_log_offset(None, offset), primaries)
 
 
-def density_stage(process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list], unmix: Optional[np.ndarray]) -> DensityStage:
+def density_stage(
+    process: ProcessConfig,
+    cam_xyz: Optional[list],
+    camera_wb: Optional[list],
+    unmix: Optional[np.ndarray],
+    anchor: Optional[tuple[float, float, float]] = None,
+) -> DensityStage:
     """The stage a render applies. With a log-density matrix *unmix* on a slide path the source stays in
     its own channels through it (`density_channels`), because the primaries mix the dye channels the
-    density corrections act on. Else the whole matrix applies before the log."""
+    density corrections act on. Else the whole matrix applies before the log. *anchor* is the fade's
+    `fade_anchor`, in those channels."""
     from negpy.features.process.path import RenderPath, render_path
 
     if unmix is None or render_path(process) is RenderPath.PRINT:
         return DensityStage(_whole_matrix(process, cam_xyz, camera_wb), unmix, None)
     channels = density_channels(process, cam_xyz, camera_wb)
     offset = None if channels.unmix is None else channels.unmix[:, 3]
-    return DensityStage(channels.pre, _with_log_offset(unmix, offset), channels.post)
+    if anchor is not None and offset is not None:
+        # The gains ride the matrix's offset, so the input log sits below the channels by them.
+        anchor = (float(anchor[0] - offset[0]), float(anchor[1] - offset[1]), float(anchor[2] - offset[2]))
+    return DensityStage(channels.pre, _with_log_offset(unmix, offset), channels.post, anchor)
 
 
 def density_stage_grid(
@@ -559,7 +570,7 @@ def density_stage_grid(
         grid = log_grid()
     else:
         grid = prefilter_log_grid(linear if stage.pre is None else apply_camera_matrix(linear, stage.pre), roi, analysis_buffer)
-    return relog_matrix_image(unmix_log_image(grid, stage.unmix), stage.post)
+    return relog_matrix_image(unmix_log_image(grid, stage.unmix, stage.anchor), stage.post)
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

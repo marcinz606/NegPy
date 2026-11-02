@@ -205,3 +205,42 @@ def test_gpu_matches_cpu_on_a_camera_raw(anchor):
     cpu, gpu = render(False), render(True)
     assert float(np.mean(np.abs(cpu - gpu))) < 0.005
     assert float(np.max(np.abs(cpu - gpu))) < 0.04
+
+
+@pytest.mark.parametrize("positive", [False, True])
+@pytest.mark.parametrize("remove_stain", [False, True])
+def test_a_reconstructed_highlight_stays_white_through_the_fade(positive, remove_stain):
+    """Highlight Reconstruction decodes a blown highlight as neutral at full scale. It is light past the
+    film, above the fade's anchor in every channel, so it passes the density matrix unscaled."""
+    img = np.random.default_rng(4).uniform(0.03, 0.4, (40, 60, 3)).astype(np.float32)
+    img[:10, :20] = 1.0
+    white = (-0.42, -0.45, -0.5)
+    config = _slide(
+        positive_source=positive, linear_raw=False, highlight_reconstruction=5, fade_white_anchor=remove_stain, **_FADE, **_white(white)
+    )
+    ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6, cam_xyz=_CAMERA, camera_wb=_WB)
+    TransparencyBaseProcessor(config).process(img, ctx)
+    b = ctx.metrics["log_bounds"]
+    restored = ctx.metrics["normalized_log"] * (np.asarray(b.ceils) - np.asarray(b.floors)) + np.asarray(b.floors)
+    np.testing.assert_allclose(restored[:10, :20].reshape(-1, 3), 0.0, atol=1e-4)
+    # Below the anchor the fade still acts.
+    assert not np.allclose(restored[20:, 30:], np.log10(img[20:, 30:]), atol=1e-3)
+
+
+def test_estimate_reads_the_grid_without_the_stored_white(monkeypatch):
+    """A stored white caps the render at its anchor; the grid a new white is read from must not be capped."""
+    from negpy.desktop.workers import chart_fit
+    from negpy.services.rendering import image_processor
+
+    seen = []
+
+    def run_pipeline(self, buf, settings, *args, **kwargs):
+        seen.append(settings.process)
+        return None, {"transfer_grid": np.zeros((2, 2, 3), np.float32)}
+
+    monkeypatch.setattr(image_processor.ImageProcessor, "run_pipeline", run_pipeline)
+    cfg = replace(WorkspaceConfig(), process=_slide(fade_white_anchor=True, **_FADE, **_white()))
+    chart_fit.fade_estimate_grid(chart_fit.ChartSource(np.zeros((4, 4, 3), np.float32), cfg, "h", _CAMERA, _WB, (), 1))
+    (process,) = seen
+    assert (process.fade_white_r, process.fade_white_g, process.fade_white_b) == (0.0, 0.0, 0.0)
+    assert not process.fade_white_anchor and process.fade_ratio_g == 1.0

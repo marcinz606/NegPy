@@ -154,6 +154,28 @@ pub fn unmix_log(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
     );
 }
 
+/// `unmix_log_image` with an anchor: each channel is capped at its anchor before the 3x3, and the
+/// amount the pixel is above the anchor in every channel, if any, is added to each channel after.
+/// Light past the film carries no dye, so it passes through the density matrix as a neutral.
+pub fn unmix_log_anchored(img: &[f32], m: [[f32; 3]; 3], anchor: [f32; 3], dst: &mut [f32]) {
+    crate::par_zip(
+        dst.as_chunks_mut::<3>().0,
+        img.as_chunks::<3>().0,
+        move |d, p| {
+            let over = (p[0] - anchor[0])
+                .min(p[1] - anchor[1])
+                .min(p[2] - anchor[2]);
+            let excess = over.max(0.0);
+            let q = [
+                p[0].min(anchor[0]),
+                p[1].min(anchor[1]),
+                p[2].min(anchor[2]),
+            ];
+            *d = m.map(|r| q[0] * r[0] + q[1] * r[1] + q[2] * r[2] + excess);
+        },
+    );
+}
+
 /// `relog_matrix_image`: a 3x3 matrix on each pixel of an HxWx3 log image, in linear light. Each
 /// value goes to 10^v, each row is float32 products summed in channel order with no `mul_add`, and
 /// the log clamps below at 1e-6 as `log_density_open` does.
@@ -1812,6 +1834,20 @@ pub fn diffusion_tail(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmix_log_anchored_passes_light_past_the_anchor_as_a_neutral() {
+        let m = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.5]];
+        let anchor = [-0.4, -0.5, -0.6];
+        let img = [-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, -0.2, -0.8, 0.0];
+        let mut out = [0f32; 9];
+        unmix_log_anchored(&img, m, anchor, &mut out);
+        assert_eq!(&out[..3], &[-2.0, -1.0, -0.5]);
+        // Above the anchor in every channel by at least 0.4: capped, then 0.4 added to each.
+        assert_eq!(&out[3..6], &[-0.8 + 0.4, -0.5 + 0.4, -0.3 + 0.4]);
+        // Below the anchor in green: capped where above, nothing added.
+        assert_eq!(&out[6..], &[-0.8, -0.8, -0.3]);
+    }
 
     #[test]
     fn unmix_log_keeps_negative_densities_and_sums_in_channel_order() {

@@ -94,7 +94,7 @@ from negpy.features.transparency.logic import (
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import fade_white_space, fade_white_target, unmix_with_fade
+from negpy.features.process.fade import fade_anchor, fade_white_space, fade_white_target, unmix_with_fade
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -323,6 +323,11 @@ def _update_analysis_cache(cache, key, bounds, anchor, textural, neutral, shadow
     )
 
 
+def _fade_anchor(settings: WorkspaceConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> Optional[tuple[float, float, float]]:
+    """The fade's anchor for this source (`fade.fade_anchor`), as TransparencyBaseProcessor reads it."""
+    return fade_anchor(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
+
+
 class GPUEngine:
     """
     Core GPU orchestration engine using WebGPU.
@@ -395,7 +400,7 @@ class GPUEngine:
         # alignment (exposure) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
-            "normalization": 208,
+            "normalization": 224,
             "exposure": 480,
             "transfer": 224,
             "clahe_u": 32,
@@ -832,7 +837,9 @@ class GPUEngine:
         unmix_m = unmix_with_fade(settings.process, settings.process.process_mode, fade_white_space(cam_xyz, camera_wb))
         # The transparency curve reads working space, so its meter must too: the same
         # camera matrices TransparencyBaseProcessor applies, on the grid.
-        slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m) if transfer else None
+        slide_stage = (
+            density_stage(settings.process, cam_xyz, camera_wb, unmix_m, _fade_anchor(settings, cam_xyz, camera_wb)) if transfer else None
+        )
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
@@ -1907,8 +1914,9 @@ class GPUEngine:
         # Capture-side dye-unmix rows, resolved once per frame by the caller and shared with
         # NormalizationProcessor, and the source matrix around them (density_stage): the cam rows
         # before the log, read only on the transfer path, and the post rows after. Identity when
-        # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on.
-        cam, unmix, post = density_stage(settings.process, cam_xyz, camera_wb, unmix)
+        # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on. The fade
+        # anchor rides its own row, its w lane on when one acts.
+        cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, _fade_anchor(settings, cam_xyz, camera_wb))
         if unmix is None:
             unmix = np.eye(3)
         unmix_w = unmix[:, 3] if unmix.shape[1] == 4 else (0.0, 0.0, 0.0)
@@ -1937,6 +1945,7 @@ class GPUEngine:
             + struct.pack("ffff", float(post[0, 0]), float(post[0, 1]), float(post[0, 2]), post_on)
             + struct.pack("ffff", float(post[1, 0]), float(post[1, 1]), float(post[1, 2]), 0.0)
             + struct.pack("ffff", float(post[2, 0]), float(post[2, 1]), float(post[2, 2]), 0.0)
+            + struct.pack("ffff", *((0.0, 0.0, 0.0, 0.0) if anchor is None else (*anchor, 1.0)))
         )
 
         from negpy.features.exposure.logic import (
@@ -3006,7 +3015,7 @@ class GPUEngine:
             if not transfer:
                 return _prefiltered()
             if transfer_grid is None:
-                slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m)
+                slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, _fade_anchor(settings, cam_xyz, camera_wb))
                 transfer_grid = density_stage_grid(slide_stage, _analysis_img(), meter_roi, meter_buffer, _log_grid)
             return transfer_grid
 

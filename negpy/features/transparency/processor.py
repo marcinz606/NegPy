@@ -25,7 +25,7 @@ from negpy.features.exposure.normalization import (
     resolve_analysis_region,
     unmix_log_image,
 )
-from negpy.features.process.fade import fade_white_space, unmix_with_fade
+from negpy.features.process.fade import fade_anchor, fade_white_space, unmix_with_fade
 from negpy.features.process.capture_color import apply_camera_matrix
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
@@ -70,11 +70,13 @@ class TransparencyBaseProcessor:
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
-        unmix = unmix_with_fade(self.config, context.process_mode, fade_white_space(context.cam_xyz, context.camera_wb))
-        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, unmix)
+        white_space = fade_white_space(context.cam_xyz, context.camera_wb)
+        unmix = unmix_with_fade(self.config, context.process_mode, white_space)
+        anchor = fade_anchor(self.config, context.process_mode, white_space)
+        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, unmix, anchor)
         linear = image if stage.pre is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), stage.pre)
         img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
-        img_log = relog_matrix_image(unmix_log_image(img_log, stage.unmix), stage.post)
+        img_log = relog_matrix_image(unmix_log_image(img_log, stage.unmix, stage.anchor), stage.post)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
@@ -94,14 +96,14 @@ class TransparencyBaseProcessor:
             linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
         )
         log_grid = prefilter_log_grid(linear, an_roi, an_buffer)
-        prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix), stage.post)
+        prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix, stage.anchor), stage.post)
         if context.wants_fade_grid:
             # Fade Estimate meters this grid, rendered with the fade at identity, in the channels
             # the fade acts on: a camera's white-balanced channels or a Positive source's own.
             channels = stage if unmix is not None else density_channels(self.config, context.cam_xyz, context.camera_wb)
             if channels.pre is None and stage.pre is not None:
                 log_grid = prefilter_log_grid(image, an_roi, an_buffer)
-            context.metrics["transfer_grid"] = unmix_log_image(log_grid, channels.unmix)
+            context.metrics["transfer_grid"] = unmix_log_image(log_grid, channels.unmix, channels.anchor)
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different

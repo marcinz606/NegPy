@@ -94,17 +94,35 @@ def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_s
     unmix = effective_crosstalk_matrix(process, process_mode)
     fade = fade_matrix(process)
     matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
-    white = _fade_white(process, white_space)
-    if white is None:
+    terms = _white_terms(process, white_space, matrix is not None)
+    if terms is None:
         return matrix
-    if process.fade_white_anchor:
-        anchor, target = white, np.full(3, _white_target(white))
-    elif white_space and matrix is not None:
-        anchor = target = np.asarray(density_anchor(white, False), dtype=np.float64)
-    else:
-        return matrix
+    anchor, target = terms
     linear = np.eye(3) if matrix is None else matrix
     return np.hstack([linear, (target - linear @ anchor)[:, None]])
+
+
+def fade_anchor(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[tuple[float, float, float]]:
+    """The log point `unmix_with_fade` scales density about, when it has one. A pixel above it in every
+    channel is light past the film, which has no dye to restore: `unmix_log_image` passes that part
+    through as a neutral, so a blown highlight stays white."""
+    acts = effective_crosstalk_matrix(process, process_mode) is not None or fade_matrix(process) is not None
+    terms = _white_terms(process, white_space, acts)
+    return None if terms is None else (float(terms[0][0]), float(terms[0][1]), float(terms[0][2]))
+
+
+def _white_terms(process: ProcessConfig, white_space: str, density_acts: bool) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """(anchor, target) of the stored white's affine, or None when no white acts. *density_acts*: a
+    crosstalk or fade matrix applies."""
+    white = _fade_white(process, white_space)
+    if white is None:
+        return None
+    if process.fade_white_anchor:
+        return white, np.full(3, _white_target(white))
+    if white_space and density_acts:
+        level = np.asarray(density_anchor(white, False), dtype=np.float64)
+        return level, level
+    return None
 
 
 def density_anchor(white: Sequence[float], remove_stain: bool) -> tuple[float, float, float]:

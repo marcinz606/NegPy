@@ -419,6 +419,35 @@ class TestExposureParity:
         )
         _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
 
+    @pytest.mark.parametrize("remove_stain", [False, True])
+    def test_reconstructed_highlight_through_the_fade(self, remove_stain):
+        # A blown highlight decoded neutral at full scale passes the fade's anchor unscaled on both engines.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.process.fade import fade_white_space
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
+        wb = [2.0, 1.0, 1.5, 1.0]
+        img = self.img.copy()
+        img[20:44, 20:44] = 1.0
+        base = _make_base_settings()
+        white = dict(fade_white_r=-0.3, fade_white_g=-0.25, fade_white_b=-0.35, fade_white_space=fade_white_space(cam_xyz, wb))
+        fade = dict(fade_ratio_r=0.6, fade_ratio_g=1.4, fade_ratio_b=1.2, fade_white_anchor=remove_stain, **white)
+        p = replace(base.process, process_mode=ProcessMode.E6, positive_source=True, linear_raw=False, highlight_reconstruction=5, **fade)
+        s = replace(base, process=p)
+        h, w = img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        cpu = self.cpu.process(img, s, f"parity_raw_highlight_{remove_stain}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        gpu = self.gpu._readback_downsampled(tex)
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+        patch = np.asarray(gpu)[24:40, 24:40, :3].reshape(-1, 3)
+        assert float(np.ptp(patch.mean(axis=0))) < 0.01
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab color/sharpening shader."""
