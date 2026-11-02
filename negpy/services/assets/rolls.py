@@ -756,14 +756,22 @@ def same_value(a: Any, b: Any) -> bool:
 
 
 # The fade white of a camera RAW: a reading of one frame's decode, which moves with its exposure.
-_DECODE_WHITE_FIELDS = ("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space")
+DECODE_WHITE_FIELDS = ("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space")
 
 
 def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
     """*fields* without a camera RAW's fade white (a set `fade_white_space`), which no other frame can use."""
     if not fields.get("fade_white_space"):
         return fields
-    return {k: v for k, v in fields.items() if k not in _DECODE_WHITE_FIELDS}
+    return {k: v for k, v in fields.items() if k not in DECODE_WHITE_FIELDS}
+
+
+def frame_roll_defaults(defaults: Dict[str, Any], process: Any) -> Dict[str, Any]:
+    """*defaults* as they apply to a frame with *process*: a camera RAW frame that has measured
+    its own white keeps it over a roll's scanner white."""
+    if not getattr(process, "fade_white_space", ""):
+        return defaults
+    return {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
 
 
 def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
@@ -786,7 +794,7 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     defaults = dict(entry.get("defaults", {}))
     if fields.get("fade_white_space"):
         # A camera RAW's white replaces the roll's white with none, so each frame keeps its own.
-        defaults = {k: v for k, v in defaults.items() if k not in _DECODE_WHITE_FIELDS}
+        defaults = {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
     defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
@@ -901,7 +909,7 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     locked leaves *config* unchanged."""
     if roll_id is None:
         return config
-    defaults = roll_defaults(repo, roll_id)
+    defaults = frame_roll_defaults(roll_defaults(repo, roll_id), config.process)
     if not defaults:
         return config
     locked_cards = frame_override_cards(repo, roll_id, file_hash)

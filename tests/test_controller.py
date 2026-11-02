@@ -1440,6 +1440,28 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
 
+    def test_a_camera_raw_fade_card_matches_a_roll_that_holds_no_white(self):
+        """The roll keeps no camera RAW white, so the frame's own white is no divergence."""
+        from dataclasses import replace
+
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Velvia", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.nef", "path": "/a.nef", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        white = dict(fade_white_r=-0.5, fade_white_g=-0.45, fade_white_b=-0.6, fade_white_space="abc123")
+        state.config = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, fade_ratio_g=0.8, **white))
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(state.config, "fade"))
+        self.assertNotIn("fade_white_r", rolls.roll_defaults(repo, roll_id))
+
+        self.controller.set_roll_default("fade", fade_ratio_g=0.8)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
     def test_set_roll_default_writes_the_cards_own_config_section(self):
         """The Lens Correction card edits GeometryConfig, not ProcessConfig."""
         from negpy.services.assets import rolls

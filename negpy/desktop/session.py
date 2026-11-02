@@ -2089,7 +2089,7 @@ class DesktopSessionManager(QObject):
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.roll_defaults(self.repo, roll_id)
+        defaults = rolls.frame_roll_defaults(rolls.roll_defaults(self.repo, roll_id), config.process)
         base = unforked_hash(asset["hash"])
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():

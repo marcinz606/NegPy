@@ -6521,11 +6521,13 @@ class AppController(QObject):
         roll_id = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.roll_defaults(self.session.repo, roll_id)
+        defaults = rolls.frame_roll_defaults(rolls.roll_defaults(self.session.repo, roll_id), config.process)
         # A field the roll has never set at all cannot "match" -- there is nothing yet
         # to differ from, and treating that as a match would hide a card's first-ever
         # edit from Apply until every one of its fields happened to get a roll default.
+        # A fade white the roll holds none of stays the frame's own (`frame_roll_defaults`).
         current = self._card_values(config, card_key)
+        current = {k: v for k, v in current.items() if k in defaults or k not in rolls.DECODE_WHITE_FIELDS}
         matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
         diverged = not matches_roll
         file_hash = rolls.unforked_hash(file_hash)
@@ -6793,6 +6795,7 @@ class AppController(QObject):
     def _with_roll_card(self, config: WorkspaceConfig, card_key: str, defaults: dict) -> WorkspaceConfig:
         """*config* with *card_key* holding the roll's value for every field the roll has
         set, through the side effects a hand edit of that card carries."""
+        defaults = rolls.frame_roll_defaults(defaults, config.process)
         values = {f: rolls.config_value(defaults[f]) for f in rolls.card_fields(card_key) if f in defaults}
         if card_key == "film":
             return with_film_fields(config, values)
