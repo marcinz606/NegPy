@@ -24,7 +24,7 @@ from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import SOURCE_ENCODING_LABELS, SourceEncoding, invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
-from negpy.services.assets.rolls import card_fields
+from negpy.services.assets.rolls import DECODE_WHITE_FIELDS, card_fields
 
 
 class SettingRow:
@@ -632,7 +632,7 @@ def catalog_sections(cfg: WorkspaceConfig) -> list[tuple[str, list[tuple[Setting
 def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows: Iterable[SettingRow]) -> WorkspaceConfig:
     """Overlay only the chosen rows' fields from source onto target (one replace
     per section). Fields not listed — per-frame bounds, dust spots, heal strokes,
-    masks — stay the target's own."""
+    masks — stay the target's own, and so does a camera RAW's fade white."""
     rows = list(rows)
     by_section: dict[str, dict] = {}
     for row in rows:
@@ -640,6 +640,10 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
         changes = by_section.setdefault(row.section, {})
         for f in row.fields:
             changes[f] = getattr(src_section, f)
+    process = by_section.get("process", {})
+    if process.get("fade_white_space"):
+        # A camera RAW's white moves with each frame's exposure, as on a roll (rolls._without_decode_white).
+        by_section["process"] = {k: v for k, v in process.items() if k not in DECODE_WHITE_FIELDS}
     out = target
     # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
     out = with_film_fields(out, by_section.get("process", {}))
