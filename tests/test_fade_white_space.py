@@ -15,6 +15,7 @@ from negpy.features.process.capture_color import source_cam_xyz
 from negpy.features.process.fade import (
     EstimateMethod,
     estimate_fade,
+    fade_anchor,
     fade_white_space,
     fade_white_stale,
     fade_white_target,
@@ -112,6 +113,20 @@ def test_a_file_without_a_camera_matrix_keeps_the_full_scale_zero():
     """A JPEG or scanner TIFF has its white at full scale, so only Remove Stain moves the zero."""
     process = _slide(**_FADE, **_white(space=""))
     np.testing.assert_array_equal(unmix_with_fade(process, ProcessMode.E6, ""), resolve_fade_matrix(1.0, 0.8, 0.6))
+
+
+def test_remove_stain_on_a_scanner_file_restores_its_highlights_too():
+    """A scanner file's white is a percentile of its clear film: the light above it is film, not light
+    past the film, so the restoration acts on it."""
+    img = np.random.default_rng(5).uniform(0.03, 1.0, (40, 60, 3)).astype(np.float32)
+    config = _slide(fade_white_anchor=True, **_FADE, **_white((-0.05, -0.08, -0.12), space=""))
+    assert fade_anchor(config, ProcessMode.E6, "") is None
+    ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6)
+    TransparencyBaseProcessor(config).process(img, ctx)
+    b = ctx.metrics["log_bounds"]
+    restored = ctx.metrics["normalized_log"] * (np.asarray(b.ceils) - np.asarray(b.floors)) + np.asarray(b.floors)
+    expected = unmix_log_image(np.log10(img), unmix_with_fade(config, ProcessMode.E6, ""))
+    np.testing.assert_allclose(restored, expected, atol=1e-4)
 
 
 def test_the_white_goes_stale_only_where_it_acts():

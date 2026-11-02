@@ -105,7 +105,10 @@ def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_s
 def fade_anchor(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[tuple[float, float, float]]:
     """The log point `unmix_with_fade` scales density about, when it has one. A pixel above it in every
     channel is light past the film, which has no dye to restore: `unmix_log_image` passes that part
-    through as a neutral, so a blown highlight stays white."""
+    through as a neutral, so a blown highlight stays white. A camera RAW only: any other source's
+    white is at full scale, with no light past it."""
+    if not white_space:
+        return None
     acts = effective_crosstalk_matrix(process, process_mode) is not None or fade_matrix(process) is not None
     terms = _white_terms(process, white_space, acts)
     return None if terms is None else (float(terms[0][0]), float(terms[0][1]), float(terms[0][2]))
