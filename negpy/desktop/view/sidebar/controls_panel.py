@@ -590,11 +590,10 @@ class ControlsPanel(QWidget):
         copy.setToolTip(tr("Copy this card alone; Paste then offers only its settings"))
         copy.setEnabled(bool(rows))
         copy.triggered.connect(lambda: self.controller.session.copy_card_settings(rows))
-        if roll_card:
-            undo = menu.addAction(label_with_shortcut(tr("Undo Apply to Roll"), "undo_roll_push"))
-            undo.setToolTip(tr("Give the roll back the values it had before the last Roll push from this frame"))
-            undo.setEnabled(self.controller.can_undo_roll_push(cards))
-            undo.triggered.connect(self.controller.undo_roll_push)
+        undo = menu.addAction(label_with_shortcut(tr("Undo Change to Several Frames"), "undo_roll_push"))
+        undo.setToolTip(tr("Put back every frame and roll value the last Apply, Paste, Reset or Roll push changed"))
+        undo.setEnabled(self.controller.can_undo_batch())
+        undo.triggered.connect(self.controller.undo_last_batch)
         menu.exec(section.toggle_button.mapToGlobal(pos))
 
     def apply_shortcut_tooltips(self) -> None:

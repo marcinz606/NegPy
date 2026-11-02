@@ -731,6 +731,8 @@ class MainWindow(QMainWindow):
         self.controller.zone_arm_changed.connect(self._on_zone_armed)
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
+        self.controller.session.batch_recorded.connect(self.canvas.hud.offer_undo)
+        self.canvas.hud.undo_requested.connect(self.controller.undo_last_batch)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
         # Parented to the window, so Qt drops the app-wide filter when the window goes.
         self.shortcut_hints = ShortcutHints(

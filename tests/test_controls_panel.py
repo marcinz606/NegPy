@@ -509,15 +509,15 @@ def _card_menu(monkeypatch, key: str):
 
     monkeypatch.setattr(cp, "QMenu", FakeMenu)
     panel = SimpleNamespace(_roll_sections=lambda: (("optics", None), ("demosaic", None)), controller=MagicMock())
-    panel.controller.can_undo_roll_push.return_value = False
+    panel.controller.can_undo_batch.return_value = False
     cp.ControlsPanel._show_card_menu(panel, key, SimpleNamespace(toggle_button=MagicMock()), QPoint())
     return panel, actions
 
 
-def test_a_roll_card_menu_offers_undo_only_for_its_own_cards(monkeypatch):
+def test_a_card_menu_offers_the_batch_undo(monkeypatch):
     panel, actions = _card_menu(monkeypatch, "optics")
-    assert [a.text for a in actions] == ["Copy Card Settings", "Undo Apply to Roll"]
-    panel.controller.can_undo_roll_push.assert_called_once_with(("lens", "flatfield"))
+    assert [a.text for a in actions] == ["Copy Card Settings", "Undo Change to Several Frames"]
+    panel.controller.can_undo_batch.assert_called_once_with()
     assert not actions[1].enabled
 
 
@@ -534,7 +534,7 @@ def test_a_frame_card_menu_copies_that_card(monkeypatch):
     from negpy.desktop.settings_catalog import frame_card_rows
 
     panel, actions = _card_menu(monkeypatch, "lab")
-    assert [a.text for a in actions] == ["Copy Card Settings"]
+    assert [a.text for a in actions] == ["Copy Card Settings", "Undo Change to Several Frames"]
     actions[0].slot()
     panel.controller.session.copy_card_settings.assert_called_once_with(frame_card_rows("lab"))
 

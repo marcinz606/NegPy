@@ -1680,16 +1680,17 @@ class TestAppController(unittest.TestCase):
         state.config = replace(state.config, process=replace(state.config.process, hue_trim=2.5))
         before = rolls.roll_defaults(repo, roll_id)
 
+        self._record_batches()
         self.controller.apply_roll_card("sensor")
-        self.assertTrue(self.controller.can_undo_roll_push())
+        batch = self.mock_session_manager.last_batch
+        self.assertEqual(batch["label"], "Apply to Roll")
         state.stale_thumbnails.clear()
         rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)  # another card, written after the push
-        self.controller.undo_roll_push()
+        batch["roll"]()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {**before, "analysis_buffer": 0.2})
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"sensor"})
         self.assertEqual(state.stale_thumbnails, {asset_thumbnail_key(state.uploaded_files[1])})
-        self.assertFalse(self.controller.can_undo_roll_push(), "one step only")
 
     def test_undo_apply_to_roll_drops_a_field_the_roll_never_had(self):
         from negpy.services.assets import rolls
@@ -1703,32 +1704,22 @@ class TestAppController(unittest.TestCase):
         state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
         state.current_file_hash = "h1"
 
+        self._record_batches()
         self.controller.apply_roll_card("lens")
-        self.assertTrue(self.controller.can_undo_roll_push(("lens",)))
-        self.assertFalse(self.controller.can_undo_roll_push(("sensor",)), "another card's push is not this card's undo")
-        self.controller.undo_roll_push()
+        self.mock_session_manager.last_batch["roll"]()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {})
 
-    def test_undo_apply_to_roll_is_offered_only_on_the_pushing_frame(self):
-        from negpy.services.assets import rolls
+    def _record_batches(self) -> None:
+        """The real batch recorder on the mocked session."""
+        import types
 
-        self._wire_repo_store()
-        repo = self.controller.session.repo
-        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
-        rolls.set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
-        state = self.mock_session_manager.state
-        state.active_roll_id = roll_id
-        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
-        state.current_file_hash = "h1"
+        from negpy.desktop.session import DesktopSessionManager
 
-        self.controller.apply_roll_card("sensor")
-        state.current_file_hash = "h2"
-
-        self.assertFalse(self.controller.can_undo_roll_push())
-        pushed = rolls.roll_defaults(repo, roll_id)
-        self.controller.undo_roll_push()
-        self.assertEqual(rolls.roll_defaults(repo, roll_id), pushed)
+        session = self.mock_session_manager
+        session._batch = None
+        session.last_batch = None
+        session.recording_batch = types.MethodType(DesktopSessionManager.recording_batch, session)
 
     def test_apply_roll_card_refreshes_the_thumbnails_of_frames_that_follow_the_roll(self):
         """A frame locked on the pushed card keeps its own value, so it is neither
