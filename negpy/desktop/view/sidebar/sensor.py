@@ -567,7 +567,9 @@ class SensorSidebar(BaseSidebar):
             hint += " " + tr("No stain found to remove.")
         self._show_fade_hint(hint, stain)
         if failed:
-            if white:
+            if space and white:
+                self.controller.set_fade_white(**white)
+            elif white:
                 self.controller.set_roll_default("fade", **white)
             return
         red = chosen.red if chosen.red is not None else conf.fade_ratio_r

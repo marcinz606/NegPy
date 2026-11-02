@@ -6577,6 +6577,11 @@ class AppController(QObject):
         if persist:
             self._lock_roll_card(card_key)
 
+    def set_fade_white(self, **white) -> None:
+        """Store a camera RAW's fade white on the active frame. It is a reading of this frame's
+        decode, which no roll holds, so it locks no card."""
+        self._edit_card("fade", "process", True, True, white)
+
     def set_crop_settings(self, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
         """Auto Crop's detection settings on the active frame. A change re-detects the crop
         through its detection key."""
