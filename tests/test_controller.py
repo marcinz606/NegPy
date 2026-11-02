@@ -1462,6 +1462,30 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
 
+    def test_a_scanner_frames_own_white_locks_the_fade_card_on_a_roll_with_no_white(self):
+        """A scanner white is the roll's to share, so a frame's own white is a divergence; a camera RAW's is not."""
+        from dataclasses import replace
+
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Velvia", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.tif", "path": "/a.tif", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        rolls.set_roll_defaults(repo, roll_id, fade_ratio_r=1.0, fade_ratio_g=0.8, fade_ratio_b=1.0, fade_white_anchor=True)
+        white = dict(fade_white_r=-0.05, fade_white_g=-0.1, fade_white_b=-0.3)
+        for space, locked in (("", {"fade"}), ("abc123", set())):
+            rolls.set_frame_override(repo, roll_id, "h1", "fade", False)
+            process = replace(WorkspaceConfig().process, fade_ratio_g=0.8, fade_white_anchor=True, fade_white_space=space)
+            state.config = replace(WorkspaceConfig(), process=process)
+
+            self.controller.set_roll_default("fade", **white)
+
+            self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), locked, space)
+
     def test_set_roll_default_writes_the_cards_own_config_section(self):
         """The Lens Correction card edits GeometryConfig, not ProcessConfig."""
         from negpy.services.assets import rolls

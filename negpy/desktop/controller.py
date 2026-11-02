@@ -6564,9 +6564,10 @@ class AppController(QObject):
         # A field the roll has never set at all cannot "match" -- there is nothing yet
         # to differ from, and treating that as a match would hide a card's first-ever
         # edit from Apply until every one of its fields happened to get a roll default.
-        # A fade white the roll holds none of stays the frame's own (`frame_roll_defaults`).
+        # A camera RAW's fade white stays the frame's own (`frame_roll_defaults`).
         current = self._card_values(config, card_key)
-        current = {k: v for k, v in current.items() if k in defaults or k not in rolls.DECODE_WHITE_FIELDS}
+        if config.process.fade_white_space:
+            current = {k: v for k, v in current.items() if k in defaults or k not in rolls.DECODE_WHITE_FIELDS}
         matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
         diverged = not matches_roll
         file_hash = rolls.unforked_hash(file_hash)
