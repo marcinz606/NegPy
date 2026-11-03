@@ -1115,8 +1115,8 @@ class ControlsPanel(QWidget):
                 overridden.append(label)
 
         if overridden:
-            set_hint_kind(self.roll_override_summary, "warning")
-            self.roll_override_summary.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
+            set_hint_kind(self.roll_override_summary, "muted")
+            self.roll_override_summary.setText(tr("Keeps its own value on: {value}", value=", ".join(overridden)))
         else:
             self.roll_override_summary.setText("")
         self.roll_override_summary.setVisible(bool(overridden))

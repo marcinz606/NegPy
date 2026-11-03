@@ -469,8 +469,8 @@ class MetadataSidebar(BaseSidebar):
         for btn, key in zip(self.tabs.buttons, self.tabs.keys):
             btn.set_marked(any(section.modified_count for section in self._tab_sections.get(key, ())))
         if overridden:
-            set_hint_kind(self.metadata_scope_hint, "warning")
-            self.metadata_scope_hint.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
+            set_hint_kind(self.metadata_scope_hint, "muted")
+            self.metadata_scope_hint.setText(tr("Keeps its own value on: {value}", value=", ".join(overridden)))
         else:
             self.metadata_scope_hint.setText("")
         self.metadata_scope_hint.setVisible(bool(overridden))

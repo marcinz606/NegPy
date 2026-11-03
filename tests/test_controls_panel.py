@@ -93,7 +93,7 @@ def test_sync_scope_buttons_names_every_overridden_card():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Metering")
+    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Calibration, Metering")
     panel.roll_override_summary.setVisible.assert_called_once_with(True)
 
 
@@ -102,7 +102,7 @@ def test_sync_scope_buttons_names_film_mode_too():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Film Mode")
+    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Film Mode")
 
 
 def test_sync_scope_buttons_marks_only_the_diverged_card_as_frame():
@@ -141,7 +141,7 @@ def test_sync_scope_buttons_names_the_optics_card_once():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Optics")
+    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Optics")
 
 
 def test_optics_reads_frame_when_either_of_its_cards_is_locked():
