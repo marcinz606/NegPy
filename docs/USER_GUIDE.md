@@ -162,7 +162,7 @@ Terms combine: `film:portra iso:>=400 -rejected:`. Metadata terms match only fra
 
 Right-click a frame, or use the shortcuts, to **Keep** it (a check) or **Reject** it (a cross; the frame dims and batch exports skip it). Your files never change.
 
-A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
+A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it. Hover a frame to see which cards it keeps. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
 
 The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.5](#105-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
 

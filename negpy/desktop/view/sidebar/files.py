@@ -137,7 +137,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
         self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
         self._average_icon = qta.icon("mdi6.filmstrip", color=THEME.mark_photo)
-        self._outlier_icon = qta.icon("mdi6.alert", color=THEME.warn_amber)
+        self._outlier_icon = qta.icon("mdi6.filmstrip", color=THEME.warn_amber)
         # The Frame half of a card's Frame/Roll pair: this frame keeps its own value.
         self._own_icon = qta.icon("fa5s.image", color=THEME.border_scope_frame)
         self._activity_key = ""

@@ -40,3 +40,24 @@ def test_a_forked_frame_reads_its_physical_scans_lock(tmp_path):
     session.refresh_own_marks()
 
     assert session.state.uploaded_files[1].get("own_cards")
+
+
+def test_the_strip_tooltip_names_each_mark(tmp_path, qapp):
+    from PyQt6.QtCore import Qt
+
+    from negpy.desktop.session import AssetListModel
+
+    session, repo, roll = _session(tmp_path)
+    rolls.set_frame_override(repo, roll, "h2", "demosaic", True)
+    rolls.set_frame_override(repo, roll, "h2", "process", True)
+    session.refresh_own_marks()
+    session.state.uploaded_files[1]["average"] = "outlier"
+    session.state.uploaded_files[0]["average"] = "on"
+    model = AssetListModel(session.state)
+    model.refresh()
+
+    tips = [model.data(model.index(row, 0), Qt.ItemDataRole.ToolTipRole) for row in range(2)]
+
+    assert "Prints on the roll average." in tips[0] and "own value" not in tips[0]
+    assert "far from the other frames" in tips[1]
+    assert "Keeps its own value on: Raw Decode, Metering" in tips[1]

@@ -761,6 +761,18 @@ class AssetListModel(QAbstractListModel):
                 lines.append(summary)
             if file_info.get("scene"):
                 lines.append(tr("Scene: {name}", name=file_info["scene"][2]))
+            average = file_info.get("average")
+            if average:
+                lines.append(
+                    tr("Prints on the roll average. Its color is far from the other frames.")
+                    if average == "outlier"
+                    else tr("Prints on the roll average.")
+                )
+            if file_info.get("own_cards"):
+                from negpy.desktop.controller import AppController
+
+                names = dict.fromkeys(AppController._ROLL_CARD_LABELS.get(k, k) for k in file_info["own_cards"])
+                lines.append(tr("Keeps its own value on: {value}", value=", ".join(names)))
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
                 lines.append(tr("Thumbnail predates a settings change; open the frame or use Update Thumbnails to refresh it."))
             return "\n".join(lines)
@@ -1678,17 +1690,17 @@ class DesktopSessionManager(QObject):
             self.files_changed.emit()
 
     def _stamp_own_cards(self) -> bool:
-        """Marks each loaded frame locked away from the active roll on any card, ``own_cards``,
+        """Stamps each loaded frame with the cards it locks away from the active roll, ``own_cards``,
         for the Film Strip. True when a mark changed."""
         entry = rolls.roll_for_id(self.repo, self.state.active_roll_id) if self.state.active_roll_id else None
         overrides = (entry or {}).get("frame_overrides", {})
         changed = False
         for f in self.state.uploaded_files:
-            own = bool(overrides.get(unforked_hash(f["hash"])))
-            if own != bool(f.get("own_cards")):
+            own = tuple(sorted(overrides.get(unforked_hash(f["hash"]), ())))
+            if own != f.get("own_cards", ()):
                 changed = True
                 if own:
-                    f["own_cards"] = True
+                    f["own_cards"] = own
                 else:
                     f.pop("own_cards", None)
         return changed
