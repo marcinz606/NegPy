@@ -597,6 +597,7 @@ class MainWindow(QMainWindow):
         view = self.file_browser.light_table_view
         if on:
             self.controller.cancel_active_tool()
+            self.controller.reset_all_peeks()
             self._strip_open_before_light_table = self.film_strip_expanded()
             self.set_film_strip_expanded(False, persist=False)
             self.central_stack.setCurrentIndex(1)

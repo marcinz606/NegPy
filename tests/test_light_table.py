@@ -1108,6 +1108,7 @@ def test_a_canvas_tool_shows_the_canvas_and_opening_the_table_ends_it(qapp):
     win.set_light_table = lambda on: MainWindow.set_light_table(win, on)
     MainWindow.set_light_table(win, True)
     win.controller.cancel_active_tool.assert_called_once()
+    win.controller.reset_all_peeks.assert_called_once()
 
     win.state.active_tool = ToolMode.CROP_MANUAL
     MainWindow._leave_light_table_for_canvas(win)
