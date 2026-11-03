@@ -166,6 +166,15 @@ class TestCapsFromOptions:
         caps = _caps_from_options(_pieusb_opt(), "othervendor:libusb:001:001")
         assert caps.sources
 
+    def test_film_inferred_from_sane_device_type(self) -> None:
+        # avision film scanners offer only a "Normal" source but report the SANE type.
+        opt = {
+            "source": FakeOption(constraint=["Normal"]),
+            "mode": FakeOption(constraint=["Color", "Gray"]),
+        }
+        assert _caps_from_options(opt, "avision:libusb:001:013", "film scanner").sources
+        assert not _caps_from_options(opt, "avision:libusb:001:013", "flatbed scanner").sources
+
     def test_roll_adapter_frame_range_is_reported_as_capacity(self) -> None:
         caps = _caps_from_options(
             {

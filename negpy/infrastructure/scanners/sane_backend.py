@@ -108,12 +108,15 @@ def _mode_has_rgbi(opt) -> bool:
     return any(str(v).strip().lower() == "rgbi" for v in constraint)
 
 
-def _infer_film_scanner(opt, device_id: str) -> bool:
-    """Heuristically decide a device is a dedicated film scanner lacking a `source` option.
+def _infer_film_scanner(opt, device_id: str, device_type: str = "") -> bool:
+    """Heuristically decide a device is a dedicated film scanner lacking a film `source`.
 
-    Signals: an RGBI mode, an `invert` option described as negative-film correction, or a
-    known film-scanner backend prefix. Kept narrow to avoid matching plain flatbeds.
+    Signals: the SANE device type "film scanner", an RGBI mode, an `invert` option described
+    as negative-film correction, or a known film-scanner backend prefix. Kept narrow to avoid
+    matching plain flatbeds.
     """
+    if device_type.strip().lower() == "film scanner":
+        return True
     if _mode_has_rgbi(opt):
         return True
     invert = opt["invert"] if "invert" in opt else None
@@ -645,10 +648,10 @@ def _require_writable_option(opt, option_name: str, absent_message: str) -> None
             raise RuntimeError(f"Requested SANE option {option_name!r} is not settable")
 
 
-def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
+def _caps_from_options(opt, device_id: str = "", device_type: str = "") -> ScannerCapabilities:
     """Build ScannerCapabilities from a SANE option map. Pure — no `sane` import."""
     sources = _detect_explicit_sources(opt)
-    if not sources and _infer_film_scanner(opt, device_id):
+    if not sources and _infer_film_scanner(opt, device_id, device_type):
         # Dedicated film scanner with no `source` option (pieusb). `sources` is only a detection
         # and UI gate, never applied to the device, so populate it to unblock scanning.
         sources = (ScanMode.NEGATIVE, ScanMode.POSITIVE, ScanMode.TRANSPARENCY)
@@ -945,7 +948,7 @@ class SaneBackend:
                 continue
             try:
                 dev = self._sane.open(raw[0])
-                caps = self._detect_caps(dev, raw[0])
+                caps = self._detect_caps(dev, raw[0], raw[3] if len(raw) > 3 else "")
                 dev.close()
                 if caps.sources:
                     devices.append(
@@ -1470,7 +1473,7 @@ class SaneBackend:
             except Exception as e:
                 logger.warning(f"Could not set SANE pieusb option {name}={val}: {e}")
 
-    def _detect_caps(self, dev, device_id: str = "") -> ScannerCapabilities:
+    def _detect_caps(self, dev, device_id: str = "", device_type: str = "") -> ScannerCapabilities:
         """Read dev.opt to build ScannerCapabilities.
 
         Switches to the transparency source first, when the device has one, so geometry
@@ -1491,7 +1494,7 @@ class SaneBackend:
                 opt = dev.opt if hasattr(dev, "opt") else {}
             except Exception as e:
                 logger.warning(f"Could not switch {device_id!r} to {transparency_source!r} for capability probe: {e}")
-        return _caps_from_options(opt, device_id)
+        return _caps_from_options(opt, device_id, device_type)
 
     @staticmethod
     def _ir_strategy(dev, device_id) -> str | None:
