@@ -269,8 +269,10 @@ def _measured_slide_bounds(grid: ImageBuffer, extreme_pct: float = COLOR_EXTREME
 def measure_white(grid: ImageBuffer) -> Optional[tuple[float, float, float]]:
     """Each channel's white: the log transmittance of its brightest cells in the analysis grid, or
     None with no cell left. A cell at full scale in every channel is light past the film (a mount gap,
-    a leak or a blown specular), and a decoded zero is no reading, so neither counts."""
-    cells = grid.reshape(-1, 3)
+    a leak or a blown specular), and a decoded zero is no reading, so neither counts. A camera RAW's
+    white-balance gains lift a channel past full scale where another channel clipped, so a channel
+    stops at full scale, as the decode with Highlight Recovery does."""
+    cells = np.minimum(grid.reshape(-1, 3), 0.0)
     cells = cells[(cells > CLIPPED_LOG).all(axis=1) & (cells < 0.0).any(axis=1)]
     if not len(cells):
         return None

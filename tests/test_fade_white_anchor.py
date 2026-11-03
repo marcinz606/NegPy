@@ -202,6 +202,18 @@ def test_the_white_skips_cells_clipped_in_every_channel():
     assert measure_white(leak) != (0.0, 0.0, 0.0)
 
 
+def test_the_white_stops_at_full_scale_where_the_gains_lift_a_clipped_cell():
+    """Recovery Off: green clips at full scale and the white-balance gains lift red and blue past it."""
+    _clean, faded = _stained_slide()
+    grid = prefilter_log_grid(faded, None, 0.0)
+    clipped = grid.copy()
+    clipped[: max(1, clipped.shape[0] // 4)] = (0.15, 0.0, 0.10)
+    clipped[: max(1, clipped.shape[0] // 4), ::2, 2] = -0.01
+    white = measure_white(clipped)
+    assert white is not None and max(white) <= 0.0
+    np.testing.assert_allclose(white, (0.0, 0.0, 0.0), atol=0.02)
+
+
 def test_no_white_without_a_film_cell():
     assert measure_white(np.zeros((8, 8, 3), np.float32)) is None
     assert measure_white(np.full((8, 8, 3), -6.0, np.float32)) is None
