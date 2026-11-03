@@ -913,7 +913,9 @@ class MainWindow(QMainWindow):
             self.canvas.hud.update_info("", "")
             return
         w, h = st.original_res
-        proof = os.path.splitext(os.path.basename(st.proof_icc_path))[0] if st.soft_proof_enabled and st.proof_icc_path else ""
+        proof = ""
+        if st.soft_proof_enabled:
+            proof = os.path.splitext(os.path.basename(st.proof_icc_path))[0] if st.proof_icc_path else tr("Export profile")
         self.canvas.hud.update_info(
             *frame_info(
                 st.canvas_info_level,

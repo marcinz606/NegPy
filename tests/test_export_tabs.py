@@ -37,13 +37,10 @@ def test_the_export_button_is_pinned_outside_the_tabs(qapp) -> None:
     assert not sidebar.tabs.isAncestorOf(sidebar.export_main_btn)
 
 
-def test_the_proof_tab_is_marked_while_the_proof_is_on(qapp) -> None:
+def test_the_proof_tab_takes_no_edited_dot_while_the_proof_is_on(qapp) -> None:
+    """The tab dot means an edit; the frame info strip says the proof is on."""
     sidebar = _sidebar()
     sidebar.state.soft_proof_enabled = True
-    sidebar.sync_ui()
-    assert sidebar.tabs.button("proof").is_marked()
-
-    sidebar.state.soft_proof_enabled = False
     sidebar.sync_ui()
     assert not sidebar.tabs.button("proof").is_marked()
 
