@@ -843,3 +843,24 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
     out = thumbnails.get_thumbnail_worker("r", "hash", Store(), 0, 0.5, "g", "b")
     assert out is not stale
     assert saved[thumbnails.thumbnail_cache_key("hash", True)] is out
+
+
+def test_export_triplet_keeps_an_aligned_overshoot_saturated(tmp_path, monkeypatch):
+    """The align's cubic warp rings past the sensor ceiling at a clipped edge. The export
+    merge must keep that pixel saturated, never wrap it through uint16 to black."""
+    from negpy.features.rgbscan import logic
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    red, green, blue = (str(tmp_path / f"{c}.nef") for c in "rgb")
+    for p in (red, green, blue):
+        open(p, "wb").close()
+
+    processor = ImageProcessor()
+    processor._decode_sensor_rgb = lambda path, *a, **k: (np.full((4, 4, 3), 65535, dtype=np.uint16), {})
+    monkeypatch.setattr(logic, "_align_to", lambda ref, mov, ch, max_shift: np.asarray(mov, dtype=np.float32) * 1.004)
+
+    cfg = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=True))
+    f32, _ir, _cs = processor._decode_oriented_f32(red, cfg)
+
+    assert f32.dtype == np.float32
+    assert f32.min() >= 1.0
