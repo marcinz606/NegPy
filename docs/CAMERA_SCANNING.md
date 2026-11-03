@@ -199,9 +199,9 @@ described above.
   stays in the `flatfield/references` folder, outside the roll. A strip that stops before its
   end gets no flat. The flat never comes first: after the dock moves the film out of the
   window and back, it does not advance.
-- Insert the strip after the light status shows the dock and before you open Live View. The
-  dock then finds the first frame itself. Opening the dock's port resets the dock, so it does
-  not know the position of a strip that was in it before.
+- Put the strip in the dock's entrance. With **Next Frame** or **Whole Strip**, Scan feeds a
+  strip that waits there to its first frame (`INSERT`). This also covers a strip that was in
+  the dock when NegPy opened its port, because opening the port resets the dock.
 - While NegPy uses the dock, the dock's S button works as Scan: it starts a scan, or stops one.
   The scan starts at the press. The dock also makes a 3-second exposure of its own, and the
   film moves only after it ends. An arrow button nudges the film on a tap and moves it while you hold it. NegPy

@@ -332,6 +332,8 @@ class CaptureWorker(QObject):
     def run_capture(self, req: CaptureRequest) -> bool:
         """Capture one frame, or a whole strip. True when the frame is on disk; a failure or Stop
         has emitted `error` or `cancelled`."""
+        if (req.whole_strip or req.advance_film) and not req.is_retake and not self._feed_strip(req.port):
+            return False
         if req.whole_strip:
             self._run_strip(req)
             return False
@@ -504,6 +506,21 @@ class CaptureWorker(QObject):
         self.finished.emit(paths)
         if req.advance_film and not req.is_retake:
             self._advance_film(req.port)
+
+    def _feed_strip(self, port: str) -> bool:
+        """Feed a strip that waits at the light's entrance to its first frame. False when the feed
+        failed and `error` has been emitted."""
+        try:
+            light = self._ensure_light(port)
+            if not getattr(light, "strip_waiting", lambda: False)():
+                return True
+            self.status.emit(tr("Feeding the strip to the first frame…"))
+            light.insert_strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("strip feed failed")
+            self.error.emit(tr("The dock did not feed the strip: {error}. Insert it again.", error=exc))
+            return False
+        return True
 
     def _advance_film(self, port: str, eject: bool = True) -> Optional[bool]:
         """Move the light's film one frame. True at the end of the strip, False when the next frame
