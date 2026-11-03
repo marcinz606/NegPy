@@ -6238,12 +6238,16 @@ class AppController(QObject):
         source = f"scene:{scene_id}" if scene_id else f"roll:{self.state.active_roll_id}"
         own = {f["hash"] for f in self._normalization_targets(scene_id)}
 
+        values = {"locked_floors": floors, "locked_ceils": ceils, "locked_neutral_axis": axis, "baseline_source": source}
+
         def rides(p, file_hash: str) -> bool:
+            """A riding frame that already holds these numbers does not move, so its thumbnail stays."""
             if p.lock_bounds or not (p.use_luma_average or p.use_color_average or p.use_cast_average):
+                return False
+            if replace(p, **values) == p:
                 return False
             return p.baseline_source == source or (file_hash in own and not (p.baseline_source or p.is_locked_initialized))
 
-        values = {"locked_floors": floors, "locked_ceils": ceils, "locked_neutral_axis": axis, "baseline_source": source}
         current = self.state.current_file_hash
         changed: List[str] = []
         for f in self.state.uploaded_files:

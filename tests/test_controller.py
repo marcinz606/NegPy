@@ -4089,6 +4089,22 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertTrue(saved["h1"].use_luma_average)
         self.assertFalse(saved["h1"].use_color_average)
 
+    def test_background_baseline_leaves_a_frame_that_holds_the_same_average(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        base = WorkspaceConfig().process
+        riding = WorkspaceConfig(
+            process=replace(base, use_luma_average=True, locked_floors=(0.1,) * 3, locked_ceils=(0.9,) * 3, baseline_source="roll:roll-1")
+        )
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+
+        with patch.object(rolls, "set_roll_normalization"):
+            self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
+
+        self.mock_session_manager.repo.save_file_settings.assert_not_called()
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_not_called()
+
     def test_background_run_measures_a_scene_once_the_roll_is_known(self):
         tasks = self._capture_background_runs()
         members = {"h2": (1, "s1", "Woods"), "h3": (1, "s1", "Woods")}
