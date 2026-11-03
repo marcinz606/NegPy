@@ -140,7 +140,7 @@ The toolbar's **Roll** row holds:
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
 *   **⋮**: **Add Files…**, **Add Folder…**, **Save to Folder Roll**, **Save as Virtual Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files that a scanner saves in the newest frame's folder), **Unload…**, **Unload All…** (empties the Film Strip; the roll stays in the Library), **Reset Frames to Defaults…**, **Restore Removed Frames…** and **Film Strip Guide…**.
 
-The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back.
+The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back, and so does a canvas tool or peek, such as Crop.
 
 #### Filtering
 

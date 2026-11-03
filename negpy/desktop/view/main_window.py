@@ -596,6 +596,7 @@ class MainWindow(QMainWindow):
         self.toolbar.set_light_table(on)
         view = self.file_browser.light_table_view
         if on:
+            self.controller.cancel_active_tool()
             self._strip_open_before_light_table = self.film_strip_expanded()
             self.set_film_strip_expanded(False, persist=False)
             self.central_stack.setCurrentIndex(1)
@@ -606,6 +607,10 @@ class MainWindow(QMainWindow):
         else:
             self.central_stack.setCurrentIndex(0)
             self.set_film_strip_expanded(self._strip_open_before_light_table, persist=False)
+
+    def _leave_light_table_for_canvas(self) -> None:
+        if self.light_table_active() and self.state.active_tool != ToolMode.NONE:
+            self.set_light_table(False)
 
     def _sync_frames_per_row(self) -> None:
         table = self.file_browser.light_table_view
@@ -624,6 +629,16 @@ class MainWindow(QMainWindow):
         browser = self.file_browser
         self.controller.session.canvas_bg_changed.connect(self._sync_strip_handle)
         browser.light_table_opened.connect(lambda: self.set_light_table(False))
+        # A canvas tool or peek acts on the photo, so turning one on shows the canvas.
+        self.controller.tool_sync_requested.connect(self._leave_light_table_for_canvas)
+        for peek in (
+            self.controller.flat_peek_changed,
+            self.controller.negative_peek_changed,
+            self.controller.average_peek_changed,
+            self.controller.embedded_peek_changed,
+            self.controller.flatfield_peek_changed,
+        ):
+            peek.connect(lambda on: on and self.set_light_table(False))
         table = browser.light_table_view
         self.toolbar.frames_per_row.valueChanged.connect(lambda columns: table.set_columns(round(columns)))
         table.columns_changed.connect(self._sync_frames_per_row)
