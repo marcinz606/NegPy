@@ -1653,16 +1653,17 @@ class DesktopSessionManager(QObject):
         or "outlier", for the Film Strip. True when a mark changed."""
         files = [f for f in self.state.uploaded_files if hashes is None or f["hash"] in hashes]
         saved = self.repo.load_file_settings_many([f["hash"] for f in files])
-        # A frame with no saved edit rides an average only through the roll's Use Average default.
+        # The roll's Use Average default reaches every frame that has not locked Roll Analysis,
+        # a saved edit included, as hydration lays it over the edit.
         defaults = rolls.roll_defaults(self.repo, self.state.active_roll_id) if self.state.active_roll_id else {}
-        unsaved_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
+        roll_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
         changed = False
         for f in files:
             if f["hash"] == self.state.current_file_hash:
                 process = self.state.config.process
             elif f["hash"] in saved:
-                process = saved[f["hash"]].process
-            elif unsaved_rides:
+                process = (self._overlay_roll_defaults(saved[f["hash"]], f) if roll_rides else saved[f["hash"]]).process
+            elif roll_rides:
                 process = self.config_for_asset(f).process
             else:
                 process = None

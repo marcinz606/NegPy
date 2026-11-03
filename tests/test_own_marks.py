@@ -61,3 +61,22 @@ def test_the_strip_tooltip_names_each_mark(tmp_path, qapp):
     assert "Prints on the roll average." in tips[0] and "own value" not in tips[0]
     assert "far from the other frames" in tips[1]
     assert "Keeps its own value on: Raw Decode, Metering" in tips[1]
+
+
+def test_a_saved_frame_that_follows_the_roll_average_is_marked(tmp_path):
+    """Hydration lays the roll's Use Average over a saved edit, so the strip reads it the same way."""
+    from negpy.domain.models import WorkspaceConfig
+
+    session, repo, roll = _session(tmp_path)
+    rolls.set_roll_normalization(repo, roll, (0.1,) * 3, (0.9,) * 3, frames=("h1", "h2"))
+    rolls.set_roll_defaults(repo, roll, use_luma_average=True, use_color_average=True)
+    repo.save_file_settings("h2", WorkspaceConfig(), file_path="/r/h2.tif")
+
+    session.refresh_average_marks()
+
+    assert [f.get("average") for f in session.state.uploaded_files] == ["on", "on"]
+
+    rolls.set_frame_override(repo, roll, "h2", "baseline", True)
+    session.refresh_average_marks()
+
+    assert session.state.uploaded_files[1].get("average") is None
