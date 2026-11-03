@@ -2265,6 +2265,11 @@ class AppController(QObject):
                 "last_linear_raw": linear_raw,
             }
         )
+        # Before the reload: an unlocked Raw Decode takes the roll's decode on load, so a roll on the old one undoes the rig.
+        repo = self.session.repo
+        for roll_id in {r for a in self.session.state.uploaded_files if (r := rolls.frame_roll(repo, self.state.active_roll_id, a))}:
+            if rolls.roll_defaults(repo, roll_id).get("linear_raw", linear_raw) != linear_raw:
+                rolls.set_roll_defaults(repo, roll_id, linear_raw=linear_raw)
 
         def with_rig(config: WorkspaceConfig) -> WorkspaceConfig:
             exposure = config.exposure

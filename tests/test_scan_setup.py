@@ -322,6 +322,25 @@ class TestApplyScanSetup(unittest.TestCase):
         self.mock_session_manager.update_config.assert_not_called()
         self.controller.load_file.assert_not_called()
 
+    def _roll_writes(self, roll_defaults: dict) -> list:
+        self.mock_session_manager.state.active_roll_id = "r1"
+        with (
+            patch("negpy.desktop.controller.rolls.roll_defaults", return_value=roll_defaults),
+            patch("negpy.desktop.controller.rolls.set_roll_defaults") as set_defaults,
+        ):
+            self.controller.apply_scan_setup("camera", "narrowband")
+        return set_defaults.call_args_list
+
+    def test_the_roll_takes_the_rigs_decode(self):
+        calls = self._roll_writes({"linear_raw": False})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].args[1], "r1")
+        self.assertEqual(calls[0].kwargs, {"linear_raw": True})
+
+    def test_a_roll_without_a_decode_or_on_the_rigs_decode_is_left_alone(self):
+        self.assertEqual(self._roll_writes({}), [])
+        self.assertEqual(self._roll_writes({"linear_raw": True}), [])
+
 
 if __name__ == "__main__":
     unittest.main()
