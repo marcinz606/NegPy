@@ -1,6 +1,6 @@
 # Windows USB setup (Plustek OpticFilm)
 
-NegPy's Plustek USB backend uses the external [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (libusb through PyUSB), version **1.3.8** or later. The stock Plustek Windows driver must not own the device.
+NegPy's Plustek USB backend uses the external [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (libusb through PyUSB), version **1.3.9** or later. The stock Plustek Windows driver must not own the device.
 
 ## Requirements
 
@@ -10,6 +10,7 @@ NegPy's Plustek USB backend uses the external [pyopticfilm](https://github.com/j
   - **8100 V2** (`07B3:1824`, GL128)
   - **8300i SE** (`07B3:181F`, GL128)
   - **7600i v1** (`07B3:0C3B`, GL843; `bcdDevice` `0x0400`)
+  - **7600i v2** (`07B3:0C3B`, GL845; `bcdDevice` `0x0605`)
 - WinUSB (or libusbK) bound with [Zadig](https://zadig.akeo.ie/)
 - NegPy with the `plustek` optional dependency (`uv sync --group plustek` or `pip install negpy[plustek]`). On Windows, pyopticfilm also pulls in `libusb-package`
 

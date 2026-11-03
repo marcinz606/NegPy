@@ -547,7 +547,7 @@ NegPy 通过虚拟暗房将胶片扫描制作为正像。源图像保持原样�
 
 - **扫描仪**：专用胶片扫描仪选**胶片扫描仪**（设备、胶片与质量、取景卡片），翻拍架上的相机选**相机**（相机和预设卡片）。
 
-<!-- panel:scan_device src:942d8a35 -->
+<!-- panel:scan_device src:a18b5f39 -->
 ## 设备
 
 - **后端**：**SANE**（Linux 和 macOS）、**Nikon Coolscan (nkscan)** 或 **pyOpticfilm (Plustek)**。控件随扫描仪报告的功能变化。
@@ -556,15 +556,15 @@ NegPy 通过虚拟暗房将胶片扫描制作为正像。源图像保持原样�
 
 扫描期间 NegPy 会阻止 macOS 和 Windows 休眠。在 Linux 上，扫描长卷前请关闭自动挂起。
 
-**Plustek**：支持 OpticFilm 8200i SE、8100 V2、8300i SE 和 7600i v1；其他型号可试用 SANE。在 Windows 上请先设置 USB 驱动（[PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)）。**Coolscan**：不需要 SANE。在 Linux 上 USB 需要为厂商 `04b0` 添加 udev 规则。
+**Plustek**：支持 OpticFilm 8200i SE、8100 V2、8300i SE、7600i v1 和 7600i v2；其他型号可试用 SANE。在 Windows 上请先设置 USB 驱动（[PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)）。**Coolscan**：不需要 SANE。在 Linux 上 USB 需要为厂商 `04b0` 添加 udev 规则。
 
-<!-- panel:scan_quality src:c3afa46a -->
+<!-- panel:scan_quality src:0e35bd9a -->
 ## 胶片与质量
 
 - **胶片**：彩色负片、黑白负片、反转片或柯达克罗姆。它决定画幅检测、测光以及是否提供红外。
 - **胶片画幅**：帧长度（135、66、645 等）。片夹能确定时可用**自动**。
 - **分辨率**和**位深**：扫描的 dpi 和每通道位数。
-- **扫描模式**（Plustek）：**多次扫描**平均多次扫描以降低噪点；**自适应多重曝光**结合短曝光和长曝光以扩大范围。Plustek 扫描仪在 7200 dpi 下不提供这两种模式。
+- **扫描模式**（Plustek）：**多次扫描**平均多次扫描以降低噪点；**自适应多重曝光**结合短曝光和长曝光以扩大范围，长曝光按每帧确定；**固定多重曝光**像 SilverFast 一样，每帧都使用扫描仪固定的长曝光（8200i SE、8100 V2 和 8300i SE）。7600i v2 支持自适应多重曝光，但不支持多次扫描。
 - **采样次数**（Coolscan）：每行读取多次，减少暗部噪点。速度更慢。
 - **红外**：**IR** 扫描一个红外通道，用于修复卡片的除尘。**ICE**（Coolscan）改为在扫描仪内除尘。没有 ICE 的扫描仪只显示一个 **IR** 开关。不适用于黑白和柯达克罗姆。
 - **超精细**（Coolscan）：每次只扫描一行。速度更慢。

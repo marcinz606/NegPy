@@ -51,7 +51,7 @@ The desktop interface and panel guides support English, Simplified Chinese (ç®€ä
 
 ### Capture
 
-* Film scanners: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE and 7600i v1 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
+* Film scanners: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 and 7600i v2 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
 * Tethered camera scanning (macOS and Linux), including narrowband RGB captures with a [Scanlight](https://github.com/jackw01/scanlight) and a sub-pixel Trichrome merge ([guide](docs/CAMERA_SCANNING.md)).
 * Flat-field correction, sensor calibration for narrowband light, and lens correction read from the file.
 * Camera RAWs, TIFF, DNG, JPEG XL and scanner formats such as Pakon, Coolscan NEF, Flextight FFF and Noritsu.

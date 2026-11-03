@@ -52,6 +52,9 @@ class ScannerCapabilities:
     prescan_mirror_x: bool = False
     prescan_default_crop: tuple[float, float, float, float] | None = None
     multi_exposure: bool = False
+    #: Multi-exposure can also run with a fixed long exposure (MultiExposureMode.FIXED);
+    #: only meaningful when `multi_exposure` is set, and limited to `multi_exposure_dpi`.
+    multi_exposure_fixed: bool = False
     #: Highest n_passes the device accepts; 1 means Multi-Pass (same-exposure repeat stacking)
     #: is unavailable. Independent of `multi_exposure` — repeating a single exposure needs no
     #: long-exposure capability, so this is not gated on the same condition.
@@ -84,6 +87,9 @@ class ScannerCapabilities:
 
     def multi_exposure_at(self, dpi: int) -> bool:
         return self.multi_exposure and (not self.multi_exposure_dpi or int(dpi) in self.multi_exposure_dpi)
+
+    def fixed_multi_exposure_at(self, dpi: int) -> bool:
+        return self.multi_exposure_fixed and self.multi_exposure_at(dpi)
 
     def multi_pass_at(self, dpi: int) -> bool:
         return self.max_n_passes > 1 and (not self.multi_pass_dpi or int(dpi) in self.multi_pass_dpi)
