@@ -10,6 +10,7 @@ from negpy.infrastructure.scanners.sane_backend import (
     _SOURCE_MAP,
     _caps_from_options,
     _detect_auto_exposure,
+    _resolve_color_mode,
     _split_rgbi,
 )
 
@@ -174,6 +175,23 @@ class TestCapsFromOptions:
         }
         assert _caps_from_options(opt, "avision:libusb:001:013", "film scanner").sources
         assert not _caps_from_options(opt, "avision:libusb:001:013", "flatbed scanner").sources
+
+    def test_depth_from_mode_name_without_color_mode(self) -> None:
+        # avision film scanners with vendor options offer no 8-bit "Color" mode.
+        opt = {"mode": FakeOption(constraint=["Lineart", "Dithered", "Gray", "16bit Gray", "16bit Color"])}
+        assert _caps_from_options(opt, "avision:libusb:001:013", "film scanner").supported_depths == (16,)
+        assert _resolve_color_mode(opt, 16) == "16bit Color"
+
+    def test_depth_from_mode_name_with_color_mode(self) -> None:
+        opt = {"mode": FakeOption(constraint=["Gray", "12bit Gray", "Color", "12bit Color"])}
+        assert _caps_from_options(opt).supported_depths == (8, 16)
+        assert _resolve_color_mode(opt, 8) == "Color"
+        assert _resolve_color_mode(opt, 16) == "12bit Color"
+
+    def test_depth_option_keeps_the_color_mode(self) -> None:
+        opt = _pieusb_opt()
+        opt["mode"] = FakeOption(constraint=["Color", "16bit Color"])
+        assert _resolve_color_mode(opt, 16) == "Color"
 
     def test_roll_adapter_frame_range_is_reported_as_capacity(self) -> None:
         caps = _caps_from_options(

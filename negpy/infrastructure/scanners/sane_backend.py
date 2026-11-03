@@ -1,4 +1,5 @@
 import math
+import re
 import subprocess
 import sys
 import threading
@@ -237,7 +238,7 @@ def _resolve_resampled_resolutions(opt) -> dict[int, int]:
 
 def _detect_depths(opt) -> tuple[int, ...]:
     if "depth" not in opt:
-        return (8, 16)
+        return tuple(sorted(_color_modes_by_depth(opt))) or (8, 16)
     constraint = opt["depth"].constraint
     if not isinstance(constraint, list):
         return (8, 16)
@@ -448,6 +449,39 @@ def _sane_container_depth(requested_depth: int) -> int:
     requested value — decides the dtype.
     """
     return 8 if requested_depth <= 8 else 16
+
+
+_DEPTH_COLOR_MODE = re.compile(r"(\d+)\s*bit\s+colou?r")
+
+
+def _color_modes_by_depth(opt) -> dict[int, str]:
+    """Color modes keyed by sample container, for a backend that sets depth by mode name.
+
+    avision has no `depth` option: it offers "Color" (8-bit) and "12bit Color" or "16bit Color"
+    (both 16-bit containers), and some film models leave out "Color". Empty with a `depth` option.
+    """
+    if "depth" in opt or "mode" not in opt:
+        return {}
+    constraint = opt["mode"].constraint
+    if not isinstance(constraint, (list, tuple)):
+        return {}
+    modes: dict[int, tuple[int, str]] = {}
+    for value in constraint:
+        name = str(value)
+        lowered = name.strip().lower()
+        match = _DEPTH_COLOR_MODE.fullmatch(lowered)
+        bits = 8 if lowered == "color" else int(match.group(1)) if match else 0
+        if bits < 8:
+            continue
+        container = _sane_container_depth(bits)
+        if container not in modes or bits > modes[container][0]:
+            modes[container] = (bits, name)
+    return {container: name for container, (_, name) in modes.items()}
+
+
+def _resolve_color_mode(opt, depth: int) -> str:
+    """The `mode` value for a color scan at `depth`: "Color" unless the depth is in the mode name."""
+    return _color_modes_by_depth(opt).get(_sane_container_depth(depth), "Color")
 
 
 def _option_is_usable(option) -> bool:
@@ -1144,7 +1178,8 @@ class SaneBackend:
             # options the device has. Set after source/film_type above, since those can reset
             # depth/resolution to backend defaults on this device.
             if hasattr(dev, "opt") and "mode" in dev.opt:
-                dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
+                rgbi = ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3"
+                dev.mode = "RGBI" if rgbi else _resolve_color_mode(dev.opt, params.depth)
             dev.depth = params.depth
 
             # `resolution` alone is sometimes an artificially narrow convenience subset of what
