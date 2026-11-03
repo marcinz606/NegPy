@@ -32,6 +32,7 @@ from negpy.desktop.settings_catalog import (
     TONE_FIELDS,
     frame_card_rows,
     roll_card_rows,
+    unused_in_mode,
 )
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
@@ -1242,15 +1243,17 @@ class ControlsPanel(QWidget):
         shown_color = ("bw_filter",) if mode == ProcessMode.BW else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in shown_color)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
-        paper_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in PAPER_FIELDS)
+        paper_count = sum(
+            getattr(exp, f) != _default_exposure_field(f, mode) and not unused_in_mode("exposure", f, cfg) for f in PAPER_FIELDS
+        )
 
         lab = cfg.lab
         lab_count = sum(
             [
-                lab.saturation != _lab.saturation,
+                lab.saturation != _lab.saturation and not unused_in_mode("lab", "saturation", cfg),
                 lab.clahe_strength != _lab.clahe_strength,
                 lab.sharpen != _lab.sharpen,
-                lab.chroma_denoise != _lab.chroma_denoise,
+                lab.chroma_denoise != _lab.chroma_denoise and not unused_in_mode("lab", "chroma_denoise", cfg),
                 lab.glow_amount != _lab.glow_amount,
                 lab.halation_strength != _lab.halation_strength,
             ]
