@@ -4213,6 +4213,21 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertFalse(state.average_peek_axes["use_color_average"])
         self.assertIsNotNone(self.controller.request_render.call_args.kwargs["config_override"])
 
+    def test_a_plain_render_on_another_frame_carries_the_peek(self):
+        """Selecting a frame renders before its preview loads; that render is no edit to the peek."""
+        from negpy.desktop.controller import AppController
+
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+            self.controller._carry_average_peek = MagicMock()
+            self.controller.request_render = lambda **kw: AppController.request_render(self.controller, **kw)
+            self.mock_session_manager.state.current_file_hash = "other-frame"
+            self.mock_session_manager.state.current_file_path = None
+            self.controller.request_render()
+
+        self.assertTrue(self.mock_session_manager.state.average_peek)
+        self.controller._carry_average_peek.assert_called_once()
+
     def test_a_frame_with_no_average_ends_the_peek(self):
         with self._average_peek_setup():
             self.controller.toggle_average_peek()

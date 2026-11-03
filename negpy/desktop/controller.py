@@ -933,6 +933,7 @@ class AppController(QObject):
         self._crop_bounds_dirty = False
         # (tool, file hash, config) when Crop or Draw Region opened: what Esc puts back.
         self._tool_entry: Optional[Tuple[ToolMode, Optional[str], WorkspaceConfig]] = None
+        self._average_peek_hash: Optional[str] = None  # the frame the average peek prints; a plain render on another carries it
         self._peek_sections: Optional[tuple] = None  # _peek_hidden_sections() when a scan peek opened; a render of others ends it
         self._keystone_lines: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = {}
         self._zone_preview_shown = False
@@ -6369,6 +6370,7 @@ class AppController(QObject):
             self.state.average_peek_axes = axes
             self.state.average_peek_scope = rolls.average_scope(process)
         self.state.average_peek = target
+        self._average_peek_hash = self.state.current_file_hash
         self.average_peek_changed.emit(target)
         if target:
             self._render_average_peek()
@@ -6379,6 +6381,7 @@ class AppController(QObject):
         """The peek follows the user to the next frame with the same averages on, so a roll
         can be checked frame by frame. A frame with no average yet ends it."""
         process = self.state.config.process
+        self._average_peek_hash = self.state.current_file_hash
         if not self._saved_baseline_fields(process):
             self.state.average_peek = False
             self.average_peek_changed.emit(False)
@@ -8144,6 +8147,9 @@ class AppController(QObject):
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
         if config_override is None and self.state.average_peek:
+            if self._average_peek_hash != self.state.current_file_hash:
+                self._carry_average_peek()
+                return
             self.state.average_peek = False
             self.average_peek_changed.emit(False)
         if config_override is None and (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
