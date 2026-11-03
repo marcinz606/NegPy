@@ -4185,6 +4185,28 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertFalse(self.mock_session_manager.state.average_peek)
         self.controller.request_render.assert_not_called()
 
+    def test_the_average_peek_follows_the_user_to_the_next_frame(self):
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+            self.controller.set_average_peek_axes(use_color_average=False)
+            self.controller.request_render.reset_mock()
+            self.controller._carry_average_peek()
+
+        state = self.mock_session_manager.state
+        self.assertTrue(state.average_peek)
+        self.assertFalse(state.average_peek_axes["use_color_average"])
+        self.assertIsNotNone(self.controller.request_render.call_args.kwargs["config_override"])
+
+    def test_a_frame_with_no_average_ends_the_peek(self):
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+        self.controller.request_render.reset_mock()
+        with patch.object(rolls, "frame_saved_baseline", return_value=None):
+            self.controller._carry_average_peek()
+
+        self.assertFalse(self.mock_session_manager.state.average_peek)
+        self.assertIsNone(self.controller.request_render.call_args.kwargs.get("config_override"))
+
     def test_keep_writes_the_peeks_averages_as_one_edit(self):
         self.controller.set_roll_average = MagicMock()
         with self._average_peek_setup():

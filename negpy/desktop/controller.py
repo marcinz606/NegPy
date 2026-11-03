@@ -3101,10 +3101,10 @@ class AppController(QObject):
         # now, with no spinner and no toasts, and let the real render refresh the metrics.
         target_hash = self._file_hash_for_path(file_path)
         self._expected_render_key = self._render_memo_key()
-        # An uncropped-preview tool skips the memo: its filed pixels are a cropped print.
+        # An uncropped-preview tool and the average peek skip the memo: it holds the frame's own cropped print.
         memo = (
             self._render_memo.get(target_hash, self._expected_render_key)
-            if target_hash and self.state.active_tool not in UNCROPPED_PREVIEW_TOOLS
+            if target_hash and self.state.active_tool not in UNCROPPED_PREVIEW_TOOLS and not self.state.average_peek
             else None
         )
 
@@ -3371,7 +3371,10 @@ class AppController(QObject):
         self.preview_loaded.emit()
         self.config_updated.emit()
         self._first_render_t0 = time.perf_counter()
-        self.request_render()
+        if self.state.average_peek:
+            self._carry_average_peek()
+        else:
+            self.request_render()
         self._neighbor_prefetch_generation = self._prefetch_gen
 
     def _schedule_prefetch_neighbors(self) -> None:
@@ -6367,6 +6370,20 @@ class AppController(QObject):
             self._render_average_peek()
         else:
             self.request_render()
+
+    def _carry_average_peek(self) -> None:
+        """The peek follows the user to the next frame with the same averages on, so a roll
+        can be checked frame by frame. A frame with no average yet ends it."""
+        process = self.state.config.process
+        if not self._saved_baseline_fields(process):
+            self.state.average_peek = False
+            self.average_peek_changed.emit(False)
+            self.set_status(tr("No average for this frame yet"), 3000)
+            self.request_render()
+            return
+        self.state.average_peek_scope = rolls.average_scope(process)
+        self.average_peek_changed.emit(True)
+        self._render_average_peek()
 
     def _cast_average_applies(self) -> bool:
         process = self.state.config.process
