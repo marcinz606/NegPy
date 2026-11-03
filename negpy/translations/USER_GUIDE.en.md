@@ -81,7 +81,7 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 
 *   **Before / After** (`\`, or the **Print** menu): splits the canvas between the default conversion and your edit. Hold `\` to see the default alone. To compare with an earlier version, right-click it in **History**.
 *   **Peeks**: hold `N` for the scan as loaded (the negative), `M` for the flat master, and `P` for the camera's own JPEG. The **Print** menu has them too.
-*   **Roll Average** (`U`, or the **Print** menu): prints this frame on the average and changes nothing. The bar has **Luma**, **Color** and **Cast**; right-click one to turn them all on or off. On a frame in a scene, **Scene** and **Roll** choose which average. **Apply** saves them to the frame.
+*   **Roll Average** (`U`, or the **Print** menu): prints this frame on the average and changes nothing. The bar has **Luma**, **Color** and **Cast**; right-click one to turn them all on or off. The averages the frame has now show after **Applied**. On a frame in a scene, **Scene** and **Roll** choose which average. **Apply** saves them to the frame. The view stays open when you go to the next frame.
 *   **Roll Average** button (filmstrip icon on the toolbar): opens the **Roll Average** bar. It is lit while the frame uses an average. Right-click turns every average on or off at once, as one edit. An amber icon marks a frame far from the roll color.
 *   **Export Size** (**Print** menu): shows the frame as it exports, at the size the **Export** panel sets, at 100%. Use it to judge sharpening and grain. It updates a moment after each edit.
 *   **Grain Focuser** (`Shift+L`, **Overlays** menu): a magnifier at the pointer that shows the exported pixels at their true size, with a sharpness number.
@@ -140,7 +140,7 @@ The toolbar's **Roll** row holds:
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
 *   **⋮**: **Add Files…**, **Add Folder…**, **Save to Folder Roll**, **Save as Virtual Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files that a scanner saves in the newest frame's folder), **Unload…**, **Unload All…** (empties the Film Strip; the roll stays in the Library), **Reset Frames to Defaults…**, **Restore Removed Frames…** and **Film Strip Guide…**.
 
-The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back.
+The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back, and so does a canvas tool or peek.
 
 #### Filtering
 
@@ -162,7 +162,7 @@ Terms combine: `film:portra iso:>=400 -rejected:`. Metadata terms match only fra
 
 Right-click a frame, or use the shortcuts, to **Keep** it (a check) or **Reject** it (a cross; the frame dims and batch exports skip it). Your files never change.
 
-A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
+A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it; hover it to see which cards. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
 
 The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.5](#105-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
 
@@ -726,7 +726,7 @@ Sheets are saved as `contact_sheet.jpg` (`contact_sheet_1of2.jpg` and on for a l
 
 The **Proof** tab shows on screen how the picture will look when printed on a given printer and paper. It changes the preview only, never the export. Paper cannot show colors as bright as a screen, so a correct proof looks duller.
 
-*   **Proof on Screen** (`Shift+P`): turns the proof on or off.
+*   **Proof on Screen** (`Shift+P`): turns the proof on or off. While it is on, the frame info above the photo shows **Proof** and the profile.
 *   **Preset**: a saved printer and paper setup.
 *   **Profile**: the printer or paper profile. It follows the export profile until you pick one.
 *   **Intent**: **Relative Colorimetric** keeps printable colors exact and clips the rest. **Perceptual** compresses all colors, which suits very colorful pictures. **Saturation** is for charts and graphics.

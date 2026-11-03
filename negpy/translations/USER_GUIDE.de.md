@@ -18,7 +18,7 @@ Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus 
 
 Um die Bilder im Filmstreifen als Rolle zu speichern, nutze den Filmstreifen. **In Ordnerrolle speichern** macht aus Bildern, die alle aus einem Ordner stammen, die Rolle dieses Ordners. Seine anderen Dateien erscheinen als entfernt. **Als virtuelle Rolle speichern…** behält genau diese Bilder, aus beliebigen Ordnern. In Ordnerrolle speichern macht auch aus einer virtuellen Rolle eines Ordners die Rolle dieses Ordners. Die neue Rolle startet mit den Einstellungen, den Kartensperren und den nur in dieser Rolle gemachten Bearbeitungen der geöffneten Rolle. Ein Bild hat in jeder Rolle, die es enthält, dieselbe Bearbeitung. Rechtsklick → **In dieser Rolle unabhängig bearbeiten** gibt ihm in einer Rolle eine eigene Bearbeitung.
 
-<!-- panel:frames src:7dc6c65a -->
+<!-- panel:frames src:e18d0aea -->
 ### Filmstreifen
 
 Der **Filmstreifen** unter der Arbeitsfläche zeigt die geöffneten Bilder in einer Reihe. Ziehe seinen oberen Rand, um die Bilder zu vergrößern.
@@ -33,7 +33,7 @@ Die Zeile **Rolle** der Werkzeugleiste enthält:
 *   **Anwenden**: kopiert gewählte Einstellungen dieses Bildes auf die Auswahl oder die Rolle.
 *   **⋮**: **Dateien hinzufügen…**, **Ordner hinzufügen…**, **In Ordnerrolle speichern**, **Als virtuelle Rolle speichern…**, **Vorschaubilder aktualisieren**, **Hot Folder** (lädt neue Dateien, die ein Scanner im Ordner des neuesten Bildes speichert), **Entladen…**, **Alle entladen…** (leert den Filmstreifen; die Rolle bleibt in der Bibliothek), **Bilder auf Standard zurücksetzen…**, **Entfernte Bilder wiederherstellen…** und **Hilfe zum Filmstreifen…**.
 
-Die Raster-Schaltfläche öffnet den **Leuchttisch** (`Shift+G`): die ganze Rolle in Zeilen, zum Sortieren. Ein Klick wählt ein Bild, ein Doppelklick oder `Enter` öffnet es. Die Werkzeugleiste wirkt auf die gewählten Bilder: **Behalten**, **Verwerfen**, Drehen und Spiegeln, **Auto-Zuschnitt** und **Export**. ⋯ enthält den Rest des Rechtsklick-Menüs. Der Regler **Bilder pro Zeile**, `+` und `-` oder `Ctrl` mit dem Mausrad ändern die Bildgröße. `Esc` geht zurück.
+Die Raster-Schaltfläche öffnet den **Leuchttisch** (`Shift+G`): die ganze Rolle in Zeilen, zum Sortieren. Ein Klick wählt ein Bild, ein Doppelklick oder `Enter` öffnet es. Die Werkzeugleiste wirkt auf die gewählten Bilder: **Behalten**, **Verwerfen**, Drehen und Spiegeln, **Auto-Zuschnitt** und **Export**. ⋯ enthält den Rest des Rechtsklick-Menüs. Der Regler **Bilder pro Zeile**, `+` und `-` oder `Ctrl` mit dem Mausrad ändern die Bildgröße. `Esc` geht zurück, ebenso ein Werkzeug oder eine Vorschau auf der Arbeitsfläche.
 
 #### Filtern
 
@@ -524,12 +524,12 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 
 Die Bögen werden als `contact_sheet.jpg` gespeichert (`contact_sheet_1of2.jpg` und folgende bei einer langen Rolle).
 
-<!-- panel:soft_proof src:193ff940 -->
+<!-- panel:soft_proof src:0254272b -->
 ### Softproof
 
 Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker und Papier aussieht. Er ändert nur die Vorschau, nie den Export. Papier zeigt keine so leuchtenden Farben wie ein Bildschirm, darum wirkt ein korrekter Proof matter.
 
-*   **Proof am Bildschirm** (`Shift+P`): schaltet den Proof ein oder aus.
+*   **Proof am Bildschirm** (`Shift+P`): schaltet den Proof ein oder aus. Solange er an ist, zeigt die Bildinfo über dem Foto **Softproof** und das Profil.
 *   **Vorgabe**: ein gespeichertes Setup aus Drucker und Papier.
 *   **Profil**: das Drucker- oder Papierprofil. Es folgt dem Exportprofil, bis du eines wählst.
 *   **Umsetzung**: **Relativ farbmetrisch** behält druckbare Farben genau und beschneidet den Rest. **Wahrnehmung** staucht alle Farben und passt zu sehr bunten Bildern. **Sättigung** ist für Diagramme und Grafiken.
