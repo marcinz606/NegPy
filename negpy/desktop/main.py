@@ -292,6 +292,10 @@ def main() -> None:
         if scale != 1.0 and "QT_SCALE_FACTOR" not in os.environ:
             os.environ["QT_SCALE_FACTOR"] = f"{scale:.2f}"
 
+        from negpy.desktop.view.styles.theme import apply_theme
+
+        apply_theme(str(repo.get_global_setting("ui_theme", "black") or "black"))
+
         # Global attributes for Windows stability
         if sys.platform == "win32":
             QCoreApplication = getattr(sys.modules["PyQt6.QtCore"], "QCoreApplication")

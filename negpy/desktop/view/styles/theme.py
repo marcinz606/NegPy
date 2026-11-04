@@ -1,5 +1,8 @@
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Dict
+
+from negpy.kernel.system.i18n import mark
 
 
 @dataclass(frozen=True)
@@ -156,3 +159,78 @@ SCENE_COLORS = (THEME.channel_blue, THEME.status_success, THEME.warn_amber, THEM
 
 def scene_color(ordinal: int) -> str:
     return SCENE_COLORS[(ordinal - 1) % len(SCENE_COLORS)]
+
+
+# Preferences > Interface > UI Theme. Every "surfaces, darkest first" background and border
+# lightened by the same offset that turns bg_dark into a photographic middle gray (Light Gray), so the
+# depth ordering between panel, card and header is unchanged. The grays used for secondary
+# and hint copy go white, since they read too close to the new light-gray surfaces otherwise;
+# text_muted stays put, since it is documented as deliberately low-contrast (disabled only).
+# header_veil/_hover and surface_overlay/_hover are translucent washes over a card's chart
+# and over the canvas, not flat token reads, so each needs its own override beside bg_header.
+_LIGHT_GRAY_OVERRIDES: Dict[str, str] = {
+    "bg_dark": "#808080",
+    "bg_panel": "#808080",
+    "bg_input": "#7D7D7D",
+    "bg_card": "#858585",
+    "bg_header": "#898989",
+    "bg_selected": "#959595",
+    "bg_hover": "#999999",
+    "bg_menu_selected": "#A1A1A1",
+    "border_input": "#8D8D8D",
+    "border_primary": "#999999",
+    "border_color": "#A6A6A6",
+    "border_hover": "#ADADAD",
+    "border_indicator": "#B5B5B5",
+    "slider_disabled": "#C8C8C8",
+    "surface_overlay": "rgba(128,128,128,0.88)",
+    "surface_overlay_hover": "rgba(149,149,149,0.88)",
+    "header_veil": "rgba(141,141,141,0.55)",
+    "header_veil_hover": "rgba(149,149,149,0.62)",
+    "text_secondary": "#FFFFFF",
+    "text_hint": "#FFFFFF",
+    "text_unit": "#FFFFFF",
+}
+
+# Same lightening, anchored to canvas_bg_mid_grey (the "Mid Gray" canvas swatch). Still dark
+# enough that the existing text grays stay readable, so none of them need the white override above.
+_MID_GRAY_OVERRIDES: Dict[str, str] = {
+    "bg_dark": "#404040",
+    "bg_panel": "#404040",
+    "bg_input": "#3D3D3D",
+    "bg_card": "#454545",
+    "bg_header": "#494949",
+    "bg_selected": "#555555",
+    "bg_hover": "#595959",
+    "bg_menu_selected": "#616161",
+    "border_input": "#4D4D4D",
+    "border_primary": "#595959",
+    "border_color": "#666666",
+    "border_hover": "#6D6D6D",
+    "border_indicator": "#757575",
+    "slider_disabled": "#888888",
+    "surface_overlay": "rgba(64,64,64,0.88)",
+    "surface_overlay_hover": "rgba(85,85,85,0.88)",
+    "header_veil": "rgba(77,77,77,0.55)",
+    "header_veil_hover": "rgba(85,85,85,0.62)",
+}
+
+UI_THEMES: tuple[tuple[str, str], ...] = (
+    ("black", mark("Black (Default)")),
+    ("mid_gray", mark("Mid Gray")),
+    ("light_gray", mark("Light Gray")),
+)
+_THEME_OVERRIDES: Dict[str, Dict[str, str]] = {
+    "mid_gray": _MID_GRAY_OVERRIDES,
+    "light_gray": _LIGHT_GRAY_OVERRIDES,
+}
+_DEFAULT_THEME = ThemeConfig()
+
+
+def apply_theme(key: str) -> None:
+    """Patches the shared THEME instance in place so every module that already holds a
+    reference to it (imported at their own load time) picks up the chosen palette. Read once
+    at startup; switching requires a restart to repaint every baked stylesheet and icon."""
+    overrides = _THEME_OVERRIDES.get(key, {})
+    for f in dataclasses.fields(THEME):
+        object.__setattr__(THEME, f.name, overrides.get(f.name, getattr(_DEFAULT_THEME, f.name)))
