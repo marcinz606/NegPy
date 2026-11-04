@@ -181,8 +181,8 @@ described above.
 
 - Close Dock Connect before you open the Scan tab. Only one program can use the dock's port.
 - NegPy uses a Scanlight first. To scan with the dock, disconnect the Scanlight.
-- The dock has no white or infrared light. A white-light preset lights red, green and blue
-  together at the same level.
+- The dock has no white LED and no infrared light. NegPy still offers the white-light presets
+  and lights red, green and blue together at the same level for them.
 - **Film** sets what the dock does when you click Scan:
   - **Off**: the film stays where it is.
   - **Next Frame**: after each scan, the dock moves the film to the next frame.

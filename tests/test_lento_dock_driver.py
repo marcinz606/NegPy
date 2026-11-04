@@ -28,10 +28,10 @@ def test_constructing_the_driver_needs_no_hardware(dock):
     assert dock.info is not None and dock.info.model == "35"
 
 
-def test_describe_reports_rgb_only(dock):
+def test_describe_offers_white_and_no_infrared(dock):
     detail, has_white, has_ir = dock.describe()
     assert detail == "Lento Dock 35 (fw 1.0.224)"
-    assert (has_white, has_ir) == (False, False)
+    assert (has_white, has_ir) == (True, False)
 
 
 def test_levels_scale_to_the_docks_duty():

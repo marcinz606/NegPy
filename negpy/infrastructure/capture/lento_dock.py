@@ -201,11 +201,12 @@ class LentoDock:
         return self._reader.is_alive() and self._reader_error is None and not self._silent
 
     def describe(self) -> tuple[str, bool, bool]:
-        """(status text, has a white channel, has an infrared channel) for the Scan panel."""
+        """(status text, has a white channel, has an infrared channel) for the Scan panel. White is
+        R, G and B lit together (see `set_color`), so the white-light presets work on the dock."""
         info = self.info or self._identify()
         if info is None:
             raise ConnectionError("Lento Dock does not answer IDENT")
-        return f"{info.name} (fw {info.firmware})", False, False
+        return f"{info.name} (fw {info.firmware})", True, False
 
     def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, ir: int = 0, save: bool = False) -> None:
         """Hold the panel at R, G, B. The continuous light has no white or infrared channel:
