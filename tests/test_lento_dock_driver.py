@@ -271,7 +271,8 @@ def test_the_s_button_calls_the_scan_handler(sim):
     assert pressed == [1]
 
 
-def test_a_strip_at_the_entrance_is_fed_to_its_first_frame():
+def test_a_strip_at_the_entrance_is_fed_to_its_first_frame(monkeypatch):
+    monkeypatch.setattr(lento_dock, "AUTOALIGN_START_S", 0.0)
     sim = SimDockSerial(frames=4, fed=False)
     with LentoDock(serial_obj=sim) as dock:
         assert dock.strip_waiting()
@@ -323,3 +324,20 @@ def test_a_scan_request_is_the_s_button_and_counts_once(sim):
             time.sleep(0.01)
         time.sleep(0.1)
     assert pressed == [1]
+
+
+def test_a_strip_the_dock_aligns_itself_is_not_fed_again(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(lento_dock, "AUTOALIGN_START_S", 0.0)
+    sim = SimDockSerial(frames=4)
+    sim.st = "SEEK"  # the dock aligns a strip that just went in
+
+    def aligned():
+        sim.st = "READY"
+        sim._say(sim._state())
+
+    with LentoDock(serial_obj=sim) as dock:
+        threading.Timer(0.3, aligned).start()
+        assert not dock.strip_waiting()
+    assert "INSERT" not in sim.lines
