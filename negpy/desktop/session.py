@@ -1485,8 +1485,9 @@ class DesktopSessionManager(QObject):
             return False
         asset = self.state.uploaded_files[idx]
         config = self._apply_sticky_settings(saved, only_global=True)
+        before = self.state.config
         self.update_config(resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), persist=True)
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         return True
 
     def _hydrate_asset_config(self, asset: dict) -> WorkspaceConfig:
@@ -1777,7 +1778,7 @@ class DesktopSessionManager(QObject):
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
             changed_hashes.append(target_hash)
             count += 1
 
@@ -1819,9 +1820,10 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             if idx == self.state.selected_file_idx:
-                overlaid = apply_selected_fields(source, self.state.config, rows)
+                before = self.state.config
+                overlaid = apply_selected_fields(source, before, rows)
                 self.update_config(finish(overlaid) if finish else overlaid, persist=True, render=False)
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 count += 1
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
@@ -1831,7 +1833,7 @@ class DesktopSessionManager(QObject):
                 synced = finish(synced)
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
             changed_hashes.append(target_hash)
             count += 1
 
@@ -2193,16 +2195,16 @@ class DesktopSessionManager(QObject):
             # Written without a render; the filmstrip flags the cell until one lands.
             self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
 
-    def relock_diverged_cards(self) -> None:
+    def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work
         print and a paste restore no locks, and an unlocked card takes the roll's values on load.
-        Never unlocks."""
+        A card that the step from *before* changed also unlocks where it matches the roll again."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
-        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config)
+        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config, before)
 
-    def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig) -> None:
+    def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig, before: Optional[WorkspaceConfig] = None) -> None:
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
@@ -2210,8 +2212,12 @@ class DesktopSessionManager(QObject):
         base = unforked_hash(asset["hash"])
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
-            values = getattr(config, section)
-            if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
+            values = {n: getattr(getattr(config, section), n) for n in names}
+            old = None if before is None else {n: getattr(getattr(before, section), n) for n in names}
+            # A pin on a card the step did not touch stays.
+            if old is not None and not all(rolls.same_value(values[n], old[n]) for n in names):
+                rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old)
+            elif card_key not in locked and any(n in defaults and not rolls.same_value(values[n], defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 
     def undo(self) -> None:
@@ -2223,9 +2229,10 @@ class DesktopSessionManager(QObject):
             self.state.undo_index -= 1
             prev_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if prev_config:
+                before = self.state.config
                 self.state.config = prev_config
                 self._config_dirty = True
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -2235,9 +2242,10 @@ class DesktopSessionManager(QObject):
             self.state.undo_index += 1
             next_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if next_config:
+                before = self.state.config
                 self.state.config = next_config
                 self._config_dirty = True
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -2281,8 +2289,9 @@ class DesktopSessionManager(QObject):
         if config is not None:
             if not self.work_print_apply_metadata():
                 config = replace(config, metadata=self.state.config.metadata)
+            before = self.state.config
             self.update_config(config, persist=True)
-            self.relock_diverged_cards()
+            self.relock_diverged_cards(before)
 
     def rename_work_print(self, name: str, new_name: str, replace_existing: bool = False) -> None:
         if not (self.state.current_file_hash and new_name) or new_name == name:
@@ -2316,9 +2325,10 @@ class DesktopSessionManager(QObject):
         if config is None:
             return
         self.state.undo_index = index
+        before = self.state.config
         self.state.config = config
         self._config_dirty = True
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         self.state_changed.emit()
         self.history_changed.emit()
 
@@ -2462,11 +2472,12 @@ class DesktopSessionManager(QObject):
             self.apply_preset_fields(clip, rows, "selection", finish=with_bounds if bounds else None, label=tr("Pasted"))
             self.state_changed.emit()
             return
-        merged = apply_selected_fields(clip, self.state.config, rows)
+        before = self.state.config
+        merged = apply_selected_fields(clip, before, rows)
         if bounds:
             merged = with_bounds(merged)
         self.update_config(merged, persist=True)
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         self.settings_pasted.emit()
 
     def persist_hidden_masks(self) -> None:
