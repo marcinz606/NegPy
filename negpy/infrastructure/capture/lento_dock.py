@@ -49,6 +49,7 @@ ADVANCE_TIMEOUT_S = 15.0
 EXPOSE_WAIT_S = 5.0  # the dock's own exposure on an S press lasts 3 s
 BUSY_RETRY_S = 0.25  # the API's retry interval for a BUSY reply
 SCAN_BUTTON_DEBOUNCE_S = 1.0
+AUTOALIGN_START_S = 1.5  # an inserted strip starts to align within this time
 EJECT_TIMEOUT_S = 30.0
 HOLD_INTERVAL_S = 30.0
 KEEPALIVE_TICK_S = 1.0
@@ -267,9 +268,16 @@ class LentoDock:
         return int(parse_kv(self._last_frameat).get("idx", "-1"))
 
     def strip_waiting(self) -> bool:
-        """True when a strip sits at the entrance and the dock has not fed it: in SEMI the dock
-        feeds a strip only on INSERT, and a reset forgets one it had fed."""
+        """True when a strip sits at the entrance and the dock has not fed it, as after a reset.
+        Firmware 1.0.238 and later align an inserted strip on their own, so a strip that just went
+        in gets a moment to start, and an alignment in progress is waited out: INSERT on an aligned
+        strip moves it one frame."""
         self._command("STATE?", r"^STATE\b")
+        if self._state.get("st") == "IDLE" and self._state.get("entrance") == "1":
+            time.sleep(AUTOALIGN_START_S)
+        deadline = time.monotonic() + ADVANCE_TIMEOUT_S
+        while self._state.get("st") in ("SEEK", "ALIGN") and time.monotonic() < deadline:
+            time.sleep(0.05)
         return self._state.get("st") == "IDLE" and self._state.get("entrance") == "1"
 
     def insert_strip(self) -> None:
