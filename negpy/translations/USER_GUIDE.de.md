@@ -543,7 +543,7 @@ Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker
 
 *   **Scanner**: **Filmscanner** für einen eigenen Filmscanner (die Karten Gerät, Film & Qualität und Bildausschnitt), oder **Kamera** für eine Kamera auf einem Reprostativ (die Karten Kamera und Vorgabe).
 
-<!-- panel:scan_device src:942d8a35 -->
+<!-- panel:scan_device src:a18b5f39 -->
 ### Gerät
 
 *   **Backend**: **SANE** (Linux und macOS), **Nikon Coolscan (nkscan)** oder **pyOpticfilm (Plustek)**. Die Regler richten sich nach den Angaben des Scanners.
@@ -552,15 +552,15 @@ Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker
 
 NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor einer langen Rolle den automatischen Ruhezustand aus.
 
-**Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE und 7600i v1 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
+**Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 und 7600i v2 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
 
-<!-- panel:scan_quality src:c3afa46a -->
+<!-- panel:scan_quality src:0e35bd9a -->
 ### Film & Qualität
 
 *   **Film**: Farbnegativ, S/W-Negativ, Dia oder Kodachrome. Er bestimmt die Bilderkennung, die Messung und ob Infrarot angeboten wird.
 *   **Filmformat**: die Bildlänge (135, 66, 645 und andere). **Auto** funktioniert, wenn der Halter sie festlegt.
 *   **Auflösung** und **Bittiefe**: dpi und Bits pro Kanal des Scans.
-*   **Scanmodus** (Plustek): **Mehrfachdurchgang** mittelt mehrere Scans für weniger Rauschen. **Adaptive Mehrfachbelichtung** verbindet eine kurze und eine lange Belichtung für mehr Umfang. Plustek-Scanner bieten sie bei 7200 dpi nicht an.
+*   **Scanmodus** (Plustek): **Mehrfachdurchgang** mittelt mehrere Scans für weniger Rauschen. **Adaptive Mehrfachbelichtung** verbindet eine kurze und eine lange Belichtung für mehr Umfang, die lange wird für jedes Bild bestimmt. **Feste Mehrfachbelichtung** nutzt wie SilverFast bei jedem Bild die eine lange Belichtung des Scanners (8200i SE, 8100 V2 und 8300i SE). Der 7600i v2 bietet Adaptive Mehrfachbelichtung, aber keinen Mehrfachdurchgang.
 *   **Samples** (Coolscan): liest jede Zeile mehrfach, für weniger Rauschen in den Schatten. Langsamer.
 *   **Infrarot**: **IR** scannt einen Infrarotkanal für die Staubentfernung auf der Karte Retusche. **ICE** (Coolscan) entfernt den Staub stattdessen im Scanner. Ein Scanner ohne ICE zeigt nur einen **IR**-Schalter. Nicht für S/W oder Kodachrome.
 *   **Superfine** (Coolscan): scannt eine Zeile pro Durchgang. Langsamer.
