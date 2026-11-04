@@ -52,6 +52,10 @@ class SimDockSerial:
             f"entrance={int(self.frames > 0)} busy=0 expmode={self.expmode} shutter=JACK"
         )
 
+    def request_scan(self) -> None:
+        """The S button on firmware that reports it as a scan request."""
+        self._say("SCANREQ")
+
     def press_scan(self, hold_s: float = 0.0) -> None:
         """The S button in host mode: the dock holds its own exposure for `hold_s`, then reports it."""
         self.st = "EXPOSE"
