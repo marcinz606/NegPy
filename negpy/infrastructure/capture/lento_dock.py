@@ -349,6 +349,18 @@ class LentoDock:
         self._command("IDLE AUTO", r"^(IDLE=|ERR)")
         self._command("EXPMODE CONT", r"^(EXPMODE=|ERR)")
         self._continuous = True
+        self._set_buttons_to_jog()
+
+    def _set_buttons_to_jog(self) -> None:
+        """The arrow buttons nudge the film while NegPy holds the dock: NegPy moves whole frames
+        itself. Firmware that refuses BTNMODE keeps its buttons as they are."""
+        try:
+            mode = parse_kv(self._command("BTNMODE", r"^(BTNMODE=|ERR)")).get("BTNMODE", "")
+            if mode and mode != "JOG":
+                self._command("BTNMODE JOG", r"^(BTNMODE=|ERR)")
+                self._saved["BTNMODE"] = mode
+        except (TimeoutError, ValueError):
+            logger.info("Lento Dock keeps its button mode")
 
     def _restore(self) -> None:
         if not self._continuous:
@@ -359,6 +371,8 @@ class LentoDock:
         self._command(f"EXPMODE {'BRGB' if expmode == 'CONT' else expmode}", r"^(EXPMODE=|ERR)")
         mode = self._saved.get("MODE", "AUTO")
         self._command(f"MODE {'AUTO' if mode == 'SEMI' else mode}", r"^(MODE=|ERR)")
+        if self._saved.get("BTNMODE"):
+            self._command(f"BTNMODE {self._saved['BTNMODE']}", r"^(BTNMODE=|ERR)")
         self._continuous = self._light_on = False
 
     def _send(self, cmd: str) -> None:

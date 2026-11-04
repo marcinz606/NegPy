@@ -262,8 +262,9 @@ described above.
   itself: with a frame in the window it makes a short exposure of its own, and the film moves
   only after that ends. With a strip at the entrance, a tap lines the strip up first. A hold of
   S is left to the dock, which ejects the strip on firmware 1.0.238.
-- An arrow button nudges the film on a tap and moves it while you hold it. NegPy leaves the
-  dock's button mode (`BTNMODE`) as you set it.
+- While NegPy uses the dock, an arrow button nudges the film on a tap and moves it while you
+  hold it (`BTNMODE JOG`), because Next Frame and Whole Strip move whole frames. NegPy puts the
+  dock's own button mode back when it releases the dock.
 - When NegPy releases the dock, it puts back the dock's saved light mode and control mode.
 
 The dock's own pulsed light stays with Dock Connect.
