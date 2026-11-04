@@ -854,7 +854,8 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 *   **Search by Meaning**: find frames by description (§2).
 *   **Update Thumbnails Automatically**: renders out-of-date thumbnails again in the background, when a roll opens and after a change to many frames. Off (the default), the frames get an amber dot until you use **Update Thumbnails**.
 *   **Preview size**: the canvas resolution. Higher is sharper and uses more memory.
-*   **Preview cache**, **HQ buffers**, **Rendered frames** and **GPU texture cap**: how much memory NegPy uses. Lower them on a computer with little memory, or if exports run out of GPU memory.
+*   **Preview cache**, **Preview cache limit**, **HQ buffers** and **Rendered frames**: how much memory NegPy uses. Each row shows the recommendation for this computer. You can set a higher value, and the hint then turns amber.
+*   **GPU texture cap**: the largest image the GPU loads at once. At 0, an integrated GPU uses 6144 px and other GPUs have no limit. A value here replaces that limit. Lower it if exports run out of GPU memory.
 *   **Reduce Export Memory Use**: exports in smaller pieces, for a computer where exports run out of GPU memory.
 *   **Show GPU Memory Warning**: tells you when an HQ preview is reduced to fit.
 

@@ -11,11 +11,13 @@ from negpy.kernel.system.override import (
     INTEGRATED_GPU_TEXTURE_CAP_DEFAULT,
     PREVIEW_SIZE_MAX,
     PREVIEW_SIZE_MIN,
+    Machine,
     OverrideConfig,
     _parse,
     _platform_defaults,
     apply,
     apply_stored,
+    cache_entry_limit,
     effective_max_texture_size,
     load_or_create,
     toml_pinned_keys,
@@ -397,6 +399,32 @@ class TestApplyOverride(unittest.TestCase):
         app_config = _make_app_config(low_vram_export_tiling=False)
         apply(cfg, app_config)
         self.assertFalse(app_config.low_vram_export_tiling)
+
+
+_GIB = 1024**3
+
+
+class TestCacheEntryLimit(unittest.TestCase):
+    """Every Preferences recommendation derives from the Machine passed in; none reads the host."""
+
+    _KEYS = ("preview_cache_max_bytes", "preview_cache_max_full_res_entries", "preview_cache_max_entries", "render_memo_max_entries")
+
+    def _limits(self, machine):
+        return [cache_entry_limit(key, machine, 1024**2 if key == "preview_cache_max_bytes" else 1) for key in self._KEYS]
+
+    def test_old_pc_with_a_small_scan(self):
+        self.assertEqual(self._limits(Machine(4 * _GIB, 8_000_000, 1600)), [2048, 9, 69, 52])
+
+    def test_workstation_with_a_pixel_shift_frame(self):
+        self.assertEqual(self._limits(Machine(512 * _GIB, 400_000_000, 8192)), [262144, 24, 341, 256])
+
+    def test_ram_unknown_no_open_frame_and_other_keys_derive_nothing(self):
+        self.assertEqual(self._limits(Machine(None, 61_005_568, 1600)), [None] * 4)
+        self.assertIsNone(cache_entry_limit("preview_cache_max_full_res_entries", Machine(128 * _GIB, 0, 1600)))
+        self.assertIsNone(cache_entry_limit("preview_render_size", Machine(128 * _GIB, 61_005_568, 1600)))
+
+    def test_a_zero_preview_size_does_not_divide_by_zero(self):
+        self.assertGreater(cache_entry_limit("render_memo_max_entries", Machine(8 * _GIB, 0, 0)), 0)
 
 
 if __name__ == "__main__":
