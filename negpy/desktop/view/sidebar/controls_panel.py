@@ -1181,7 +1181,7 @@ class ControlsPanel(QWidget):
         cfg = self.controller.state.config
         new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in fields})
         self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
-        self.controller.sync_roll_card_locks(cards)
+        self.controller.sync_roll_card_locks(cards, cfg)
 
     def _reset_optics(self) -> None:
         self._reset_card_fields("lens")

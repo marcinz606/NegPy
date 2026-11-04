@@ -6819,17 +6819,17 @@ class AppController(QObject):
             for key in keys:
                 self.set_roll_card_locked(key, True)
 
-    def sync_metadata_card_locks(self) -> None:
+    def sync_metadata_card_locks(self, before: Optional[WorkspaceConfig] = None) -> None:
         """Re-reads every Metadata card's lock after a write that touched several at once.
         The Metadata panel commits its fields in one go rather than control by control, so
         no single edit knows which cards it moved."""
-        self.sync_roll_card_locks(self.METADATA_CARDS)
+        self.sync_roll_card_locks(self.METADATA_CARDS, before)
 
-    def sync_roll_card_locks(self, card_keys: Collection[str]) -> None:
+    def sync_roll_card_locks(self, card_keys: Collection[str], before: Optional[WorkspaceConfig] = None) -> None:
         """Locks each of *card_keys* where the active frame now differs from the roll, and
-        unlocks it where it matches again."""
+        unlocks it where it matches again. *before* is the config ahead of the write."""
         for card_key in card_keys:
-            self._lock_roll_card(card_key)
+            self._lock_roll_card(card_key, before)
 
     def roll_revert_cards(self, card_keys: Collection[str]) -> Set[str]:
         """Which of *card_keys* the active frame can reset to the roll: a Roll-tab card it has

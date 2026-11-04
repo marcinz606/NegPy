@@ -554,4 +554,4 @@ def test_a_roll_card_reset_settles_its_lock():
 
     ControlsPanel._reset_process_fields(panel, ("analysis_buffer",), ("process",))
 
-    panel.controller.sync_roll_card_locks.assert_called_once_with(("process",))
+    panel.controller.sync_roll_card_locks.assert_called_once_with(("process",), DEFAULT_WORKSPACE_CONFIG)

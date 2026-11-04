@@ -423,6 +423,7 @@ class MetadataSidebar(BaseSidebar):
         still following it -- the same scoped reset every Roll-tab card has."""
         _section, fields = ROLL_DEFAULT_FIELDS[card_key]
         default = MetadataConfig()
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -430,7 +431,7 @@ class MetadataSidebar(BaseSidebar):
             readback_metrics=False,
             **{f: getattr(default, f) for f in fields},
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self.sync_ui()
 
     def _sync_scope_buttons(self) -> None:
@@ -816,6 +817,7 @@ class MetadataSidebar(BaseSidebar):
         self._apply_metadata_config(new_meta, refresh_combos=False)
 
     def _apply_metadata_config(self, new_meta, *, refresh_combos: bool = True) -> None:
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -823,7 +825,7 @@ class MetadataSidebar(BaseSidebar):
             readback_metrics=False,
             **asdict(new_meta),
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         if refresh_combos:
             self._refresh_gear_combos(force=True)
         self.sync_ui()
@@ -884,6 +886,7 @@ class MetadataSidebar(BaseSidebar):
         )
 
     def _apply_location(self, lat, lon, city: str, state: str, country: str) -> None:
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -895,7 +898,7 @@ class MetadataSidebar(BaseSidebar):
             location_state=state,
             location_country=country,
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self._sync_scope_buttons()
         self._set_place_text_quiet()
         self._schedule_preview()
@@ -973,6 +976,7 @@ class MetadataSidebar(BaseSidebar):
         parsed_date = parse_capture_date(date_text)
         capture_date = parsed_date.xmp_text() if parsed_date else ("" if not date_text else self.state.config.metadata.capture_date)
 
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -996,7 +1000,7 @@ class MetadataSidebar(BaseSidebar):
             capture_frame=capture_frame,
             exposure_override=exposure_override,
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self._sync_scope_buttons()
 
     def sync_ui(self) -> None:
@@ -1070,6 +1074,7 @@ class MetadataSidebar(BaseSidebar):
         """Persist the field's current text as the exposure override on re-lock."""
         text = self.exposure_edit.text().strip()
         if text != self.state.config.metadata.exposure_override:
+            before = self.state.config
             self.update_config_section(
                 "metadata",
                 persist=True,
@@ -1077,7 +1082,7 @@ class MetadataSidebar(BaseSidebar):
                 readback_metrics=False,
                 exposure_override=text,
             )
-            self.controller.sync_metadata_card_locks()
+            self.controller.sync_metadata_card_locks(before)
             self._sync_scope_buttons()
 
     def _update_exif_display(self) -> None:

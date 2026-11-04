@@ -1465,6 +1465,25 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
 
+    def test_a_metadata_edit_back_on_a_roll_with_no_value_for_the_card_unlocks(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+
+        def write_city(city: str) -> None:
+            before = state.config
+            state.config = replace(before, metadata=replace(before.metadata, location_city=city))
+            self.controller.sync_metadata_card_locks(before)
+
+        original = state.config.metadata.location_city
+        write_city("Gdansk")
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"metadata_capture"})
+        write_city(original)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
     def test_an_undone_push_gives_the_lock_its_baseline_back(self):
         from negpy.services.assets import rolls
 
