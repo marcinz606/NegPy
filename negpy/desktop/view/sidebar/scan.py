@@ -319,7 +319,13 @@ class ScanSidebar(QWidget):
         self.dpi_combo.setToolTip(wrap_tooltip(tr("Scan resolution in dots per inch; type a value between the listed stops")))
         self.dpi_combo.setEditable(True)
         self.dpi_combo.setFixedHeight(default_button_height())
-        quality.addLayout(field_row(tr("Resolution"), self.dpi_combo))
+        # A device that scans only at its listed resolutions (ScannerCapabilities.dpi_fixed)
+        # gets a plain choice instead; one of the two shows.
+        self.dpi_choice = StepCombo.of([], tr("Scan resolution in dots per inch"))
+        dpi_row = field_row(tr("Resolution"), self.dpi_combo, self.dpi_choice)
+        dpi_row.setStretchFactor(self.dpi_choice, 1)
+        self.dpi_choice.setVisible(False)
+        quality.addLayout(dpi_row)
 
         self.depth_btn = StepCombo.of([], tr("Bits per channel in the scanned file"))
         self.depth_widget = self._row_widget(field_row(tr("Bit depth"), self.depth_btn))
@@ -477,6 +483,7 @@ class ScanSidebar(QWidget):
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.fmt_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(self._on_dpi_changed)
+        self.dpi_choice.currentIndexChanged.connect(self._on_dpi_changed)
         self.depth_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_btn.toggled.connect(self._on_ir_toggled)
         self.mode_btn.currentIndexChanged.connect(self._on_mode_changed)
@@ -658,6 +665,7 @@ class ScanSidebar(QWidget):
         if device is None:
             self.scan_btn.setEnabled(False)
             self.dpi_combo.setEnabled(False)
+            self.dpi_choice.setEnabled(False)
             self.depth_btn.setEnabled(False)
             self.depth_widget.setVisible(False)
             self.ir_btn.setVisible(False)
@@ -696,6 +704,7 @@ class ScanSidebar(QWidget):
 
         caps = device.capabilities
         self.dpi_combo.setEnabled(True)
+        self.dpi_choice.setEnabled(True)
         self.depth_btn.setEnabled(True)
         self.ir_btn.setEnabled(True)
         self.mode_btn.setEnabled(True)
@@ -716,6 +725,7 @@ class ScanSidebar(QWidget):
 
     def _populate_form(self, caps: ScannerCapabilities) -> None:
         self.dpi_combo.blockSignals(True)
+        self.dpi_choice.blockSignals(True)
         self.depth_btn.blockSignals(True)
         self.ir_btn.blockSignals(True)
         self.mode_btn.blockSignals(True)
@@ -724,19 +734,21 @@ class ScanSidebar(QWidget):
         self.frame_spec_edit.blockSignals(True)
 
         # DPI
-        self.dpi_combo.clear()
-        if caps.supported_dpi:
+        self.dpi_combo.setVisible(not caps.dpi_fixed)
+        self.dpi_choice.setVisible(caps.dpi_fixed)
+        for combo in (self.dpi_combo, self.dpi_choice):
+            combo.clear()
             for d in caps.supported_dpi:
-                self.dpi_combo.addItem(str(d), d)
-        if self._settings.dpi and caps.supported_dpi:
-            idx = self.dpi_combo.findData(self._settings.dpi)
-            if idx < 0:
-                # A saved resolution this device does not offer: show the nearest one it does,
-                # rather than a number the scan silently replaces.
-                nearest = min(caps.supported_dpi, key=lambda d: abs(d - self._settings.dpi))
-                idx = self.dpi_combo.findData(nearest)
-            if idx >= 0:
-                self.dpi_combo.setCurrentIndex(idx)
+                combo.addItem(str(d), d)
+            if self._settings.dpi and caps.supported_dpi:
+                idx = combo.findData(self._settings.dpi)
+                if idx < 0:
+                    # A saved resolution this device does not offer: show the nearest one it does,
+                    # rather than a number the scan silently replaces.
+                    nearest = min(caps.supported_dpi, key=lambda d: abs(d - self._settings.dpi))
+                    idx = combo.findData(nearest)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
         # The combo is editable because the stops are a ladder, not the device's limits. A
         # validator keeps a typo off the scan: unparsable text silently fell back to a default.
         editor = self.dpi_combo.lineEdit()
@@ -912,6 +924,7 @@ class ScanSidebar(QWidget):
             self.crop_label.setVisible(False)
 
         self.dpi_combo.blockSignals(False)
+        self.dpi_choice.blockSignals(False)
         self.depth_btn.blockSignals(False)
         self.ir_btn.blockSignals(False)
         self.mode_btn.blockSignals(False)
@@ -1312,6 +1325,8 @@ class ScanSidebar(QWidget):
         device = self._current_device()
         supported = device.capabilities.supported_dpi if device else ()
         fallback = max(supported) if supported else 3600
+        if device is not None and device.capabilities.dpi_fixed:
+            return int(self.dpi_choice.currentData() or fallback)
         try:
             return int(self.dpi_combo.currentText() or self.dpi_combo.currentData())
         except (ValueError, TypeError):

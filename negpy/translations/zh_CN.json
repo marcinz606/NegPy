@@ -2277,6 +2277,7 @@
   "Scan mode": "扫描模式",
   "Scan now with the current settings": "立即按当前设置扫描",
   "Scan place": "扫描地点",
+  "Scan resolution in dots per inch": "扫描分辨率，以 DPI 表示",
   "Scan resolution in dots per inch; type a value between the listed stops": "扫描分辨率，以 DPI 表示，可输入列表档位之间的数值",
   "Scan stopped": "扫描已停止",
   "Scan straight into NegPy, from a film scanner (Coolscan, Plustek or SANE) or a camera on a copy stand with a Scanlight. The frames open as a roll while they scan.": "从胶片扫描仪（Coolscan、Plustek 或 SANE）或配合 Scanlight 的翻拍相机直接扫描到 NegPy。扫描时各帧会作为胶卷打开。",

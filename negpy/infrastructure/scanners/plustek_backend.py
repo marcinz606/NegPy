@@ -52,6 +52,7 @@ def _caps_for(model: Any) -> ScannerCapabilities:
     return ScannerCapabilities(
         ir_channel=model.supports_infrared,
         supported_dpi=tuple(sorted(model.resolutions_dpi)),
+        dpi_fixed=True,
         supported_depths=model.bpp_color,
         sources=(ScanMode.TRANSPARENCY,),
         max_area_mm=model.max_area_mm,

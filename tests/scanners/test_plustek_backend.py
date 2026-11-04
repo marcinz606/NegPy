@@ -471,6 +471,7 @@ def test_gl128_caps_offer_fixed_me(monkeypatch, model_name):
     caps = PlustekBackend().list_devices()[0].capabilities
     assert caps.multi_exposure_fixed is True
     assert caps.fixed_multi_exposure_at(1800)
+    assert caps.dpi_fixed is True
 
 
 def test_7600i_v2_is_scan_ready_with_ir_and_adaptive_me(monkeypatch):
@@ -496,6 +497,7 @@ def test_7600i_v2_is_scan_ready_with_ir_and_adaptive_me(monkeypatch):
     assert caps.max_n_passes == 1
     assert caps.prescan is False
     assert set(caps.supported_dpi) == {900, 1800, 3600, 7200}
+    assert caps.dpi_fixed is True
     assert caps.multi_exposure_at(3600)
 
 

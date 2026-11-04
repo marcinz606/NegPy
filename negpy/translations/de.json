@@ -2277,6 +2277,7 @@
   "Scan mode": "Scan-Modus",
   "Scan now with the current settings": "Jetzt mit den aktuellen Einstellungen scannen",
   "Scan place": "Scan-Ort",
+  "Scan resolution in dots per inch": "Scan-Auflösung in Punkten pro Zoll",
   "Scan resolution in dots per inch; type a value between the listed stops": "Scan-Auflösung in Punkten pro Zoll. Gib einen Wert zwischen den aufgelisteten Stufen ein",
   "Scan stopped": "Scan gestoppt",
   "Scan straight into NegPy, from a film scanner (Coolscan, Plustek or SANE) or a camera on a copy stand with a Scanlight. The frames open as a roll while they scan.": "Direkt in NegPy scannen, von einem Filmscanner (Coolscan, Plustek oder SANE) oder von einer Kamera auf einem Reprostativ mit einem Scanlight. Die Bilder öffnen sich während des Scannens als Rolle.",

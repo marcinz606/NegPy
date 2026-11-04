@@ -77,6 +77,7 @@ MINIMAL_DEVICE = ScannerDevice(id="plustek:libusb:001:008", vendor="Plustek", mo
 SE_CAPS = ScannerCapabilities(
     ir_channel=True,
     supported_dpi=(1200, 1800, 3600),
+    dpi_fixed=True,
     supported_depths=(16,),
     sources=(ScanMode.TRANSPARENCY,),
     max_area_mm=(36.33, 25.0),
@@ -324,7 +325,8 @@ SE_7200_DEVICE = replace(
 
 
 def _pick_dpi(sidebar, dpi: int) -> None:
-    sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(dpi))
+    combo = sidebar.dpi_choice if sidebar._current_device().capabilities.dpi_fixed else sidebar.dpi_combo
+    combo.setCurrentIndex(combo.findData(dpi))
 
 
 def test_7200_dpi_disables_multi_modes_and_restores_them_below() -> None:
@@ -369,6 +371,7 @@ def test_ir_at_7200_keeps_stacking_off_when_returning_below() -> None:
 V2_CAPS = ScannerCapabilities(
     ir_channel=True,
     supported_dpi=(900, 1800, 3600, 7200),
+    dpi_fixed=True,
     supported_depths=(16,),
     sources=(ScanMode.TRANSPARENCY,),
     max_area_mm=(36.33, 25.0),
@@ -1292,6 +1295,34 @@ def test_a_typed_dpi_counts_without_enter() -> None:
     sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(2400))
     sidebar.dpi_combo.lineEdit().setText("1800")
     assert sidebar._dpi() == 1800
+
+
+def test_a_device_with_fixed_resolutions_offers_a_choice_with_no_typing() -> None:
+    sidebar, controller = _sidebar(SE_DEVICE, settings={"backend": "plustek", "dpi": 1800})
+    assert sidebar.dpi_choice.isVisibleTo(sidebar) is True
+    assert sidebar.dpi_combo.isVisibleTo(sidebar) is False
+    assert sidebar.dpi_choice.isEditable() is False
+    assert [sidebar.dpi_choice.itemData(i) for i in range(sidebar.dpi_choice.count())] == [1200, 1800, 3600]
+    assert sidebar._dpi() == 1800
+    _pick_dpi(sidebar, 3600)
+    assert sidebar._dpi() == 3600
+    assert sidebar.settings.dpi == 3600
+    sidebar.output.folder_edit.setText(_OUT)
+    sidebar._on_scan()
+    _kind, req = controller.started[0]
+    assert req.params.dpi == 3600
+
+
+def test_a_saved_dpi_off_a_fixed_list_shows_the_nearest_listed_one() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "dpi": 2000})
+    assert sidebar._dpi() == 1800
+
+
+def test_a_device_with_a_resolution_range_keeps_the_typed_box() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.dpi_combo.isVisibleTo(sidebar) is True
+    assert sidebar.dpi_choice.isVisibleTo(sidebar) is False
+    assert sidebar.dpi_combo.isEditable() is True
 
 
 def test_a_pass_the_device_cannot_run_is_not_shown_at_all() -> None:

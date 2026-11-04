@@ -2277,6 +2277,7 @@
   "Scan mode": "スキャンモード",
   "Scan now with the current settings": "現在の設定で今すぐスキャンします",
   "Scan place": "スキャン場所",
+  "Scan resolution in dots per inch": "スキャン解像度 (ドット/インチ)",
   "Scan resolution in dots per inch; type a value between the listed stops": "スキャン解像度 (ドット/インチ)。一覧の値の間の値も入力できます",
   "Scan stopped": "スキャンが停止しました",
   "Scan straight into NegPy, from a film scanner (Coolscan, Plustek or SANE) or a camera on a copy stand with a Scanlight. The frames open as a roll while they scan.": "フィルムスキャナー（Coolscan、Plustek、SANE）や、Scanlight を使うコピースタンドのカメラから、NegPy に直接スキャンします。フレームはスキャン中にロールとして開きます。",

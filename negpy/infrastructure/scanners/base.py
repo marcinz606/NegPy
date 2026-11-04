@@ -43,6 +43,9 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
+    #: The device scans only at `supported_dpi`; without it the list is a ladder over a range
+    #: and a typed value in between is valid.
+    dpi_fixed: bool = False
     auto_exposure: bool = False
     autofocus: bool = False
     #: Low-DPI full-window preview then interactive crop (Plustek SE).
