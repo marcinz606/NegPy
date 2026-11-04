@@ -256,6 +256,7 @@ def test_the_light_holds_again_after_an_eject(sim):
 
 
 def test_the_s_button_calls_the_scan_handler(sim):
+    sim.answers_btn = False  # firmware that reports S only through its own exposure
     pressed = []
     with LentoDock(serial_obj=sim) as dock:
         dock.on_scan_button = lambda: pressed.append(1)
@@ -313,6 +314,7 @@ def test_frameat_err_is_the_end_of_the_strip(sim):
 
 
 def test_a_scan_request_is_the_s_button_and_counts_once(sim):
+    sim.answers_btn = False  # firmware that reports S only through its own exposure
     pressed = []
     with LentoDock(serial_obj=sim) as dock:
         dock.on_scan_button = lambda: pressed.append(1)
@@ -341,3 +343,37 @@ def test_a_strip_the_dock_aligns_itself_is_not_fed_again(monkeypatch):
         threading.Timer(0.3, aligned).start()
         assert not dock.strip_waiting()
     assert "INSERT" not in sim.lines
+
+
+def _wait_for(cond, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+
+def test_a_tap_of_s_read_through_btn_works_as_scan(sim):
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        dock.set_color(200, 110, 40)  # NegPy holds the dock: the buttons are read
+        _wait_for(lambda: "BTN?" in sim.lines)
+        sim.shutter = 1
+        time.sleep(0.3)
+        assert pressed == []  # a press counts on release, so a hold can stay the dock's own
+        sim.shutter = 0
+        _wait_for(lambda: pressed)
+    assert pressed == [1]
+
+
+def test_a_held_s_is_left_to_the_dock(sim, monkeypatch):
+    monkeypatch.setattr(lento_dock, "SCAN_BUTTON_HOLD_S", 0.3)
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        dock.set_color(200, 110, 40)
+        _wait_for(lambda: "BTN?" in sim.lines)
+        sim.shutter = 1
+        time.sleep(0.5)
+        sim.shutter = 0
+        time.sleep(0.3)
+    assert pressed == []

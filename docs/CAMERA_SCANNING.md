@@ -203,11 +203,13 @@ described above.
   on their own. With **Next Frame** or **Whole Strip**, Scan feeds a strip that still waits at
   the entrance (`INSERT`), such as one that was in the dock when NegPy opened its port, because
   opening the port resets the dock.
-- While NegPy uses the dock, the dock's S button works as Scan: it starts a scan, or stops one.
-  S acts only while a frame is in the window: with no strip aligned, the dock looks for the next
-  frame instead. The scan starts at the press. The dock also makes a short exposure of its own,
-  and the film moves only after it ends. An arrow button nudges the film on a tap and moves it while you hold it. NegPy
-  leaves the dock's button mode (`BTNMODE`) as you set it.
+- While NegPy uses the dock, a tap of the dock's S button works as Scan: it starts a scan, or
+  stops one. NegPy reads the button (`BTN?`) and acts when you let go. The dock also acts on S
+  itself: with a frame in the window it makes a short exposure of its own, and the film moves
+  only after that ends. With a strip at the entrance, a tap lines the strip up first. A hold of
+  S is left to the dock, which ejects the strip on firmware 1.0.238.
+- An arrow button nudges the film on a tap and moves it while you hold it. NegPy leaves the
+  dock's button mode (`BTNMODE`) as you set it.
 - When NegPy releases the dock, it puts back the dock's saved light mode and control mode.
 
 The dock's own pulsed light stays with Dock Connect.
