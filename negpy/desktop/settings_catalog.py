@@ -12,16 +12,17 @@ from __future__ import annotations
 
 from negpy.kernel.system.i18n import mark, tr
 
+import hashlib
 from dataclasses import fields as dataclass_fields, replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.papers import PAPER_PROFILES
+from negpy.features.exposure.papers import PAPER_PROFILES, effective_paper_profile
 from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
-from negpy.features.process.models import SOURCE_ENCODING_LABELS, SourceEncoding, invalidate_local_bounds, with_film_fields
+from negpy.features.process.models import SOURCE_ENCODING_LABELS, ProcessMode, SourceEncoding, invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
 from negpy.services.assets.rolls import DECODE_WHITE_FIELDS, card_fields
@@ -409,6 +410,22 @@ BOUNDS_INPUT_FIELDS = frozenset(
 )
 
 
+# Fields a frame's own measurement reads: the average flags pick a measurement, they feed none.
+_METER_INPUTS = tuple(sorted(BOUNDS_INPUT_FIELDS - {"use_luma_average", "use_color_average"} | {"analysis_rect"}))
+
+
+def meter_inputs_key(config: WorkspaceConfig) -> str:
+    """A fingerprint of what metering a frame reads. A roll average records one per frame, so
+    a change to a crop or a Metering setting shows which frames it must measure again."""
+    values = [
+        (name, getattr(getattr(config, section), name))
+        for name in _METER_INPUTS
+        for section in ("process", "geometry")
+        if hasattr(getattr(config, section), name)
+    ]
+    return hashlib.sha1(repr(values).encode()).hexdigest()[:16]
+
+
 def all_rows() -> list[SettingRow]:
     return [r for _title, rows in CATALOG for r in rows]
 
@@ -608,10 +625,23 @@ DEFAULT_STICKY_IDS: frozenset[str] = frozenset(r.id for r in all_rows() if r.sti
 GLOBAL_TIER_SECTIONS: frozenset[str] = frozenset({"export", "metadata"})
 
 
+# Color controls a B&W frame hides; the render has no color for them to act on.
+_BW_UNUSED_LAB_FIELDS = frozenset({"saturation", "skin_protection", "chroma_denoise"})
+
+
+def unused_in_mode(section: str, field: str, cfg: WorkspaceConfig) -> bool:
+    """Whether the frame's Film Mode ignores *field*, so its stored value is no edit. A sticky
+    value from a color roll keeps its stored value on a B&W frame."""
+    mode = cfg.process.process_mode
+    if section == "exposure" and field == "paper_profile":
+        return effective_paper_profile(cfg.exposure.paper_profile, mode).kind == "default"
+    return section == "lab" and field in _BW_UNUSED_LAB_FIELDS and mode == ProcessMode.BW
+
+
 def _row_edited(row: SettingRow, cfg: WorkspaceConfig) -> bool:
     src = getattr(cfg, row.section)
     dfl = getattr(_DEFAULT, row.section)
-    return any(getattr(src, f) != getattr(dfl, f) for f in row.fields)
+    return any(getattr(src, f) != getattr(dfl, f) and not unused_in_mode(row.section, f, cfg) for f in row.fields)
 
 
 def catalog_sections(cfg: WorkspaceConfig) -> list[tuple[str, list[tuple[SettingRow, str, bool]]]]:

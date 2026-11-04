@@ -894,7 +894,7 @@ def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
 
 def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
     menu = browser.roll_menu_btn.menu()
-    action = next(a for a in menu.actions() if a.text() == "Reset Roll to Defaults…")
+    action = next(a for a in menu.actions() if a.text() == "Reset Frames to Defaults…")
     with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=True) as confirm:
         action.trigger()
     confirm.assert_called_once_with(browser, 4, roll=True)  # the session fixture's 4 uploaded_files
@@ -1419,7 +1419,7 @@ def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(brow
 def test_context_menu_reanalyze_follows_the_selection(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Reanalyze Frame" in _action_labels(browser.build_frame_menu())
+    assert "Measure Alone" in _action_labels(browser.build_frame_menu())
 
     session.state.selected_indices = [0, 2]
-    assert "Reanalyze 2 Frames" in _action_labels(browser.build_frame_menu())
+    assert "Measure 2 Frames Alone" in _action_labels(browser.build_frame_menu())

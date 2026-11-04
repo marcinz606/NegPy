@@ -196,3 +196,25 @@ def test_a_crop_lights_the_crop_card_alone(qapp):
     controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
     panel._sync_modified_dots()
     assert (panel.autocrop_section.modified_count, panel.geometry_section.modified_count) == (1, 0)
+
+
+def test_a_color_stock_and_chroma_on_a_bw_frame_are_no_edit(qapp):
+    """A sticky color stock and Chroma from a color roll stay stored on a B&W frame, which
+    hides both and renders neither."""
+    controller, panel = _panel()
+    cfg = controller.state.config
+    color = replace(cfg, exposure=replace(cfg.exposure, paper_profile="frontier"), lab=replace(cfg.lab, saturation=1.3))
+    controller.state.config = color
+    panel._sync_modified_dots()
+    assert panel.paper_section.modified_count == 1
+    assert panel.lab_section.modified_count == 1
+
+    controller.state.config = replace(color, process=replace(color.process, process_mode=ProcessMode.BW))
+    panel._sync_modified_dots()
+    assert panel.paper_section.modified_count == 0
+    assert panel.lab_section.modified_count == 0
+
+    bw_paper = replace(controller.state.config, exposure=replace(color.exposure, paper_profile="ilford_mg_rc"))
+    controller.state.config = bw_paper
+    panel._sync_modified_dots()
+    assert panel.paper_section.modified_count == 1

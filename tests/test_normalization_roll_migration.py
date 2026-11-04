@@ -47,6 +47,7 @@ def test_migration_copies_each_row_onto_its_matching_roll(legacy_repo):
         "axis": None,
         "outliers": (),
         "frames": None,
+        "inputs": None,
     }
     assert rolls.baseline_stale(rolls.roll_for_id(legacy_repo, _roll_id(legacy_repo, "Tri-X"))["normalization"])
 

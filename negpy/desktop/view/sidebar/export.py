@@ -104,7 +104,6 @@ class ExportSidebar(BaseSidebar):
         # Pinned under every sub-tab, so the action never moves with the form above it.
         self._add_export_section()
         self._sync_flat_enabled()
-        self._sync_proof_mark()
 
         self._rebuild_preset_rows()
         self._refresh_export_enabled()
@@ -962,11 +961,6 @@ class ExportSidebar(BaseSidebar):
             w.setEnabled(st.soft_proof_enabled)
         self._select_matching_preset()
         self._refresh_proof_mismatch_warning()
-        self._sync_proof_mark()
-
-    def _sync_proof_mark(self) -> None:
-        if hasattr(self, "tabs"):
-            self.tabs.button("proof").set_marked(self.state.soft_proof_enabled)
 
     def _on_proof_profile_changed(self) -> None:
         self.controller.set_proof_field("proof_icc_path", self.proof_profile_combo.currentData())

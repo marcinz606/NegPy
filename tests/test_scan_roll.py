@@ -20,6 +20,8 @@ def _controller(as_roll=False, capture_req=None):
     c._discover_scanned = MethodType(AppController._discover_scanned, c)
     c._save_rgb_scan_mode = MethodType(AppController._save_rgb_scan_mode, c)
     c._set_roll_sensor_profile = MethodType(AppController._set_roll_sensor_profile, c)
+    c._set_roll_cards = MethodType(AppController._set_roll_cards, c)
+    c._card_values = AppController._card_values
     c._RGB_SCAN_MODE_BY_ROLL_KEY = AppController._RGB_SCAN_MODE_BY_ROLL_KEY
     c._store = store
     return c

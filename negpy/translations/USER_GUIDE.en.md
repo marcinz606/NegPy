@@ -59,21 +59,21 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 On a slider, click the value to type a number, drag the name to adjust (**Shift** for fine steps), and double-click to reset. A chevron hides fine-tune controls; a dot on a closed fold, a card or a tab marks a changed value. On a dropdown, **‹** and **›** step through the choices. Each card has a reset arrow and an **ⓘ** that opens its part of this guide.
 
-A tab with several cards has a bar such as **3 of 5 cards edited**, with reset, **Reset to Roll**, **Apply** (to the selection or the roll) and collapse for the whole tab.
+A tab with several cards has a bar such as **3 of 5 cards edited**, with reset, **Reset to Roll**, **Apply** and collapse for the whole tab. On the Roll and Metadata tabs, **Apply** gives the roll every card this frame changed. On a Frame tab, it copies the tab to other frames.
 
 ### Frame or roll
 
-Each card header has **Frame** (amber) and **Roll** (red). The lit one shows where the card's values live.
+Each card on the **Roll** and **Metadata** tabs has **Frame** (amber) and **Roll** (red). The lit one shows where the card's values live.
 
-*   On a **Roll** tab or **Metadata** card, the card follows the roll until you edit it on this frame. **Roll** pushes this frame's values to the roll; **Frame** keeps them on this frame only.
-*   On a **Frame** card, **Roll** copies your changes to the selection or the whole roll.
+*   The card follows the roll until you edit it on this frame. **Roll** gives the roll this frame's values; **Frame** keeps them on this frame only.
 *   **Reset to Roll** puts the roll's values back on the card.
+*   A card on a **Frame** tab holds this frame's own values. Its copy button, **Apply to Frames**, copies them once to the selection or the whole roll.
 
-Right-click a card header for **Copy Card Settings** and **Undo Apply to Roll**. Frames that are not one roll show only **Frame** until you save them as a roll.
+Right-click a card header for **Copy Card Settings** and **Undo Change to Several Frames**. After an Apply, Paste, Reset or Roll push to several frames, the message strip above the picture also offers **Undo**, which puts every frame back at once. It works until your next edit. Frames that are not one roll show only **Frame** until you save them as a roll.
 
 ### What carries to the next frame
 
-A new frame gets the roll's film type, and the crop, print stock and Lab settings of the frame before it. The look (brightness, color, dodge and burn, toning) starts clean. **Preferences → Session & Storage → Persistent Settings…** sets what carries.
+A new frame gets the roll's film type, and the crop, print stock and Lab settings of the last frame you edited. The look (brightness, color, dodge and burn, toning) starts clean. **Preferences → Session & Storage → Persistent Settings…** sets what carries.
 
 **Reset Settings** returns a frame to the defaults. It does not change the scanning choices on the **Setup** card.
 
@@ -81,7 +81,7 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 
 *   **Before / After** (`\`, or the **Print** menu): splits the canvas between the default conversion and your edit. Hold `\` to see the default alone. To compare with an earlier version, right-click it in **History**.
 *   **Peeks**: hold `N` for the scan as loaded (the negative), `M` for the flat master, and `P` for the camera's own JPEG. The **Print** menu has them too.
-*   **Roll Average** (`U`, or the **Print** menu): prints this frame on the average and changes nothing. The bar has **Luma**, **Color** and **Cast**; right-click one to turn them all on or off. On a frame in a scene, **Scene** and **Roll** choose which average. **Apply** saves them to the frame.
+*   **Roll Average** (`U`, or the **Print** menu): prints this frame on the average and changes nothing. The bar has **Luma**, **Color** and **Cast**; right-click one to turn them all on or off. The averages the frame has now show after **Applied**. On a frame in a scene, **Scene** and **Roll** choose which average. **Apply** saves them to the frame. The view stays open when you go to the next frame.
 *   **Roll Average** button (filmstrip icon on the toolbar): opens the **Roll Average** bar. It is lit while the frame uses an average. Right-click turns every average on or off at once, as one edit. An amber icon marks a frame far from the roll color.
 *   **Export Size** (**Print** menu): shows the frame as it exports, at the size the **Export** panel sets, at 100%. Use it to judge sharpening and grain. It updates a moment after each edit.
 *   **Grain Focuser** (`Shift+L`, **Overlays** menu): a magnifier at the pointer that shows the exported pixels at their true size, with a sharpness number.
@@ -138,9 +138,9 @@ The toolbar's **Roll** row holds:
 *   **Sheet filter**: all frames, keepers only, hide rejected, or unmarked only. The button is highlighted while a filter hides frames.
 *   **Roll Settings** (the tag): gear and film details for this frame, the selection or the roll.
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
-*   **⋮**: **Add Files…**, **Add Folder…**, **Save to Folder Roll**, **Save as Virtual Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files that a scanner saves in the newest frame's folder), **Unload…**, **Unload All…** (empties the Film Strip; the roll stays in the Library), **Reset Roll to Defaults…**, **Restore Removed Frames…** and **Film Strip Guide…**.
+*   **⋮**: **Add Files…**, **Add Folder…**, **Save to Folder Roll**, **Save as Virtual Roll…**, **Update Thumbnails**, **Hot Folder** (loads new files that a scanner saves in the newest frame's folder), **Unload…**, **Unload All…** (empties the Film Strip; the roll stays in the Library), **Reset Frames to Defaults…**, **Restore Removed Frames…** and **Film Strip Guide…**.
 
-The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back.
+The grid button opens the **Light Table** (`Shift+G`): the whole roll in rows, for sorting. A click selects a frame, and a double-click or `Enter` opens it. The toolbar acts on the selected frames: **Keep**, **Reject**, rotate and flip, **Auto Crop** and **Export**, and ⋯ holds the rest of the right-click menu. Its **Frames per Row** slider, `+` and `-`, or `Ctrl` with the wheel change the frame size. `Esc` goes back, and so does a canvas tool or peek.
 
 #### Filtering
 
@@ -162,7 +162,7 @@ Terms combine: `film:portra iso:>=400 -rejected:`. Metadata terms match only fra
 
 Right-click a frame, or use the shortcuts, to **Keep** it (a check) or **Reject** it (a cross; the frame dims and batch exports skip it). Your files never change.
 
-A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
+A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it; hover it to see which cards. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
 
 The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.5](#105-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
 
@@ -221,7 +221,7 @@ The **Readouts** fold holds numbers about the scan. An amber value is a warning;
 
 ## 4. Geometry tab
 
-Two cards: **Crop** sets the part of the picture you keep, and **Straighten** turns and levels it. Both hold this frame's own values. Their **Roll** button copies them to the selection or the whole roll ([§1](#frame-or-roll)).
+Two cards: **Crop** sets the part of the picture you keep, and **Straighten** turns and levels it. Both hold this frame's own values. Their **Apply to Frames** button copies them to the selection or the whole roll ([§1](#frame-or-roll)).
 
 <!-- panel:autocrop -->
 ### 4.1 Crop
@@ -434,7 +434,7 @@ Your most-used sliders in one place. It is empty until you fill it: click **Edit
 
 Saved settings you can apply to other frames.
 
-*   **Apply** (or double-click a preset): applies the selected preset to this frame.
+*   **Apply** (or double-click a preset): applies the selected preset to this frame, the selected frames or the whole roll.
 *   **Save…**: choose which of the current settings to keep as a new preset. A preset can hold the Crop and Optics settings with the Flat Field profile, but never one frame's crop, rotation or flips.
 *   **Pen** and **Trash**: edit or delete the selected preset.
 
@@ -540,14 +540,14 @@ Gives a faded slide its dye layers back.
 
 To turn a negative into a positive, NegPy measures its darkest and brightest parts (the black and white points) and the color of the film. These controls set what it measures.
 
-*   **Reanalyze Frame**: measures this frame, or each selected frame, again from its current crop. The frame then uses its own bounds, not the roll or scene baseline.
+*   **Measure Alone**: takes this frame, or each selected frame, off the roll or scene average and measures it on its own, from its current crop.
 *   **Draw Region**: draw an area, and NegPy measures only that area. Double-click inside or press `Enter` to confirm, and `Esc` puts back the region you had before. **×** clears it.
 *   **Analysis Buffer**: ignores a border around the frame when measuring, so film edges and holders do not count.
 *   **Clipping**: how much of the print is pure black or pure white.
 *   **Lock Bounds**: keeps this frame's black and white points, even when the crop or Roll Analysis changes.
 *   **Luma Range Clip** (fold): how tightly black and white are set. Positive gives more contrast, for dense or foggy negatives. Negative keeps more shadow and highlight detail.
 *   **Color Clip** (fold): how tightly the color balance is set.
-*   **Dmin** / **Dmax** (Pick by Hand fold): for a frame that NegPy measures badly. Click **Dmin**, then the film base or the deepest shadow, to set the black point. Click **Dmax**, then the brightest highlight, to set the white point. Each **×** clears its own point.
+*   **Dmin** / **Dmax** (Pick by Hand fold): for a frame that NegPy measures badly. Click **Dmin**, then the film base or the deepest shadow, to set the black point. Click **Dmax**, then the brightest highlight, to set the white point. Each **×** clears its own point. Both are off while the frame prints on the roll average.
 *   **White Point** / **Black Point** (fold): move the measured white and black points. A positive white point brightens the print; a positive black point lifts the blacks. **R / G / B** moves one color only.
 
 A **slide** needs no inversion: the tone controls shape the picture directly. Auto Density and Auto Grade start off; turn them on for a faded slide. In Lightroom terms, Exposure is Print Density (lower is brighter), Contrast is ISO-R Grade, and Shadows and Highlights are Shadows and Highlights Density.
@@ -555,10 +555,10 @@ A **slide** needs no inversion: the tone controls shape the picture directly. Au
 <!-- panel:baseline -->
 ### 10.6 Roll Analysis
 
-Measures the whole roll once and shares the result, so the frames of one film print alike. NegPy measures the roll and each scene on its own, as frames arrive, but no frame uses a baseline until you turn on an average. With no roll open, the card is grayed out: open or save a roll first.
+Measures the whole roll once and shares the result, so the frames of one film print alike. NegPy measures the roll and each scene as frames arrive, and again after a crop or Metering change. No frame uses a baseline until you turn on an average. With no roll open, the card is grayed out: open or save a roll first.
 
-*   **Reanalyze**: measures every loaded frame (except scene and locked frames) saves the average as the roll's baseline and turns the averages on for those frames. Frames very different from the rest keep their own. It first crops the frames that wait for Auto Crop.
-*   **Use This Frame**: makes this frame's measurement the roll's baseline.
+*   **Reanalyze**: measures every visible frame outside a scene, saves the average as the roll's baseline and turns the averages on for the roll and its new frames. Frames far from the rest keep their own.
+*   **Use This Frame**: makes this frame's own measurement the roll's baseline; Cast turns off.
 *   **Use Average**: right-click any of the three to turn every average on or off. **Luma** uses the roll's black and white points, **Color** the roll's color balance, and **Cast** (color negatives) the roll's gray balance for Cast Removal. With Cast on, a frame shot under a different light keeps some of that light, as on a Frontier print. A magenta cast stays, a warm or green cast stays in part, and a blue cast goes. With Luma and Color on, the roll prints evenly; with both off, each frame is measured on its own.
 *   **Baseline**: says where the baseline came from (roll, scene or frame). It warns when there is none, when it is out of date, or when this frame's color is far from the average.
 *   **Rolls**: pick another roll's saved baseline. A ticked roll has one.
@@ -726,7 +726,7 @@ Sheets are saved as `contact_sheet.jpg` (`contact_sheet_1of2.jpg` and on for a l
 
 The **Proof** tab shows on screen how the picture will look when printed on a given printer and paper. It changes the preview only, never the export. Paper cannot show colors as bright as a screen, so a correct proof looks duller.
 
-*   **Proof on Screen** (`Shift+P`): turns the proof on or off.
+*   **Proof on Screen** (`Shift+P`): turns the proof on or off. While it is on, the frame info above the photo shows **Proof** and the profile.
 *   **Preset**: a saved printer and paper setup.
 *   **Profile**: the printer or paper profile. It follows the export profile until you pick one.
 *   **Intent**: **Relative Colorimetric** keeps printable colors exact and clips the rest. **Perceptual** compresses all colors, which suits very colorful pictures. **Saturation** is for charts and graphics.
