@@ -5,7 +5,7 @@ from negpy.desktop.session import DesktopSessionManager
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
-@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임")])
+@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임"), ("vi", "khung hình")])
 @pytest.mark.parametrize("count", [1, 2])
 def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: str, count: int) -> None:
     from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog

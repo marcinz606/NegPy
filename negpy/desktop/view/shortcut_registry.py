@@ -168,7 +168,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "preflash_dec": ShortcutEntry("", tr("Preflash down"), tr("Exposure")),
     "preflash_inc": ShortcutEntry("", tr("Preflash up"), tr("Exposure")),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", tr("Toggle Lock Bounds"), tr("Process")),
-    "reanalyze_frame": ShortcutEntry("", tr("Reanalyze the frame or the selection"), tr("Process")),
+    "reanalyze_frame": ShortcutEntry("", tr("Measure the frame or the selection alone, off the roll average"), tr("Process")),
     "cast_average_toggle": ShortcutEntry("", tr("Toggle cast average"), tr("Process")),
     "fade_white_anchor_toggle": ShortcutEntry("", tr("Toggle Remove Stain (Fade Restoration)"), tr("Process")),
     "metadata_preset_load": ShortcutEntry("", tr("Apply the selected metadata preset to this frame"), tr("Actions")),
@@ -318,7 +318,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "copy_with_bounds": ShortcutEntry("Ctrl+Shift+C", tr("Copy settings (with bounds)"), tr("Actions")),
     "paste": ShortcutEntry("Ctrl+V", tr("Paste settings"), tr("Actions")),
     "sync_bounds": ShortcutEntry("", tr("Sync bounds to other frames…"), tr("Actions")),
-    "reset_roll": ShortcutEntry("", tr("Reset roll to defaults"), tr("Actions")),
+    "reset_roll": ShortcutEntry("", tr("Reset every visible frame to defaults"), tr("Actions")),
     # A stored id: saved key bindings name it, so it keeps its name.
     "close_roll": ShortcutEntry("", tr("Unload every frame from the Film Strip"), tr("Actions")),
     "remove_from_roll": ShortcutEntry("", tr("Remove the selected frames from the roll…"), tr("Actions")),
@@ -326,7 +326,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "reset_tab": ShortcutEntry("", tr("Reset this tab to defaults"), tr("Actions")),
     "reset_tab_to_roll": ShortcutEntry("", tr("Reset this tab to the roll's settings"), tr("Actions")),
     "reset_to_roll": ShortcutEntry("", tr("Reset this frame to the roll's settings"), tr("Actions")),
-    "undo_roll_push": ShortcutEntry("", tr("Undo Apply to Roll"), tr("Actions")),
+    # A stored id: it undoes every change to several frames now, not only a Roll push.
+    "undo_roll_push": ShortcutEntry("", tr("Undo the last change to several frames"), tr("Actions")),
     "load_sidecar": ShortcutEntry("", tr("Load this frame's edit from a sidecar…"), tr("Actions")),
     "show_in_folder": ShortcutEntry("", tr("Show the frame's file in its folder"), tr("Actions")),
     "move_to_trash": ShortcutEntry("", tr("Move the selected frames' files to the Trash…"), tr("Actions")),

@@ -41,8 +41,7 @@ from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
 from negpy.desktop.view.widgets.tab_header import TabHeader
-from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_sequential_frame_dialog
-from negpy.desktop.settings_catalog import rows_for_fields
+from negpy.desktop.view.widgets.granular_settings_dialog import open_sequential_frame_dialog
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_catalog_dialog import resolve_other_gear_pick
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
@@ -327,7 +326,7 @@ class MetadataSidebar(BaseSidebar):
         pages = []
         for key, title in (("shot", tr("Shot")), ("process", tr("Process"))):
             sections = self._tab_sections[key]
-            header = TabHeader(title)
+            header = TabHeader(title, linked=True)
             header.bind(sections)
             card_keys = [k for k, section in self._scope_sections() if section in sections]
             header.apply_requested.connect(lambda keys=card_keys: self._apply_cards(keys))
@@ -412,9 +411,8 @@ class MetadataSidebar(BaseSidebar):
         )
 
     def _apply_cards(self, card_keys) -> None:
-        """A tab's metadata cards in one picker, the tab-wide twin of a card's Roll button."""
-        fields = tuple(f for key in card_keys for f in ROLL_DEFAULT_FIELDS[key][1])
-        open_apply_dialog(self, self.controller.session, rows=rows_for_fields(fields))
+        """Gives the roll every card on the tab this frame changed: the tab-wide twin of a card's Roll button."""
+        self.controller.set_card_scope(tuple(card_keys), "roll")
 
     def _on_scope_selected(self, card_key: str, scope: str) -> None:
         self.controller.set_card_scope(card_key, scope)
@@ -425,6 +423,7 @@ class MetadataSidebar(BaseSidebar):
         still following it -- the same scoped reset every Roll-tab card has."""
         _section, fields = ROLL_DEFAULT_FIELDS[card_key]
         default = MetadataConfig()
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -432,7 +431,7 @@ class MetadataSidebar(BaseSidebar):
             readback_metrics=False,
             **{f: getattr(default, f) for f in fields},
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self.sync_ui()
 
     def _sync_scope_buttons(self) -> None:
@@ -471,8 +470,8 @@ class MetadataSidebar(BaseSidebar):
         for btn, key in zip(self.tabs.buttons, self.tabs.keys):
             btn.set_marked(any(section.modified_count for section in self._tab_sections.get(key, ())))
         if overridden:
-            set_hint_kind(self.metadata_scope_hint, "warning")
-            self.metadata_scope_hint.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
+            set_hint_kind(self.metadata_scope_hint, "muted")
+            self.metadata_scope_hint.setText(tr("Keeps its own value on: {value}", value=", ".join(overridden)))
         else:
             self.metadata_scope_hint.setText("")
         self.metadata_scope_hint.setVisible(bool(overridden))
@@ -818,6 +817,7 @@ class MetadataSidebar(BaseSidebar):
         self._apply_metadata_config(new_meta, refresh_combos=False)
 
     def _apply_metadata_config(self, new_meta, *, refresh_combos: bool = True) -> None:
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -825,7 +825,7 @@ class MetadataSidebar(BaseSidebar):
             readback_metrics=False,
             **asdict(new_meta),
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         if refresh_combos:
             self._refresh_gear_combos(force=True)
         self.sync_ui()
@@ -886,6 +886,7 @@ class MetadataSidebar(BaseSidebar):
         )
 
     def _apply_location(self, lat, lon, city: str, state: str, country: str) -> None:
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -897,7 +898,7 @@ class MetadataSidebar(BaseSidebar):
             location_state=state,
             location_country=country,
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self._sync_scope_buttons()
         self._set_place_text_quiet()
         self._schedule_preview()
@@ -975,6 +976,7 @@ class MetadataSidebar(BaseSidebar):
         parsed_date = parse_capture_date(date_text)
         capture_date = parsed_date.xmp_text() if parsed_date else ("" if not date_text else self.state.config.metadata.capture_date)
 
+        before = self.state.config
         self.update_config_section(
             "metadata",
             persist=True,
@@ -998,7 +1000,7 @@ class MetadataSidebar(BaseSidebar):
             capture_frame=capture_frame,
             exposure_override=exposure_override,
         )
-        self.controller.sync_metadata_card_locks()
+        self.controller.sync_metadata_card_locks(before)
         self._sync_scope_buttons()
 
     def sync_ui(self) -> None:
@@ -1072,6 +1074,7 @@ class MetadataSidebar(BaseSidebar):
         """Persist the field's current text as the exposure override on re-lock."""
         text = self.exposure_edit.text().strip()
         if text != self.state.config.metadata.exposure_override:
+            before = self.state.config
             self.update_config_section(
                 "metadata",
                 persist=True,
@@ -1079,7 +1082,7 @@ class MetadataSidebar(BaseSidebar):
                 readback_metrics=False,
                 exposure_override=text,
             )
-            self.controller.sync_metadata_card_locks()
+            self.controller.sync_metadata_card_locks(before)
             self._sync_scope_buttons()
 
     def _update_exif_display(self) -> None:

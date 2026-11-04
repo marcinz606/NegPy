@@ -21,7 +21,9 @@ from negpy.kernel.system.text import count_of
 class TabHeader(CollapsibleSection):
     apply_requested = pyqtSignal()
 
-    def __init__(self, title: str, parent=None):
+    def __init__(self, title: str, parent=None, linked: bool = False):
+        """*linked*: the tab's cards follow the roll, so Apply gives the roll this frame's changed
+        cards; otherwise Apply copies the tab to other frames."""
         super().__init__(title, collapsible=False, parent=parent)
         self.content_area.setVisible(False)
         # A flat strip on the panel ground (QSS [bar] rule), so it never reads as a card.
@@ -33,8 +35,10 @@ class TabHeader(CollapsibleSection):
         self._sections: tuple = ()
 
         self.apply_btn = header_button(
-            qta.icon("fa5s.film", color=THEME.text_hint, color_disabled=THEME.text_muted),
-            tr("Apply every {title} setting to the selected frames or the whole roll…", title=title),
+            qta.icon("fa5s.film" if linked else "fa5s.clone", color=THEME.text_hint, color_disabled=THEME.text_muted),
+            tr("Give the roll every {title} card this frame changed", title=title)
+            if linked
+            else tr("Apply to Frames: copy every {title} setting to the selected frames or the whole roll…", title=title),
         )
         self.apply_btn.clicked.connect(self.apply_requested)
         self.cards_btn = header_button(qta.icon("fa5s.angle-double-up", color=THEME.text_hint), "")

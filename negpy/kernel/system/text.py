@@ -9,7 +9,7 @@ def plural(count: int, singular: str, plural_form: str = "") -> str:
     `plural_form` for nouns an -s does not cover ("copies", "indices").
     """
     # These languages use one noun form for all counts, without an English plural suffix.
-    if language() in {"zh_CN", "ja", "ko"}:
+    if language() in {"zh_CN", "ja", "ko", "vi"}:
         return tr(singular)
     if language() == "de":
         # The catalog value of a noun holds both forms as "Singular|Plural".

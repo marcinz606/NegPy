@@ -172,10 +172,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             ROLL,
             tr("Frame or Roll"),
             tr(
-                "Each card has a <b>Frame / Roll</b> pair. Roll cards follow the roll until you change them on one "
-                "frame. <b>Roll</b> copies a card to the roll; <b>Reset to Roll</b> brings the roll's values back."
+                "Each Roll tab card has a <b>Frame / Roll</b> pair. It follows the roll until you change it on one "
+                "frame. <b>Roll</b> gives the roll this frame's value. A Frame tab card copies with <b>Apply to Frames</b>."
             ),
-            lambda w: cp(w).tone_section.roll_btn or cp(w).tone_section,
+            lambda w: cp(w).film_section.roll_btn or cp(w).film_section,
         ),
         step(
             ROLL,

@@ -624,7 +624,7 @@ class ShortcutManager:
             "reset_tab": lambda: _fire_tab_header(right, "reset"),
             "reset_tab_to_roll": lambda: _fire_tab_header(right, "revert"),
             "reset_to_roll": controller.revert_frame_to_roll,
-            "undo_roll_push": controller.undo_roll_push,
+            "undo_roll_push": controller.undo_last_batch,
             "load_sidecar": lambda: load_edit_from_sidecar(self.window, controller),
             "show_in_folder": lambda: show_current_in_folder(controller),
             "move_to_trash": lambda: move_selected_to_trash(self.window, controller),

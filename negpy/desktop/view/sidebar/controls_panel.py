@@ -32,6 +32,7 @@ from negpy.desktop.settings_catalog import (
     TONE_FIELDS,
     frame_card_rows,
     roll_card_rows,
+    unused_in_mode,
 )
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
@@ -470,7 +471,6 @@ class ControlsPanel(QWidget):
         header = TabHeader(title)
         header.bind(sections)
         header.apply_requested.connect(lambda keys=tuple(card_keys): self._apply_tab(keys))
-        header.roll_revert_requested.connect(lambda keys=tuple(card_keys): self.revert_cards_to_roll(keys))
         self.tab_headers.append(header)
         return header
 
@@ -510,16 +510,11 @@ class ControlsPanel(QWidget):
         self.pick_better_btn.setToolTip(wrap_tooltip(self._pick_better_tooltip(printing=state.pick_better_pending)))
 
     def _apply_tab(self, card_keys: tuple) -> None:
-        """Every card on the tab in one picker. A whole-roll apply is recorded per card,
-        the same record a card's own Roll button writes, so each header still reads back
-        what went out."""
+        """Every card on the tab in one picker: a one-time copy to other frames."""
         live = [k for k in card_keys if not getattr(self, f"{k}_section").isHidden()]
         rows = list(dict.fromkeys(r for k in live for r in frame_card_rows(k)))
-        if not rows:
-            return
-        applied = open_apply_dialog(self, self.controller.session, rows=rows)
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        if rows:
+            open_apply_dialog(self, self.controller.session, rows=rows)
 
     def _make_section(
         self,
@@ -562,21 +557,26 @@ class ControlsPanel(QWidget):
         self.geometry_section.reset_requested.connect(self._reset_geometry_fields)
         self.autocrop_section.reset_requested.connect(self._reset_crop_card)
         self.optics_section.reset_requested.connect(self._reset_optics)
-        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS))
-        self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS))
+        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS, ("process",)))
+        self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS, ("baseline",)))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.film_section.reset_requested.connect(self._reset_film_fields)
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
-        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
+        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS, ("demosaic",)))
 
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
         self.controller.batch_finished.connect(self._sync_crop_block)
 
-        for key, section in self._roll_sections() + self._frame_sections():
+        for key, section in self._roll_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll(_SECTION_CARDS.get(k, (k,))))
+        for key, section in self._frame_sections():
+            apply_btn = section.add_header_button(
+                "fa5s.clone", tr("Apply to Frames: copy this card to the selected frames or the whole roll…")
+            )
+            apply_btn.clicked.connect(lambda _=False, k=key: open_apply_dialog(self, self.controller.session, rows=frame_card_rows(k)))
         for key, section in self._roll_sections() + self._frame_sections():
             section.toggle_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             section.toggle_button.customContextMenuRequested.connect(lambda pos, k=key, s=section: self._show_card_menu(k, s, pos))
@@ -591,11 +591,10 @@ class ControlsPanel(QWidget):
         copy.setToolTip(tr("Copy this card alone; Paste then offers only its settings"))
         copy.setEnabled(bool(rows))
         copy.triggered.connect(lambda: self.controller.session.copy_card_settings(rows))
-        if roll_card:
-            undo = menu.addAction(label_with_shortcut(tr("Undo Apply to Roll"), "undo_roll_push"))
-            undo.setToolTip(tr("Give the roll back the values it had before the last Roll push from this frame"))
-            undo.setEnabled(self.controller.can_undo_roll_push(cards))
-            undo.triggered.connect(self.controller.undo_roll_push)
+        undo = menu.addAction(label_with_shortcut(tr("Undo Change to Several Frames"), "undo_roll_push"))
+        undo.setToolTip(tr("Put back every frame and roll value the last Apply, Paste, Reset or Roll push changed"))
+        undo.setEnabled(self.controller.can_undo_batch())
+        undo.triggered.connect(self.controller.undo_last_batch)
         menu.exec(section.toggle_button.mapToGlobal(pos))
 
     def apply_shortcut_tooltips(self) -> None:
@@ -1084,8 +1083,7 @@ class ControlsPanel(QWidget):
 
     def _sync_scope_buttons(self) -> None:
         """Each card's Frame/Roll pair and Reset to Roll, and roll_override_summary's one-line
-        answer to "roll-wide or this frame's own" alongside them. A Roll-tab card reads its
-        own lock; a frame card reads the whole-roll apply recorded for it.
+        answer to "roll-wide or this frame's own" alongside them, from each Roll-tab card's lock.
 
         Frames that are not one roll (a library search's results, several folders at once)
         read Frame with Roll disabled: every value there is the frame's own, since no roll
@@ -1094,10 +1092,7 @@ class ControlsPanel(QWidget):
         overridden = []
         locked_cards = self.controller.locked_roll_cards()
         roll_sections = self._roll_sections()
-        frame_sections = self._frame_sections()
-        revertible = self.controller.roll_revert_cards(
-            [card for key, _ in roll_sections + frame_sections for card in _SECTION_CARDS.get(key, (key,))]
-        )
+        revertible = self.controller.roll_revert_cards([card for key, _ in roll_sections for card in _SECTION_CARDS.get(key, (key,))])
         for section_key, section in roll_sections:
             cards = _SECTION_CARDS.get(section_key, (section_key,))
             locked = any(card in locked_cards for card in cards)
@@ -1119,19 +1114,9 @@ class ControlsPanel(QWidget):
             if locked:
                 overridden.append(label)
 
-        scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
-        for key, section in frame_sections:
-            section.set_scope_buttons(
-                True,
-                scopes[key],
-                roll_tooltip="" if has_roll else NO_ROLL_SCOPE_HINT,
-                roll_enabled=has_roll,
-            )
-            section.set_roll_revert(key in revertible)
-
         if overridden:
-            set_hint_kind(self.roll_override_summary, "warning")
-            self.roll_override_summary.setText(tr("This frame overrides: {value}", value=", ".join(overridden)))
+            set_hint_kind(self.roll_override_summary, "muted")
+            self.roll_override_summary.setText(tr("Keeps its own value on: {value}", value=", ".join(overridden)))
         else:
             self.roll_override_summary.setText("")
         self.roll_override_summary.setVisible(bool(overridden))
@@ -1145,17 +1130,16 @@ class ControlsPanel(QWidget):
     def _frame_sections(self) -> tuple:
         return tuple((key, getattr(self, f"{key}_section")) for key in FRAME_CARD_FIELDS)
 
+    def push_roll_cards(self) -> None:
+        """The Roll tab bar's Apply: the roll takes every card this frame changed."""
+        live = [key for key, section in self._roll_sections() if not section.isHidden()]
+        self.controller.set_card_scope(tuple(card for key in live for card in _SECTION_CARDS.get(key, (key,))), "roll")
+        self._sync_scope_buttons()
+
     def _on_scope_selected(self, key: str, scope: str) -> None:
-        """Roll on a Roll-tab card pushes that card out; on a frame card it opens the
-        picker over that card's own settings. Frame on a Roll-tab card locks it here;
-        a frame card is already there, so the pair's own click guard swallows it."""
-        if key in dict(self._roll_sections()):
-            self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
-            self._sync_scope_buttons()
-            return
-        applied = open_apply_dialog(self, self.controller.session, rows=frame_card_rows(key))
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        """Roll pushes the card out to the roll; Frame locks it here."""
+        self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
+        self._sync_scope_buttons()
 
     def _sync_clip_colors(self) -> None:
         self.tone_histogram.set_clip_colors(*palette_for(self.controller.state.color_vision).pair)
@@ -1171,7 +1155,7 @@ class ControlsPanel(QWidget):
         self.metering_histogram.update_data(buf)
 
     def _reset_sensor_fields(self) -> None:
-        self._reset_process_fields(_SENSOR_FIELDS)
+        self._reset_process_fields(_SENSOR_FIELDS, ("sensor", "fade"))
 
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not
@@ -1186,16 +1170,18 @@ class ControlsPanel(QWidget):
     def _reset_tone_fields(self) -> None:
         self._reset_exposure_fields(TONE_FIELDS)
 
-    def _reset_process_fields(self, fields) -> None:
+    def _reset_process_fields(self, fields, cards=()) -> None:
         """Calibration, Demosaic and Normalization all live on ProcessConfig, so each
         reset is scoped to its own fields -- a plain session.reset_section("process")
         would reset all three cards (and Film Mode, and Positive) at once. apply_config,
-        not update_config: some of these fields are a decode or a source bake."""
+        not update_config: some of these fields are a decode or a source bake. *cards* lock
+        as an edit by hand would, or the roll's value returns on the next load."""
         from dataclasses import replace
 
         cfg = self.controller.state.config
         new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in fields})
         self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
+        self.controller.sync_roll_card_locks(cards, cfg)
 
     def _reset_optics(self) -> None:
         self._reset_card_fields("lens")
@@ -1257,15 +1243,17 @@ class ControlsPanel(QWidget):
         shown_color = ("bw_filter",) if mode == ProcessMode.BW else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in shown_color)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
-        paper_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in PAPER_FIELDS)
+        paper_count = sum(
+            getattr(exp, f) != _default_exposure_field(f, mode) and not unused_in_mode("exposure", f, cfg) for f in PAPER_FIELDS
+        )
 
         lab = cfg.lab
         lab_count = sum(
             [
-                lab.saturation != _lab.saturation,
+                lab.saturation != _lab.saturation and not unused_in_mode("lab", "saturation", cfg),
                 lab.clahe_strength != _lab.clahe_strength,
                 lab.sharpen != _lab.sharpen,
-                lab.chroma_denoise != _lab.chroma_denoise,
+                lab.chroma_denoise != _lab.chroma_denoise and not unused_in_mode("lab", "chroma_denoise", cfg),
                 lab.glow_amount != _lab.glow_amount,
                 lab.halation_strength != _lab.halation_strength,
             ]

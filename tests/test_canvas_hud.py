@@ -225,3 +225,16 @@ def test_a_bar_track_is_as_tall_as_a_bar_field():
     from negpy.desktop.view.styles.templates import BAR_BUTTON_HEIGHT, BAR_TRACK_BUTTON_HEIGHT, BAR_TRACK_PAD
 
     assert BAR_TRACK_BUTTON_HEIGHT + 2 * BAR_TRACK_PAD == BAR_BUTTON_HEIGHT
+
+
+def test_undo_is_offered_beside_a_batch_message_and_withdrawn_on_click(qapp):
+    hud = _hud()
+    fired = []
+    hud.undo_requested.connect(lambda: fired.append(True))
+
+    hud.offer_undo()
+    assert hud.undo_button.isVisibleTo(hud)
+
+    hud.undo_button.click()
+    assert fired == [True]
+    assert not hud.undo_button.isVisibleTo(hud)

@@ -1126,9 +1126,15 @@ class ActionToolbar(QWidget):
         self._average_label.setText(rolls.source_label(self.session.repo, found[1]) if found else tr("Roll average"))
         outlier = self._average_outlier(state, found)
         scene = found is not None and found[1].startswith("scene:")
-        self.average_hint.setText((tr("Far from the scene color") if scene else tr("Far from the roll color")) if outlier else "")
+        # The toggles show what Apply gives, so the hint says what the frame has now.
+        names = {"use_luma_average": tr("Luma"), "use_color_average": tr("Color"), "use_cast_average": tr("Cast")}
+        applied = [name for f, name in names.items() if getattr(process, f) and (cast or f != "use_cast_average")]
+        lines = [tr("Applied: {value}", value=", ".join(applied)) if applied else tr("Applied: none")]
+        if outlier:
+            lines.append(tr("Far from the scene color") if scene else tr("Far from the roll color"))
+        self.average_hint.setText(" · ".join(lines))
         set_hint_kind(self.average_hint, "warning" if outlier else "muted")
-        self.average_hint.setVisible(outlier)
+        self.average_hint.setVisible(True)
 
     def _saved_baseline(self, state, scope=None):
         """The baseline the frame's averages read, or the one *scope* names."""
@@ -2057,7 +2063,7 @@ class ActionToolbar(QWidget):
             self._activate_layout()
             return
         if not self._average_row.isHidden():
-            # The name goes first, then the warning; the averages, Apply and close always stay.
+            # The name goes first, then the hint; the averages, Apply and close always stay.
             optional = (self._average_label, self.average_hint)
             for widget in optional:
                 widget.setVisible(widget is self._average_label or bool(self.average_hint.text()))

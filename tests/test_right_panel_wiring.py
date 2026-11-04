@@ -301,22 +301,19 @@ def test_the_tone_card_histogram_follows_color_vision() -> None:
     panel.tone_histogram.set_clip_colors.assert_called_once_with(*palette_for("tritan").pair)
 
 
-def test_roll_tab_apply_offers_every_card_of_its_sections():
-    from negpy.desktop.view.sidebar.controls_panel import _SECTION_CARDS
-    from negpy.desktop.view.sidebar.right_panel import _ROLL_SECTION_ATTRS, _ROLL_TAB_CARDS
+def test_roll_tab_apply_gives_the_roll_every_card_of_the_visible_sections():
+    """The Roll tab bar's Apply pushes, like each card's Roll button; a hidden card stays out."""
+    from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 
-    for section, cards in _SECTION_CARDS.items():
-        if f"{section}_section" in _ROLL_SECTION_ATTRS:
-            assert set(cards) <= set(_ROLL_TAB_CARDS), section
+    shown, hidden = MagicMock(), MagicMock()
+    shown.isHidden.return_value = False
+    hidden.isHidden.return_value = True
+    panel = MagicMock()
+    panel._roll_sections.return_value = (("film", shown), ("optics", shown), ("demosaic", hidden))
 
+    ControlsPanel.push_roll_cards(panel)
 
-def test_roll_tab_apply_leaves_the_crop_to_the_frame():
-    from negpy.desktop.settings_catalog import rows_for_fields
-    from negpy.desktop.view.sidebar.right_panel import _ROLL_TAB_CARDS
-    from negpy.services.assets.rolls import card_fields
-
-    rows = rows_for_fields(f for card in _ROLL_TAB_CARDS for f in card_fields(card))
-    assert not {"Auto Crop", "Crop Ratio", "Crop"} & {r.label for r in rows}
+    panel.controller.set_card_scope.assert_called_once_with(("film", "lens", "flatfield"), "roll")
 
 
 @pytest.mark.parametrize(

@@ -48,8 +48,6 @@ from negpy.services.assets.rolls import (
     resolve_roll_baseline,
     resolve_roll_config,
     roll_defaults,
-    section_push,
-    set_section_push,
     roll_edit_hash,
     roll_for_id,
     roll_normalization,
@@ -702,42 +700,6 @@ class TestRollDefaults:
         assert resolved.process.positive_source is False
 
 
-class TestSectionPush:
-    """What a frame-level card last pushed to the roll: a record, not a binding -- it
-    never overlays onto another frame, it only lets the card say whether the frame in
-    front of you still agrees with the roll."""
-
-    def test_a_roll_with_no_push_reads_empty(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        assert section_push(repo, roll_id, "tone") == {}
-
-    def test_it_reads_back_what_was_pushed(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        assert section_push(repo, roll_id, "tone") == {"dye_separation": 0.4}
-
-    def test_a_second_push_merges_rather_than_replaces(self):
-        """Applying two of a card's settings in two goes leaves both at the roll."""
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        set_section_push(repo, roll_id, "tone", {"toe": 0.2})
-        assert section_push(repo, roll_id, "tone") == {"dye_separation": 0.4, "toe": 0.2}
-
-    def test_cards_do_not_share_a_record(self):
-        repo = _repo()
-        roll_id = create_virtual_roll(repo, "Portra", [])
-        set_section_push(repo, roll_id, "tone", {"dye_separation": 0.4})
-        assert section_push(repo, roll_id, "finish") == {}
-
-    def test_pushing_to_an_unknown_roll_is_a_noop(self):
-        repo = _repo()
-        set_section_push(repo, "not-a-real-id", "tone", {"dye_separation": 0.4})
-        assert saved_rolls(repo) == {}
-
-
 class TestRollNormalization:
     """A roll's own Roll Analysis baseline: written only by Roll Analysis itself, read
     by any frame's Use Luma/Color Average axes -- unlike ROLL_DEFAULT_FIELDS, this has no
@@ -762,6 +724,7 @@ class TestRollNormalization:
             "axis": None,
             "outliers": (),
             "frames": None,
+            "inputs": None,
         }
 
     def test_records_the_measured_frames(self):
@@ -893,6 +856,7 @@ class TestScenes:
             "axis": axis,
             "outliers": ("a",),
             "frames": None,
+            "inputs": None,
         }
         assert roll_normalization(repo, roll_id) is None
         set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), frames=("a",))
@@ -1182,3 +1146,34 @@ def test_home_roll_lookup_answers_as_home_roll(tmp_path):
     for path in (str(folder / "1.tif"), "/elsewhere/2.tif", "/nowhere/3.tif", str(folder / "sub" / "4.tif")):
         assert lookup(path) == home_roll(repo, path), path
     assert lookup(str(folder)) == folder_id
+
+
+def test_a_lock_keeps_its_first_baseline_until_it_unlocks():
+    from negpy.services.assets.rolls import frame_baseline, set_frame_override
+
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "Portra", [])
+    set_frame_override(repo, roll_id, "h1", "demosaic", True, baseline={"linear_raw": True})
+    set_frame_override(repo, roll_id, "h1", "demosaic", True, baseline={"linear_raw": False})
+    assert frame_baseline(repo, roll_id, "h1", "demosaic") == {"linear_raw": True}
+
+    set_frame_override(repo, roll_id, "h1", "demosaic", False)
+    assert frame_baseline(repo, roll_id, "h1", "demosaic") == {}
+    assert roll_for_id(repo, roll_id)["frame_baselines"] == {}
+
+
+def test_a_baseline_follows_its_lock_through_a_replacement_a_copy_and_a_removal():
+    from negpy.services.assets.rolls import adopt_replacement, copy_roll_settings, frame_baseline, remove_members, set_frame_override
+
+    repo = _repo()
+    source = create_virtual_roll(repo, "Portra", ["/scans/1.tif"])
+    target = create_virtual_roll(repo, "Picks", [])
+    set_frame_override(repo, source, "h1", "demosaic", True, baseline={"linear_raw": True})
+
+    adopt_replacement(repo, "h1", "h2", "/scans/1.tif", "/scans/1-merged.tif", [], False)
+    copy_roll_settings(repo, source, target, {"h2"})
+    assert frame_baseline(repo, source, "h2", "demosaic") == {"linear_raw": True}
+    assert frame_baseline(repo, target, "h2", "demosaic") == {"linear_raw": True}
+
+    remove_members(repo, source, ["/scans/1-merged.tif"], ["h1", "h2"])
+    assert roll_for_id(repo, source)["frame_baselines"] == {}
