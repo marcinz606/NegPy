@@ -7,6 +7,7 @@ aligns + merges + inverts them.
 """
 
 from negpy.kernel.system.i18n import mark, tr
+from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.text import count_of
 
 import json
@@ -118,6 +119,8 @@ _BUILTIN_PRESETS = {
 }
 # The white-light built-ins and the process each imports as.
 _BUILTIN_WHITE_PRESETS = {name: b.process for name, b in _BUILTIN_PRESETS.items() if b.white}
+
+logger = get_logger(__name__)
 
 
 def _builtin_tip(b: _Builtin) -> str:
@@ -1932,6 +1935,8 @@ class ScanlightSidebar(QWidget):
         """The Lento Dock's S button works as Scan: it starts a scan, or stops one."""
         if self.scan_btn.isEnabled():
             self._on_scan()
+        else:
+            logger.info("S button ignored: Scan is not ready (%s)", self.scan_btn.toolTip())
 
     def _on_retake(self) -> None:
         if not self._scanning:

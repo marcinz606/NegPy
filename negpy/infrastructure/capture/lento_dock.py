@@ -430,6 +430,7 @@ class LentoDock:
         if self.on_scan_button is None or now - self._last_press < SCAN_BUTTON_DEBOUNCE_S:
             return
         self._last_press = now
+        logger.info("Lento Dock S button")
         try:
             self.on_scan_button()
         except Exception:
@@ -444,6 +445,8 @@ class LentoDock:
         if line.startswith("STATE"):
             was = self._state.get("st")
             self._state = parse_kv(line)
+            if self._state.get("st") != was and not self._in_command:
+                logger.info("Lento Dock state %s -> %s", was, self._state.get("st"))
             # NegPy starts no exposure of the dock's own: one that begins outside a NegPy command is
             # the S button. The dock accepts light commands during it.
             if self._state.get("st") == "EXPOSE" and was != "EXPOSE" and not self._in_command:
