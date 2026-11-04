@@ -376,3 +376,17 @@ def test_frameat_err_is_the_end_of_the_strip(sim):
         dock._enter_continuous()
         sim._frame_next = lambda: (sim._say("OK"), sim._say("FRAMEAT ERR no_edge"), sim._say(sim._state()))
         assert dock.advance_frame() is None
+
+
+def test_a_scan_request_is_the_s_button_and_counts_once(sim):
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        sim.request_scan()
+        sim.press_scan()  # the same press may also start the dock's exposure
+        for _ in range(50):
+            if pressed:
+                break
+            time.sleep(0.01)
+        time.sleep(0.1)
+    assert pressed == [1]

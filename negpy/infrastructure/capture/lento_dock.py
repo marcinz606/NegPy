@@ -48,6 +48,7 @@ PING_INTERVAL_S = 5.0
 ADVANCE_TIMEOUT_S = 15.0
 EXPOSE_WAIT_S = 5.0  # the dock's own exposure on an S press lasts 3 s
 BUSY_RETRY_S = 0.25  # the API's retry interval for a BUSY reply
+SCAN_BUTTON_DEBOUNCE_S = 1.0
 EJECT_TIMEOUT_S = 30.0
 HOLD_INTERVAL_S = 30.0
 KEEPALIVE_TICK_S = 1.0
@@ -163,6 +164,7 @@ class LentoDock:
         self._continuous = False
         self._last_frameat = ""
         self._in_command = False
+        self._last_press = -SCAN_BUTTON_DEBOUNCE_S
         self.on_scan_button: Optional[Callable[[], None]] = None  # called on the reader thread
         self._saved: dict[str, str] = {}
         self._last_tx = time.monotonic()
@@ -443,6 +445,17 @@ class LentoDock:
         while self._state.get("st") == "EXPOSE" and time.monotonic() < deadline:
             time.sleep(0.05)
 
+    def _scan_button(self) -> None:
+        """One S press can report both a scan request and an exposure: the second report is the same press."""
+        now = time.monotonic()
+        if self.on_scan_button is None or now - self._last_press < SCAN_BUTTON_DEBOUNCE_S:
+            return
+        self._last_press = now
+        try:
+            self.on_scan_button()
+        except Exception:
+            logger.exception("Lento Dock scan button handler failed")
+
     def _dispatch(self, line: str) -> None:
         logger.debug("Lento Dock: %s", line)
         if line.startswith("FRAMEAT") and not line.startswith("FRAMEAT ERR"):
@@ -454,11 +467,10 @@ class LentoDock:
             self._state = parse_kv(line)
             # NegPy starts no exposure of the dock's own: one that begins outside a NegPy command is
             # the S button. The dock accepts light commands during it.
-            if self._state.get("st") == "EXPOSE" and was != "EXPOSE" and not self._in_command and self.on_scan_button:
-                try:
-                    self.on_scan_button()
-                except Exception:
-                    logger.exception("Lento Dock scan button handler failed")
+            if self._state.get("st") == "EXPOSE" and was != "EXPOSE" and not self._in_command:
+                self._scan_button()
+        elif line.startswith(("SCANREQ", "SCANSTOP")) and not self._in_command:
+            self._scan_button()  # firmware 1.0.238 and later report the S button as a scan request
         elif line.startswith("BOOT"):
             self._booted.set()
         self._replies.put(line)
