@@ -23,7 +23,12 @@ def test_a_recorded_capture_reads_back_by_path():
     record_capture_mode(repo, "/scans/roll/Roll_Frame001.ARW", BLEND)
     record_capture_mode(repo, "/scans/roll/Roll_Frame002.ARW", SINGLE)
     record_capture_mode(repo, "/scans/other/Other_Frame001.ARW", SINGLE)
-    paths = ["/scans/roll/Roll_Frame001.ARW", "/scans/roll/Roll_Frame002.ARW", "/scans/roll/Roll_Frame003.ARW", "/scans/other/Other_Frame001.ARW"]
+    paths = [
+        "/scans/roll/Roll_Frame001.ARW",
+        "/scans/roll/Roll_Frame002.ARW",
+        "/scans/roll/Roll_Frame003.ARW",
+        "/scans/other/Other_Frame001.ARW",
+    ]
     assert capture_modes(repo, paths) == {
         "/scans/roll/Roll_Frame001.ARW": BLEND,
         "/scans/roll/Roll_Frame002.ARW": SINGLE,

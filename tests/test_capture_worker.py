@@ -1321,7 +1321,9 @@ def test_advance_film_after_a_blend_scan_moves_the_film(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_ensure_light", lambda _port: dock)
 
     assert worker.run_capture(
-        CaptureRequest(roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True, advance_film=True)
+        CaptureRequest(
+            roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True, advance_film=True
+        )
     )
     assert dock.events == ["advance"]
 
@@ -1340,8 +1342,14 @@ def test_a_blend_strip_holds_bulb_between_frames_and_restores_it_before_the_flat
 
     worker.run_capture(
         CaptureRequest(
-            roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), shutters=("1/2",) * 3,
-            blend_capture=True, whole_strip=True, strip_flat=True,
+            roll_name="Roll",
+            frame_number=1,
+            output_folder=str(tmp_path),
+            levels=(255, 255, 255),
+            shutters=("1/2",) * 3,
+            blend_capture=True,
+            whole_strip=True,
+            strip_flat=True,
         )
     )
 
@@ -1352,7 +1360,9 @@ def test_a_blend_strip_holds_bulb_between_frames_and_restores_it_before_the_flat
 def test_a_single_blend_scan_puts_the_shutter_back(tmp_path, monkeypatch):
     camera = _BulbCamera()
     worker = _blend_worker(monkeypatch, camera, [])
-    worker.run_capture(CaptureRequest(roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True))
+    worker.run_capture(
+        CaptureRequest(roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True)
+    )
     assert camera.kept == [False]
 
 
@@ -1394,8 +1404,13 @@ def test_a_blend_frame_that_fails_after_the_film_moved_says_how_to_retake_it(tmp
 
     worker.run_capture(
         CaptureRequest(
-            roll_name="Roll", frame_number=4, output_folder=str(tmp_path), levels=(255, 255, 255), shutters=("1/2",) * 3,
-            blend_capture=True, whole_strip=True,
+            roll_name="Roll",
+            frame_number=4,
+            output_folder=str(tmp_path),
+            levels=(255, 255, 255),
+            shutters=("1/2",) * 3,
+            blend_capture=True,
+            whole_strip=True,
         )
     )
 
