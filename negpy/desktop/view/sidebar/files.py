@@ -1503,9 +1503,12 @@ class FileBrowser(QWidget):
 
         # The frames' own order; the Library's roll list has a Sort of its own.
         self.sort_btn = SortButton(
-            (("name", tr("Name")), ("date", tr("Date")), ("scene", tr("Scene"))), tr("Sort the frames in the Film Strip")
+            (("name", tr("Name")), ("date", tr("Date")), ("scene", tr("Scene")), ("frame", tr("Frame No."))),
+            tr("Sort the frames in the Film Strip"),
         )
-        self.act_sort_name, self.act_sort_date, self.act_sort_scene = (self.sort_btn.order_action(k) for k in ("name", "date", "scene"))
+        self.act_sort_name, self.act_sort_date, self.act_sort_scene, self.act_sort_frame = (
+            self.sort_btn.order_action(k) for k in ("name", "date", "scene", "frame")
+        )
         self.act_sort_asc, self.act_sort_desc = self.sort_btn.ascending_action, self.sort_btn.descending_action
         self.act_sort_scene.setVisible(False)
         self.sort_btn.order_selected.connect(self._apply_sort_order)
@@ -2075,6 +2078,7 @@ class FileBrowser(QWidget):
         self.act_sort_name.setChecked(order == "name")
         self.act_sort_date.setChecked(order == "date")
         self.act_sort_scene.setChecked(order == "scene")
+        self.act_sort_frame.setChecked(order == "frame")
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
         model = self.session.asset_model

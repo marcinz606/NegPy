@@ -18,7 +18,7 @@ Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus 
 
 Um die Bilder im Filmstreifen als Rolle zu speichern, nutze den Filmstreifen. **In Ordnerrolle speichern** macht aus Bildern, die alle aus einem Ordner stammen, die Rolle dieses Ordners. Seine anderen Dateien erscheinen als entfernt. **Als virtuelle Rolle speichern…** behält genau diese Bilder, aus beliebigen Ordnern. In Ordnerrolle speichern macht auch aus einer virtuellen Rolle eines Ordners die Rolle dieses Ordners. Die neue Rolle startet mit den Einstellungen, den Kartensperren und den nur in dieser Rolle gemachten Bearbeitungen der geöffneten Rolle. Ein Bild hat in jeder Rolle, die es enthält, dieselbe Bearbeitung. Rechtsklick → **In dieser Rolle unabhängig bearbeiten** gibt ihm in einer Rolle eine eigene Bearbeitung.
 
-<!-- panel:frames src:b724d5df -->
+<!-- panel:frames src:da839648 -->
 ### Filmstreifen
 
 Der **Filmstreifen** unter der Arbeitsfläche zeigt die geöffneten Bilder in einer Reihe. Ziehe seinen oberen Rand, um die Bilder zu vergrößern.
@@ -27,7 +27,7 @@ Die Zeile **Rolle** der Werkzeugleiste enthält:
 
 *   Den Namen der Rolle und die Anzahl der Bilder, der behaltenen und der verworfenen Bilder.
 *   Das **Filterfeld**: Gib einen Teil eines Dateinamens ein oder Begriffe wie `film:portra iso:>=400` (siehe unten). Die Suchschaltfläche oder **Enter** durchsucht die ganze Bibliothek.
-*   **Sortieren**: nach Name, Datum oder Szene.
+*   **Sortieren**: nach Name, Datum, Szene oder nach Rolle und Bildnummer.
 *   **Bogenfilter**: alle Bilder, nur behaltene, verworfene ausblenden oder nur unmarkierte. Die Schaltfläche ist hervorgehoben, solange ein Filter Bilder ausblendet.
 *   **Rolleneinstellungen** (das Etikett): Ausrüstung und Filmdetails für dieses Bild, die Auswahl oder die Rolle.
 *   **Anwenden**: kopiert gewählte Einstellungen dieses Bildes auf die Auswahl oder die Rolle.
@@ -505,7 +505,7 @@ Zusätzliche Dateien neben dem Abzug. Jede hat links einen Schalter und rechts e
 *   **Auto-Dichte / Gradation**: **Beim Export festschreiben** fixiert die automatische Helligkeit und den Kontrast jedes exportierten Bildes, damit sie sich später nicht ändern. **In Rolle festschreiben** tut das jetzt für jedes sichtbare Bild.
 *   **Bearbeitungs-Sidecar-Dateien**: **Beim Export speichern** schreibt neben jede Quelle eine `.negpy`-Datei mit der Bearbeitung. **Sidecar-Dateien exportieren** schreibt sie für alle sichtbaren Bilder. Rechtsklick auf ein Bild → **Bearbeitung aus Sidecar-Datei laden…** liest eine zurück.
 
-<!-- panel:contact_sheet src:3ab6797d -->
+<!-- panel:contact_sheet src:ddc8d6ef -->
 ### Kontaktbogen
 
 Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Filmstreifen auf einem Blatt Papier, wie ein Kontaktabzug in der Dunkelkammer.
@@ -514,7 +514,7 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 *   **Kontaktbogen…**: öffnet den Bogen. Ziehe an einer Kante des Papiers, um die Größe zu ändern.
 *   **Filmformat**: 35mm, 35mm Half Frame oder 120 (bei 120 mit **Bildgröße**).
 *   **Papier**, **Breite**, **Höhe** und **DPI**: Größe und Auflösung des Bogens. Das Standardpapier fasst eine Rolle mit 36 Aufnahmen.
-*   **Reihenfolge**: nach Dateiname, nach Datum oder nach Szene, mit einem neuen Streifen oder einer neuen Zeile für jede Szene.
+*   **Reihenfolge**: nach Dateiname, nach Datum, nach Rolle und Bildnummer oder nach Szene, mit einem neuen Streifen oder einer neuen Zeile für jede Szene.
 *   **Abzug**: **Wie bearbeitet** oder **Reiner Probeabzug**: die ganze Rolle mit einer Belichtung und normalem Kontrast. So siehst du, welche Negative dünn oder dicht sind.
 *   **Bilder wählen**: Klicke auf ein Bild, um es auszulassen oder wieder aufzunehmen. Verworfene Bilder sind zu Beginn ausgelassen.
 *   **Randaufdruck**: die Markierungen des Filmherstellers am Rand, zum Beispiel Filmname, Bildnummern und die farbigen Linien, die ein Film neben seinen Perforationen druckt.
