@@ -44,3 +44,17 @@ def test_a_retake_replaces_the_mode_and_an_unchanged_one_writes_nothing():
 def test_an_unknown_mode_is_refused():
     with pytest.raises(ValueError):
         record_capture_mode(_Repo(), "/r/F1.ARW", "trichrome")
+
+
+def test_a_fresh_blend_frame_opens_as_its_capture_imported_it():
+    from negpy.desktop.session import resolve_asset_capture
+    from negpy.features.process.models import ProcessMode, scan_setup_values
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+
+    linear_raw, paper = scan_setup_values("camera", "narrowband")
+    for mode in (BLEND, SINGLE):
+        cfg = resolve_asset_capture(DEFAULT_WORKSPACE_CONFIG, {"capture": mode})
+        assert cfg.process.process_mode == ProcessMode.C41
+        assert cfg.process.linear_raw is linear_raw
+        assert cfg.exposure.paper_profile == paper
+    assert resolve_asset_capture(DEFAULT_WORKSPACE_CONFIG, {}) is DEFAULT_WORKSPACE_CONFIG

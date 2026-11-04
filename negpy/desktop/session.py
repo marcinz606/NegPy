@@ -32,7 +32,14 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
+from negpy.features.process.models import (
+    SCAN_SETUP_PAPERS,
+    ProcessMode,
+    invalidate_local_bounds,
+    mode_aware_exposure_reset,
+    scan_setup_values,
+    with_process_mode,
+)
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -832,6 +839,21 @@ def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> Workspac
     return with_process_mode(params, str(mode))
 
 
+def resolve_asset_capture(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Open a fresh Blend or Single Exposure frame as its capture imported it: C-41, with the
+    narrowband rig's decode and print stock. The import applies these only to a frame opened in
+    the capture session; a trichrome needs no such record, because its triplet decides its decode.
+    Applied only when the frame has no saved edit, so a later change on it still wins."""
+    if asset.get("capture") not in (BLEND, SINGLE):
+        return params
+    linear_raw, paper = scan_setup_values("camera", "narrowband")
+    params = with_process_mode(params, ProcessMode.C41)
+    params = replace(params, process=replace(params.process, linear_raw=linear_raw))
+    if params.exposure.paper_profile in SCAN_SETUP_PAPERS:
+        params = replace(params, exposure=replace(params.exposure, paper_profile=paper))
+    return params
+
+
 def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
     """Open a fresh merge with its recovered shadow range already dialled in.
 
@@ -1383,6 +1405,7 @@ class DesktopSessionManager(QObject):
         sticky settings, a reset from bare defaults.
         """
         config = resolve_asset_process_mode(config, asset)
+        config = resolve_asset_capture(config, asset)
         config = resolve_asset_hdr_seed(config, asset)
         return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
 
