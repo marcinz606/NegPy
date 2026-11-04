@@ -25,6 +25,8 @@ class SimDockSerial:
         self.frame = 0  # the frame in the window, counted from the first
         self.st = "READY" if frames and fed else "IDLE"  # an unfed strip waits at the entrance for INSERT
         self.ok_replies = ok_replies  # firmware 1.0.239 answers CONTRGB and CONTHOLD with a bare OK
+        self.shutter = 0  # the S button, held down
+        self.answers_btn = True  # firmware before the published API may not know BTN?
         self.busy = 0  # the next commands answered BUSY, as during the dock's own exposure
         self._out: queue.Queue[bytes] = queue.Queue()
         self._buf = b""
@@ -135,6 +137,8 @@ class SimDockSerial:
         elif cmd == "CONTHOLD" and arg in ("0", "1"):
             self.hold = int(arg)
             self._say("OK" if self.ok_replies else f"CONTHOLD {arg}")
+        elif line == "BTN?" and self.answers_btn:
+            self._say(f"BTN adv=0 back=0 shutter={self.shutter}")
         elif line == "FRAME NEXT":
             self._frame_next()
         elif line == "INSERT":

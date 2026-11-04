@@ -49,6 +49,9 @@ ADVANCE_TIMEOUT_S = 15.0
 EXPOSE_WAIT_S = 5.0  # the dock's own exposure on an S press lasts 3 s
 BUSY_RETRY_S = 0.25  # the API's retry interval for a BUSY reply
 SCAN_BUTTON_DEBOUNCE_S = 1.0
+BUTTON_POLL_S = 0.1  # a tap of S lasts longer than this
+SCAN_BUTTON_HOLD_S = 1.0  # S held this long is the dock's own action, not Scan
+TIMED_LIGHT_QUIET_S = 1.0  # no button poll this soon after a timed light switch
 AUTOALIGN_START_S = 1.5  # an inserted strip starts to align within this time
 EJECT_TIMEOUT_S = 30.0
 HOLD_INTERVAL_S = 30.0
@@ -166,6 +169,9 @@ class LentoDock:
         self._last_frameat = ""
         self._in_command = False
         self._last_press = -SCAN_BUTTON_DEBOUNCE_S
+        self._timed_light_at = -TIMED_LIGHT_QUIET_S
+        self._btn_seen = False  # the dock answers BTN?, so the S button is read directly
+        self._shutter_down_at: Optional[float] = None
         self.on_scan_button: Optional[Callable[[], None]] = None  # called on the reader thread
         self._saved: dict[str, str] = {}
         self._last_tx = time.monotonic()
@@ -181,6 +187,8 @@ class LentoDock:
         self.info = self._identify()
         self._keepalive = threading.Thread(target=self._keepalive_loop, name="lento-dock-keepalive", daemon=True)
         self._keepalive.start()
+        self._buttons = threading.Thread(target=self._button_loop, name="lento-dock-buttons", daemon=True)
+        self._buttons.start()
 
     # ----- public API (the Scanlight driver's) -----
 
@@ -233,6 +241,7 @@ class LentoDock:
             self._command("CONTHOLD 1", r"^(OK|CONTHOLD|ERR)")
             self._last_hold = time.monotonic()
             self._light_on = True  # the keep-alive refreshes the hold from here on
+        self._timed_light_at = time.monotonic()
         self._send(f"CONTRGB {duties[0]} {duties[1]} {duties[2]}")
 
     def take_control(self) -> None:
@@ -305,7 +314,7 @@ class LentoDock:
         except Exception:
             logger.exception("could not restore the Lento Dock's mode")
         self._stop.set()
-        for thread in (self._reader, getattr(self, "_keepalive", None)):
+        for thread in (self._reader, getattr(self, "_keepalive", None), getattr(self, "_buttons", None)):
             if thread is not None and thread.is_alive() and thread is not threading.current_thread():
                 thread.join(timeout=1.0)
         try:
@@ -410,6 +419,30 @@ class LentoDock:
                     raise ValueError(f"Lento Dock refused {cmd!r}: {line}")
                 return line
 
+    def _button_loop(self) -> None:
+        """Ask for the button state while NegPy holds the dock. The reply comes to the reader."""
+        while not self._stop.wait(BUTTON_POLL_S):
+            # A timed light is switched without waiting; a poll between its writes would shift them.
+            timed = time.monotonic() - self._timed_light_at < TIMED_LIGHT_QUIET_S
+            if self._continuous and self.on_scan_button is not None and self._reader_error is None and not timed:
+                try:
+                    self._send("BTN?")
+                except Exception:
+                    logger.debug("Lento Dock button poll failed", exc_info=True)
+
+    def _on_buttons(self, line: str) -> None:
+        """A tap of S works as Scan, on release. A hold is the dock's own (firmware 1.0.238 ejects on it)."""
+        self._btn_seen = True
+        down = parse_kv(line).get("shutter") == "1"
+        now = time.monotonic()
+        if down and self._shutter_down_at is None:
+            self._shutter_down_at = now
+        elif not down and self._shutter_down_at is not None:
+            held = now - self._shutter_down_at
+            self._shutter_down_at = None
+            if held < SCAN_BUTTON_HOLD_S:
+                self._scan_button()
+
     def _keepalive_loop(self) -> None:
         """Ends when the link does: a dock that is gone gets no more writes, and `is_connected`
         turns false so the caller connects again."""
@@ -478,9 +511,12 @@ class LentoDock:
                 logger.info("Lento Dock state %s -> %s", was, self._state.get("st"))
             # NegPy starts no exposure of the dock's own: one that begins outside a NegPy command is
             # the S button. The dock accepts light commands during it.
-            if self._state.get("st") == "EXPOSE" and was != "EXPOSE" and not self._in_command:
-                self._scan_button()
-        elif line.startswith(("SCANREQ", "SCANSTOP")) and not self._in_command:
+            if self._state.get("st") == "EXPOSE" and was != "EXPOSE" and not self._in_command and not self._btn_seen:
+                self._scan_button()  # firmware with no BTN?: the dock's own exposure is the press
+        elif line.startswith("BTN "):
+            self._on_buttons(line)
+            return  # no command waits for a poll's reply
+        elif line.startswith(("SCANREQ", "SCANSTOP")) and not self._in_command and not self._btn_seen:
             self._scan_button()  # firmware 1.0.238 and later report the S button as a scan request
         elif line.startswith("BOOT"):
             self._booted.set()

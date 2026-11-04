@@ -248,22 +248,22 @@ described above.
   stays in the `flatfield/references` folder, outside the roll. A strip that stops before its
   end gets no flat. The flat never comes first: after the dock moves the film out of the
   window and back, it does not advance.
-<<<<<<< HEAD
-- Put the strip in the dock's entrance. NegPy takes control of the dock when it connects, and
-  with **Next Frame** or **Whole Strip**, Scan feeds a strip that waits there to its first
-  frame (`INSERT`). This also covers a strip that was in the dock when NegPy opened its port,
-  because opening the port resets the dock.
-=======
 - Put the strip in the dock's entrance. Firmware 1.0.238 and later align it to the first frame
   on their own. With **Next Frame** or **Whole Strip**, Scan feeds a strip that still waits at
   the entrance (`INSERT`), such as one that was in the dock when NegPy opened its port, because
   opening the port resets the dock.
->>>>>>> feat/lento-dock-advance
 - While NegPy uses the dock, the dock's S button works as Scan: it starts a scan, or stops one.
   S acts only while a frame is in the window: with no strip aligned, the dock looks for the next
   frame instead. The scan starts at the press. The dock also makes a short exposure of its own,
   and the film moves only after it ends. An arrow button nudges the film on a tap and moves it while you hold it. NegPy
   leaves the dock's button mode (`BTNMODE`) as you set it.
+- While NegPy uses the dock, a tap of the dock's S button works as Scan: it starts a scan, or
+  stops one. NegPy reads the button (`BTN?`) and acts when you let go. The dock also acts on S
+  itself: with a frame in the window it makes a short exposure of its own, and the film moves
+  only after that ends. With a strip at the entrance, a tap lines the strip up first. A hold of
+  S is left to the dock, which ejects the strip on firmware 1.0.238.
+- An arrow button nudges the film on a tap and moves it while you hold it. NegPy leaves the
+  dock's button mode (`BTNMODE`) as you set it.
 - When NegPy releases the dock, it puts back the dock's saved light mode and control mode.
 
 The dock's own pulsed light stays with Dock Connect.
