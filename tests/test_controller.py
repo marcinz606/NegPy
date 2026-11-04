@@ -1414,6 +1414,73 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(cfg[0].process.hue_trim, 2.5)
         self.assertTrue(kwargs["persist"])
 
+    def test_a_raw_decode_edited_back_to_the_rolls_decode_unlocks(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_roll_defaults(repo, roll_id, linear_raw=False)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        state.current_file_path = "/a.dng"
+        state.selected_file_idx = 0
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=False))
+        with patch.object(self.controller, "load_file"):
+            self.controller.apply_scan_setup("scanner", "white")
+
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def _frame_in_empty_roll(self) -> str:
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        state.selected_file_idx = 0
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True))
+        return roll_id
+
+    def test_an_edit_back_on_a_roll_with_no_value_for_the_card_unlocks(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", highlight_reconstruction=3)
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", highlight_reconstruction=0)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def test_an_undone_push_gives_the_lock_its_baseline_back(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        baselines = {"demosaic": rolls.frame_baseline(repo, roll_id, "h1", "demosaic")}
+        snapshot = rolls.roll_fields_snapshot(repo, roll_id, rolls.card_fields("demosaic"))
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(self.mock_session_manager.state.config, "demosaic"))
+        rolls.set_frame_override(repo, roll_id, "h1", "demosaic", False)
+
+        self.controller._restore_roll_push(roll_id, "h1", baselines, snapshot)
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
     def test_set_roll_default_matches_a_tuple_the_store_read_back_as_a_list(self):
         """The roll store is JSON, so crosstalk_matrix comes back as a list. Picking the roll's
         own crosstalk matrix again must still read as matching the roll."""
@@ -4698,13 +4765,15 @@ class TestPresetExportSelected(unittest.TestCase):
 
         self.mock_session_manager.state.active_roll_id = "roll-1"
 
+        state = self.mock_session_manager.state
+        self.mock_session_manager.update_config.side_effect = lambda cfg, **_kw: setattr(state, "config", cfg)
         with (
             patch.object(rolls, "set_frame_override") as mock_lock,
             patch.object(rolls, "frame_override_cards", return_value=set()),
         ):
             self.controller.set_process_mode(ProcessMode.BW)
 
-        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True)
+        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True, baseline=ANY)
 
     def test_set_process_mode_does_not_touch_the_roll_without_an_active_roll(self):
         from negpy.features.process.models import ProcessMode
@@ -4733,13 +4802,15 @@ class TestPresetExportSelected(unittest.TestCase):
         self.mock_session_manager.state.active_roll_id = "roll-1"
         self.mock_session_manager.state.config = _slide_config(self.mock_session_manager.state.config)
 
+        state = self.mock_session_manager.state
+        self.mock_session_manager.update_config.side_effect = lambda cfg, **_kw: setattr(state, "config", cfg)
         with (
             patch.object(rolls, "set_frame_override") as mock_lock,
             patch.object(rolls, "frame_override_cards", return_value=set()),
         ):
             self.controller.set_positive_source(True)
 
-        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True)
+        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True, baseline=ANY)
 
     def test_set_positive_source_does_not_touch_the_roll_without_an_active_roll(self):
         self.mock_session_manager.state.active_roll_id = None

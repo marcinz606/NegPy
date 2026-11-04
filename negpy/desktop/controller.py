@@ -2268,8 +2268,8 @@ class AppController(QObject):
         # Before the reload: an unlocked Raw Decode takes the roll's decode on load, so a roll on the old one undoes the rig.
         repo = self.session.repo
         for roll_id in {r for a in self.session.state.uploaded_files if (r := rolls.frame_roll(repo, self.state.active_roll_id, a))}:
-            if rolls.roll_defaults(repo, roll_id).get("linear_raw", linear_raw) != linear_raw:
-                rolls.set_roll_defaults(repo, roll_id, linear_raw=linear_raw)
+            if "linear_raw" in rolls.roll_defaults(repo, roll_id):
+                self._set_roll_cards(roll_id, self.state.config, linear_raw=linear_raw)
 
         def with_rig(config: WorkspaceConfig) -> WorkspaceConfig:
             exposure = config.exposure
@@ -5904,15 +5904,16 @@ class AppController(QObject):
         changed: List[str] = []
         for f in frames:
             if f["hash"] == self.state.current_file_hash:
-                self.session.update_config(replace(self.state.config, process=_own_bounds(self.state.config.process)), persist=True)
-                self._lock_roll_card("baseline")
+                before = self.state.config
+                self.session.update_config(replace(before, process=_own_bounds(before.process)), persist=True)
+                self._lock_roll_card("baseline", before)
                 self.request_render()
                 continue
             p = self.session.repo.load_file_settings(f["hash"]) or self.session.config_for_asset(f)
             new_p = replace(p, process=_own_bounds(p.process))
             self.session.push_external_history(f["hash"], p, new_p)
             self.session.repo.save_file_settings(f["hash"], new_p, file_path=f["path"])
-            self._lock_roll_card_for(f, f["hash"], new_p, "baseline")
+            self._lock_roll_card_for(f, f["hash"], new_p, "baseline", p)
             changed.append(f["hash"])
         if changed:
             self.session.frames_edited_offscreen.emit(changed)
@@ -6345,7 +6346,7 @@ class AppController(QObject):
             new_config = replace(config, process=process)
             self.session.push_external_history(f["hash"], config, new_config)
             self.session.repo.save_file_settings(f["hash"], new_config, file_path=f["path"])
-            self._lock_roll_card_for(f, f["hash"], new_config, "baseline")
+            self._lock_roll_card_for(f, f["hash"], new_config, "baseline", config)
             changed.append(f["hash"])
         if changed:
             self.session.frames_edited_offscreen.emit(changed)
@@ -6582,6 +6583,19 @@ class AppController(QObject):
             config = replace(config, process=replace(config.process, **invalidate_local_bounds(config.process)))
         return config
 
+    def _set_roll_cards(self, roll_id: str, config, **values) -> None:
+        """Writes *values* into the roll as whole cards: a field of a touched card the roll lacks
+        takes *config*'s value, because a card with an unset field never matches the roll again."""
+        repo = self.session.repo
+        defaults = rolls.roll_defaults(repo, roll_id)
+        wanted = {}
+        for card_key, (_section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
+            if any(name in values for name in names):
+                wanted.update({n: v for n, v in self._card_values(config, card_key).items() if n not in defaults})
+        wanted.update(values)
+        if not all(n in defaults and rolls.same_value(v, defaults[n]) for n, v in wanted.items()):
+            rolls.set_roll_defaults(repo, roll_id, **wanted)
+
     def locked_roll_cards(self) -> set:
         """The Roll-tab cards the active frame has locked to its own value, within the
         active roll. Empty with no active roll. Keyed on the unforked hash, like the lock
@@ -6601,7 +6615,7 @@ class AppController(QObject):
         locked = self.locked_roll_cards()
         return [key for key in self._ROLL_CARDS if key in locked]
 
-    def _lock_roll_card(self, card_key: str) -> None:
+    def _lock_roll_card(self, card_key: str, before: Optional[WorkspaceConfig] = None) -> None:
         """Lock *card_key* only while the active frame's value differs from the roll's: a value
         edited back to the roll's is no divergence. Written in the roll the frame resolves
         through (rolls.frame_roll). No-op with no frame, or a frame in no roll."""
@@ -6610,24 +6624,34 @@ class AppController(QObject):
         idx = self.state.selected_file_idx
         files = self.state.uploaded_files
         asset = files[idx] if 0 <= idx < len(files) else {}
-        self._lock_roll_card_for(asset, self.state.current_file_hash, self.state.config, card_key)
+        self._lock_roll_card_for(asset, self.state.current_file_hash, self.state.config, card_key, before)
 
-    def _lock_roll_card_for(self, asset: dict, file_hash: str, config: WorkspaceConfig, card_key: str) -> None:
-        """_lock_roll_card for any frame, given its config."""
-        roll_id = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
+    def _lock_roll_card_for(
+        self, asset: dict, file_hash: str, config: WorkspaceConfig, card_key: str, before: Optional[WorkspaceConfig] = None
+    ) -> None:
+        """_lock_roll_card for any frame, given its config and, for an edit, the config before it."""
+        repo = self.session.repo
+        roll_id = rolls.frame_roll(repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.roll_defaults(self.session.repo, roll_id)
-        # A field the roll has never set at all cannot "match" -- there is nothing yet
-        # to differ from, and treating that as a match would hide a card's first-ever
-        # edit from Apply until every one of its fields happened to get a roll default.
-        current = self._card_values(config, card_key)
-        matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
-        diverged = not matches_roll
+        defaults = rolls.roll_defaults(repo, roll_id)
         file_hash = rolls.unforked_hash(file_hash)
-        if diverged == (card_key in rolls.frame_override_cards(self.session.repo, roll_id, file_hash)):
-            return
-        rolls.set_frame_override(self.session.repo, roll_id, file_hash, card_key, diverged)
+        locked = card_key in rolls.frame_override_cards(repo, roll_id, file_hash)
+        # A field the roll has no value for matches the value the frame held before the card locked.
+        # With no such value it cannot match, or a card's first edit would hide from Apply.
+        if locked:
+            baseline = rolls.frame_baseline(repo, roll_id, file_hash, card_key)
+        else:
+            baseline = {} if before is None else self._roll_baseline(before, card_key, defaults)
+        reference = {**baseline, **defaults}
+        current = self._card_values(config, card_key)
+        diverged = not all(name in reference and rolls.same_value(value, reference[name]) for name, value in current.items())
+        if diverged != locked:
+            rolls.set_frame_override(repo, roll_id, file_hash, card_key, diverged, baseline=baseline)
+
+    def _roll_baseline(self, config: WorkspaceConfig, card_key: str, defaults: dict) -> dict:
+        """*card_key*'s values on *config* for the fields the roll has no value for."""
+        return {name: value for name, value in self._card_values(config, card_key).items() if name not in defaults}
 
     def set_process_mode(self, mode: str) -> None:
         """Switches Film Mode for the active frame, locking the "film" card away from
@@ -6637,8 +6661,9 @@ class AppController(QObject):
         config = with_process_mode(self.state.config, mode)
         if config.process.process_mode != self.state.config.process.process_mode:
             config = with_scanner_positive_default(config, self.state.current_file_path or "")
+        before = self.state.config
         self.apply_config(config, persist=True)
-        self._lock_roll_card("film")
+        self._lock_roll_card("film", before)
 
     def set_positive_source(self, checked: bool) -> None:
         """Toggles Positive for the active frame, locking the "film" card away from
@@ -6647,16 +6672,18 @@ class AppController(QObject):
         if self.state.config.process.process_mode != ProcessMode.E6:
             # The shortcut still reaches the hidden button.
             return
-        self.apply_config(with_positive_source(self.state.config, checked), persist=True)
-        self._lock_roll_card("film")
+        before = self.state.config
+        self.apply_config(with_positive_source(before, checked), persist=True)
+        self._lock_roll_card("film", before)
 
     def set_source_encoding(self, encoding: str) -> None:
         """Sets the active frame's Source Encoding, locking the "film" card away from the roll
         like Positive: one scanner and one workflow usually make a whole roll."""
         if str(self.state.config.process.source_encoding) == encoding:
             return
-        self.apply_config(with_source_encoding(self.state.config, encoding), persist=True)
-        self._lock_roll_card("film")
+        before = self.state.config
+        self.apply_config(with_source_encoding(before, encoding), persist=True)
+        self._lock_roll_card("film", before)
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
         """Edits *card_key* for the active frame alone, same as any other control --
@@ -6669,9 +6696,10 @@ class AppController(QObject):
         any other live preview -- the lock only follows the settled value, not every
         intermediate tick.
         """
+        before = self.state.config
         self._edit_card(card_key, rolls.ROLL_DEFAULT_FIELDS[card_key][0], persist, readback_metrics, changes)
         if persist:
-            self._lock_roll_card(card_key)
+            self._lock_roll_card(card_key, before)
 
     def set_crop_settings(self, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
         """Auto Crop's detection settings on the active frame. A change re-detects the crop
@@ -6710,11 +6738,12 @@ class AppController(QObject):
         # Only the fields this push writes, so an undo leaves every later roll default alone.
         names = {name for card in pushed for name in rolls.card_fields(card)}
         snapshot = rolls.roll_fields_snapshot(repo, roll_id, names)
+        baselines = {card: rolls.frame_baseline(repo, roll_id, frame_hash, card) for card in pushed}
         with self.session.recording_batch(tr("Apply to Roll")) as batch:
             for card_key in pushed:
                 rolls.set_roll_defaults(repo, roll_id, **self._card_values(self.state.config, card_key))
                 rolls.set_frame_override(repo, roll_id, frame_hash, card_key, False)
-            batch["roll"] = lambda: self._restore_roll_push(roll_id, frame_hash, tuple(pushed), snapshot)
+            batch["roll"] = lambda: self._restore_roll_push(roll_id, frame_hash, baselines, snapshot)
         self._roll_defaults_changed(roll_id, set(pushed))
         message = tr("Applied to the roll: {value}", value=self._roll_card_names(pushed))
         own = self._frames_keeping_own(roll_id, set(pushed))
@@ -6729,12 +6758,14 @@ class AppController(QObject):
         overrides = entry.get("frame_overrides", {})
         return sum(1 for f in self.state.uploaded_files if cards & set(overrides.get(rolls.unforked_hash(f["hash"]), ())))
 
-    def _restore_roll_push(self, roll_id: str, frame_hash: str, pushed: tuple, snapshot: dict) -> None:
-        """Gives the roll back the values a push replaced; the frame that pushed keeps its own again."""
+    def _restore_roll_push(self, roll_id: str, frame_hash: str, baselines: dict, snapshot: dict) -> None:
+        """Gives the roll back the values a push replaced; the frame that pushed keeps its own again.
+        *baselines* maps each pushed card to the pre-lock values its lock held."""
         repo = self.session.repo
+        pushed = tuple(baselines)
         rolls.restore_roll_fields(repo, roll_id, snapshot)
-        for card_key in pushed:
-            rolls.set_frame_override(repo, roll_id, frame_hash, card_key, True)
+        for card_key, baseline in baselines.items():
+            rolls.set_frame_override(repo, roll_id, frame_hash, card_key, True, baseline=baseline)
         self._roll_defaults_changed(roll_id, set(pushed))
         # The open frame follows the roll on these cards unless it is the one that pushed.
         idx = self.state.selected_file_idx
@@ -6865,10 +6896,13 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
             return
+        baseline = {}
         if locked:
             frozen = self._card_values(self.state.config, card_key)
             self.session.update_config(self._with_card_values(self.state.config, card_key, frozen), persist=True, render=False)
-        rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash), card_key, locked)
+            baseline = self._roll_baseline(self.state.config, card_key, rolls.roll_defaults(self.session.repo, roll_id))
+        file_hash = rolls.unforked_hash(self.state.current_file_hash)
+        rolls.set_frame_override(self.session.repo, roll_id, file_hash, card_key, locked, baseline=baseline)
         if not locked:
             asset = self.state.uploaded_files[self.state.selected_file_idx]
             self.apply_config(self.session.config_for_asset(asset), persist=False)
@@ -7834,10 +7868,7 @@ class AppController(QObject):
     def _set_roll_sensor_profile(self, roll_id: str, name: str, matrix: tuple) -> None:
         """Make a single-capture preset's sensor profile the roll's own. The unmix needs
         Linear RAW, so that goes with it."""
-        wanted = {"linear_raw": True, "sensor_profile": name, "sensor_matrix": matrix}
-        defaults = rolls.roll_defaults(self.session.repo, roll_id)
-        if not all(key in defaults and rolls.same_value(value, defaults[key]) for key, value in wanted.items()):
-            rolls.set_roll_defaults(self.session.repo, roll_id, **wanted)
+        self._set_roll_cards(roll_id, self.state.config, linear_raw=True, sensor_profile=name, sensor_matrix=matrix)
 
     def _on_capture_flat(self, path: str) -> None:
         """A strip's bare-light reference: save it as the roll's Flat Field profile, which its frames take."""

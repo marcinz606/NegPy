@@ -10,6 +10,7 @@ from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessMode, scan_setup_rig, scan_setup_values, with_process_mode
+from negpy.services.assets import rolls
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -335,11 +336,20 @@ class TestApplyScanSetup(unittest.TestCase):
         calls = self._roll_writes({"linear_raw": False})
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].args[1], "r1")
-        self.assertEqual(calls[0].kwargs, {"linear_raw": True})
+        self.assertEqual(calls[0].kwargs, {**self._raw_decode, "linear_raw": True})
 
     def test_a_roll_without_a_decode_or_on_the_rigs_decode_is_left_alone(self):
         self.assertEqual(self._roll_writes({}), [])
-        self.assertEqual(self._roll_writes({"linear_raw": True}), [])
+        self.assertEqual(self._roll_writes({**self._raw_decode, "linear_raw": True}), [])
+
+    def test_a_roll_with_part_of_the_raw_decode_card_gets_all_of_it(self):
+        calls = self._roll_writes({"linear_raw": True})
+        self.assertEqual(calls[0].kwargs, {**self._raw_decode, "linear_raw": True})
+
+    @property
+    def _raw_decode(self) -> dict:
+        process = self.mock_session_manager.state.config.process
+        return {name: getattr(process, name) for name in rolls.card_fields("demosaic")}
 
 
 if __name__ == "__main__":

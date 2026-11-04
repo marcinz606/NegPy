@@ -1146,3 +1146,34 @@ def test_home_roll_lookup_answers_as_home_roll(tmp_path):
     for path in (str(folder / "1.tif"), "/elsewhere/2.tif", "/nowhere/3.tif", str(folder / "sub" / "4.tif")):
         assert lookup(path) == home_roll(repo, path), path
     assert lookup(str(folder)) == folder_id
+
+
+def test_a_lock_keeps_its_first_baseline_until_it_unlocks():
+    from negpy.services.assets.rolls import frame_baseline, set_frame_override
+
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "Portra", [])
+    set_frame_override(repo, roll_id, "h1", "demosaic", True, baseline={"linear_raw": True})
+    set_frame_override(repo, roll_id, "h1", "demosaic", True, baseline={"linear_raw": False})
+    assert frame_baseline(repo, roll_id, "h1", "demosaic") == {"linear_raw": True}
+
+    set_frame_override(repo, roll_id, "h1", "demosaic", False)
+    assert frame_baseline(repo, roll_id, "h1", "demosaic") == {}
+    assert roll_for_id(repo, roll_id)["frame_baselines"] == {}
+
+
+def test_a_baseline_follows_its_lock_through_a_replacement_a_copy_and_a_removal():
+    from negpy.services.assets.rolls import adopt_replacement, copy_roll_settings, frame_baseline, remove_members, set_frame_override
+
+    repo = _repo()
+    source = create_virtual_roll(repo, "Portra", ["/scans/1.tif"])
+    target = create_virtual_roll(repo, "Picks", [])
+    set_frame_override(repo, source, "h1", "demosaic", True, baseline={"linear_raw": True})
+
+    adopt_replacement(repo, "h1", "h2", "/scans/1.tif", "/scans/1-merged.tif", [], False)
+    copy_roll_settings(repo, source, target, {"h2"})
+    assert frame_baseline(repo, source, "h2", "demosaic") == {"linear_raw": True}
+    assert frame_baseline(repo, target, "h2", "demosaic") == {"linear_raw": True}
+
+    remove_members(repo, source, ["/scans/1-merged.tif"], ["h1", "h2"])
+    assert roll_for_id(repo, source)["frame_baselines"] == {}

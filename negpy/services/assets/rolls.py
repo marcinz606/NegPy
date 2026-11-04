@@ -372,6 +372,8 @@ def remove_members(repo: Any, roll_id: str, paths: List[str], hashes: List[str])
     drop = set(hashes)
     if "frame_overrides" in entry:
         entry["frame_overrides"] = {h: cards for h, cards in entry["frame_overrides"].items() if h not in drop}
+    if "frame_baselines" in entry:
+        entry["frame_baselines"] = {h: cards for h, cards in entry["frame_baselines"].items() if h not in drop}
     if "scenes" in entry:
         scenes = dict(entry["scenes"])
         _pull_members(scenes, list(drop))
@@ -564,6 +566,9 @@ def adopt_replacement(
         overrides = entry.get("frame_overrides", {})
         if old_hash in overrides and new_hash not in overrides:
             entry["frame_overrides"] = {**overrides, new_hash: list(overrides[old_hash])}
+            baselines = entry.get("frame_baselines", {})
+            if old_hash in baselines:
+                entry["frame_baselines"] = {**baselines, new_hash: copy.deepcopy(baselines[old_hash])}
         for scene_id, scene in entry.get("scenes", {}).items():
             if old_hash in scene["member_hashes"] and new_hash not in scene["member_hashes"]:
                 entry["scenes"][scene_id] = {**scene, "member_hashes": [*scene["member_hashes"], new_hash]}
@@ -803,6 +808,9 @@ def copy_roll_settings(repo: Any, from_id: str, to_id: str, file_hashes: Collect
     locks = {h: list(cards) for h, cards in source.get("frame_overrides", {}).items() if h in file_hashes and cards}
     if locks:
         target["frame_overrides"] = locks
+        baselines = {h: copy.deepcopy(b) for h, b in source.get("frame_baselines", {}).items() if h in locks}
+        if baselines:
+            target["frame_baselines"] = baselines
     _write(repo, store)
 
 
@@ -844,20 +852,24 @@ def clear_frame_overrides(repo: Any, roll_id: str, file_hash: str) -> None:
     if entry is None or file_hash not in entry.get("frame_overrides", {}):
         return
     entry["frame_overrides"] = {h: cards for h, cards in entry["frame_overrides"].items() if h != file_hash}
+    entry["frame_baselines"] = {h: b for h, b in entry.get("frame_baselines", {}).items() if h != file_hash}
     _write(repo, store)
 
 
-def set_frame_override(repo: Any, roll_id: str, file_hash: str, card_key: str, locked: bool) -> None:
+def set_frame_override(
+    repo: Any, roll_id: str, file_hash: str, card_key: str, locked: bool, baseline: Optional[Dict[str, Any]] = None
+) -> None:
     """Lock (locked=True) or unlock (False) one card for one frame within one roll.
     Locking freezes that card at the frame's current (usually roll-default) value;
-    unlocking reverts it to whatever the roll currently says. No-op for an unknown
-    roll id."""
+    unlocking reverts it to whatever the roll currently says. A new lock keeps *baseline*,
+    a lock that already holds keeps its own, and an unlock drops it. No-op for an unknown roll id."""
     store = _read(repo)
     entry = store.get(roll_id)
     if entry is None:
         return
     overrides = dict(entry.get("frame_overrides", {}))
     cards = set(overrides.get(file_hash, ()))
+    relock = locked and card_key in cards
     if locked:
         cards.add(card_key)
     else:
@@ -867,7 +879,25 @@ def set_frame_override(repo: Any, roll_id: str, file_hash: str, card_key: str, l
     else:
         overrides.pop(file_hash, None)
     entry["frame_overrides"] = overrides
+    baselines = dict(entry.get("frame_baselines", {}))
+    frame = {c: v for c, v in baselines.get(file_hash, {}).items() if c != card_key or relock}
+    if locked and baseline and not relock:
+        frame[card_key] = dict(baseline)
+    if frame:
+        baselines[file_hash] = frame
+    else:
+        baselines.pop(file_hash, None)
+    entry["frame_baselines"] = baselines
     _write(repo, store)
+
+
+def frame_baseline(repo: Any, roll_id: str, file_hash: str, card_key: str) -> Dict[str, Any]:
+    """The values a locked card held before its lock, for the fields the roll had no value for.
+    Editing the frame back to them and to the roll's own values unlocks the card."""
+    entry = roll_for_id(repo, roll_id)
+    if not entry:
+        return {}
+    return {n: config_value(v) for n, v in entry.get("frame_baselines", {}).get(file_hash, {}).get(card_key, {}).items()}
 
 
 def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":
