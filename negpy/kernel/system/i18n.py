@@ -24,6 +24,7 @@ LANGUAGES = (
     ("ja", "日本語"),
     ("ko", "한국어"),
     ("de", "Deutsch"),
+    ("vi", "Tiếng Việt"),
 )
 _language = "en"
 _messages: dict[str, str] = {}
