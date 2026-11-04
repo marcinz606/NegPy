@@ -46,6 +46,10 @@ def chinese() -> Iterator[None]:
         ("vi", ["en-US"], "vi"),
         ("VI_VN", ["en-US"], "vi"),
         ("system", ["vi-VN"], "vi"),
+        ("nb", ["en-US"], "nb"),
+        ("system", ["nb-NO"], "nb"),
+        ("system", ["no"], "nb"),
+        ("system", ["nn-NO"], "nb"),
         ("system", [], "en"),
         ("invalid", ["zh-CN"], "en"),
     ],
@@ -227,7 +231,7 @@ def test_language_preference_is_saved_and_waits_for_restart(locale: str) -> None
     assert reopened.language_combo.currentData() == locale
 
 
-@pytest.mark.parametrize("locale,word", [("zh_CN", "密度"), ("ja", "濃度"), ("ko", "농도"), ("de", "Dichte")])
+@pytest.mark.parametrize("locale,word", [("zh_CN", "密度"), ("ja", "濃度"), ("ko", "농도"), ("de", "Dichte"), ("nb", "tetthet")])
 def test_localized_guides_cover_every_panel_and_fall_back(locale: str, word: str) -> None:
     from negpy.desktop.view.widgets.section_help_dialog import _localized_guides, _read_guides, guide_markdown
 
