@@ -2548,6 +2548,23 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.session.repo.save_file_settings("hash1", self.session.state.config, file_path=self.session.state.uploaded_files[0]["path"])
         self.assertFalse(self.session.config_for_asset(self.session.state.uploaded_files[0]).process.linear_raw)
 
+    def test_undo_to_the_rolls_value_unlocks_the_card_and_redo_locks_it(self):
+        from negpy.services.assets import rolls
+
+        roll_id = rolls.create_virtual_roll(self.repo, "Pakon", [f["path"] for f in self.session.state.uploaded_files])
+        self.session.state.active_roll_id = roll_id
+        start = self.session.state.config
+        rolls.set_roll_defaults(self.repo, roll_id, linear_raw=start.process.linear_raw)
+        self.session.update_config(replace(start, process=replace(start.process, linear_raw=not start.process.linear_raw)), persist=True)
+        self.session.relock_diverged_cards(start)
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+        self.session.undo()
+        self.assertNotIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.session.redo()
+
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
     def test_undo_leaves_a_card_pinned_at_the_rolls_value_pinned(self):
         from negpy.services.assets import rolls
 
