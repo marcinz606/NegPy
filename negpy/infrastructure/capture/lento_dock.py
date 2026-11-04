@@ -171,6 +171,8 @@ class LentoDock:
         self._last_press = -SCAN_BUTTON_DEBOUNCE_S
         self._timed_light_at = -TIMED_LIGHT_QUIET_S
         self._btn_seen = False  # the dock answers BTN?, so the S button is read directly
+        self._last_rx = time.monotonic()
+        self._silent = False
         self._shutter_down_at: Optional[float] = None
         self.on_scan_button: Optional[Callable[[], None]] = None  # called on the reader thread
         self._saved: dict[str, str] = {}
@@ -202,7 +204,8 @@ class LentoDock:
         return None
 
     def is_connected(self) -> bool:
-        return self._reader.is_alive() and self._reader_error is None and self._link_error is None
+        """False once the dock has gone silent: the caller opens the port again, which resets it."""
+        return self._reader.is_alive() and self._reader_error is None and self._link_error is None and not self._silent
 
     def describe(self) -> tuple[str, bool, bool]:
         """(status text, has a white channel, has an infrared channel) for the Scan panel."""
@@ -350,6 +353,18 @@ class LentoDock:
         self._command("EXPMODE CONT", r"^(EXPMODE=|ERR)")
         self._continuous = True
         self._set_buttons_to_jog()
+        self._keep_awake()
+
+    def _keep_awake(self) -> None:
+        """The dock sleeps after 90 s without work, and a sleeping dock answers nothing. NegPy turns
+        the auto-sleep off while it holds the dock and puts the saved timeout back on release."""
+        try:
+            sec = parse_kv(self._command("SLEEP", r"^(SLEEP\b|ERR)")).get("sec", "")
+            if sec and sec != "0":
+                self._command("SLEEP 0", r"^(SLEEP\b|ERR)")
+                self._saved["SLEEP"] = sec
+        except (TimeoutError, ValueError):
+            logger.info("Lento Dock keeps its sleep timeout")
 
     def _set_buttons_to_jog(self) -> None:
         """The arrow buttons nudge the film while NegPy holds the dock: NegPy moves whole frames
@@ -373,6 +388,8 @@ class LentoDock:
         self._command(f"MODE {'AUTO' if mode == 'SEMI' else mode}", r"^(MODE=|ERR)")
         if self._saved.get("BTNMODE"):
             self._command(f"BTNMODE {self._saved['BTNMODE']}", r"^(BTNMODE=|ERR)")
+        if self._saved.get("SLEEP"):
+            self._command(f"SLEEP {self._saved['SLEEP']}", r"^(SLEEP\b|ERR)")
         self._continuous = self._light_on = False
 
     def _send(self, cmd: str) -> None:
@@ -420,6 +437,9 @@ class LentoDock:
             left = deadline - time.monotonic()
             if left <= 0:
                 heard = "; ".join(seen[-8:]) or "nothing"
+                if time.monotonic() - self._last_rx >= timeout:
+                    self._silent = True
+                    logger.warning("Lento Dock went silent; NegPy opens its port again on the next use")
                 raise TimeoutError(f"No reply to {cmd!r} within {timeout}s (the dock sent: {heard})")
             try:
                 line = self._replies.get(timeout=left)
@@ -514,6 +534,7 @@ class LentoDock:
 
     def _dispatch(self, line: str) -> None:
         logger.debug("Lento Dock: %s", line)
+        self._last_rx = time.monotonic()
         if line.startswith("FRAMEAT") and not line.startswith("FRAMEAT ERR"):
             self._last_frameat = line
         elif line.startswith(("END_OF_ROLL", "ROLLEND", "FRAMEAT ERR")):
