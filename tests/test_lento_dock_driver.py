@@ -385,3 +385,21 @@ def test_the_arrows_jog_while_negpy_holds_the_dock(sim):
         dock.set_color(200, 110, 40)
         assert sim.btnmode == "JOG"
     assert sim.btnmode == "FRAME"  # the user's setting comes back
+
+
+def test_the_dock_stays_awake_while_negpy_holds_it(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.sleep_s == 0
+    assert sim.sleep_s == 90  # the user's timeout comes back
+
+
+def test_a_silent_dock_reads_as_disconnected(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        sim.asleep = True
+        time.sleep(0.3)  # the button polls go unanswered too
+        with pytest.raises(TimeoutError):
+            dock.set_color(100, 100, 100)
+        assert not dock.is_connected()
+        sim.asleep = False

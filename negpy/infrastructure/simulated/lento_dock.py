@@ -26,6 +26,8 @@ class SimDockSerial:
         self.st = "READY" if frames and fed else "IDLE"  # an unfed strip waits at the entrance for INSERT
         self.ok_replies = ok_replies  # firmware 1.0.239 answers CONTRGB and CONTHOLD with a bare OK
         self.btnmode = "BOTH"
+        self.sleep_s = 90
+        self.asleep = False  # a sleeping dock answers nothing
         self.shutter = 0  # the S button, held down
         self.answers_btn = True  # firmware before the published API may not know BTN?
         self.busy = 0  # the next commands answered BUSY, as during the dock's own exposure
@@ -116,6 +118,8 @@ class SimDockSerial:
 
     def _answer(self, line: str) -> None:
         cmd, _, arg = line.partition(" ")
+        if self.asleep:
+            return
         if self.busy and cmd not in ("STATE?", "PING"):
             self.busy -= 1
             self._say("BUSY")
@@ -138,6 +142,13 @@ class SimDockSerial:
         elif cmd == "CONTHOLD" and arg in ("0", "1"):
             self.hold = int(arg)
             self._say("OK" if self.ok_replies else f"CONTHOLD {arg}")
+        elif cmd == "SLEEP":
+            if arg.isdigit():
+                self.sleep_s = int(arg)
+            elif arg:
+                self._say("ERR")
+                return
+            self._say(f"SLEEP sec={self.sleep_s}")
         elif cmd == "BTNMODE":
             if arg in ("BOTH", "JOG", "FRAME"):
                 self.btnmode = arg

@@ -211,7 +211,10 @@ described above.
 - While NegPy uses the dock, an arrow button nudges the film on a tap and moves it while you
   hold it (`BTNMODE JOG`), because Next Frame and Whole Strip move whole frames. NegPy puts the
   dock's own button mode back when it releases the dock.
-- When NegPy releases the dock, it puts back the dock's saved light mode and control mode.
+- While NegPy uses the dock, the dock's auto-sleep is off (`SLEEP 0`), because a sleeping dock
+  answers nothing. If the dock goes silent anyway, NegPy opens its port again on the next use.
+- When NegPy releases the dock, it puts back the dock's saved light mode, control mode, button
+  mode and sleep timeout.
 
 The dock's own pulsed light stays with Dock Connect.
 
