@@ -4,7 +4,7 @@ from typing import Optional
 from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
 
 from negpy.desktop.controller import ROLL_ANALYSIS_NEEDS_A_ROLL
-from negpy.desktop.view.confirm import prompt_delete_scene
+from negpy.desktop.view.confirm import confirm_action, prompt_delete_scene
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
     field_label,
@@ -136,7 +136,14 @@ class RollAnalysisSidebar(BaseSidebar):
 
     def _on_from_frame_clicked(self) -> None:
         active_id = self.controller.state.active_roll_id
-        if active_id:
+        if active_id and confirm_action(
+            self,
+            tr("Use This Frame"),
+            tr("Make this frame's own measurement the roll average? Every frame on the average takes it."),
+            tr("Use Frame"),
+            tr("Cast turns off, because one frame has no shared gray balance."),
+            destructive=False,
+        ):
             self.controller.set_roll_baseline_from_frame(active_id)
 
     def _name_for_id(self, roll_id: str) -> str:

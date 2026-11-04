@@ -1099,3 +1099,28 @@ def test_the_strip_and_the_light_table_measure_a_picture_once(qapp, monkeypatch)
 
     assert _FilmDelegate()._picture_bounds(pixmap) == _FilmDelegate()._picture_bounds(pixmap)
     assert len(calls) == 1
+
+
+def test_a_canvas_tool_shows_the_canvas_and_opening_the_table_ends_it(qapp):
+    from negpy.desktop.session import ToolMode
+
+    win = _window()
+    win.set_light_table = lambda on: MainWindow.set_light_table(win, on)
+    MainWindow.set_light_table(win, True)
+    win.controller.cancel_active_tool.assert_called_once()
+    win.controller.reset_all_peeks.assert_called_once()
+
+    win.state.active_tool = ToolMode.CROP_MANUAL
+    MainWindow._leave_light_table_for_canvas(win)
+    assert win.central_stack.currentIndex() == 0
+
+
+def test_a_tool_sync_with_no_tool_keeps_the_light_table(qapp):
+    from negpy.desktop.session import ToolMode
+
+    win = _window()
+    win.set_light_table = lambda on: MainWindow.set_light_table(win, on)
+    MainWindow.set_light_table(win, True)
+    win.state.active_tool = ToolMode.NONE
+    MainWindow._leave_light_table_for_canvas(win)
+    assert win.central_stack.currentIndex() == 1

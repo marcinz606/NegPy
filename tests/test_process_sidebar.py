@@ -151,7 +151,7 @@ def test_lock_bounds_sits_on_the_analysis_header(qapp):
     col = sidebar.analysis_bar.layout()
     header_i = _row_index_containing(col, sidebar.analysis_header)
     assert _row_index_containing(col, sidebar.lock_bounds_btn) == header_i
-    assert sidebar.reanalyze_frame_btn.text().strip() == "Reanalyze Frame"
+    assert sidebar.reanalyze_frame_btn.text().strip() == "Measure Alone"
     assert sidebar.lock_bounds_btn.text().strip() == "Lock"
 
 
@@ -337,7 +337,7 @@ def test_reanalyze_names_the_selection(qapp):
     controller.state.config = replace(cfg, process=replace(cfg.process, lock_bounds=True))
     sidebar.sync_ui()
     assert sidebar.reanalyze_frame_btn.isEnabled()
-    assert "Reanalyze 3 Frames" in sidebar.reanalyze_frame_btn.toolTip()
+    assert "Measure 3 Frames Alone" in sidebar.reanalyze_frame_btn.toolTip()
 
 
 def test_baseline_hint_names_where_the_bounds_came_from(qapp):
@@ -438,3 +438,19 @@ def test_average_toggles_gray_out_without_a_roll(qapp):
     controller.state.active_roll_id = "roll-1"
     sidebar.sync_ui()
     assert sidebar.use_luma_avg_btn.isEnabled() and sidebar.use_color_avg_btn.isEnabled()
+
+
+def test_hand_picks_gray_out_while_the_frame_prints_on_the_roll_average(qapp):
+    """The render ignores Dmin/Dmax when Luma and Color both ride, so the picks say so."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=True))
+    sidebar.sync_ui()
+
+    assert not sidebar.dmin_btn.isEnabled() and not sidebar.dmax_btn.isEnabled()
+    assert "roll average" in sidebar.dmin_hint.text()
+
+    controller.state.config = replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=False))
+    sidebar.sync_ui()
+
+    assert sidebar.dmin_btn.isEnabled() and sidebar.dmax_btn.isEnabled()

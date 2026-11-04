@@ -176,7 +176,9 @@ class ProcessSidebar(BaseSidebar):
         analysis_col.setSpacing(THEME.space_sm)
         self.analysis_buffer_slider = CompactSlider(tr("Analysis Buffer"), 0.0, 0.25, conf.analysis_buffer)
         self.reanalyze_frame_btn = self._labeled_action(
-            "fa5s.redo", tr("Reanalyze Frame"), tr("Reanalyze Frame: measure this frame again from its current crop.")
+            "fa5s.redo",
+            tr("Measure Alone"),
+            tr("Measure Alone: take this frame off the roll average and measure it on its own, from its current crop."),
         )
         self.analysis_header = section_subheader(tr("ANALYSIS"))
         analysis_col.addLayout(header_actions(self.analysis_header, self.lock_bounds_btn))
@@ -448,9 +450,9 @@ class ProcessSidebar(BaseSidebar):
         self.reanalyze_frame_btn.setEnabled(on_selection or not locked)
         if on_selection:
             n = count_of(len(self.state.selected_indices), "frame").title()
-            tip = tr("Reanalyze {value}: measure each selected frame again on its own bounds.", value=n)
+            tip = tr("Measure {value} Alone: take each selected frame off the roll average and measure it on its own.", value=n)
         else:
-            tip = tr("Reanalyze Frame: measure this frame again from its current crop.")
+            tip = tr("Measure Alone: take this frame off the roll average and measure it on its own, from its current crop.")
         self.reanalyze_frame_btn.setToolTip(wrap_tooltip(tip))
 
     def _on_reanalyze_frame(self) -> None:
@@ -525,13 +527,18 @@ class ProcessSidebar(BaseSidebar):
             has_region = conf.analysis_rect is not None
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
             self.clear_analysis_region_btn.setVisible(has_region)
+            # Both axes on the roll average leave nothing for a hand pick to move.
+            rides = conf.use_luma_average and conf.use_color_average
             for btn, hint, mode, picked in (
                 (self.dmin_btn, self.dmin_hint, ToolMode.DMIN_PICK, conf.manual_dmin),
                 (self.dmax_btn, self.dmax_hint, ToolMode.DMAX_PICK, conf.manual_dmax),
             ):
                 btn.setChecked(self.state.active_tool == mode)
+                btn.setEnabled(not rides)
                 btn.clear_btn.setVisible(picked is not None)
                 hint.setText(_picked_densities(picked))
+            if rides:
+                self.dmin_hint.setText(tr("Off while this frame prints on the roll average: turn off Luma and Color to pick by hand."))
 
             for w in (
                 self.analysis_buffer_slider,

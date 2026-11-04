@@ -1,5 +1,6 @@
 from negpy.kernel.system.text import plural
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
+import functools
 import os
 import re
 import threading
@@ -760,6 +761,18 @@ class AssetListModel(QAbstractListModel):
                 lines.append(summary)
             if file_info.get("scene"):
                 lines.append(tr("Scene: {name}", name=file_info["scene"][2]))
+            average = file_info.get("average")
+            if average:
+                lines.append(
+                    tr("Prints on the roll average. Its color is far from the other frames.")
+                    if average == "outlier"
+                    else tr("Prints on the roll average.")
+                )
+            if file_info.get("own_cards"):
+                from negpy.desktop.controller import AppController
+
+                names = dict.fromkeys(AppController._ROLL_CARD_LABELS.get(k, k) for k in file_info["own_cards"])
+                lines.append(tr("Keeps its own value on: {value}", value=", ".join(names)))
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
                 lines.append(tr("Thumbnail predates a settings change; open the frame or use Update Thumbnails to refresh it."))
             return "\n".join(lines)
@@ -917,6 +930,20 @@ def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfi
     return replace(params, stitch=StitchConfig())
 
 
+def _records_batch(label: str):
+    """A session method that changes several frames, recorded as one batch for undo_last_batch."""
+
+    def wrap(method):
+        @functools.wraps(method)
+        def recorded(self, *args, **kwargs):
+            with self.recording_batch(tr(label)):
+                return method(self, *args, **kwargs)
+
+        return recorded
+
+    return wrap
+
+
 class DesktopSessionManager(QObject):
     """
     Manages application state, file list, and configuration persistence.
@@ -937,6 +964,7 @@ class DesktopSessionManager(QObject):
     canvas_bg_changed = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     frames_edited_offscreen = pyqtSignal(list)  # hashes whose saved edits changed without a render
+    batch_recorded = pyqtSignal()  # a change to several frames that undo_last_batch can take back
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
     session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
 
@@ -953,6 +981,8 @@ class DesktopSessionManager(QObject):
         self.repo = repo
         self.state = AppState()
         self._preview_history: Optional[Tuple[str, WorkspaceConfig]] = None
+        self._batch: Optional[Dict[str, Any]] = None
+        self.last_batch: Optional[Dict[str, Any]] = None
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
         self.asset_model = AssetListModel(self.state, self.search_facts)
         # Both signals already fire from every mutation that can change a frame's
@@ -1623,16 +1653,17 @@ class DesktopSessionManager(QObject):
         or "outlier", for the Film Strip. True when a mark changed."""
         files = [f for f in self.state.uploaded_files if hashes is None or f["hash"] in hashes]
         saved = self.repo.load_file_settings_many([f["hash"] for f in files])
-        # A frame with no saved edit rides an average only through the roll's Use Average default.
+        # The roll's Use Average default reaches every frame that has not locked Roll Analysis,
+        # a saved edit included, as hydration lays it over the edit.
         defaults = rolls.roll_defaults(self.repo, self.state.active_roll_id) if self.state.active_roll_id else {}
-        unsaved_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
+        roll_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
         changed = False
         for f in files:
             if f["hash"] == self.state.current_file_hash:
                 process = self.state.config.process
             elif f["hash"] in saved:
-                process = saved[f["hash"]].process
-            elif unsaved_rides:
+                process = (self._overlay_roll_defaults(saved[f["hash"]], f) if roll_rides else saved[f["hash"]]).process
+            elif roll_rides:
                 process = self.config_for_asset(f).process
             else:
                 process = None
@@ -1648,9 +1679,32 @@ class DesktopSessionManager(QObject):
         return changed
 
     def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
-        if self._stamp_averages(hashes):
+        changed = self._stamp_averages(hashes)
+        if self._stamp_own_cards() or changed:
             self.asset_model.refresh()
             self.files_changed.emit()
+
+    def refresh_own_marks(self) -> None:
+        """Re-reads which loaded frames keep their own value on a Roll-tab card."""
+        if self._stamp_own_cards():
+            self.asset_model.refresh()
+            self.files_changed.emit()
+
+    def _stamp_own_cards(self) -> bool:
+        """Stamps each loaded frame with the cards it locks away from the active roll, ``own_cards``,
+        for the Film Strip. True when a mark changed."""
+        entry = rolls.roll_for_id(self.repo, self.state.active_roll_id) if self.state.active_roll_id else None
+        overrides = (entry or {}).get("frame_overrides", {})
+        changed = False
+        for f in self.state.uploaded_files:
+            own = tuple(sorted(overrides.get(unforked_hash(f["hash"]), ())))
+            if own != f.get("own_cards", ()):
+                changed = True
+                if own:
+                    f["own_cards"] = own
+                else:
+                    f.pop("own_cards", None)
+        return changed
 
     def refresh_scene_marks(self) -> None:
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
@@ -1675,6 +1729,7 @@ class DesktopSessionManager(QObject):
         visible = set(ordered)
         return [i for i in self.state.selected_indices if i in visible]
 
+    @_records_batch(mark("Apply to Frames"))
     def sync_selected_settings(self, rows, bounds_flags: tuple[bool, bool] = (False, False), scope: str = "selection") -> int:
         """
         Apply the active frame's chosen settings to other frames. Returns the count changed.
@@ -1729,14 +1784,15 @@ class DesktopSessionManager(QObject):
         if count:
             settings = count_of(len(rows) + int(luma) + int(color), "setting")
             if scope == "roll":
-                msg = tr("{value} synced to the whole roll ({value1})", value=settings, value1=count_of(count, "frame"))
+                msg = tr("{value} applied to the whole roll ({value1})", value=settings, value1=count_of(count, "frame"))
             else:
-                msg = tr("{value} synced to {value1}", value=settings, value1=count_of(count, "frame"))
+                msg = tr("{value} applied to {value1}", value=settings, value1=count_of(count, "frame"))
             self.settings_synced.emit(msg)
             self.settings_saved.emit()
             self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
+    @_records_batch(mark("Apply Settings"))
     def apply_preset_fields(
         self,
         source: WorkspaceConfig,
@@ -1852,6 +1908,7 @@ class DesktopSessionManager(QObject):
                 self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
+    @_records_batch(mark("Reset Frames"))
     def reset_roll_settings(self, scope: str = "roll") -> int:
         """Reset every frame in scope to its own asset defaults, same as Reset Settings
         but for many frames. Each frame keeps what it *is* (_asset_defaults).
@@ -1984,6 +2041,9 @@ class DesktopSessionManager(QObject):
         """
         Updates global config and optionally saves to disk.
         """
+        if persist and record_history and self._batch is None:
+            # An edit after a batch: undoing the batch now would take this edit with it.
+            self.last_batch = None
         history_requested = record_history
         before = self.state.config
         if self._preview_history is not None:
@@ -2061,12 +2121,65 @@ class DesktopSessionManager(QObject):
         )
         self.update_config(config, persist=True, render=False)
 
+    @contextmanager
+    def recording_batch(self, label: str) -> Iterator[Dict[str, Any]]:
+        """Records what a change to several frames overwrites, so undo_last_batch takes it all
+        back from any frame. A batch inside a batch joins the outer one."""
+        if self._batch is not None:
+            yield self._batch
+            return
+        batch: Dict[str, Any] = {"label": label, "frames": {}, "active": (self.state.current_file_hash, self.state.config), "roll": None}
+        self._batch = batch
+        try:
+            yield batch
+        finally:
+            self._batch = None
+            active_hash, active_before = batch["active"]
+            moved = bool(active_hash) and active_hash == self.state.current_file_hash and self.state.config != active_before
+            if batch["frames"] or moved or batch["roll"]:
+                self.last_batch = batch
+                self.batch_recorded.emit()
+
+    def undo_last_batch(self) -> int:
+        """Puts back every frame the last batch changed, and the roll's values it pushed. Each
+        frame also gets an ordinary history step. Returns how many frames moved."""
+        batch, self.last_batch = self.last_batch, None
+        if batch is None:
+            return 0
+        if batch["roll"] is not None:
+            batch["roll"]()
+        paths = {f["hash"]: f.get("path", "") for f in self.state.uploaded_files}
+        active_hash, active_before = batch["active"]
+        frames = dict(batch["frames"])
+        if active_hash and active_hash != self.state.current_file_hash:
+            frames.setdefault(active_hash, active_before)
+        changed = []
+        for file_hash, before in frames.items():
+            if file_hash == self.state.current_file_hash:
+                continue
+            now = self.repo.load_file_settings(file_hash) or before
+            self.push_external_history(file_hash, now, before)
+            self.repo.save_file_settings(file_hash, before, file_path=paths.get(file_hash, ""))
+            changed.append(file_hash)
+        moved = len(changed)
+        current_before = frames.get(self.state.current_file_hash) or (
+            active_before if active_hash == self.state.current_file_hash else None
+        )
+        if current_before is not None and current_before != self.state.config:
+            self.update_config(current_before, persist=True)
+            moved += 1
+        if changed:
+            self.frames_edited_offscreen.emit(changed)
+        return moved
+
     def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
         """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
         history so plain Ctrl+Z recovers it after switching to that frame. Two steps
         are written (pre-apply, then post-apply) because undo() overwrites the top
         step with the live config when undo_index == max — a single appended step
         would be clobbered by the first Ctrl+Z."""
+        if self._batch is not None:
+            self._batch["frames"].setdefault(file_hash, old_config)
         base = self.repo.get_max_history_index(file_hash)
         if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
             first = 0
@@ -2238,6 +2351,7 @@ class DesktopSessionManager(QObject):
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
         self.update_config(self._reset_frame(asset), persist=True)
 
+    @_records_batch(mark("Reset Frames"))
     def reset_roll(self, assets: List[Dict]) -> None:
         """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
         is still an ordinary undo step; the active frame (if among them) re-renders via

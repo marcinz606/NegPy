@@ -125,3 +125,19 @@ def test_preset_summary_lists_a_deliberately_default_value():
 
 def test_preset_summary_empty_for_no_data():
     assert preset_summary({}) == ""
+
+
+def test_a_color_stock_on_a_bw_frame_is_no_edit_to_apply():
+    from dataclasses import replace
+
+    from negpy.desktop.settings_catalog import catalog_sections
+    from negpy.features.process.models import ProcessMode
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG as cfg
+
+    def stock_edited(config):
+        rows = [entry for _title, entries in catalog_sections(config) for entry in entries]
+        return next(edited for row, _value, edited in rows if row.fields == ("paper_profile",))
+
+    color = replace(cfg, exposure=replace(cfg.exposure, paper_profile="frontier"))
+    assert stock_edited(color)
+    assert not stock_edited(replace(color, process=replace(color.process, process_mode=ProcessMode.BW)))

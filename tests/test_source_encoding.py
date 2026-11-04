@@ -316,7 +316,7 @@ def _fake_controller(config: WorkspaceConfig, path: str):
     fake = SimpleNamespace(
         state=SimpleNamespace(config=config, current_file_path=path),
         apply_config=lambda c, persist=False: applied.append(c),
-        _lock_roll_card=lambda _key: None,
+        _lock_roll_card=lambda *_args: None,
     )
     return fake, applied
 

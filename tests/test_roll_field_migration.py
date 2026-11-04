@@ -20,6 +20,17 @@ def _config(**process):
     return replace(cfg, process=replace(cfg.process, **process))
 
 
+def _set_push(repo, roll_id, key, values):
+    """A whole-roll apply record as older versions stored it."""
+    store = rolls._read(repo)
+    store[roll_id].setdefault("section_pushes", {})[key] = values
+    rolls._write(repo, store)
+
+
+def _push(repo, roll_id, key):
+    return rolls.roll_for_id(repo, roll_id).get("section_pushes", {}).get(key, {})
+
+
 def test_locks_only_the_cards_whose_new_fields_a_frame_changed(repo):
     roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif", "/r/c.tif"])
     repo.save_file_settings("a", _config(white_point_trim_red=0.02), file_path="/r/a.tif")
@@ -104,16 +115,16 @@ def test_a_tone_push_hands_its_paper_fields_to_the_paper_card(repo):
 
     mixed = rolls.create_virtual_roll(repo, "Mixed", ["/r/a.tif"])
     paper_only = rolls.create_virtual_roll(repo, "Paper", ["/r/b.tif"])
-    rolls.set_section_push(repo, mixed, "tone", {"density": 1.2, "toe": 0.3, "dye_separation_trim_red": 0.1})
-    rolls.set_section_push(repo, paper_only, "tone", {"paper_profile": "ilford_mg"})
+    _set_push(repo, mixed, "tone", {"density": 1.2, "toe": 0.3, "dye_separation_trim_red": 0.1})
+    _set_push(repo, paper_only, "tone", {"paper_profile": "ilford_mg"})
 
     migrate_paper_card_split(repo)
     migrate_paper_card_split(repo)
 
-    assert rolls.section_push(repo, mixed, "tone") == {"density": 1.2}
-    assert rolls.section_push(repo, mixed, "paper") == {"toe": 0.3, "dye_separation_trim_red": 0.1}
+    assert _push(repo, mixed, "tone") == {"density": 1.2}
+    assert _push(repo, mixed, "paper") == {"toe": 0.3, "dye_separation_trim_red": 0.1}
     assert "tone" not in rolls.roll_for_id(repo, paper_only)["section_pushes"]
-    assert rolls.section_push(repo, paper_only, "paper") == {"paper_profile": "ilford_mg"}
+    assert _push(repo, paper_only, "paper") == {"paper_profile": "ilford_mg"}
 
 
 def test_the_paper_split_migration_lists_exactly_the_paper_card(repo):
@@ -161,7 +172,7 @@ def test_each_frame_keeps_the_crop_its_roll_gave_it(repo):
     rolls.set_frame_override(repo, roll, "c", "autocrop", True)
     rolls.set_frame_override(repo, roll, "d", "auto_crop", True)
     rolls.set_frame_override(repo, roll, "d", "sensor", True)
-    rolls.set_section_push(repo, roll, "geometry", {"crop_rect": rect, "crop_from_auto": False, "fine_rotation": 1.0})
+    _set_push(repo, roll, "geometry", {"crop_rect": rect, "crop_from_auto": False, "fine_rotation": 1.0})
 
     migrate_crop_to_frames(repo)
 
@@ -174,8 +185,8 @@ def test_each_frame_keeps_the_crop_its_roll_gave_it(repo):
     assert rolls.roll_defaults(repo, roll) == {"hue_trim": 2.0}
     assert rolls.frame_override_cards(repo, roll, "c") == set()
     assert rolls.frame_override_cards(repo, roll, "d") == {"sensor"}
-    assert rolls.section_push(repo, roll, "geometry") == {"fine_rotation": 1.0}
-    assert rolls.section_push(repo, roll, "autocrop") == {"crop_rect": list(rect), "crop_from_auto": False}
+    assert _push(repo, roll, "geometry") == {"fine_rotation": 1.0}
+    assert _push(repo, roll, "autocrop") == {"crop_rect": list(rect), "crop_from_auto": False}
 
 
 def test_the_crop_migration_runs_once(repo):
