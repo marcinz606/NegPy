@@ -1419,3 +1419,35 @@ def test_a_new_light_connection_takes_host_control(monkeypatch):
     assert worker._ensure_light("/dev/cu.usbserial-10") is light
     assert worker._ensure_light("/dev/cu.usbserial-10") is light
     assert light.controlled == 1
+
+
+class EntranceDock(StripDock):
+    """A strip that waits at the entrance until the worker feeds it."""
+
+    def __init__(self, frames: int) -> None:
+        super().__init__(frames)
+        self.waiting = True
+
+    def strip_waiting(self) -> bool:
+        return self.waiting
+
+    def insert_strip(self) -> None:
+        self.events.append("insert")
+        self.waiting = False
+
+
+def test_a_whole_strip_feeds_a_waiting_strip_first(tmp_path, monkeypatch):
+    dock = EntranceDock(frames=2)
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock)
+    assert dock.events == ["insert", "frame", "advance", "frame", "advance", "eject"]
+    assert seen["strip"] == [(2, True)]
+
+
+def test_a_failed_feed_stops_before_the_first_frame(tmp_path, monkeypatch):
+    class StuckEntrance(EntranceDock):
+        def insert_strip(self) -> None:
+            raise RuntimeError("the dock reported 'INSERT ERR no_border'")
+
+    dock = StuckEntrance(frames=2)
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock)
+    assert seen["error"] and seen["finished"] == [] and seen["strip"] == []

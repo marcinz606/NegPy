@@ -336,3 +336,43 @@ def test_an_unplugged_dock_ends_the_keep_alive_with_one_warning(monkeypatch, cap
     with pytest.raises(ConnectionError):
         dock.set_color(255, 0, 0)
     dock.close()
+
+
+def test_a_strip_at_the_entrance_is_fed_to_its_first_frame():
+    sim = SimDockSerial(frames=4, fed=False)
+    with LentoDock(serial_obj=sim) as dock:
+        assert dock.strip_waiting()
+        dock.insert_strip()
+        assert sim.st == "READY" and not dock.strip_waiting()
+        assert dock.advance_frame() == 0
+
+
+def test_a_failed_feed_raises():
+    sim = SimDockSerial(frames=0)
+    sim.frames = 0
+    with LentoDock(serial_obj=sim) as dock:
+        with pytest.raises(RuntimeError, match="INSERT ERR"):
+            dock.insert_strip()
+
+
+def test_firmware_that_answers_ok_still_lights_the_panel():
+    sim = SimDockSerial(ok_replies=True)
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.lit == tuple(to_duty(v) for v in (200, 110, 40))
+
+
+def test_a_busy_dock_gets_the_command_again(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock._enter_continuous()
+        sim.busy = 2  # the dock's own exposure is running
+        dock.set_color(200, 110, 40)
+        assert sim.lines.count("CONTRGB 784 431 157") == 3
+        assert sim.lit == tuple(to_duty(v) for v in (200, 110, 40))
+
+
+def test_frameat_err_is_the_end_of_the_strip(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock._enter_continuous()
+        sim._frame_next = lambda: (sim._say("OK"), sim._say("FRAMEAT ERR no_edge"), sim._say(sim._state()))
+        assert dock.advance_frame() is None

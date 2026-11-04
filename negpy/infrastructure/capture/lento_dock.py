@@ -47,6 +47,7 @@ PING_INTERVAL_S = 5.0
 #: The motor moves one frame and checks the frame edge within this time.
 ADVANCE_TIMEOUT_S = 15.0
 EXPOSE_WAIT_S = 5.0  # the dock's own exposure on an S press lasts 3 s
+BUSY_RETRY_S = 0.25  # the API's retry interval for a BUSY reply
 EJECT_TIMEOUT_S = 30.0
 HOLD_INTERVAL_S = 30.0
 KEEPALIVE_TICK_S = 1.0
@@ -213,9 +214,9 @@ class LentoDock:
             self.off()
             return
         self._enter_continuous()
-        self._command(f"CONTRGB {duties[0]} {duties[1]} {duties[2]}", r"^(CONTRGB|ERR)")
+        self._command(f"CONTRGB {duties[0]} {duties[1]} {duties[2]}", r"^(OK|CONTRGB|ERR)")
         if not self._light_on:
-            self._command("CONTHOLD 1", r"^(CONTHOLD|ERR)")
+            self._command("CONTHOLD 1", r"^(OK|CONTHOLD|ERR)")
             self._last_hold = time.monotonic()
         self._light_on = True
 
@@ -226,7 +227,7 @@ class LentoDock:
         duties = [to_duty(v) for v in (r, g, b)]
         if not (self._continuous and self._light_on):
             self._enter_continuous()
-            self._command("CONTHOLD 1", r"^(CONTHOLD|ERR)")
+            self._command("CONTHOLD 1", r"^(OK|CONTHOLD|ERR)")
             self._last_hold = time.monotonic()
             self._light_on = True  # the keep-alive refreshes the hold from here on
         self._send(f"CONTRGB {duties[0]} {duties[1]} {duties[2]}")
@@ -238,7 +239,7 @@ class LentoDock:
 
     def off(self) -> None:
         if self._continuous:
-            self._command("CONTRGB 0 0 0", r"^(CONTRGB|ERR)")
+            self._command("CONTRGB 0 0 0", r"^(OK|CONTRGB|ERR)")
         self._light_on = False
 
     def advance_frame(self) -> Optional[int]:
@@ -262,6 +263,23 @@ class LentoDock:
         if not self._last_frameat:
             return None
         return int(parse_kv(self._last_frameat).get("idx", "-1"))
+
+    def strip_waiting(self) -> bool:
+        """True when a strip sits at the entrance and the dock has not fed it: in SEMI the dock
+        feeds a strip only on INSERT, and a reset forgets one it had fed."""
+        self._command("STATE?", r"^STATE\b")
+        return self._state.get("st") == "IDLE" and self._state.get("entrance") == "1"
+
+    def insert_strip(self) -> None:
+        """Feed the strip at the entrance and align its first frame in the window."""
+        self._enter_continuous()
+        line = self._command("INSERT", r"^(OK|ERR)", then=((r"^(FRAMEAT|INSERT ERR)\b", ADVANCE_TIMEOUT_S),))
+        if not line.startswith("FRAMEAT") or line.startswith("FRAMEAT ERR"):
+            raise RuntimeError(f"the dock reported {line!r}")
+        deadline = time.monotonic() + REPLY_TIMEOUT_S
+        while self._state.get("st") != "READY" and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self._light_on = False  # the next set_color holds the light again
 
     def eject(self) -> None:
         """Move the strip out of the dock. The last frame stops in the window, short of the exit."""
@@ -316,8 +334,8 @@ class LentoDock:
     def _restore(self) -> None:
         if not self._continuous:
             return
-        self._command("CONTRGB 0 0 0", r"^(CONTRGB|ERR)")
-        self._command("CONTHOLD 0", r"^(CONTHOLD|ERR)")
+        self._command("CONTRGB 0 0 0", r"^(OK|CONTRGB|ERR)")
+        self._command("CONTHOLD 0", r"^(OK|CONTHOLD|ERR)")
         expmode = self._saved.get("EXPMODE", "BRGB")
         self._command(f"EXPMODE {'BRGB' if expmode == 'CONT' else expmode}", r"^(EXPMODE=|ERR)")
         mode = self._saved.get("MODE", "AUTO")
@@ -331,21 +349,30 @@ class LentoDock:
 
     def _command(self, cmd: str, expect: str, timeout: float = REPLY_TIMEOUT_S, then: tuple[tuple[str, float], ...] = ()) -> str:
         """Send `cmd` and return the first reply line that matches `expect`. Each `(pattern,
-        timeout)` in `then` waits for a later line in turn, and the last line matched is returned."""
+        timeout)` in `then` waits for a later line in turn, and the last line matched is returned.
+        The dock answers BUSY during its own exposure; the command goes again until that ends."""
         if self._reader_error is not None:
             raise ConnectionError(f"Lento Dock reader stopped: {self._reader_error}")
         if self._link_error is not None:
             raise ConnectionError(f"Lento Dock link lost: {self._link_error}")
+        first = re.compile(rf"(?:{expect})|^BUSY\b")
         with self._command_lock:
-            while not self._replies.empty():
-                try:
-                    self._replies.get_nowait()
-                except queue.Empty:
-                    break
-            self._send(cmd)
             self._in_command = True
             try:
-                line = self._await(cmd, expect, timeout)
+                busy_until = time.monotonic() + EXPOSE_WAIT_S
+                while True:
+                    while not self._replies.empty():
+                        try:
+                            self._replies.get_nowait()
+                        except queue.Empty:
+                            break
+                    self._send(cmd)
+                    line = self._await(cmd, first.pattern, timeout)
+                    if not line.startswith("BUSY"):
+                        break
+                    if time.monotonic() > busy_until:
+                        raise TimeoutError(f"The dock stayed busy after {cmd!r}")
+                    time.sleep(BUSY_RETRY_S)
                 for pattern, wait in then:
                     line = self._await(cmd, pattern, wait)
             finally:
@@ -418,9 +445,9 @@ class LentoDock:
 
     def _dispatch(self, line: str) -> None:
         logger.debug("Lento Dock: %s", line)
-        if line.startswith("FRAMEAT"):
+        if line.startswith("FRAMEAT") and not line.startswith("FRAMEAT ERR"):
             self._last_frameat = line
-        elif line.startswith(("END_OF_ROLL", "ROLLEND")):
+        elif line.startswith(("END_OF_ROLL", "ROLLEND", "FRAMEAT ERR")):
             self._last_frameat = ""
         if line.startswith("STATE"):
             was = self._state.get("st")
