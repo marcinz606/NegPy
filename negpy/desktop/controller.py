@@ -6638,23 +6638,10 @@ class AppController(QObject):
         roll_id = rolls.frame_roll(repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.frame_roll_defaults(rolls.roll_defaults(repo, roll_id), config.process)
-        file_hash = rolls.unforked_hash(file_hash)
-        locked = card_key in rolls.frame_override_cards(repo, roll_id, file_hash)
-        # A field the roll has no value for matches the value the frame held before the card locked.
-        # With no such value it cannot match, or a card's first edit would hide from Apply.
-        if locked:
-            baseline = rolls.frame_baseline(repo, roll_id, file_hash, card_key)
-        else:
-            baseline = {} if before is None else self._roll_baseline(before, card_key, defaults)
-        reference = {**baseline, **defaults}
-        current = self._card_values(config, card_key)
-        if config.process.fade_white_space:
-            # A camera RAW's fade white stays the frame's own (`frame_roll_defaults`).
-            current = {k: v for k, v in current.items() if k in defaults or k not in rolls.DECODE_WHITE_FIELDS}
-        diverged = not all(name in reference and rolls.same_value(value, reference[name]) for name, value in current.items())
-        if diverged != locked:
-            rolls.set_frame_override(repo, roll_id, file_hash, card_key, diverged, baseline=baseline)
+        old = None if before is None else self._card_values(before, card_key)
+        rolls.settle_card_lock(
+            repo, roll_id, rolls.unforked_hash(file_hash), card_key, self._card_values(config, card_key), old, process=config.process
+        )
 
     def _roll_baseline(self, config: WorkspaceConfig, card_key: str, defaults: dict) -> dict:
         """*card_key*'s values on *config* for the fields the roll has no value for."""

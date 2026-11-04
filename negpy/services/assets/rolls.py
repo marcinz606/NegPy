@@ -920,6 +920,34 @@ def set_frame_override(
     _write(repo, store)
 
 
+def settle_card_lock(
+    repo: Any,
+    roll_id: str,
+    file_hash: str,
+    card_key: str,
+    values: Dict[str, Any],
+    before: Optional[Dict[str, Any]] = None,
+    *,
+    process: Any = None,
+) -> None:
+    """Locks *card_key* on the frame (unforked hash) where *values* differ from the roll, and unlocks it where
+    they match again. A field the roll has no value for matches the frame's value from before the lock:
+    *before* for a new lock, the stored baseline for a held one. With neither it cannot match, or a card's
+    first edit would hide from Apply. A camera RAW frame's own white (*process*) never locks a card."""
+    defaults = frame_roll_defaults(roll_defaults(repo, roll_id), process)
+    if getattr(process, "fade_white_space", ""):
+        values = {k: v for k, v in values.items() if k not in DECODE_WHITE_FIELDS}
+    locked = card_key in frame_override_cards(repo, roll_id, file_hash)
+    if locked:
+        baseline = frame_baseline(repo, roll_id, file_hash, card_key)
+    else:
+        baseline = {name: value for name, value in (before or {}).items() if name not in defaults}
+    reference = {**baseline, **defaults}
+    diverged = not all(name in reference and same_value(value, reference[name]) for name, value in values.items())
+    if diverged != locked:
+        set_frame_override(repo, roll_id, file_hash, card_key, diverged, baseline=baseline)
+
+
 def frame_baseline(repo: Any, roll_id: str, file_hash: str, card_key: str) -> Dict[str, Any]:
     """The values a locked card held before its lock, for the fields the roll had no value for.
     Editing the frame back to them and to the roll's own values unlocks the card."""
