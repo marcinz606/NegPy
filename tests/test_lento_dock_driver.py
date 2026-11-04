@@ -377,3 +377,11 @@ def test_a_held_s_is_left_to_the_dock(sim, monkeypatch):
         sim.shutter = 0
         time.sleep(0.3)
     assert pressed == []
+
+
+def test_the_arrows_jog_while_negpy_holds_the_dock(sim):
+    sim.btnmode = "FRAME"
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.btnmode == "JOG"
+    assert sim.btnmode == "FRAME"  # the user's setting comes back
