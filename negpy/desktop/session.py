@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from contextlib import contextmanager
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Collection, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
@@ -34,8 +34,8 @@ from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, 
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.capture_color import is_source_profile
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
-from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
+from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, scan_setup_rig, with_process_mode
+from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -86,6 +86,9 @@ UNCROPPED_PREVIEW_TOOLS = frozenset(
 REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
 
 # Zone Overlay looks, by stored key and menu label.
+# Settings that describe a camera, which carry to camera frames only.
+_CAMERA_ONLY_FIELDS = frozenset(rolls.card_fields("lens") + rolls.card_fields("flatfield") + ("highlight_reconstruction",))
+
 ZONE_STYLES = {"false_color": tr("Color"), "zone_map": tr("Grayscale"), "grid": tr("Grid")}
 
 
@@ -1269,7 +1272,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_format", self.state.linear_format)
         self.repo.save_global_setting("linear_jxl_effort", self.state.linear_jxl_effort)
 
-    def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
+    def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False, path: str = "") -> WorkspaceConfig:
         """
         Overlays globally persisted settings onto the config.
 
@@ -1285,6 +1288,8 @@ class DesktopSessionManager(QObject):
         the last chosen flat-field profile, the Kelvin roll-locks, the export fields with no
         catalog row, and the scan-setup preferences. They apply regardless of
         `sticky_settings_enabled`, which only gates the catalog-row overlay above.
+
+        A film scanner *path* (film_scanner_file) takes no _CAMERA_ONLY_FIELDS and no last chosen profile.
         """
         from negpy.features.metadata.models import resolve_description_fields
 
@@ -1295,15 +1300,6 @@ class DesktopSessionManager(QObject):
             if remainder:
                 config = replace(config, export=replace(config.export, **remainder))
 
-        active_ff = self.repo.get_global_setting("flatfield_active_profile")
-        ff_id = active_ff if active_ff and FlatFieldProfiles.get(active_ff) is not None else ""
-        config = self._with_known_flatfield_profile(config, ff_id)
-        # Distortion left the profile for the per-image geometry; adopt a legacy value once,
-        # from the frame's own profile, on frames that carry none of their own.
-        own_ff = FlatFieldProfiles.get(config.flatfield.profile_id) if config.flatfield.profile_id else None
-        if config.geometry.distortion_k1 == 0.0 and own_ff is not None and own_ff.k1 != 0.0:
-            config = replace(config, geometry=replace(config.geometry, distortion_k1=own_ff.k1))
-
         if only_global:
             rows = load_sticky_rows(self.repo)
             rows = [r for r in rows if r.section in GLOBAL_TIER_SECTIONS]
@@ -1311,6 +1307,21 @@ class DesktopSessionManager(QObject):
             rows = load_sticky_rows(self.repo)
         else:
             rows = []
+
+        active_ff = self.repo.get_global_setting("flatfield_active_profile")
+        ff_id = active_ff if active_ff and FlatFieldProfiles.get(active_ff) is not None else ""
+        camera_rows = [r for r in rows if _CAMERA_ONLY_FIELDS.intersection(r.fields)]
+        # Telling a Coolscan NEF from a camera NEF opens the file, so ask only when a camera setting would carry.
+        if (ff_id or camera_rows) and self.film_scanner_file(path):
+            ff_id = ""
+            rows = [r for r in rows if r not in camera_rows]
+        config = self._with_known_flatfield_profile(config, ff_id)
+        # Distortion left the profile for the per-image geometry; adopt a legacy value once,
+        # from the frame's own profile, on frames that carry none of their own.
+        own_ff = FlatFieldProfiles.get(config.flatfield.profile_id) if config.flatfield.profile_id else None
+        if config.geometry.distortion_k1 == 0.0 and own_ff is not None and own_ff.k1 != 0.0:
+            config = replace(config, geometry=replace(config.geometry, distortion_k1=own_ff.k1))
+
         # Description fields carry on their own key, so the last Description… confirm wins
         # for the roll rather than whichever frame was saved last.
         wants_desc = any("description_fields" in r.fields for r in rows)
@@ -1394,25 +1405,25 @@ class DesktopSessionManager(QObject):
         from dataclasses import asdict
 
         snapshot = sticky_snapshot(config)
+
+        def keep_stored(keys: Iterable[str]) -> None:
+            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+            stored = stored if isinstance(stored, dict) else {}
+            for key in keys:
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
+
         if PresetStore(self.repo).owns_sensor_profile(config.process.sensor_profile):
             # A Scanlight preset's profile reaches a roll through that preset's scans. Carried
             # from here it would land on rolls scanned another way.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("sensor_profile", "sensor_matrix"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("sensor_profile", "sensor_matrix"))
         if has_manual_crop(config.geometry) or self._keep_carried_crop:
             # A hand-drawn crop, or a reset of one, is one frame's placement: the carried crop stays as it was, whole.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("crop_from_auto", "crop_rect", "crop_detect_key"))
+        if self.film_scanner_file(self.state.current_file_path or ""):
+            keep_stored(_CAMERA_ONLY_FIELDS)
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,
@@ -1484,7 +1495,7 @@ class DesktopSessionManager(QObject):
         if saved is None:
             return False
         asset = self.state.uploaded_files[idx]
-        config = self._apply_sticky_settings(saved, only_global=True)
+        config = self._apply_sticky_settings(saved, only_global=True, path=asset["path"])
         before = self.state.config
         self.update_config(resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), persist=True)
         self.relock_diverged_cards(before)
@@ -1503,16 +1514,23 @@ class DesktopSessionManager(QObject):
         if saved_config is not None:
             # A saved edit keeps its own process mode and shadow lift, which are the user's
             # now, so only the wiring overlays apply.
-            config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True), asset)
+            config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True, path=asset["path"]), asset)
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
         #
         # Not a bare WorkspaceConfig(): only this config holds the shipped autocrop fields, and the
         # print/transfer curves are an identity at it (transfer_grade_ref, test_transparency_transfer.py).
-        config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset, fresh=True)
+        config = self._overlay_roll_defaults(
+            self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False, path=asset["path"]), asset, fresh=True
+        )
         config = self._asset_defaults(config, asset)
         return config if self._roll_sets_positive(asset) else with_scanner_positive_default(config, asset["path"])
+
+    def film_scanner_file(self, path: str) -> bool:
+        """The Scanning Setup says Film Scanner, or *path* is not a camera RAW. A pick of Camera
+        does not cover a TIFF, because the Scan tab's source can differ from the Setup card."""
+        return scan_setup_rig(self.repo.get_global_setting("scan_setup"))[0] == "scanner" or is_scanned_positive_source(path)
 
     def _roll_sets_positive(self, asset: dict) -> bool:
         """The frame's roll holds a Positive value on its Film card, which beats the scanner default."""

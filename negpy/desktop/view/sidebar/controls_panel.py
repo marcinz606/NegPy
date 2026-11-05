@@ -1,4 +1,6 @@
 from negpy.kernel.system.i18n import tr
+from typing import Optional
+
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QMenu,
@@ -1055,6 +1057,9 @@ class ControlsPanel(QWidget):
         self._sync_scope_buttons()
         self._sync_modified_dots()
 
+    _raw_decode_held_by: Optional[str] = None
+    _optics_held_by: Optional[str] = None
+
     def _sync_scan_setup(self) -> None:
         """The scanning setup decides which rig cards show: Raw Decode and Optics are a camera's,
         Trichrome a narrowband camera's. A card or row that holds a setting stays in view."""
@@ -1066,9 +1071,21 @@ class ControlsPanel(QWidget):
             (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
-        self.demosaic_section.setVisible(camera or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction)
-        optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
-        self.optics_section.setVisible(camera or optics_edited)
+        raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
+        locked_cards = self.controller.locked_roll_cards()
+        optics_edited = (
+            any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS)
+            or cfg.flatfield.apply
+            or any(card in locked_cards for card in _SECTION_CARDS["optics"])
+        )
+        file_hash = state.current_file_hash
+        if raw_decode_edited:
+            self._raw_decode_held_by = file_hash
+        if optics_edited:
+            self._optics_held_by = file_hash
+        # A setting turned off stays in reach until another frame opens.
+        self.demosaic_section.setVisible(camera or raw_decode_edited or (bool(file_hash) and file_hash == self._raw_decode_held_by))
+        self.optics_section.setVisible(camera or optics_edited or (bool(file_hash) and file_hash == self._optics_held_by))
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS
 

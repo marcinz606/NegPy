@@ -6918,19 +6918,21 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, process=new_process), record_history=False)
         self.request_render()
 
-    def set_active_flatfield_profile(self, profile_id: str) -> None:
+    def set_active_flatfield_profile(self, profile_id: str, remember: bool = False) -> None:
         """
         Sets the Flat Field card's profile on the current frame like any other roll card (an
-        empty ``profile_id`` clears it), and makes it the profile a frame that names none takes.
+        empty ``profile_id`` clears it), and makes it the profile a camera frame that names none
+        takes. A film scanner frame leaves that one as it is, unless *remember* is set.
         """
         from negpy.services.assets.flatfield import FlatFieldProfiles
 
-        self.session.repo.save_global_setting("flatfield_active_profile", profile_id or "")
+        if remember or not self.session.film_scanner_file(self.state.current_file_path or ""):
+            self.session.repo.save_global_setting("flatfield_active_profile", profile_id or "")
         prof = FlatFieldProfiles.get(profile_id) if profile_id else None
         pid = prof.id if prof else ""
         self.set_roll_default("flatfield", profile_id=pid, apply=bool(pid))
 
-    def save_flatfield_profile(self, name: str, path: str) -> None:
+    def save_flatfield_profile(self, name: str, path: str, remember: bool = False) -> None:
         """
         Bakes a reference image into a named flat-field profile and makes it active.
         """
@@ -6943,7 +6945,7 @@ class AppController(QObject):
             self.set_status(tr("Flat Field: could not read that reference image"), 3000, kind="error")
             return
         profile_id, check = baked
-        self.set_active_flatfield_profile(profile_id)
+        self.set_active_flatfield_profile(profile_id, remember=remember)
         if check.clipped:
             self.set_status(
                 tr("Flat Field profile '{name}' saved, but the reference is clipped: shoot it darker to correct the falloff", name=name),
@@ -6977,7 +6979,7 @@ class AppController(QObject):
         invalidate_gain(profile_id)
         active = self.session.repo.get_global_setting("flatfield_active_profile") or ""
         if active == profile_id:
-            self.set_active_flatfield_profile("")
+            self.set_active_flatfield_profile("", remember=True)
         elif self.state.config.flatfield.profile_id == profile_id:
             self.set_roll_default("flatfield", profile_id=active if active and FlatFieldProfiles.get(active) else "")
 
@@ -7874,7 +7876,7 @@ class AppController(QObject):
         """A strip's bare-light reference: save it as the roll's Flat Field profile, which its frames take."""
         req = getattr(self, "_last_capture_req", None)
         roll = req.roll_name if req is not None else os.path.splitext(os.path.basename(path))[0]
-        self.save_flatfield_profile(f"{roll} (Lento Dock)", path)
+        self.save_flatfield_profile(f"{roll} (Lento Dock)", path, remember=True)
 
     def _on_capture_finished(self, paths: list) -> None:
         """Feed the captured frame(s) into NegPy. An RGB triplet → RGB-Scan, C-41; a single-capture

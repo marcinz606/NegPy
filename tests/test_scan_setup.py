@@ -9,6 +9,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.process.models import ProcessMode, scan_setup_rig, scan_setup_values, with_process_mode
 from negpy.services.assets import rolls
 from negpy.services.rendering.preview_manager import PreviewManager
@@ -168,6 +169,42 @@ class TestRigCards(unittest.TestCase):
         config = replace(config, process=replace(config.process, hue_trim=4.0))
         panel = self._panel({"capture": "scanner", "light": "white"}, config=config)
         self.assertFalse(panel.sensor_sidebar.light_fold.content.isHidden())
+
+    def test_turning_off_flat_field_keeps_optics_in_view_on_that_frame(self):
+        on = WorkspaceConfig(flatfield=FlatFieldConfig(apply=True, profile_id="ff-35"))
+        panel = self._panel({"capture": "scanner", "light": "white"}, config=on, current_file_hash="a")
+        self.assertFalse(panel.optics_section.isHidden())
+
+        state = panel.controller.state
+        state.config = replace(on, flatfield=replace(on.flatfield, apply=False))
+        panel._sync_scan_setup()
+        self.assertFalse(panel.optics_section.isHidden())
+
+        state.current_file_hash = "b"
+        panel._sync_scan_setup()
+        self.assertTrue(panel.optics_section.isHidden())
+
+    def test_a_frame_locked_on_flat_field_keeps_optics_in_view(self):
+        panel = self._panel({"capture": "scanner", "light": "white"}, current_file_hash="a")
+        self.assertTrue(panel.optics_section.isHidden())
+        panel.controller.locked_roll_cards.return_value = {"flatfield"}
+        panel._sync_scan_setup()
+        self.assertFalse(panel.optics_section.isHidden())
+
+    def test_turning_off_recovery_keeps_raw_decode_in_view_on_that_frame(self):
+        base = WorkspaceConfig()
+        on = replace(base, process=replace(base.process, highlight_reconstruction=2))
+        panel = self._panel({"capture": "scanner", "light": "white"}, config=on, current_file_hash="a")
+        self.assertFalse(panel.demosaic_section.isHidden())
+
+        state = panel.controller.state
+        state.config = base
+        panel._sync_scan_setup()
+        self.assertFalse(panel.demosaic_section.isHidden())
+
+        state.current_file_hash = "b"
+        panel._sync_scan_setup()
+        self.assertTrue(panel.demosaic_section.isHidden())
 
     def test_bw_on_a_white_light_scanner_leaves_calibration_empty(self):
         config = with_process_mode(WorkspaceConfig(), ProcessMode.BW)
