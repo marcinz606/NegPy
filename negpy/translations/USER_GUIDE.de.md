@@ -18,7 +18,7 @@ Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus 
 
 Um die Bilder im Filmstreifen als Rolle zu speichern, nutze den Filmstreifen. **In Ordnerrolle speichern** macht aus Bildern, die alle aus einem Ordner stammen, die Rolle dieses Ordners. Seine anderen Dateien erscheinen als entfernt. **Als virtuelle Rolle speichern…** behält genau diese Bilder, aus beliebigen Ordnern. In Ordnerrolle speichern macht auch aus einer virtuellen Rolle eines Ordners die Rolle dieses Ordners. Die neue Rolle startet mit den Einstellungen, den Kartensperren und den nur in dieser Rolle gemachten Bearbeitungen der geöffneten Rolle. Ein Bild hat in jeder Rolle, die es enthält, dieselbe Bearbeitung. Rechtsklick → **In dieser Rolle unabhängig bearbeiten** gibt ihm in einer Rolle eine eigene Bearbeitung.
 
-<!-- panel:frames src:da839648 -->
+<!-- panel:frames src:c1f54a29 -->
 ### Filmstreifen
 
 Der **Filmstreifen** unter der Arbeitsfläche zeigt die geöffneten Bilder in einer Reihe. Ziehe seinen oberen Rand, um die Bilder zu vergrößern.

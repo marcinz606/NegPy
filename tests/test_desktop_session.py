@@ -1957,6 +1957,22 @@ class TestAssetListModelSceneSort(unittest.TestCase):
         self.assertEqual(self.model.scene_runs(), [])
 
 
+class TestFrameNumberSort(unittest.TestCase):
+    def test_frames_sort_by_roll_then_frame_number_then_name(self):
+        state = AppState()
+        state.uploaded_files = [{"name": n, "path": f"/r/{n}", "hash": n} for n in ("a.tif", "b.tif", "c.tif", "d.tif")]
+        facts = {
+            "a.tif": {"capture_roll": "02", "frame": 1},
+            "b.tif": {"capture_roll": "01", "frame": 10},
+            "c.tif": {"capture_roll": "01", "frame": 2},
+            "d.tif": {"capture_roll": "01", "frame": 2},
+        }
+        model = AssetListModel(state, facts_provider=lambda: facts)
+        model.set_sort_order("frame")
+        names = [state.uploaded_files[i]["name"] for i in model._sorted_indices]
+        self.assertEqual(names, ["c.tif", "d.tif", "b.tif", "a.tif"])
+
+
 class TestNavButtonBoundaries(unittest.TestCase):
     """Regression for #407: Next/Prev enable must be computed in display space
     (sorted/filtered order), matching session.next_file/prev_file — not raw

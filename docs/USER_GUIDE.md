@@ -132,9 +132,9 @@ The **Film Strip** under the canvas shows the open frames in one row. Drag its t
 
 The toolbar's **Roll** row holds:
 
-*   The roll's name and its count of frames, keepers and rejects.
+*   The roll's name and count of frames, keepers and rejects.
 *   The **filter box**: type part of a file name, or terms such as `film:portra iso:>=400` (below). The search button, or **Enter**, searches the whole library.
-*   **Sort**: by name, date, scene, or by roll and frame number.
+*   **Sort**: name, date, scene or frame number.
 *   **Sheet filter**: all frames, keepers only, hide rejected, or unmarked only. The button is highlighted while a filter hides frames.
 *   **Roll Settings** (the tag): gear and film details for this frame, the selection or the roll.
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
