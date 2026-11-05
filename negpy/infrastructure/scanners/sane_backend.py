@@ -1,4 +1,5 @@
 import math
+import re
 import subprocess
 import sys
 import threading
@@ -108,12 +109,15 @@ def _mode_has_rgbi(opt) -> bool:
     return any(str(v).strip().lower() == "rgbi" for v in constraint)
 
 
-def _infer_film_scanner(opt, device_id: str) -> bool:
-    """Heuristically decide a device is a dedicated film scanner lacking a `source` option.
+def _infer_film_scanner(opt, device_id: str, device_type: str = "") -> bool:
+    """Heuristically decide a device is a dedicated film scanner lacking a film `source`.
 
-    Signals: an RGBI mode, an `invert` option described as negative-film correction, or a
-    known film-scanner backend prefix. Kept narrow to avoid matching plain flatbeds.
+    Signals: the SANE device type "film scanner", an RGBI mode, an `invert` option described
+    as negative-film correction, or a known film-scanner backend prefix. Kept narrow to avoid
+    matching plain flatbeds.
     """
+    if device_type.strip().lower() == "film scanner":
+        return True
     if _mode_has_rgbi(opt):
         return True
     invert = opt["invert"] if "invert" in opt else None
@@ -234,7 +238,7 @@ def _resolve_resampled_resolutions(opt) -> dict[int, int]:
 
 def _detect_depths(opt) -> tuple[int, ...]:
     if "depth" not in opt:
-        return (8, 16)
+        return tuple(sorted(_color_modes_by_depth(opt))) or (8, 16)
     constraint = opt["depth"].constraint
     if not isinstance(constraint, list):
         return (8, 16)
@@ -447,6 +451,39 @@ def _sane_container_depth(requested_depth: int) -> int:
     return 8 if requested_depth <= 8 else 16
 
 
+_DEPTH_COLOR_MODE = re.compile(r"(\d+)\s*bit\s+colou?r")
+
+
+def _color_modes_by_depth(opt) -> dict[int, str]:
+    """Color modes keyed by sample container, for a backend that sets depth by mode name.
+
+    avision has no `depth` option: it offers "Color" (8-bit) and "12bit Color" or "16bit Color"
+    (both 16-bit containers), and some film models leave out "Color". Empty with a `depth` option.
+    """
+    if "depth" in opt or "mode" not in opt:
+        return {}
+    constraint = opt["mode"].constraint
+    if not isinstance(constraint, (list, tuple)):
+        return {}
+    modes: dict[int, tuple[int, str]] = {}
+    for value in constraint:
+        name = str(value)
+        lowered = name.strip().lower()
+        match = _DEPTH_COLOR_MODE.fullmatch(lowered)
+        bits = 8 if lowered == "color" else int(match.group(1)) if match else 0
+        if bits < 8:
+            continue
+        container = _sane_container_depth(bits)
+        if container not in modes or bits > modes[container][0]:
+            modes[container] = (bits, name)
+    return {container: name for container, (_, name) in modes.items()}
+
+
+def _resolve_color_mode(opt, depth: int) -> str:
+    """The `mode` value for a color scan at `depth`: "Color" unless the depth is in the mode name."""
+    return _color_modes_by_depth(opt).get(_sane_container_depth(depth), "Color")
+
+
 def _option_is_usable(option) -> bool:
     """Fail-closed capability probe: is the option active and settable?"""
     for method_name in ("is_active", "is_settable"):
@@ -645,10 +682,10 @@ def _require_writable_option(opt, option_name: str, absent_message: str) -> None
             raise RuntimeError(f"Requested SANE option {option_name!r} is not settable")
 
 
-def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
+def _caps_from_options(opt, device_id: str = "", device_type: str = "") -> ScannerCapabilities:
     """Build ScannerCapabilities from a SANE option map. Pure — no `sane` import."""
     sources = _detect_explicit_sources(opt)
-    if not sources and _infer_film_scanner(opt, device_id):
+    if not sources and _infer_film_scanner(opt, device_id, device_type):
         # Dedicated film scanner with no `source` option (pieusb). `sources` is only a detection
         # and UI gate, never applied to the device, so populate it to unblock scanning.
         sources = (ScanMode.NEGATIVE, ScanMode.POSITIVE, ScanMode.TRANSPARENCY)
@@ -945,7 +982,7 @@ class SaneBackend:
                 continue
             try:
                 dev = self._sane.open(raw[0])
-                caps = self._detect_caps(dev, raw[0])
+                caps = self._detect_caps(dev, raw[0], raw[3] if len(raw) > 3 else "")
                 dev.close()
                 if caps.sources:
                     devices.append(
@@ -1141,7 +1178,8 @@ class SaneBackend:
             # options the device has. Set after source/film_type above, since those can reset
             # depth/resolution to backend defaults on this device.
             if hasattr(dev, "opt") and "mode" in dev.opt:
-                dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
+                rgbi = ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3"
+                dev.mode = "RGBI" if rgbi else _resolve_color_mode(dev.opt, params.depth)
             dev.depth = params.depth
 
             # `resolution` alone is sometimes an artificially narrow convenience subset of what
@@ -1470,7 +1508,7 @@ class SaneBackend:
             except Exception as e:
                 logger.warning(f"Could not set SANE pieusb option {name}={val}: {e}")
 
-    def _detect_caps(self, dev, device_id: str = "") -> ScannerCapabilities:
+    def _detect_caps(self, dev, device_id: str = "", device_type: str = "") -> ScannerCapabilities:
         """Read dev.opt to build ScannerCapabilities.
 
         Switches to the transparency source first, when the device has one, so geometry
@@ -1491,7 +1529,7 @@ class SaneBackend:
                 opt = dev.opt if hasattr(dev, "opt") else {}
             except Exception as e:
                 logger.warning(f"Could not switch {device_id!r} to {transparency_source!r} for capability probe: {e}")
-        return _caps_from_options(opt, device_id)
+        return _caps_from_options(opt, device_id, device_type)
 
     @staticmethod
     def _ir_strategy(dev, device_id) -> str | None:
