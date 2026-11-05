@@ -755,7 +755,7 @@ Scan film straight into NegPy. The **Scanner** card picks the scanner; the tab t
 
 NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic suspend before a long roll.
 
-**Plustek**: the OpticFilm 8200i SE, 8100 V2, 8300i SE and 7600i v1 work; for other models, try SANE. On Windows, set up the USB driver first ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: needs no SANE. On Linux, USB needs a udev rule for vendor `04b0`.
+**Plustek**: the OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 and 7600i v2 work; for other models, try SANE. On Windows, set up the USB driver first ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: needs no SANE. On Linux, USB needs a udev rule for vendor `04b0`.
 
 <!-- panel:scan_quality -->
 ### Film & Quality
@@ -763,7 +763,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Film**: Color negative, B&W negative, Slide or Kodachrome. It sets frame detection, metering, and whether infrared is offered.
 *   **Film format**: the frame length (135, 66, 645 and others). **Auto** works where the holder sets it.
 *   **Resolution** and **Bit depth**: the scan's dpi and bits per channel.
-*   **Scan mode** (Plustek): **Multi-Pass** averages several scans for less noise; **Adaptive Multi-Exposure** combines a short and a long exposure for more range. Plustek scanners do not offer them at 7200 dpi.
+*   **Scan mode** (Plustek): **Multi-Pass** averages several scans for less noise; **Adaptive Multi-Exposure** combines a short and a long exposure for more range, with the long exposure set from each frame; **Fixed Multi-Exposure** uses the scanner's one long exposure on every frame, as SilverFast does (8200i SE, 8100 V2 and 8300i SE). The 7600i v2 offers Adaptive Multi-Exposure but not Multi-Pass.
 *   **Samples** (Coolscan): reads each line several times, for less noise in the shadows. Slower.
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.

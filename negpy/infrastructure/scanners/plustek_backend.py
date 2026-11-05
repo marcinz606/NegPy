@@ -45,13 +45,14 @@ logger = get_logger(__name__)
 def _caps_for(model: Any) -> ScannerCapabilities:
     from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm, is_gl128_opticfilm
 
-    # Prescan and Multi-Pass are GL128 session features. Other scan-ready leaves (e.g. 7600i
-    # v1) report scan_ready but raise on those paths.
+    # Prescan, Multi-Pass and fixed ME are GL128 session features. Other scan-ready leaves
+    # (7600i v1, 7600i v2) report scan_ready but raise on, or ignore, those paths.
     gl128 = is_gl128_opticfilm(model)
     multi_exposure = bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None))
     return ScannerCapabilities(
         ir_channel=model.supports_infrared,
         supported_dpi=tuple(sorted(model.resolutions_dpi)),
+        dpi_fixed=True,
         supported_depths=model.bpp_color,
         sources=(ScanMode.TRANSPARENCY,),
         max_area_mm=model.max_area_mm,
@@ -62,6 +63,7 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if gl128 else False,
         prescan_default_crop=default_frame_crop_norm(model) if gl128 else None,
         multi_exposure=multi_exposure,
+        multi_exposure_fixed=_supports_fixed_me(model) if multi_exposure else False,
         # Multi-Pass needs no long-exposure register; it is GL128-only in pyopticfilm.
         max_n_passes=MAX_N_PASSES if gl128 else MIN_N_PASSES,
         multi_exposure_dpi=tuple(getattr(model, "multi_exposure_resolutions_dpi", ())) if multi_exposure else (),
@@ -72,6 +74,14 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         frame_pitch_mm=0.0,
         exposure_time_us=None,
     )
+
+
+def _supports_fixed_me(model: Any) -> bool:
+    """Fixed-long multi-exposure (``me_long_mode="fixed"``): GL128 models that carry a
+    ``me_fixed_long_exposure``. GL845 sessions accept the argument but always meter."""
+    from pyopticfilm.scan.bringup import is_gl128_opticfilm
+
+    return bool(is_gl128_opticfilm(model) and getattr(model, "me_fixed_long_exposure", None))
 
 
 def _to_scanner_device(info: UsbDeviceInfo) -> ScannerDevice:
@@ -177,6 +187,8 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
     mode = params.multi_exposure_mode
     if mode != MultiExposureMode.OFF and model is not None and not getattr(model, "exposure_long", None):
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
+    if mode == MultiExposureMode.FIXED and model is not None and not _supports_fixed_me(model):
+        raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Fixed Multi-Exposure")
     if not (MIN_N_PASSES <= params.n_passes <= MAX_N_PASSES):
         raise RuntimeError(f"n_passes={params.n_passes} out of range ({MIN_N_PASSES}-{MAX_N_PASSES})")
     if params.n_passes > 1:
@@ -252,7 +264,7 @@ class PlustekBackend:
             raise ScannerUnavailable(
                 "Plustek USB needs pyopticfilm (uv sync --group plustek). "
                 "On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md) — "
-                "e.g. 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1)."
+                "e.g. 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1 and v2)."
             ) from exc
         self._calib_cache = calib_cache
         self._sessions: dict[str, PlustekSession] = {}
@@ -333,7 +345,7 @@ class PlustekBackend:
         if device_id in known:
             raise RuntimeError(
                 f"{device_id} is not a supported Plustek film scanner "
-                "(e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2, 07b3:181f 8300i SE, 07b3:0c3b 7600i v1)."
+                "(e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2, 07b3:181f 8300i SE, 07b3:0c3b 7600i v1 and v2)."
             )
         raise RuntimeError(f"Unknown or disconnected device: {device_id}")
 
@@ -400,6 +412,7 @@ class PlustekBackend:
                 cancel=cancel,
                 on_status=on_status,
                 multi_exposure=multi_exposure,
+                me_long_mode="fixed" if me_mode == MultiExposureMode.FIXED else "adaptive",
                 infrared=capture_ir,
                 align_passes=True,
                 n_passes=n_passes,
@@ -436,7 +449,7 @@ class PlustekBackend:
 
         Progress uses 0–0.1 so a cold measure does not look hung. Film may stay
         loaded — shading runs at home before position feeds, like SilverFast.
-        GL128 only: other scan-ready leaves (e.g. 7600i v1) calibrate live in-scan.
+        GL128 only: other scan-ready leaves (7600i v1, 7600i v2) calibrate live in-scan.
         """
         if cancel.is_set():
             raise RuntimeError("Scan cancelled before start")

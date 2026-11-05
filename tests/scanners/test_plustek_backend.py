@@ -432,10 +432,104 @@ def test_colour_scan_passes_adaptive_me_mode(monkeypatch):
     assert scanner.scan.call_args.kwargs.get("on_status") is not None
 
 
-def test_multi_exposure_mode_has_no_fixed_option():
-    """Fixed-long-exposure mode is a pyopticfilm lab/debug-only concept — NegPy's simplified
-    surface never exposes it (see Scan Lab for unrestricted access)."""
-    assert set(MultiExposureMode) == {MultiExposureMode.OFF, MultiExposureMode.ADAPTIVE}
+def test_colour_scan_passes_adaptive_long_mode(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("me_long_mode") == "adaptive"
+
+
+def test_fixed_me_passes_fixed_long_mode(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.FIXED),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+    assert scanner.scan.call_args.kwargs.get("me_long_mode") == "fixed"
+
+
+@pytest.mark.parametrize("model_name", ["MODEL_8200I_SE", "MODEL_8100_V2", "MODEL_8300I_SE"])
+def test_gl128_caps_offer_fixed_me(monkeypatch, model_name):
+    import pyopticfilm.device.model_8100_v2 as v2
+    import pyopticfilm.device.model_8200i_se as se
+    import pyopticfilm.device.model_8300i_se as se3
+
+    model = getattr({"MODEL_8200I_SE": se, "MODEL_8100_V2": v2, "MODEL_8300I_SE": se3}[model_name], model_name)
+    _patch_enum(monkeypatch)
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: model)
+    caps = PlustekBackend().list_devices()[0].capabilities
+    assert caps.multi_exposure_fixed is True
+    assert caps.fixed_multi_exposure_at(1800)
+    assert caps.dpi_fixed is True
+
+
+def test_7600i_v2_is_scan_ready_with_ir_and_adaptive_me(monkeypatch):
+    from pyopticfilm.device.select import MODEL_7600I_V2, model_for_device, model_is_scan_ready
+    from pyopticfilm.usb.device import PID_OPTICFILM_7600I
+
+    assert model_for_device(PID_OPTICFILM_7600I, 0x0605) is MODEL_7600I_V2
+    assert model_is_scan_ready(MODEL_7600I_V2)
+    info = UsbDeviceInfo(
+        vendor_id=VID_PLUSTEK,
+        product_id=PID_OPTICFILM_7600I,
+        bus=5,
+        address=4,
+        bcd_device=0x0605,
+    )
+    _patch_enum(monkeypatch, [info])
+    device = PlustekBackend().list_devices()[0]
+    caps = device.capabilities
+    assert device.model == "OpticFilm 7600i (v2)"
+    assert caps.ir_channel is True
+    assert caps.multi_exposure is True
+    assert caps.multi_exposure_fixed is False
+    assert caps.max_n_passes == 1
+    assert caps.prescan is False
+    assert set(caps.supported_dpi) == {900, 1800, 3600, 7200}
+    assert caps.dpi_fixed is True
+    assert caps.multi_exposure_at(3600)
+
+
+def test_7600i_v2_validates_ir_with_adaptive_me_and_rejects_fixed_and_multi_pass():
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.select import MODEL_7600I_V2
+
+    _validate_params(_params(dpi=3600, capture_ir=True, multi_exposure_mode=MultiExposureMode.ADAPTIVE), model=MODEL_7600I_V2)
+    with pytest.raises(RuntimeError, match="Fixed Multi-Exposure"):
+        _validate_params(_params(dpi=3600, multi_exposure_mode=MultiExposureMode.FIXED), model=MODEL_7600I_V2)
+    with pytest.raises(RuntimeError, match="Multi-Pass"):
+        _validate_params(_params(dpi=3600, n_passes=3), model=MODEL_7600I_V2)
+
+
+def test_7600i_v2_scan_skips_gl128_geometry_and_calibration(monkeypatch):
+    from pyopticfilm.device.select import MODEL_7600I_V2
+
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    scanner.model = MODEL_7600I_V2
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(dpi=1800, capture_ir=True, multi_exposure_mode=MultiExposureMode.ADAPTIVE),
+        lambda *_: None,
+        threading.Event(),
+    )
+    kwargs = scanner.scan.call_args.kwargs
+    assert kwargs["geometry"] is None
+    assert kwargs["multi_exposure"] is True and kwargs["infrared"] is True
+    assert kwargs["me_long_mode"] == "adaptive"
+    scanner.calibrator.ensure_colour_asic_shading.assert_not_called()
 
 
 def test_n_passes_flows_through_to_scanner_scan(monkeypatch):
@@ -654,7 +748,8 @@ def test_cold_calib_enters_scan_clock_first(monkeypatch):
 
 
 @pytest.mark.parametrize("model_name", ["MODEL_8200I_SE", "MODEL_8100_V2", "MODEL_8300I_SE"])
-def test_gl128_caps_drop_multi_modes_at_7200(monkeypatch, model_name):
+def test_gl128_caps_offer_multi_modes_at_7200(monkeypatch, model_name):
+    """pyopticfilm 1.3.9 runs multi-exposure and Multi-Pass at 7200 dpi on GL128 again."""
     import pyopticfilm.device.model_8100_v2 as v2
     import pyopticfilm.device.model_8200i_se as se
     import pyopticfilm.device.model_8300i_se as se3
@@ -663,10 +758,10 @@ def test_gl128_caps_drop_multi_modes_at_7200(monkeypatch, model_name):
     _patch_enum(monkeypatch)
     monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: model)
     caps = PlustekBackend().list_devices()[0].capabilities
-    assert 7200 not in caps.multi_exposure_dpi and 3600 in caps.multi_exposure_dpi
-    assert 7200 not in caps.multi_pass_dpi and 3600 in caps.multi_pass_dpi
-    assert not caps.multi_exposure_at(7200) and not caps.multi_pass_at(7200)
-    assert caps.multi_exposure_at(3600) and caps.multi_pass_at(3600)
+    assert 7200 in caps.multi_exposure_dpi and 3600 in caps.multi_exposure_dpi
+    assert 7200 in caps.multi_pass_dpi and 3600 in caps.multi_pass_dpi
+    assert caps.multi_exposure_at(7200) and caps.multi_pass_at(7200)
+    assert caps.fixed_multi_exposure_at(7200)
 
 
 def test_7600i_v1_caps_have_no_multi_mode_resolutions(monkeypatch):
@@ -682,13 +777,27 @@ def test_7600i_v1_caps_have_no_multi_mode_resolutions(monkeypatch):
     "kwargs",
     [dict(multi_exposure_mode=MultiExposureMode.ADAPTIVE), dict(n_passes=3)],
 )
-def test_validate_rejects_multi_modes_at_7200(kwargs):
+def test_validate_follows_the_model_multi_mode_resolutions(kwargs):
+    from types import SimpleNamespace
+
     from negpy.infrastructure.scanners.plustek_backend import _validate_params
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
+    _validate_params(_params(dpi=7200, **kwargs), model=MODEL_8200I_SE)
+    # A model whose tables leave 7200 out is still refused there.
+    gated = SimpleNamespace(
+        model="Gated",
+        asic="GL128",
+        usb_product_id=0x1825,
+        resolutions_dpi=MODEL_8200I_SE.resolutions_dpi,
+        bpp_color=MODEL_8200I_SE.bpp_color,
+        supports_infrared=True,
+        exposure_long=42000,
+        multi_pass_allowed_at=lambda dpi: dpi != 7200,
+    )
     with pytest.raises(RuntimeError, match="7200 dpi"):
-        _validate_params(_params(dpi=7200, **kwargs), model=MODEL_8200I_SE)
-    _validate_params(_params(dpi=3600, **kwargs), model=MODEL_8200I_SE)
+        _validate_params(_params(dpi=7200, **kwargs), model=gated)
+    _validate_params(_params(dpi=3600, **kwargs), model=gated)
 
 
 def test_validate_accepts_single_pass_at_7200():

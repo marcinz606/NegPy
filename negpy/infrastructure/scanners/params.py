@@ -12,7 +12,9 @@ class MultiExposureMode(StrEnum):
     """Whether a short+long colour pass pair is merged for extended dynamic range.
 
     OFF: one exposure, the fast path. ADAPTIVE: short+long merged, long exposure picked per
-    frame from image content — pyopticfilm's only multi-exposure behavior.
+    frame from image content. FIXED: short+long merged, the long pass at the model's one fixed
+    exposure on every frame, as SilverFast does (pyopticfilm's ``me_long_mode="fixed"``,
+    GL128 models only — ``ScannerCapabilities.multi_exposure_fixed``).
 
     Orthogonal to ``ScanParams.n_passes``: this picks *whether* to merge a second exposure,
     while ``n_passes`` repeats whichever exposure(s) are chosen for a same-exposure SNR stack —
@@ -21,6 +23,7 @@ class MultiExposureMode(StrEnum):
 
     OFF = "off"
     ADAPTIVE = "adaptive"
+    FIXED = "fixed"
 
 
 #: Repeats of the same exposure to stack for an SNR gain (pyopticfilm's `n_passes`); 1 = no

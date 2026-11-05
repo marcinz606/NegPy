@@ -77,12 +77,14 @@ MINIMAL_DEVICE = ScannerDevice(id="plustek:libusb:001:008", vendor="Plustek", mo
 SE_CAPS = ScannerCapabilities(
     ir_channel=True,
     supported_dpi=(1200, 1800, 3600),
+    dpi_fixed=True,
     supported_depths=(16,),
     sources=(ScanMode.TRANSPARENCY,),
     max_area_mm=(36.33, 25.0),
     prescan=True,
     prescan_dpi=1200,
     multi_exposure=True,
+    multi_exposure_fixed=True,
     max_n_passes=9,
     prescan_default_crop=(0.0, 0.35, 1.0, 0.65),
 )
@@ -275,6 +277,7 @@ def test_only_single_pass_enabled_when_device_has_neither_capability() -> None:
     enabled = {mode: sidebar.mode_btn.is_item_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
     assert enabled[ScanCaptureMode.SINGLE_PASS] is True
     assert enabled[ScanCaptureMode.MULTI_PASS] is False
+    assert enabled[ScanCaptureMode.FIXED_ME] is False
     assert enabled[ScanCaptureMode.ADAPTIVE_ME] is False
     assert enabled[ScanCaptureMode.ADAPTIVE_MULTI_PASS] is False
 
@@ -308,7 +311,8 @@ def test_ir_toggle_drops_adaptive_multi_pass_to_adaptive_me() -> None:
     assert sidebar.ir_btn.isChecked() is True
 
 
-# The GL128 rule from pyopticfilm: no multi-exposure or Multi-Pass at native 7200 dpi.
+# A device whose model tables leave multi-exposure and Multi-Pass out at 7200 dpi (GL128
+# before pyopticfilm 1.3.9); the panel follows the reported resolutions either way.
 SE_7200_DEVICE = replace(
     SE_DEVICE,
     capabilities=replace(
@@ -321,7 +325,8 @@ SE_7200_DEVICE = replace(
 
 
 def _pick_dpi(sidebar, dpi: int) -> None:
-    sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(dpi))
+    combo = sidebar.dpi_choice if sidebar._current_device().capabilities.dpi_fixed else sidebar.dpi_combo
+    combo.setCurrentIndex(combo.findData(dpi))
 
 
 def test_7200_dpi_disables_multi_modes_and_restores_them_below() -> None:
@@ -334,6 +339,7 @@ def test_7200_dpi_disables_multi_modes_and_restores_them_below() -> None:
     assert enabled == {
         ScanCaptureMode.SINGLE_PASS: True,
         ScanCaptureMode.MULTI_PASS: False,
+        ScanCaptureMode.FIXED_ME: False,
         ScanCaptureMode.ADAPTIVE_ME: False,
         ScanCaptureMode.ADAPTIVE_MULTI_PASS: False,
     }
@@ -358,6 +364,70 @@ def test_ir_at_7200_keeps_stacking_off_when_returning_below() -> None:
     _pick_dpi(sidebar, 3600)
     assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_ME
     assert sidebar.ir_btn.isChecked() is True
+
+
+# OpticFilm 7600i v2 (GL845): IR and adaptive multi-exposure, no fixed long, no Multi-Pass,
+# no Prescan.
+V2_CAPS = ScannerCapabilities(
+    ir_channel=True,
+    supported_dpi=(900, 1800, 3600, 7200),
+    dpi_fixed=True,
+    supported_depths=(16,),
+    sources=(ScanMode.TRANSPARENCY,),
+    max_area_mm=(36.33, 25.0),
+    multi_exposure=True,
+    multi_exposure_dpi=(900, 1800, 3600, 7200),
+)
+V2_DEVICE = ScannerDevice(id="plustek:usb:07b3:0c3b:002:007", vendor="PLUSTEK", model="OpticFilm 7600i (v2)", capabilities=V2_CAPS)
+
+
+def test_fixed_me_is_offered_and_sends_fixed_mode() -> None:
+    sidebar, controller = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    assert sidebar.mode_btn.is_item_enabled(sidebar.mode_btn.findData(ScanCaptureMode.FIXED_ME.value)) is True
+    sidebar._set_capture_mode(ScanCaptureMode.FIXED_ME)
+    assert sidebar.passes_rail.isVisibleTo(sidebar) is False
+    assert sidebar.settings.multi_exposure_mode == MultiExposureMode.FIXED.value
+    assert sidebar.settings.n_passes == 1
+    sidebar.output.folder_edit.setText(_OUT)
+    sidebar._on_scan()
+    _kind, req = controller.started[0]
+    assert req.params.multi_exposure_mode == MultiExposureMode.FIXED
+    assert req.params.n_passes == 1
+
+
+def test_saved_fixed_me_restores() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "multi_exposure_mode": "fixed"})
+    assert sidebar._capture_mode() == ScanCaptureMode.FIXED_ME
+
+
+def test_fixed_me_keeps_ir() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "capture_ir": True})
+    sidebar._set_capture_mode(ScanCaptureMode.FIXED_ME)
+    assert sidebar.ir_btn.isChecked() is True
+    sidebar.ir_btn.setChecked(False)
+    sidebar.ir_btn.setChecked(True)
+    assert sidebar._capture_mode() == ScanCaptureMode.FIXED_ME
+
+
+def test_7600i_v2_offers_adaptive_me_only() -> None:
+    sidebar, _ = _sidebar(V2_DEVICE, settings={"backend": "plustek", "dpi": 1800})
+    assert sidebar.mode_widget.isVisibleTo(sidebar) is True
+    enabled = {mode: sidebar.mode_btn.is_item_enabled(sidebar.mode_btn.findData(mode.value)) for mode in ScanCaptureMode}
+    assert enabled == {
+        ScanCaptureMode.SINGLE_PASS: True,
+        ScanCaptureMode.MULTI_PASS: False,
+        ScanCaptureMode.FIXED_ME: False,
+        ScanCaptureMode.ADAPTIVE_ME: True,
+        ScanCaptureMode.ADAPTIVE_MULTI_PASS: False,
+    }
+    assert sidebar.mode_hint.isVisibleTo(sidebar) is False
+
+
+def test_saved_fixed_me_falls_back_to_adaptive_on_a_device_without_it() -> None:
+    sidebar, _ = _sidebar(V2_DEVICE, settings={"backend": "plustek", "dpi": 1800, "multi_exposure_mode": "fixed"})
+    assert sidebar._capture_mode() == ScanCaptureMode.ADAPTIVE_ME
+    sidebar._update_settings_from_ui()
+    assert sidebar.settings.multi_exposure_mode == MultiExposureMode.ADAPTIVE.value
 
 
 def test_scan_params_include_prescan_crop() -> None:
@@ -1225,6 +1295,34 @@ def test_a_typed_dpi_counts_without_enter() -> None:
     sidebar.dpi_combo.setCurrentIndex(sidebar.dpi_combo.findData(2400))
     sidebar.dpi_combo.lineEdit().setText("1800")
     assert sidebar._dpi() == 1800
+
+
+def test_a_device_with_fixed_resolutions_offers_a_choice_with_no_typing() -> None:
+    sidebar, controller = _sidebar(SE_DEVICE, settings={"backend": "plustek", "dpi": 1800})
+    assert sidebar.dpi_choice.isVisibleTo(sidebar) is True
+    assert sidebar.dpi_combo.isVisibleTo(sidebar) is False
+    assert sidebar.dpi_choice.isEditable() is False
+    assert [sidebar.dpi_choice.itemData(i) for i in range(sidebar.dpi_choice.count())] == [1200, 1800, 3600]
+    assert sidebar._dpi() == 1800
+    _pick_dpi(sidebar, 3600)
+    assert sidebar._dpi() == 3600
+    assert sidebar.settings.dpi == 3600
+    sidebar.output.folder_edit.setText(_OUT)
+    sidebar._on_scan()
+    _kind, req = controller.started[0]
+    assert req.params.dpi == 3600
+
+
+def test_a_saved_dpi_off_a_fixed_list_shows_the_nearest_listed_one() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek", "dpi": 2000})
+    assert sidebar._dpi() == 1800
+
+
+def test_a_device_with_a_resolution_range_keeps_the_typed_box() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.dpi_combo.isVisibleTo(sidebar) is True
+    assert sidebar.dpi_choice.isVisibleTo(sidebar) is False
+    assert sidebar.dpi_combo.isEditable() is True
 
 
 def test_a_pass_the_device_cannot_run_is_not_shown_at_all() -> None:
