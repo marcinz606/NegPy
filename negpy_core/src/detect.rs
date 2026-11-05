@@ -18,6 +18,10 @@ const ADAPTIVE_THRESHOLD_COUNT: f64 = 7.0;
 // Film fills most of a scan under every known holder; on a positive whose bed clips to white, a
 // dark subject can pass every other check on its own geometry.
 const MIN_FILM_BOX_COVERAGE: f64 = 0.25;
+// How far inside the frame, as a fraction of it, a box with only two supported sides may leave
+// another side. Film that runs off the scan shows two edges and reaches the frame at the other
+// two, so a side further in is where a threshold mask ran out on picture content.
+const MAX_UNSUPPORTED_INSET: f64 = 0.05;
 pub const SIDE_NAMES: [&str; 4] = ["top", "right", "bottom", "left"];
 pub const CORNER_SIDES: [(&str, [usize; 2]); 4] = [
     ("top_left", [0, 3]),
@@ -851,6 +855,17 @@ pub fn select_consensus(cands: &[Candidate], h: usize, w: usize) -> Option<Conse
             .filter(|&i| cluster.iter().filter(|c| c.sides[i]).count() >= needed)
             .map(|i| SIDE_NAMES[i])
             .collect();
+        let insets = [
+            roi.0 as f64 / scales[0],
+            (w as f64 - roi.3 as f64) / scales[2],
+            (h as f64 - roi.1 as f64) / scales[1],
+            roi.2 as f64 / scales[2],
+        ];
+        let stops_short =
+            |i: usize| !sides.contains(&SIDE_NAMES[i]) && insets[i] > MAX_UNSUPPORTED_INSET;
+        if sides.len() < 3 && (0..4).any(stops_short) {
+            continue;
+        }
         let corners: Vec<&'static str> = (0..4)
             .filter(|&i| cluster.iter().filter(|c| c.corners[i]).count() >= needed)
             .map(|i| CORNER_SIDES[i].0)

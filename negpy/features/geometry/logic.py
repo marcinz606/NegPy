@@ -235,7 +235,8 @@ def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[
     rebate/image midpoint, take the longest occupancy runs, then snap each edge to the
     strongest local luminance gradient. Returns (roi, row_occupancy, col_occupancy) in
     detection-image coords (profiles padded to full image length), or None when tiers
-    are not separable (caller falls back to the Sobel path).
+    are not separable or a run does not end at clear rebate (caller falls back to the
+    edge walk).
     """
     return negpy_core.refine_film_roi_by_tiers(np.ascontiguousarray(lum, dtype=np.float32), tuple(int(v) for v in film_roi))
 

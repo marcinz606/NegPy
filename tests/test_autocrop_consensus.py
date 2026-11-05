@@ -51,6 +51,26 @@ def _candidate(
     )
 
 
+def _strip_box(roi, sides, threshold_index):
+    return (*_candidate(roi, threshold_index=threshold_index)[:7], sides, [])
+
+
+def test_consensus_refuses_a_two_sided_box_that_stops_short_of_the_frame():
+    # A film strip shows its two rails and runs off the scan, so the box's other sides reach the
+    # frame. Stopping mid-frame, the box ended where a threshold mask ran out on picture content.
+    short = [_strip_box((230, 358, 2, 538), ["left", "right"], i) for i in range(5)]
+    assert negpy_core.select_consensus(short, 360, 540) is None
+
+    runs_off = [_strip_box((1, 358, 2, 538), ["left", "right"], i) for i in range(5)]
+    assert negpy_core.select_consensus(runs_off, 360, 540) is not None
+
+
+def test_consensus_keeps_a_three_sided_box_with_one_disturbed_edge():
+    # Light along one edge of a framed picture costs that side its evidence, not its place.
+    boxed = [_strip_box((60, 300, 90, 450), ["top", "bottom", "left"], i) for i in range(5)]
+    assert negpy_core.select_consensus(boxed, 360, 540) is not None
+
+
 def test_consensus_rejects_a_high_scoring_single_source_outlier():
     stable = [
         _candidate((79, 301, 99, 441), threshold_index=0),
