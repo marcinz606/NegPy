@@ -166,6 +166,8 @@ def facts_for(asset: dict, config: Any = None) -> dict[str, Any]:
             "format": (meta.format_other if meta.format == "Other" else meta.format).casefold(),
             "scanning": meta.scanning.casefold(),
             "roll": " ".join(p for p in (meta.capture_roll, config.process.roll_name or "") if p).casefold(),
+            # Raw Roll value, not in FIELDS: the Frame No. sort orders by it, not by the combined search term.
+            "capture_roll": meta.capture_roll.casefold(),
             "frame": meta.capture_frame,
             "iso": meta.film_iso,
             "push": meta.push_pull,

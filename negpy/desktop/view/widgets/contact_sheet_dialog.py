@@ -53,6 +53,7 @@ from negpy.services.export.contact_sheet_roll import (
     SheetLook,
     StraightProof,
     creation_order,
+    frame_order,
     print_aspect,
     scene_breaks,
     scene_of,
@@ -66,8 +67,8 @@ _FRAME_SIZES: tuple[str, ...] = tuple(FRAME_SIZES_120)
 _CUSTOM_PAPER = len(ILFORD_PAPERS)
 _PRINTS = (tr("As Edited"), tr("Straight Proof"))
 _AS_EDITED, _STRAIGHT_PROOF = 0, 1
-_ORDERS = (mark("Name"), mark("Date"), mark("Scene"))
-_BY_NAME, _BY_DATE, _BY_SCENE = 0, 1, 2
+_ORDERS = (mark("Name"), mark("Date"), mark("Scene"), mark("Frame No."))
+_BY_NAME, _BY_DATE, _BY_SCENE, _BY_FRAME = 0, 1, 2, 3
 _EDITED_TILES, _PROOF_TILES, _SCENE_PROOF_TILES = 0, 1, 2
 _CANVAS_PAD = 28.0
 _TILE_REPAINT_MS = 120
@@ -415,7 +416,7 @@ class ContactSheetDialog(QDialog):
 
         self.order_btn = StepCombo.of(
             [tr(order) for order in _ORDERS],
-            tr("Lay the frames out by file name, in the order they were taken, or with a new strip for each scene."),
+            tr("Lay the frames out by file name, by the order they were taken, by roll and frame number, or by scene."),
         )
         self.order_btn.set_item_enabled(_BY_SCENE, self._has_scenes)
         if not self._has_scenes:
@@ -651,6 +652,8 @@ class ContactSheetDialog(QDialog):
             return scene_order(self._frames)
         if order == _BY_DATE:
             return creation_order(self._frames)
+        if order == _BY_FRAME:
+            return frame_order(self._frames)
         return list(range(len(self._frames)))
 
     def _on_order_changed(self, index: int) -> None:

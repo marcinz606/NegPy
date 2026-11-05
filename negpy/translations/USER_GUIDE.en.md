@@ -134,7 +134,7 @@ The toolbar's **Roll** row holds:
 
 *   The roll's name and its count of frames, keepers and rejects.
 *   The **filter box**: type part of a file name, or terms such as `film:portra iso:>=400` (below). The search button, or **Enter**, searches the whole library.
-*   **Sort**: by name, date or scene.
+*   **Sort**: by name, date, scene, or by roll and frame number.
 *   **Sheet filter**: all frames, keepers only, hide rejected, or unmarked only. The button is highlighted while a filter hides frames.
 *   **Roll Settings** (the tag): gear and film details for this frame, the selection or the roll.
 *   **Apply**: copies chosen settings of this frame to the selection or the roll.
@@ -711,7 +711,7 @@ On the **Alongside Exports** tab. A contact sheet shows the whole roll as film s
 *   **Contact Sheet…**: opens the sheet. Drag an edge of the paper to resize it.
 *   **Film format**: 35mm, 35mm Half Frame or 120 (with **Frame size** for 120).
 *   **Paper**, **Width**, **Height** and **DPI**: the sheet's size and resolution. The default paper holds a 36-exposure roll.
-*   **Order**: by file name, by date, or by scene with a new strip or row for each scene.
+*   **Order**: by file name, by date, by roll and frame number, or by scene with a new strip or row for each scene.
 *   **Print**: **As Edited**, or **Straight Proof**: the whole roll at one exposure and normal contrast, so you see which negatives are thin or dense.
 *   **Pick Frames**: click a frame to leave it out or put it back. Rejects start out.
 *   **Edge Print**: the film maker's markings along the edges, such as the film name, frame numbers and the colored lines a stock prints by its perforations.
