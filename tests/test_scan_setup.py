@@ -184,6 +184,21 @@ class TestRigCards(unittest.TestCase):
         panel._sync_scan_setup()
         self.assertTrue(panel.optics_section.isHidden())
 
+    def test_turning_off_recovery_keeps_raw_decode_in_view_on_that_frame(self):
+        base = WorkspaceConfig()
+        on = replace(base, process=replace(base.process, highlight_reconstruction=2))
+        panel = self._panel({"capture": "scanner", "light": "white"}, config=on, current_file_hash="a")
+        self.assertFalse(panel.demosaic_section.isHidden())
+
+        state = panel.controller.state
+        state.config = base
+        panel._sync_scan_setup()
+        self.assertFalse(panel.demosaic_section.isHidden())
+
+        state.current_file_hash = "b"
+        panel._sync_scan_setup()
+        self.assertTrue(panel.demosaic_section.isHidden())
+
     def test_bw_on_a_white_light_scanner_leaves_calibration_empty(self):
         config = with_process_mode(WorkspaceConfig(), ProcessMode.BW)
         panel = self._panel({"capture": "scanner", "light": "white"}, config=config)

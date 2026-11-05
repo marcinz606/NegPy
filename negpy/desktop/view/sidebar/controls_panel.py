@@ -1056,6 +1056,7 @@ class ControlsPanel(QWidget):
         self._sync_scope_buttons()
         self._sync_modified_dots()
 
+    _raw_decode_held_by: Optional[str] = None
     _optics_held_by: Optional[str] = None
 
     def _sync_scan_setup(self) -> None:
@@ -1069,12 +1070,15 @@ class ControlsPanel(QWidget):
             (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
-        self.demosaic_section.setVisible(camera or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction)
+        raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
         optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
         file_hash = state.current_file_hash
+        if raw_decode_edited:
+            self._raw_decode_held_by = file_hash
         if optics_edited:
             self._optics_held_by = file_hash
-        # A correction turned off stays in reach until another frame opens.
+        # A setting turned off stays in reach until another frame opens.
+        self.demosaic_section.setVisible(camera or raw_decode_edited or (bool(file_hash) and file_hash == self._raw_decode_held_by))
         self.optics_section.setVisible(camera or optics_edited or (bool(file_hash) and file_hash == self._optics_held_by))
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS
