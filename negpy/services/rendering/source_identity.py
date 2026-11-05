@@ -17,6 +17,7 @@ from negpy.features.process.logic import (
     effective_highlight_reconstruction,
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
+    raw_shot_token,
 )
 from negpy.features.process.path import positive_decode
 from negpy.features.rgbscan.logic import rgbscan_token
@@ -38,6 +39,8 @@ def source_token(config: WorkspaceConfig) -> str:
         # Preview only: folding the export choice in would re-decode the open frame whenever
         # an export setting moved.
         demosaic_token(config.process.demosaic_preview),
+        # Which shot of a multi-shot RAW, or the shots combined: changes the decoded numbers.
+        raw_shot_token(config.process.raw_shot),
         rgbscan_token(config.rgbscan),
         stitch_token(config.stitch),
         hdr_token(config.hdr),
