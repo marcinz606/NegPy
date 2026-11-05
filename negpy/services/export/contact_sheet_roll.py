@@ -204,6 +204,17 @@ def creation_order(frames: Sequence[SheetFrame]) -> list[int]:
     return sorted(range(len(frames)), key=key)
 
 
+def frame_order(frames: Sequence[SheetFrame]) -> list[int]:
+    """Indices by the frame's Roll and Frame No. from its metadata, the name a tie."""
+
+    def key(index: int) -> tuple[Any, ...]:
+        meta = frames[index].config.metadata
+        num = meta.capture_frame
+        return (meta.capture_roll.casefold(), num if num is not None else 0, frames[index].name.lower())
+
+    return sorted(range(len(frames)), key=key)
+
+
 def _crop_fractions(config: WorkspaceConfig) -> tuple[float, float]:
     rect = config.geometry.crop_rect
     if not rect:

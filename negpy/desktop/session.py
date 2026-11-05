@@ -526,7 +526,7 @@ class AssetListModel(QAbstractListModel):
         # Returns {asset hash: facts}. Without one, plain queries see file facts only
         # (name, ext, date), which is all a model built outside a session can know.
         self._facts_provider = facts_provider
-        self._sort_order = "name"  # "name" | "date" | "scene"
+        self._sort_order = "name"  # "name" | "date" | "scene" | "frame"
         self._sort_descending = False
         self._filter_text: str = ""
         self._filter_regex: bool = False
@@ -561,6 +561,9 @@ class AssetListModel(QAbstractListModel):
         order = self.effective_sort_order
         if order == "date":
             indices.sort(key=lambda i: _asset_mtime(files[i]), reverse=self._sort_descending)
+        elif order == "frame":
+            facts = self._facts_provider() if self._facts_provider else {}
+            indices.sort(key=lambda i: self._frame_rank(files[i], facts), reverse=self._sort_descending)
         else:
             indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
         if order == "scene":
@@ -642,7 +645,7 @@ class AssetListModel(QAbstractListModel):
         return self._filter_text
 
     def set_sort_order(self, order: str) -> None:
-        if order not in ("name", "date", "scene"):
+        if order not in ("name", "date", "scene", "frame"):
             order = "name"
         self._sort_order = order
         self._apply_reindex()
@@ -669,6 +672,12 @@ class AssetListModel(QAbstractListModel):
         if not scene:
             return (1, 0)
         return (0, -scene[0] if self._sort_descending else scene[0])
+
+    def _frame_rank(self, file_info: dict, facts: dict) -> tuple:
+        """Frame No. sort: the frame's metadata Roll, then its Frame No., the name a tie."""
+        f = facts.get(file_info["hash"]) or {}
+        num = f.get("frame")
+        return (f.get("capture_roll", ""), num if num is not None else 0, file_info["name"].lower())
 
     def scene_runs(self) -> list[tuple[Optional[int], int, int]]:
         """``(scene ordinal or None, first row, last row)`` for each scene's block of display

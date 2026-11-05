@@ -18,7 +18,7 @@ En mapperull inneholder bare filene i sin egen mappe. En fil du legger til fra e
 
 Bruk filmstripen for å lagre bildene i filmstripen som en rull. **Lagre i mapperull** gjør bilder som alle kommer fra én mappe, til rullen for den mappen. De andre filene i mappen vises som fjernet. **Lagre som virtuell rull…** beholder nøyaktig disse bildene, fra hvilke som helst mapper. Lagre i mapperull gjør også en virtuell rull fra én mappe til rullen for den mappen. Den nye rullen starter med den åpne rullens innstillinger, kortlåser og redigeringene som bare ble gjort i den rullen. Et bilde har én redigering i hver rull som inneholder det. Høyreklikk → **Rediger uavhengig i denne rullen** gir det en egen redigering i én rull.
 
-<!-- panel:frames src:e18d0aea -->
+<!-- panel:frames src:c1f54a29 -->
 ### Filmstripe
 
 **Filmstripen** under lerretet viser de åpne bildene på én rad. Dra den øvre kanten for å gjøre bildene større.
@@ -27,7 +27,7 @@ Raden **Rull** på verktøylinjen inneholder:
 
 *   Navnet på rullen og antallet bilder, beholdte og forkastede.
 *   **Filterfeltet**: skriv en del av et filnavn, eller uttrykk som `film:portra iso:>=400` (se nedenfor). Søkeknappen, eller **Enter**, søker i hele biblioteket.
-*   **Sorter**: etter navn, dato eller scene.
+*   **Sorter**: etter navn, dato, scene, eller etter rull og bildenummer.
 *   **Arkfilter**: alle bilder, bare beholdte, skjul forkastede, eller bare umerkede. Knappen er uthevet mens et filter skjuler bilder.
 *   **Rullinnstillinger** (merkelappen): detaljer om utstyr og film for dette bildet, utvalget eller rullen.
 *   **Bruk**: kopierer valgte innstillinger fra dette bildet til utvalget eller rullen.
@@ -505,7 +505,7 @@ Ekstra filer ved siden av kopien. Hver har en bryter til venstre og en engangsha
 *   **Autotetthet / -gradering**: **Bak inn ved eksport** fastsetter den automatiske lysheten og kontrasten for hvert eksporterte bilde, så de ikke endres senere. **Bak inn i rullen** gjør det for hvert synlig bilde nå.
 *   **Redigeringssidefiler**: **Lagre ved eksport** skriver en `.negpy`-fil med redigeringen ved siden av hver kilde. **Eksporter sidefiler** skriver dem for alle synlige bilder. Høyreklikk et bilde → **Last inn redigering fra sidefil…** leser en tilbake.
 
-<!-- panel:contact_sheet src:3ab6797d -->
+<!-- panel:contact_sheet src:ddc8d6ef -->
 ### Kontaktark
 
 På fanen **Ved siden av eksportene**. Et kontaktark viser hele rullen som filmstriper på ett papirark, slik en kontaktkopi i mørkerommet gjør.
@@ -514,7 +514,7 @@ På fanen **Ved siden av eksportene**. Et kontaktark viser hele rullen som films
 *   **Kontaktark…**: åpner arket. Dra en kant av papiret for å endre størrelsen.
 *   **Filmformat**: 35 mm, 35 mm halvformat eller 120 (med **Bildestørrelse** for 120).
 *   **Papir**, **Bredde**, **Høyde** og **DPI**: størrelsen og oppløsningen til arket. Standardpapiret har plass til en rull med 36 bilder.
-*   **Rekkefølge**: etter filnavn, etter dato, eller etter scene med en ny stripe eller rad for hver scene.
+*   **Rekkefølge**: etter filnavn, etter dato, etter rull og bildenummer, eller etter scene med en ny stripe eller rad for hver scene.
 *   **Kopi**: **Som redigert**, eller **Rett prøve**: hele rullen med én eksponering og normal kontrast, så du ser hvilke negativer som er tynne eller tette.
 *   **Velg bilder**: klikk et bilde for å utelate det eller sette det tilbake. Forkastede er utelatt i starten.
 *   **Kantpåskrift**: produsentens merking langs kantene, for eksempel filmnavnet, bildenumrene og de fargede linjene en filmtype trykker ved perforeringen.
