@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from PyQt6.QtWidgets import QDialog
 
-from negpy.desktop.view.widgets.preferences_dialog import NUMBER_ROWS, PreferencesDialog, default_for
+from negpy.desktop.view.widgets.preferences_dialog import NUMBER_ROWS, PreferencesDialog, default_for, row_ceiling, row_recommendation
+from negpy.kernel.system.override import Machine
 from tests.conftest import FakeController, FakeRepo
 
 
@@ -150,6 +151,97 @@ class TestPreferencesDialog(unittest.TestCase):
             with self.subTest(row.key):
                 self.assertGreaterEqual(default_for(row.key) // row.scale, row.minimum)
                 self.assertLessEqual(default_for(row.key) // row.scale, row.maximum)
+
+    def test_a_small_machine_keeps_the_old_limit_with_half_of_ram_recommended(self):
+        with patch(_RAM, return_value=8 * _GIB):
+            dlg = _dlg()
+        spin, hint = dlg._spins["preview_cache_max_bytes"], dlg._hints["preview_cache_max_bytes"]
+        self.assertEqual(spin.maximum(), 32768)
+        self.assertIn("Recommended up to 4096 MB", hint.text())
+        self.assertEqual(hint.property("hint"), "muted")
+
+    def test_a_value_above_the_recommendation_turns_the_hint_amber(self):
+        with patch(_RAM, return_value=8 * _GIB):
+            dlg = _dlg()
+        spin, hint = dlg._spins["preview_cache_max_bytes"], dlg._hints["preview_cache_max_bytes"]
+        spin.setValue(5000)
+        self.assertEqual(hint.property("hint"), "warning")
+        self.assertIn("Above the recommended 4096 MB", hint.text())
+        self.assertEqual(dlg.repo.data["preview_cache_max_bytes"], 5000 * 1024 * 1024)
+        spin.setValue(3000)
+        self.assertEqual(hint.property("hint"), "muted")
+
+    def test_the_texture_cap_can_go_high_with_no_recommendation_or_warning(self):
+        with patch(_RAM, return_value=8 * _GIB):
+            dlg = _dlg()
+        spin, hint = dlg._spins["max_texture_size"], dlg._hints["max_texture_size"]
+        self.assertEqual(spin.maximum(), 65536)
+        spin.setValue(65536)
+        self.assertNotIn("ecommended", hint.text())
+        self.assertEqual(hint.property("hint"), "muted")
+        self.assertEqual(dlg.repo.data["max_texture_size"], 65536)
+
+    def test_a_stored_value_above_the_ceiling_still_shows_as_an_advisory(self):
+        from negpy.desktop.view.widgets import preferences_dialog as module
+
+        with patch(_RAM, return_value=8 * _GIB), patch.object(module.APP_CONFIG, "preview_cache_max_bytes", 40 * _GIB):
+            dlg = _dlg()
+        spin, hint = dlg._spins["preview_cache_max_bytes"], dlg._hints["preview_cache_max_bytes"]
+        self.assertEqual(spin.value(), 40960)
+        self.assertEqual(spin.maximum(), 40960)
+        self.assertEqual(hint.property("hint"), "warning")
+
+    def test_raising_preview_size_in_the_dialog_resizes_the_other_rows(self):
+        with patch(_RAM, return_value=8 * _GIB):
+            dlg = _dlg()
+        hint = dlg._hints["render_memo_max_entries"]
+        self.assertIn("Recommended up to 104 frames", hint.text())
+        dlg._spins["preview_render_size"].setValue(8192)
+        self.assertIn("Above the recommended 4 frames", hint.text())
+        self.assertEqual(hint.property("hint"), "warning")
+
+    def test_ram_unknown_shows_no_recommendation(self):
+        with patch(_RAM, return_value=None):
+            dlg = _dlg()
+        for key, hint in dlg._hints.items():
+            with self.subTest(key):
+                self.assertNotIn("Recommended up to", hint.text())
+        self.assertEqual(dlg._spins["preview_cache_max_bytes"].maximum(), 32768)
+
+
+_RAM = "negpy.desktop.view.widgets.preferences_dialog.total_system_memory_bytes"
+_GIB = 1024**3
+_ROWS = {row.key: row for row in NUMBER_ROWS}
+
+
+class TestRowRecommendationAndCeiling(unittest.TestCase):
+    """A row's recommendation and ceiling come from the Machine; the static maximum is the fallback."""
+
+    def test_ram_unknown_recommends_nothing_and_keeps_the_static_maxima(self):
+        machine = Machine(None, 61_005_568, 1600)
+        for key, row in _ROWS.items():
+            with self.subTest(key):
+                self.assertIsNone(row_recommendation(row, machine))
+                self.assertEqual(row_ceiling(row, machine), row.maximum)
+
+    def test_the_ceiling_is_the_whole_of_ram_on_a_large_machine(self):
+        machine = Machine(128 * _GIB, 61_005_568, 1600)
+        self.assertEqual(row_recommendation(_ROWS["preview_cache_max_bytes"], machine), 65536)
+        self.assertEqual(row_ceiling(_ROWS["preview_cache_max_bytes"], machine), 131072)
+        self.assertEqual(row_recommendation(_ROWS["preview_cache_max_full_res_entries"], machine), 40)
+        self.assertEqual(row_ceiling(_ROWS["preview_cache_max_full_res_entries"], machine), 80)
+
+    def test_the_ceiling_never_falls_below_the_static_maximum(self):
+        machine = Machine(4 * _GIB, 61_005_568, 8192)
+        for key, row in _ROWS.items():
+            with self.subTest(key):
+                self.assertGreaterEqual(row_ceiling(row, machine), row.maximum)
+
+    def test_no_open_frame_recommends_nothing_for_hq_buffers(self):
+        row = _ROWS["preview_cache_max_full_res_entries"]
+        machine = Machine(128 * _GIB, 0, 1600)
+        self.assertIsNone(row_recommendation(row, machine))
+        self.assertEqual(row_ceiling(row, machine), row.maximum)
 
 
 if __name__ == "__main__":

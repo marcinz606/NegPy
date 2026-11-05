@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.color_vision import PALETTES
-from negpy.desktop.view.styles.templates import field_label, hint_label, labeled_action, labeled_toggle, pin_dialog_default
+from negpy.desktop.view.styles.templates import field_label, hint_label, labeled_action, labeled_toggle, pin_dialog_default, set_hint_kind
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
@@ -27,10 +27,13 @@ from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.domain.types import AppConfig
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.memory import total_system_memory_bytes
 from negpy.kernel.system.override import (
     PREVIEW_SIZE_DEFAULT,
     PREVIEW_SIZE_MAX,
     PREVIEW_SIZE_MIN,
+    Machine,
+    cache_entry_limit,
     load_or_create,
     toml_pinned_keys,
 )
@@ -51,6 +54,18 @@ class NumberRow:
     tooltip: str
     # Stored in bytes, shown in MB. Nothing else needs a unit conversion.
     scale: int = 1
+
+
+def row_recommendation(spec: "NumberRow", machine: Machine) -> int | None:
+    """The safe setting for this machine in the row's shown units; None when unknown."""
+    limit = cache_entry_limit(spec.key, machine, spec.scale)
+    return None if limit is None else max(spec.minimum, limit)
+
+
+def row_ceiling(spec: "NumberRow", machine: Machine) -> int:
+    """The spin box maximum: what the whole of RAM holds, never below the row's static maximum."""
+    limit = cache_entry_limit(spec.key, machine, spec.scale, share=1.0)
+    return spec.maximum if limit is None else max(spec.maximum, limit)
 
 
 NUMBER_ROWS: tuple[NumberRow, ...] = (
@@ -81,7 +96,7 @@ NUMBER_ROWS: tuple[NumberRow, ...] = (
         32768,
         128,
         " MB",
-        tr("Memory ceiling for that cache. Lower it on a machine with little RAM."),
+        tr("Memory ceiling for that cache."),
         tr("The most memory the preview cache can use."),
         scale=1024 * 1024,
     ),
@@ -92,7 +107,9 @@ NUMBER_ROWS: tuple[NumberRow, ...] = (
         16,
         1,
         tr(" photos"),
-        tr("Full-size previews kept in memory. Each uses hundreds of MB; keeping the last one makes going back instant."),
+        tr(
+            "Full-size previews kept in memory; keeping the last one makes going back instant. The recommendation counts frames the size of the open one."
+        ),
         tr("How many full-size previews stay in memory."),
     ),
     NumberRow(
@@ -109,10 +126,10 @@ NUMBER_ROWS: tuple[NumberRow, ...] = (
         "max_texture_size",
         tr("GPU texture cap"),
         0,
-        16384,
+        65536,
         1024,
         " px",
-        tr("Largest image size the GPU loads at once. 0 lets the hardware decide."),
+        tr("Largest image size the GPU loads at once; an HQ preview larger than this is reduced to it. 0 uses this machine's default."),
         tr("The largest image size the GPU loads at once."),
     ),
 )
@@ -143,6 +160,10 @@ class PreferencesDialog(QDialog):
         self._gpu_available = GPUDevice.get().is_available
         self._pinned = _pinned_keys() if pinned_keys is None else pinned_keys
         self._spins: dict[str, QSpinBox] = {}
+        self._hints: dict[str, QLabel] = {}
+        self._total_ram = total_system_memory_bytes()
+        w, h = self.session.state.original_res or (0, 0)
+        self._frame_px = int(w) * int(h)
 
         self.setWindowTitle(tr("Preferences"))
         self.resize(700, 720)
@@ -395,11 +416,13 @@ class PreferencesDialog(QDialog):
         for spec in NUMBER_ROWS:
             grid.addWidget(field_label(spec.label), row, 0)
             spin = QSpinBox()
-            spin.setRange(spec.minimum, spec.maximum)
+            stored = self._stored_number(spec)
+            # The stored value always shows, even above the ceiling this machine would offer.
+            spin.setRange(spec.minimum, max(row_ceiling(spec, self._machine()), stored))
             spin.setSingleStep(spec.step)
             spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
             spin.setSuffix(spec.suffix)
-            spin.setValue(self._stored_number(spec))
+            spin.setValue(stored)
             if spec.key in self._pinned:
                 spin.setEnabled(False)
                 spin.setToolTip(tr("Set in override.toml, which wins over this dialog"))
@@ -409,8 +432,9 @@ class PreferencesDialog(QDialog):
             self._spins[spec.key] = spin
             grid.addWidget(spin, row, 1)
             row += 1
-            note = spec.hint + (tr(" Set in override.toml.") if spec.key in self._pinned else "")
-            grid.addWidget(hint_label(note), row, 0, 1, 2)
+            self._hints[spec.key] = hint_label()
+            self._refresh_hint(spec)
+            grid.addWidget(self._hints[spec.key], row, 0, 1, 2)
             row += 1
 
         return host
@@ -463,14 +487,38 @@ class PreferencesDialog(QDialog):
         """What the spin box shows: the live value, which is already the resolved one."""
         live = getattr(APP_CONFIG, spec.key, None)
         value = default_for(spec.key) if live is None else int(live)
-        return max(spec.minimum, min(spec.maximum, value // spec.scale))
+        return max(spec.minimum, value // spec.scale)
 
     def _mark_restart(self) -> None:
         self._restart_hint.setText(tr("Restart NegPy to apply the changed startup settings."))
         self._restart_hint.show()
 
+    def _machine(self) -> Machine:
+        """The machine as the dialog's own Preview size describes it, so every row agrees with it."""
+        spin = self._spins.get("preview_render_size")
+        preview_px = spin.value() if spin is not None else int(APP_CONFIG.preview_render_size)
+        return Machine(self._total_ram, self._frame_px, preview_px)
+
+    def _refresh_hint(self, spec: NumberRow) -> None:
+        note = spec.hint + (tr(" Set in override.toml.") if spec.key in self._pinned else "")
+        machine = self._machine()
+        recommended = row_recommendation(spec, machine)
+        if spec.key == "preview_cache_max_full_res_entries" and machine.total_ram_bytes and not machine.frame_px:
+            note += tr(" Open a frame to size the recommendation to it.")
+        above = recommended is not None and self._spins[spec.key].value() > recommended
+        if above:
+            note += tr(
+                " Above the recommended {value}{unit} for this machine. NegPy may run out of memory.", value=recommended, unit=spec.suffix
+            )
+        elif recommended is not None:
+            note += tr(" Recommended up to {value}{unit} on this machine.", value=recommended, unit=spec.suffix)
+        self._hints[spec.key].setText(note)
+        set_hint_kind(self._hints[spec.key], "warning" if above else "muted")
+
     def _on_number_changed(self, spec: NumberRow, value: int) -> None:
         self.repo.save_global_setting(spec.key, int(value) * spec.scale)
+        for row in NUMBER_ROWS:
+            self._refresh_hint(row)
         self._mark_restart()
 
     def _on_ui_scale_changed(self, index: int) -> None:
