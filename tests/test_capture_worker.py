@@ -1,6 +1,7 @@
 """CaptureWorker cancellation behavior at the camera/service boundary."""
 
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1213,3 +1214,255 @@ def test_the_lights_scan_button_reaches_the_worker_signal(monkeypatch):
     worker._ensure_light("")
     dock.on_scan_button()
     assert pressed == [1]
+
+
+class _BulbCamera:
+    """A body at `current` in its own ladder that takes Bulb exposures."""
+
+    def __init__(self, current="1/2"):
+        self.ladder = ["1/4", "1/2", "1", "Bulb"]
+        self.current = current
+        self.bulbs = []
+        self.kept = []
+        self.released = 0
+        self.closed_calls = 0
+        self.dock = None
+        self.moved_before_file = []
+
+    def release_bulb(self):
+        self.released += 1
+
+    def is_open(self):
+        return True
+
+    def close(self):
+        pass
+
+    def read_settings(self):
+        return {"shutter": {"cur": self.ladder.index(self.current), "options": [{"label": s, "raw": i} for i, s in enumerate(self.ladder)]}}
+
+    def capture_bulb(self, out_path, expose, *, usb_release=True, iso=None, aperture=None, keep_bulb=False, on_closed=None):
+        expose()
+        self.bulbs.append(usb_release)
+        self.kept.append(keep_bulb)
+        if on_closed is not None:
+            on_closed()
+            self.closed_calls += 1
+            if self.dock is not None:  # the camera is still busy: the film moves meanwhile
+                deadline = time.monotonic() + 2.0
+                while self.dock.events.count("advance") < self.closed_calls and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.moved_before_file.append(self.dock.events.count("advance") == self.closed_calls)
+        path = os.path.splitext(out_path)[0] + ".ARW"
+        with open(path, "wb") as f:
+            f.write(b"\0" * (9 * 1024 * 1024))
+        return path
+
+
+def _blend_worker(monkeypatch, camera, waits):
+    import negpy.desktop.workers.capture_worker as cw
+
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    monkeypatch.setattr(worker, "_report_clipping", lambda _path: None)
+    real = cw.CaptureService
+    monkeypatch.setattr(cw, "CaptureService", lambda light, cam: real(light, cam, sleep=waits.append))
+    return worker
+
+
+@pytest.mark.parametrize(("shutters", "seconds"), [(("1/4", "1/4", "1/4"), 0.25), (("", "", ""), 0.5)])
+def test_blend_lights_each_channel_for_the_preset_shutter_or_the_bodys(tmp_path, monkeypatch, shutters, seconds):
+    camera, waits = _BulbCamera(), []
+    worker = _blend_worker(monkeypatch, camera, waits)
+    channels = []
+    worker.channel.connect(channels.append)
+
+    finished, errors, _ = _run(
+        worker, roll_name="Roll", frame_number=3, output_folder=str(tmp_path), levels=(255, 255, 255), shutters=shutters, blend_capture=True
+    )
+
+    assert errors == [] and finished == [[str(tmp_path / "Roll_Frame003.ARW")]]
+    assert waits[1:4] == pytest.approx([seconds] * 3) and channels == ["R", "G", "B"]
+    assert camera.bulbs == [True]
+
+
+def test_blend_on_a_body_left_at_bulb_asks_for_a_shutter_time(tmp_path, monkeypatch):
+    camera = _BulbCamera(current="Bulb")
+    worker = _blend_worker(monkeypatch, camera, [])
+
+    finished, errors, _ = _run(
+        worker, roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True
+    )
+
+    assert finished == [] and camera.bulbs == []
+    assert errors and "shutter time" in errors[0]
+
+
+def test_a_whole_strip_in_blend_shoots_one_bulb_exposure_per_frame_then_ejects(tmp_path, monkeypatch):
+    import negpy.desktop.workers.capture_worker as cw
+
+    real = cw.CaptureService
+    monkeypatch.setattr(cw, "CaptureService", lambda light, cam: real(light, cam, sleep=lambda _s: None))
+    dock, camera = StripDock(frames=3), _BulbCamera()
+
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock, camera=camera, single_capture=False, blend_capture=True)
+
+    # The advance overlaps the camera's processing, so it may land before or after the frame's report.
+    assert sorted(dock.events[:-1]) == ["advance"] * 3 + ["frame"] * 3 and dock.events[-1] == "eject"
+    assert camera.bulbs == [True] * 3
+    assert seen["strip"] == [(3, True)] and seen["error"] == []
+
+
+def test_advance_film_after_a_blend_scan_moves_the_film(tmp_path, monkeypatch):
+    camera, waits = _BulbCamera(), []
+    worker = _blend_worker(monkeypatch, camera, waits)
+    dock = StripDock(frames=3)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: dock)
+
+    assert worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True, advance_film=True
+        )
+    )
+    assert dock.events == ["advance"]
+
+
+def test_a_blend_strip_holds_bulb_between_frames_and_restores_it_before_the_flat(tmp_path, monkeypatch):
+    import negpy.desktop.workers.capture_worker as cw
+
+    camera, order = _BulbCamera(), []
+    worker = _blend_worker(monkeypatch, camera, [])
+    worker._camera = camera  # the held session the strip releases
+    dock = StripDock(frames=2)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: dock)
+    monkeypatch.setattr(camera, "release_bulb", lambda: order.append("release"))
+    monkeypatch.setattr(worker, "_capture_flat", lambda _req: order.append("flat") or str(tmp_path / "flat.ARW"))
+    monkeypatch.setattr(cw.APP_CONFIG, "flatfield_dir", str(tmp_path / "ff"), raising=False)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll",
+            frame_number=1,
+            output_folder=str(tmp_path),
+            levels=(255, 255, 255),
+            shutters=("1/2",) * 3,
+            blend_capture=True,
+            whole_strip=True,
+            strip_flat=True,
+        )
+    )
+
+    assert camera.kept == [True, True]  # every strip frame leaves Bulb set for the next
+    assert order == ["release", "flat"]  # the flat meters from the restored shutter step
+
+
+def test_a_single_blend_scan_puts_the_shutter_back(tmp_path, monkeypatch):
+    camera = _BulbCamera()
+    worker = _blend_worker(monkeypatch, camera, [])
+    worker.run_capture(
+        CaptureRequest(roll_name="Roll", frame_number=1, output_folder=str(tmp_path), levels=(255, 255, 255), blend_capture=True)
+    )
+    assert camera.kept == [False]
+
+
+def test_a_blend_strip_moves_the_film_while_the_camera_finishes_the_shot(tmp_path, monkeypatch):
+    import negpy.desktop.workers.capture_worker as cw
+
+    real = cw.CaptureService
+    monkeypatch.setattr(cw, "CaptureService", lambda light, cam: real(light, cam, sleep=lambda _s: None))
+    dock, camera = StripDock(frames=3), _BulbCamera()
+    camera.dock = dock
+
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock, camera=camera, single_capture=False, blend_capture=True)
+
+    assert camera.moved_before_file == [True, True, True]  # each advance ran before the camera handed over the file
+    assert dock.events.count("advance") == 3  # one move per frame: the loop does not move the film again
+    assert seen["strip"] == [(3, True)]
+
+
+def test_a_blend_frame_that_fails_after_the_film_moved_says_how_to_retake_it(tmp_path, monkeypatch):
+    import negpy.desktop.workers.capture_worker as cw
+
+    real = cw.CaptureService
+    monkeypatch.setattr(cw, "CaptureService", lambda light, cam: real(light, cam, sleep=lambda _s: None))
+
+    class _FailsAfterClose(_BulbCamera):
+        def capture_bulb(self, out_path, expose, **kw):
+            expose()
+            kw["on_closed"]()
+            raise RuntimeError("the camera sent no RAW file")
+
+    dock = StripDock(frames=3)
+    worker = CaptureWorker()
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: _FailsAfterClose())
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: dock)
+    monkeypatch.setattr(worker, "_report_clipping", lambda _path: None)
+    statuses, errors = [], []
+    worker.status.connect(statuses.append)
+    worker.error.connect(errors.append)
+
+    worker.run_capture(
+        CaptureRequest(
+            roll_name="Roll",
+            frame_number=4,
+            output_folder=str(tmp_path),
+            levels=(255, 255, 255),
+            shutters=("1/2",) * 3,
+            blend_capture=True,
+            whole_strip=True,
+        )
+    )
+
+    assert errors and dock.events.count("advance") == 1
+    assert any("Frame 4 failed after the film moved on" in s for s in statuses)
+
+
+def test_a_new_light_connection_takes_host_control(monkeypatch):
+    class DockLight:
+        controlled = 0
+
+        def take_control(self):
+            self.controlled += 1
+
+        def is_connected(self):
+            return True
+
+    light = DockLight()
+    monkeypatch.setattr("negpy.desktop.workers.capture_worker.open_light", lambda _port: light)
+    worker = CaptureWorker()
+    assert worker._ensure_light("/dev/cu.usbserial-10") is light
+    assert worker._ensure_light("/dev/cu.usbserial-10") is light
+    assert light.controlled == 1
+
+
+class EntranceDock(StripDock):
+    """A strip that waits at the entrance until the worker feeds it."""
+
+    def __init__(self, frames: int) -> None:
+        super().__init__(frames)
+        self.waiting = True
+
+    def strip_waiting(self) -> bool:
+        return self.waiting
+
+    def insert_strip(self) -> None:
+        self.events.append("insert")
+        self.waiting = False
+
+
+def test_a_whole_strip_feeds_a_waiting_strip_first(tmp_path, monkeypatch):
+    dock = EntranceDock(frames=2)
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock)
+    assert dock.events == ["insert", "frame", "advance", "frame", "advance", "eject"]
+    assert seen["strip"] == [(2, True)]
+
+
+def test_a_failed_feed_stops_before_the_first_frame(tmp_path, monkeypatch):
+    class StuckEntrance(EntranceDock):
+        def insert_strip(self) -> None:
+            raise RuntimeError("the dock reported 'INSERT ERR no_border'")
+
+    dock = StuckEntrance(frames=2)
+    seen, _ = _run_strip(tmp_path, monkeypatch, dock)
+    assert seen["error"] and seen["finished"] == [] and seen["strip"] == []

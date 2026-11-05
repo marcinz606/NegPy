@@ -5,9 +5,10 @@ import threading
 
 import pytest
 
-from negpy.infrastructure.capture.base import CaptureSettings, Channel
+from negpy.infrastructure.capture.base import BulbRelease, CaptureSettings, Channel
+from negpy.infrastructure.capture.protocol import encode_shutter_pulse
 from negpy.infrastructure.capture.settings import ScanlightSettings
-from negpy.services.capture.service import CaptureError, CaptureService
+from negpy.services.capture.service import CaptureError, CaptureService, blend_plan
 
 
 class FakeLight:
@@ -298,3 +299,190 @@ def test_single_exposures_leave_the_end_light_lit(tmp_path, shoot):
 
     assert not light.off_called
     assert light.colors[-1] == (0, 0, 0, 120)
+
+
+# ---- Blend: one Bulb exposure with R, G and B lit in turn ----------------------------------
+
+
+class FakeReleaseLight(FakeLight):
+    """A light with the 3.5mm shutter output."""
+
+    def __init__(self):
+        super().__init__()
+        self.pulses: list[float] = []
+
+    def shutter_pulse(self, seconds):
+        self.pulses.append(seconds)
+        self.colors.append(("pulse", seconds))
+
+
+class FakeBulbCamera(FakeCamera):
+    """Runs the exposure callback inside the Bulb shot, as the shutter would hold open."""
+
+    def __init__(self, light, file_size=21 * 1024 * 1024):
+        super().__init__(file_size)
+        self.light = light
+        self.bulbs: list[dict] = []
+
+    def capture_bulb(self, out_path, expose, *, usb_release=True, iso=None, aperture=None, keep_bulb=False, on_closed=None):
+        start = len(self.light.colors)
+        expose()
+        if on_closed is not None:
+            on_closed()
+        self.bulbs.append({"usb_release": usb_release, "iso": iso, "aperture": aperture, "lit": self.light.colors[start:]})
+        self.kept = keep_bulb
+        out_path = os.path.splitext(out_path)[0] + ".ARW"
+        with open(out_path, "wb") as f:
+            f.write(b"\0" * self.file_size)
+        return out_path
+
+
+def _blend(tmp_path, light, cam, waits, **kw):
+    svc = CaptureService(light, cam, sleep=waits.append)
+    return svc.capture_blend(_settings(tmp_path, iso="100", aperture="8", **kw.pop("settings", {})), **kw)
+
+
+def test_blend_lights_each_channel_alone_in_one_bulb_exposure(tmp_path):
+    light = FakeLight()
+    cam, waits = FakeBulbCamera(light), []
+    path = _blend(tmp_path, light, cam, waits, seconds=0.5)
+
+    assert os.path.basename(path) == "Roll001_Frame001.ARW" and os.path.exists(path)
+    (bulb,) = cam.bulbs
+    assert bulb == {
+        "usb_release": True,
+        "iso": "100",
+        "aperture": "8",
+        "lit": [(0, 0, 0, 0), (200, 0, 0, 0), (0, 180, 0, 0), (0, 0, 255, 0), (0, 0, 0, 0)],
+    }
+    # Dark lead, then one on-time per channel at the Trichrome shutter. Over USB the release follows
+    # the light-off at once: a slow shutter close cannot cut a channel.
+    assert waits == pytest.approx([0.35, 0.5, 0.5, 0.5])
+
+
+def test_blend_dims_the_leds_to_lengthen_a_short_channel(tmp_path):
+    light = FakeLight()
+    cam, waits = FakeBulbCamera(light), []
+    _blend(tmp_path, light, cam, waits, seconds=0.05)
+
+    levels = [max(c) for c in cam.bulbs[0]["lit"] if any(c)]
+    times = waits[1:4]
+    assert levels == [50, 45, 64]
+    assert times == pytest.approx([0.2, 0.2, 0.05 * 255 / 64])
+    # Each channel keeps its Trichrome light: level times seconds.
+    assert [lv * t for lv, t in zip(levels, times)] == pytest.approx([200 * 0.05, 180 * 0.05, 255 * 0.05])
+
+
+def test_blend_dims_no_led_under_the_calibration_floor(tmp_path):
+    light = FakeLight()
+    cam, waits = FakeBulbCamera(light), []
+    _blend(tmp_path, light, cam, waits, seconds=0.02)
+
+    # The dimmest LED stops at 40, so the channels stay shorter than 0.2 s.
+    assert [max(c) for c in cam.bulbs[0]["lit"] if any(c)] == [44, 40, 57]
+
+
+def test_blend_by_cable_pulses_the_shutter_and_leaves_the_camera_to_wait(tmp_path):
+    light = FakeReleaseLight()
+    cam, waits = FakeBulbCamera(light), []
+    _blend(tmp_path, light, cam, waits, seconds=0.4, release=BulbRelease.CABLE)
+
+    assert cam.bulbs[0]["usb_release"] is False
+    assert light.pulses == pytest.approx([0.35 + 3 * 0.4 + 0.2])
+    assert light.colors.index(("pulse", light.pulses[0])) < light.colors.index((200, 0, 0, 0))
+
+
+def test_blend_by_cable_brightens_the_leds_to_fit_the_pulse(tmp_path):
+    light = FakeReleaseLight()
+    cam, waits = FakeBulbCamera(light), []
+    _blend(tmp_path, light, cam, waits, seconds=1.0, settings={"levels": (100, 90, 120)}, release=BulbRelease.CABLE)
+
+    assert sum(waits[1:4]) <= 2.55 - 0.35 - 0.2 + 1e-9
+    assert light.pulses[0] <= 2.55 + 1e-9
+    assert encode_shutter_pulse(light.pulses[0])[-1] == 255  # the light's own encoder takes it, at its limit
+
+
+def test_blend_by_cable_refuses_an_exposure_longer_than_the_pulse(tmp_path):
+    light = FakeReleaseLight()
+    cam = FakeBulbCamera(light)
+    with pytest.raises(CaptureError, match="release cable"):
+        _blend(tmp_path, light, cam, [], seconds=2.0, release=BulbRelease.CABLE)
+    assert cam.bulbs == [] and light.pulses == []
+
+
+def test_blend_by_cable_needs_a_light_with_a_shutter_output(tmp_path):
+    light = FakeLight()
+    with pytest.raises(CaptureError, match="shutter release"):
+        _blend(tmp_path, light, FakeBulbCamera(light), [], seconds=0.5, release=BulbRelease.CABLE)
+
+
+def test_blend_needs_a_bulb_camera(tmp_path):
+    with pytest.raises(CaptureError, match="Bulb"):
+        _blend(tmp_path, FakeLight(), FakeCamera(), [], seconds=0.5)
+
+
+def test_blend_reports_each_channel_and_leaves_the_end_light_lit(tmp_path):
+    light = FakeLight()
+    seen = []
+    _blend(tmp_path, light, FakeBulbCamera(light), [], seconds=0.5, on_channel=seen.append, end_light=(10, 10, 10, 0))
+    assert seen == ["R", "G", "B"]
+    assert light.colors[-1] == (10, 10, 10, 0)
+
+
+def test_blend_stop_between_channels_ends_the_light_and_keeps_no_file(tmp_path):
+    light = FakeLight()
+    cancel = threading.Event()
+
+    def _stop_after_red(letter):
+        if letter == "R":
+            cancel.set()
+
+    with pytest.raises(CaptureError, match="cancelled"):
+        _blend(tmp_path, light, FakeBulbCamera(light), [], seconds=0.5, cancel=cancel, on_channel=_stop_after_red)
+    assert (0, 180, 0, 0) not in light.colors
+    assert light.colors[-1] == (0, 0, 0, 0)
+    assert not [n for n in os.listdir(tmp_path) if n.endswith(".ARW")]
+
+
+def test_blend_plan_skips_an_unlit_channel():
+    plan = blend_plan((200, 0, 255), 0.5)
+    assert [step.channel for step in plan] == [Channel.RED, Channel.BLUE]
+
+
+def test_blend_passes_keep_bulb_to_the_camera(tmp_path):
+    light = FakeLight()
+    cam = FakeBulbCamera(light)
+    _blend(tmp_path, light, cam, [], seconds=0.5, keep_bulb=True)
+    assert cam.kept is True
+
+
+def test_blend_calls_on_closed_after_the_light_is_off(tmp_path):
+    light = FakeLight()
+    seen = []
+    _blend(tmp_path, light, FakeBulbCamera(light), [], seconds=0.5, on_closed=lambda: seen.append(light.colors[-1]))
+    assert seen == [(0, 0, 0, 0)]
+
+
+def test_blend_by_cable_keeps_the_dark_tail_inside_the_pulse(tmp_path):
+    light = FakeReleaseLight()
+    waits = []
+    _blend(tmp_path, light, FakeBulbCamera(light), waits, seconds=0.4, release=BulbRelease.CABLE)
+    assert waits[-1] == pytest.approx(0.2)
+
+
+class FakeTimedLight(FakeLight):
+    """A light whose set_color waits for a reply, so a timed exposure must switch through set_color_now."""
+
+    def __init__(self):
+        super().__init__()
+        self.now: list[tuple[int, int, int]] = []
+
+    def set_color_now(self, r=0, g=0, b=0):
+        self.now.append((r, g, b))
+
+
+def test_blend_switches_a_waiting_light_through_set_color_now(tmp_path):
+    light = FakeTimedLight()
+    _blend(tmp_path, light, FakeBulbCamera(light), [], seconds=0.5)
+    assert light.now == [(0, 0, 0), (200, 0, 0), (0, 180, 0), (0, 0, 255), (0, 0, 0)]
+    assert light.colors and all(c == (0, 0, 0, 0) for c in light.colors)  # off() only for the end-of-frame release

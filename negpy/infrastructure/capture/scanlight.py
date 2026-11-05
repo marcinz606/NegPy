@@ -145,6 +145,11 @@ class Scanlight:
         fw, hw = self.get_fw_version()
         return f"{proto.describe_hardware(hw)} (fw{fw})", proto.has_white_channel(hw), proto.has_ir_channel(hw)
 
+    def shutter_pulse(self, seconds: float) -> None:
+        """Close the 3.5mm jack's shutter line for `seconds` (at most 2.55 s), timed by the firmware.
+        A camera in Bulb on a release cable holds its shutter open for the pulse."""
+        self._serial.write(proto.encode_shutter_pulse(seconds))
+
     def get_fw_version(self, timeout: float = 2.0) -> tuple[int, int]:
         """Request (firmware_id, hardware_id). Raises TimeoutError on no reply."""
         return self._request(proto.H2D_GET_FW_VERSION, proto.D2H_FW_VERSION, proto.decode_fw_version, timeout)

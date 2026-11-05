@@ -12,7 +12,7 @@ import time
 import pytest
 
 from negpy.infrastructure.capture import protocol as proto
-from negpy.infrastructure.capture.base import LightSource
+from negpy.infrastructure.capture.base import LightSource, ShutterRelease
 from negpy.infrastructure.capture.scanlight import Scanlight
 
 
@@ -108,3 +108,9 @@ def test_describe_names_the_model_and_its_channels(light):
     word = (0 << 16) | 9  # firmware 9 on a Big Scanlight: white and infrared
     threading.Timer(0.05, light.serial.feed, args=(proto.D2H_FW_VERSION, word.to_bytes(4, "big"))).start()
     assert light.describe() == ("Big Scanlight (fw9)", True, True)
+
+
+def test_shutter_pulse_writes_one_pulse_packet(light):
+    light.shutter_pulse(2.0)
+    assert bytes(light.serial.written) == proto.encode_shutter_pulse(2.0)
+    assert isinstance(light, ShutterRelease)

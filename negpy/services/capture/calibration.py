@@ -406,8 +406,8 @@ class CalibrationResult:
     channels: dict[str, ChannelCalibration]
     spread_stops: float = 0.0  # measured k spread in stops (confirms the shared-shutter assumption)
     single_capture: bool = False  # the levels are for R, G and B lit together in one exposure
-    # Sensor unmix from a single-capture run's probes (9 floats, row-major); None when they
-    # could not give one.
+    # Sensor unmix from a single-capture or sensor-measuring run (9 floats, row-major); None when
+    # the shots could not give one.
     sensor_matrix: Optional[tuple[float, ...]] = None
 
     @property
@@ -522,14 +522,21 @@ class CalibrationService:
         progress: Optional[ProgressCb] = None,
         cancel=None,
         single_capture: bool = False,
+        measure_sensor: bool = False,
     ) -> CalibrationResult:
+        """`measure_sensor` (a triplet run) also reads every sensor channel in each LED's last shot, near target,
+        for a sensor unmix: a Blend exposure lights all three LEDs into one file."""
         candidates, start_shutter, _report, _check_cancel = _run_setup(candidates, start_shutter, progress, cancel)
         T = target_signal(target_fraction)
+        last_means: dict[int, np.ndarray] = {}
 
         def _shoot(i: int, ch, level: int, shutter: str) -> tuple[float, float, float]:
             """Light channel `ch` at `level`, capture at `shutter`, meter → (base p99.9,
             linearity_clip, plateau_clip). The demosaiced check joins the linearity budget: its
             ceiling is itself scaled from the calibrated linearity limit via user_sat."""
+            if measure_sensor:
+                signals, linearity, plateau, last_means[i] = self._meter_rgb(ch.rgb(level), shutter, roi, scratch_path, clip_channels=(i,))
+                return float(signals[i]), float(linearity[i]), float(plateau[i])
             self._light.set_color(*ch.rgb(level))
             self._sleep(self._settle_s)
             img, written = self._capture(scratch_path, shutter=shutter)
@@ -568,7 +575,8 @@ class CalibrationService:
                 channels[ch.letter] = self._verify_channel(i, ch, levels[ch.letter], shutter, T, _shoot)
 
             _report(1.0, "Calibration done")
-            return CalibrationResult(channels=channels, spread_stops=spread)
+            sensor = _sensor_matrix(np.column_stack([last_means[i] for i in range(3)])) if measure_sensor else None
+            return CalibrationResult(channels=channels, spread_stops=spread, sensor_matrix=sensor)
         finally:
             try:
                 self._light.off()

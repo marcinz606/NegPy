@@ -708,3 +708,15 @@ def test_shutter_display_of_one_label(label, shown):
     from negpy.services.capture.calibration import shutter_display
 
     assert shutter_display(label) == shown
+
+
+def test_a_sensor_measuring_triplet_run_solves_as_trichrome_and_measures_the_unmix():
+    plain = _calibrate(_service(FakeLight(), FakeCamera(), crosstalk=0.15))
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam, crosstalk=0.15).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", measure_sensor=True)
+    assert (result.levels, result.shutters, result.single_capture) == (plain.levels, plain.shutters, False)
+    levels = np.array([120.0, 60.0, 30.0])
+    k = np.array([K[c] for c in "RGB"])
+    mixed = k * (levels + 0.15 * (levels.sum() - levels))  # a Blend frame: each LED alone, added up on the sensor
+    unmixed = np.array(result.sensor_matrix).reshape(3, 3) @ mixed
+    assert unmixed == pytest.approx(k * levels, rel=1e-6)

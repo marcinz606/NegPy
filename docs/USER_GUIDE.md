@@ -162,7 +162,7 @@ Terms combine: `film:portra iso:>=400 -rejected:`. Metadata terms match only fra
 
 Right-click a frame, or use the shortcuts, to **Keep** it (a check) or **Reject** it (a cross; the frame dims and batch exports skip it). Your files never change.
 
-A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it; hover it to see which cards. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame); hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
+A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it; hover it to see which cards. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame), or a Blend or Single Exposure capture shot it; hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
 
 The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.5](#105-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
 
@@ -802,8 +802,10 @@ Shown while a Scanlight is connected. A preset holds the light levels and the ca
     *   **Calibrate on the Film Base…**: place the rectangle on clear film and run it. NegPy finds the light levels and the shutter.
     *   **Set by Hand**: set the sliders yourself, then save them as a preset. With no camera connected, it saves no exposure, and a scan uses the camera's own.
 *   **Red**, **Green**, **Blue**, **White**: the light levels (0 to 255). **Light On** turns the light on to frame the film, or off.
-*   **Capture mode**: **Trichrome** takes one exposure per color and joins them; **Single Exposure** takes one exposure with all three colors on.
-*   **Create Sensor Crosstalk Profile** (Single Exposure): also saves a sensor crosstalk profile for this preset (see Calibration, §10.4).
+*   **Capture mode**: **Trichrome** takes one exposure per color and joins them; **Single Exposure** takes one exposure with all three colors on. **Blend** holds the camera open in Bulb and turns on red, green and blue in turn, for one file. A Trichrome or Blend preset can switch between the two.
+*   **Shutter release** (Blend): what holds the shutter open. **USB** uses the camera's own bulb control. **Cable** uses a release cable in the Scanlight's 3.5mm jack, for exposures up to 2.55 s.
+*   **Sensor profile** (Blend preset with no profile of its own): the sensor crosstalk profile for its scans. Scan waits for one. The vials button makes one.
+*   **Create Sensor Crosstalk Profile** (Single Exposure or Blend): also saves a sensor crosstalk profile that this preset's scans use (see Calibration, §10.4).
 *   **ISO**, **Shutter**, **Aperture**: the preset's exposure. A change holds until you pick the preset again. The gauge button meters.
 *   **IR Shutter** and **Infrared** (lights with infrared LEDs): adds an infrared exposure to each scan for dust removal, saved as an `_IR` file. It needs a camera that sees infrared (full-spectrum or converted) and manual focus. Color film only.
 *   **Channel Delay**: a pause between the red, green and blue exposures, for cameras that need it.

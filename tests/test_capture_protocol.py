@@ -89,3 +89,15 @@ def test_channel_light_keywords():
     assert Channel.IR.light(255) == {"ir": 255}
     with pytest.raises(ValueError):
         Channel.IR.rgb(255)
+
+
+def test_encode_shutter_pulse_counts_ten_millisecond_units():
+    assert proto.encode_shutter_pulse(1.5) == bytes([0xFE, proto.H2D_SHUTTER_PULSE, 1, 150])
+    assert proto.encode_shutter_pulse(0.123)[-1] == 13  # rounded up, so the shutter outlasts the light
+    assert proto.encode_shutter_pulse(proto.MAX_SHUTTER_PULSE_S)[-1] == 255
+
+
+@pytest.mark.parametrize("bad", [0.0, 2.56, 10.0])
+def test_encode_shutter_pulse_rejects_what_the_firmware_cannot_hold(bad):
+    with pytest.raises(proto.ProtocolError):
+        proto.encode_shutter_pulse(bad)
