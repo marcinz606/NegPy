@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch, call
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -6094,6 +6094,27 @@ class TestEmbeddedPeek(unittest.TestCase):
             self.controller.toggle_embedded_peek(force=True)
         self.assertFalse(self.controller.state.embedded_peek)
         self.assertEqual(seen, [False], "the menu item must not stay checked on a file with no preview")
+
+    def _pick_profile(self, film_scanner, **kwargs):
+        from negpy.services.assets.flatfield import FlatFieldProfile, FlatFieldProfiles
+
+        repo = self.mock_session_manager.repo
+        repo.save_global_setting.reset_mock()
+        self.mock_session_manager.film_scanner_file.return_value = film_scanner
+        self.controller.set_roll_default = MagicMock()
+        with patch.object(FlatFieldProfiles, "get", return_value=FlatFieldProfile("ff-120", "120", 0.0, "")):
+            self.controller.set_active_flatfield_profile("ff-120", **kwargs)
+        self.controller.set_roll_default.assert_called_once_with("flatfield", profile_id="ff-120", apply=True)
+        return repo.save_global_setting.call_args_list
+
+    def test_a_camera_frame_sets_the_last_chosen_profile(self):
+        self.assertEqual(self._pick_profile(False), [call("flatfield_active_profile", "ff-120")])
+
+    def test_a_film_scanner_frame_leaves_the_last_chosen_profile(self):
+        self.assertEqual(self._pick_profile(True), [])
+
+    def test_a_capture_sets_the_last_chosen_profile_from_any_frame(self):
+        self.assertEqual(self._pick_profile(True, remember=True), [call("flatfield_active_profile", "ff-120")])
 
     def test_the_peeks_are_mutually_exclusive(self):
         with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))):

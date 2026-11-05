@@ -39,7 +39,7 @@ class TestHydration(unittest.TestCase):
         session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, default=None: {"last_process_mode": sticky_mode}.get(k, default)
-        session._apply_sticky_settings = lambda c, only_global=False: (
+        session._apply_sticky_settings = lambda c, only_global=False, path="": (
             c if only_global else replace(c, process=replace(c.process, process_mode=sticky_mode))
         )
         import negpy.desktop.session as mod
@@ -247,7 +247,7 @@ class TestHdrSeedHydration(unittest.TestCase):
         session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, default=None: default
-        session._apply_sticky_settings = lambda c, only_global=False: c
+        session._apply_sticky_settings = lambda c, only_global=False, path="": c
         import negpy.desktop.session as mod
 
         orig = mod.load_or_promote
@@ -353,7 +353,7 @@ class TestResetSettingsOnAComposite(unittest.TestCase):
         orig = mod.load_or_promote
         mod.load_or_promote = lambda *a, **k: None
         try:
-            session._apply_sticky_settings = lambda c, only_global=False: c
+            session._apply_sticky_settings = lambda c, only_global=False, path="": c
             fresh = session._hydrate_asset_config(asset)
         finally:
             mod.load_or_promote = orig
@@ -432,7 +432,7 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
         session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, default=None: default
-        session._apply_sticky_settings = lambda c, only_global=False: (
+        session._apply_sticky_settings = lambda c, only_global=False, path="": (
             c if only_global else replace(c, process=replace(c.process, process_mode=sticky_mode))
         )
         import negpy.desktop.session as mod

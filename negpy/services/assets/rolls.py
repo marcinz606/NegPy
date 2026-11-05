@@ -715,7 +715,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # spread (a metering run, not an edit).
     "baseline": ("process", ("use_luma_average", "use_color_average", "use_cast_average")),
     "lens": ("geometry", ("distortion_k1", "lens_distortion_from_metadata", "lens_ca_from_metadata")),
-    # A frame that names no profile_id takes the last chosen one, upstream of roll defaults.
+    # A camera frame that names no profile_id takes the last chosen one, upstream of roll defaults.
     "flatfield": ("flatfield", ("apply", "profile_id")),
     # Metadata describes the roll almost by definition: one camera, one stock, one
     # development, one scanning rig. capture_frame is unique to one frame, and

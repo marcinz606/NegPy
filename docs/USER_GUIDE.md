@@ -73,7 +73,7 @@ Right-click a card header for **Copy Card Settings** and **Undo Change to Severa
 
 ### What carries to the next frame
 
-A new frame gets the roll's film type, and the crop, print stock and Lab settings of the last frame you edited. The look (brightness, color, dodge and burn, toning) starts clean. **Preferences → Session & Storage → Persistent Settings…** sets what carries.
+A new frame gets the roll's film type, and the crop, print stock and Lab settings of the last frame you edited. The look (brightness, color, dodge and burn, toning) starts clean. **Preferences → Session & Storage → Persistent Settings…** sets what carries. Optics and Recovery carry to camera RAW frames only.
 
 **Reset Settings** returns a frame to the defaults. It does not change the scanning choices on the **Setup** card.
 
@@ -485,7 +485,7 @@ How a camera RAW file is turned into pixels. Shown for a camera.
 
 *   **Camera WB / Linear RAW**: Camera WB uses the camera's white balance. Linear RAW decodes neutral, for narrowband light. Setup sets it for you.
 *   **Preview** / **Export**: the demosaic method, which fills in the colors each sensor pixel cannot see. **Auto** is fast on screen and uses **AHD** for export. **VNG** is smooth and **PPG** fast. **DCB** and **DHT** keep more fine detail but can turn grain into patterns. **AAHD** softens edges. Only the methods in your LibRaw build are listed.
-*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong.
+*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong. A new film scanner frame starts with Recovery off.
 
 <!-- panel:optics -->
 ### 10.3 Optics
@@ -505,7 +505,7 @@ Removes uneven light, such as darker corners, with a shot of the bare light sour
 *   **Apply Flat Field**: applies the selected profile to this roll.
 *   **Check Flat Field**: shows how well the profile evens out its own shot. Even gray is good; a band or patch shows where it is off.
 
-A frame keeps its own profile unless it follows its roll, so each light and film format can have one. A new camera frame, or a frame whose profile is missing, takes the last profile you chose. A new film scanner frame starts with no Optics corrections, and shows this card only if it holds one.
+A frame keeps its own profile unless it follows its roll, so each light and film format can have one. A new camera frame, or a camera frame whose profile is missing, takes the last profile you chose on a camera frame. A new film scanner frame starts with no Optics corrections. With Film Scanner set, this card shows only on a frame that holds one.
 
 <!-- panel:sensor -->
 ### 10.4 Calibration: colors from your scanning setup

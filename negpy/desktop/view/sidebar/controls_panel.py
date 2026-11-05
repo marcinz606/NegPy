@@ -1071,7 +1071,12 @@ class ControlsPanel(QWidget):
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
         raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
-        optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
+        locked_cards = self.controller.locked_roll_cards()
+        optics_edited = (
+            any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS)
+            or cfg.flatfield.apply
+            or any(card in locked_cards for card in _SECTION_CARDS["optics"])
+        )
         file_hash = state.current_file_hash
         if raw_decode_edited:
             self._raw_decode_held_by = file_hash

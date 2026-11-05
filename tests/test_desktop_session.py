@@ -706,6 +706,35 @@ class TestDesktopSessionSync(unittest.TestCase):
                 self.assertEqual(config.geometry.distortion_k1, 0.0)
                 self.assertEqual(config.process.highlight_reconstruction, 0)
 
+    def _reopened_tiff(self, path="/roll/a.tif"):
+        """A saved frame with no profile, reopened while a legacy profile with a k1 is the last chosen."""
+        settings = {"flatfield_active_profile": "ff-35"}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        self.session.state.active_roll_id = None
+        with (
+            patch("negpy.desktop.session.load_or_promote", return_value=WorkspaceConfig()),
+            patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=SimpleNamespace(id="ff-35", k1=-0.05)),
+            patch("negpy.desktop.session.is_scanned_positive_source", side_effect=lambda p: not p.endswith(".cr3")),
+        ):
+            return self.session.config_for_asset({"name": path, "path": path, "hash": "h"})
+
+    def test_a_saved_film_scanner_frame_takes_no_last_chosen_profile(self):
+        config = self._reopened_tiff()
+        self.assertEqual(config.flatfield.profile_id, "")
+        self.assertEqual(config.geometry.distortion_k1, 0.0)
+
+    def test_a_saved_camera_frame_takes_the_last_chosen_profile(self):
+        self.assertEqual(self._reopened_tiff("/roll/a.cr3").flatfield.profile_id, "ff-35")
+
+    def test_the_file_is_not_read_when_no_camera_setting_carries(self):
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: default
+        with (
+            patch("negpy.desktop.session.is_scanned_positive_source") as scanned,
+            patch("negpy.desktop.session.load_sticky_rows", return_value=[]),
+        ):
+            self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False, path="/roll/a.nef")
+        scanned.assert_not_called()
+
     def test_a_film_scanner_frame_takes_optics_its_roll_holds(self):
         config = self._fresh_config("/roll/a.tif", roll_defaults={"profile_id": "ff-35", "apply": True})
         self.assertEqual((config.flatfield.profile_id, config.flatfield.apply), ("ff-35", True))

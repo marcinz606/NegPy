@@ -184,6 +184,13 @@ class TestRigCards(unittest.TestCase):
         panel._sync_scan_setup()
         self.assertTrue(panel.optics_section.isHidden())
 
+    def test_a_frame_locked_on_flat_field_keeps_optics_in_view(self):
+        panel = self._panel({"capture": "scanner", "light": "white"}, current_file_hash="a")
+        self.assertTrue(panel.optics_section.isHidden())
+        panel.controller.locked_roll_cards.return_value = {"flatfield"}
+        panel._sync_scan_setup()
+        self.assertFalse(panel.optics_section.isHidden())
+
     def test_turning_off_recovery_keeps_raw_decode_in_view_on_that_frame(self):
         base = WorkspaceConfig()
         on = replace(base, process=replace(base.process, highlight_reconstruction=2))
