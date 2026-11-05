@@ -132,6 +132,37 @@ _MAX_PREVIEW_FAILURES = 3
 # permanently discarding highlight and color information.
 _CAMERA_RAW_EXTENSIONS = frozenset(SUPPORTED_RAW_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS)
 
+#: The bulb button over USB as (property, press, release), tried in order. Canon names it a
+#: remote release; Nikon and Sony publish a `bulb` toggle.
+_BULB_RELEASES: tuple[tuple[str, Any, Any], ...] = (
+    ("eosremoterelease", "Press Full", "Release Full"),
+    ("bulb", 1, 0),
+)
+#: A Bulb exposure's RAW arrives as a file-added event once the shutter closes. Long-exposure noise
+#: reduction can hold it for as long again as the exposure.
+_BULB_FILE_TIMEOUT_S = 30.0
+_BULB_EVENT_WAIT_MS = 500
+
+
+def _require_raw(name: str) -> None:
+    suffix = os.path.splitext(name)[1]
+    if suffix.lower() not in _CAMERA_RAW_EXTENSIONS:
+        shown = suffix or "(no extension)"
+        raise GphotoError(f"camera returned {shown}, not a RAW file; set the camera to RAW-only image quality and retry")
+
+
+def _write_raw(out_path: str, camera_name: str, data: bytes) -> str:
+    """Write `data` beside `out_path` under the camera's own suffix, and return the path."""
+    suffix = os.path.splitext(camera_name)[1]
+    if suffix:
+        out_path = os.path.splitext(out_path)[0] + suffix
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    tmp = f"{out_path}.part"
+    with open(tmp, "wb") as handle:
+        handle.write(data)
+    os.replace(tmp, out_path)
+    return out_path
+
 
 #: The catch-all entry unlisted PTP bodies fall back to. It claims every operation, so "not
 #: in the database" must never be reported as unsupported on its own.
@@ -349,6 +380,7 @@ class GphotoCamera:
         self._magnifier_stalls = False
         self._aim_warned = False
         self._names: dict[str, Optional[str]] = {}  # settings key → this body's property name
+        self._bulb_held: Optional[tuple[str, str, Optional[str]]] = None  # (shutter property, Bulb label, step to restore)
         self._position = (_GRID_W // 2, _GRID_H // 2)
 
     # ----- session ---------------------------------------------------------------
@@ -432,6 +464,10 @@ class GphotoCamera:
         if prev is not None and prev.is_alive():
             prev.join(timeout=3.0)  # let a post-shot drain finish before the handle goes away
         with self._lock:
+            try:
+                self.release_bulb()  # the body must not stay in Bulb after NegPy lets go of it
+            except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                logger.warning("gphoto2: could not restore the shutter: %s", exc)
             self._alive = False
             if self._camera is not None:
                 try:
@@ -771,6 +807,7 @@ class GphotoCamera:
             with self._lock:
                 camera = self._require()
                 t0 = time.perf_counter()
+                self.release_bulb()  # a plain shot at a held Bulb would expose for as long as the shutter stays open
                 if shutter:
                     name = self._property("shutter")
                     if name is None or not self._set_verified(name, shutter):
@@ -786,21 +823,9 @@ class GphotoCamera:
                 try:
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
                     t_shot = time.perf_counter()
-                    suffix = os.path.splitext(path.name)[1]
-                    if suffix.lower() not in _CAMERA_RAW_EXTENSIONS:
-                        shown = suffix or "(no extension)"
-                        raise GphotoError(f"camera returned {shown}, not a RAW file; set the camera to RAW-only image quality and retry")
-                    camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)
-                    data = bytes(memoryview(camera_file.get_data_and_size()))
+                    _require_raw(path.name)
+                    data = self._download(camera, path)
                     t_download = time.perf_counter()
-                    try:
-                        # Delete the downloaded shot from the body. On a self-recycling RAM
-                        # target this is redundant at worst, but a body without a capture target
-                        # keeps every tethered object until it refuses to capture at all
-                        # (issue #658).
-                        camera.file_delete(path.folder, path.name)
-                    except self._gp.GPhoto2Error as exc:
-                        logger.debug("gphoto2: could not delete %s off the camera: %s", path.name, exc)
                 except BaseException:
                     # A failed shot drains inline, still under the lock: the error must leave a
                     # clean queue behind before the preview or a retry touches the session.
@@ -816,14 +841,7 @@ class GphotoCamera:
             if not drained_async:
                 self._busy.clear()
 
-        suffix = os.path.splitext(path.name)[1]
-        if suffix:
-            out_path = os.path.splitext(out_path)[0] + suffix
-        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        tmp = f"{out_path}.part"
-        with open(tmp, "wb") as handle:
-            handle.write(data)
-        os.replace(tmp, out_path)
+        out_path = _write_raw(out_path, path.name, data)
         logger.info(
             "gphoto2 captured %s (%.1f MB): assert %.0f ms, shot %.0f ms, download %.0f ms (%.0f MB/s)",
             os.path.basename(out_path),
@@ -834,6 +852,155 @@ class GphotoCamera:
             len(data) / 1e6 / max(t_download - t_shot, 1e-9),
         )
         return out_path
+
+    def capture_bulb(
+        self,
+        out_path: str,
+        expose: Callable[[], None],
+        *,
+        usb_release: bool = True,
+        iso: Optional[str] = None,
+        aperture: Optional[str] = None,
+        keep_bulb: bool = False,
+        on_closed: Optional[Callable[[], None]] = None,
+    ) -> str:
+        """One Bulb exposure: set Bulb, open the shutter, run `expose`, close it, then download the
+        RAW the body reports and return where it landed. With `usb_release` False, `expose` opens
+        the shutter itself by cable, so only Bulb is set. The body's shutter step is put back after,
+        unless `keep_bulb` holds Bulb for the next frame: `release_bulb`, `capture` and `close` put it back.
+        `on_closed` runs once the shutter has closed, before the body hands over the file; it must not block.
+        """
+        prev = self._post_shot
+        if prev is not None and prev.is_alive():
+            prev.join()
+        self._busy.set()
+        drained_async = False
+        try:
+            with self._lock:
+                camera = self._require()
+                held, self._bulb_held = self._bulb_held, None
+                if held is not None:
+                    name, bulb, before = held
+                else:
+                    name = self._property("shutter")
+                    before = _safe_value(self._gp, camera.get_single_config(name)) if name is not None else None
+                    bulb = self._bulb_choice(camera, name)
+                if bulb is None and usb_release:
+                    raise GphotoError("this camera offers no Bulb shutter over USB; set Bulb on the camera and use a release cable")
+                release = self._bulb_release(camera) if usb_release else None
+                if usb_release and release is None:
+                    raise GphotoError("this camera has no bulb release over USB; use a release cable on the Scanlight")
+                for prop, value in (("iso", iso), ("aperture", aperture)):
+                    if value:
+                        prop_name = self._property(prop)
+                        if prop_name is None or not self._set_verified(prop_name, value):
+                            logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
+                if bulb is None:
+                    logger.info("gphoto2: this body lists no Bulb step; the camera must be set to Bulb by hand")
+                elif held is None and not self._set_verified(name, bulb):
+                    # A body in a continuous drive mode refuses Bulb (a Sony one does), which no write can change.
+                    raise GphotoError(
+                        f"the camera did not go to {bulb!r}; set its drive mode to single shooting and its mode dial to M, then scan again"
+                    )
+                kept = False
+                try:
+                    try:
+                        if release is not None:
+                            self._write_action(camera, release[0], release[1])
+                        expose()
+                    finally:
+                        if release is not None:
+                            self._write_action(camera, release[0], release[2])
+                    if on_closed is not None:
+                        on_closed()
+                    path = self._wait_for_raw(camera)
+                    data = self._download(camera, path)
+                    if keep_bulb and name is not None and bulb is not None:
+                        self._bulb_held, kept = (name, bulb, before), True
+                except BaseException:
+                    self._drain_events()
+                    raise
+                finally:
+                    if not kept:
+                        self._restore_shutter(name, bulb, before)
+        except self._gp.GPhoto2Error as exc:
+            raise GphotoError(f"bulb capture failed: {exc}") from exc
+        else:
+            self._drain_owed.set()
+            self._finish_shot_async()
+            drained_async = True
+        finally:
+            if not drained_async:
+                self._busy.clear()
+        out_path = _write_raw(out_path, path.name, data)
+        logger.info("gphoto2 captured bulb exposure %s (%.1f MB)", os.path.basename(out_path), len(data) / 1e6)
+        return out_path
+
+    def release_bulb(self) -> None:
+        """Put back the shutter step a `keep_bulb` capture held at Bulb. Safe to call at any time."""
+        with self._lock:
+            held, self._bulb_held = self._bulb_held, None
+            if held is not None and self._camera is not None and self._alive:
+                self._restore_shutter(*held)
+
+    def _restore_shutter(self, name: Optional[str], bulb: Optional[str], before: Optional[str]) -> None:
+        """Live view and the next plain shot keep the operator's step, not Bulb."""
+        if name is not None and bulb is not None and before and before != bulb:
+            self._set_verified(name, before)
+
+    def _bulb_choice(self, camera: Any, name: Optional[str]) -> Optional[str]:
+        """This body's label for the Bulb shutter step, or None when it lists none."""
+        if name is None:
+            return None
+        return next((c for c in _choices(self._gp, camera.get_single_config(name)) if c.strip().lower() == "bulb"), None)
+
+    def _bulb_release(self, camera: Any) -> Optional[tuple[str, Any, Any]]:
+        """(property, press, release) for this body's bulb button over USB, or None."""
+        for spec in _BULB_RELEASES:
+            try:
+                camera.get_single_config(spec[0])
+            except self._gp.GPhoto2Error:
+                continue
+            return spec
+        return None
+
+    def _write_action(self, camera: Any, name: str, value: Any) -> None:
+        """Write a button-like property (a toggle or a remote release) with no read-back: it has no
+        state to settle on."""
+        widget = camera.get_single_config(name)
+        widget.set_value(value)
+        camera.set_single_config(name, widget)
+
+    def _wait_for_raw(self, camera: Any) -> Any:
+        """The camera path of the RAW a Bulb exposure adds. A JPEG the body adds beside it is
+        deleted off the body; no RAW before the timeout is an error."""
+        deadline = time.monotonic() + _BULB_FILE_TIMEOUT_S
+        while time.monotonic() < deadline:
+            kind, data = camera.wait_for_event(_BULB_EVENT_WAIT_MS)
+            if kind != self._gp.GP_EVENT_FILE_ADDED:
+                continue
+            if os.path.splitext(data.name)[1].lower() in _CAMERA_RAW_EXTENSIONS:
+                return data
+            try:
+                camera.file_delete(data.folder, data.name)
+            except self._gp.GPhoto2Error as exc:
+                logger.debug("gphoto2: could not delete %s off the camera: %s", data.name, exc)
+        raise GphotoError(
+            "the camera sent no RAW file after the Bulb exposure; check that it is in Bulb, set to RAW, "
+            "and that the release cable reaches it"
+        )
+
+    def _download(self, camera: Any, path: Any) -> bytes:
+        """The file's bytes, deleted off the body after the download. On a self-recycling RAM target
+        the delete is redundant at worst, but a body without a capture target keeps every tethered
+        object until it refuses to capture at all (issue #658)."""
+        camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)
+        data = bytes(memoryview(camera_file.get_data_and_size()))
+        try:
+            camera.file_delete(path.folder, path.name)
+        except self._gp.GPhoto2Error as exc:
+            logger.debug("gphoto2: could not delete %s off the camera: %s", path.name, exc)
+        return data
 
     def _finish_shot_async(self) -> None:
         """Drain the shot's leftover events off the caller's thread.

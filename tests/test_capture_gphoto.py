@@ -153,6 +153,8 @@ class _Camera:
 
     def wait_for_event(self, ms):
         self._fake.event_waits.append(ms)
+        if self._fake.events:
+            return self._fake.events.pop(0)
         if self._fake.undrained:
             self._fake.undrained = False
             if self._fake.late_events:
@@ -189,7 +191,7 @@ class _Abilities:
 class FakeGP:
     GP_WIDGET_RADIO, GP_WIDGET_MENU, GP_WIDGET_TEXT = 5, 6, 2
     GP_CAPTURE_IMAGE, GP_FILE_TYPE_NORMAL = 0, 1
-    GP_EVENT_TIMEOUT, GP_EVENT_CAPTURE_COMPLETE = 0, 3
+    GP_EVENT_TIMEOUT, GP_EVENT_FILE_ADDED, GP_EVENT_CAPTURE_COMPLETE = 0, 2, 3
     GP_OPERATION_CAPTURE_PREVIEW, GP_OPERATION_CONFIG = 8, 16
     GPhoto2Error = _Err
 
@@ -217,6 +219,7 @@ class FakeGP:
         self.stored_objects = 0  # tethered shots the body still holds (deletes drain this)
         self.object_capacity = None  # int → refuse captures when full, as the X-T5 does (#658)
         self.deletes = 0
+        self.events: list = []  # queued (kind, data) the body reports before anything else
         self.reject_deletes = False  # a body whose RAM target refuses the delete
         self.opened = False
         self.undrained = False
@@ -1062,3 +1065,178 @@ def test_a_body_known_to_stall_never_engages_its_magnifier():
     assert len(fake.writes) == writes
     assert len(reasons) == 1
     camera.close()
+
+
+# ---- Bulb -------------------------------------------------------------------
+
+
+def _bulb_body(fake, release="bulb"):
+    """A body with a Bulb step and a USB bulb release: Sony and Nikon's toggle, or Canon's remote release."""
+    fake.props["shutterspeed"].choices = ["Bulb", "1/2", "1/5", "1/10"]
+    if release == "bulb":
+        fake.props["bulb"] = _Widget(fake, "bulb", 0, ["0", "1"])
+    elif release == "canon":
+        fake.props["eosremoterelease"] = _Widget(fake, "eosremoterelease", "None", ["None", "Press Full", "Release Full"])
+
+
+def _file_after_release(fake, *names):
+    """The body adds its files once the shutter closes."""
+
+    def _expose():
+        fake.events.extend((FakeGP.GP_EVENT_FILE_ADDED, _Path(n)) for n in names)
+
+    return _expose
+
+
+def test_bulb_presses_and_releases_around_the_exposure(cam, fake, tmp_path):
+    _bulb_body(fake)
+    order = []
+
+    def _expose():
+        order.append(("expose", fake.writes[-1]))
+        _file_after_release(fake, "capt0002.ARW")()
+
+    out = cam.capture_bulb(str(tmp_path / "f.raw"), _expose, iso="100")
+    cam._post_shot.join()
+
+    assert out == str(tmp_path / "f.ARW") and (tmp_path / "f.ARW").read_bytes() == b"RAWDATA" * 3
+    assert order == [("expose", ("bulb", 1))]
+    assert ("shutterspeed", "Bulb") in fake.writes and ("iso", "100") in fake.writes
+    assert fake.writes.index(("bulb", 1)) < fake.writes.index(("bulb", 0))
+    assert fake.writes[-1] == ("shutterspeed", "1/5")  # the operator's step comes back
+    assert fake.deletes == 1
+
+
+def test_bulb_uses_canons_remote_release(cam, fake, tmp_path):
+    _bulb_body(fake, release="canon")
+    cam.capture_bulb(str(tmp_path / "f.raw"), _file_after_release(fake, "capt0002.CR3"))
+    assert ("eosremoterelease", "Press Full") in fake.writes and ("eosremoterelease", "Release Full") in fake.writes
+
+
+def test_bulb_by_cable_sets_bulb_and_presses_nothing(cam, fake, tmp_path):
+    _bulb_body(fake)
+    cam.capture_bulb(str(tmp_path / "f.raw"), _file_after_release(fake, "capt0002.ARW"), usb_release=False)
+    assert ("shutterspeed", "Bulb") in fake.writes
+    assert not [w for w in fake.writes if w[0] == "bulb"]
+
+
+def test_bulb_by_cable_runs_on_a_body_set_to_bulb_by_hand(cam, fake, tmp_path):
+    # No Bulb step over USB: a dial-set body is left as it is, and the cable opens it.
+    out = cam.capture_bulb(str(tmp_path / "f.raw"), _file_after_release(fake, "capt0002.ARW"), usb_release=False)
+    assert out.endswith(".ARW") and not [w for w in fake.writes if w[0] == "shutterspeed"]
+
+
+def test_bulb_over_usb_refuses_a_body_without_bulb(cam, fake, tmp_path):
+    ran = []
+    with pytest.raises(GphotoError, match="no Bulb shutter"):
+        cam.capture_bulb(str(tmp_path / "f.raw"), lambda: ran.append(1))
+    assert ran == []
+
+
+def test_bulb_over_usb_refuses_a_body_without_a_release(cam, fake, tmp_path):
+    _bulb_body(fake, release=None)
+    with pytest.raises(GphotoError, match="no bulb release"):
+        cam.capture_bulb(str(tmp_path / "f.raw"), lambda: None)
+    assert ("shutterspeed", "Bulb") not in fake.writes  # refused before the body leaves its step
+
+
+def test_bulb_skips_and_deletes_a_jpeg_beside_the_raw(cam, fake, tmp_path):
+    _bulb_body(fake)
+    out = cam.capture_bulb(str(tmp_path / "f.raw"), _file_after_release(fake, "capt0002.JPG", "capt0002.ARW"))
+    assert out.endswith(".ARW") and fake.deletes == 2
+
+
+def test_bulb_without_a_raw_times_out(cam, fake, tmp_path, monkeypatch):
+    _bulb_body(fake)
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto._BULB_FILE_TIMEOUT_S", 0.0)
+    with pytest.raises(GphotoError, match="no RAW"):
+        cam.capture_bulb(str(tmp_path / "f.raw"), lambda: None)
+
+
+def test_bulb_releases_the_button_when_the_exposure_fails(cam, fake, tmp_path):
+    _bulb_body(fake)
+
+    def _fail():
+        raise RuntimeError("light unplugged")
+
+    with pytest.raises(RuntimeError):
+        cam.capture_bulb(str(tmp_path / "f.raw"), _fail)
+    assert fake.writes.index(("bulb", 1)) < fake.writes.index(("bulb", 0))
+    assert fake.writes[-1] == ("shutterspeed", "1/5")
+    assert not cam._busy.is_set()
+
+
+def test_keep_bulb_holds_bulb_for_the_next_frame_and_release_restores_it(cam, fake, tmp_path):
+    _bulb_body(fake)
+    cam.capture_bulb(str(tmp_path / "f1.raw"), _file_after_release(fake, "capt0002.ARW"), keep_bulb=True)
+    assert fake.writes[-1] == ("bulb", 0)  # no restore yet: the body stays in Bulb
+    before = len([w for w in fake.writes if w == ("shutterspeed", "Bulb")])
+
+    cam.capture_bulb(str(tmp_path / "f2.raw"), _file_after_release(fake, "capt0003.ARW"), keep_bulb=True)
+    assert len([w for w in fake.writes if w == ("shutterspeed", "Bulb")]) == before  # not written again
+
+    cam.release_bulb()
+    assert fake.writes[-1] == ("shutterspeed", "1/5")
+    cam.release_bulb()  # nothing held: no write
+    assert fake.writes[-1] == ("shutterspeed", "1/5")
+
+
+def test_a_plain_capture_restores_a_held_bulb_first(cam, fake, tmp_path):
+    _bulb_body(fake)
+    cam.capture_bulb(str(tmp_path / "f1.raw"), _file_after_release(fake, "capt0002.ARW"), keep_bulb=True)
+    cam._post_shot.join()
+    cam.capture(str(tmp_path / "flat.ARW"))
+    assert ("shutterspeed", "1/5") in fake.writes[fake.writes.index(("bulb", 0)) :]
+
+
+def test_close_restores_a_held_bulb(fake, tmp_path):
+    _bulb_body(fake)
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "l.jpg"), settings_path=str(tmp_path / "l.json"))
+    camera.open()
+    camera.capture_bulb(str(tmp_path / "f1.raw"), _file_after_release(fake, "capt0002.ARW"), keep_bulb=True)
+    camera.close()
+    assert fake.writes[-1] == ("shutterspeed", "1/5")
+
+
+def test_a_failed_held_frame_restores_the_shutter(cam, fake, tmp_path):
+    _bulb_body(fake)
+    cam.capture_bulb(str(tmp_path / "f1.raw"), _file_after_release(fake, "capt0002.ARW"), keep_bulb=True)
+
+    def _fail():
+        raise RuntimeError("light unplugged")
+
+    with pytest.raises(RuntimeError):
+        cam.capture_bulb(str(tmp_path / "f2.raw"), _fail, keep_bulb=True)
+    assert fake.writes[-1] == ("shutterspeed", "1/5")
+
+
+def test_on_closed_runs_after_the_release_and_before_the_download(cam, fake, tmp_path):
+    _bulb_body(fake)
+    at_close = []
+    cam.capture_bulb(
+        str(tmp_path / "f.raw"),
+        _file_after_release(fake, "capt0002.ARW"),
+        on_closed=lambda: at_close.append((fake.writes[-1], fake.deletes)),
+    )
+    assert at_close == [(("bulb", 0), 0)]  # the button is up, and nothing is downloaded yet
+
+
+def test_on_closed_does_not_run_when_the_exposure_fails(cam, fake, tmp_path):
+    _bulb_body(fake)
+    called = []
+
+    def _fail():
+        raise RuntimeError("light unplugged")
+
+    with pytest.raises(RuntimeError):
+        cam.capture_bulb(str(tmp_path / "f.raw"), _fail, on_closed=lambda: called.append(1))
+    assert called == []
+
+
+def test_a_body_that_refuses_bulb_says_to_check_the_drive_mode(cam, fake, tmp_path, monkeypatch):
+    _bulb_body(fake)
+    fake._settle_writes = False  # a Sony in continuous drive keeps its step, whatever is written
+    clock = iter((0.0, 4.0))
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.monotonic", lambda: next(clock, 4.0))
+    with pytest.raises(GphotoError, match="drive mode to single shooting"):
+        cam.capture_bulb(str(tmp_path / "f.raw"), lambda: None)

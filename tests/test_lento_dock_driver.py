@@ -28,10 +28,10 @@ def test_constructing_the_driver_needs_no_hardware(dock):
     assert dock.info is not None and dock.info.model == "35"
 
 
-def test_describe_reports_rgb_only(dock):
+def test_describe_offers_white_and_no_infrared(dock):
     detail, has_white, has_ir = dock.describe()
     assert detail == "Lento Dock 35 (fw 1.0.224)"
-    assert (has_white, has_ir) == (False, False)
+    assert (has_white, has_ir) == (True, False)
 
 
 def test_levels_scale_to_the_docks_duty():
@@ -108,6 +108,14 @@ def test_close_without_light_leaves_the_mode_alone(sim):
     with LentoDock(serial_obj=sim):
         pass
     assert not any(line.startswith(("MODE", "EXPMODE")) for line in sim.lines)
+
+
+def test_take_control_enters_host_control_at_once(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.take_control()
+        assert (sim.mode, sim.expmode) == ("SEMI", "CONT")
+        assert sim.lit == (0, 0, 0)
+    assert (sim.mode, sim.expmode) == ("AUTO", "BRGB")
 
 
 def test_a_refused_command_raises(dock, sim):
@@ -256,14 +264,209 @@ def test_the_light_holds_again_after_an_eject(sim):
 
 
 def test_the_s_button_calls_the_scan_handler(sim):
+    sim.answers_btn = False  # firmware that reports S only through its own exposure
     pressed = []
     with LentoDock(serial_obj=sim) as dock:
         dock.on_scan_button = lambda: pressed.append(1)
         dock.advance_frame()
         assert pressed == []  # NegPy's own commands are never a press
-        sim.press_scan()
-        for _ in range(100):
+        sim.press_scan(hold_s=0.5)
+        for _ in range(30):
             if pressed:
                 break
             time.sleep(0.01)
+        assert pressed == [1]  # at the press, not at the end of the dock's exposure
+        assert dock.advance_frame() == 1  # the film waits for the dock's exposure to end
     assert pressed == [1]
+
+
+def test_set_color_now_confirms_the_hold_once_then_writes_without_waiting(dock, sim, monkeypatch):
+    dock.set_color_now()  # the first call, in the dark: continuous mode and the hold, both confirmed
+    assert sim.expmode == "CONT" and sim.lines.count("CONTHOLD 1") == 1
+
+    def _no_waiting(*_a, **_k):
+        raise AssertionError("a timed switch must not wait for the dock's reply")
+
+    monkeypatch.setattr(dock, "_await", _no_waiting)
+    dock.set_color_now(r=255)
+    dock.set_color_now(g=128)
+    dock.set_color_now()
+    deadline = time.monotonic() + 1.0
+    while sim.lines[-1] != "CONTRGB 0 0 0" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert sim.lines[-3:] == ["CONTRGB 1000 0 0", "CONTRGB 0 502 0", "CONTRGB 0 0 0"]
+    assert sim.lines.count("CONTHOLD 1") == 1
+
+
+def test_set_color_now_confirms_the_hold_again_after_off(dock, sim):
+    dock.set_color_now(r=255)
+    dock.off()
+    dock.set_color_now()
+    assert sim.lines.count("CONTHOLD 1") == 2
+
+
+def test_the_keep_alive_reaches_the_dock_while_a_command_waits(sim, monkeypatch):
+    monkeypatch.setattr(lento_dock, "KEEPALIVE_TICK_S", 0.02)
+    monkeypatch.setattr(lento_dock, "PING_INTERVAL_S", 0.1)
+    with LentoDock(serial_obj=sim) as dock:
+        sent = len(sim.lines)
+        with pytest.raises(TimeoutError):
+            dock._command("SLOW", r"^NEVER", timeout=0.5)
+        assert "PING" in sim.lines[sent:]
+
+
+class _UnpluggedSerial(SimDockSerial):
+    unplugged = False
+
+    def write(self, data: bytes) -> None:
+        if self.unplugged:
+            raise OSError(6, "Device not configured")
+        super().write(data)
+
+
+def test_an_unplugged_dock_ends_the_keep_alive_with_one_warning(monkeypatch, caplog):
+    monkeypatch.setattr(lento_dock, "KEEPALIVE_TICK_S", 0.02)
+    monkeypatch.setattr(lento_dock, "PING_INTERVAL_S", 0.0)
+    sim = _UnpluggedSerial()
+    dock = LentoDock(serial_obj=sim)
+    sim.unplugged = True
+    dock._keepalive.join(timeout=2.0)
+    assert not dock._keepalive.is_alive()
+    assert not dock.is_connected()
+    assert sum("link lost" in r.getMessage() for r in caplog.records) == 1
+    with pytest.raises(ConnectionError):
+        dock.set_color(255, 0, 0)
+    dock.close()
+
+
+def test_a_strip_at_the_entrance_is_fed_to_its_first_frame(monkeypatch):
+    monkeypatch.setattr(lento_dock, "AUTOALIGN_START_S", 0.0)
+    sim = SimDockSerial(frames=4, fed=False)
+    with LentoDock(serial_obj=sim) as dock:
+        assert dock.strip_waiting()
+        dock.insert_strip()
+        assert sim.st == "READY" and not dock.strip_waiting()
+        assert dock.advance_frame() == 0
+
+
+def test_a_failed_feed_raises():
+    sim = SimDockSerial(frames=0)
+    sim.frames = 0
+    with LentoDock(serial_obj=sim) as dock:
+        with pytest.raises(RuntimeError, match="INSERT ERR"):
+            dock.insert_strip()
+
+
+def test_firmware_that_answers_ok_still_lights_the_panel():
+    sim = SimDockSerial(ok_replies=True)
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.lit == tuple(to_duty(v) for v in (200, 110, 40))
+
+
+def test_a_busy_dock_gets_the_command_again(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock._enter_continuous()
+        sim.busy = 2  # the dock's own exposure is running
+        dock.set_color(200, 110, 40)
+        assert sim.lines.count("CONTRGB 784 431 157") == 3
+        assert sim.lit == tuple(to_duty(v) for v in (200, 110, 40))
+
+
+def test_frameat_err_is_the_end_of_the_strip(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock._enter_continuous()
+        sim._frame_next = lambda: (sim._say("OK"), sim._say("FRAMEAT ERR no_edge"), sim._say(sim._state()))
+        assert dock.advance_frame() is None
+
+
+def test_a_scan_request_is_the_s_button_and_counts_once(sim):
+    sim.answers_btn = False  # firmware that reports S only through its own exposure
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        sim.request_scan()
+        sim.press_scan()  # the same press may also start the dock's exposure
+        for _ in range(50):
+            if pressed:
+                break
+            time.sleep(0.01)
+        time.sleep(0.1)
+    assert pressed == [1]
+
+
+def test_a_strip_the_dock_aligns_itself_is_not_fed_again(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(lento_dock, "AUTOALIGN_START_S", 0.0)
+    sim = SimDockSerial(frames=4)
+    sim.st = "SEEK"  # the dock aligns a strip that just went in
+
+    def aligned():
+        sim.st = "READY"
+        sim._say(sim._state())
+
+    with LentoDock(serial_obj=sim) as dock:
+        threading.Timer(0.3, aligned).start()
+        assert not dock.strip_waiting()
+    assert "INSERT" not in sim.lines
+
+
+def _wait_for(cond, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+
+def test_a_tap_of_s_read_through_btn_works_as_scan(sim):
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        dock.set_color(200, 110, 40)  # NegPy holds the dock: the buttons are read
+        _wait_for(lambda: "BTN?" in sim.lines)
+        sim.shutter = 1
+        time.sleep(0.3)
+        assert pressed == []  # a press counts on release, so a hold can stay the dock's own
+        sim.shutter = 0
+        _wait_for(lambda: pressed)
+    assert pressed == [1]
+
+
+def test_a_held_s_is_left_to_the_dock(sim, monkeypatch):
+    monkeypatch.setattr(lento_dock, "SCAN_BUTTON_HOLD_S", 0.3)
+    pressed = []
+    with LentoDock(serial_obj=sim) as dock:
+        dock.on_scan_button = lambda: pressed.append(1)
+        dock.set_color(200, 110, 40)
+        _wait_for(lambda: "BTN?" in sim.lines)
+        sim.shutter = 1
+        time.sleep(0.5)
+        sim.shutter = 0
+        time.sleep(0.3)
+    assert pressed == []
+
+
+def test_the_arrows_jog_while_negpy_holds_the_dock(sim):
+    sim.btnmode = "FRAME"
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.btnmode == "JOG"
+    assert sim.btnmode == "FRAME"  # the user's setting comes back
+
+
+def test_the_dock_stays_awake_while_negpy_holds_it(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        assert sim.sleep_s == 0
+    assert sim.sleep_s == 90  # the user's timeout comes back
+
+
+def test_a_silent_dock_reads_as_disconnected(sim):
+    with LentoDock(serial_obj=sim) as dock:
+        dock.set_color(200, 110, 40)
+        sim.asleep = True
+        time.sleep(0.3)  # the button polls go unanswered too
+        with pytest.raises(TimeoutError):
+            dock.set_color(100, 100, 100)
+        assert not dock.is_connected()
+        sim.asleep = False

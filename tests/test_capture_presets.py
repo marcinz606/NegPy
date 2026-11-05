@@ -110,3 +110,12 @@ def test_rgb_only_framing_keeps_dark_channels_dark():
 
 def test_white_capable_framing_has_no_floor():
     assert framing_levels(180, 185, 155) == (22, 23, 19)
+
+
+def test_blend_capture_round_trips_and_defaults_off():
+    repo = FakeRepo()
+    repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200, "shutter_r": "1/5"}})
+    store = PresetStore(repo)
+    assert not store.get("Old").blend_capture  # a preset saved before Blend is a triplet
+    store.save("Blend", ScanlightPreset(r_level=120, shutter_r="1/5", blend_capture=True))
+    assert store.get("Blend").blend_capture and not store.get("Blend").single_capture
