@@ -1198,10 +1198,11 @@ pub fn roi_from_measured_border(
 // Smallest fraction of a film-box side the tier refinement may keep. A rebate never takes half
 // a side, so anything below this is a broken occupancy run, not a frame.
 const TIER_MIN_KEEP: f64 = 0.5;
-// A run ends at the picture edge only when clear rebate lies past it: the lines within this
-// fraction of the side hold at most this mean occupancy. A high-key picture dips under the run
-// threshold with far more occupancy than that.
-const TIER_EDGE_REACH: f64 = 0.02;
+// A run ends at the picture edge only when clear rebate lies past it: some line within this
+// fraction of the side holds at most this occupancy. The clearest line, not the mean, because a
+// tilted edge spreads across lines and a narrow frame gap leads into the next picture. A dip in
+// a high-key picture keeps more occupancy than this on every line.
+const TIER_EDGE_REACH: f64 = 0.03;
 const TIER_EDGE_MAX_OCCUPANCY: f64 = 0.25;
 
 /// `_smooth_signal(signal, window)`: `np.convolve(signal, ones(window) / window, "same")` in
@@ -1325,11 +1326,13 @@ fn longest_run_above(profile: &[f64], threshold: f64) -> Option<(i64, i64)> {
     Some((best.0, best.1 + 1))
 }
 
-/// Whether the lines just past each end of the half-open run read as clear rebate.
+/// Whether a line just past each end of the half-open run reads as clear rebate. An end at the
+/// edge of the box has no lines past it and passes.
 fn run_ends_at_rebate(profile: &[f64], (start, end): (i64, i64)) -> bool {
     let reach = py_round(TIER_EDGE_REACH * profile.len() as f64).max(3);
     let clear = |band: &[f64]| {
-        band.is_empty() || band.iter().sum::<f64>() / band.len() as f64 <= TIER_EDGE_MAX_OCCUPANCY
+        band.is_empty()
+            || band.iter().copied().fold(f64::INFINITY, f64::min) <= TIER_EDGE_MAX_OCCUPANCY
     };
     let before = (start - reach).max(0) as usize..start as usize;
     let after = end as usize..((end + reach) as usize).min(profile.len());

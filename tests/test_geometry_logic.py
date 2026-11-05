@@ -1022,6 +1022,25 @@ def test_tier_refinement_refuses_a_run_that_ends_inside_the_picture():
     assert refined is not None and abs(refined[0][1] - 420) <= 6
 
 
+def test_tier_refinement_keeps_a_tilted_picture():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers, apply_fine_rotation
+
+    # A tilted edge spreads across rows, so the mean of the rows past the run stays high.
+    tilted = apply_fine_rotation(_high_key_film(thin_rows=False), 2.0)
+    refined = _refine_film_roi_by_tiers(_detection_luma(tilted), _HIGH_KEY_FILM_ROI)
+    assert refined is not None and refined[0][1] - refined[0][0] <= 400
+
+
+def test_tier_refinement_keeps_a_picture_beside_a_narrow_frame_gap():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    # The next frame starts 8 px past the picture, inside the reach of the rebate check.
+    img = _high_key_film(thin_rows=False)
+    img[60:420, 20:62] = 0.30
+    refined = _refine_film_roi_by_tiers(_detection_luma(img), _HIGH_KEY_FILM_ROI)
+    assert refined is not None and abs(refined[0][2] - 70) <= 8
+
+
 def test_autocrop_image_mode_single_bright_side_not_rebate():
     # High-key full-bleed frame with a uniform bright strip on ONE side only (a
     # sunlit window edge) plus a dark subject. The bright strip must NOT be taken
