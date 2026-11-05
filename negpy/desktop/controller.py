@@ -113,7 +113,6 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.capture_modes import BLEND, SINGLE, record_capture_mode
 from negpy.services.assets.composites import forget_composite, frame_count, part_paths, restore_maps, saved_composites, source_files
 from negpy.services.assets.triplets import applied_triplets, forget_triplets, saved_triplets
 from negpy.services.assets import rolls
@@ -7881,7 +7880,7 @@ class AppController(QObject):
 
     def _on_capture_finished(self, paths: list) -> None:
         """Feed the captured frame(s) into NegPy. An RGB triplet → RGB-Scan, C-41; a single-capture
-        or Blend RGB frame → a single RAW, C-41; a white-light slide → E-6/positive; a normal camera scan →
+        RGB frame → a single RAW, C-41; a white-light slide → E-6/positive; a normal camera scan →
         a single RAW, process left to NegPy."""
         self.capture_finished.emit(paths)
         if not paths:
@@ -7891,11 +7890,8 @@ class AppController(QObject):
         main = [p for p in paths if not os.path.splitext(os.path.basename(p))[0].lower().endswith("_ir")] or list(paths)
         white = bool(req is not None and req.white_mode)
         rgb = bool(req is not None and getattr(req, "rgb_mode", True))
-        # A Blend frame is one RAW lit by all three LEDs, so it enters as a single capture does.
-        single = bool(req is not None and (getattr(req, "single_capture", False) or getattr(req, "blend_capture", False)))
+        single = bool(req is not None and getattr(req, "single_capture", False))
         channels = tuple(getattr(req, "channels", ("R", "G", "B")) or ()) if req is not None else ("R", "G", "B")
-        if rgb and not white and single:
-            record_capture_mode(self.session.repo, main[0], BLEND if getattr(req, "blend_capture", False) else SINGLE)
         if rgb and not white and not single and channels != ("R", "G", "B"):
             # A subset of the frame's exposures. Once the frame's three visible files exist it
             # re-enters discovery as one triplet, with its saved record dropped first: a re-shot

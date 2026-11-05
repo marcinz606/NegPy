@@ -19,13 +19,6 @@ together for one exposure: one shutter actuation per frame and no registration. 
 imports as an ordinary RAW, and its roll is recorded with Trichrome Mode off. The channels
 overlap on the sensor, so pair it with a [sensor calibration](#sensor-calibration) profile.
 
-**Blend scanning.** A Blend preset shoots one Bulb exposure per frame. The
-shutter opens in the dark, the light shows red, then green, then blue, and the shutter
-closes in the dark. Each channel gets the light of its Trichrome exposure, so the frame
-needs no registration and has no channel offset. It imports as one RAW, as a Single
-Exposure frame does. Each LED still reaches every sensor channel, so Blend needs a
-[sensor calibration](#sensor-calibration) profile. See [Blend](#blend).
-
 ## What you need
 
 | | |
@@ -147,7 +140,7 @@ aperture. The scan sets that exposure on the body before every frame. The dropdo
 own presets and the built-ins you have added from **+** › **Built-in Presets**; a built-in stays
 in the list until the trash removes it. To build a preset by hand, press **+** beside
 PRESET and pick **Set by Hand** to unlock the sliders and the exposure steppers. Set them and **Capture
-mode** (Trichrome, Single Exposure or Blend); Scan uses them as they stand, and the save (floppy)
+mode** (Trichrome or Single Exposure); Scan uses them as they stand, and the save (floppy)
 button keeps them as a preset. Only the
 white-light presets use the White channel, because the Scanlight cannot light it together with the red, green and blue LEDs. The white-light presets differ only in film type: AUTO classifies each capture,
 **B&W Negative**, **Color Negative** and **Slide** fix it, for the import and for Meter. **White
@@ -156,50 +149,8 @@ need no calibration either: full LED power at the camera's shutter, which Meter 
 a **+ IR** preset ends each frame with an infrared exposure at **IR Shutter**. The
 **Infrared** toggle beside IR Shutter does the same for any preset.
 
-### Blend
-
-Blend is the third **Capture mode**, beside Trichrome and Single Exposure. Pick it in the
-calibration window, or by hand with **Set by Hand**. Blend calibrates as Trichrome does, so a
-selected Trichrome or Blend preset can switch between the two. A Single Exposure preset cannot,
-because its levels are for three LEDs lit together. Set the camera to RAW.
-
-A Blend calibration, with **Create Sensor Crosstalk Profile** on (the default), also saves a
-sensor crosstalk profile under the preset's name. It reads every sensor channel in the last
-shot of each LED, near the exposure target. Each Blend frame's roll takes that profile, with
-Linear RAW.
-
-A Blend preset with no profile of its own (one set by hand, or a Trichrome preset switched to
-Blend) shows **Sensor profile** instead, and Scan waits until you pick one. The vials button
-opens **Calibrate Sensor**, where **Capture from Camera…** makes a profile from the bare light.
-
-**Shutter release** sets what holds the shutter open:
-
-- **USB.** NegPy sets the shutter to Bulb and presses the camera's bulb control over the
-  USB cable: `eosremoterelease` on Canon, the `bulb` toggle on Nikon and Sony. A body
-  that has neither cannot use USB.
-- **Cable.** A release cable goes from the Scanlight's 3.5mm jack to the camera. The light
-  holds the shutter line for the whole exposure, which the firmware limits to 2.55 s. NegPy
-  sets Bulb over USB if the body lists it. Otherwise, set Bulb on the camera. The camera
-  stays on USB, because the file still comes in over USB.
-
-Each channel stays lit for the preset's shutter time at the preset's level. NegPy times
-the channels, so a channel shorter than 0.2 s is dimmed and lit longer, with the same
-light. All three levels change by one factor, so the channels keep their balance. A level
-never goes below 40, the calibration's floor. With Cable, a long exposure is brightened to
-fit the pulse; if it still does not fit, the scan stops and asks you to open the aperture
-or raise the ISO and calibrate again. The LEDs are not fully linear, so a dimmed or
-brightened Blend can expose a little differently from the Trichrome scan of the same
-preset. After the exposure, the body goes back to its shutter step. A whole-strip scan keeps the
-camera in Bulb from frame to frame, and puts the shutter back before the Flat Field shots. A built-in
-**Trichrome** preset uses the camera's shutter step as the time, so meter first.
-
-The light stays dark for 0.35 s after the Bulb press, because a camera opens its shutter
-some time after the press. A body that opens later loses the start of the red light. To
-measure your body's lag, close NegPy, leave a frame in the light and run
-`uv run python scripts/bulb_lead_probe.py`. It prints the shortest safe lead.
-
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files go
-to an auto-numbered per-roll subfolder and are imported and merged automatically. A Single Exposure or Blend scan writes one file per frame. **Retake** shoots the current frame again
+to an auto-numbered per-roll subfolder and are imported and merged automatically. A Single Exposure preset writes one file per frame. **Retake** shoots the current frame again
 without advancing the counter. **Capture Delay** holds both for up to 10 s before the first
 exposure, so a table that shakes when you let go of the camera can settle; **Stop** ends the
 wait. **Delay between exposures** adds a pause between the red, green and blue captures, for
@@ -230,8 +181,8 @@ described above.
 
 - Close Dock Connect before you open the Scan tab. Only one program can use the dock's port.
 - NegPy uses a Scanlight first. To scan with the dock, disconnect the Scanlight.
-- The dock has no white LED and no infrared light. NegPy still offers the white-light presets
-  and lights red, green and blue together at the same level for them.
+- The dock has no white or infrared light. A white-light preset lights red, green and blue
+  together at the same level.
 - **Film** sets what the dock does when you click Scan:
   - **Off**: the film stays where it is.
   - **Next Frame**: after each scan, the dock moves the film to the next frame.
@@ -248,27 +199,14 @@ described above.
   stays in the `flatfield/references` folder, outside the roll. A strip that stops before its
   end gets no flat. The flat never comes first: after the dock moves the film out of the
   window and back, it does not advance.
-- Put the strip in the dock's entrance. Firmware 1.0.238 and later align it to the first frame
-  on their own. With **Next Frame** or **Whole Strip**, Scan feeds a strip that still waits at
-  the entrance (`INSERT`), such as one that was in the dock when NegPy opened its port, because
-  opening the port resets the dock.
+- Insert the strip after the light status shows the dock and before you open Live View. The
+  dock then finds the first frame itself. Opening the dock's port resets the dock, so it does
+  not know the position of a strip that was in it before.
 - While NegPy uses the dock, the dock's S button works as Scan: it starts a scan, or stops one.
-  S acts only while a frame is in the window: with no strip aligned, the dock looks for the next
-  frame instead. The scan starts at the press. The dock also makes a short exposure of its own,
-  and the film moves only after it ends. An arrow button nudges the film on a tap and moves it while you hold it. NegPy
+  The dock answers the press with its own exposure first, so the scan starts a few seconds
+  later. An arrow button nudges the film on a tap and moves it while you hold it. NegPy
   leaves the dock's button mode (`BTNMODE`) as you set it.
-- While NegPy uses the dock, a tap of the dock's S button works as Scan: it starts a scan, or
-  stops one. NegPy reads the button (`BTN?`) and acts when you let go. The dock also acts on S
-  itself: with a frame in the window it makes a short exposure of its own, and the film moves
-  only after that ends. With a strip at the entrance, a tap lines the strip up first. A hold of
-  S is left to the dock, which ejects the strip on firmware 1.0.238.
-- While NegPy uses the dock, an arrow button nudges the film on a tap and moves it while you
-  hold it (`BTNMODE JOG`), because Next Frame and Whole Strip move whole frames. NegPy puts the
-  dock's own button mode back when it releases the dock.
-- While NegPy uses the dock, the dock's auto-sleep is off (`SLEEP 0`), because a sleeping dock
-  answers nothing. If the dock goes silent anyway, NegPy opens its port again on the next use.
-- When NegPy releases the dock, it puts back the dock's saved light mode, control mode, button
-  mode and sleep timeout.
+- When NegPy releases the dock, it puts back the dock's saved light mode and control mode.
 
 The dock's own pulsed light stays with Dock Connect.
 
@@ -311,12 +249,11 @@ assigns it on every scan. You assign a Calibration-panel profile yourself, once 
 | Tethered camera and Scanlight, manual preset | [C](#c-a-manual-preset) | Calibration panel | You |
 | Files shot without NegPy | [D](#d-files-not-scanned-with-negpy) | Calibration panel | You |
 
-All four apply to Single Exposure and Blend frames only. A Trichrome scan needs no profile. A
-calibrated Blend preset makes its own profile, as in workflow A.
+All four apply to Single Exposure frames only. A Trichrome preset needs no profile.
 
 #### A. The preset makes the profile
 
-The default, for calibrated Single Exposure and Blend presets.
+The default, for calibrated Single Exposure presets.
 
 Once per film stock:
 
@@ -324,7 +261,7 @@ Once per film stock:
    dropdown and pick **Calibrate on the Film Base…**. The calibration window opens with its own live view.
 2. Set the ISO and the aperture you scan with, click the clear film base and name the
    preset after the stock.
-3. Pick **Single Exposure** or **Blend**, leave **Create Sensor Crosstalk Profile** on and press **Calibrate & Save**.
+3. Pick **Single Exposure**, leave **Create Sensor Crosstalk Profile** on and press **Calibrate & Save**.
 
 For every roll of that stock:
 
@@ -421,8 +358,6 @@ LED at a time). Its remaining color error is film-dye crosstalk, which the densi
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
 | The scan window opens with **"no live view"** instead of a preview | libgphoto2's entry for this body has no preview capability (Sony a6000), or it is connected in MTP mode, where no body has it. | If the message names MTP, set the USB mode to **PC Remote** and reconnect. If not, scanning works, but you set framing and focus on the camera, and calibration is not available. |
 | Capture says the camera returned JPEG instead of RAW | The image-quality setting is JPEG, or RAW+JPEG selected the processed file. | Set image quality to **RAW only**, then retry. |
-| A Blend scan says the camera did not go to Bulb | The drive mode is continuous (a Sony body refuses Bulb in any burst mode), or the mode dial is not on M. | Set the drive mode to single shooting and the mode dial to M, then scan again. |
-| A Blend scan says the camera sent no RAW file | The body is not in Bulb, it is set to JPEG, or the release cable does not reach it. | Set Bulb and RAW only. With **Cable**, check that the cable is in the Scanlight's 3.5mm jack and that the shutter fires from the light. |
 | The aperture stepper is grayed out | The lens has no electronic diaphragm. | Set the aperture on the lens. |
 | A setting snaps back to its old value | Property writes are asynchronous. | NegPy polls until the value lands and logs a warning if it never does. Then the setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | Only one of the two ports carries data; the other is power only. Use the data port. |
@@ -432,8 +367,6 @@ LED at a time). Its remaining color error is film-dye crosstalk, which the densi
 ## Notes and limitations
 
 - **USB only.** libgphoto2 can reach some cameras over the network, but not Sony bodies.
-- **Blend is untested on a real body.** The USB bulb controls follow libgphoto2's names for
-  Canon, Nikon and Sony, and the simulated rig covers both releases.
 - **Only Sony bodies are tested.** NegPy looks up every control and assumes no vendor.
   `iso` and `shutterspeed` have the same names everywhere. The aperture is `f-number` on
   Sony and Panasonic, and `aperture` on Canon, Nikon, Fujifilm, Olympus and Sigma. The RAW

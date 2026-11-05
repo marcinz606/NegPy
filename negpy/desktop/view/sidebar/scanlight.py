@@ -7,7 +7,6 @@ aligns + merges + inverts them.
 """
 
 from negpy.kernel.system.i18n import mark, tr
-from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.text import count_of
 
 import json
@@ -33,13 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.confirm import confirm_unmetered_scan
-from negpy.desktop.view.sidebar.calibration_window import (
-    BLEND_MODE,
-    CAPTURE_MODE_TOOLTIP,
-    CAPTURE_MODES,
-    SINGLE_MODE,
-    CalibrationWindow,
-)
+from negpy.desktop.view.sidebar.calibration_window import CAPTURE_MODE_TOOLTIP, CAPTURE_MODES, CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
 from negpy.desktop.view.sidebar.roi_image import zebra_image
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
@@ -62,11 +55,10 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, LogSlider, SliderGroup
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.infrastructure import simulated
-from negpy.infrastructure.capture.base import BulbRelease
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.features.exposure.analysis import output_histogram
@@ -85,8 +77,6 @@ from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
 _CAPTURE_BAR = tr("Capturing… %p%")  # the status strip's bar while a scan runs
-_BULB_RELEASE_TOOLTIP = tr("What holds the shutter open in Bulb: the camera's USB cable, or a release cable on the Scanlight.")
-_BLEND_SENSOR_TOOLTIP = tr("Sensor crosstalk profile for Blend scans: removes the color leak between the camera's channels.")
 _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text, "W": THEME.text_secondary}
 
 # One source for the over/under advice, shown on both surfaces of an aborted calibration:
@@ -130,8 +120,6 @@ _BUILTIN_PRESETS = {
 }
 # The white-light built-ins and the process each imports as.
 _BUILTIN_WHITE_PRESETS = {name: b.process for name, b in _BUILTIN_PRESETS.items() if b.white}
-
-logger = get_logger(__name__)
 
 
 def _builtin_tip(b: _Builtin) -> str:
@@ -193,19 +181,6 @@ def _rgb_array(pixmap: QPixmap) -> np.ndarray:
     bits.setsize(image.sizeInBytes())
     rows = np.frombuffer(bits, dtype=np.uint8).reshape(image.height(), image.bytesPerLine())
     return rows[:, : 3 * image.width()].reshape(image.height(), image.width(), 3).copy()
-
-
-def _preset_label(name: str, preset: Optional[ScanlightPreset]) -> str:
-    """A user preset's row: its name and the capture mode it was calibrated for."""
-    if preset is None:
-        return name
-    if preset.blend_capture:
-        mode = CAPTURE_MODES[BLEND_MODE]
-    elif preset.single_capture or preset.w_level:
-        mode = CAPTURE_MODES[SINGLE_MODE]
-    else:
-        mode = CAPTURE_MODES[0]
-    return f"{name} · {mode}"
 
 
 class ScanlightSidebar(QWidget):
@@ -499,31 +474,10 @@ class ScanlightSidebar(QWidget):
         )
         _exp.addLayout(header_actions(section_subheader(tr("CAMERA EXPOSURE")), self.meter_btn))
         self.capture_btn = StepCombo.of(CAPTURE_MODES, CAPTURE_MODE_TOOLTIP)
-        # The preset's mode. A hand-set recipe picks any; a Trichrome or Blend preset switches between the two.
-        self.capture_btn.setEnabled(False)
+        self.capture_btn.setEnabled(False)  # the preset's mode, editable only while building a manual preset
         self.capture_mode_row = QWidget()  # a white-light preset has one exposure, so the row hides there
         self.capture_mode_row.setObjectName("collapsible_content_body")
-        _mode = QVBoxLayout(self.capture_mode_row)
-        _mode.setContentsMargins(0, 0, 0, 0)
-        _mode.setSpacing(THEME.space_xs)
-        _mode.addLayout(field_row(tr("Capture mode"), self.capture_btn))
-        self.bulb_release_btn = SegmentedChoice(
-            (("fa5b.usb", tr("USB")), ("fa5s.plug", tr("Cable"))),
-            _BULB_RELEASE_TOOLTIP,
-            data=(BulbRelease.USB.value, BulbRelease.CABLE.value),
-        )
-        self.bulb_release_btn.setCurrentIndex(self.bulb_release_btn.findData(self._settings.bulb_release.value))
-        # A Blend frame is one exposure under all three LEDs, so the sensor leak needs a profile. A
-        # calibrated Blend preset brings its own; this row asks for one when the preset has none.
-        self.blend_sensor_combo = StepCombo.of((), _BLEND_SENSOR_TOOLTIP)
-        self.blend_sensor_btn = icon_button("fa5s.vials", tr("Make a profile from three shots of the bare light: red, green and blue."))
-        self._reload_blend_sensor_profiles()
-        self.blend_sensor_row = QWidget()
-        self.blend_sensor_row.setObjectName("collapsible_content_body")
-        self.blend_sensor_row.setLayout(field_row(tr("Sensor profile"), self.blend_sensor_combo, self.blend_sensor_btn))
-        self.bulb_release_rail = SliderGroup(field_row(tr("Shutter release"), self.bulb_release_btn), self.blend_sensor_row)
-        self.bulb_release_rail.setVisible(False)  # shown while Blend is the capture mode
-        _mode.addWidget(self.bulb_release_rail)
+        self.capture_mode_row.setLayout(field_row(tr("Capture mode"), self.capture_btn))
         _exp.addWidget(self.capture_mode_row)
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper(shutter=True)
@@ -618,10 +572,7 @@ class ScanlightSidebar(QWidget):
         self.scan_btn.clicked.connect(self._on_scan)
         self.retake_btn.clicked.connect(self._on_retake)
         self.preset_combo.activated.connect(self._on_preset_selected)
-        self.capture_btn.currentIndexChanged.connect(lambda _i: self._on_capture_mode_picked())
-        self.bulb_release_btn.currentChanged.connect(lambda _i: self._on_bulb_release_picked())
-        self.blend_sensor_combo.activated.connect(lambda _i: self._on_blend_sensor_picked())
-        self.blend_sensor_btn.clicked.connect(self._open_sensor_calibration)
+        self.capture_btn.currentIndexChanged.connect(lambda _i: self._push_light())
         self.preset_save_btn.clicked.connect(self._on_preset_save)
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
@@ -744,7 +695,7 @@ class ScanlightSidebar(QWidget):
         if adopted and names:
             self.preset_combo.add_header(tr("Your presets"))
         for name in names:
-            self.preset_combo.addItem(_preset_label(name, self._presets.get(name)), name)
+            self.preset_combo.addItem(name, name)
         idx = self.preset_combo.findData(select) if select else -1
         # A placeholder keeps Qt from selecting the first item by itself: -1 shows it, for a
         # hand-set recipe; otherwise the first item, “Select preset”.
@@ -763,80 +714,13 @@ class ScanlightSidebar(QWidget):
         sliders itself, and the sliders reflect the *preset*, not the live LED level."""
         slider.setValue(value)
 
-    def _set_capture_mode(self, single: bool, blend: bool = False) -> None:
+    def _set_capture_mode(self, single: bool) -> None:
         """Point the Capture mode button and the settings at a preset's mode, without the push
         a user's own pick triggers."""
-        blend = blend and not single
         self.capture_btn.blockSignals(True)
-        self.capture_btn.setCurrentIndex(SINGLE_MODE if single else (BLEND_MODE if blend else 0))
+        self.capture_btn.setCurrentIndex(int(single))
         self.capture_btn.blockSignals(False)
-        self._settings = replace(self._settings, single_capture=single, blend_capture=blend)
-
-    def _blend_active(self) -> bool:
-        """The scan shoots one Bulb exposure with the LEDs lit in turn."""
-        s = self._settings
-        return self._rgb_mode and not s.white_mode and not s.single_capture and s.blend_capture
-
-    def _triplet_active(self) -> bool:
-        """The scan shoots one exposure per LED."""
-        s = self._settings
-        return self._rgb_mode and not s.white_mode and not s.single_capture and not s.blend_capture
-
-    def _on_capture_mode_picked(self) -> None:
-        self._reload_blend_sensor_profiles()  # the Sensor panel saves profiles too
-        self._update_settings_from_ui()
-        self._push_light()
-        self._refresh_preset_hint()
-        self._apply_gating()
-
-    def _on_bulb_release_picked(self) -> None:
-        self._settings = replace(self._settings, bulb_release=BulbRelease(self.bulb_release_btn.currentData()))
-        self._save_settings()
-
-    def _reload_blend_sensor_profiles(self) -> None:
-        """List the saved profiles under a placeholder, and select the Blend one if it still exists."""
-        names = SensorProfiles.list_profiles()[1:]  # "None" leaves the leak in, which Blend refuses
-        self.blend_sensor_combo.blockSignals(True)
-        self.blend_sensor_combo.set_choices([tr("Select a profile"), *names], ["", *names])
-        self.blend_sensor_combo.setCurrentIndex(max(0, self.blend_sensor_combo.findData(self._settings.blend_sensor_profile)))
-        self.blend_sensor_combo.blockSignals(False)
-
-    def _on_blend_sensor_picked(self) -> None:
-        self._settings = replace(self._settings, blend_sensor_profile=self.blend_sensor_combo.currentData() or "")
-        self._save_settings()
-        self._apply_gating()
-
-    def _open_sensor_calibration(self) -> None:
-        from negpy.desktop.view.widgets.file_dialogs import last_open_folder
-        from negpy.desktop.view.widgets.sensor_calibration_dialog import SensorCalibrationDialog
-
-        repo = self.controller.session.repo
-        dlg = SensorCalibrationDialog(parent=self, start_dir=last_open_folder(repo), repo=repo, controller=self.controller)
-        dlg.profile_saved.connect(self._on_blend_sensor_saved)
-        dlg.exec()
-
-    def _on_blend_sensor_saved(self, name: str) -> None:
-        self._settings = replace(self._settings, blend_sensor_profile=name)
-        self._save_settings()
-        self._reload_blend_sensor_profiles()
-        self._apply_gating()
-
-    def _profile_on_disk(self, name: str) -> bool:
-        """Whether `name` is a saved sensor profile, as the Blend list last read the folder."""
-        combo = getattr(self, "blend_sensor_combo", None)  # gating first runs before the RGB section exists
-        return bool(name) and combo is not None and combo.findData(name) > 0
-
-    def _preset_sensor_profile(self) -> str:
-        """The selected preset's own sensor profile, "" when it has none or the file is gone."""
-        preset = self._presets.get(self.preset_combo.currentData()) if self._preset_selected() and not self._manual_mode else None
-        name = getattr(preset, "sensor_profile", "") or ""
-        return name if self._profile_on_disk(name) else ""
-
-    def _blend_profile(self) -> str:
-        """The profile a Blend frame's roll takes: the preset's own, else the one picked in the Blend row."""
-        return self._preset_sensor_profile() or (
-            self._settings.blend_sensor_profile if self._profile_on_disk(self._settings.blend_sensor_profile) else ""
-        )
+        self._settings = replace(self._settings, single_capture=single)
 
     def _show_lone(self, stepper, label: str) -> None:
         """Make a stepper display one fixed value (a preset's baked setting): no options to step
@@ -871,8 +755,7 @@ class ScanlightSidebar(QWidget):
         ):
             self._set_slider(slider, value)
         self._show_lone(self.shutter_stepper, preset.shutter_r)  # one shared shutter (r/g/b are equal)
-        self._set_capture_mode(preset.single_capture, preset.blend_capture)
-        self._reload_blend_sensor_profiles()  # the preset's profile may be newer than the list
+        self._set_capture_mode(preset.single_capture)
         self._settings = replace(
             self._settings,
             white_mode=False,
@@ -1022,8 +905,6 @@ class ScanlightSidebar(QWidget):
             )
         elif self._preset_selected() and getattr(self._presets.get(name), "single_capture", False):
             text = tr("Single exposure with red, green and blue lit together.")
-        elif self._blend_active():
-            text = tr("Blend lights red, green and blue in turn inside one Bulb exposure.")
         else:
             text = ""
         if self._settings.infrared and (text or self._preset_selected()):
@@ -1066,7 +947,6 @@ class ScanlightSidebar(QWidget):
                 iso=s.iso,
                 aperture=s.aperture,
                 single_capture=s.single_capture,
-                blend_capture=s.blend_capture,
                 sensor_profile=sensor_profile,
             ),
         )
@@ -1258,8 +1138,7 @@ class ScanlightSidebar(QWidget):
                 shutter_candidates=candidates,
                 start_levels=start_levels,
                 start_shutter=start_shutter,
-                single_capture=self.calib_window.capture_btn.currentIndex() == SINGLE_MODE,
-                measure_sensor=self.calib_window.capture_btn.currentIndex() == BLEND_MODE and self.calib_window.wants_sensor_profile(),
+                single_capture=self.calib_window.capture_btn.currentIndex() == 1,
             )
         )
 
@@ -1940,7 +1819,7 @@ class ScanlightSidebar(QWidget):
         for slider, value in ((self.r_slider, 255), (self.g_slider, 255), (self.b_slider, 255), (self.w_slider, 0)):
             self._set_slider(slider, value)
         self._show_lone(self.shutter_stepper, "")
-        self._set_capture_mode(False, self._settings.blend_capture)  # Blend or not stays the operator's pick
+        self._set_capture_mode(False)
         self._settings = replace(self._settings, white_mode=False, shutter_r="", shutter_g="", shutter_b="", shutter_w="")
         self._apply_preset_exposure("", "")
         # The exposure is the operator's: the steppers fill from the body once, then drive it.
@@ -1976,7 +1855,7 @@ class ScanlightSidebar(QWidget):
         self._set_slider(self.w_slider, 0)
         shutter = shutters[0]  # one shared shutter (all three are equal)
         self._show_lone(self.shutter_stepper, shutter)
-        self._set_capture_mode(result.single_capture, self.calib_window.capture_btn.currentIndex() == BLEND_MODE)
+        self._set_capture_mode(result.single_capture)
         self._settings = replace(
             self._settings, white_mode=False, shutter_r=shutter, shutter_g=shutter, shutter_b=shutter, shutter_w=shutter
         )
@@ -1998,7 +1877,6 @@ class ScanlightSidebar(QWidget):
                 if result.sensor_matrix is not None:
                     SensorProfiles.save(name, list(result.sensor_matrix))
                     sensor_profile = name
-                    self._reload_blend_sensor_profiles()  # the gate reads the new profile from this list
                     status = tr("Saved preset “{name}” and its sensor crosstalk profile", name=name)
                 else:
                     status = tr(
@@ -2057,8 +1935,6 @@ class ScanlightSidebar(QWidget):
         """The Lento Dock's S button works as Scan: it starts a scan, or stops one."""
         if self.scan_btn.isEnabled():
             self._on_scan()
-        else:
-            logger.info("S button ignored: Scan is not ready (%s)", self.scan_btn.toolTip())
 
     def _on_retake(self) -> None:
         if not self._scanning:
@@ -2150,8 +2026,7 @@ class ScanlightSidebar(QWidget):
         preset = (
             self._presets.get(self.preset_combo.currentData()) if single and self._preset_selected() and not self._manual_mode else None
         )
-        blend = self._blend_active()
-        triplet = self._triplet_active()
+        triplet = rgb and not s.white_mode and not single
         # Scan shoots the whole triplet; Retake shoots the exposures checked in Live View.
         channels = self.lv_window.selected_rgb() if triplet and retake else ("R", "G", "B")
         if triplet and retake and not channels and not (s.infrared and self._light_has_ir):
@@ -2191,9 +2066,7 @@ class ScanlightSidebar(QWidget):
             aperture=s.aperture if rgb and not s.white_mode else "",
             as_roll=self.output.as_roll(),
             single_capture=single,
-            blend_capture=blend,
-            bulb_release=s.bulb_release,
-            sensor_profile=self._blend_profile() if blend else (preset.sensor_profile if preset is not None else ""),
+            sensor_profile=preset.sensor_profile if preset is not None else "",
             channels=channels,
             shutter_ir=shutter_ir,
             infrared=s.infrared and rgb and self._light_has_ir,
@@ -2458,8 +2331,6 @@ class ScanlightSidebar(QWidget):
                 m.append(tr("connect the Scanlight"))
             if not (self._preset_selected() or self._manual_mode):
                 m.append(tr("select or create a preset"))
-            if self._blend_active() and not self._blend_profile():
-                m.append(tr("pick or make a sensor profile for Blend"))
         folder = self.output.folder()
         if not folder:
             m.append(tr("choose an output folder"))
@@ -2479,7 +2350,7 @@ class ScanlightSidebar(QWidget):
         self.lv_btn.setEnabled((self._camera_verified and not self._calibrating_preset) or self.lv_btn.isChecked())
         self.scan_btn.setEnabled(can_scan or self._scanning)
         # Which exposures Retake shoots: R, G and B for a triplet preset, IR with infrared LEDs.
-        triplet = self._triplet_active()
+        triplet = self._rgb_mode and not self._settings.white_mode and not self._settings.single_capture
         can_retake = can_scan and (not triplet or bool(self.lv_window.selected_rgb()) or (self._settings.infrared and self._light_has_ir))
         self.retake_btn.setEnabled(can_retake and not self._scanning)
         self.eject_btn.setEnabled(not self._scanning)
@@ -2547,16 +2418,9 @@ class ScanlightSidebar(QWidget):
             return  # first call lands during __init__, before the RGB section is built
         editable = self._manual_mode
         exposure_editable = (editable or self._free_exposure) and self._camera_verified
-        # Trichrome and Blend shoot one calibration, so either preset switches between them.
-        trichrome_preset = (
-            self._preset_selected() and self._rgb_mode and not self._settings.white_mode and not self._settings.single_capture
-        )
-        self.capture_btn.setEnabled(editable or trichrome_preset)
-        self.capture_btn.set_item_enabled(SINGLE_MODE, editable)
+        self.capture_btn.setEnabled(editable)
         self.capture_mode_row.setVisible(not self._settings.white_mode)
-        self.bulb_release_rail.setVisible(self._blend_active())
-        self.blend_sensor_row.setVisible(self._blend_active() and not self._preset_sensor_profile())
-        self.inter_exposure_delay_slider.setEnabled(not self._settings.single_capture and not self._blend_active())
+        self.inter_exposure_delay_slider.setEnabled(not self._settings.single_capture)
         for slider in (self.r_slider, self.g_slider, self.b_slider):
             slider.setEnabled(editable)
         self.w_slider.setEnabled(False)  # the Scanlight can't light white with RGB → a manual RGB preset keeps W off
@@ -2676,8 +2540,7 @@ class ScanlightSidebar(QWidget):
             w_level=int(self.w_slider.value()),
             inter_exposure_delay_ms=int(self.inter_exposure_delay_slider.value()),
             capture_delay_s=float(self.capture_delay_slider.value()),
-            single_capture=self.capture_btn.currentIndex() == SINGLE_MODE,
-            blend_capture=self.capture_btn.currentIndex() == BLEND_MODE,
+            single_capture=self.capture_btn.currentIndex() == 1,
             shutter_r=shutter,
             shutter_g=shutter,
             shutter_b=shutter,

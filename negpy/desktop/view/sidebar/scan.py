@@ -33,11 +33,13 @@ from negpy.desktop.view.styles.templates import (
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.fold import rail_fold
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import (
+    ANALOG_GAIN_EV_RANGE,
     DEFAULT_N_PASSES,
     FILM_TYPES,
     FilmType,
@@ -388,6 +390,27 @@ class ScanSidebar(QWidget):
         self.exposure_slider.setToolTip(tr("Scan exposure time, for a scanner that exposes it"))
         self.exposure_slider.setVisible(False)
         quality.addWidget(self.exposure_slider)
+
+        # Analog Gain (nkscan): stops on the metered exposure, for all channels and for each one.
+        lo_ev, hi_ev = ANALOG_GAIN_EV_RANGE
+        self.analog_gain_slider = CompactSlider(
+            tr("Analog Gain"), lo_ev, hi_ev, self._settings.analog_gain_ev, step=0.1, has_neutral=True, unit=" EV"
+        )
+        self.analog_gain_slider.setToolTip(tr("More or less scanner exposure than the frame meters at, for all channels."))
+        channels = (
+            (tr("Red"), THEME.channel_red_text, tr("More or less scanner exposure for the red channel, such as more red for Kodachrome.")),
+            (tr("Green"), THEME.channel_green_text, tr("More or less scanner exposure for the green channel.")),
+            (tr("Blue"), THEME.channel_blue_text, tr("More or less scanner exposure for the blue channel.")),
+        )
+        self.channel_gain_sliders: tuple[CompactSlider, ...] = ()
+        for (name, color, tip), value in zip(channels, self._settings.channel_gain_ev):
+            slider = CompactSlider(name, lo_ev, hi_ev, value, step=0.1, color=color, has_neutral=True, unit=" EV")
+            slider.setToolTip(tip)
+            self.channel_gain_sliders += (slider,)
+        self.channel_gain_fold = rail_fold("scan_channel_gain", self.analog_gain_slider, *self.channel_gain_sliders)
+        quality.addWidget(self.analog_gain_slider)
+        quality.addWidget(self.channel_gain_fold)
+        self._set_analog_gain_visible(False)
         layout.addWidget(self.quality_body)
 
         self.framing_body, framing = self._body()
@@ -497,6 +520,8 @@ class ScanSidebar(QWidget):
         self.format_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.film_type_btn.currentIndexChanged.connect(lambda: self._on_film_type_changed())
         self.exposure_slider.valueChanged.connect(lambda _v: self._update_settings_from_ui())
+        for gain_slider in (self.analog_gain_slider, *self.channel_gain_sliders):
+            gain_slider.valueChanged.connect(lambda _v: self._update_settings_from_ui())
         self.frame_spec_edit.textChanged.connect(self._on_frame_spec_typed)
         self.frame_spec_edit.editingFinished.connect(self._update_settings_from_ui)
         self.scan_window_btn.clicked.connect(self._on_set_scan_window)
@@ -680,6 +705,7 @@ class ScanSidebar(QWidget):
             self.scan_window_widget.setVisible(False)
             self.scan_window_status.setVisible(False)
             self._set_exposure_lock_visible(False)
+            self._set_analog_gain_visible(False)
             self.exposure_slider.setVisible(False)
             self.autofocus_btn.setVisible(False)
             self.ae_btn.setVisible(False)
@@ -915,6 +941,14 @@ class ScanSidebar(QWidget):
         self._set_exposure_lock_visible(caps.exposure_lock)
         if caps.exposure_lock:
             self._update_exposure_lock_status()
+
+        self._set_analog_gain_visible(caps.analog_gain)
+        for gain_slider, value in zip(
+            (self.analog_gain_slider, *self.channel_gain_sliders), (self._settings.analog_gain_ev, *self._settings.channel_gain_ev)
+        ):
+            gain_slider.blockSignals(True)
+            gain_slider.setValue(value)
+            gain_slider.blockSignals(False)
 
         show_prescan = bool(caps.prescan)
         self.prescan_widget.setVisible(show_prescan)
@@ -1201,6 +1235,17 @@ class ScanSidebar(QWidget):
         self.exposure_lock_widget.setVisible(visible)
         self.exposure_lock_status.setVisible(visible)
 
+    def _set_analog_gain_visible(self, visible: bool) -> None:
+        self.analog_gain_slider.setVisible(visible)
+        self.channel_gain_fold.setVisible(visible)
+
+    def _analog_gain(self) -> tuple[float, tuple[float, float, float]]:
+        """(all channels, (red, green, blue)) in stops; the saved values while the device has no Analog Gain."""
+        if self.analog_gain_slider.isHidden():
+            return self._settings.analog_gain_ev, self._settings.channel_gain_ev
+        r, g, b = (float(s.value()) for s in self.channel_gain_sliders)
+        return float(self.analog_gain_slider.value()), (r, g, b)
+
     def _locked_exposures(self, device: ScannerDevice | None) -> dict[str, int] | None:
         """The lock, where this device offers one and metered it: exposures belong to one unit."""
         if device is None or not device.capabilities.exposure_lock or self._settings.exposure_lock_device != device.id:
@@ -1375,6 +1420,9 @@ class ScanSidebar(QWidget):
             passes.append(tr("Superfine"))
         if self._samples() > 1:
             passes.append(tr("{count}× sampled", count=self._samples()))
+        gain_ev, channel_gain_ev = self._analog_gain()
+        if caps.analog_gain and (gain_ev or any(channel_gain_ev)):
+            passes.append(tr("Analog Gain"))
         capture_mode = self._capture_mode()
         if capture_mode != ScanCaptureMode.SINGLE_PASS:
             mode_label = next(label for mode, label, _ in _CAPTURE_MODE_LABELS if mode == capture_mode)
@@ -1469,6 +1517,8 @@ class ScanSidebar(QWidget):
             film_format=self._film_format(),
             film_type=self._film_type(),
             exposures=self._locked_exposures(device),
+            analog_gain_ev=self._settings.analog_gain_ev if device.capabilities.analog_gain else 0.0,
+            channel_gain_ev=self._settings.channel_gain_ev if device.capabilities.analog_gain else (0.0, 0.0, 0.0),
         )
 
         self._update_settings_from_ui()
@@ -1631,6 +1681,7 @@ class ScanSidebar(QWidget):
 
         device = self._current_device()
         me_mode, n_passes = _params_from_capture_mode(self._capture_mode(), self._passes_slider_value())
+        analog_gain_ev, channel_gain_ev = self._analog_gain()
         # replace(), never a fresh ScannerSettings: fields with no sidebar control must survive
         # UI edits, and reconstruction silently resets any field missing from this list.
         self.settings = replace(
@@ -1654,5 +1705,7 @@ class ScanSidebar(QWidget):
             output_format=str(self.fmt_btn.currentData()),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             eject_after_batch=self.eject_after_act.isChecked(),
+            analog_gain_ev=analog_gain_ev,
+            channel_gain_ev=channel_gain_ev,
         )
         self._update_summary()

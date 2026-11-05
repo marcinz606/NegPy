@@ -554,7 +554,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 
 **Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 und 7600i v2 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:e1bbad94 -->
 ### Film & Qualität
 
 *   **Film**: Farbnegativ, S/W-Negativ, Dia oder Kodachrome. Er bestimmt die Bilderkennung, die Messung und ob Infrarot angeboten wird.
@@ -565,6 +565,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Infrarot**: **IR** scannt einen Infrarotkanal für die Staubentfernung auf der Karte Retusche. **ICE** (Coolscan) entfernt den Staub stattdessen im Scanner. Ein Scanner ohne ICE zeigt nur einen **IR**-Schalter. Nicht für S/W oder Kodachrome.
 *   **Superfine** (Coolscan): scannt eine Zeile pro Durchgang. Langsamer.
 *   **Autofokus**, **Auto-Belichtung** und **Belichtung**: Fokus und Belichtung am Scanner, vor dem Scan.
+*   **Analoge Verstärkung** (Coolscan): mehr oder weniger Scanner-Belichtung als die gemessene, in Blendenstufen. Der Pfeil öffnet **Rot**, **Grün** und **Blau**, je einen pro Kanal. Bei Kodachrome mehr Rot geben, um den Cyanstich zu entfernen.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Bildausschnitt
@@ -589,7 +590,7 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
 *   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.
 
-<!-- panel:scan_light src:417cc437 -->
+<!-- panel:scan_light src:e58660c1 -->
 ### Vorgabe
 
 Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwerte und die Kamerabelichtung für eine Filmart.
@@ -599,10 +600,8 @@ Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwe
     *   **Auf der Filmbasis kalibrieren…**: Setze das Rechteck auf klaren Film und starte die Kalibrierung. NegPy ermittelt die Lichtwerte und die Verschlusszeit.
     *   **Von Hand einstellen**: Stelle die Regler selbst ein und speichere sie als Vorgabe. Ohne verbundene Kamera speichert sie keine Belichtung, und ein Scan nutzt die eigene der Kamera.
 *   **Rot**, **Grün**, **Blau**, **Weiß**: die Lichtwerte (0 bis 255). **Licht an** schaltet das Licht ein, um den Film einzurichten, oder aus.
-*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an. **Mischen** hält die Kamera in Bulb offen und schaltet Rot, Grün und Blau nacheinander ein, für eine Datei. Ein Trichrom- oder Misch-Preset kann zwischen beiden wechseln.
-*   **Auslösung** (Mischen): was den Verschluss offen hält. **USB** nutzt die Bulb-Steuerung der Kamera. **Kabel** nutzt ein Fernauslöserkabel in der 3,5-mm-Buchse des Scanlight, für Belichtungen bis 2,55 s.
-*   **Sensorprofil** (Misch-Vorgabe ohne eigenes Profil): das Sensor-Farbvermischungsprofil für ihre Scans. Scannen wartet auf eines. Die Schaltfläche mit den Röhrchen erstellt eines.
-*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung oder Mischen): speichert zusätzlich ein Sensor-Farbvermischungsprofil, das die Scans dieser Vorgabe nutzen (siehe Kalibrierung, §10.4).
+*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an.
+*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung): speichert zusätzlich ein Sensor-Farbvermischungsprofil für diese Vorgabe (siehe Kalibrierung, §10.4).
 *   **ISO**, **Verschlusszeit**, **Blende**: die Belichtung der Vorgabe. Eine Änderung gilt, bis du die Vorgabe erneut wählst. Die Messtaste misst.
 *   **IR-Verschlusszeit** und **Infrarot** (Lichter mit Infrarot-LEDs): fügt jedem Scan eine Infrarotbelichtung für die Staubentfernung hinzu, gespeichert als `_IR`-Datei. Es braucht eine Kamera, die Infrarot sieht (Vollspektrum oder umgebaut), und manuellen Fokus. Nur für Farbfilm.
 *   **Kanalverzögerung**: eine Pause zwischen den Belichtungen für Rot, Grün und Blau, für Kameras, die sie brauchen.

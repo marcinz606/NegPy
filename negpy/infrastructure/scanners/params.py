@@ -77,6 +77,18 @@ class ScanParams:
     # Per-channel exposures, as a metering run returned them, reused instead of metering this
     # frame. Only a backend with ScannerCapabilities.exposure_lock reads it.
     exposures: dict[str, int] | None = None
+    # Analog Gain in stops on the metered (or locked) exposures: all channels, then red, green
+    # and blue on top. Only a backend with ScannerCapabilities.analog_gain reads it.
+    analog_gain_ev: float = 0.0
+    channel_gain_ev: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    @property
+    def has_analog_gain(self) -> bool:
+        return self.analog_gain_ev != 0.0 or any(ev != 0.0 for ev in self.channel_gain_ev)
+
+
+#: Analog Gain range in stops, for all channels and for each one, as in Nikon Scan.
+ANALOG_GAIN_EV_RANGE = (-2.0, 2.0)
 
 
 class FilmType(StrEnum):

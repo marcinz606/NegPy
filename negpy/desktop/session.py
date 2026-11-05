@@ -34,15 +34,7 @@ from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, 
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.capture_color import is_source_profile
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
-from negpy.features.process.models import (
-    SCAN_SETUP_PAPERS,
-    ProcessMode,
-    invalidate_local_bounds,
-    mode_aware_exposure_reset,
-    scan_setup_rig,
-    scan_setup_values,
-    with_process_mode,
-)
+from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, scan_setup_rig, with_process_mode
 from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
@@ -53,7 +45,6 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
-from negpy.services.assets.capture_modes import BLEND, SINGLE, capture_modes
 from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.triplets import remember_triplets, triplet_record
 from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -494,7 +485,7 @@ STITCH_TOOLTIP_PARTS = 8
 
 
 def composite_summary(asset: Dict[str, Any]) -> str:
-    """Tooltip text naming what a frame is built from, or how a capture shot it. Empty for a plain frame."""
+    """Tooltip text naming what a frame is built from. Empty for a plain frame."""
     kind = composite_kind(asset)
     if kind == "stitch":
         return _stitch_summary(asset)
@@ -506,10 +497,6 @@ def composite_summary(asset: Dict[str, Any]) -> str:
         return tr("Half-frame split ({value} of 2)", value=int(asset["half"]))
     if kind == "diptych":
         return tr("Diptych: both halves, each with its own edit")
-    if asset.get("capture") == BLEND:
-        return tr("Blend capture")
-    if asset.get("capture") == SINGLE:
-        return tr("Single Exposure capture")
     return ""
 
 
@@ -892,21 +879,6 @@ def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> Workspac
     if not mode:
         return params
     return with_process_mode(params, str(mode))
-
-
-def resolve_asset_capture(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
-    """Open a fresh Blend or Single Exposure frame as its capture imported it: C-41, with the
-    narrowband rig's decode and print stock. The import applies these only to a frame opened in
-    the capture session; a trichrome needs no such record, because its triplet decides its decode.
-    Applied only when the frame has no saved edit, so a later change on it still wins."""
-    if asset.get("capture") not in (BLEND, SINGLE):
-        return params
-    linear_raw, paper = scan_setup_values("camera", "narrowband")
-    params = with_process_mode(params, ProcessMode.C41)
-    params = replace(params, process=replace(params.process, linear_raw=linear_raw))
-    if params.exposure.paper_profile in SCAN_SETUP_PAPERS:
-        params = replace(params, exposure=replace(params.exposure, paper_profile=paper))
-    return params
 
 
 def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
@@ -1485,7 +1457,6 @@ class DesktopSessionManager(QObject):
         sticky settings, a reset from bare defaults.
         """
         config = resolve_asset_process_mode(config, asset)
-        config = resolve_asset_capture(config, asset)
         config = resolve_asset_hdr_seed(config, asset)
         return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
 
@@ -1735,21 +1706,6 @@ class DesktopSessionManager(QObject):
                     f.pop("average", None)
         return changed
 
-    def _stamp_capture_modes(self) -> None:
-        """Marks each loaded single-file frame that a Blend or Single Exposure capture shot, ``capture``."""
-        modes = capture_modes(self.repo, [f["path"] for f in self.state.uploaded_files if f.get("path")])
-        for f in self.state.uploaded_files:
-            mode = modes.get(f.get("path", ""))
-            if mode:
-                f["capture"] = mode
-            else:
-                f.pop("capture", None)
-
-    def refresh_capture_marks(self) -> None:
-        self._stamp_capture_modes()
-        self.asset_model.refresh()
-        self.files_changed.emit()
-
     def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
         changed = self._stamp_averages(hashes)
         if self._stamp_own_cards() or changed:
@@ -1782,7 +1738,6 @@ class DesktopSessionManager(QObject):
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
         self._stamp_scenes()
         self._stamp_averages()
-        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
 
@@ -2657,7 +2612,6 @@ class DesktopSessionManager(QObject):
             f["excluded"] = m == "excluded"
         self._stamp_scenes()
         self._stamp_averages()
-        self._stamp_capture_modes()
 
         self.asset_model.refresh()
         self.files_changed.emit()
@@ -2708,7 +2662,6 @@ class DesktopSessionManager(QObject):
             self.state.uploaded_files[i] = {**asset, "keeper": m == "keeper", "excluded": m == "excluded"}
         self._stamp_scenes()
         self._stamp_averages()
-        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
@@ -2736,7 +2689,6 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = [shifted(i) for i in self.state.selected_indices]
         self._stamp_scenes()
         self._stamp_averages()
-        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
