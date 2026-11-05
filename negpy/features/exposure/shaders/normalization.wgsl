@@ -20,12 +20,15 @@ struct NormUniforms {
     cam0: vec4<f32>,
     cam1: vec4<f32>,
     cam2: vec4<f32>,
-    // A Positive source's primaries, applied in LINEAR after the density matrix so the unmix,
-    // fade and stain offset act on its own channels (density_stage_matrices). post0.w is 1.0
-    // when it applies; the cam rows are then identity.
+    // A camera's or a Positive source's primaries, applied in LINEAR after the density matrix so
+    // the unmix, fade and stain offset act on its own channels (density_stage). post0.w is 1.0
+    // when it applies; the cam rows are then identity, and white-balance gains ride the unmix w.
     post0: vec4<f32>,
     post1: vec4<f32>,
     post2: vec4<f32>,
+    // The density anchor, on when w is 1.0: each channel is capped at it before the unmix,
+    // and the amount the pixel is above it in every channel is added after, as a neutral.
+    anchor: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -64,10 +67,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // honours Hue Trim. The CPU gates it by film process and packs identity rows when it
     // does not apply, so there is nothing to branch on here (and branching here is
     // exactly how this silently stopped working on the GPU once before).
+    var excess = 0.0;
+    if (params.anchor.w > 0.5) {
+        let over = log_color - params.anchor.xyz;
+        excess = max(min(over.x, min(over.y, over.z)), 0.0);
+        log_color = min(log_color, params.anchor.xyz);
+    }
     log_color = vec3<f32>(
-        dot(params.unmix0.xyz, log_color) + params.unmix0.w,
-        dot(params.unmix1.xyz, log_color) + params.unmix1.w,
-        dot(params.unmix2.xyz, log_color) + params.unmix2.w,
+        dot(params.unmix0.xyz, log_color) + excess + params.unmix0.w,
+        dot(params.unmix1.xyz, log_color) + excess + params.unmix1.w,
+        dot(params.unmix2.xyz, log_color) + excess + params.unmix2.w,
     );
     if (params.post0.w > 0.5) {
         let unmixed = pow(vec3<f32>(10.0), log_color);

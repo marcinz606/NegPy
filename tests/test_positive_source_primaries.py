@@ -13,7 +13,7 @@ from negpy.features.exposure.normalization import relog_matrix_image, unmix_log_
 from negpy.features.process.capture_color import camera_to_working_matrix, is_source_profile, source_cam_xyz
 from negpy.features.process.fade import unmix_with_fade
 from negpy.features.process.models import ProcessConfig, ProcessMode
-from negpy.features.transparency.logic import density_stage_matrices
+from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
 from negpy.infrastructure.loaders.helpers import camera_xyz_matrix
 from negpy.infrastructure.loaders.jpeg_loader import JpegLoader
@@ -41,21 +41,32 @@ def test_source_cam_xyz_gives_back_the_profile_matrix():
 
 
 @pytest.mark.parametrize(
-    ("positive", "unmix", "cam_xyz", "expected"),
-    [(True, True, _SOURCE, "post"), (True, False, _SOURCE, "pre"), (False, True, _SOURCE, "pre"), (True, True, _CAMERA, "pre")],
+    ("positive", "unmix", "expected"),
+    [(True, True, "post"), (True, False, "pre"), (False, True, "pre")],
 )
-def test_the_primaries_follow_the_density_matrix_only_for_a_positive_source_profile(positive, unmix, cam_xyz, expected):
+def test_the_primaries_follow_the_density_matrix_only_for_a_positive_source_profile(positive, unmix, expected):
     m = np.eye(3) * 2.0 if unmix else None
-    pre, post = density_stage_matrices(_slide(positive_source=positive), cam_xyz, _P, m)
-    assert (pre is _P, post is _P) == ((expected == "pre"), (expected == "post"))
+    stage = density_stage(_slide(positive_source=positive), _SOURCE, None, m)
+    moved = stage.post if expected == "post" else stage.pre
+    assert (stage.pre is None, stage.post is None) == ((expected == "post"), (expected == "pre"))
+    np.testing.assert_array_equal(moved, camera_to_working_matrix(_SOURCE))
+    assert stage.unmix is m
 
 
 def test_no_source_matrix_has_nothing_to_move():
-    assert density_stage_matrices(_slide(positive_source=True), _SOURCE, None, np.eye(3)) == (None, None)
+    stage = density_stage(_slide(positive_source=True), None, None, np.eye(3))
+    assert stage.pre is None and stage.post is None
 
 
 def _render(config: ProcessConfig, img: np.ndarray, cam_xyz=_SOURCE, camera_wb=None):
-    ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=camera_wb)
+    ctx = PipelineContext(
+        original_size=img.shape[:2],
+        scale_factor=1.0,
+        process_mode=ProcessMode.E6,
+        cam_xyz=cam_xyz,
+        camera_wb=camera_wb,
+        wants_fade_grid=True,
+    )
     return TransparencyBaseProcessor(config).process(img, ctx), ctx
 
 
@@ -122,17 +133,3 @@ def test_a_positive_decode_is_not_a_camera_raw():
     assert camera_raw_preview(SimpleNamespace(preview_cam_xyz=_CAMERA))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=_SOURCE))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=None))
-
-
-def test_a_camera_raw_on_positive_converts_before_the_density_stage():
-    """A Linear RAW folds the as-shot white balance into the camera matrix, so it applies before the
-    fade and the stain offset, which then act on balanced channels."""
-    wb = (2.0, 1.0, 1.5)
-    img = np.full((40, 60, 3), 0.8, np.float32) / np.asarray(wb, np.float32)
-    config = _slide(
-        positive_source=True, linear_raw=True, fade_white_anchor=True, fade_white_r=-0.3, fade_white_g=-0.1, fade_white_b=-0.2, **_FADE
-    )
-    _, ctx = _render(config, img, cam_xyz=_CAMERA, camera_wb=list(wb))
-    cam = camera_to_working_matrix(_CAMERA, wb)
-    expected = unmix_log_image(np.log10(img @ cam.T), unmix_with_fade(config, ProcessMode.E6))
-    np.testing.assert_allclose(_restored_log(ctx), expected, atol=1e-4)

@@ -2208,7 +2208,7 @@ class DesktopSessionManager(QObject):
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.roll_defaults(self.repo, roll_id)
+        defaults = rolls.frame_roll_defaults(rolls.roll_defaults(self.repo, roll_id), config.process)
         base = unforked_hash(asset["hash"])
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
@@ -2216,7 +2216,7 @@ class DesktopSessionManager(QObject):
             old = None if before is None else {n: getattr(getattr(before, section), n) for n in names}
             # A pin on a card the step did not touch stays.
             if old is not None and not all(rolls.same_value(values[n], old[n]) for n in names):
-                rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old)
+                rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old, process=config.process)
             elif card_key not in locked and any(n in defaults and not rolls.same_value(values[n], defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 

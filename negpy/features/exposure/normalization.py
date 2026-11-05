@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, TYPE_CHECKING, Tuple
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING, Tuple
 
 import negpy_core
 import numpy as np
@@ -190,14 +190,21 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
     return applied / np.maximum(row_sums, 1e-6)
 
 
-def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
+def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: Optional[Sequence[float]] = None) -> ImageBuffer:
     """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None. A (3, 4)
-    matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does."""
+    matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does.
+    With an *anchor*, each channel is capped at it before the 3x3, and the
+    amount the pixel is above it in every channel passes through as a neutral."""
     if matrix is None:
         return img_log
     m = np.ascontiguousarray(matrix, dtype=np.float32)
-    out = negpy_core.unmix_log(np.ascontiguousarray(img_log, dtype=np.float32), np.ascontiguousarray(m[:, :3]))
-    # A (3, 4) matrix is Remove Stain's affine: the last column is a log offset added after the 3x3.
+    img = np.ascontiguousarray(img_log, dtype=np.float32)
+    lin = np.ascontiguousarray(m[:, :3])
+    if anchor is not None:
+        offset = [float(v) for v in m[:, 3]] if m.shape[1] == 4 else [0.0, 0.0, 0.0]
+        return negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor], offset)
+    out = negpy_core.unmix_log(img, lin)
+    # A (3, 4) matrix is an affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
 
 

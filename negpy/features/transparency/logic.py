@@ -33,7 +33,7 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
                     (see logic.separation_damping_gain)
 """
 
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional, Tuple
 
 import negpy_core
 import numpy as np
@@ -483,24 +483,119 @@ def transfer_point_offsets(process: ProcessConfig) -> Tuple[Tuple[float, float, 
     return (-wp3[0], -wp3[1], -wp3[2]), (-bp3[0], -bp3[1], -bp3[2])
 
 
-def source_channels_first(process: ProcessConfig, cam_xyz: Optional[list]) -> bool:
-    """True when the density stage acts on a Positive source profile's own channels, so its
-    primaries convert after it. A camera matrix always applies before the log."""
-    from negpy.features.process.capture_color import is_source_profile
+class DensityStage(NamedTuple):
+    """Where the source-to-working matrix applies around the log-density matrix of a render."""
+
+    pre: Optional[np.ndarray]  # linear 3x3 before the log
+    unmix: Optional[np.ndarray]  # log-density matrix, (3, 3) or affine (3, 4)
+    post: Optional[np.ndarray]  # linear 3x3 after the log-density matrix
+    anchor: Optional[tuple[float, float, float]] = None  # `fade_density`'s anchor in the stage's input log
+
+
+def _whole_matrix(process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> Optional[np.ndarray]:
+    from negpy.features.process.capture_color import camera_to_working_matrix
+
+    return camera_to_working_matrix(cam_xyz, _fold(process, camera_wb))
+
+
+def _fold(process: ProcessConfig, camera_wb: Optional[list]) -> Optional[list]:
+    """The as-shot white balance the matrix folds in: only for a decode without it (`should_fold_camera_wb`)."""
+    from negpy.features.process.logic import should_fold_camera_wb
+
+    return camera_wb if should_fold_camera_wb(process) else None
+
+
+def _with_log_offset(unmix: Optional[np.ndarray], offset: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """`unmix` applied to `L + offset`: the offset folds into the affine's last column."""
+    if offset is None:
+        return unmix
+    m = np.eye(3) if unmix is None else np.asarray(unmix, dtype=np.float64)
+    linear = m[:, :3]
+    t = m[:, 3] if m.shape[1] == 4 else np.zeros(3)
+    return np.hstack([linear, (t + linear @ offset)[:, None]])
+
+
+def density_channels(process: ProcessConfig, cam_xyz: Optional[list], camera_wb: Optional[list]) -> DensityStage:
+    """The stage that puts a source in the channels the crosstalk unmix, fade and stain offset act on,
+    then converts them to working space. A camera's white-balance gains are a log offset (`unmix`) and
+    its primaries convert after. A Positive source profile's primaries convert after. A source profile
+    off Positive converts first."""
+    from negpy.features.process.capture_color import camera_matrix_parts, is_source_profile
     from negpy.features.process.path import RenderPath, render_path
 
-    return is_source_profile(cam_xyz) and render_path(process) is RenderPath.POSITIVE
+    if is_source_profile(cam_xyz) and render_path(process) is not RenderPath.POSITIVE:
+        return DensityStage(_whole_matrix(process, cam_xyz, camera_wb), None, None)
+    gains, primaries = camera_matrix_parts(cam_xyz, _fold(process, camera_wb))
+    offset = None if gains is None else np.log10(np.diag(gains).astype(np.float64))
+    if primaries is not None and np.allclose(primaries, np.eye(3), rtol=0.0, atol=1e-6):
+        primaries = None
+    return DensityStage(None, _with_log_offset(None, offset), primaries)
 
 
-def density_stage_matrices(
-    process: ProcessConfig, cam_xyz: Optional[list], cam: Optional[np.ndarray], unmix: Optional[np.ndarray]
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """(before the log, after the density matrix): where the source-to-working 3x3 *cam* applies.
-    A Positive source's primaries convert after the crosstalk unmix, fade and stain offset, which
-    act on the source's own channels; the conversion mixes them. Else it applies before the log."""
-    if cam is not None and unmix is not None and source_channels_first(process, cam_xyz):
-        return None, cam
-    return cam, None
+def density_stage(
+    process: ProcessConfig,
+    cam_xyz: Optional[list],
+    camera_wb: Optional[list],
+    unmix: Optional[np.ndarray],
+    anchor: Optional[tuple[float, float, float]] = None,
+) -> DensityStage:
+    """The stage a render applies. With a log-density matrix *unmix* on a slide path the source stays in
+    its own channels through it (`density_channels`), because the primaries mix the dye channels the
+    density corrections act on. Else the whole matrix applies before the log. *anchor* is
+    `fade_density`'s, in those channels."""
+    from negpy.features.process.path import RenderPath, render_path
+
+    if unmix is None or render_path(process) is RenderPath.PRINT:
+        return DensityStage(_whole_matrix(process, cam_xyz, camera_wb), unmix, None)
+    channels = density_channels(process, cam_xyz, camera_wb)
+    offset = None if channels.unmix is None else channels.unmix[:, 3]
+    if anchor is not None and offset is not None:
+        # The gains ride the matrix's offset, so the input log sits below the channels by them.
+        anchor = (float(anchor[0] - offset[0]), float(anchor[1] - offset[1]), float(anchor[2] - offset[2]))
+    return DensityStage(channels.pre, _with_log_offset(unmix, offset), channels.post, anchor)
+
+
+def density_stage_grid(
+    stage: DensityStage,
+    linear: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]] = None,
+) -> ImageBuffer:
+    """The working-space meter grid of *linear* through *stage*. *log_grid* gives the prefiltered grid of *linear* when the caller has it, reused when there is no `pre`."""
+    from negpy.features.exposure.normalization import prefilter_log_grid, relog_matrix_image, unmix_log_image
+    from negpy.features.process.capture_color import apply_camera_matrix
+
+    if stage.pre is None and log_grid is not None:
+        grid = log_grid()
+    else:
+        grid = prefilter_log_grid(linear if stage.pre is None else apply_camera_matrix(linear, stage.pre), roi, analysis_buffer)
+    return relog_matrix_image(unmix_log_image(grid, stage.unmix, stage.anchor), stage.post)
+
+
+def fade_white_grid(
+    process: ProcessConfig,
+    process_mode: Optional[str],
+    cam_xyz: Optional[list],
+    camera_wb: Optional[list],
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]] = None,
+) -> ImageBuffer:
+    """The grid Fade Estimate meters and the render reads its white on: *image*'s white-balanced
+    camera channels (a Positive source's own) after the crosstalk unmix, with no fade or white.
+    *log_grid* gives the prefiltered grid of *image* when the caller has it."""
+    from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
+    from negpy.features.process.capture_color import apply_camera_matrix
+
+    crosstalk = effective_crosstalk_matrix(process, process_mode)
+    channels = density_channels(process, cam_xyz, camera_wb) if crosstalk is None else density_stage(process, cam_xyz, camera_wb, crosstalk)
+    if channels.pre is None and log_grid is not None:
+        grid = log_grid()
+    else:
+        grid = prefilter_log_grid(image if channels.pre is None else apply_camera_matrix(image, channels.pre), roi, analysis_buffer)
+    return unmix_log_image(grid, channels.unmix)
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

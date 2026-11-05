@@ -154,6 +154,14 @@
    "crosstalk_strength": "0.0",
    "demosaic_export": "\"Auto\"",
    "demosaic_preview": "\"Auto\"",
+   "fade_ratio_b": "1.0",
+   "fade_ratio_g": "1.0",
+   "fade_ratio_r": "1.0",
+   "fade_white_anchor": "false",
+   "fade_white_b": "0.0",
+   "fade_white_g": "0.0",
+   "fade_white_r": "0.0",
+   "fade_white_space": "\"\"",
    "film_base": "null",
    "highlight_reconstruction": "0",
    "hue_trim": "0.0",
@@ -211,5 +219,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 31
+ "render_version": 32
 }

@@ -3,6 +3,7 @@ import math
 import os
 import struct
 import time
+from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
 import negpy_core
@@ -38,7 +39,6 @@ from negpy.features.exposure.normalization import (
     measure_clip_fractions,
     measure_neutral_axis_from_log,
     unmix_log_image,
-    relog_matrix_image,
     measure_highlight_point_from_log,
     measure_shadow_point_from_log,
     measure_textural_range_from_log,
@@ -79,8 +79,9 @@ from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
-    density_stage_matrices,
-    source_channels_first,
+    density_stage,
+    density_stage_grid,
+    fade_white_grid,
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
@@ -95,9 +96,14 @@ from negpy.features.transparency.logic import (
     wb_split_geometry,
     zone_geometry,
 )
-from negpy.features.process.fade import fade_white_target, unmix_with_fade
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.logic import should_fold_camera_wb
+from negpy.features.process.fade import (
+    fade_density,
+    fade_white_stale,
+    fade_white_target,
+    render_white_space,
+    resolve_fade_white,
+    with_fade_white,
+)
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, render_path
@@ -275,6 +281,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.fade_white_r,
         p.fade_white_g,
         p.fade_white_b,
+        p.fade_white_space,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -399,7 +406,7 @@ class GPUEngine:
         # alignment (exposure) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
-            "normalization": 208,
+            "normalization": 224,
             "exposure": 480,
             "transfer": 224,
             "clahe_u": 32,
@@ -423,6 +430,8 @@ class GPUEngine:
         self._clip_cache: Optional[tuple] = None
         # (key, prefiltered grid, clip fractions), keyed without the clip sliders.
         self._prefilter_cache: Optional[tuple] = None
+        # (key, white) of the last fade white measured for a stale one, so drag ticks reuse it.
+        self._fade_white_cache: Optional[Tuple[Any, Any]] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
@@ -785,6 +794,39 @@ class GPUEngine:
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
+        def _white_grid() -> np.ndarray:
+            source, buffer = _build_analysis_source(
+                img,
+                settings.geometry,
+                roi,
+                settings.process.analysis_buffer,
+                settings.process.analysis_rect,
+                tiling_mode,
+                APP_CONFIG.preview_render_size,
+                meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
+            )
+            return fade_white_grid(settings.process, settings.process.process_mode, cam_xyz, camera_wb, source, None, buffer)
+
+        # Before every key and matrix below, which read the white. A tile takes its export's white.
+        white_space = render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb)
+        proc = settings.process
+        white_key = (
+            None
+            if analysis_source_hash is None or tiling_mode
+            else (analysis_source_hash, white_space, roi, settings.geometry, proc.analysis_buffer, proc.analysis_rect, proc.meter_rect)
+            + (proc.process_mode, proc.positive_source, proc.linear_raw, proc.highlight_reconstruction)
+        )
+        measured_white = None
+        if not tiling_mode and fade_white_stale(proc, white_space):
+            cached = self._fade_white_cache
+            if white_key is not None and cached is not None and cached[0] == white_key:
+                measured_white = cached[1]
+            else:
+                measured_white = resolve_fade_white(proc, white_space, _white_grid)
+                if white_key is not None:
+                    self._fade_white_cache = (white_key, measured_white)
+        settings = replace(settings, process=with_fade_white(settings.process, measured_white))
+
         # Reuse the per-source meter across creative-slider previews: fill any missing
         # override from the cache so the needs_* gates below skip the analysis entirely.
         analysis_key = None
@@ -833,10 +875,10 @@ class GPUEngine:
         sorted_grid = None
         scan_clip_fractions = None
         analysis_source = None
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode)
+        unmix_m, fade_anchor_m = fade_density(settings.process, settings.process.process_mode, white_space)
         # The transparency curve reads working space, so its meter must too: the same
-        # camera matrix TransparencyBaseProcessor applies, on the grid.
-        cam_m = camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None) if transfer else None
+        # camera matrices TransparencyBaseProcessor applies, on the grid.
+        slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m) if transfer else None
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
@@ -873,10 +915,12 @@ class GPUEngine:
                     p.fade_white_r,
                     p.fade_white_g,
                     p.fade_white_b,
+                    p.fade_white_space,
                     p.process_mode,
                     p.positive_source,
-                    source_channels_first(p, cam_xyz),
-                    None if cam_m is None else tuple(np.asarray(cam_m).ravel().tolist()),
+                    None
+                    if slide_stage is None
+                    else tuple(None if m is None else tuple(np.asarray(m).ravel().tolist()) for m in slide_stage),
                 )
                 if analysis_source_hash is not None and not tiling_mode
                 else None
@@ -899,20 +943,11 @@ class GPUEngine:
                 )
                 # Shared prefilter, once for all five meters (ROI already applied).
                 # Unmixed like the CPU path so every meter reads the unmixed film.
-                prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
+                log_grid = prefilter_log_grid(analysis_source, None, an_buffer)
+                prefiltered = unmix_log_image(log_grid, unmix_m)
                 scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
-                if transfer:
-                    # No camera matrix (a scanner TIFF) means the buffer is already in
-                    # working space, so the shared grid is the working-space grid.
-                    pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, cam_m, unmix_m)
-                    if cam_m is None:
-                        cam_prefiltered = prefiltered
-                    elif post_m is not None:
-                        cam_prefiltered = relog_matrix_image(prefiltered, post_m)
-                    else:
-                        cam_prefiltered = unmix_log_image(
-                            prefilter_log_grid(apply_camera_matrix(analysis_source, pre_m), None, an_buffer), unmix_m
-                        )
+                if slide_stage is not None:
+                    cam_prefiltered = density_stage_grid(slide_stage, analysis_source, None, an_buffer, lambda: log_grid)
                 if prefilter_key is not None:
                     self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None, cam_prefiltered)
             if analysis_key is not None:
@@ -1150,6 +1185,8 @@ class GPUEngine:
             shadow_point=shadow_point,
             highlight_point=highlight_point,
             unmix=unmix_m,
+            fade_anchor=fade_anchor_m,
+            white_space=white_space,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
             contrast_mask=mask_uniform,
@@ -1752,6 +1789,8 @@ class GPUEngine:
             # Raw cast refs so the chart can re-solve the exact render curves.
             "neutral_axis_refs": neutral_axis_refs,
         }
+        if measured_white is not None:
+            metrics["fade_white"] = measured_white
         # A drag with no read leaves the base out, so the merged metrics keep the last frame's.
         if not transfer and film_base is None and source_base_log is NOT_READ:
             del metrics["film_base_density"]
@@ -1869,6 +1908,8 @@ class GPUEngine:
         shadow_point: Optional[float] = None,
         highlight_point: Optional[float] = None,
         unmix: Optional[np.ndarray] = None,
+        fade_anchor: Optional[Tuple[float, float, float]] = None,
+        white_space: str = "",
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         contrast_mask: Optional[Tuple[Any, ...]] = None,
@@ -1915,29 +1956,17 @@ class GPUEngine:
             adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
             adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
 
-        # Capture-side dye-unmix rows, resolved once per frame by the caller and shared
-        # with NormalizationProcessor. Identity when off; a (3, 4) affine packs its offset in w.
-        unmix_or_none = unmix
+        # Capture-side dye-unmix rows, resolved once per frame by the caller and shared with
+        # NormalizationProcessor, and the source matrix around them (density_stage): the cam rows
+        # before the log, read only on the transfer path, and the post rows after. Identity when
+        # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on. The fade
+        # anchor rides its own row, its w lane on when one acts.
+        cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, fade_anchor)
         if unmix is None:
             unmix = np.eye(3)
         unmix_w = unmix[:, 3] if unmix.shape[1] == 4 else (0.0, 0.0, 0.0)
-
-        # Working-space-from-camera rows, identity when the source carries no matrix. The
-        # shader reads them only on the transfer path.
-        # Linear RAW decodes without white balance, so fold the as-shot multipliers back in
-        # and the render stops depending on which decode produced the buffer — unless the
-        # capture is narrowband, where an as-shot WB estimate has no scene to describe and
-        # never folds (see should_fold_camera_wb).
-        cam, post = density_stage_matrices(
-            settings.process,
-            cam_xyz,
-            camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None),
-            unmix_or_none,
-        )
         if cam is None:
             cam = np.eye(3, dtype=np.float32)
-        # After the density matrix, a Positive source's primaries (density_stage_matrices); the
-        # w lane of the first row turns the conversion on.
         post_on = 1.0 if post is not None else 0.0
         if post is None:
             post = np.eye(3, dtype=np.float32)
@@ -1961,6 +1990,7 @@ class GPUEngine:
             + struct.pack("ffff", float(post[0, 0]), float(post[0, 1]), float(post[0, 2]), post_on)
             + struct.pack("ffff", float(post[1, 0]), float(post[1, 1]), float(post[1, 2]), 0.0)
             + struct.pack("ffff", float(post[2, 0]), float(post[2, 1]), float(post[2, 2]), 0.0)
+            + struct.pack("ffff", *((0.0, 0.0, 0.0, 0.0) if anchor is None else (*anchor, 1.0)))
         )
 
         from negpy.features.exposure.logic import (
@@ -2008,7 +2038,7 @@ class GPUEngine:
             LogNegativeBounds(adj_floors, adj_ceils),
             neutral_axis_refs,
             settings.exposure.cast_removal_strength,
-            fade_white_target(settings.process),
+            fade_white_target(settings.process, white_space),
         )
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
         # the shader to skip display_rendering too. Matches transparency/logic.py.
@@ -2928,6 +2958,8 @@ class GPUEngine:
             )
 
         global_cdfs = self._readback_clahe_cdf()
+        # Every tile and global meter below takes the white the reference pass measured.
+        settings = replace(settings, process=with_fade_white(settings.process, metrics_ref.get("fade_white")))
 
         if transient_tiles:
             normalized_log = metrics_ref.get("normalized_log")
@@ -2981,14 +3013,25 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
         # auto refs, anchor or textural range need it.
-        unmix_m = unmix_with_fade(settings.process, settings.process.process_mode)
+        unmix_m, fade_anchor_m = fade_density(
+            settings.process,
+            settings.process.process_mode,
+            render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb),
+        )
+        log_grid_cache: Optional[np.ndarray] = None
         prefiltered_cache: Optional[np.ndarray] = None
         sorted_cache: Optional[np.ndarray] = None
+
+        def _log_grid() -> np.ndarray:
+            nonlocal log_grid_cache
+            if log_grid_cache is None:
+                log_grid_cache = prefilter_log_grid(_analysis_img(), meter_roi, meter_buffer)
+            return log_grid_cache
 
         def _prefiltered() -> np.ndarray:
             nonlocal prefiltered_cache
             if prefiltered_cache is None:
-                prefiltered_cache = unmix_log_image(prefilter_log_grid(_analysis_img(), meter_roi, meter_buffer), unmix_m)
+                prefiltered_cache = unmix_log_image(_log_grid(), unmix_m)
             return prefiltered_cache
 
         def _sorted() -> np.ndarray:
@@ -3023,16 +3066,8 @@ class GPUEngine:
             if not transfer:
                 return _prefiltered()
             if transfer_grid is None:
-                cam_m = camera_to_working_matrix(cam_xyz, camera_wb if should_fold_camera_wb(settings.process) else None)
-                pre_m, post_m = density_stage_matrices(settings.process, cam_xyz, cam_m, unmix_m)
-                if cam_m is None:
-                    transfer_grid = _prefiltered()
-                elif post_m is not None:
-                    transfer_grid = relog_matrix_image(_prefiltered(), post_m)
-                else:
-                    transfer_grid = unmix_log_image(
-                        prefilter_log_grid(apply_camera_matrix(_analysis_img(), pre_m), meter_roi, meter_buffer), unmix_m
-                    )
+                slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m)
+                transfer_grid = density_stage_grid(slide_stage, _analysis_img(), meter_roi, meter_buffer, _log_grid)
             return transfer_grid
 
         meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else global_anchor_bounds

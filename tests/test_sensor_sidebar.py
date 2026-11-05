@@ -335,6 +335,20 @@ def test_turning_on_remove_stain_with_no_stain_says_so():
     assert "No stain found to remove." in w.fade_estimate_hint.text()
 
 
+def test_a_failed_estimate_on_a_camera_raw_stores_the_white_without_a_roll_lock():
+    from negpy.desktop.workers.chart_fit import ChartSource
+
+    w, ctrl = _fade_sidebar()
+    camera = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
+    flat = np.full((32, 32, 3), 0.5, dtype=np.float32)
+    ctrl.chart_fit_source.return_value = ChartSource(flat, ctrl.state.config, "frame", camera, [2.0, 1.0, 1.5], (), 1)
+
+    w._on_estimate_fade()
+
+    ctrl.set_roll_default.assert_not_called()
+    assert ctrl.set_fade_white.call_args.kwargs["fade_white_space"]
+
+
 def test_remove_stain_ends_the_estimate_row():
     w, _ctrl = _fade_sidebar()
     row = w.fade_estimate_row

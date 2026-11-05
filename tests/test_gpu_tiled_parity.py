@@ -11,6 +11,7 @@ import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
+from negpy.features.process.fade import fade_white_space
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -244,6 +245,15 @@ class TestGpuTiledTransferParity(unittest.TestCase):
 
     def test_tiled_positive_meters_like_the_preview(self):
         self._assert_parity(self._slide(positive_source=True), "Tiled export metered a Positive frame differently")
+
+    def test_tiled_export_measures_a_stale_fade_white_like_the_preview(self):
+        """No desktop state reaches an export, so the reference pass measures the white for every tile."""
+        stale = self._slide(linear_raw=True, fade_ratio_g=0.8, fade_ratio_b=0.6, fade_white_anchor=True, fade_white_space="old")
+        self._assert_parity(stale, "Tiled export read a stale fade white differently")
+        unmeasured = replace(stale, process=replace(stale.process, fade_white_space=fade_white_space(_CAM_XYZ, _CAM_WB)))
+        tiled, _ = self.engine._process_tiled(self.img, stale, scale_factor=1.0, cam_xyz=_CAM_XYZ, camera_wb=_CAM_WB)
+        plain, _ = self.engine._process_tiled(self.img, unmeasured, scale_factor=1.0, cam_xyz=_CAM_XYZ, camera_wb=_CAM_WB)
+        self.assertGreater(float(np.abs(tiled - plain).mean()), 0.005)
 
 
 if __name__ == "__main__":

@@ -531,7 +531,7 @@ class SensorSidebar(BaseSidebar):
 
     def _run_estimate(self, white_anchor: bool) -> None:
         from negpy.desktop.workers.chart_fit import fade_estimate_grid
-        from negpy.features.process.fade import estimate_fade
+        from negpy.features.process.fade import estimate_fade, render_white_space
 
         conf = self.state.config.process
         if render_path(conf) is RenderPath.PRINT:
@@ -543,14 +543,16 @@ class SensorSidebar(BaseSidebar):
             return
         method = EstimateMethod(self.estimate_method_combo.currentData())
         anchor = white_anchor
-        estimates = estimate_fade(grid, white_anchor=anchor)
+        space = render_white_space(conf, conf.process_mode, source.cam_xyz, source.camera_wb)
+        estimates = estimate_fade(grid, white_anchor=anchor, camera_raw=bool(space))
         chosen, other = estimates[method], estimates[next(m for m in EstimateMethod if m != method)]
         failed = bool(chosen.reason) and chosen.green == 1.0 and chosen.blue == 1.0
-        # The white is stored with the survivals and never measured per render. A failed reading
-        # stores it only where it is plainly a stain on clear film.
+        # The white is stored with the survivals; a render measures one only for a stale camera RAW
+        # white. A failed reading stores it only where it is plainly a stain on clear film. A camera
+        # RAW's render scales density above its white, so it stores the white with Remove Stain off too.
         white = {}
-        if anchor and chosen.white is not None and (not failed or stain_suggested(chosen.white)):
-            white = dict(zip(("fade_white_r", "fade_white_g", "fade_white_b"), chosen.white))
+        if (anchor or space) and chosen.white is not None and (not failed or space or stain_suggested(chosen.white)):
+            white = dict(zip(("fade_white_r", "fade_white_g", "fade_white_b"), chosen.white), fade_white_space=space)
         stain = ""
         if not anchor and chosen.white is not None and stain_suggested(chosen.white):
             stain = tr("The clear areas have a yellow stain: turn on Remove Stain.")
@@ -559,7 +561,9 @@ class SensorSidebar(BaseSidebar):
             hint += " " + tr("No stain found to remove.")
         self._show_fade_hint(hint, stain)
         if failed:
-            if white:
+            if space and white:
+                self.controller.set_fade_white(**white)
+            elif white:
                 self.controller.set_roll_default("fade", **white)
             return
         red = chosen.red if chosen.red is not None else conf.fade_ratio_r

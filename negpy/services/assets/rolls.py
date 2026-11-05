@@ -685,10 +685,20 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
         ),
     ),
     # A roll's slides usually faded alike, so one Estimate or hand-tuned survival serves them
-    # all; its own card, so a per-frame Estimate never locks the crosstalk.
+    # all; its own card, so a per-frame Estimate never locks the crosstalk. A camera RAW's white
+    # stays per frame (`_without_decode_white`).
     "fade": (
         "process",
-        ("fade_ratio_r", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b"),
+        (
+            "fade_ratio_r",
+            "fade_ratio_g",
+            "fade_ratio_b",
+            "fade_white_anchor",
+            "fade_white_r",
+            "fade_white_g",
+            "fade_white_b",
+            "fade_white_space",
+        ),
     ),
     # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
     "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
@@ -750,12 +760,31 @@ def same_value(a: Any, b: Any) -> bool:
     return config_value(a) == config_value(b)
 
 
+# The fade white of a camera RAW: a reading of one frame's decode, which moves with its exposure.
+DECODE_WHITE_FIELDS = ("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space")
+
+
+def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """*fields* without a camera RAW's fade white (a set `fade_white_space`), which no other frame can use."""
+    if not fields.get("fade_white_space"):
+        return fields
+    return {k: v for k, v in fields.items() if k not in DECODE_WHITE_FIELDS}
+
+
+def frame_roll_defaults(defaults: Dict[str, Any], process: Any) -> Dict[str, Any]:
+    """*defaults* as they apply to a frame with *process*: a camera RAW frame that has measured
+    its own white keeps it over a roll's scanner white."""
+    if not getattr(process, "fade_white_space", ""):
+        return defaults
+    return {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
+
+
 def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
     """The roll's own value for each field it has set at least once. A field absent
     here has no roll default yet -- the frame's own saved value is what is used,
     exactly as before roll defaults existed."""
     entry = roll_for_id(repo, roll_id)
-    return dict(entry["defaults"]) if entry and entry.get("defaults") else {}
+    return _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
 
 
 def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
@@ -768,7 +797,7 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     if entry is None:
         return
     defaults = dict(entry.get("defaults", {}))
-    defaults.update(fields)
+    defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
 
@@ -892,13 +921,22 @@ def set_frame_override(
 
 
 def settle_card_lock(
-    repo: Any, roll_id: str, file_hash: str, card_key: str, values: Dict[str, Any], before: Optional[Dict[str, Any]] = None
+    repo: Any,
+    roll_id: str,
+    file_hash: str,
+    card_key: str,
+    values: Dict[str, Any],
+    before: Optional[Dict[str, Any]] = None,
+    *,
+    process: Any = None,
 ) -> None:
     """Locks *card_key* on the frame (unforked hash) where *values* differ from the roll, and unlocks it where
     they match again. A field the roll has no value for matches the frame's value from before the lock:
     *before* for a new lock, the stored baseline for a held one. With neither it cannot match, or a card's
-    first edit would hide from Apply."""
-    defaults = roll_defaults(repo, roll_id)
+    first edit would hide from Apply. A camera RAW frame's own white (*process*) never locks a card."""
+    defaults = frame_roll_defaults(roll_defaults(repo, roll_id), process)
+    if getattr(process, "fade_white_space", ""):
+        values = {k: v for k, v in values.items() if k not in DECODE_WHITE_FIELDS}
     locked = card_key in frame_override_cards(repo, roll_id, file_hash)
     if locked:
         baseline = frame_baseline(repo, roll_id, file_hash, card_key)
@@ -925,7 +963,7 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     locked leaves *config* unchanged."""
     if roll_id is None:
         return config
-    defaults = roll_defaults(repo, roll_id)
+    defaults = frame_roll_defaults(roll_defaults(repo, roll_id), config.process)
     if not defaults:
         return config
     locked_cards = frame_override_cards(repo, roll_id, file_hash)

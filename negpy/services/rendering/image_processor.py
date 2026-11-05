@@ -790,6 +790,7 @@ class ImageProcessor:
         gain_slices: tuple = (),
         source_orientation: int = 1,
         film_base: Optional[tuple] = None,
+        wants_fade_grid: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
         """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
         fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
@@ -892,6 +893,7 @@ class ImageProcessor:
             camera_wb=camera_wb,
             cache_stages=cache_stages,
             readback_metrics=readback_metrics,
+            wants_fade_grid=wants_fade_grid,
         )
         if metrics:
             context.metrics.update(metrics)

@@ -25,7 +25,7 @@ from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import SOURCE_ENCODING_LABELS, ProcessMode, SourceEncoding, invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
-from negpy.services.assets.rolls import card_fields
+from negpy.services.assets.rolls import DECODE_WHITE_FIELDS, card_fields
 
 
 class SettingRow:
@@ -172,7 +172,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength, profile, the baked matrix and the process it was baked for copy atomically:
         # strength alone would leave the target on a stale or None matrix.
         _row(mark("Crosstalk"), "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", "crosstalk_process", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        _row(mark("Fade Restoration"), "process", "fade_ratio_r", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b", fmt=lambda v: _fmt_scalar(v[0])),
+        _row(mark("Fade Restoration"), "process", "fade_ratio_r", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space", fmt=lambda v: _fmt_scalar(v[0])),
         _row(mark("Sensor Crosstalk Profile"), "process", "sensor_profile", "sensor_matrix", "sensor_unmix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row(mark("Hue Trim"), "process", "hue_trim", sticky=True),
@@ -391,6 +391,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "fade_white_r",
         "fade_white_g",
         "fade_white_b",
+        "fade_white_space",
         "sensor_profile",
         "sensor_matrix",
         "sensor_unmix",
@@ -661,7 +662,7 @@ def catalog_sections(cfg: WorkspaceConfig) -> list[tuple[str, list[tuple[Setting
 def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows: Iterable[SettingRow]) -> WorkspaceConfig:
     """Overlay only the chosen rows' fields from source onto target (one replace
     per section). Fields not listed — per-frame bounds, dust spots, heal strokes,
-    masks — stay the target's own."""
+    masks — stay the target's own, and so does a camera RAW's fade white."""
     rows = list(rows)
     by_section: dict[str, dict] = {}
     for row in rows:
@@ -669,6 +670,10 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
         changes = by_section.setdefault(row.section, {})
         for f in row.fields:
             changes[f] = getattr(src_section, f)
+    process = by_section.get("process", {})
+    if process.get("fade_white_space"):
+        # A camera RAW's white moves with each frame's exposure, as on a roll (rolls._without_decode_white).
+        by_section["process"] = {k: v for k, v in process.items() if k not in DECODE_WHITE_FIELDS}
     out = target
     # Film Mode and Positive carry their own defaults; a field chosen alongside still wins below.
     out = with_film_fields(out, by_section.get("process", {}))
