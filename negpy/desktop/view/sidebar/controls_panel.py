@@ -1,4 +1,6 @@
 from negpy.kernel.system.i18n import tr
+from typing import Optional
+
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QMenu,
@@ -1054,6 +1056,8 @@ class ControlsPanel(QWidget):
         self._sync_scope_buttons()
         self._sync_modified_dots()
 
+    _optics_held_by: Optional[str] = None
+
     def _sync_scan_setup(self) -> None:
         """The scanning setup decides which rig cards show: Raw Decode and Optics are a camera's,
         Trichrome a narrowband camera's. A card or row that holds a setting stays in view."""
@@ -1067,7 +1071,11 @@ class ControlsPanel(QWidget):
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
         self.demosaic_section.setVisible(camera or cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction)
         optics_edited = any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS) or cfg.flatfield.apply
-        self.optics_section.setVisible(camera or optics_edited)
+        file_hash = state.current_file_hash
+        if optics_edited:
+            self._optics_held_by = file_hash
+        # A correction turned off stays in reach until another frame opens.
+        self.optics_section.setVisible(camera or optics_edited or (bool(file_hash) and file_hash == self._optics_held_by))
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS
 

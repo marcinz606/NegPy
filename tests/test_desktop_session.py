@@ -671,6 +671,50 @@ class TestDesktopSessionSync(unittest.TestCase):
         ff = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False).flatfield
         self.assertEqual((ff.profile_id, ff.apply), ("", False))
 
+    def _fresh_config(self, path, setup=None, roll_defaults=None):
+        """A first open of *path* with a camera rig's flat field and distortion carried."""
+        settings = {
+            "flatfield_active_profile": "ff-35",
+            "sticky_config": {"distortion_k1": 0.05},
+            "sticky_rows": ["geometry.distortion_k1"],
+            "scan_setup": setup,
+            "rolls_by_id": {"r1": {"kind": "virtual", "name": "Portra", "defaults": roll_defaults}} if roll_defaults else {},
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        self.session.state.active_roll_id = "r1" if roll_defaults else None
+        with (
+            patch("negpy.desktop.session.load_or_promote", return_value=None),
+            patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=SimpleNamespace(id="ff-35", k1=0.0)),
+            patch("negpy.desktop.session.load_sticky_rows", return_value=[next(r for r in all_rows() if "distortion_k1" in r.fields)]),
+            patch("negpy.desktop.session.is_scanned_positive_source", side_effect=lambda p: not p.endswith(".cr3")),
+        ):
+            return self.session.config_for_asset({"name": path, "path": path, "hash": "h"})
+
+    def test_a_new_camera_frame_takes_the_carried_optics(self):
+        config = self._fresh_config("/roll/a.cr3")
+        self.assertEqual((config.flatfield.profile_id, config.flatfield.apply), ("ff-35", True))
+        self.assertEqual(config.geometry.distortion_k1, 0.05)
+
+    def test_a_new_film_scanner_frame_takes_no_carried_optics(self):
+        for path, setup in (("/roll/a.tif", None), ("/roll/a.tif", {"capture": "camera"}), ("/roll/a.cr3", {"capture": "scanner"})):
+            with self.subTest(path=path, setup=setup):
+                config = self._fresh_config(path, setup)
+                self.assertEqual(config.flatfield, WorkspaceConfig().flatfield)
+                self.assertEqual(config.geometry.distortion_k1, 0.0)
+
+    def test_a_film_scanner_frame_takes_optics_its_roll_holds(self):
+        config = self._fresh_config("/roll/a.tif", roll_defaults={"profile_id": "ff-35", "apply": True})
+        self.assertEqual((config.flatfield.profile_id, config.flatfield.apply), ("ff-35", True))
+
+    def test_a_film_scanner_frame_leaves_the_carried_optics_for_the_next_camera_frame(self):
+        stored = {"distortion_k1": 0.05, "apply": True, "profile_id": "ff-35"}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: stored if key == "sticky_config" else default
+        self.session.state.current_file_path = "/roll/a.tif"
+        with patch("negpy.desktop.session.is_scanned_positive_source", return_value=True):
+            self.session._persist_sticky_settings(WorkspaceConfig())
+        snapshot = self.mock_repo.save_global_settings.call_args.args[0]["sticky_config"]
+        self.assertEqual({k: snapshot[k] for k in stored}, stored)
+
     def test_paper_black_carries_to_new_files(self):
         """Sticky must carry an explicit value over the file's base."""
         sticky = {"sticky_config": {"paper_black": False}}

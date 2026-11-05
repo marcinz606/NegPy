@@ -34,8 +34,8 @@ from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, 
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.capture_color import is_source_profile
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
-from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
+from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, scan_setup_rig, with_process_mode
+from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -1394,25 +1394,26 @@ class DesktopSessionManager(QObject):
         from dataclasses import asdict
 
         snapshot = sticky_snapshot(config)
+        stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+        stored = stored if isinstance(stored, dict) else {}
+
+        def keep_stored(keys: tuple) -> None:
+            for key in keys:
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
+
         if PresetStore(self.repo).owns_sensor_profile(config.process.sensor_profile):
             # A Scanlight preset's profile reaches a roll through that preset's scans. Carried
             # from here it would land on rolls scanned another way.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("sensor_profile", "sensor_matrix"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("sensor_profile", "sensor_matrix"))
         if has_manual_crop(config.geometry) or self._keep_carried_crop:
             # A hand-drawn crop, or a reset of one, is one frame's placement: the carried crop stays as it was, whole.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("crop_from_auto", "crop_rect", "crop_detect_key"))
+        if self._film_scanner_file(self.state.current_file_path or ""):
+            # Optics describe the camera rig, so a film scanner frame leaves its carried values alone.
+            keep_stored(rolls.card_fields("lens") + rolls.card_fields("flatfield"))
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,
@@ -1510,9 +1511,23 @@ class DesktopSessionManager(QObject):
         #
         # Not a bare WorkspaceConfig(): only this config holds the shipped autocrop fields, and the
         # print/transfer curves are an identity at it (transfer_grade_ref, test_transparency_transfer.py).
-        config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset, fresh=True)
+        carried = self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False)
+        config = self._overlay_roll_defaults(self._without_camera_optics(carried, asset["path"]), asset, fresh=True)
         config = self._asset_defaults(config, asset)
         return config if self._roll_sets_positive(asset) else with_scanner_positive_default(config, asset["path"])
+
+    def _film_scanner_file(self, path: str) -> bool:
+        """The Scanning Setup says Film Scanner, or *path* is not a camera RAW. A pick of Camera
+        does not cover a TIFF, because the Scan tab's source can differ from the Setup card."""
+        return scan_setup_rig(self.repo.get_global_setting("scan_setup"))[0] == "scanner" or is_scanned_positive_source(path)
+
+    def _without_camera_optics(self, config: WorkspaceConfig, path: str) -> WorkspaceConfig:
+        """*config* without the camera rig's carried Optics when *path* is a film scanner frame."""
+        base = DEFAULT_WORKSPACE_CONFIG
+        geometry = replace(config.geometry, **{f: getattr(base.geometry, f) for f in rolls.card_fields("lens")})
+        bare = replace(config, geometry=geometry, flatfield=base.flatfield)
+        # Telling a Coolscan NEF from a camera NEF opens the file, so skip it when nothing carries.
+        return bare if bare != config and self._film_scanner_file(path) else config
 
     def _roll_sets_positive(self, asset: dict) -> bool:
         """The frame's roll holds a Positive value on its Film card, which beats the scanner default."""

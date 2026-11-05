@@ -404,7 +404,7 @@ Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angez
 *   **Vorschau** / **Export**: die Demosaicing-Methode, die die Farben ergänzt, die ein Sensorpixel nicht sieht. **Auto** ist am Bildschirm schnell und nutzt für den Export **AHD**. **VNG** ist glatt und **PPG** schnell. **DCB** und **DHT** erhalten mehr feine Details, können aber Korn in Muster verwandeln. **AAHD** macht Kanten weicher. Es werden nur die Methoden deines LibRaw-Builds aufgeführt.
 *   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen.
 
-<!-- panel:optics src:6fce13e8 -->
+<!-- panel:optics src:d5a2c285 -->
 ### 10.7 Optik
 
 Korrekturen für Objektiv und Licht, gleich für jedes Bild, das du mit diesem Aufbau scannst. Wird bei einer Kamera angezeigt.
@@ -422,7 +422,7 @@ Entfernt ungleichmäßiges Licht, zum Beispiel dunklere Ecken, mit einer Aufnahm
 *   **Flat Field anwenden**: wendet das gewählte Profil auf diese Rolle an.
 *   **Flat Field prüfen**: zeigt, wie gut das Profil seine eigene Aufnahme ausgleicht. Gleichmäßiges Grau ist gut. Ein Streifen oder Fleck zeigt, wo es abweicht.
 
-Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Bild oder ein Bild mit fehlendem Profil nimmt das zuletzt gewählte Profil.
+Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Kamerabild oder ein Bild mit fehlendem Profil nimmt das zuletzt gewählte Profil. Ein neues Bild vom Filmscanner beginnt ohne Optik-Korrekturen und zeigt diese Karte nur, wenn es eine Korrektur hat.
 
 <!-- panel:metadata_gear src:208e1498 -->
 ### Analoge Ausrüstung
