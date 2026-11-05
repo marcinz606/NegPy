@@ -313,16 +313,16 @@ Skannevalgene er én innstilling for hele appen. Listen under dem viser hvordan 
 
 Et kamera viser kortene RAW-dekoding og Optikk. Et kamera med smalbåndslys viser også Trichrome og Kalibrering. En endring oppdaterer hvert åpent bilde (Ctrl+Z angrer den per bilde), men et kopipapir du har valgt selv, blir stående. En kameraskanning angir dekodingen og kopipapiret for hvert bilde ut fra sitt eget lys.
 
-<!-- panel:demosaic src:99177ab3 -->
+<!-- panel:demosaic src:577713a8 -->
 ### 10.2 RAW-dekoding
 
 Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 
 *   **Kamera-WB / Lineær RAW**: Kamera-WB bruker kameraets hvitbalanse. Lineær RAW dekoder nøytralt, for smalbåndslys. Oppsett angir det for deg.
 *   **Forhåndsvisning** / **Eksport**: demosaikkmetoden, som fyller inn fargene hver sensorpiksel ikke kan se. **Auto** er raskt på skjermen og bruker **AHD** ved eksport. **VNG** er jevn og **PPG** rask. **DCB** og **DHT** beholder flere fine detaljer, men kan gjøre korn om til mønstre. **AAHD** mykner kanter. Bare metodene i din LibRaw-versjon vises.
-*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge.
+*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av.
 
-<!-- panel:optics src:6fce13e8 -->
+<!-- panel:optics src:33b2d330 -->
 ### 10.3 Optikk
 
 Korreksjoner for objektivet og lyset, de samme for hvert bilde du skanner med dette oppsettet. Vises for et kamera.
@@ -340,7 +340,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 *   **Bruk flatfelt**: bruker den valgte profilen på denne rullen.
 *   **Kontroller flatfelt**: viser hvor godt profilen jevner ut sitt eget bilde. Jevnt grått er bra; et bånd eller en flekk viser hvor den avviker.
 
-Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt bilde, eller et bilde der profilen mangler, får den siste profilen du valgte.
+Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
 <!-- panel:sensor src:3a992073 -->
 ### 10.4 Kalibrering: farger fra skanneoppsettet ditt
