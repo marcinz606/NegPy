@@ -71,6 +71,34 @@ def test_consensus_keeps_a_three_sided_box_with_one_disturbed_edge():
     assert negpy_core.select_consensus(boxed, 360, 540) is not None
 
 
+def test_consensus_merges_a_sky_box_into_the_picture_past_it():
+    # A bright sky over darker sand: most thresholds keep only the sky, which shares the picture's
+    # top and side edges but stops at the horizon, where no edge supports it.
+    sky = [_strip_box((10, 190, 16, 524), ["top", "right", "left"], i) for i in range(1, 6)]
+    picture = (10, 348, 16, 524)
+    found = negpy_core.select_consensus([*sky, _candidate(picture, threshold_index=0)], 360, 540)
+    assert found is not None and found[0] == picture
+
+    # The picture's own bottom edge may lack evidence and still reach the frame.
+    reaches = _strip_box((10, 348, 16, 524), ["top", "right", "left"], 0)
+    found = negpy_core.select_consensus([*sky, reaches], 360, 540)
+    assert found is not None and found[0] == picture
+
+
+def test_consensus_joins_two_parts_of_one_picture():
+    # A dark tree line splits sky from snow: each part holds three picture edges and stops short
+    # where the other holds the fourth.
+    sky = [_strip_box((10, 150, 16, 524), ["top", "left"], i) for i in range(2)]
+    snow = [_strip_box((120, 348, 16, 524), ["right", "bottom", "left"], i) for i in range(2, 5)]
+    found = negpy_core.select_consensus(sky + snow, 360, 540)
+    assert found is not None and found[0] == (10, 348, 16, 524)
+
+    # Parts that disagree at a shared side are separate shapes.
+    offset = [_strip_box((120, 348, 80, 524), ["right", "bottom", "left"], i) for i in range(2, 5)]
+    found = negpy_core.select_consensus(sky + offset, 360, 540)
+    assert found is None or found[0][0] != 10
+
+
 def test_consensus_rejects_a_high_scoring_single_source_outlier():
     stable = [
         _candidate((79, 301, 99, 441), threshold_index=0),
