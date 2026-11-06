@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "Fjern filmbase: glem filmbasen dette bildet bruker.",
   "Clear Library": "Tøm biblioteket",
   "Clear Library…": "Tøm biblioteket…",
-  "Clear Region: measure with the Analysis Buffer again.": "Fjern område: mål med analysebufferen på nytt.",
+  "Clear Region: let NegPy pick the area to measure.": "Fjern område: la NegPy velge området som måles.",
   "Clear Saved Edits": "Fjern lagrede redigeringer",
   "Clear Saved Edits…": "Fjern lagrede redigeringer…",
   "Clear Thumbnails": "Fjern miniatyrbilder",

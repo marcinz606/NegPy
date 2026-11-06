@@ -185,6 +185,28 @@ def test_estimate_meters_the_render_grid_before_the_fade():
     np.testing.assert_allclose(metrics["transfer_grid"], grid, atol=1e-5)
 
 
+def test_estimate_reads_the_drawn_region_on_an_uncropped_slide():
+    """Two halves faded apart: a region drawn on either half recovers that half's own fade."""
+    from dataclasses import replace
+
+    from negpy.desktop.workers.chart_fit import ChartSource, fade_estimate_grid
+    from negpy.features.process.models import ProcessMode
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+    from tests.test_fade_fixtures import clean_slide, forward_fade_matrix
+
+    def faded(ratio_g, ratio_b):
+        return 10.0 ** (np.log10(clean_slide(256, 3)) @ forward_fade_matrix(ratio_g, ratio_b).T)
+
+    image = np.ascontiguousarray(np.concatenate([faded(0.7, 0.85), faded(0.95, 0.5)], axis=1), dtype=np.float32)
+    cfg = DEFAULT_WORKSPACE_CONFIG
+    for rect, (ratio_g, ratio_b) in (((0.0, 0.0, 0.5, 1.0), (0.7, 0.85)), ((0.5, 0.0, 1.0, 1.0), (0.95, 0.5))):
+        process = replace(cfg.process, process_mode=ProcessMode.E6, analysis_rect=rect)
+        grid = fade_estimate_grid(ChartSource(image, replace(cfg, process=process), "fade-region", None, None, (), 1))
+        est = estimate_fade(grid)[EstimateMethod.MIDTONE]
+        assert est.reason == ""
+        assert abs(est.green - ratio_g) < 0.03 and abs(est.blue - ratio_b) < 0.03
+
+
 def _record_axis(monkeypatch, confidences):
     """Stub the neutral-axis meter: each call returns the next confidence and logs its inputs."""
     from negpy.features.process import fade

@@ -466,3 +466,25 @@ def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> 
     _context_cancel(controller, window)
     controller.toggle_test_strip.assert_called_once_with(force=False)
     controller.toggle_negative_peek.assert_not_called()
+
+
+def test_a_region_drag_on_a_slide_commits_the_analysis_rect() -> None:
+    from dataclasses import replace
+
+    from negpy.features.process.models import ProcessMode
+
+    overlay = _overlay_with_parent()
+    cfg = overlay.state.config
+    overlay.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    overlay.set_tool_mode(ToolMode.ANALYSIS_DRAW)
+
+    rects: list = []
+    overlay.analysis_rect_changed.connect(lambda *args: rects.append(args))
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(20, 30)))
+    overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, QPointF(60, 70)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(60, 70), Qt.MouseButton.NoButton))
+
+    x1, y1, x2, y2, persist = rects[-1]
+    assert persist
+    assert all(abs(a - b) < 1e-6 for a, b in zip((x1, y1, x2, y2), (0.2, 0.3, 0.6, 0.7)))
+    assert overlay._analysis_rect_screen() is not None

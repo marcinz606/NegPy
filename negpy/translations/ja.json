@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "フィルムベースをクリア：このフレームが使うフィルムベースを消去します。",
   "Clear Library": "ライブラリをクリアする",
   "Clear Library…": "ライブラリをクリア…",
-  "Clear Region: measure with the Analysis Buffer again.": "範囲をクリア：解析バッファーで測定する状態に戻します。",
+  "Clear Region: let NegPy pick the area to measure.": "範囲をクリア：測定する範囲を NegPy が選ぶ状態に戻します。",
   "Clear Saved Edits": "保存された編集内容をクリア",
   "Clear Saved Edits…": "保存された編集内容をクリア…",
   "Clear Thumbnails": "サムネイルをクリア",
