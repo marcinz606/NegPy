@@ -197,6 +197,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "analysis_buffer_dec": ShortcutEntry("Alt+Shift+B", tr("Analysis buffer down"), tr("Process")),
     "analysis_buffer_inc": ShortcutEntry("Alt+B", tr("Analysis buffer up"), tr("Process")),
     "toggle_positive_source": ShortcutEntry("", tr("Toggle Positive (source is already a finished positive)"), tr("Process")),
+    "toggle_slide_bw": ShortcutEntry("", tr("Toggle B&W Slide"), tr("Process")),
     "luma_range_clip_dec": ShortcutEntry("Alt+Shift+N", tr("Luma range clip down"), tr("Process")),
     "luma_range_clip_inc": ShortcutEntry("Alt+N", tr("Luma range clip up"), tr("Process")),
     "color_range_clip_dec": ShortcutEntry("Alt+Shift+E", tr("Color range clip down"), tr("Process")),

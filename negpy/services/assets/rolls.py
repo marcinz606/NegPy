@@ -667,7 +667,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # edited and locked away from the roll exactly like every other card here, even
     # though a roll being one film type, scanned one way, means the common case is
     # every frame following it.
-    "film": ("process", ("process_mode", "positive_source", "source_encoding")),
+    "film": ("process", ("process_mode", "positive_source", "slide_bw", "source_encoding")),
     "sensor": (
         "process",
         (

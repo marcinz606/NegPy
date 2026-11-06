@@ -1693,7 +1693,12 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+            self.controller.session.repo,
+            roll_id,
+            process_mode=ProcessMode.C41,
+            positive_source=False,
+            slide_bw=False,
+            source_encoding="auto",
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h1", "film", locked=True)
         state = self.mock_session_manager.state
@@ -1701,7 +1706,9 @@ class TestAppController(unittest.TestCase):
         state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
         state.current_file_hash = "h1"
 
-        self.controller.set_roll_default("film", process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto")
+        self.controller.set_roll_default(
+            "film", process_mode=ProcessMode.C41, positive_source=False, slide_bw=False, source_encoding="auto"
+        )
 
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), set())
 
@@ -1727,7 +1734,12 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+            self.controller.session.repo,
+            roll_id,
+            process_mode=ProcessMode.C41,
+            positive_source=False,
+            slide_bw=False,
+            source_encoding="auto",
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state
@@ -1745,7 +1757,7 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True, source_encoding="auto"
+            self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True, slide_bw=False, source_encoding="auto"
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state

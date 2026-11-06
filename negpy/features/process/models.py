@@ -146,6 +146,9 @@ class ProcessConfig:
     # baseline lift and the filmic curve. See path.render_path and path.positive_decode.
     positive_source: bool = False
     source_encoding: SourceEncoding = SourceEncoding.AUTO
+    # Render the slide in black and white: B&W reversal film, or a color slide through the
+    # B&W Filter. Slide only, held in __post_init__. See path.is_mono.
+    slide_bw: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
     demosaic_export: DemosaicMode = DemosaicMode.AUTO
@@ -266,6 +269,8 @@ class ProcessConfig:
         # default, asset dict -- has to land where the panel does.
         if self.positive_source and self.process_mode != ProcessMode.E6:
             object.__setattr__(self, "positive_source", False)
+        if self.slide_bw and self.process_mode != ProcessMode.E6:
+            object.__setattr__(self, "slide_bw", False)
         object.__setattr__(self, "locked_floors", tuple(self.locked_floors))
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))
         object.__setattr__(self, "local_floors", tuple(self.local_floors))
@@ -333,8 +338,13 @@ def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig"
         auto_exposure=auto_meter_for_mode(mode, exp.auto_exposure),
         auto_normalize_contrast=auto_meter_for_mode(mode, exp.auto_normalize_contrast),
     )
+    slide = mode == ProcessMode.E6
     proc = replace(
-        proc, process_mode=mode, positive_source=proc.positive_source and mode == ProcessMode.E6, **invalidate_local_bounds(proc)
+        proc,
+        process_mode=mode,
+        positive_source=proc.positive_source and slide,
+        slide_bw=proc.slide_bw and slide,
+        **invalidate_local_bounds(proc),
     )
     return replace(config, process=proc, exposure=exp)
 
@@ -347,14 +357,24 @@ def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "Workspace
     return replace(config, process=replace(proc, positive_source=checked, **invalidate_local_bounds(proc)))
 
 
+def with_slide_bw(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig":
+    """*config* with the Slide's B&W set to *checked*. Unchanged outside Slide."""
+    proc = config.process
+    if proc.process_mode != ProcessMode.E6 or proc.slide_bw == checked:
+        return config
+    return replace(config, process=replace(proc, slide_bw=checked))
+
+
 def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
     """*config* with the Film card's fields in *fields* applied through with_process_mode,
-    with_positive_source and with_source_encoding, popping them from *fields* so the caller
+    with_positive_source, with_slide_bw and with_source_encoding, popping them from *fields* so the caller
     overlays only the rest."""
     if "process_mode" in fields:
         config = with_process_mode(config, fields.pop("process_mode"))
     if "positive_source" in fields:
         config = with_positive_source(config, fields.pop("positive_source"))
+    if "slide_bw" in fields:
+        config = with_slide_bw(config, fields.pop("slide_bw"))
     if "source_encoding" in fields:
         config = with_source_encoding(config, fields.pop("source_encoding"))
     return config

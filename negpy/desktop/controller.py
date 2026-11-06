@@ -204,6 +204,7 @@ from negpy.features.process.models import (
     with_film_fields,
     with_source_encoding,
     with_positive_source,
+    with_slide_bw,
     with_process_mode,
 )
 from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
@@ -6669,6 +6670,15 @@ class AppController(QObject):
             return
         before = self.state.config
         self.apply_config(with_positive_source(before, checked), persist=True)
+        self._lock_roll_card("film", before)
+
+    def set_slide_bw(self, checked: bool) -> None:
+        """Toggles B&W for the active Slide, locking the "film" card away from the roll like Positive."""
+        if self.state.config.process.process_mode != ProcessMode.E6:
+            # The shortcut still reaches the hidden button.
+            return
+        before = self.state.config
+        self.apply_config(with_slide_bw(before, checked), persist=True)
         self._lock_roll_card("film", before)
 
     def set_source_encoding(self, encoding: str) -> None:

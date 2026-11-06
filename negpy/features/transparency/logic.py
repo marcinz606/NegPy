@@ -33,6 +33,7 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
                     (see logic.separation_damping_gain)
 """
 
+from dataclasses import replace
 from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional, Tuple
 
 import negpy_core
@@ -53,6 +54,7 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import LogNegativeBounds, measure_neutral_axis_from_log
+from negpy.features.exposure.bw_filter import collapse_weights
 from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
 from negpy.kernel.image.validation import ensure_image
 
@@ -367,6 +369,26 @@ def transfer_stored_value(exposure: ExposureConfig, metrics: Mapping[str, Any], 
     if field == "shadow_density":
         return shown - sh_auto
     return shown - hl_auto
+
+
+_SLIDE_BW_NEUTRAL = {
+    **{f"{zone}_{dye}": 0.0 for zone in ("wb", "shadow", "highlight") for dye in ("cyan", "magenta", "yellow")},
+    **{f"dye_separation_trim_{ch}": 0.0 for ch in ("red", "green", "blue")},
+    "cast_removal_strength": 0.0,
+    "dye_separation": 1.0,
+    "separation_damping": 0.0,
+}
+
+
+def slide_exposure(process: ProcessConfig, exposure: ExposureConfig) -> ExposureConfig:
+    """The exposure a slide's transfer renders. A B&W slide drops the color terms, which the
+    UI hides there. Both engines read the transfer through this."""
+    return replace(exposure, **_SLIDE_BW_NEUTRAL) if process.slide_bw else exposure
+
+
+def slide_mono_weights(process: ProcessConfig, exposure: ExposureConfig) -> Optional[Tuple[float, float, float]]:
+    """The weights a B&W slide collapses to one density with, or None for a color slide."""
+    return collapse_weights(process, exposure) if process.slide_bw else None
 
 
 def apply_transfer_curve(

@@ -2705,8 +2705,7 @@ class FileBrowser(QWidget):
         nothing. A transparency runs to 10-12, which is what the merge exists for.
 
         Hidden on Color Negative, disabled with a reason on B&W Negative: reversal-processed monochrome
-        (Scala, dr5, Fomapan R) *is* a transparency and does have the range, it is simply
-        not wired yet, and a missing menu entry would leave nobody anything to ask about.
+        (Scala, dr5, Fomapan R) is a Slide with B&W on, and the reason points there.
         """
         from negpy.features.process.models import ProcessMode
 
@@ -2722,7 +2721,7 @@ class FileBrowser(QWidget):
         act = menu.addAction(tr("Merge Exposures (HDR)"))
         if mode == ProcessMode.BW:
             act.setEnabled(False)
-            act.setToolTip(tr("Merging is for transparencies; black-and-white reversal film is not supported yet"))
+            act.setToolTip(tr("Merging is for slides. For B&W reversal film, choose Slide and turn on B&W."))
             return
         act.triggered.connect(lambda: self.controller.request_hdr_merge_selected())
 

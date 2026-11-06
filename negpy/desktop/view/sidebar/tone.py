@@ -369,9 +369,7 @@ class ToneSidebar(BaseSidebar):
         conf = self.state.config.exposure
         self.block_signals(True)
         try:
-            from negpy.features.process.models import ProcessMode
-
-            mode = self.state.config.process.process_mode
+            from negpy.features.process.path import is_mono
 
             # On the transfer path (an as-captured Slide, or any Positive frame) the render
             # starts from the capture, so the paper model has nothing to act on. Density,
@@ -389,7 +387,7 @@ class ToneSidebar(BaseSidebar):
             for w in (self.split_grade_fold.content, self.aids_fold.content, self.hold_black_action):
                 w.setVisible(not transfer)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
-            is_bw = mode == ProcessMode.BW
+            is_bw = is_mono(self.state.config.process)
             if is_bw:
                 self.ch_btn.setCurrentIndex(0)
             self.ch_btn.setVisible(not is_bw)

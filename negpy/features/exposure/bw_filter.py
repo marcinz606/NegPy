@@ -5,6 +5,7 @@ import numpy as np
 
 from negpy.features.exposure.models import BwFilter, ExposureConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.path import is_mono
 
 # R, G, B weights on the normalized log channels of a color negative: a least-squares fit of a
 # panchromatic film (Tri-X/HP5-like) behind each Wratten filter, on Portra 400's layer
@@ -22,8 +23,8 @@ BW_FILTER_WEIGHTS: dict[BwFilter, tuple[float, float, float]] = {
 
 
 def collapse_weights(process: ProcessConfig, exposure: ExposureConfig) -> tuple[float, float, float]:
-    """The B&W print's channel weights. A filter acts only on a color source, where the UI shows it."""
-    if process.process_mode == ProcessMode.BW and process.source_color:
+    """The B&W render's channel weights. A filter acts only on a color source, where the UI shows it."""
+    if is_mono(process) and process.source_color:
         return BW_FILTER_WEIGHTS[exposure.bw_filter]
     return BW_FILTER_WEIGHTS[BwFilter.NONE]
 

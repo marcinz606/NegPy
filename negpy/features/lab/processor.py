@@ -12,12 +12,12 @@ from negpy.features.lab.logic import (
     auto_masking,
 )
 from negpy.features.lab.models import LabConfig
-from negpy.features.process.models import ProcessMode
 
 
 class PhotoLabProcessor:
-    def __init__(self, config: LabConfig):
+    def __init__(self, config: LabConfig, mono: bool = False):
         self.config = config
+        self.mono = mono
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
@@ -25,7 +25,7 @@ class PhotoLabProcessor:
         """
         img = image
 
-        chroma_radius = chroma_denoise_radius(self.config.chroma_denoise, context.process_mode)
+        chroma_radius = chroma_denoise_radius(self.config.chroma_denoise, self.mono)
         if chroma_radius > 0:
             img = apply_chroma_denoise(img, chroma_radius, context.scale_factor)
 
@@ -43,7 +43,7 @@ class PhotoLabProcessor:
                 img,
                 self.config.glow_amount,
                 self.config.halation_strength,
-                bw=context.process_mode == ProcessMode.BW,
+                bw=self.mono,
             )
 
         return negpy_core.clip01(np.ascontiguousarray(img, dtype=np.float32))

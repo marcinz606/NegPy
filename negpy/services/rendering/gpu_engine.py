@@ -79,6 +79,8 @@ from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
+    slide_exposure,
+    slide_mono_weights,
     density_stage,
     density_stage_grid,
     fade_white_grid,
@@ -106,7 +108,7 @@ from negpy.features.process.fade import (
 )
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
-from negpy.features.process.path import RenderPath, render_path
+from negpy.features.process.path import RenderPath, is_mono, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -408,7 +410,7 @@ class GPUEngine:
             "geometry": 64,
             "normalization": 224,
             "exposure": 480,
-            "transfer": 224,
+            "transfer": 240,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
@@ -857,7 +859,7 @@ class GPUEngine:
         analysis_t0 = time.perf_counter()
         cast_on = settings.exposure.cast_removal_strength > 0.0 and not tiling_mode
         # The neutral axis runs on both colour processes; B&W has no channels to balance.
-        needs_axis = neutral_axis_override is None and cast_on and settings.process.process_mode != ProcessMode.BW
+        needs_axis = neutral_axis_override is None and cast_on and not is_mono(settings.process)
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
@@ -1480,9 +1482,7 @@ class GPUEngine:
                     enc, "sharpen_grain_pick", [(0, self._buffers["grain_hist"]), (1, self._buffers["auto_mask"]), (2, lab_u)], 1, 1
                 )
             # The Chroma Denoise low-pass reads only its input and sigma, so a lab-only change reuses it too.
-            chroma_sigma = chroma_denoise_sigma(
-                chroma_denoise_radius(settings.lab.chroma_denoise, settings.process.process_mode), scale_factor
-            )
+            chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(settings.lab.chroma_denoise, is_mono(settings.process)), scale_factor)
             if chroma_sigma > 0.0:
                 tex_chroma_h = self._get_intermediate_texture(w_rot, h_rot, usage, "chroma_h")
                 tex_chroma_v = self._get_intermediate_texture(w_rot, h_rot, usage, "chroma_v")
@@ -2019,14 +2019,16 @@ class GPUEngine:
 
         # Transparency transfer params (mirrors transparency/logic.py; inert on the print path).
         tc = TRANSFER_CONSTANTS
-        t_exp0, t_contrast0, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
+        t_e = slide_exposure(settings.process, settings.exposure)
+        t_mono = slide_mono_weights(settings.process, settings.exposure)
+        t_exp0, t_contrast0, t_toe3, t_sh3 = transfer_curve_params(t_e)
         # Auto Density/Auto Grade, restated on this curve; each follows its toggle.
         t_exp, t_contrast, t_hl_auto, t_sh_auto = transfer_auto_terms(
-            settings.exposure, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
+            t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
-        t_tw3, t_sw3 = transfer_widths(settings.exposure)
+        t_tw3, t_sw3 = transfer_widths(t_e)
         t_cmy = filtration_offsets(
-            (settings.exposure.wb_cyan, settings.exposure.wb_magenta, settings.exposure.wb_yellow),
+            (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
             LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
@@ -2037,7 +2039,7 @@ class GPUEngine:
         t_cast_gain, t_cast_off = transfer_cast_affine(
             LogNegativeBounds(adj_floors, adj_ceils),
             neutral_axis_refs,
-            settings.exposure.cast_removal_strength,
+            t_e.cast_removal_strength,
             fade_white_target(settings.process, white_space),
         )
         # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
@@ -2048,14 +2050,14 @@ class GPUEngine:
         # applied directly since there is no paper matrix here (see
         # transparency/logic.py::apply_transfer_curve).
         t_sep_k3 = per_channel_dye_separation(
-            settings.exposure.dye_separation,
+            t_e.dye_separation,
             (
-                settings.exposure.dye_separation_trim_red,
-                settings.exposure.dye_separation_trim_green,
-                settings.exposure.dye_separation_trim_blue,
+                t_e.dye_separation_trim_red,
+                t_e.dye_separation_trim_green,
+                t_e.dye_separation_trim_blue,
             ),
         )
-        t_sep_damping = float(settings.exposure.separation_damping)
+        t_sep_damping = float(t_e.separation_damping)
         tr_data = (
             struct.pack(
                 "ffffffff",
@@ -2075,23 +2077,23 @@ class GPUEngine:
             + struct.pack("ffff", t_cmy[0], t_cmy[1], t_cmy[2], 0.0)
             + struct.pack(
                 "ffff",
-                float(settings.exposure.shadow_density + t_sh_auto),
-                float(settings.exposure.highlight_density + t_hl_auto),
+                float(t_e.shadow_density + t_sh_auto),
+                float(t_e.highlight_density + t_hl_auto),
                 float(t_sh_c),
                 float(t_hi_c),
             )
             + struct.pack(
                 "ffff",
-                settings.exposure.shadow_cyan * t_cmy_m,
-                settings.exposure.shadow_magenta * t_cmy_m,
-                settings.exposure.shadow_yellow * t_cmy_m,
+                t_e.shadow_cyan * t_cmy_m,
+                t_e.shadow_magenta * t_cmy_m,
+                t_e.shadow_yellow * t_cmy_m,
                 float(t_wb_c),
             )
             + struct.pack(
                 "ffff",
-                settings.exposure.highlight_cyan * t_cmy_m,
-                settings.exposure.highlight_magenta * t_cmy_m,
-                settings.exposure.highlight_yellow * t_cmy_m,
+                t_e.highlight_cyan * t_cmy_m,
+                t_e.highlight_magenta * t_cmy_m,
+                t_e.highlight_yellow * t_cmy_m,
                 float(t_wb_k),
             )
             + struct.pack(
@@ -2110,6 +2112,7 @@ class GPUEngine:
                 0.0,
             )
             + struct.pack("ffff", t_sep_k3[0], t_sep_k3[1], t_sep_k3[2], t_sep_damping)
+            + struct.pack("ffff", *(t_mono or (0.0, 0.0, 0.0)), 1.0 if t_mono else 0.0)
         )
         from negpy.features.exposure.papers import (
             compose_density_matrices,
@@ -2377,14 +2380,14 @@ class GPUEngine:
                 self._buffers["sharpen_k"].upload(kernel)
                 self._sharpen_kernel_key = kernel_key
         chroma_radius_px = 0
-        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(lab.chroma_denoise, settings.process.process_mode), scale_factor)
+        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(lab.chroma_denoise, is_mono(settings.process)), scale_factor)
         if chroma_sigma > 0.0:
             chroma_kernel = gaussian_kernel_1d(chroma_sigma)
             chroma_radius_px = len(chroma_kernel) // 2
             if self._chroma_kernel_key != chroma_sigma:
                 self._buffers["chroma_k"].upload(chroma_kernel)
                 self._chroma_kernel_key = chroma_sigma
-        hal_amounts = halation_amounts(lab.halation_strength, settings.process.process_mode == ProcessMode.BW)
+        hal_amounts = halation_amounts(lab.halation_strength, is_mono(settings.process))
         l_data = struct.pack(
             "ffffffffffffffff",
             float(lab.sharpen),
@@ -2404,7 +2407,7 @@ class GPUEngine:
             float(min(h_rot, w_rot)),
         )
 
-        is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
+        is_bw = 1 if is_mono(settings.process) else 0
 
         altproc = settings.altproc
         lc = LITH_CONSTANTS
@@ -2501,7 +2504,7 @@ class GPUEngine:
                 float(settings.toning.blue_strength),
                 float(settings.toning.copper_strength),
                 float(settings.toning.vanadium_strength),
-                _ALT_MODE.get(altproc.alt_process, 0) if is_bw else 0,
+                _ALT_MODE.get(altproc.alt_process, 0) if settings.process.process_mode == ProcessMode.BW else 0,
             )
         )
 
@@ -3073,7 +3076,7 @@ class GPUEngine:
         meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else global_anchor_bounds
 
         global_neutral_axis = None
-        if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode != ProcessMode.BW:
+        if settings.exposure.cast_removal_strength > 0.0 and not is_mono(settings.process):
             if transfer:
                 global_neutral_axis = measure_transfer_neutral_axis(_meter_grid(), render_path(settings.process) is RenderPath.POSITIVE)
             else:
@@ -3148,7 +3151,7 @@ class GPUEngine:
         if settings.lab.halation_strength > 0.0:
             halo = max(halo, halation_reach_px((h_rot, w_rot)) + 1)
         # Chroma Denoise reads its low-pass kernel's half-width, plus one for the edge test's neighbors.
-        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(settings.lab.chroma_denoise, settings.process.process_mode), scale_factor)
+        chroma_sigma = chroma_denoise_sigma(chroma_denoise_radius(settings.lab.chroma_denoise, is_mono(settings.process)), scale_factor)
         if chroma_sigma > 0.0:
             halo = max(halo, len(gaussian_kernel_1d(chroma_sigma)) // 2 + 2)
         # The Mackie-line blur reads its kernel's half-width each side, sigma from the whole

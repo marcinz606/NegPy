@@ -547,7 +547,7 @@ class TestCyanotypeToners:
         ramp = np.linspace(0.001, 1.0, 128, dtype=np.float32)
         img = np.stack([ramp] * 3, axis=-1)[None, :, :]
         ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.BW)
-        return ToningProcessor(ToningConfig(**toner_kwargs), alt_process).process(img, ctx)
+        return ToningProcessor(ToningConfig(**toner_kwargs), alt_process, mono=True).process(img, ctx)
 
     def test_every_bath_is_inert_on_a_cyanotype(self):
         from negpy.features.altprocess.models import AltProcess
