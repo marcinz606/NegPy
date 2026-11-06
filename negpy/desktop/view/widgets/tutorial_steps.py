@@ -59,7 +59,7 @@ def _put_down(w: "MainWindow") -> None:
         busy = (
             st.active_tool != ToolMode.NONE,
             st.test_strip or st.test_strip_pending,
-            st.negative_peek or st.embedded_peek or st.flat_peek or st.flatfield_peek,
+            st.negative_peek or st.embedded_peek or st.flat_peek or st.flatfield_peek or st.average_peek,
             st.compare_mode,
             st.grain_focuser,
             st.zone_arm_target is not None,
@@ -222,6 +222,16 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             ),
             lambda w: cp(w).baseline_section,
             guide=("baseline", "Roll Analysis"),
+        ),
+        step(
+            ROLL,
+            tr("Roll Average"),
+            tr(
+                "{value} prints this frame on the roll's average brightness and color, and changes nothing. "
+                "<b>Apply</b> keeps it. A film mark on the Film Strip shows the frames that use the average.",
+                value=_k("toggle_average_peek"),
+            ),
+            lambda w: w.toolbar.btn_average,
         ),
         step(
             FRAMING,
@@ -441,10 +451,21 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         ),
         step(
             OUTPUT,
+            tr("Presets"),
+            tr(
+                "A <b>preset</b> keeps the settings you choose under a name. Apply it to this frame, the selected "
+                "frames or the whole roll. Presets are on the star tab, with your favorite sliders."
+            ),
+            lambda w: cp(w).presets_section,
+            pre_hook=lambda w: rp(w).show_tab_by_key("favourites"),
+            guide=("presets", "Presets"),
+        ),
+        step(
+            OUTPUT,
             tr("History and Work Prints"),
             tr(
-                "Every change is a step in <b>History</b>; click one to go back. <b>Work prints</b> ({value}) are "
-                "versions you keep under a name.",
+                "Every change is a step in <b>History</b>. Click one to go back, or right-click it to compare it "
+                "with now. <b>Work prints</b> ({value}) are versions you keep under a name.",
                 value=_k("save_work_print"),
             ),
             lambda w: rp(w).history_panel,
