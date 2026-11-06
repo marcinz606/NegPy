@@ -1,17 +1,21 @@
 """A Positive TIFF decodes by Source Encoding, whatever Linear RAW says."""
 
+import io
 import os
 from dataclasses import replace
 
 import numpy as np
 import pytest
 import tifffile
+from PIL import Image
 
-from negpy.domain.models import ColorSpace, WorkspaceConfig
+from negpy.domain.models import ColorSpace, ExportFormat, WorkspaceConfig
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import linear_raw_token
-from negpy.features.process.models import ProcessConfig, ProcessMode, SourceEncoding
+from negpy.features.process.models import ProcessConfig, ProcessMode, SourceEncoding, with_positive_source
 from negpy.features.process.path import positive_decode
 from negpy.infrastructure.loaders import source_encoding as se
+from negpy.infrastructure.loaders.helpers import camera_xyz_matrix
 from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 from negpy.kernel.image.logic import working_oetf_decode
@@ -60,16 +64,25 @@ def test_auto_decodes_an_adobe_rgb_profile_even_with_linear_raw(tmp_path, linear
     assert metadata["color_space"] == ColorSpace.ADOBE_RGB.value
 
 
+def _load_working(path: str, encoding: str) -> np.ndarray:
+    """The decode as the engines see it: the source primaries the loader keeps, then the
+    source-to-working matrix it carries in the camera-matrix slot."""
+    ctx, _ = TiffLoader().load(path, linear_raw=True, positive_decode=encoding)
+    with ctx as raw:
+        return apply_camera_matrix(raw.data, camera_to_working_matrix(camera_xyz_matrix(raw)))
+
+
 def test_an_srgb_profile_converts_to_adobe_primaries(tmp_path) -> None:
     """Pure sRGB red is inside Adobe RGB, so it lands at a smaller red and a nonzero green."""
     data = np.zeros((4, 4, 3), dtype=np.uint16)
     data[..., 0] = 65535
-    f32, _ = _load(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)
-    r, g, b = f32[0, 0]
-    assert 0.70 < r < 0.73 and 0.0 <= g < 0.01 and b < 0.01
+    path = _write(tmp_path, data, _icc("sRGB-v4.icc"))
+    source, _ = _load(path, SourceEncoding.AUTO)
+    np.testing.assert_allclose(source[0, 0], (1.0, 0.0, 0.0), atol=1e-6)
+    r, g, b = _load_working(path, SourceEncoding.AUTO)[0, 0]
+    assert 0.70 < r < 0.73 and abs(g) < 0.01 and abs(b) < 0.01
     data[..., :] = 65535
-    f32, _ = _load(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)
-    np.testing.assert_allclose(f32[0, 0], 1.0, atol=2e-3)
+    np.testing.assert_allclose(_load_working(_write(tmp_path, data, _icc("sRGB-v4.icc")), SourceEncoding.AUTO)[0, 0], 1.0, atol=2e-3)
 
 
 def test_linear_and_gamma_override_the_profile(tmp_path) -> None:
@@ -262,7 +275,7 @@ def _hydrating_session(monkeypatch, tmp_path, saved=None):
     session = DesktopSessionManager.__new__(DesktopSessionManager)
     session.state = AppState()
     session.repo = repo
-    session._apply_sticky_settings = lambda c, only_global=False: c if only_global else with_process_mode(c, ProcessMode.E6)
+    session._apply_sticky_settings = lambda c, only_global=False, path="": c if only_global else with_process_mode(c, ProcessMode.E6)
     monkeypatch.setattr(session_mod, "load_or_promote", lambda *a, **k: saved)
     return session
 
@@ -303,7 +316,7 @@ def _fake_controller(config: WorkspaceConfig, path: str):
     fake = SimpleNamespace(
         state=SimpleNamespace(config=config, current_file_path=path),
         apply_config=lambda c, persist=False: applied.append(c),
-        _lock_roll_card=lambda _key: None,
+        _lock_roll_card=lambda *_args: None,
     )
     return fake, applied
 
@@ -333,3 +346,57 @@ def test_a_scanner_slide_can_turn_positive_off() -> None:
     fake, applied = _fake_controller(on, "/x/scan.tif")
     AppController.set_positive_source(fake, False)
     assert applied[-1].process.positive_source is False
+
+
+def _neutral_positive(fmt: ExportFormat, space: str) -> WorkspaceConfig:
+    config = with_positive_source(replace(WorkspaceConfig(), process=ProcessConfig(process_mode=ProcessMode.E6)), True)
+    return replace(
+        config,
+        exposure=replace(config.exposure, auto_exposure=False, auto_normalize_contrast=False, cast_removal_strength=0.0),
+        lab=replace(config.lab, sharpen=0.0, chroma_denoise=0.0, skin_protection=0.0),
+        export=replace(config.export, export_fmt=fmt, export_bit_depth=16, export_color_space=space, jpeg_quality=100),
+    )
+
+
+def _export(processor, path: str, config: WorkspaceConfig) -> bytes:
+    data, error = processor.process_export(path, config, config.export, path, prefer_gpu=False)
+    assert data is not None, error
+    return data
+
+
+@pytest.mark.parametrize("fmt, ext", [(ExportFormat.TIFF, "tif"), (ExportFormat.JPEG, "jpg")])
+@pytest.mark.parametrize("space", [ColorSpace.ADOBE_RGB.value, ColorSpace.SRGB.value])
+def test_an_export_reopened_as_positive_exports_the_same_pixels(tmp_path, fmt, ext, space) -> None:
+    """With the Positive edits at neutral, the decode inverts the export encoding. The colors stay
+    inside sRGB: an 8-bit export near the sRGB gamut edge has its own rounding error."""
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    y, x = np.mgrid[0:48, 0:64] / np.array([48.0, 64.0])[:, None, None]
+    encoded = np.stack([0.2 + 0.6 * x, 0.5 + 0.15 * np.sin(3 * y + 1), 0.3 + 0.4 * x * y], axis=-1)
+    source = _write(tmp_path, np.round(encoded * 65535).astype(np.uint16), _icc("AdobeCompat-v4.icc"))
+    processor = ImageProcessor()
+    config = _neutral_positive(fmt, space)
+    first = tmp_path / f"first.{ext}"
+    first.write_bytes(_export(processor, source, config))
+    second = _export(processor, str(first), config)
+
+    def pixels(data: bytes) -> np.ndarray:
+        img = tifffile.imread(io.BytesIO(data)) if fmt is ExportFormat.TIFF else np.asarray(Image.open(io.BytesIO(data)))
+        return img.astype(np.float64) / np.iinfo(img.dtype).max
+
+    diff = np.abs(pixels(second) - pixels(first.read_bytes())) * 255.0
+    assert diff.mean() < 1.0 and np.percentile(diff, 99) < 4.0
+
+
+def test_a_positive_jpeg_decodes_by_auto_whatever_the_stored_encoding(tmp_path) -> None:
+    from negpy.infrastructure.loaders.jpeg_loader import JpegLoader
+
+    data = np.random.default_rng(3).integers(0, 256, (16, 24, 3), dtype=np.uint8)
+    path = str(tmp_path / "export.jpg")
+    Image.fromarray(data).save(path, quality=100, subsampling=0, icc_profile=_icc("AdobeCompat-v4.icc"))
+    decoded = np.asarray(Image.open(path)).astype(np.float32) / 255.0
+    for encoding in (SourceEncoding.AUTO, SourceEncoding.LINEAR):
+        ctx, metadata = JpegLoader().load(path, positive_decode=encoding)
+        with ctx as raw:
+            np.testing.assert_allclose(raw.data, working_oetf_decode(decoded), atol=5e-4)
+        assert metadata["source_encoding"] == "profile"

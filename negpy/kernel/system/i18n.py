@@ -24,6 +24,8 @@ LANGUAGES = (
     ("ja", "日本語"),
     ("ko", "한국어"),
     ("de", "Deutsch"),
+    ("vi", "Tiếng Việt"),
+    ("nb", "Norsk bokmål"),
 )
 _language = "en"
 _messages: dict[str, str] = {}
@@ -43,6 +45,9 @@ def resolve_language(choice: str, system_languages: list[str] | None = None) -> 
     if tag in {"zh", "zh_cn", "zh_sg", "zh_hans", "zh_hans_cn", "zh_hans_sg"}:
         return "zh_CN"
     base = tag.split("_", 1)[0]
+    if base in {"no", "nn"}:
+        # Systems tag Norwegian as macrolanguage "no" or as Nynorsk; Bokmål is the one catalog.
+        base = "nb"
     supported = {locale.lower(): locale for locale, _ in LANGUAGES if locale != "system"}
     return supported.get(tag, supported.get(base, "en"))
 
@@ -94,6 +99,9 @@ def install_qt_translations(app: "QCoreApplication") -> None:
     if _language == "en":
         return
     translator = QTranslator(app)
-    if translator.load(f"qtbase_{_language}", QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+    directory = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    # Qt ships no Bokmål catalog. Its Nynorsk one is close enough for the standard buttons and file dialogs.
+    names = (f"qtbase_{_language}", "qtbase_nn") if _language == "nb" else (f"qtbase_{_language}",)
+    if any(translator.load(name, directory) for name in names):
         app.installTranslator(translator)
         _qt_translator = translator

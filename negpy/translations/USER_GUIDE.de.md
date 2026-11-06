@@ -18,7 +18,7 @@ Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus 
 
 Um die Bilder im Filmstreifen als Rolle zu speichern, nutze den Filmstreifen. **In Ordnerrolle speichern** macht aus Bildern, die alle aus einem Ordner stammen, die Rolle dieses Ordners. Seine anderen Dateien erscheinen als entfernt. **Als virtuelle Rolle speichern…** behält genau diese Bilder, aus beliebigen Ordnern. In Ordnerrolle speichern macht auch aus einer virtuellen Rolle eines Ordners die Rolle dieses Ordners. Die neue Rolle startet mit den Einstellungen, den Kartensperren und den nur in dieser Rolle gemachten Bearbeitungen der geöffneten Rolle. Ein Bild hat in jeder Rolle, die es enthält, dieselbe Bearbeitung. Rechtsklick → **In dieser Rolle unabhängig bearbeiten** gibt ihm in einer Rolle eine eigene Bearbeitung.
 
-<!-- panel:frames src:b724d5df -->
+<!-- panel:frames src:c1f54a29 -->
 ### Filmstreifen
 
 Der **Filmstreifen** unter der Arbeitsfläche zeigt die geöffneten Bilder in einer Reihe. Ziehe seinen oberen Rand, um die Bilder zu vergrößern.
@@ -27,13 +27,13 @@ Die Zeile **Rolle** der Werkzeugleiste enthält:
 
 *   Den Namen der Rolle und die Anzahl der Bilder, der behaltenen und der verworfenen Bilder.
 *   Das **Filterfeld**: Gib einen Teil eines Dateinamens ein oder Begriffe wie `film:portra iso:>=400` (siehe unten). Die Suchschaltfläche oder **Enter** durchsucht die ganze Bibliothek.
-*   **Sortieren**: nach Name, Datum oder Szene.
+*   **Sortieren**: nach Name, Datum, Szene oder nach Rolle und Bildnummer.
 *   **Bogenfilter**: alle Bilder, nur behaltene, verworfene ausblenden oder nur unmarkierte. Die Schaltfläche ist hervorgehoben, solange ein Filter Bilder ausblendet.
 *   **Rolleneinstellungen** (das Etikett): Ausrüstung und Filmdetails für dieses Bild, die Auswahl oder die Rolle.
 *   **Anwenden**: kopiert gewählte Einstellungen dieses Bildes auf die Auswahl oder die Rolle.
-*   **⋮**: **Dateien hinzufügen…**, **Ordner hinzufügen…**, **In Ordnerrolle speichern**, **Als virtuelle Rolle speichern…**, **Vorschaubilder aktualisieren**, **Hot Folder** (lädt neue Dateien, die ein Scanner im Ordner des neuesten Bildes speichert), **Entladen…**, **Alle entladen…** (leert den Filmstreifen; die Rolle bleibt in der Bibliothek), **Rolle auf Standard zurücksetzen…**, **Entfernte Bilder wiederherstellen…** und **Hilfe zum Filmstreifen…**.
+*   **⋮**: **Dateien hinzufügen…**, **Ordner hinzufügen…**, **In Ordnerrolle speichern**, **Als virtuelle Rolle speichern…**, **Vorschaubilder aktualisieren**, **Hot Folder** (lädt neue Dateien, die ein Scanner im Ordner des neuesten Bildes speichert), **Entladen…**, **Alle entladen…** (leert den Filmstreifen; die Rolle bleibt in der Bibliothek), **Bilder auf Standard zurücksetzen…**, **Entfernte Bilder wiederherstellen…** und **Hilfe zum Filmstreifen…**.
 
-Die Raster-Schaltfläche öffnet den **Leuchttisch** (`Shift+G`): die ganze Rolle in Zeilen, zum Sortieren. Ein Klick wählt ein Bild, ein Doppelklick oder `Enter` öffnet es. Die Werkzeugleiste wirkt auf die gewählten Bilder: **Behalten**, **Verwerfen**, Drehen und Spiegeln, **Auto-Zuschnitt** und **Export**. ⋯ enthält den Rest des Rechtsklick-Menüs. Der Regler **Bilder pro Zeile**, `+` und `-` oder `Ctrl` mit dem Mausrad ändern die Bildgröße. `Esc` geht zurück.
+Die Raster-Schaltfläche öffnet den **Leuchttisch** (`Shift+G`): die ganze Rolle in Zeilen, zum Sortieren. Ein Klick wählt ein Bild, ein Doppelklick oder `Enter` öffnet es. Die Werkzeugleiste wirkt auf die gewählten Bilder: **Behalten**, **Verwerfen**, Drehen und Spiegeln, **Auto-Zuschnitt** und **Export**. ⋯ enthält den Rest des Rechtsklick-Menüs. Der Regler **Bilder pro Zeile**, `+` und `-` oder `Ctrl` mit dem Mausrad ändern die Bildgröße. `Esc` geht zurück, ebenso ein Werkzeug oder eine Vorschau auf der Arbeitsfläche.
 
 #### Filtern
 
@@ -51,21 +51,21 @@ Ein einfaches Wort passt auf den Dateinamen. Begriffe der Form `field:value` pas
 
 Begriffe lassen sich kombinieren: `film:portra iso:>=400 -rejected:`. Metadaten-Begriffe passen nur auf Bilder, deren Metadaten du ausgefüllt hast. **Suche nach Bedeutung** (aktiviere sie unter Einstellungen → Leistung) findet Bilder über eine Beschreibung, zum Beispiel "ein Hund am Strand".
 
-<!-- panel:analysis src:b296e118 -->
+<!-- panel:analysis src:cf165609 -->
 ## 3. Analyse-Anzeige
 
-Die Anzeige über den Tabs Rolle und Bild beschreibt das aktuelle Bild, während du bearbeitest.
+Diese Anzeige beschreibt das aktuelle Bild, während du bearbeitest.
 
 #### Diagramm
 
-Die Schaltflächen über dem Diagramm wählen eine Ansicht:
+Wähle eine Diagrammansicht:
 
-*   **Kurve**: die Kurve des Papiers, vom Negativ (links nach rechts) zum Abzug (unten nach oben). Steiler bedeutet mehr Kontrast. Das graue Histogramm zeigt das Negativ, das farbige den Abzug.
+*   **Kurve**: die Kurve des Papiers, vom Negativ (quer) zum Abzug (nach oben). Steiler bedeutet mehr Kontrast. Das graue Histogramm zeigt das Negativ, das farbige den Abzug.
 *   **Waveform**: Helligkeit des Abzugs über die Bildbreite.
 *   **Parade**: Rot, Grün und Blau nebeneinander. Ein graues Motiv liegt in allen drei auf einer Höhe. **Parade-Überlagerung** legt die drei in einem Diagramm übereinander.
 *   **Vektorskop**: die Farben des Abzugs rund um einen Mittelpunkt. Eine Gruppe neben der Mitte ist ein Farbstich.
 
-**Log** zeigt kleine Bereiche, zum Beispiel beschnittene Enden.
+**Log** zeigt kleine Bereiche, wie Beschneidung.
 
 #### Beschneidung
 
@@ -81,10 +81,12 @@ Klicke auf eine Zone im Streifen, dann auf eine Stelle im Bild. NegPy stellt den
 
 Die Falte **Messwerte** enthält Zahlen zum Scan. Ein bernsteinfarbener Wert ist eine Warnung. Bewege den Mauszeiger über eine Zeile für Details.
 
+**Filmbasis** (das Fadenkreuz): Klicke auf den klaren Film zwischen den Bildern, um die Basis festzulegen, von der die Messwerte messen.
+
 *   **Negativ**: der Dichteumfang des Negativs (Δ). Der Mauszeiger zeigt flach, normal oder kontrastreich.
 *   **Belichtung**: helles (positiv) oder dunkles (negativ) Bild, in Blenden.
 *   **Beschneidung**: Anteil des Abzugs in reinem Schwarz, dann in reinem Weiß.
-*   **Scan-Beschneidung**: Anteil jedes Kanals, Rot, Grün und Blau, am Maximum des Scanners. Keine Bearbeitung behebt das. Belichte den Scan niedriger.
+*   **Scan-Beschneidung**: Anteil jedes Kanals am Maximum des Scanners. Keine Bearbeitung behebt das. Belichte den Scan niedriger.
 *   **Reparatur**: Anteil des Bildes, den die Staubentfernung neu geschrieben hat.
 *   **Gamut**: Anteil, den der Proof-Drucker nicht drucken kann, solange du einen Softproof nutzt.
 
@@ -289,12 +291,12 @@ Wie der Abzug präsentiert wird. Die übrigen Regler jedes Effekts erscheinen, s
 *   **Ausgefeilte Bildbühne**: **Breite** zeichnet einen rauen schwarzen Rahmen um das Bild, wie eine im Labor breiter gefeilte Negativbühne. **Rauheit**, **Streulicht** (ein graues Glühen außerhalb des Rahmens) und **Ecken** formen ihn.
 *   **Rand**: **Breite** legt ein Passepartout um den Abzug. **Unteres Gewicht** macht den unteren Rand breiter, wie bei einem Bilderrahmen. **Farbe**: **Papierweiß** passt zum Papier, **Benutzerdefiniert** nutzt eine Farbe, die du wählst.
 
-<!-- panel:presets src:8338af2d -->
+<!-- panel:presets src:32c2813a -->
 ### Vorgaben
 
 Gespeicherte Einstellungen, die du auf andere Bilder anwenden kannst.
 
-*   **Anwenden** (oder Doppelklick auf eine Vorgabe): wendet die ausgewählte Vorgabe auf dieses Bild an.
+*   **Anwenden** (oder Doppelklick auf eine Vorgabe): wendet die ausgewählte Vorgabe auf dieses Bild, die gewählten Bilder oder die ganze Rolle an.
 *   **Speichern…**: wähle, welche der aktuellen Einstellungen du als neue Vorgabe behältst. Eine Vorgabe kann die Einstellungen für Zuschnitt und Optik mit dem Flat-Field-Profil enthalten, aber nie Zuschnitt, Drehung oder Spiegelung eines einzelnen Bildes.
 *   **Stift** und **Papierkorb**: bearbeiten oder löschen die ausgewählte Vorgabe.
 
@@ -352,7 +354,7 @@ Für eine Kamera mit Schmalbandlicht, die von jedem Bild drei Aufnahmen macht: R
 
 Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bild anpassen…** und **Teilung auf Rollenstandard zurücksetzen**. Wenn du Halbformat ausschaltest, bleiben bearbeitete Hälften als **Diptychon** nebeneinander. Schalte es wieder ein, um sie zu bearbeiten.
 
-<!-- panel:sensor src:2c94daa5 -->
+<!-- panel:sensor src:3a992073 -->
 ### 10.3 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
@@ -371,46 +373,55 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 
-<!-- panel:process src:61c1c291 -->
+#### 10.3.1 Ausbleichrestaurierung: ausgeblichene Dias
+
+Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
+
+*   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
+*   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe für Grün und Blau, im Vergleich zu Rot.
+*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
+*   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
+
+<!-- panel:process src:6572d2a7 -->
 ### 10.5 Messung: Negativ → Positiv
 
 Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
 
-*   **Bild neu analysieren**: misst dieses Bild oder jedes ausgewählte Bild erneut anhand seines aktuellen Zuschnitts. Das Bild nutzt dann eigene Grenzen, nicht die Basislinie der Rolle oder Szene.
+*   **Allein messen**: nimmt dieses Bild oder jedes ausgewählte Bild vom Mittelwert der Rolle oder Szene und misst es allein, aus seinem aktuellen Zuschnitt.
 *   **Region zeichnen**: Zeichne einen Bereich, dann misst NegPy nur diesen Bereich. Doppelklicke hinein oder drücke `Enter` zum Bestätigen. `Esc` stellt die vorherige Region wieder her. **×** löscht sie.
-*   **Filmbasis**: Klicke auf den klaren Film zwischen den Bildern, um die Filmbasis für die Analyseanzeige festzulegen. Es ist die Basis der Rolle, ohne geöffnete Rolle die des Bildes selbst. **×** löscht sie.
 *   **Analysepuffer**: ignoriert beim Messen einen Rand um das Bild, damit Filmkanten und Halter nicht zählen.
 *   **Beschneidung**: wie viel des Abzugs reines Schwarz oder reines Weiß ist.
 *   **Grenzen sperren**: behält Schwarz- und Weißpunkt dieses Bildes, auch wenn sich der Zuschnitt oder die Rollenanalyse ändert.
 *   **Luma-Bereichsbeschnitt** (Klappbereich): wie eng Schwarz und Weiß gesetzt werden. Positive Werte geben mehr Kontrast, für dichte oder verschleierte Negative. Negative Werte erhalten mehr Details in Schatten und Lichtern.
 *   **Farbbeschnitt** (Klappbereich): wie eng die Farbbalance gesetzt wird.
+*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt. Beide sind aus, solange das Bild auf dem Rollenmittelwert druckt.
 *   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
 
 Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
 
-<!-- panel:baseline src:371ff87f -->
+<!-- panel:baseline src:7fc2c469 -->
 ### 10.6 Rollenanalyse
 
-Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
+Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen, und erneut, wenn sich ein Zuschnitt oder eine Messeinstellung ändert. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
 
-*   **Neu analysieren**: misst jedes geladene Bild (außer Szenen- und gesperrte Bilder) speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für diese Bilder ein. Bilder, die stark von den anderen abweichen, behalten ihre eigene. Zuerst werden die Bilder zugeschnitten, die auf den Auto-Zuschnitt warten.
-*   **Dieses Bild verwenden**: macht die Messung dieses Bildes zur Basislinie der Rolle.
+*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für die Rolle ein, sodass auch neue Bilder sie nutzen. Bilder, die stark von den anderen abweichen, behalten ihre eigene.
+*   **Dieses Bild verwenden**: macht die eigene Messung dieses Bildes zur Basislinie der Rolle; Farbstich schaltet sich aus.
 *   **Mittelwert verwenden**: Ein Rechtsklick auf einen der drei schaltet alle Mittelwerte ein oder aus. **Luma** nutzt Schwarz- und Weißpunkt der Rolle, **Farbe** die Farbbalance der Rolle und **Farbstich** (Farbnegative) die Graubalance der Rolle für die Farbstichentfernung. Bei aktivem Farbstich behält ein Bild unter anderem Licht etwas von diesem Licht, wie bei einem Frontier-Abzug. Ein Magenta-Stich bleibt, ein warmer oder grüner Stich bleibt teilweise, und ein blauer Stich verschwindet. Mit Luma und Farbe wird die Rolle gleichmäßig abgezogen. Sind beide aus, wird jedes Bild einzeln gemessen.
 *   **Basislinie**: zeigt, woher die Basislinie stammt (Rolle, Szene oder Bild). Sie warnt, wenn keine vorhanden ist, wenn sie veraltet ist oder wenn die Farbe dieses Bildes stark vom Durchschnitt abweicht.
 *   **Rollen**: wähle die gespeicherte Basislinie einer anderen Rolle. Eine Rolle mit Häkchen hat eine.
 *   **Szenen**: Gruppen von Bildern mit eigener Basislinie, zum Beispiel ein Motiv unter einem Licht ([Szenen](#scenes)). **Analysieren** misst die Szene, **Auswählen** wählt ihre Bilder aus und **Löschen** entfernt die Gruppe.
 *   **Szenen erkennen**: findet die Gruppen von Bildern unter anderem Licht als die Rolle, in beliebiger Bildreihenfolge, und zeigt sie auf dem Leuchttisch. Jede Gruppe wartet unter **Gefunden**. Um eine Gruppe zu ändern, ziehe Bilder auf eine andere Gruppe oder auf ein Bild ohne Szene, um sie auszuschließen. Rechtsklick › **Szene** macht dasselbe. Gib ihr einen Namen und **Übernehme** sie als Szene mit eigener Basislinie, oder **Verwirf** sie.
 
-<!-- panel:demosaic src:99177ab3 -->
+<!-- panel:demosaic src:577713a8 -->
 ### 10.6 Raw-Dekodierung
 
 Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angezeigt.
 
 *   **Kamera-WB / Lineares RAW**: Kamera-WB nutzt den Weißabgleich der Kamera. Lineares RAW dekodiert neutral, für schmalbandiges Licht. Die Einrichtung stellt es für dich ein.
 *   **Vorschau** / **Export**: die Demosaicing-Methode, die die Farben ergänzt, die ein Sensorpixel nicht sieht. **Auto** ist am Bildschirm schnell und nutzt für den Export **AHD**. **VNG** ist glatt und **PPG** schnell. **DCB** und **DHT** erhalten mehr feine Details, können aber Korn in Muster verwandeln. **AAHD** macht Kanten weicher. Es werden nur die Methoden deines LibRaw-Builds aufgeführt.
-*   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen.
+*   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen. Ein neues Bild vom Filmscanner beginnt mit ausgeschalteter Wiederherstellung.
 
-<!-- panel:optics src:6fce13e8 -->
+<!-- panel:optics src:33b2d330 -->
 ### 10.7 Optik
 
 Korrekturen für Objektiv und Licht, gleich für jedes Bild, das du mit diesem Aufbau scannst. Wird bei einer Kamera angezeigt.
@@ -428,7 +439,7 @@ Entfernt ungleichmäßiges Licht, zum Beispiel dunklere Ecken, mit einer Aufnahm
 *   **Flat Field anwenden**: wendet das gewählte Profil auf diese Rolle an.
 *   **Flat Field prüfen**: zeigt, wie gut das Profil seine eigene Aufnahme ausgleicht. Gleichmäßiges Grau ist gut. Ein Streifen oder Fleck zeigt, wo es abweicht.
 
-Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Bild oder ein Bild mit fehlendem Profil nimmt das zuletzt gewählte Profil.
+Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Kamerabild oder ein Kamerabild mit fehlendem Profil nimmt das Profil, das du zuletzt bei einem Kamerabild gewählt hast. Ein neues Bild vom Filmscanner beginnt ohne Optik-Korrekturen. Mit der Einstellung Filmscanner erscheint diese Karte nur bei einem Bild, das eine Korrektur hat.
 
 <!-- panel:metadata_gear src:208e1498 -->
 ### Analoge Ausrüstung
@@ -511,7 +522,7 @@ Zusätzliche Dateien neben dem Abzug. Jede hat links einen Schalter und rechts e
 *   **Auto-Dichte / Gradation**: **Beim Export festschreiben** fixiert die automatische Helligkeit und den Kontrast jedes exportierten Bildes, damit sie sich später nicht ändern. **In Rolle festschreiben** tut das jetzt für jedes sichtbare Bild.
 *   **Bearbeitungs-Sidecar-Dateien**: **Beim Export speichern** schreibt neben jede Quelle eine `.negpy`-Datei mit der Bearbeitung. **Sidecar-Dateien exportieren** schreibt sie für alle sichtbaren Bilder. Rechtsklick auf ein Bild → **Bearbeitung aus Sidecar-Datei laden…** liest eine zurück.
 
-<!-- panel:contact_sheet src:3ab6797d -->
+<!-- panel:contact_sheet src:ddc8d6ef -->
 ### Kontaktbogen
 
 Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Filmstreifen auf einem Blatt Papier, wie ein Kontaktabzug in der Dunkelkammer.
@@ -520,7 +531,7 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 *   **Kontaktbogen…**: öffnet den Bogen. Ziehe an einer Kante des Papiers, um die Größe zu ändern.
 *   **Filmformat**: 35mm, 35mm Half Frame oder 120 (bei 120 mit **Bildgröße**).
 *   **Papier**, **Breite**, **Höhe** und **DPI**: Größe und Auflösung des Bogens. Das Standardpapier fasst eine Rolle mit 36 Aufnahmen.
-*   **Reihenfolge**: nach Dateiname, nach Datum oder nach Szene, mit einem neuen Streifen oder einer neuen Zeile für jede Szene.
+*   **Reihenfolge**: nach Dateiname, nach Datum, nach Rolle und Bildnummer oder nach Szene, mit einem neuen Streifen oder einer neuen Zeile für jede Szene.
 *   **Abzug**: **Wie bearbeitet** oder **Reiner Probeabzug**: die ganze Rolle mit einer Belichtung und normalem Kontrast. So siehst du, welche Negative dünn oder dicht sind.
 *   **Bilder wählen**: Klicke auf ein Bild, um es auszulassen oder wieder aufzunehmen. Verworfene Bilder sind zu Beginn ausgelassen.
 *   **Randaufdruck**: die Markierungen des Filmherstellers am Rand, zum Beispiel Filmname, Bildnummern und die farbigen Linien, die ein Film neben seinen Perforationen druckt.
@@ -530,12 +541,12 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 
 Die Bögen werden als `contact_sheet.jpg` gespeichert (`contact_sheet_1of2.jpg` und folgende bei einer langen Rolle).
 
-<!-- panel:soft_proof src:193ff940 -->
+<!-- panel:soft_proof src:0254272b -->
 ### Softproof
 
 Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker und Papier aussieht. Er ändert nur die Vorschau, nie den Export. Papier zeigt keine so leuchtenden Farben wie ein Bildschirm, darum wirkt ein korrekter Proof matter.
 
-*   **Proof am Bildschirm** (`Shift+P`): schaltet den Proof ein oder aus.
+*   **Proof am Bildschirm** (`Shift+P`): schaltet den Proof ein oder aus. Solange er an ist, zeigt die Bildinfo über dem Foto **Softproof** und das Profil.
 *   **Vorgabe**: ein gespeichertes Setup aus Drucker und Papier.
 *   **Profil**: das Drucker- oder Papierprofil. Es folgt dem Exportprofil, bis du eines wählst.
 *   **Umsetzung**: **Relativ farbmetrisch** behält druckbare Farben genau und beschneidet den Rest. **Wahrnehmung** staucht alle Farben und passt zu sehr bunten Bildern. **Sättigung** ist für Diagramme und Grafiken.
@@ -549,7 +560,7 @@ Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker
 
 *   **Scanner**: **Filmscanner** für einen eigenen Filmscanner (die Karten Gerät, Film & Qualität und Bildausschnitt), oder **Kamera** für eine Kamera auf einem Reprostativ (die Karten Kamera und Vorgabe).
 
-<!-- panel:scan_device src:942d8a35 -->
+<!-- panel:scan_device src:a18b5f39 -->
 ### Gerät
 
 *   **Backend**: **SANE** (Linux und macOS), **Nikon Coolscan (nkscan)** oder **pyOpticfilm (Plustek)**. Die Regler richten sich nach den Angaben des Scanners.
@@ -558,15 +569,15 @@ Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker
 
 NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor einer langen Rolle den automatischen Ruhezustand aus.
 
-**Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE und 7600i v1 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
+**Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 und 7600i v2 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
 
-<!-- panel:scan_quality src:c3afa46a -->
+<!-- panel:scan_quality src:0e35bd9a -->
 ### Film & Qualität
 
 *   **Film**: Farbnegativ, S/W-Negativ, Dia oder Kodachrome. Er bestimmt die Bilderkennung, die Messung und ob Infrarot angeboten wird.
 *   **Filmformat**: die Bildlänge (135, 66, 645 und andere). **Auto** funktioniert, wenn der Halter sie festlegt.
 *   **Auflösung** und **Bittiefe**: dpi und Bits pro Kanal des Scans.
-*   **Scanmodus** (Plustek): **Mehrfachdurchgang** mittelt mehrere Scans für weniger Rauschen. **Adaptive Mehrfachbelichtung** verbindet eine kurze und eine lange Belichtung für mehr Umfang. Plustek-Scanner bieten sie bei 7200 dpi nicht an.
+*   **Scanmodus** (Plustek): **Mehrfachdurchgang** mittelt mehrere Scans für weniger Rauschen. **Adaptive Mehrfachbelichtung** verbindet eine kurze und eine lange Belichtung für mehr Umfang, die lange wird für jedes Bild bestimmt. **Feste Mehrfachbelichtung** nutzt wie SilverFast bei jedem Bild die eine lange Belichtung des Scanners (8200i SE, 8100 V2 und 8300i SE). Der 7600i v2 bietet Adaptive Mehrfachbelichtung, aber keinen Mehrfachdurchgang.
 *   **Samples** (Coolscan): liest jede Zeile mehrfach, für weniger Rauschen in den Schatten. Langsamer.
 *   **Infrarot**: **IR** scannt einen Infrarotkanal für die Staubentfernung auf der Karte Retusche. **ICE** (Coolscan) entfernt den Staub stattdessen im Scanner. Ein Scanner ohne ICE zeigt nur einen **IR**-Schalter. Nicht für S/W oder Kodachrome.
 *   **Superfine** (Coolscan): scannt eine Zeile pro Durchgang. Langsamer.
@@ -595,7 +606,7 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
 *   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.
 
-<!-- panel:scan_light src:e58660c1 -->
+<!-- panel:scan_light src:417cc437 -->
 ### Vorgabe
 
 Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwerte und die Kamerabelichtung für eine Filmart.
@@ -605,8 +616,10 @@ Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwe
     *   **Auf der Filmbasis kalibrieren…**: Setze das Rechteck auf klaren Film und starte die Kalibrierung. NegPy ermittelt die Lichtwerte und die Verschlusszeit.
     *   **Von Hand einstellen**: Stelle die Regler selbst ein und speichere sie als Vorgabe. Ohne verbundene Kamera speichert sie keine Belichtung, und ein Scan nutzt die eigene der Kamera.
 *   **Rot**, **Grün**, **Blau**, **Weiß**: die Lichtwerte (0 bis 255). **Licht an** schaltet das Licht ein, um den Film einzurichten, oder aus.
-*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an.
-*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung): speichert zusätzlich ein Sensor-Farbvermischungsprofil für diese Vorgabe (siehe Kalibrierung, §10.4).
+*   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an. **Mischen** hält die Kamera in Bulb offen und schaltet Rot, Grün und Blau nacheinander ein, für eine Datei. Ein Trichrom- oder Misch-Preset kann zwischen beiden wechseln.
+*   **Auslösung** (Mischen): was den Verschluss offen hält. **USB** nutzt die Bulb-Steuerung der Kamera. **Kabel** nutzt ein Fernauslöserkabel in der 3,5-mm-Buchse des Scanlight, für Belichtungen bis 2,55 s.
+*   **Sensorprofil** (Misch-Vorgabe ohne eigenes Profil): das Sensor-Farbvermischungsprofil für ihre Scans. Scannen wartet auf eines. Die Schaltfläche mit den Röhrchen erstellt eines.
+*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung oder Mischen): speichert zusätzlich ein Sensor-Farbvermischungsprofil, das die Scans dieser Vorgabe nutzen (siehe Kalibrierung, §10.4).
 *   **ISO**, **Verschlusszeit**, **Blende**: die Belichtung der Vorgabe. Eine Änderung gilt, bis du die Vorgabe erneut wählst. Die Messtaste misst.
 *   **IR-Verschlusszeit** und **Infrarot** (Lichter mit Infrarot-LEDs): fügt jedem Scan eine Infrarotbelichtung für die Staubentfernung hinzu, gespeichert als `_IR`-Datei. Es braucht eine Kamera, die Infrarot sieht (Vollspektrum oder umgebaut), und manuellen Fokus. Nur für Farbfilm.
 *   **Kanalverzögerung**: eine Pause zwischen den Belichtungen für Rot, Grün und Blau, für Kameras, die sie brauchen.

@@ -8,7 +8,7 @@
 
   [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](#getting-started)
   [![Film](https://img.shields.io/badge/film-C41%20%7C%20B%26W%20%7C%20E6-red?logo=googlephotos&logoColor=white)](docs/PIPELINE.md)
-  [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20日本語%20%7C%20한국어%20%7C%20中文%20%7C%20DE-informational)](docs/USER_GUIDE.md)
+  [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20日本語%20%7C%20한국어%20%7C%20中文%20%7C%20DE%20%7C%20VI%20%7C%20NB-informational)](docs/USER_GUIDE.md)
 
   [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](pyproject.toml)
   [![Rust](https://img.shields.io/badge/rust-negpy__core-orange?logo=rust)](negpy_core)
@@ -30,7 +30,7 @@ The [User Guide](docs/USER_GUIDE.md) covers every panel and control (the ⓘ on 
 
 ## Languages
 
-The desktop interface and panel guides support English, Simplified Chinese (简体中文), Japanese (日本語), Korean (한국어) and German (Deutsch). Choose a language in **Preferences → Interface → Language**, then restart NegPy. **System Default** follows your system language and uses English for unsupported languages. Missing panel translations fall back to English. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) to update or add a translation.
+The desktop interface supports English, Simplified Chinese (简体中文), Japanese (日本語), Korean (한국어), German (Deutsch), Vietnamese (Tiếng Việt) and Norwegian Bokmål (Norsk bokmål). The panel guides are translated into all of them except Vietnamese. Choose a language in **Preferences → Interface → Language**, then restart NegPy. **System Default** follows your system language and uses English for unsupported languages. Missing panel translations fall back to English. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) to update or add a translation.
 
 ## Features
 
@@ -51,7 +51,7 @@ The desktop interface and panel guides support English, Simplified Chinese (简�
 
 ### Capture
 
-* Film scanners: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE and 7600i v1 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
+* Film scanners: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 and 7600i v2 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
 * Tethered camera scanning (macOS and Linux), including narrowband RGB captures with a [Scanlight](https://github.com/jackw01/scanlight) and a sub-pixel Trichrome merge ([guide](docs/CAMERA_SCANNING.md)).
 * Flat-field correction, sensor calibration for narrowband light, and lens correction read from the file.
 * Camera RAWs, TIFF, DNG, JPEG XL and scanner formats such as Pakon, Coolscan NEF, Flextight FFF and Noritsu.

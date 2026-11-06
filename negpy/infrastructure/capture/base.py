@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Protocol, runtime_checkable
+from enum import Enum, StrEnum
+from typing import Callable, Optional, Protocol, runtime_checkable
 
 
 class Channel(Enum):
@@ -56,6 +56,44 @@ class Camera(Protocol):
     def capture(self, out_path: str, shutter: Optional[str] = None, iso: Optional[str] = None, aperture: Optional[str] = None) -> str: ...
 
     def close(self) -> None: ...
+
+
+class BulbRelease(StrEnum):
+    """What holds a Blend exposure's shutter open: the camera's own bulb control over USB, or a
+    release cable on the Scanlight's 3.5mm jack."""
+
+    USB = "usb"
+    CABLE = "cable"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "BulbRelease":
+        return cls.USB
+
+
+@runtime_checkable
+class ShutterRelease(Protocol):
+    """A light with a shutter-release output: holds the camera's shutter line for `seconds`."""
+
+    def shutter_pulse(self, seconds: float) -> None: ...
+
+
+@runtime_checkable
+class BulbCamera(Protocol):
+    """A camera that takes one Bulb exposure: the shutter opens, `expose` runs, the shutter closes,
+    and the RAW is downloaded to beside `out_path`. With `usb_release` False the camera only sets
+    Bulb and waits for the file, because `expose` triggers the shutter by cable."""
+
+    def capture_bulb(
+        self,
+        out_path: str,
+        expose: Callable[[], None],
+        *,
+        usb_release: bool = True,
+        iso: Optional[str] = None,
+        aperture: Optional[str] = None,
+        keep_bulb: bool = False,
+        on_closed: Optional[Callable[[], None]] = None,
+    ) -> str: ...
 
 
 @dataclass(frozen=True)

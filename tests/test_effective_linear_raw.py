@@ -96,18 +96,19 @@ class TestDecodeAndMatrixAgree:
     """
 
     def test_both_sides_read_one_helper(self):
-        """The decode asks effective_linear_raw directly; both matrix consumers ask
-        should_fold_camera_wb, which wraps it. Either way, both sides of the agreement
-        trace back to the one flag."""
+        """The decode asks effective_linear_raw directly; the matrix asks should_fold_camera_wb,
+        which wraps it, in density_stage, which the CPU matrix reads. Either way, both sides of
+        the agreement trace back to the one flag."""
         import inspect
 
+        from negpy.features.transparency import logic
         from negpy.features.transparency import processor as cpu
         from negpy.services.rendering import image_processor as ip
 
         src = inspect.getsource(ip)
         assert "effective_linear_raw" in src, "the decode no longer asks the shared helper"
-        src = inspect.getsource(cpu)
-        assert "should_fold_camera_wb" in src, "the CPU matrix no longer asks the shared helper"
+        assert "should_fold_camera_wb" in inspect.getsource(logic), "the matrix no longer asks the shared helper"
+        assert "density_stage(" in inspect.getsource(cpu), "the CPU matrix no longer reads density_stage"
 
     def test_batch_analysis_decodes_on_the_render_path_s_white_balance(self):
         """Its own comment is the requirement: the roll-average bounds are applied to the
@@ -137,7 +138,7 @@ class TestDecodeAndMatrixAgree:
 
         from negpy.services.rendering import gpu_engine
 
-        assert "should_fold_camera_wb" in inspect.getsource(gpu_engine), "GPU matrix would drift from the CPU one"
+        assert "density_stage(" in inspect.getsource(gpu_engine), "GPU matrix would drift from the CPU one"
 
 
 class TestSourceIdentity:

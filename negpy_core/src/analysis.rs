@@ -143,6 +143,89 @@ fn log_density_open_block(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// `unmix_log_image`: a 3x3 matrix on each pixel of an HxWx3 log image, no clip (log densities
+/// are negative). Each row is float32 products summed in channel order, the order `np.einsum`
+/// sums them in, with no `mul_add`.
+pub fn unmix_log(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
+    crate::par_zip(
+        dst.as_chunks_mut::<3>().0,
+        img.as_chunks::<3>().0,
+        move |d, p| *d = m.map(|r| p[0] * r[0] + p[1] * r[1] + p[2] * r[2]),
+    );
+}
+
+/// `unmix_log_image` with an anchor: each channel is capped at its anchor before the 3x3, and the
+/// amount the pixel is above the anchor in every channel, if any, is added to each channel after.
+/// Light past the film carries no dye, so it passes through the density matrix as a neutral. Each
+/// channel then takes its `offset`, the affine's last column, as `unmix_log_image` adds it after.
+pub fn unmix_log_anchored(
+    img: &[f32],
+    m: [[f32; 3]; 3],
+    anchor: [f32; 3],
+    offset: [f32; 3],
+    dst: &mut [f32],
+) {
+    crate::par_zip(
+        dst.as_chunks_mut::<3>().0,
+        img.as_chunks::<3>().0,
+        move |d, p| {
+            let over = (p[0] - anchor[0])
+                .min(p[1] - anchor[1])
+                .min(p[2] - anchor[2]);
+            let excess = over.max(0.0);
+            let q = [
+                p[0].min(anchor[0]),
+                p[1].min(anchor[1]),
+                p[2].min(anchor[2]),
+            ];
+            let r = m.map(|r| q[0] * r[0] + q[1] * r[1] + q[2] * r[2] + excess);
+            *d = [r[0] + offset[0], r[1] + offset[1], r[2] + offset[2]];
+        },
+    );
+}
+
+/// `relog_matrix_image`: a 3x3 matrix on each pixel of an HxWx3 log image, in linear light. Each
+/// value goes to 10^v, each row is float32 products summed in channel order with no `mul_add`, and
+/// the log clamps below at 1e-6 as `log_density_open` does.
+pub fn relog_matrix(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
+    const BLOCK: usize = 1 << 14;
+    dst.as_chunks_mut::<3>()
+        .0
+        .par_chunks_mut(BLOCK)
+        .zip(img.as_chunks::<3>().0.par_chunks(BLOCK))
+        .for_each(move |(d, p)| {
+            for (d, p) in d.chunks_mut(RELOG_RUN).zip(p.chunks(RELOG_RUN)) {
+                relog_run(p, m, d);
+            }
+        });
+}
+
+/// Pixels per `relog_run`: each step runs as a flat loop over a run, one channel at a time, so it
+/// vectorizes.
+const RELOG_RUN: usize = 256;
+
+#[multiversion(targets("x86_64+avx2+fma", "aarch64+neon"))]
+fn relog_run(px: &[[f32; 3]], m: [[f32; 3]; 3], out: &mut [[f32; 3]]) {
+    let n = px.len();
+    let mut lin = [[0f32; RELOG_RUN]; 3];
+    for (c, lin) in lin.iter_mut().enumerate() {
+        for (l, p) in lin[..n].iter_mut().zip(px) {
+            *l = crate::mathf::exp10_f64(p[c] as f64) as f32;
+        }
+    }
+    let mut row = [0f32; RELOG_RUN];
+    for (k, r) in m.iter().enumerate() {
+        for (i, v) in row[..n].iter_mut().enumerate() {
+            *v = crate::mathf::log10f(
+                (lin[0][i] * r[0] + lin[1][i] * r[1] + lin[2][i] * r[2]).max(1e-6),
+            );
+        }
+        for (o, v) in out.iter_mut().zip(&row[..n]) {
+            o[k] = *v;
+        }
+    }
+}
+
 /// `normalize_log_image`: `(v - floor) / (ceil - floor)` per channel of an HxWx3 log image,
 /// unclamped. A span under 1e-6 divides by +-1e-6, by the span's sign.
 pub fn normalize_log_image(img: &[f32], floors: [f32; 3], ceils: [f32; 3], dst: &mut [f32]) {
@@ -1785,6 +1868,35 @@ pub fn diffusion_tail(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmix_log_anchored_passes_light_past_the_anchor_as_a_neutral() {
+        let m = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.5]];
+        let anchor = [-0.4, -0.5, -0.6];
+        let img = [-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, -0.2, -0.8, 0.0];
+        let mut out = [0f32; 9];
+        unmix_log_anchored(&img, m, anchor, [0.0; 3], &mut out);
+        assert_eq!(&out[..3], &[-2.0, -1.0, -0.5]);
+        // Above the anchor in every channel by at least 0.4: capped, then 0.4 added to each.
+        assert_eq!(&out[3..6], &[-0.8 + 0.4, -0.5 + 0.4, -0.3 + 0.4]);
+        // Below the anchor in green: capped where above, nothing added.
+        assert_eq!(&out[6..], &[-0.8, -0.8, -0.3]);
+        // The offset joins each channel last.
+        unmix_log_anchored(&img, m, anchor, [0.25, -0.5, 1.0], &mut out);
+        assert_eq!(&out[..3], &[-2.0 + 0.25, -1.0 - 0.5, -0.5 + 1.0]);
+    }
+
+    #[test]
+    fn unmix_log_keeps_negative_densities_and_sums_in_channel_order() {
+        let m = [[1.0f32, 0.5, 0.0], [0.0, 1.0, 0.0], [-1e8, 1e8, -3.0]];
+        let img = [-1.0f32, -1.0, -1.0];
+        let mut out = [0f32; 3];
+        unmix_log(&img, m, &mut out);
+        assert_eq!(out[0], -1.5);
+        assert_eq!(out[1], -1.0);
+        // (1e8 - 1e8) + 3 in float32; summed right to left, the 3 is lost in -1e8 + 3.
+        assert_eq!(out[2], 3.0);
+    }
 
     #[test]
     fn contrast_mask_stops_burns_below_and_dodges_above() {

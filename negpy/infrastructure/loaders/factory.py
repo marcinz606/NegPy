@@ -80,6 +80,8 @@ class LoaderFactory:
             return loader.load(file_path, linear_raw=linear_raw)
         if loader is self._rawpy:
             return loader.load(file_path, preview_max_edge=preview_max_edge, should_cancel=should_cancel)
+        if loader is self._jpeg:
+            return loader.load(file_path, positive_decode=positive_decode)
         return loader.load(file_path)
 
     def load_bounded_preview(

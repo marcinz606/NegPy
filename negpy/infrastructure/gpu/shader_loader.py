@@ -11,11 +11,17 @@ class ShaderLoader:
     """
 
     _cache: dict[str, Any] = {}
+    # A module belongs to the device that compiled it: a new device after destroy_singleton empties the cache.
+    _device: Any = None
     _lock = threading.Lock()
 
     @classmethod
     def load(cls, path: str) -> Any:
         with cls._lock:
+            gpu = GPUDevice.get()
+            if gpu.device is not cls._device:
+                cls._cache.clear()
+                cls._device = gpu.device
             if path in cls._cache:
                 return cls._cache[path]
 
@@ -25,7 +31,6 @@ class ShaderLoader:
             with open(path, "r", encoding="utf-8") as f:
                 code = f.read()
 
-            gpu = GPUDevice.get()
             if not gpu.device:
                 raise RuntimeError("Hardware device required for shader compilation")
 

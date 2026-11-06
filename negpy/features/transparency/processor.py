@@ -1,17 +1,18 @@
 """The slide renders: a Slide as captured and a Positive frame. The engine routes here by
 process.path.render_path."""
 
+from typing import Optional
+
 import negpy_core
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.analysis import density_histogram, density_parade, scan_full_scale_columns
-from negpy.features.exposure.logic import cast_solve_inputs, filtration_offsets, neutral_axis_affine
+from negpy.features.exposure.logic import filtration_offsets
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
-    effective_crosstalk_matrix,
     luminance_density_range,
     measure_anchor_from_log,
     measure_clip_fractions,
@@ -20,20 +21,24 @@ from negpy.features.exposure.normalization import (
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
+    relog_matrix_image,
     resolve_analysis_region,
     unmix_log_image,
 )
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.logic import should_fold_camera_wb
+from negpy.features.process.fade import fade_density, render_white_space, resolve_fade_white, with_fade_white
+from negpy.features.process.capture_color import apply_camera_matrix
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
+    fade_white_grid,
+    density_stage,
     measure_transfer_neutral_axis,
     transfer_assumed_anchor,
     transfer_auto_terms,
     transfer_bounds,
+    transfer_cast_affine,
     transfer_curve_params,
     transfer_point_offsets,
     transfer_widths,
@@ -51,7 +56,7 @@ class TransparencyBaseProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
-        Camera primaries -> working space, then a FIXED log-density window.
+        Camera or source primaries -> working space, then a FIXED log-density window.
 
         No meter shapes the window itself. Measured bounds are exactly what makes two
         exposures of one slide render alike, and a raw slide was exposed deliberately
@@ -61,21 +66,37 @@ class TransparencyBaseProcessor:
         slide starts with both off (auto_meter_for_mode).
         """
         epsilon = 1e-6
-        # Linear RAW decodes without white balance, which the row-normalized camera matrix
-        # assumes. Folding the as-shot multipliers back in makes this render independent of which
-        # decode produced the buffer, so the toggle cannot cast the image here — except under
-        # narrowband light, where the fold never runs: an as-shot WB estimate describes a
-        # continuous-spectrum scene, and there is no such scene to describe (see
-        # should_fold_camera_wb).
-        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
         image = np.ascontiguousarray(image, dtype=np.float32)
-        linear = image if matrix is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), matrix)
-        img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
+        an_roi, an_buffer = resolve_analysis_region(
+            image.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect, self.config.meter_rect
+        )
+
+        image_grid: Optional[ImageBuffer] = None
+
+        def image_log_grid() -> ImageBuffer:
+            """The prefiltered *image*, built once: the white and, with no matrix before the log, the meters read it."""
+            nonlocal image_grid
+            if image_grid is None:
+                image_grid = prefilter_log_grid(image, an_roi, an_buffer)
+            return image_grid
+
+        def white_grid() -> ImageBuffer:
+            return fade_white_grid(
+                self.config, context.process_mode, context.cam_xyz, context.camera_wb, image, an_roi, an_buffer, image_log_grid
+            )
+
+        white_space = render_white_space(self.config, context.process_mode, context.cam_xyz, context.camera_wb)
+        measured = resolve_fade_white(self.config, white_space, white_grid)
+        if measured is not None:
+            context.metrics["fade_white"] = measured
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
-        unmix = effective_crosstalk_matrix(self.config, context.process_mode)
-        img_log = unmix_log_image(img_log, unmix)
+        unmix, anchor = fade_density(with_fade_white(self.config, measured), context.process_mode, white_space)
+        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, unmix, anchor)
+        linear = image if stage.pre is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), stage.pre)
+        img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
+        img_log = relog_matrix_image(unmix_log_image(img_log, stage.unmix, stage.anchor), stage.post)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
@@ -91,10 +112,10 @@ class TransparencyBaseProcessor:
         # Shared prefilter for the neutral axis and Auto Density/Grade's four meters --
         # working-space (post camera matrix) and post-unmix, since that is what this curve
         # itself consumes.
-        an_roi, an_buffer = resolve_analysis_region(
-            linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
-        )
-        prefiltered = unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix)
+        log_grid = image_log_grid() if stage.pre is None else prefilter_log_grid(linear, an_roi, an_buffer)
+        prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix, stage.anchor), stage.post)
+        if context.wants_fade_grid:
+            context.metrics["transfer_grid"] = white_grid()
 
         # Cast Removal's neutral axis is metered on the working-space log image the curve
         # consumes, since the camera matrix above would leave a meter reading a different
@@ -117,7 +138,7 @@ class TransparencyBaseProcessor:
         context.metrics["final_bounds"] = bounds
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
         context.metrics["density_above_base"] = None  # a slide has no clear base to read above
-        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
+        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, an_roi, an_buffer)
         context.metrics["normalized_log"] = res
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         # The Crop tool shows the whole frame, so the parade's columns span it too (the GPU's full_frame).
@@ -132,9 +153,10 @@ class TransparencyBaseProcessor:
 class TransferProcessor:
     """Normalized log density -> scene-linear positive through the transfer curve."""
 
-    def __init__(self, config: ExposureConfig, positive_source: bool = False):
+    def __init__(self, config: ExposureConfig, positive_source: bool = False, white_target: Optional[float] = None):
         self.config = config
         self.positive_source = positive_source
+        self.white_target = white_target
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
@@ -174,12 +196,12 @@ class TransferProcessor:
             self.config.highlight_yellow * cmy_max,
         )
         # With no neutral axis this solves to the identity and the capture passes through.
-        strength, neutral_axis_norm = cast_solve_inputs(
+        cast_gain, cast_offset_norm = transfer_cast_affine(
             final_bounds,
             context.metrics.get("neutral_axis_refs"),
             self.config.cast_removal_strength,
+            self.white_target,
         )
-        cast_gain, cast_offset_norm = neutral_axis_affine(neutral_axis_norm, strength)
         cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
 
         tw3, sw3 = transfer_widths(self.config)

@@ -52,8 +52,8 @@ class FlatFieldSidebar(BaseSidebar):
         self.check_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         row.addWidget(self.check_btn)
 
-        self.add_btn = self._icon_action("fa5s.plus", tr("Pick a reference image and save it as a named profile"))
-        self.delete_btn = self._icon_action("fa5s.trash", tr("Remove the selected profile"))
+        self.add_btn = self._labeled_action("fa5s.plus", tr("Add"), tr("Pick a reference image and save it as a named profile"))
+        self.delete_btn = self._labeled_action("fa5s.trash", tr("Remove"), tr("Remove the selected profile"))
         # add_btn and delete_btn go on the card's FLAT FIELD CORRECTION header (ControlsPanel).
         self.layout.addLayout(row)
 

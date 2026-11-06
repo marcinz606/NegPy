@@ -24,6 +24,42 @@ PREVIEW_SIZE_DEFAULT = 1600
 # submit and crash the app. Discrete GPUs are unaffected and stay uncapped.
 INTEGRATED_GPU_TEXTURE_CAP_DEFAULT = 6144
 
+# The Preferences recommendations come from RAM alone: each cache pool gets this share of it.
+CACHE_RAM_SHARE = 1 / 2
+DECODED_BYTES_PER_PX = 12  # float32 RGB, a preview cache entry
+TEXTURE_BYTES_PER_PX = 16  # rgba32float, a render memo entry
+
+
+@dataclass(frozen=True)
+class Machine:
+    """What the Preferences recommendations rest on. RAM None is unknown; frame_px is 0 when
+    no frame is open."""
+
+    total_ram_bytes: int | None
+    frame_px: int
+    preview_px: int
+
+
+def cache_entry_limit(key: str, machine: Machine, scale: int = 1, share: float = CACHE_RAM_SHARE) -> int | None:
+    """How many entries of this performance key's size fit in a share of RAM; None when
+    the key has no derived limit, RAM is unknown, or the HQ row has no open frame."""
+    if not machine.total_ram_bytes:
+        return None
+    budget = int(machine.total_ram_bytes * share)
+    if key == "preview_cache_max_bytes":
+        per_entry = scale
+    elif key == "preview_cache_max_full_res_entries":
+        if not machine.frame_px:
+            return None
+        per_entry = machine.frame_px * (DECODED_BYTES_PER_PX + TEXTURE_BYTES_PER_PX)
+    elif key == "preview_cache_max_entries":
+        per_entry = machine.preview_px**2 * DECODED_BYTES_PER_PX
+    elif key == "render_memo_max_entries":
+        per_entry = machine.preview_px**2 * TEXTURE_BYTES_PER_PX
+    else:
+        return None
+    return budget // max(1, per_entry)
+
 
 _DEFAULT_TOML_LINUX_WIN = """\
 # NegPy Override Configuration

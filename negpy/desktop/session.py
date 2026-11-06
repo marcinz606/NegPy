@@ -1,12 +1,13 @@
 from negpy.kernel.system.text import plural
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
+import functools
 import os
 import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from contextlib import contextmanager
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Collection, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
@@ -31,9 +32,18 @@ from negpy.desktop.sticky import (
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
+from negpy.features.process.capture_color import is_source_profile
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset, with_process_mode
-from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
+from negpy.features.process.models import (
+    SCAN_SETUP_PAPERS,
+    ProcessMode,
+    invalidate_local_bounds,
+    mode_aware_exposure_reset,
+    scan_setup_rig,
+    scan_setup_values,
+    with_process_mode,
+)
+from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -43,6 +53,7 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
+from negpy.services.assets.capture_modes import BLEND, SINGLE, capture_modes
 from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.triplets import remember_triplets, triplet_record
 from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -75,15 +86,22 @@ class ToolMode(Enum):
     KEYSTONE_LINES = auto()
     ZONE_PLACE = auto()
     FILM_BASE = auto()
+    DMIN_PICK = auto()
+    DMAX_PICK = auto()
 
 
 # These tools' renders carry crop_preview_full, which skips the crop, the border and the filed carrier.
 # Film Base shows the whole scan too: the rebate it reads lies outside the crop.
-UNCROPPED_PREVIEW_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE})
+UNCROPPED_PREVIEW_TOOLS = frozenset(
+    {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE, ToolMode.DMIN_PICK, ToolMode.DMAX_PICK}
+)
 # Esc puts back what these changed since they opened: each adjusts one thing as often as it likes.
 REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
 
 # Zone Overlay looks, by stored key and menu label.
+# Settings that describe a camera, which carry to camera frames only.
+_CAMERA_ONLY_FIELDS = frozenset(rolls.card_fields("lens") + rolls.card_fields("flatfield") + ("highlight_reconstruction",))
+
 ZONE_STYLES = {"false_color": tr("Color"), "zone_map": tr("Grayscale"), "grid": tr("Grid")}
 
 
@@ -141,7 +159,8 @@ class AppState:
     auto_meters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     preview_raw: Optional[Any] = None
     # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it.
-    # None for sources that carry no camera matrix (scanner TIFF, JPEG).
+    # None for sources that carry no camera matrix (scanner TIFF, JPEG). A Positive decode carries
+    # its profile's primaries here instead (source_cam_xyz), so a camera is camera_raw_preview().
     preview_cam_xyz: Optional[list] = None
     preview_camera_wb: Optional[list] = None
     # EXIF orientation the decode baked into preview_raw; the flat-field gain takes it.
@@ -419,6 +438,11 @@ class AppState:
         return self.last_metrics.get(key, default)
 
 
+def camera_raw_preview(state: Any) -> bool:
+    """The open frame carries a camera's matrix, not a Positive decode's source primaries."""
+    return state.preview_cam_xyz is not None and not is_source_profile(state.preview_cam_xyz)
+
+
 def _asset_key(asset: Dict[str, Any]) -> tuple:
     """A file's stable identity: its content hash, plus which half for a half-frame pair
     sharing that hash. Survives `uploaded_files` gaining or losing rows, unlike its position."""
@@ -479,7 +503,7 @@ STITCH_TOOLTIP_PARTS = 8
 
 
 def composite_summary(asset: Dict[str, Any]) -> str:
-    """Tooltip text naming what a frame is built from. Empty for a plain frame."""
+    """Tooltip text naming what a frame is built from, or how a capture shot it. Empty for a plain frame."""
     kind = composite_kind(asset)
     if kind == "stitch":
         return _stitch_summary(asset)
@@ -491,6 +515,10 @@ def composite_summary(asset: Dict[str, Any]) -> str:
         return tr("Half-frame split ({value} of 2)", value=int(asset["half"]))
     if kind == "diptych":
         return tr("Diptych: both halves, each with its own edit")
+    if asset.get("capture") == BLEND:
+        return tr("Blend capture")
+    if asset.get("capture") == SINGLE:
+        return tr("Single Exposure capture")
     return ""
 
 
@@ -520,7 +548,7 @@ class AssetListModel(QAbstractListModel):
         # Returns {asset hash: facts}. Without one, plain queries see file facts only
         # (name, ext, date), which is all a model built outside a session can know.
         self._facts_provider = facts_provider
-        self._sort_order = "name"  # "name" | "date" | "scene"
+        self._sort_order = "name"  # "name" | "date" | "scene" | "frame"
         self._sort_descending = False
         self._filter_text: str = ""
         self._filter_regex: bool = False
@@ -555,6 +583,9 @@ class AssetListModel(QAbstractListModel):
         order = self.effective_sort_order
         if order == "date":
             indices.sort(key=lambda i: _asset_mtime(files[i]), reverse=self._sort_descending)
+        elif order == "frame":
+            facts = self._facts_provider() if self._facts_provider else {}
+            indices.sort(key=lambda i: self._frame_rank(files[i], facts), reverse=self._sort_descending)
         else:
             indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
         if order == "scene":
@@ -636,7 +667,7 @@ class AssetListModel(QAbstractListModel):
         return self._filter_text
 
     def set_sort_order(self, order: str) -> None:
-        if order not in ("name", "date", "scene"):
+        if order not in ("name", "date", "scene", "frame"):
             order = "name"
         self._sort_order = order
         self._apply_reindex()
@@ -663,6 +694,12 @@ class AssetListModel(QAbstractListModel):
         if not scene:
             return (1, 0)
         return (0, -scene[0] if self._sort_descending else scene[0])
+
+    def _frame_rank(self, file_info: dict, facts: dict) -> tuple:
+        """Frame No. sort: the frame's metadata Roll, then its Frame No., the name a tie."""
+        f = facts.get(file_info["hash"]) or {}
+        num = f.get("frame")
+        return (f.get("capture_roll", ""), num if num is not None else 0, file_info["name"].lower())
 
     def scene_runs(self) -> list[tuple[Optional[int], int, int]]:
         """``(scene ordinal or None, first row, last row)`` for each scene's block of display
@@ -758,6 +795,18 @@ class AssetListModel(QAbstractListModel):
                 lines.append(summary)
             if file_info.get("scene"):
                 lines.append(tr("Scene: {name}", name=file_info["scene"][2]))
+            average = file_info.get("average")
+            if average:
+                lines.append(
+                    tr("Prints on the roll average. Its color is far from the other frames.")
+                    if average == "outlier"
+                    else tr("Prints on the roll average.")
+                )
+            if file_info.get("own_cards"):
+                from negpy.desktop.controller import AppController
+
+                names = dict.fromkeys(AppController._ROLL_CARD_LABELS.get(k, k) for k in file_info["own_cards"])
+                lines.append(tr("Keeps its own value on: {value}", value=", ".join(names)))
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
                 lines.append(tr("Thumbnail predates a settings change; open the frame or use Update Thumbnails to refresh it."))
             return "\n".join(lines)
@@ -854,6 +903,21 @@ def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> Workspac
     return with_process_mode(params, str(mode))
 
 
+def resolve_asset_capture(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Open a fresh Blend or Single Exposure frame as its capture imported it: C-41, with the
+    narrowband rig's decode and print stock. The import applies these only to a frame opened in
+    the capture session; a trichrome needs no such record, because its triplet decides its decode.
+    Applied only when the frame has no saved edit, so a later change on it still wins."""
+    if asset.get("capture") not in (BLEND, SINGLE):
+        return params
+    linear_raw, paper = scan_setup_values("camera", "narrowband")
+    params = with_process_mode(params, ProcessMode.C41)
+    params = replace(params, process=replace(params.process, linear_raw=linear_raw))
+    if params.exposure.paper_profile in SCAN_SETUP_PAPERS:
+        params = replace(params, exposure=replace(params.exposure, paper_profile=paper))
+    return params
+
+
 def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
     """Open a fresh merge with its recovered shadow range already dialled in.
 
@@ -915,6 +979,20 @@ def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfi
     return replace(params, stitch=StitchConfig())
 
 
+def _records_batch(label: str):
+    """A session method that changes several frames, recorded as one batch for undo_last_batch."""
+
+    def wrap(method):
+        @functools.wraps(method)
+        def recorded(self, *args, **kwargs):
+            with self.recording_batch(tr(label)):
+                return method(self, *args, **kwargs)
+
+        return recorded
+
+    return wrap
+
+
 class DesktopSessionManager(QObject):
     """
     Manages application state, file list, and configuration persistence.
@@ -935,6 +1013,7 @@ class DesktopSessionManager(QObject):
     canvas_bg_changed = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     frames_edited_offscreen = pyqtSignal(list)  # hashes whose saved edits changed without a render
+    batch_recorded = pyqtSignal()  # a change to several frames that undo_last_batch can take back
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
     session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
 
@@ -951,6 +1030,8 @@ class DesktopSessionManager(QObject):
         self.repo = repo
         self.state = AppState()
         self._preview_history: Optional[Tuple[str, WorkspaceConfig]] = None
+        self._batch: Optional[Dict[str, Any]] = None
+        self.last_batch: Optional[Dict[str, Any]] = None
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
         self.asset_model = AssetListModel(self.state, self.search_facts)
         # Both signals already fire from every mutation that can change a frame's
@@ -1237,7 +1318,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_format", self.state.linear_format)
         self.repo.save_global_setting("linear_jxl_effort", self.state.linear_jxl_effort)
 
-    def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
+    def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False, path: str = "") -> WorkspaceConfig:
         """
         Overlays globally persisted settings onto the config.
 
@@ -1253,6 +1334,8 @@ class DesktopSessionManager(QObject):
         the last chosen flat-field profile, the Kelvin roll-locks, the export fields with no
         catalog row, and the scan-setup preferences. They apply regardless of
         `sticky_settings_enabled`, which only gates the catalog-row overlay above.
+
+        A film scanner *path* (film_scanner_file) takes no _CAMERA_ONLY_FIELDS and no last chosen profile.
         """
         from negpy.features.metadata.models import resolve_description_fields
 
@@ -1263,15 +1346,6 @@ class DesktopSessionManager(QObject):
             if remainder:
                 config = replace(config, export=replace(config.export, **remainder))
 
-        active_ff = self.repo.get_global_setting("flatfield_active_profile")
-        ff_id = active_ff if active_ff and FlatFieldProfiles.get(active_ff) is not None else ""
-        config = self._with_known_flatfield_profile(config, ff_id)
-        # Distortion left the profile for the per-image geometry; adopt a legacy value once,
-        # from the frame's own profile, on frames that carry none of their own.
-        own_ff = FlatFieldProfiles.get(config.flatfield.profile_id) if config.flatfield.profile_id else None
-        if config.geometry.distortion_k1 == 0.0 and own_ff is not None and own_ff.k1 != 0.0:
-            config = replace(config, geometry=replace(config.geometry, distortion_k1=own_ff.k1))
-
         if only_global:
             rows = load_sticky_rows(self.repo)
             rows = [r for r in rows if r.section in GLOBAL_TIER_SECTIONS]
@@ -1279,6 +1353,21 @@ class DesktopSessionManager(QObject):
             rows = load_sticky_rows(self.repo)
         else:
             rows = []
+
+        active_ff = self.repo.get_global_setting("flatfield_active_profile")
+        ff_id = active_ff if active_ff and FlatFieldProfiles.get(active_ff) is not None else ""
+        camera_rows = [r for r in rows if _CAMERA_ONLY_FIELDS.intersection(r.fields)]
+        # Telling a Coolscan NEF from a camera NEF opens the file, so ask only when a camera setting would carry.
+        if (ff_id or camera_rows) and self.film_scanner_file(path):
+            ff_id = ""
+            rows = [r for r in rows if r not in camera_rows]
+        config = self._with_known_flatfield_profile(config, ff_id)
+        # Distortion left the profile for the per-image geometry; adopt a legacy value once,
+        # from the frame's own profile, on frames that carry none of their own.
+        own_ff = FlatFieldProfiles.get(config.flatfield.profile_id) if config.flatfield.profile_id else None
+        if config.geometry.distortion_k1 == 0.0 and own_ff is not None and own_ff.k1 != 0.0:
+            config = replace(config, geometry=replace(config.geometry, distortion_k1=own_ff.k1))
+
         # Description fields carry on their own key, so the last Description… confirm wins
         # for the roll rather than whichever frame was saved last.
         wants_desc = any("description_fields" in r.fields for r in rows)
@@ -1362,25 +1451,25 @@ class DesktopSessionManager(QObject):
         from dataclasses import asdict
 
         snapshot = sticky_snapshot(config)
+
+        def keep_stored(keys: Iterable[str]) -> None:
+            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
+            stored = stored if isinstance(stored, dict) else {}
+            for key in keys:
+                if key in stored:
+                    snapshot[key] = stored[key]
+                else:
+                    snapshot.pop(key, None)
+
         if PresetStore(self.repo).owns_sensor_profile(config.process.sensor_profile):
             # A Scanlight preset's profile reaches a roll through that preset's scans. Carried
             # from here it would land on rolls scanned another way.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("sensor_profile", "sensor_matrix"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("sensor_profile", "sensor_matrix"))
         if has_manual_crop(config.geometry) or self._keep_carried_crop:
             # A hand-drawn crop, or a reset of one, is one frame's placement: the carried crop stays as it was, whole.
-            stored = self.repo.get_global_setting(STICKY_CONFIG_KEY)
-            stored = stored if isinstance(stored, dict) else {}
-            for key in ("crop_from_auto", "crop_rect", "crop_detect_key"):
-                if key in stored:
-                    snapshot[key] = stored[key]
-                else:
-                    snapshot.pop(key, None)
+            keep_stored(("crop_from_auto", "crop_rect", "crop_detect_key"))
+        if self.film_scanner_file(self.state.current_file_path or ""):
+            keep_stored(_CAMERA_ONLY_FIELDS)
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,
@@ -1405,6 +1494,7 @@ class DesktopSessionManager(QObject):
         sticky settings, a reset from bare defaults.
         """
         config = resolve_asset_process_mode(config, asset)
+        config = resolve_asset_capture(config, asset)
         config = resolve_asset_hdr_seed(config, asset)
         return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
 
@@ -1452,9 +1542,10 @@ class DesktopSessionManager(QObject):
         if saved is None:
             return False
         asset = self.state.uploaded_files[idx]
-        config = self._apply_sticky_settings(saved, only_global=True)
+        config = self._apply_sticky_settings(saved, only_global=True, path=asset["path"])
+        before = self.state.config
         self.update_config(resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), persist=True)
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         return True
 
     def _hydrate_asset_config(self, asset: dict) -> WorkspaceConfig:
@@ -1470,16 +1561,23 @@ class DesktopSessionManager(QObject):
         if saved_config is not None:
             # A saved edit keeps its own process mode and shadow lift, which are the user's
             # now, so only the wiring overlays apply.
-            config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True), asset)
+            config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True, path=asset["path"]), asset)
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
         #
         # Not a bare WorkspaceConfig(): only this config holds the shipped autocrop fields, and the
         # print/transfer curves are an identity at it (transfer_grade_ref, test_transparency_transfer.py).
-        config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset, fresh=True)
+        config = self._overlay_roll_defaults(
+            self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False, path=asset["path"]), asset, fresh=True
+        )
         config = self._asset_defaults(config, asset)
         return config if self._roll_sets_positive(asset) else with_scanner_positive_default(config, asset["path"])
+
+    def film_scanner_file(self, path: str) -> bool:
+        """The Scanning Setup says Film Scanner, or *path* is not a camera RAW. A pick of Camera
+        does not cover a TIFF, because the Scan tab's source can differ from the Setup card."""
+        return scan_setup_rig(self.repo.get_global_setting("scan_setup"))[0] == "scanner" or is_scanned_positive_source(path)
 
     def _roll_sets_positive(self, asset: dict) -> bool:
         """The frame's roll holds a Positive value on its Film card, which beats the scanner default."""
@@ -1621,16 +1719,17 @@ class DesktopSessionManager(QObject):
         or "outlier", for the Film Strip. True when a mark changed."""
         files = [f for f in self.state.uploaded_files if hashes is None or f["hash"] in hashes]
         saved = self.repo.load_file_settings_many([f["hash"] for f in files])
-        # A frame with no saved edit rides an average only through the roll's Use Average default.
+        # The roll's Use Average default reaches every frame that has not locked Roll Analysis,
+        # a saved edit included, as hydration lays it over the edit.
         defaults = rolls.roll_defaults(self.repo, self.state.active_roll_id) if self.state.active_roll_id else {}
-        unsaved_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
+        roll_rides = any(rolls.config_value(defaults[k]) for k in rolls.card_fields("baseline") if k in defaults)
         changed = False
         for f in files:
             if f["hash"] == self.state.current_file_hash:
                 process = self.state.config.process
             elif f["hash"] in saved:
-                process = saved[f["hash"]].process
-            elif unsaved_rides:
+                process = (self._overlay_roll_defaults(saved[f["hash"]], f) if roll_rides else saved[f["hash"]]).process
+            elif roll_rides:
                 process = self.config_for_asset(f).process
             else:
                 process = None
@@ -1645,15 +1744,54 @@ class DesktopSessionManager(QObject):
                     f.pop("average", None)
         return changed
 
+    def _stamp_capture_modes(self) -> None:
+        """Marks each loaded single-file frame that a Blend or Single Exposure capture shot, ``capture``."""
+        modes = capture_modes(self.repo, [f["path"] for f in self.state.uploaded_files if f.get("path")])
+        for f in self.state.uploaded_files:
+            mode = modes.get(f.get("path", ""))
+            if mode:
+                f["capture"] = mode
+            else:
+                f.pop("capture", None)
+
+    def refresh_capture_marks(self) -> None:
+        self._stamp_capture_modes()
+        self.asset_model.refresh()
+        self.files_changed.emit()
+
     def refresh_average_marks(self, hashes: Optional[Collection[str]] = None) -> None:
-        if self._stamp_averages(hashes):
+        changed = self._stamp_averages(hashes)
+        if self._stamp_own_cards() or changed:
             self.asset_model.refresh()
             self.files_changed.emit()
+
+    def refresh_own_marks(self) -> None:
+        """Re-reads which loaded frames keep their own value on a Roll-tab card."""
+        if self._stamp_own_cards():
+            self.asset_model.refresh()
+            self.files_changed.emit()
+
+    def _stamp_own_cards(self) -> bool:
+        """Stamps each loaded frame with the cards it locks away from the active roll, ``own_cards``,
+        for the Film Strip. True when a mark changed."""
+        entry = rolls.roll_for_id(self.repo, self.state.active_roll_id) if self.state.active_roll_id else None
+        overrides = (entry or {}).get("frame_overrides", {})
+        changed = False
+        for f in self.state.uploaded_files:
+            own = tuple(sorted(overrides.get(unforked_hash(f["hash"]), ())))
+            if own != f.get("own_cards", ()):
+                changed = True
+                if own:
+                    f["own_cards"] = own
+                else:
+                    f.pop("own_cards", None)
+        return changed
 
     def refresh_scene_marks(self) -> None:
         """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
 
@@ -1673,6 +1811,7 @@ class DesktopSessionManager(QObject):
         visible = set(ordered)
         return [i for i in self.state.selected_indices if i in visible]
 
+    @_records_batch(mark("Apply to Frames"))
     def sync_selected_settings(self, rows, bounds_flags: tuple[bool, bool] = (False, False), scope: str = "selection") -> int:
         """
         Apply the active frame's chosen settings to other frames. Returns the count changed.
@@ -1720,21 +1859,22 @@ class DesktopSessionManager(QObject):
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
             changed_hashes.append(target_hash)
             count += 1
 
         if count:
             settings = count_of(len(rows) + int(luma) + int(color), "setting")
             if scope == "roll":
-                msg = tr("{value} synced to the whole roll ({value1})", value=settings, value1=count_of(count, "frame"))
+                msg = tr("{value} applied to the whole roll ({value1})", value=settings, value1=count_of(count, "frame"))
             else:
-                msg = tr("{value} synced to {value1}", value=settings, value1=count_of(count, "frame"))
+                msg = tr("{value} applied to {value1}", value=settings, value1=count_of(count, "frame"))
             self.settings_synced.emit(msg)
             self.settings_saved.emit()
             self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
+    @_records_batch(mark("Apply Settings"))
     def apply_preset_fields(
         self,
         source: WorkspaceConfig,
@@ -1761,9 +1901,10 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             if idx == self.state.selected_file_idx:
-                overlaid = apply_selected_fields(source, self.state.config, rows)
+                before = self.state.config
+                overlaid = apply_selected_fields(source, before, rows)
                 self.update_config(finish(overlaid) if finish else overlaid, persist=True, render=False)
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 count += 1
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
@@ -1773,7 +1914,7 @@ class DesktopSessionManager(QObject):
                 synced = finish(synced)
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
             changed_hashes.append(target_hash)
             count += 1
 
@@ -1850,6 +1991,7 @@ class DesktopSessionManager(QObject):
                 self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
+    @_records_batch(mark("Reset Frames"))
     def reset_roll_settings(self, scope: str = "roll") -> int:
         """Reset every frame in scope to its own asset defaults, same as Reset Settings
         but for many frames. Each frame keeps what it *is* (_asset_defaults).
@@ -1982,6 +2124,9 @@ class DesktopSessionManager(QObject):
         """
         Updates global config and optionally saves to disk.
         """
+        if persist and record_history and self._batch is None:
+            # An edit after a batch: undoing the batch now would take this edit with it.
+            self.last_batch = None
         history_requested = record_history
         before = self.state.config
         if self._preview_history is not None:
@@ -2059,12 +2204,65 @@ class DesktopSessionManager(QObject):
         )
         self.update_config(config, persist=True, render=False)
 
+    @contextmanager
+    def recording_batch(self, label: str) -> Iterator[Dict[str, Any]]:
+        """Records what a change to several frames overwrites, so undo_last_batch takes it all
+        back from any frame. A batch inside a batch joins the outer one."""
+        if self._batch is not None:
+            yield self._batch
+            return
+        batch: Dict[str, Any] = {"label": label, "frames": {}, "active": (self.state.current_file_hash, self.state.config), "roll": None}
+        self._batch = batch
+        try:
+            yield batch
+        finally:
+            self._batch = None
+            active_hash, active_before = batch["active"]
+            moved = bool(active_hash) and active_hash == self.state.current_file_hash and self.state.config != active_before
+            if batch["frames"] or moved or batch["roll"]:
+                self.last_batch = batch
+                self.batch_recorded.emit()
+
+    def undo_last_batch(self) -> int:
+        """Puts back every frame the last batch changed, and the roll's values it pushed. Each
+        frame also gets an ordinary history step. Returns how many frames moved."""
+        batch, self.last_batch = self.last_batch, None
+        if batch is None:
+            return 0
+        if batch["roll"] is not None:
+            batch["roll"]()
+        paths = {f["hash"]: f.get("path", "") for f in self.state.uploaded_files}
+        active_hash, active_before = batch["active"]
+        frames = dict(batch["frames"])
+        if active_hash and active_hash != self.state.current_file_hash:
+            frames.setdefault(active_hash, active_before)
+        changed = []
+        for file_hash, before in frames.items():
+            if file_hash == self.state.current_file_hash:
+                continue
+            now = self.repo.load_file_settings(file_hash) or before
+            self.push_external_history(file_hash, now, before)
+            self.repo.save_file_settings(file_hash, before, file_path=paths.get(file_hash, ""))
+            changed.append(file_hash)
+        moved = len(changed)
+        current_before = frames.get(self.state.current_file_hash) or (
+            active_before if active_hash == self.state.current_file_hash else None
+        )
+        if current_before is not None and current_before != self.state.config:
+            self.update_config(current_before, persist=True)
+            moved += 1
+        if changed:
+            self.frames_edited_offscreen.emit(changed)
+        return moved
+
     def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
         """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
         history so plain Ctrl+Z recovers it after switching to that frame. Two steps
         are written (pre-apply, then post-apply) because undo() overwrites the top
         step with the live config when undo_index == max — a single appended step
         would be clobbered by the first Ctrl+Z."""
+        if self._batch is not None:
+            self._batch["frames"].setdefault(file_hash, old_config)
         base = self.repo.get_max_history_index(file_hash)
         if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
             first = 0
@@ -2078,25 +2276,29 @@ class DesktopSessionManager(QObject):
             # Written without a render; the filmstrip flags the cell until one lands.
             self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
 
-    def relock_diverged_cards(self) -> None:
+    def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work
         print and a paste restore no locks, and an unlocked card takes the roll's values on load.
-        Never unlocks."""
+        A card that the step from *before* changed also unlocks where it matches the roll again."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
-        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config)
+        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config, before)
 
-    def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig) -> None:
+    def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig, before: Optional[WorkspaceConfig] = None) -> None:
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
-        defaults = rolls.roll_defaults(self.repo, roll_id)
+        defaults = rolls.frame_roll_defaults(rolls.roll_defaults(self.repo, roll_id), config.process)
         base = unforked_hash(asset["hash"])
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
-            values = getattr(config, section)
-            if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
+            values = {n: getattr(getattr(config, section), n) for n in names}
+            old = None if before is None else {n: getattr(getattr(before, section), n) for n in names}
+            # A pin on a card the step did not touch stays.
+            if old is not None and not all(rolls.same_value(values[n], old[n]) for n in names):
+                rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old, process=config.process)
+            elif card_key not in locked and any(n in defaults and not rolls.same_value(values[n], defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 
     def undo(self) -> None:
@@ -2108,9 +2310,10 @@ class DesktopSessionManager(QObject):
             self.state.undo_index -= 1
             prev_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if prev_config:
+                before = self.state.config
                 self.state.config = prev_config
                 self._config_dirty = True
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -2120,9 +2323,10 @@ class DesktopSessionManager(QObject):
             self.state.undo_index += 1
             next_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if next_config:
+                before = self.state.config
                 self.state.config = next_config
                 self._config_dirty = True
-                self.relock_diverged_cards()
+                self.relock_diverged_cards(before)
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -2166,8 +2370,9 @@ class DesktopSessionManager(QObject):
         if config is not None:
             if not self.work_print_apply_metadata():
                 config = replace(config, metadata=self.state.config.metadata)
+            before = self.state.config
             self.update_config(config, persist=True)
-            self.relock_diverged_cards()
+            self.relock_diverged_cards(before)
 
     def rename_work_print(self, name: str, new_name: str, replace_existing: bool = False) -> None:
         if not (self.state.current_file_hash and new_name) or new_name == name:
@@ -2201,9 +2406,10 @@ class DesktopSessionManager(QObject):
         if config is None:
             return
         self.state.undo_index = index
+        before = self.state.config
         self.state.config = config
         self._config_dirty = True
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         self.state_changed.emit()
         self.history_changed.emit()
 
@@ -2236,6 +2442,7 @@ class DesktopSessionManager(QObject):
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
         self.update_config(self._reset_frame(asset), persist=True)
 
+    @_records_batch(mark("Reset Frames"))
     def reset_roll(self, assets: List[Dict]) -> None:
         """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
         is still an ordinary undo step; the active frame (if among them) re-renders via
@@ -2350,11 +2557,12 @@ class DesktopSessionManager(QObject):
             self.apply_preset_fields(clip, rows, "selection", finish=with_bounds if bounds else None, label=tr("Pasted"))
             self.state_changed.emit()
             return
-        merged = apply_selected_fields(clip, self.state.config, rows)
+        before = self.state.config
+        merged = apply_selected_fields(clip, before, rows)
         if bounds:
             merged = with_bounds(merged)
         self.update_config(merged, persist=True)
-        self.relock_diverged_cards()
+        self.relock_diverged_cards(before)
         self.settings_pasted.emit()
 
     def persist_hidden_masks(self) -> None:
@@ -2462,6 +2670,7 @@ class DesktopSessionManager(QObject):
             f["excluded"] = m == "excluded"
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
 
         self.asset_model.refresh()
         self.files_changed.emit()
@@ -2512,6 +2721,7 @@ class DesktopSessionManager(QObject):
             self.state.uploaded_files[i] = {**asset, "keeper": m == "keeper", "excluded": m == "excluded"}
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
@@ -2539,6 +2749,7 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = [shifted(i) for i in self.state.selected_indices]
         self._stamp_scenes()
         self._stamp_averages()
+        self._stamp_capture_modes()
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()

@@ -113,3 +113,25 @@ class ChartFitWorker(QThread):
         except Exception as exc:
             logger.exception("Chart fit failed")
             self.failed.emit(str(exc))
+
+
+def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
+    """The transparency meter's grid for the open frame, rendered on the CPU with the fade at
+    identity and Remove Stain off, so Estimate never reads its own correction. None on a negative."""
+    process = replace(source.config.process, fade_ratio_r=1.0, fade_ratio_g=1.0, fade_ratio_b=1.0, fade_white_anchor=False)
+    buf = np.asarray(source.buffer, dtype=np.float32)
+    _, metrics = ImageProcessor(use_gpu=False).run_pipeline(
+        buf,
+        replace(source.config, process=process),
+        source.source_hash,
+        render_size_ref=float(max(buf.shape[:2])),
+        prefer_gpu=False,
+        wants_uv_grid=False,
+        cam_xyz=source.cam_xyz,
+        camera_wb=source.camera_wb,
+        cache_stages=False,
+        gain_slices=source.gain_slices,
+        source_orientation=source.orientation,
+        wants_fade_grid=True,
+    )
+    return metrics.get("transfer_grid")

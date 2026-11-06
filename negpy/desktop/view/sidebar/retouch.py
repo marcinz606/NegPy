@@ -4,7 +4,7 @@ from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_row, header_row, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_row, header_actions, hint_label, section_subheader, wrap_tooltip
 from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
 
 _IR_REMOVAL_TIP = tr("IR Removal: remove dust and scratches with the scanner's infrared channel.")
@@ -79,9 +79,11 @@ class RetouchSidebar(BaseSidebar):
             tr("Line"),
             tr("Line: click once on a long straight scratch, and the whole line is found and repaired."),
         )
-        self.undo_btn = self._icon_action("fa5s.undo", tr("Undo Last: remove the most recent manual heal"))
-        self.clear_btn = self._icon_action("fa5s.trash-alt", tr("Clear All: remove all manual heals and keep the automatic dust removal."))
-        self.layout.addLayout(header_row(self.heals_subheader, self.undo_btn, self.clear_btn))
+        self.undo_btn = self._labeled_action("fa5s.undo", tr("Undo"), tr("Undo Last: remove the most recent manual heal"))
+        self.clear_btn = self._labeled_action(
+            "fa5s.trash-alt", tr("Clear"), tr("Clear All: remove all manual heals and keep the automatic dust removal.")
+        )
+        self.layout.addLayout(header_actions(self.heals_subheader, self.undo_btn, self.clear_btn))
         tools_row = QHBoxLayout()
         for btn in (self.pick_dust_btn, self.pick_scratch_btn, self.pick_line_btn):
             tools_row.addWidget(btn, 1)
@@ -107,9 +109,9 @@ class RetouchSidebar(BaseSidebar):
             conf.clone_match_tone,
             tr("Keep the copied grain and detail, but match the brightness and color around the destination"),
         )
-        self.clone_undo_btn = self._icon_action("fa5s.undo", tr("Undo Last: remove the most recent clone stroke"))
-        self.clone_clear_btn = self._icon_action("fa5s.trash-alt", tr("Clear All: remove all clone strokes"))
-        self.layout.addLayout(header_row(self.clone_subheader, self.clone_undo_btn, self.clone_clear_btn))
+        self.clone_undo_btn = self._labeled_action("fa5s.undo", tr("Undo"), tr("Undo Last: remove the most recent clone stroke"))
+        self.clone_clear_btn = self._labeled_action("fa5s.trash-alt", tr("Clear"), tr("Clear All: remove all clone strokes"))
+        self.layout.addLayout(header_actions(self.clone_subheader, self.clone_undo_btn, self.clone_clear_btn))
         self.clone_source_btn = self._tool_toggle(
             "fa5s.crosshairs",
             tr("Set Source"),

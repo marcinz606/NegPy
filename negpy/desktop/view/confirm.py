@@ -152,12 +152,14 @@ def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
     """Ask before several frames reset to their defaults. Each reset is an undo step, but
     undoing many frames one by one is slow."""
     if roll:
-        title = tr("Reset Roll to Defaults")
-        text = tr("Reset all {value} in this roll to their default settings?", value=count_of(count, "frame"))
+        title = tr("Reset Frames to Defaults")
+        text = tr("Reset {value} to their default settings? Frames the filter hides stay as they are.", value=count_of(count, "frame"))
+        note = tr("The roll keeps its own values. Each frame's reset is a normal undo step, so you can revert it after.")
     else:
         title = tr("Reset Settings")
         text = tr("Reset {value} to their default settings?", value=count_of(count, "frame"))
-    return confirm_action(parent, title, text, tr("Reset"), tr("Each frame's reset is a normal undo step, so you can revert it after."))
+        note = tr("Each frame's reset is a normal undo step, so you can revert it after.")
+    return confirm_action(parent, title, text, tr("Reset"), note)
 
 
 def confirm_reset_tab(parent, tab: str, count: int) -> bool:

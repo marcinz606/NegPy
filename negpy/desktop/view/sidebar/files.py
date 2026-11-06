@@ -119,7 +119,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     """Scales each cached thumbnail into its cell; a frame not selected or under the pointer is
     dimmed. Triage marks are small bottom-right badges: check = keeper, cross + heavy dim =
     rejected; the bottom-left badge says the frame was built from several files
-    (stitch, HDR merge, RGB triplet, half-frame split). Top-right says the frame prints on the
+    (stitch, HDR merge, RGB triplet, half-frame split) or shot by a Blend or Single Exposure capture. Top-right says the frame prints on the
     roll average, amber when it is far from the roll color. Top-left holds the
     decode-failure badge, else a small dot saying the bitmap shown predates a settings
     change (a bulk apply reaches the file before a render reaches its thumbnail)."""
@@ -137,7 +137,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
         self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
         self._average_icon = qta.icon("mdi6.filmstrip", color=THEME.mark_photo)
-        self._outlier_icon = qta.icon("mdi6.alert", color=THEME.warn_amber)
+        self._outlier_icon = qta.icon("mdi6.filmstrip", color=THEME.warn_amber)
+        # The Frame half of a card's Frame/Roll pair: this frame keeps its own value.
+        self._own_icon = qta.icon("fa5s.image", color=THEME.border_scope_frame)
         self._activity_key = ""
         self._activity_index = QPersistentModelIndex()
         self._activity_phase = 0.0
@@ -256,8 +258,19 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         icon = self._outlier_icon if outlier else self._average_icon
         icon.paint(painter, QRect(cx - 6, cy - 6, 12, 12))
 
+    def _draw_own_badge(self, painter: QPainter, img_rect: QRect, beside_average: bool) -> None:
+        """Top-right, left of the average mark: the frame keeps its own value on a Roll-tab card."""
+        r = 9
+        cx = img_rect.right() - r - 4 - (2 * r + 4 if beside_average else 0)
+        cy = img_rect.top() + r + 4
+        painter.setPen(QPen(CHIP_RING, 1))
+        painter.setBrush(CHIP_FILL)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        self._own_icon.paint(painter, QRect(cx - 6, cy - 6, 12, 12))
+
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int, split_axis: str = "x") -> None:
-        """Bottom-left mark: this frame was assembled from more than one file.
+        """Bottom-left mark: this frame was assembled from more than one file, or a Blend or
+        Single Exposure capture shot it.
 
         One glyph per kind, so a merge is told from a stitch without opening the menu.
         The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
@@ -281,6 +294,21 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             for dx, color in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
                 painter.setBrush(QColor(color))
                 painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "blend":  # the three LEDs in turn in one exposure: overlapping, mixed as light
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+            for dx, color in ((-3, THEME.channel_red), (0, THEME.channel_green), (3, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
+                painter.drawEllipse(QRect(cx + dx - 3, cy - 3, 6, 6))
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "single":  # the three LEDs lit together: one disc of three sectors
+            painter.setPen(Qt.PenStyle.NoPen)
+            disc = QRect(cx - 5, cy - 5, 10, 10)
+            for start, color in ((90, THEME.channel_red), (210, THEME.channel_green), (330, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
+                painter.drawPie(disc, start * 16, 120 * 16)
             painter.setBrush(Qt.BrushStyle.NoBrush)
         elif kind == "half":  # a split frame, this asset's own half filled
             painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
@@ -323,7 +351,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
-        kind = composite_kind(file_info)
+        kind = composite_kind(file_info) or file_info.get("capture", "")
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
@@ -402,6 +430,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0), str(file_info.get("split_axis") or "x"))
         if file_info.get("average"):
             self._draw_average_badge(painter, img_rect, file_info["average"] == "outlier")
+        if file_info.get("own_cards"):
+            self._draw_own_badge(painter, img_rect, bool(file_info.get("average")))
         if not failed and self._is_stale_thumbnail(file_info):
             self._draw_stale_dot(painter, img_rect)
         painter.setClipping(False)
@@ -1503,9 +1533,12 @@ class FileBrowser(QWidget):
 
         # The frames' own order; the Library's roll list has a Sort of its own.
         self.sort_btn = SortButton(
-            (("name", tr("Name")), ("date", tr("Date")), ("scene", tr("Scene"))), tr("Sort the frames in the Film Strip")
+            (("name", tr("Name")), ("date", tr("Date")), ("scene", tr("Scene")), ("frame", tr("Frame No."))),
+            tr("Sort the frames in the Film Strip"),
         )
-        self.act_sort_name, self.act_sort_date, self.act_sort_scene = (self.sort_btn.order_action(k) for k in ("name", "date", "scene"))
+        self.act_sort_name, self.act_sort_date, self.act_sort_scene, self.act_sort_frame = (
+            self.sort_btn.order_action(k) for k in ("name", "date", "scene", "frame")
+        )
         self.act_sort_asc, self.act_sort_desc = self.sort_btn.ascending_action, self.sort_btn.descending_action
         self.act_sort_scene.setVisible(False)
         self.sort_btn.order_selected.connect(self._apply_sort_order)
@@ -1668,7 +1701,7 @@ class FileBrowser(QWidget):
         self.unload_all_action.triggered.connect(lambda: _unload_all(self, self.controller))
         roll_menu.aboutToShow.connect(self._sync_unload_all_action)
         roll_menu.aboutToShow.connect(self._sync_save_actions)
-        roll_menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
+        roll_menu.addAction(label_with_shortcut(tr("Reset Frames to Defaults…"), "reset_roll")).triggered.connect(self._on_reset_roll)
         self.restore_removed_action = roll_menu.addAction(label_with_shortcut(tr("Restore Removed Frames…"), "restore_removed_frames"))
         self.restore_removed_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
         self.restore_removed_action.triggered.connect(lambda: restore_removed_frames(self, self.controller))
@@ -2075,6 +2108,7 @@ class FileBrowser(QWidget):
         self.act_sort_name.setChecked(order == "name")
         self.act_sort_date.setChecked(order == "date")
         self.act_sort_scene.setChecked(order == "scene")
+        self.act_sort_frame.setChecked(order == "frame")
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
         model = self.session.asset_model
@@ -2369,9 +2403,7 @@ class FileBrowser(QWidget):
         return os.path.basename(files[idx]["path"]) if 0 <= idx < len(files) else ""
 
     def _open_apply_dialog(self) -> None:
-        applied = open_apply_dialog(self, self.session)
-        if applied and applied[1] == "roll":
-            self.controller.record_roll_apply(applied[0])
+        open_apply_dialog(self, self.session)
 
     def _open_roll_settings_dialog(self) -> None:
         """The tag-icon button: always opens, and silently pre-fills a gear match too
@@ -2516,7 +2548,7 @@ class FileBrowser(QWidget):
         menu.addAction(label_with_shortcut(tr("Sync Bounds…"), "sync_bounds")).triggered.connect(
             lambda: open_sync_bounds_dialog(self, self.session)
         )
-        reanalyze = tr("Reanalyze {value}", value=count_of(n, "frame").title()) if on_selection else tr("Reanalyze Frame")
+        reanalyze = tr("Measure {value} Alone", value=count_of(n, "frame").title()) if on_selection else tr("Measure Alone")
         menu.addAction(reanalyze).triggered.connect(lambda: self.controller.reanalyze_selection())
         if state.active_roll_id:
             menu.addAction(tr("Use Average")).triggered.connect(lambda: self.controller.set_selection_average(True))
@@ -2527,7 +2559,7 @@ class FileBrowser(QWidget):
             menu.addAction(
                 tr("Update {value}", value=count_of(n, "thumbnail")) if on_selection else tr("Update Thumbnail")
             ).triggered.connect(lambda: self.controller.request_thumbnail_refresh("selection"))
-        menu.addAction(label_with_shortcut(tr("Reset Roll to Defaults…"), "reset_roll")).triggered.connect(
+        menu.addAction(label_with_shortcut(tr("Reset Frames to Defaults…"), "reset_roll")).triggered.connect(
             lambda: _reset_roll(self, self.controller)
         )
         if on_selection:

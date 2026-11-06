@@ -70,9 +70,6 @@ class NormalizationProcessor:
             c.crosstalk_strength,
             c.crosstalk_matrix,
             c.crosstalk_process,
-            c.fade_ratio_r,
-            c.fade_ratio_g,
-            c.fade_ratio_b,
         )
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:

@@ -52,14 +52,15 @@ from negpy.infrastructure.scanners.settings import OUTPUT_FORMATS, ScannerSettin
 
 
 class ScanCaptureMode(StrEnum):
-    """The 4 scan modes this app exposes — a UI-only presentation of pyopticfilm's two real,
-    orthogonal axes (``multi_exposure`` and ``n_passes``). Never persisted or sent to the
+    """The 5 scan modes this app exposes — a UI-only presentation of pyopticfilm's real axes
+    (``multi_exposure`` with its ``me_long_mode``, and ``n_passes``). Never persisted or sent to the
     backend directly; ``_capture_mode_from_params``/``_params_from_capture_mode`` translate to
     and from the real ``ScanParams``/``ScannerSettings`` fields. pyopticfilm's manual exposure
     overrides are lab/debug-only (see Scan Lab) and have no equivalent here."""
 
     SINGLE_PASS = "single_pass"
     MULTI_PASS = "multi_pass"
+    FIXED_ME = "fixed_me"
     ADAPTIVE_ME = "adaptive_me"
     ADAPTIVE_MULTI_PASS = "adaptive_multi_pass"
 
@@ -73,6 +74,13 @@ _CAPTURE_MODE_LABELS: tuple[tuple[ScanCaptureMode, str, str], ...] = (
         tr("Repeats the same exposure and stacks the results to reduce noise, slower and best for a well-exposed frame."),
     ),
     (
+        ScanCaptureMode.FIXED_ME,
+        tr("Fixed Multi-Exposure"),
+        tr(
+            "Captures a short and a long exposure at the scanner's fixed long exposure, as SilverFast does, and fuses them for more dynamic range."
+        ),
+    ),
+    (
         ScanCaptureMode.ADAPTIVE_ME,
         tr("Adaptive Multi-Exposure"),
         tr("Captures a short and a long exposure and fuses them for more dynamic range, without stacking."),
@@ -84,7 +92,7 @@ _CAPTURE_MODE_LABELS: tuple[tuple[ScanCaptureMode, str, str], ...] = (
     ),
 )
 
-_ME_CAPTURE_MODES = (ScanCaptureMode.ADAPTIVE_ME, ScanCaptureMode.ADAPTIVE_MULTI_PASS)
+_ME_CAPTURE_MODES = (ScanCaptureMode.FIXED_ME, ScanCaptureMode.ADAPTIVE_ME, ScanCaptureMode.ADAPTIVE_MULTI_PASS)
 _STACKING_CAPTURE_MODES = (ScanCaptureMode.MULTI_PASS, ScanCaptureMode.ADAPTIVE_MULTI_PASS)
 
 #: Passes slider floor. UI-only — 1 pass is "not stacking", represented by mode choice, so the
@@ -95,6 +103,8 @@ MIN_PASSES_UI = 2
 
 
 def _capture_mode_from_params(mode: MultiExposureMode, n_passes: int) -> ScanCaptureMode:
+    if mode == MultiExposureMode.FIXED:
+        return ScanCaptureMode.FIXED_ME
     me = mode == MultiExposureMode.ADAPTIVE
     stacking = n_passes > 1
     if me:
@@ -103,15 +113,23 @@ def _capture_mode_from_params(mode: MultiExposureMode, n_passes: int) -> ScanCap
 
 
 def _params_from_capture_mode(capture_mode: ScanCaptureMode, slider_value: int) -> tuple[MultiExposureMode, int]:
-    mode = MultiExposureMode.ADAPTIVE if capture_mode in _ME_CAPTURE_MODES else MultiExposureMode.OFF
+    if capture_mode == ScanCaptureMode.FIXED_ME:
+        mode = MultiExposureMode.FIXED
+    elif capture_mode in _ME_CAPTURE_MODES:
+        mode = MultiExposureMode.ADAPTIVE
+    else:
+        mode = MultiExposureMode.OFF
     n_passes = slider_value if capture_mode in _STACKING_CAPTURE_MODES else 1
     return mode, n_passes
 
 
-def _valid_capture_mode(desired: ScanCaptureMode, *, has_me: bool, has_stack: bool) -> ScanCaptureMode:
+def _valid_capture_mode(desired: ScanCaptureMode, *, has_me: bool, has_stack: bool, has_fixed: bool = False) -> ScanCaptureMode:
     """``desired`` masked against what the device actually supports — drops just the axis
     (ME or stacking) the device lacks, rather than falling all the way back to Single-Pass
-    unless neither axis is available."""
+    unless neither axis is available. Fixed ME without a fixed long exposure falls back to
+    Adaptive ME, the same short+long merge."""
+    if desired == ScanCaptureMode.FIXED_ME and has_me and has_fixed:
+        return ScanCaptureMode.FIXED_ME
     want_me = desired in _ME_CAPTURE_MODES and has_me
     want_stack = desired in _STACKING_CAPTURE_MODES and has_stack
     if want_me and want_stack:
@@ -301,7 +319,13 @@ class ScanSidebar(QWidget):
         self.dpi_combo.setToolTip(wrap_tooltip(tr("Scan resolution in dots per inch; type a value between the listed stops")))
         self.dpi_combo.setEditable(True)
         self.dpi_combo.setFixedHeight(default_button_height())
-        quality.addLayout(field_row(tr("Resolution"), self.dpi_combo))
+        # A device that scans only at its listed resolutions (ScannerCapabilities.dpi_fixed)
+        # gets a plain choice instead; one of the two shows.
+        self.dpi_choice = StepCombo.of([], tr("Scan resolution in dots per inch"))
+        dpi_row = field_row(tr("Resolution"), self.dpi_combo, self.dpi_choice)
+        dpi_row.setStretchFactor(self.dpi_choice, 1)
+        self.dpi_choice.setVisible(False)
+        quality.addLayout(dpi_row)
 
         self.depth_btn = StepCombo.of([], tr("Bits per channel in the scanned file"))
         self.depth_widget = self._row_widget(field_row(tr("Bit depth"), self.depth_btn))
@@ -459,6 +483,7 @@ class ScanSidebar(QWidget):
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.fmt_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(self._on_dpi_changed)
+        self.dpi_choice.currentIndexChanged.connect(self._on_dpi_changed)
         self.depth_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_btn.toggled.connect(self._on_ir_toggled)
         self.mode_btn.currentIndexChanged.connect(self._on_mode_changed)
@@ -640,6 +665,7 @@ class ScanSidebar(QWidget):
         if device is None:
             self.scan_btn.setEnabled(False)
             self.dpi_combo.setEnabled(False)
+            self.dpi_choice.setEnabled(False)
             self.depth_btn.setEnabled(False)
             self.depth_widget.setVisible(False)
             self.ir_btn.setVisible(False)
@@ -678,6 +704,7 @@ class ScanSidebar(QWidget):
 
         caps = device.capabilities
         self.dpi_combo.setEnabled(True)
+        self.dpi_choice.setEnabled(True)
         self.depth_btn.setEnabled(True)
         self.ir_btn.setEnabled(True)
         self.mode_btn.setEnabled(True)
@@ -698,6 +725,7 @@ class ScanSidebar(QWidget):
 
     def _populate_form(self, caps: ScannerCapabilities) -> None:
         self.dpi_combo.blockSignals(True)
+        self.dpi_choice.blockSignals(True)
         self.depth_btn.blockSignals(True)
         self.ir_btn.blockSignals(True)
         self.mode_btn.blockSignals(True)
@@ -706,19 +734,21 @@ class ScanSidebar(QWidget):
         self.frame_spec_edit.blockSignals(True)
 
         # DPI
-        self.dpi_combo.clear()
-        if caps.supported_dpi:
+        self.dpi_combo.setVisible(not caps.dpi_fixed)
+        self.dpi_choice.setVisible(caps.dpi_fixed)
+        for combo in (self.dpi_combo, self.dpi_choice):
+            combo.clear()
             for d in caps.supported_dpi:
-                self.dpi_combo.addItem(str(d), d)
-        if self._settings.dpi and caps.supported_dpi:
-            idx = self.dpi_combo.findData(self._settings.dpi)
-            if idx < 0:
-                # A saved resolution this device does not offer: show the nearest one it does,
-                # rather than a number the scan silently replaces.
-                nearest = min(caps.supported_dpi, key=lambda d: abs(d - self._settings.dpi))
-                idx = self.dpi_combo.findData(nearest)
-            if idx >= 0:
-                self.dpi_combo.setCurrentIndex(idx)
+                combo.addItem(str(d), d)
+            if self._settings.dpi and caps.supported_dpi:
+                idx = combo.findData(self._settings.dpi)
+                if idx < 0:
+                    # A saved resolution this device does not offer: show the nearest one it does,
+                    # rather than a number the scan silently replaces.
+                    nearest = min(caps.supported_dpi, key=lambda d: abs(d - self._settings.dpi))
+                    idx = combo.findData(nearest)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
         # The combo is editable because the stops are a ladder, not the device's limits. A
         # validator keeps a typo off the scan: unparsable text silently fell back to a default.
         editor = self.dpi_combo.lineEdit()
@@ -750,8 +780,8 @@ class ScanSidebar(QWidget):
             self.ir_btn.setChecked(False)
             self.ir_btn.setToolTip(tr("IR scanning not supported by this device"))
 
-        # Scan mode (Plustek GL128 scan-ready models): one combo presenting pyopticfilm's two
-        # real orthogonal axes (multi_exposure_mode, n_passes) as 4 named options. Per-item
+        # Scan mode (Plustek scan-ready models): one combo presenting pyopticfilm's real axes
+        # (multi_exposure_mode, n_passes) as 5 named options. Per-item
         # capability gating below; the whole row hides when neither ME nor Multi-Pass applies —
         # a device with neither has nothing to choose, mode is implicitly Single-Pass.
         show_mode = bool(caps.multi_exposure) or caps.max_n_passes > 1
@@ -894,6 +924,7 @@ class ScanSidebar(QWidget):
             self.crop_label.setVisible(False)
 
         self.dpi_combo.blockSignals(False)
+        self.dpi_choice.blockSignals(False)
         self.depth_btn.blockSignals(False)
         self.ir_btn.blockSignals(False)
         self.mode_btn.blockSignals(False)
@@ -950,7 +981,7 @@ class ScanSidebar(QWidget):
         # outright (each repeat is its own motor cycle; IR stacking is unvalidated). Drop the
         # mode to its non-stacking equivalent rather than silently discarding a hidden slider
         # value, so the visible mode reflects what actually happens.
-        self._wanted_capture_mode = _valid_capture_mode(self._wanted_capture_mode, has_me=True, has_stack=False)
+        self._wanted_capture_mode = _valid_capture_mode(self._wanted_capture_mode, has_me=True, has_stack=False, has_fixed=True)
         mode = self._capture_mode()
         if mode == ScanCaptureMode.MULTI_PASS:
             self._set_capture_mode(ScanCaptureMode.SINGLE_PASS)
@@ -971,16 +1002,18 @@ class ScanSidebar(QWidget):
         dpi = self._dpi()
         has_me = caps.multi_exposure_at(dpi)
         has_stack = caps.multi_pass_at(dpi)
+        has_fixed = caps.fixed_multi_exposure_at(dpi)
         enabled = {
             ScanCaptureMode.SINGLE_PASS: True,
             ScanCaptureMode.MULTI_PASS: has_stack,
+            ScanCaptureMode.FIXED_ME: has_fixed,
             ScanCaptureMode.ADAPTIVE_ME: has_me,
             ScanCaptureMode.ADAPTIVE_MULTI_PASS: has_me and has_stack,
         }
         for capture_mode, _label, _tooltip in _CAPTURE_MODE_LABELS:
             self.mode_btn.set_item_enabled(self.mode_btn.findData(capture_mode.value), enabled[capture_mode])
         blocked = self.mode_btn.blockSignals(True)
-        self._set_capture_mode(_valid_capture_mode(self._wanted_capture_mode, has_me=has_me, has_stack=has_stack))
+        self._set_capture_mode(_valid_capture_mode(self._wanted_capture_mode, has_me=has_me, has_stack=has_stack, has_fixed=has_fixed))
         self.mode_btn.blockSignals(blocked)
         limited = (caps.multi_exposure and not has_me) or (caps.max_n_passes > 1 and not has_stack)
         self.mode_hint.setText(tr("Multi-Exposure and Multi-Pass are not available at {dpi} dpi.", dpi=dpi))
@@ -1292,6 +1325,8 @@ class ScanSidebar(QWidget):
         device = self._current_device()
         supported = device.capabilities.supported_dpi if device else ()
         fallback = max(supported) if supported else 3600
+        if device is not None and device.capabilities.dpi_fixed:
+            return int(self.dpi_choice.currentData() or fallback)
         try:
             return int(self.dpi_combo.currentText() or self.dpi_combo.currentData())
         except (ValueError, TypeError):

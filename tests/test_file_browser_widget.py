@@ -894,7 +894,7 @@ def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
 
 def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
     menu = browser.roll_menu_btn.menu()
-    action = next(a for a in menu.actions() if a.text() == "Reset Roll to Defaults…")
+    action = next(a for a in menu.actions() if a.text() == "Reset Frames to Defaults…")
     with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=True) as confirm:
         action.trigger()
     confirm.assert_called_once_with(browser, 4, roll=True)  # the session fixture's 4 uploaded_files
@@ -1419,7 +1419,29 @@ def test_one_selected_frame_that_is_not_open_is_what_the_frame_menu_acts_on(brow
 def test_context_menu_reanalyze_follows_the_selection(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Reanalyze Frame" in _action_labels(browser.build_frame_menu())
+    assert "Measure Alone" in _action_labels(browser.build_frame_menu())
 
     session.state.selected_indices = [0, 2]
-    assert "Reanalyze 2 Frames" in _action_labels(browser.build_frame_menu())
+    assert "Measure 2 Frames Alone" in _action_labels(browser.build_frame_menu())
+
+
+def test_blend_and_single_captures_draw_their_own_glyphs(qapp):
+    assets = _composite_assets()
+    blend = {**assets["plain"], "capture": "blend"}
+    single = {**assets["plain"], "capture": "single"}
+    assert composite_kind(blend) == "" and composite_kind(single) == ""  # a capture mark is not a composite
+    corners = [_badge_corner(_render(a)) for a in (assets["plain"], assets["rgb"], blend, single)]
+    for i, a in enumerate(corners):
+        for b in corners[i + 1 :]:
+            assert a != b
+    assert composite_summary(blend) == "Blend capture"
+    assert composite_summary(single) == "Single Exposure capture"
+
+
+def test_recorded_captures_mark_their_frames(session):
+    session.repo.get_global_setting.side_effect = lambda key, default=None: (
+        {"IMG_0001.cr2": "blend", "IMG_0002.cr2": "single"} if key.startswith("capture_modes:") else default
+    )
+    session.state.uploaded_files[2]["capture"] = "blend"  # a stale mark: nothing records scan.tif
+    session.refresh_capture_marks()
+    assert [f.get("capture") for f in session.state.uploaded_files] == ["blend", "single", None, None]

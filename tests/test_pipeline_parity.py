@@ -354,6 +354,100 @@ class TestExposureParity:
         s = replace(base, process=replace(base.process, crosstalk_strength=0.7))
         self._run_and_compare(s)
 
+    @pytest.mark.parametrize("positive", [False, True])
+    def test_slide_fade_restoration(self, positive):
+        # Both engines compose the fade after the unmix; a fade one of them drops moves the render past this tolerance.
+        base = _make_base_settings()
+        fade = dict(fade_ratio_r=0.8, fade_ratio_g=0.7, fade_ratio_b=1.3)
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=positive, **fade))
+        cpu, gpu = self._render_both(s)
+        plain, _ = self._render_both(replace(s, process=replace(s.process, fade_ratio_r=1.0, fade_ratio_g=1.0, fade_ratio_b=1.0)))
+        assert float(np.abs(cpu - plain).mean()) > 0.02
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
+    @pytest.mark.parametrize("fade", [False, True])
+    def test_positive_source_primaries(self, fade):
+        # A Positive source's primaries ride the camera-matrix slot; with a fade both engines
+        # convert them after the density matrix, the GPU in the normalization shader.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.process.capture_color import source_cam_xyz
+        from negpy.infrastructure.loaders.source_encoding import _SRGB_COLORANTS_D50, _to_working
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = source_cam_xyz(_to_working(_SRGB_COLORANTS_D50))
+        base = _make_base_settings()
+        ratios = dict(fade_ratio_r=0.5, fade_ratio_g=1.6, fade_ratio_b=1.3) if fade else {}
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=True, **ratios))
+        h, w = self.img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(self.img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz
+        )
+        cpu = self.cpu.process(self.img, s, f"parity_positive_primaries_{fade}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            self.img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz
+        )
+        _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
+    @pytest.mark.parametrize("positive", [False, True])
+    def test_camera_raw_split_at_the_white_balance_fold(self, positive):
+        # With a fade and Remove Stain, both engines apply a camera's white-balance gains before
+        # the log and its primaries after the density matrix.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
+        wb = [2.0, 1.0, 1.5, 1.0]
+        img = (self.img / np.asarray(wb[:3], dtype=np.float32)).astype(np.float32)
+        base = _make_base_settings()
+        fade = dict(
+            fade_ratio_r=0.6,
+            fade_ratio_g=1.4,
+            fade_ratio_b=1.2,
+            fade_white_anchor=True,
+            fade_white_r=-0.2,
+            fade_white_g=-0.1,
+            fade_white_b=-0.15,
+        )
+        s = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=positive, linear_raw=True, **fade))
+        h, w = img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        cpu = self.cpu.process(img, s, f"parity_raw_split_{positive}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        _assert_mostly_close(cpu, self.gpu._readback_downsampled(tex), atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
+    @pytest.mark.parametrize("remove_stain", [False, True])
+    def test_reconstructed_highlight_through_the_fade(self, remove_stain):
+        # A blown highlight decoded neutral at full scale passes the fade's anchor unscaled on both engines.
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.process.fade import fade_white_space
+        from negpy.kernel.system.config import render_scale_factor
+
+        cam_xyz = [[0.6722, -0.0635, -0.0963], [-0.4287, 1.246, 0.2046], [-0.0908, 0.2268, 0.5762]]
+        wb = [2.0, 1.0, 1.5, 1.0]
+        img = self.img.copy()
+        img[20:44, 20:44] = 1.0
+        base = _make_base_settings()
+        white = dict(fade_white_r=-0.3, fade_white_g=-0.25, fade_white_b=-0.35, fade_white_space=fade_white_space(cam_xyz, wb))
+        fade = dict(fade_ratio_r=0.6, fade_ratio_g=1.4, fade_ratio_b=1.2, fade_white_anchor=remove_stain, **white)
+        p = replace(base.process, process_mode=ProcessMode.E6, positive_source=True, linear_raw=False, highlight_reconstruction=5, **fade)
+        s = replace(base, process=p)
+        h, w = img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w), scale_factor=render_scale_factor(img.shape), process_mode=ProcessMode.E6, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        cpu = self.cpu.process(img, s, f"parity_raw_highlight_{remove_stain}", ctx)
+        tex, _ = self.gpu.process_to_texture(
+            img, s, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False, cam_xyz=cam_xyz, camera_wb=wb
+        )
+        gpu = self.gpu._readback_downsampled(tex)
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+        patch = np.asarray(gpu)[24:40, 24:40, :3].reshape(-1, 3)
+        assert float(np.ptp(patch.mean(axis=0))) < 0.01
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab color/sharpening shader."""

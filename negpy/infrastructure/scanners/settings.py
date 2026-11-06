@@ -92,7 +92,8 @@ class ScannerSettings:
         """
         data = dict(data)
         # Pre-mode blobs only ever had one multi-exposure behavior (today's "adaptive"): a
-        # checked box meant exactly that, unchecked meant none.
+        # checked box meant exactly that, unchecked meant none. "fixed" is a real mode again
+        # (pyopticfilm 1.3.9); a device without it masks it in the Scan panel.
         if "multi_exposure_mode" not in data and "multi_exposure" in data:
             data["multi_exposure_mode"] = MultiExposureMode.ADAPTIVE.value if data.pop("multi_exposure") else MultiExposureMode.OFF.value
         if data.get("multi_exposure_mode") not in set(MultiExposureMode):

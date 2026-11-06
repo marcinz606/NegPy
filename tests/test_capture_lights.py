@@ -59,6 +59,6 @@ def test_the_simulator_can_stand_in_for_a_dock(monkeypatch):
     light = lights.open_light()
     try:
         assert isinstance(light, LentoDock)
-        assert light.describe() == ("Lento Dock 35 (fw 1.0.224)", False, False)
+        assert light.describe() == ("Lento Dock 35 (fw 1.0.224)", True, False)
     finally:
         light.close()

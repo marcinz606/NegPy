@@ -245,6 +245,8 @@ _TOOL_ROWS: dict[ToolMode, tuple[str, str, str]] = {
     ToolMode.LOCAL_GRADIENT: (tr("Card Edge"), tr("Drag from the full-exposure edge to where it fades out"), ""),
     ToolMode.ANALYSIS_DRAW: (tr("Draw Region"), tr("Drag the area the meters read"), ""),
     ToolMode.FILM_BASE: (tr("Film Base"), tr("Click the clear rebate to set the roll's film base"), ""),
+    ToolMode.DMIN_PICK: (tr("Dmin"), tr("Click the thinnest spot of the negative: the film base or the deepest shadow"), ""),
+    ToolMode.DMAX_PICK: (tr("Dmax"), tr("Click the densest spot of the negative: the brightest highlight"), ""),
     ToolMode.STRAIGHTEN: (tr("Level"), tr("Draw a line along a horizon or an edge to level the frame"), _FINE_ROTATION),
     ToolMode.KEYSTONE_LINES: (
         tr("Keystone Lines"),
@@ -258,6 +260,8 @@ _CLONE_SOURCE_HINT = tr("Click the photo to pick the area to copy from")
 # The Tools menu, in panel order: a panel section's title, then its tools as (tool, action id, sidebar button
 # path from MainWindow). Zone Placement has no entry: it arms only with a zone picked on the zone strip.
 _CANVAS_TOOLS: tuple[tuple[ToolMode, str, str] | str, ...] = (
+    tr("Analysis"),
+    (ToolMode.FILM_BASE, "film_base", "right_panel.film_base_btn"),
     tr("Crop"),
     (ToolMode.CROP_MANUAL, "manual_crop", "controls_panel.autocrop_sidebar.manual_crop_btn"),
     tr("Straighten"),
@@ -265,7 +269,8 @@ _CANVAS_TOOLS: tuple[tuple[ToolMode, str, str] | str, ...] = (
     (ToolMode.KEYSTONE_LINES, "keystone_lines", "controls_panel.geometry_sidebar.keystone_lines_btn"),
     tr("Metering"),
     (ToolMode.ANALYSIS_DRAW, "analysis_draw", "controls_panel.process_sidebar.analysis_region_btn"),
-    (ToolMode.FILM_BASE, "film_base", "controls_panel.process_sidebar.film_base_btn"),
+    (ToolMode.DMIN_PICK, "dmin_pick", "controls_panel.process_sidebar.dmin_btn"),
+    (ToolMode.DMAX_PICK, "dmax_pick", "controls_panel.process_sidebar.dmax_btn"),
     tr("Filtration"),
     (ToolMode.WB_PICK, "pick_wb", "controls_panel.color_sidebar.pick_wb_btn"),
     tr("Dodge & Burn"),
@@ -1130,9 +1135,15 @@ class ActionToolbar(QWidget):
         self._average_label.setText(rolls.source_label(self.session.repo, found[1]) if found else tr("Roll average"))
         outlier = self._average_outlier(state, found)
         scene = found is not None and found[1].startswith("scene:")
-        self.average_hint.setText((tr("Far from the scene color") if scene else tr("Far from the roll color")) if outlier else "")
+        # The toggles show what Apply gives, so the hint says what the frame has now.
+        names = {"use_luma_average": tr("Luma"), "use_color_average": tr("Color"), "use_cast_average": tr("Cast")}
+        applied = [name for f, name in names.items() if getattr(process, f) and (cast or f != "use_cast_average")]
+        lines = [tr("Applied: {value}", value=", ".join(applied)) if applied else tr("Applied: none")]
+        if outlier:
+            lines.append(tr("Far from the scene color") if scene else tr("Far from the roll color"))
+        self.average_hint.setText(" · ".join(lines))
         set_hint_kind(self.average_hint, "warning" if outlier else "muted")
-        self.average_hint.setVisible(outlier)
+        self.average_hint.setVisible(True)
 
     def _saved_baseline(self, state, scope=None):
         """The baseline the frame's averages read, or the one *scope* names."""
@@ -2061,7 +2072,7 @@ class ActionToolbar(QWidget):
             self._activate_layout()
             return
         if not self._average_row.isHidden():
-            # The name goes first, then the warning; the averages, Apply and close always stay.
+            # The name goes first, then the hint; the averages, Apply and close always stay.
             optional = (self._average_label, self.average_hint)
             for widget in optional:
                 widget.setVisible(widget is self._average_label or bool(self.average_hint.text()))

@@ -12,6 +12,8 @@ from negpy.domain.models import ExportResolutionMode
 from negpy.features.geometry.models import AspectRatio
 
 _DEFAULT_MESSAGE_MS = 2500
+# Long enough to read the batch message and reach the button.
+_UNDO_OFFER_MS = 8000
 _BAR_HEIGHT = 4
 #: Up to this many items, the bar splits into one segment per item.
 _MAX_SEGMENTS = 40
@@ -73,6 +75,7 @@ class CanvasHud(QWidget):
     """
 
     abort_requested = pyqtSignal()
+    undo_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -100,10 +103,17 @@ class CanvasHud(QWidget):
         self.abort_button = labeled_action("", tr("Abort"), tr("Stop the running job."))
         self.abort_button.clicked.connect(self._on_abort)
         self.abort_button.hide()
+        self.undo_button = labeled_action("", tr("Undo"), tr("Undo this change on every frame it reached."))
+        self.undo_button.clicked.connect(self._on_undo)
+        self.undo_button.hide()
+        self._undo_timer = QTimer(self)
+        self._undo_timer.setSingleShot(True)
+        self._undo_timer.timeout.connect(self.withdraw_undo)
 
         layout.addWidget(self.lbl_left, 1)
         layout.addWidget(self.message, 2)
         layout.addWidget(self.abort_button)
+        layout.addWidget(self.undo_button)
         layout.addWidget(self.lbl_right, 1)
 
         self._info = ("", "")
@@ -113,7 +123,9 @@ class CanvasHud(QWidget):
 
         self._message_timer = QTimer(self)
         self._message_timer.setSingleShot(True)
-        self._message_timer.timeout.connect(lambda: self.showMessage(""))
+        # A bound method, not a lambda: a collection on another thread clears a closure and defers the
+        # widget's delete, so a due timer would call a function with no closure.
+        self._message_timer.timeout.connect(self._expire_message)
         self._progress_timer = QTimer(self)
         self._progress_timer.setSingleShot(True)
         self._progress_timer.timeout.connect(self.hide_progress)
@@ -150,10 +162,28 @@ class CanvasHud(QWidget):
             self._message_timer.start(timeout or _DEFAULT_MESSAGE_MS)
         self._sync()
 
+    def _expire_message(self) -> None:
+        self.showMessage("")
+
     def clear_message(self, text: str) -> None:
         """Clears the message only if it is still `text`, so a later message survives."""
         if text and self.message.text() == text and not self.message.isHidden():
             self.showMessage("")
+
+    def offer_undo(self) -> None:
+        """Undo beside the message of a change to several frames, while the message shows."""
+        self.undo_button.show()
+        self._undo_timer.start(_UNDO_OFFER_MS)
+        self._sync()
+
+    def withdraw_undo(self) -> None:
+        self._undo_timer.stop()
+        self.undo_button.hide()
+        self._sync()
+
+    def _on_undo(self) -> None:
+        self.withdraw_undo()
+        self.undo_requested.emit()
 
     def set_abortable(self, on: bool) -> None:
         self.abort_button.setEnabled(True)
@@ -189,7 +219,15 @@ class CanvasHud(QWidget):
         self.lbl_left.setToolTip(left)
         self.lbl_right.setText(" · ".join(s for s in (right, self._zoom_note) if s))
         self.setVisible(
-            bool(left or right or self._zoom_note or self.message.isVisibleTo(self) or self._total or self.abort_button.isVisibleTo(self))
+            bool(
+                left
+                or right
+                or self._zoom_note
+                or self.message.isVisibleTo(self)
+                or self._total
+                or self.abort_button.isVisibleTo(self)
+                or self.undo_button.isVisibleTo(self)
+            )
         )
         self.update()
 

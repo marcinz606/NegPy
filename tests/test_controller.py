@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch, call
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
-from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.services.rendering.image_processor import ArmedCrop, MeterBox
 from negpy.features.geometry.logic import autocrop_detection_key
@@ -1416,6 +1415,92 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(cfg[0].process.hue_trim, 2.5)
         self.assertTrue(kwargs["persist"])
 
+    def test_a_raw_decode_edited_back_to_the_rolls_decode_unlocks(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_roll_defaults(repo, roll_id, linear_raw=False)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        state.current_file_path = "/a.dng"
+        state.selected_file_idx = 0
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=False))
+        with patch.object(self.controller, "load_file"):
+            self.controller.apply_scan_setup("scanner", "white")
+
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def _frame_in_empty_roll(self) -> str:
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        state.selected_file_idx = 0
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True))
+        return roll_id
+
+    def test_an_edit_back_on_a_roll_with_no_value_for_the_card_unlocks(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", highlight_reconstruction=3)
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"demosaic"})
+        self.controller.set_roll_default("demosaic", highlight_reconstruction=0)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def test_a_metadata_edit_back_on_a_roll_with_no_value_for_the_card_unlocks(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+
+        def write_city(city: str) -> None:
+            before = state.config
+            state.config = replace(before, metadata=replace(before.metadata, location_city=city))
+            self.controller.sync_metadata_card_locks(before)
+
+        original = state.config.metadata.location_city
+        write_city("Gdansk")
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"metadata_capture"})
+        write_city(original)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def test_an_undone_push_gives_the_lock_its_baseline_back(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._frame_in_empty_roll()
+        repo = self.controller.session.repo
+        self.controller.set_roll_default("demosaic", linear_raw=False)
+        baselines = {"demosaic": rolls.frame_baseline(repo, roll_id, "h1", "demosaic")}
+        snapshot = rolls.roll_fields_snapshot(repo, roll_id, rolls.card_fields("demosaic"))
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(self.mock_session_manager.state.config, "demosaic"))
+        rolls.set_frame_override(repo, roll_id, "h1", "demosaic", False)
+
+        self.controller._restore_roll_push(roll_id, "h1", baselines, snapshot)
+        self.controller.set_roll_default("demosaic", linear_raw=True)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
     def test_set_roll_default_matches_a_tuple_the_store_read_back_as_a_list(self):
         """The roll store is JSON, so crosstalk_matrix comes back as a list. Picking the roll's
         own crosstalk matrix again must still read as matching the roll."""
@@ -1440,6 +1525,52 @@ class TestAppController(unittest.TestCase):
         self.controller.set_roll_default("sensor", crosstalk_profile="Portra 400", crosstalk_matrix=matrix)
 
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def test_a_camera_raw_fade_card_matches_a_roll_that_holds_no_white(self):
+        """The roll keeps no camera RAW white, so the frame's own white is no divergence."""
+        from dataclasses import replace
+
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Velvia", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.nef", "path": "/a.nef", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        white = dict(fade_white_r=-0.5, fade_white_g=-0.45, fade_white_b=-0.6, fade_white_space="abc123")
+        state.config = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, fade_ratio_g=0.8, **white))
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(state.config, "fade"))
+        self.assertNotIn("fade_white_r", rolls.roll_defaults(repo, roll_id))
+
+        self.controller.set_roll_default("fade", fade_ratio_g=0.8)
+
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+
+    def test_a_scanner_frames_own_white_locks_the_fade_card_on_a_roll_with_no_white(self):
+        """A scanner white is the roll's to share, so a frame's own white is a divergence; a camera RAW's is not."""
+        from dataclasses import replace
+
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Velvia", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.tif", "path": "/a.tif", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        rolls.set_roll_defaults(repo, roll_id, fade_ratio_r=1.0, fade_ratio_g=0.8, fade_ratio_b=1.0, fade_white_anchor=True)
+        white = dict(fade_white_r=-0.05, fade_white_g=-0.1, fade_white_b=-0.3)
+        for space, locked in (("", {"fade"}), ("abc123", set())):
+            rolls.set_frame_override(repo, roll_id, "h1", "fade", False)
+            process = replace(WorkspaceConfig().process, fade_ratio_g=0.8, fade_white_anchor=True, fade_white_space=space)
+            state.config = replace(WorkspaceConfig(), process=process)
+
+            self.controller.set_roll_default("fade", **white)
+
+            self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), locked, space)
 
     def test_set_roll_default_writes_the_cards_own_config_section(self):
         """The Lens Correction card edits GeometryConfig, not ProcessConfig."""
@@ -1682,16 +1813,17 @@ class TestAppController(unittest.TestCase):
         state.config = replace(state.config, process=replace(state.config.process, hue_trim=2.5))
         before = rolls.roll_defaults(repo, roll_id)
 
+        self._record_batches()
         self.controller.apply_roll_card("sensor")
-        self.assertTrue(self.controller.can_undo_roll_push())
+        batch = self.mock_session_manager.last_batch
+        self.assertEqual(batch["label"], "Apply to Roll")
         state.stale_thumbnails.clear()
         rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)  # another card, written after the push
-        self.controller.undo_roll_push()
+        batch["roll"]()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {**before, "analysis_buffer": 0.2})
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"sensor"})
         self.assertEqual(state.stale_thumbnails, {asset_thumbnail_key(state.uploaded_files[1])})
-        self.assertFalse(self.controller.can_undo_roll_push(), "one step only")
 
     def test_undo_apply_to_roll_drops_a_field_the_roll_never_had(self):
         from negpy.services.assets import rolls
@@ -1705,32 +1837,22 @@ class TestAppController(unittest.TestCase):
         state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
         state.current_file_hash = "h1"
 
+        self._record_batches()
         self.controller.apply_roll_card("lens")
-        self.assertTrue(self.controller.can_undo_roll_push(("lens",)))
-        self.assertFalse(self.controller.can_undo_roll_push(("sensor",)), "another card's push is not this card's undo")
-        self.controller.undo_roll_push()
+        self.mock_session_manager.last_batch["roll"]()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {})
 
-    def test_undo_apply_to_roll_is_offered_only_on_the_pushing_frame(self):
-        from negpy.services.assets import rolls
+    def _record_batches(self) -> None:
+        """The real batch recorder on the mocked session."""
+        import types
 
-        self._wire_repo_store()
-        repo = self.controller.session.repo
-        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
-        rolls.set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
-        state = self.mock_session_manager.state
-        state.active_roll_id = roll_id
-        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
-        state.current_file_hash = "h1"
+        from negpy.desktop.session import DesktopSessionManager
 
-        self.controller.apply_roll_card("sensor")
-        state.current_file_hash = "h2"
-
-        self.assertFalse(self.controller.can_undo_roll_push())
-        pushed = rolls.roll_defaults(repo, roll_id)
-        self.controller.undo_roll_push()
-        self.assertEqual(rolls.roll_defaults(repo, roll_id), pushed)
+        session = self.mock_session_manager
+        session._batch = None
+        session.last_batch = None
+        session.recording_batch = types.MethodType(DesktopSessionManager.recording_batch, session)
 
     def test_apply_roll_card_refreshes_the_thumbnails_of_frames_that_follow_the_roll(self):
         """A frame locked on the pushed card keeps its own value, so it is neither
@@ -1785,63 +1907,6 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.apply_roll_card("sensor"), 0)
         self.assertEqual(rolls.roll_defaults(self.controller.session.repo, roll_id), {})
 
-    def test_a_frame_section_reads_frame_until_it_is_pushed(self):
-        from negpy.services.assets import rolls
-
-        self._wire_repo_store()
-        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
-        state = self.mock_session_manager.state
-        state.active_roll_id = roll_id
-        state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
-
-        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
-
-        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-        self.assertEqual(self.controller.frame_section_scope("paper"), "roll")
-
-    def test_a_frame_section_drops_back_to_frame_once_edited_again(self):
-        """Nothing clears the record: the frame simply stops matching it."""
-        from negpy.services.assets import rolls
-
-        self._wire_repo_store()
-        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
-        state = self.mock_session_manager.state
-        state.active_roll_id = roll_id
-        state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
-        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-
-        state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.9))
-
-        self.assertEqual(self.controller.frame_section_scope("paper"), "frame")
-
-    def test_frame_section_scopes_answers_every_card_off_one_roll_read(self):
-        from negpy.services.assets import rolls
-
-        self._wire_repo_store()
-        repo = self.controller.session.repo
-        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
-        state = self.mock_session_manager.state
-        state.active_roll_id = roll_id
-        state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
-        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-        repo.get_global_setting.reset_mock()
-
-        scopes = self.controller.frame_section_scopes(("paper", "finish"))
-
-        self.assertEqual(scopes, {"paper": "roll", "finish": "frame"})
-        self.assertEqual(repo.get_global_setting.call_count, 1)
-
-    def test_a_frame_section_reads_frame_with_no_roll_open(self):
-        state = self.mock_session_manager.state
-        state.active_roll_id = None
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
-
-    def test_recording_a_push_with_no_roll_open_is_a_noop(self):
-        state = self.mock_session_manager.state
-        state.active_roll_id = None
-        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
-        self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
-
     def _roll_with_frame(self) -> str:
         from negpy.services.assets import rolls
 
@@ -1853,48 +1918,6 @@ class TestAppController(unittest.TestCase):
         state.current_file_hash = "h1"
         state.selected_file_idx = 0
         return roll_id
-
-    def test_a_whole_roll_apply_is_recorded_per_card(self):
-        from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS
-        from negpy.services.assets import rolls
-
-        roll_id = self._roll_with_frame()
-
-        self.controller.record_roll_apply(rows_for_fields(GEOMETRY_FIELDS) + rows_for_fields(COLOR_FIELDS))
-
-        pushes = rolls.roll_for_id(self.controller.session.repo, roll_id)["section_pushes"]
-        self.assertEqual(set(pushes), {"geometry", "color"})
-
-    def test_reset_to_roll_restores_only_what_the_roll_apply_carried(self):
-        self._roll_with_frame()
-        state = self.mock_session_manager.state
-        state.config = replace(state.config, exposure=replace(state.config.exposure, density=1.2, dye_separation=0.4))
-        self.controller.record_roll_apply(rows_for_fields(("density",)))
-        state.config = replace(state.config, exposure=replace(state.config.exposure, density=0.5, dye_separation=0.9))
-        self.assertEqual(self.controller.roll_revert_cards(("tone",)), {"tone"})
-
-        self.assertEqual(self.controller.revert_to_roll(("tone",)), 1)
-
-        self.assertEqual(state.config.exposure.density, 1.2)
-        self.assertEqual(state.config.exposure.dye_separation, 0.9)
-        self.assertEqual(self.controller.frame_section_scope("tone"), "roll")
-        self.assertEqual(self.controller.roll_revert_cards(("tone",)), set())
-
-    def test_a_pushed_crop_read_back_as_a_list_still_matches(self):
-        """The roll store is JSON: a pushed crop comes back as a list, the frame holds a tuple."""
-        from negpy.services.assets import rolls
-
-        roll_id = self._roll_with_frame()
-        state = self.mock_session_manager.state
-        rolls.set_section_push(self.controller.session.repo, roll_id, "geometry", {"crop_rect": [0.1, 0.1, 0.9, 0.9]})
-        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
-        self.assertEqual(self.controller.frame_section_scope("geometry"), "roll")
-
-        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8)))
-        self.controller.revert_to_roll(("geometry",))
-
-        self.assertEqual(state.config.geometry.crop_rect, (0.1, 0.1, 0.9, 0.9))
-        self.assertEqual(self.controller.frame_section_scope("geometry"), "roll")
 
     def test_reset_to_roll_unlocks_a_roll_card_and_takes_the_rolls_value(self):
         from negpy.services.assets import rolls
@@ -1952,19 +1975,65 @@ class TestAppController(unittest.TestCase):
         roll_id = self._roll_with_frame()
         repo = self.controller.session.repo
         state = self.mock_session_manager.state
-        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2, distortion_k1=0.05)
         rolls.set_frame_override(repo, roll_id, "h1", "process", True)
-        state.config = replace(state.config, exposure=replace(state.config.exposure, density=1.2))
-        self.controller.record_roll_apply(rows_for_fields(("density",)))
-        state.config = replace(state.config, exposure=replace(state.config.exposure, density=0.5))
+        rolls.set_frame_override(repo, roll_id, "h1", "lens", True)
         self.mock_session_manager.update_config.reset_mock()
 
         self.assertTrue(self.controller.can_revert_frame_to_roll())
         self.assertEqual(self.controller.revert_frame_to_roll(), 2)
 
         self.assertEqual(self.mock_session_manager.update_config.call_count, 1)
-        self.assertEqual((state.config.process.analysis_buffer, state.config.exposure.density), (0.2, 1.2))
+        self.assertEqual((state.config.process.analysis_buffer, state.config.geometry.distortion_k1), (0.2, 0.05))
         self.assertFalse(self.controller.can_revert_frame_to_roll())
+
+    def test_a_card_reset_away_from_the_roll_locks_and_back_to_it_unlocks(self):
+        """A card's Reset is an edit: a default unlike the roll's stays on reload."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        rolls.set_roll_defaults(repo, roll_id, **self.controller._card_values(self.mock_session_manager.state.config, "process"))
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)
+
+        self.controller.sync_roll_card_locks(("process",))
+        self.assertIn("process", self.controller.locked_roll_cards())
+
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=self.mock_session_manager.state.config.process.analysis_buffer)
+        self.controller.sync_roll_card_locks(("process",))
+        self.assertNotIn("process", self.controller.locked_roll_cards())
+
+    def test_a_roll_push_counts_the_frames_that_keep_their_own_value(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        state.uploaded_files = state.uploaded_files + [{"name": "b.dng", "path": "/b.dng", "hash": "h2"}]
+        rolls.set_frame_override(repo, roll_id, "h1", "process", True)
+        rolls.set_frame_override(repo, roll_id, "h2", "process", True)
+        self.controller.set_status = MagicMock()
+
+        self.controller.apply_roll_card("process")
+
+        self.assertEqual(self.controller.set_status.call_args[0][0], "Applied to the roll: Metering. Frames that keep their own value: 1")
+
+    def test_measure_alone_keeps_the_frame_off_the_rolls_average(self):
+        """With the roll on its average, Measure Alone locks the Roll Analysis card, or the
+        roll's Use Average would come back on the next load."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        rolls.set_roll_defaults(
+            self.controller.session.repo, roll_id, use_luma_average=True, use_color_average=True, use_cast_average=False
+        )
+        state = self.mock_session_manager.state
+        state.selected_indices = []
+        state.config = replace(state.config, process=replace(state.config.process, use_luma_average=True, use_color_average=True))
+
+        self.controller.reanalyze_selection()
+
+        self.assertIn("baseline", self.controller.locked_roll_cards())
 
     def test_nothing_to_reset_to_the_roll(self):
         from negpy.services.assets import rolls
@@ -4163,6 +4232,18 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(pushed, {"h1", "h3"})
         self.mock_session_manager.update_config.assert_called()
 
+    def test_batch_normalization_writes_only_the_frames_it_measured(self):
+        """A frame the Sheet filter hid was not measured, so it keeps what it had."""
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._normalization_measured = {"h2", "h3"}
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertNotIn("h1", saved)
+        self.assertIn("h3", saved)
+
     def test_locked_frame_keeps_its_own_exposure_after_batch_analysis(self):
         locked_cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, lock_bounds=True))
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: locked_cfg if h == "h1" else None
@@ -4209,7 +4290,14 @@ class TestPresetExportSelected(unittest.TestCase):
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
         mock_set.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None, frames=("h1", "h2", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            (0.1, 0.1, 0.1),
+            (0.9, 0.9, 0.9),
+            outliers=(),
+            axis=None,
+            frames=("h1", "h2", "h3"),
+            inputs=ANY,
         )
 
     def test_outlier_keeps_its_own_bounds(self):
@@ -4293,16 +4381,73 @@ class TestPresetExportSelected(unittest.TestCase):
                 self.controller._run_background_baseline()
         self.assertEqual(tasks, [])
 
+    def test_background_run_measures_again_when_a_frames_crop_or_metering_changed(self):
+        tasks = self._capture_background_runs()
+        frames = [f for f in self.mock_session_manager.state.uploaded_files]
+        current = self.controller._meter_inputs(frames)
+        hashes = tuple(current)
+
+        with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": current}):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
+        stale = {**current, hashes[0]: "a crop ago"}
+        with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": stale}):
+            self.controller._run_background_baseline()
+        self.assertEqual(len(tasks), 1)
+        self.assertTrue(self.controller._background_baseline[4])
+
+    def test_a_background_run_that_moves_the_average_says_so(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        base = WorkspaceConfig().process
+        riding = WorkspaceConfig(
+            process=replace(base, use_luma_average=True, locked_floors=(0.2,) * 3, locked_ceils=(0.8,) * 3, baseline_source="roll:roll-1")
+        )
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller.set_status = MagicMock()
+
+        with patch.object(rolls, "set_roll_normalization"):
+            self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
+
+        self.controller.set_status.assert_called_once_with("Roll average measured again: 1 frame took the new average", 4000)
+
+    def test_roll_analysis_makes_use_average_the_rolls_value_and_outliers_keep_their_own(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        with (
+            patch.object(rolls, "set_roll_normalization"),
+            patch.object(rolls, "set_roll_defaults") as defaults,
+            patch.object(rolls, "set_frame_override") as override,
+        ):
+            self.controller._on_normalization_finished((0.1,) * 3, (0.9,) * 3, ["h1"], None)
+
+        defaults.assert_called_once_with(
+            self.mock_session_manager.repo, "roll-1", use_luma_average=True, use_color_average=True, use_cast_average=False
+        )
+        locks = {c.args[2]: c.args[4] for c in override.call_args_list if c.args[3] == "baseline"}
+        self.assertEqual(locks, {"h1": True, "h2": False, "h3": False})
+
     def test_background_baseline_is_saved_and_turns_no_average_on(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"))
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, False)
 
         with patch.object(rolls, "set_roll_normalization") as mock_set:
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, ["h1"], None)
 
         mock_set.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", (0.1,) * 3, (0.9,) * 3, outliers=("h1",), axis=None, frames=("h1", "h2", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            (0.1,) * 3,
+            (0.9,) * 3,
+            outliers=("h1",),
+            axis=None,
+            frames=("h1", "h2", "h3"),
+            inputs=ANY,
         )
         self.mock_session_manager.repo.save_file_settings.assert_not_called()
         self.mock_session_manager.update_config.assert_not_called()
@@ -4316,7 +4461,7 @@ class TestPresetExportSelected(unittest.TestCase):
             process=replace(base, use_luma_average=True, locked_floors=(0.2,) * 3, locked_ceils=(0.8,) * 3, baseline_source="roll:roll-1")
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"))
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, False)
 
         with patch.object(rolls, "set_roll_normalization"):
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
@@ -4326,6 +4471,22 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(saved["h1"].locked_floors, (0.1,) * 3)
         self.assertTrue(saved["h1"].use_luma_average)
         self.assertFalse(saved["h1"].use_color_average)
+
+    def test_background_baseline_leaves_a_frame_that_holds_the_same_average(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        base = WorkspaceConfig().process
+        riding = WorkspaceConfig(
+            process=replace(base, use_luma_average=True, locked_floors=(0.1,) * 3, locked_ceils=(0.9,) * 3, baseline_source="roll:roll-1")
+        )
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
+        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+
+        with patch.object(rolls, "set_roll_normalization"):
+            self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)
+
+        self.mock_session_manager.repo.save_file_settings.assert_not_called()
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_not_called()
 
     def test_background_run_measures_a_scene_once_the_roll_is_known(self):
         tasks = self._capture_background_runs()
@@ -4341,7 +4502,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         (task,) = tasks
         self.assertEqual([f.file_info["hash"] for f in task.frames], ["h2", "h3"])
-        self.assertEqual(self.controller._background_baseline, ("roll-1", "s1", ("h2", "h3")))
+        self.assertEqual(self.controller._background_baseline[:3], ("roll-1", "s1", ("h2", "h3")))
 
     def test_background_scene_baseline_moves_only_the_frames_riding_that_scene(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
@@ -4355,7 +4516,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         configs = {"h1": riding("roll:roll-1"), "h3": riding("scene:s1")}
         self.mock_session_manager.repo.load_file_settings.side_effect = configs.get
-        self.controller._background_baseline = ("roll-1", "s1", ("h2", "h3"))
+        self.controller._background_baseline = ("roll-1", "s1", ("h2", "h3"), {}, False)
 
         with (
             patch.object(rolls, "scene_by_hash", return_value={"h3": (1, "s1", "Woods")}),
@@ -4422,6 +4583,43 @@ class TestPresetExportSelected(unittest.TestCase):
             self.controller.toggle_average_peek()
         self.assertFalse(self.mock_session_manager.state.average_peek)
         self.controller.request_render.assert_not_called()
+
+    def test_the_average_peek_follows_the_user_to_the_next_frame(self):
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+            self.controller.set_average_peek_axes(use_color_average=False)
+            self.controller.request_render.reset_mock()
+            self.controller._carry_average_peek()
+
+        state = self.mock_session_manager.state
+        self.assertTrue(state.average_peek)
+        self.assertFalse(state.average_peek_axes["use_color_average"])
+        self.assertIsNotNone(self.controller.request_render.call_args.kwargs["config_override"])
+
+    def test_a_plain_render_on_another_frame_carries_the_peek(self):
+        """Selecting a frame renders before its preview loads; that render is no edit to the peek."""
+        from negpy.desktop.controller import AppController
+
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+            self.controller._carry_average_peek = MagicMock()
+            self.controller.request_render = lambda **kw: AppController.request_render(self.controller, **kw)
+            self.mock_session_manager.state.current_file_hash = "other-frame"
+            self.mock_session_manager.state.current_file_path = None
+            self.controller.request_render()
+
+        self.assertTrue(self.mock_session_manager.state.average_peek)
+        self.controller._carry_average_peek.assert_called_once()
+
+    def test_a_frame_with_no_average_ends_the_peek(self):
+        with self._average_peek_setup():
+            self.controller.toggle_average_peek()
+        self.controller.request_render.reset_mock()
+        with patch.object(rolls, "frame_saved_baseline", return_value=None):
+            self.controller._carry_average_peek()
+
+        self.assertFalse(self.mock_session_manager.state.average_peek)
+        self.assertIsNone(self.controller.request_render.call_args.kwargs.get("config_override"))
 
     def test_keep_writes_the_peeks_averages_as_one_edit(self):
         self.controller.set_roll_average = MagicMock()
@@ -4549,7 +4747,15 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(saved["h1"].process.baseline_source, "scene:s1")
         mock_roll.assert_not_called()
         mock_scene.assert_called_once_with(
-            self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None, frames=("h1", "h3")
+            self.mock_session_manager.repo,
+            "roll-1",
+            "s1",
+            (0.1, 0.1, 0.1),
+            (0.9, 0.9, 0.9),
+            outliers=(),
+            axis=None,
+            frames=("h1", "h3"),
+            inputs=ANY,
         )
         # h2, the active frame, is outside the scene, so its in-memory config is untouched.
         self.mock_session_manager.update_config.assert_not_called()
@@ -4834,6 +5040,27 @@ class TestPresetExportSelected(unittest.TestCase):
         mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.2, 0.3), (0.9, 0.8, 0.7))
         mock_apply.assert_called_once_with("roll-1")
 
+    def test_set_roll_baseline_from_frame_takes_its_own_measurement_not_the_average(self):
+        """A frame on the average renders the average; Use This Frame means the frame itself."""
+        cfg = WorkspaceConfig()
+        self.mock_session_manager.state.config = replace(
+            cfg,
+            process=replace(
+                cfg.process,
+                local_floors=(0.1, 0.2, 0.3),
+                local_ceils=(0.9, 0.8, 0.7),
+                locked_floors=(0.4, 0.4, 0.4),
+                locked_ceils=(0.6, 0.6, 0.6),
+                use_luma_average=True,
+                use_color_average=True,
+            ),
+        )
+
+        with patch.object(rolls, "set_roll_normalization") as mock_set, patch.object(self.controller, "apply_normalization_roll"):
+            self.controller.set_roll_baseline_from_frame("roll-1")
+
+        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.2, 0.3), (0.9, 0.8, 0.7))
+
     def test_set_roll_baseline_from_frame_needs_a_metered_frame(self):
         """An unrendered frame has all-zero bounds; writing those would blank the roll."""
         self.mock_session_manager.state.config = WorkspaceConfig()
@@ -4854,13 +5081,15 @@ class TestPresetExportSelected(unittest.TestCase):
 
         self.mock_session_manager.state.active_roll_id = "roll-1"
 
+        state = self.mock_session_manager.state
+        self.mock_session_manager.update_config.side_effect = lambda cfg, **_kw: setattr(state, "config", cfg)
         with (
             patch.object(rolls, "set_frame_override") as mock_lock,
             patch.object(rolls, "frame_override_cards", return_value=set()),
         ):
             self.controller.set_process_mode(ProcessMode.BW)
 
-        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True)
+        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True, baseline=ANY)
 
     def test_set_process_mode_does_not_touch_the_roll_without_an_active_roll(self):
         from negpy.features.process.models import ProcessMode
@@ -4889,13 +5118,15 @@ class TestPresetExportSelected(unittest.TestCase):
         self.mock_session_manager.state.active_roll_id = "roll-1"
         self.mock_session_manager.state.config = _slide_config(self.mock_session_manager.state.config)
 
+        state = self.mock_session_manager.state
+        self.mock_session_manager.update_config.side_effect = lambda cfg, **_kw: setattr(state, "config", cfg)
         with (
             patch.object(rolls, "set_frame_override") as mock_lock,
             patch.object(rolls, "frame_override_cards", return_value=set()),
         ):
             self.controller.set_positive_source(True)
 
-        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True)
+        mock_lock.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "h2", "film", True, baseline=ANY)
 
     def test_set_positive_source_does_not_touch_the_roll_without_an_active_roll(self):
         self.mock_session_manager.state.active_roll_id = None
@@ -6160,6 +6391,27 @@ class TestEmbeddedPeek(unittest.TestCase):
             self.controller.toggle_embedded_peek(force=True)
         self.assertFalse(self.controller.state.embedded_peek)
         self.assertEqual(seen, [False], "the menu item must not stay checked on a file with no preview")
+
+    def _pick_profile(self, film_scanner, **kwargs):
+        from negpy.services.assets.flatfield import FlatFieldProfile, FlatFieldProfiles
+
+        repo = self.mock_session_manager.repo
+        repo.save_global_setting.reset_mock()
+        self.mock_session_manager.film_scanner_file.return_value = film_scanner
+        self.controller.set_roll_default = MagicMock()
+        with patch.object(FlatFieldProfiles, "get", return_value=FlatFieldProfile("ff-120", "120", 0.0, "")):
+            self.controller.set_active_flatfield_profile("ff-120", **kwargs)
+        self.controller.set_roll_default.assert_called_once_with("flatfield", profile_id="ff-120", apply=True)
+        return repo.save_global_setting.call_args_list
+
+    def test_a_camera_frame_sets_the_last_chosen_profile(self):
+        self.assertEqual(self._pick_profile(False), [call("flatfield_active_profile", "ff-120")])
+
+    def test_a_film_scanner_frame_leaves_the_last_chosen_profile(self):
+        self.assertEqual(self._pick_profile(True), [])
+
+    def test_a_capture_sets_the_last_chosen_profile_from_any_frame(self):
+        self.assertEqual(self._pick_profile(True, remember=True), [call("flatfield_active_profile", "ff-120")])
 
     def test_the_peeks_are_mutually_exclusive(self):
         with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))):
@@ -7935,7 +8187,6 @@ class TestLibrarySearch(unittest.TestCase):
         source = rolls.recognize_folder(repo, "/photos/portra")
         rolls.set_roll_defaults(repo, source, film_stock_id="portra400")
         rolls.add_frame_seed(repo, source, cast_removal_strength=0.5)
-        rolls.set_section_push(repo, source, "lab", {"saturation": 1.2})
         rolls.set_frame_override(repo, source, "h12", "film", True)
         rolls.set_frame_override(repo, source, "h99", "film", True)
         rolls.set_roll_normalization(repo, source, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
@@ -7953,7 +8204,6 @@ class TestLibrarySearch(unittest.TestCase):
         entry = rolls.roll_for_id(repo, roll_id)
         self.assertEqual(entry["defaults"], {"film_stock_id": "portra400"})
         self.assertEqual(entry["frame_seed"], {"cast_removal_strength": 0.5})
-        self.assertEqual(entry["section_pushes"], {"lab": {"saturation": 1.2}})
         self.assertEqual(entry["frame_overrides"], {"h12": ["film"]})
         self.assertNotIn("normalization", entry)
         self.assertNotIn("scenes", entry)

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, TYPE_CHECKING, Tuple
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING, Tuple
 
 import negpy_core
 import numpy as np
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Bump in any change that alters the bounds a frame measures for unchanged settings. Saved
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
-BOUNDS_VERSION = 2
+BOUNDS_VERSION = 3
 
 # Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
@@ -155,36 +155,16 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     negative stock, so without this gate a slide silently gets a negative's correction.
     Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
     profile that predates the field actually is.
-
-    Also composes in fade restoration for slides. Fade restores
-    the densities the unmix recovered as faded, so it applies after: `fade @ unmix`. Either
-    factor, both or neither can be None.
     """
 
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
-    unmix = None
     if process_mode is None or profile_mode == str(process_mode):
-        unmix = resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
-
-    fade = (
-        resolve_fade_matrix(process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b)
-        if _fade_applies(process, process_mode)
-        else None
-    )
-    if fade is None:
-        return unmix
-    return fade if unmix is None else fade @ unmix
-
-
-def _fade_applies(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
-    """Whether a non-neutral fade factor is requested: slides only, and not at unit survival."""
-    if process_mode is not None and str(process_mode) != str(ProcessMode.E6):
-        return False
-    return any(float(r) - 1.0 != 0.0 for r in (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b))
+        return resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
+    return None
 
 
 def crosstalk_unmix_active(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
-    """A crosstalk unmix for this film process runs ahead of the fade factor."""
+    """A crosstalk unmix for this film process applies."""
     profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
     return (process_mode is None or profile_mode == str(process_mode)) and (
         resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix) is not None
@@ -210,21 +190,31 @@ def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Option
     return applied / np.maximum(row_sums, 1e-6)
 
 
-def resolve_fade_matrix(ratio_r: float, ratio_g: float, ratio_b: float) -> np.ndarray:
-    """Restoration operator for a faded dye set: the inverse of diag(ar, ar*ag, ar*ab).
-
-    Not row-normalized: fade changes each layer's neutral density, and that is the signal.
-    `ratio_g` and `ratio_b` are survival ratios to red; `ratio_r` is red's absolute survival.
-    """
-    ar, ag, ab = float(ratio_r), float(ratio_g), float(ratio_b)
-    return np.diag([1.0 / ar, 1.0 / (ar * ag), 1.0 / (ar * ab)])
-
-
-def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
-    """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None."""
+def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: Optional[Sequence[float]] = None) -> ImageBuffer:
+    """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None. A (3, 4)
+    matrix is an affine: its last column is added after the 3x3, as normalization.wgsl does.
+    With an *anchor*, each channel is capped at it before the 3x3, and the
+    amount the pixel is above it in every channel passes through as a neutral."""
     if matrix is None:
         return img_log
-    return np.einsum("hwc,kc->hwk", img_log.astype(np.float32, copy=False), matrix.astype(np.float32))
+    m = np.ascontiguousarray(matrix, dtype=np.float32)
+    img = np.ascontiguousarray(img_log, dtype=np.float32)
+    lin = np.ascontiguousarray(m[:, :3])
+    if anchor is not None:
+        offset = [float(v) for v in m[:, 3]] if m.shape[1] == 4 else [0.0, 0.0, 0.0]
+        return negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor], offset)
+    out = negpy_core.unmix_log(img, lin)
+    # A (3, 4) matrix is an affine: the last column is a log offset added after the 3x3.
+    return out + m[:, 3] if m.shape[1] == 4 else out
+
+
+def relog_matrix_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
+    """Apply a linear-light 3x3 to a (H, W, 3) log-density image: 10^v, the matrix, then the log
+    clamped at 1e-6 as `log_density_open` clamps it. Identity when None."""
+    if matrix is None:
+        return img_log
+    m = np.ascontiguousarray(np.asarray(matrix, dtype=np.float32)[:, :3])
+    return negpy_core.relog_matrix(np.ascontiguousarray(img_log, dtype=np.float32), m)
 
 
 def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:
@@ -1076,6 +1066,8 @@ def resolve_bounds_detailed(process, analyze_fn) -> tuple[LogNegativeBounds, Log
     if roll_luma and roll_color:
         return locked, locked
     base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
+    if process.manual_dmin is not None or process.manual_dmax is not None:
+        base = LogNegativeBounds(process.manual_dmax or base.floors, process.manual_dmin or base.ceils)
     final = mix_luma_color_bounds(locked if roll_luma else base, locked if roll_color else base)
     return final, base
 

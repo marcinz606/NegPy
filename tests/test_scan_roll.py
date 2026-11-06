@@ -20,6 +20,8 @@ def _controller(as_roll=False, capture_req=None):
     c._discover_scanned = MethodType(AppController._discover_scanned, c)
     c._save_rgb_scan_mode = MethodType(AppController._save_rgb_scan_mode, c)
     c._set_roll_sensor_profile = MethodType(AppController._set_roll_sensor_profile, c)
+    c._set_roll_cards = MethodType(AppController._set_roll_cards, c)
+    c._card_values = AppController._card_values
     c._RGB_SCAN_MODE_BY_ROLL_KEY = AppController._RGB_SCAN_MODE_BY_ROLL_KEY
     c._store = store
     return c
@@ -223,3 +225,16 @@ def test_a_triplet_capture_never_takes_a_sensor_profile(monkeypatch):
     AppController._on_capture_finished(c, ["/hot/R1/r.ARW", "/hot/R1/g.ARW", "/hot/R1/b.ARW"])
 
     assert "sensor_profile" not in roll_defaults(c.session.repo, folder_roll_id_for_path(c.session.repo, "/hot/R1"))
+
+
+def test_a_blend_capture_gives_its_roll_the_blend_sensor_profile_and_no_triplet(monkeypatch):
+    _profiles(monkeypatch, Rig=_UNMIX)
+    c = _controller(capture_req=_rgb_req("R1", blend_capture=True, sensor_profile="Rig"))
+
+    AppController._on_capture_finished(c, ["/hot/R1/R1_Frame001.ARW"])
+
+    roll_id = folder_roll_id_for_path(c.session.repo, "/hot/R1")
+    defaults = roll_defaults(c.session.repo, roll_id)
+    assert defaults["sensor_profile"] == "Rig" and defaults["linear_raw"] is True
+    assert c._store["rgbscan_mode_by_roll"] == {roll_id: False}
+    assert c.request_asset_discovery.call_args.kwargs["restore_triplets"] is None

@@ -963,7 +963,7 @@ class TestToolsMenu(unittest.TestCase):
 
         tb = _make_toolbar()
         headers = [a.defaultWidget().text() for a in tb.btn_tools.choice_menu.actions() if isinstance(a, QWidgetAction)]
-        self.assertEqual(headers, ["CROP", "STRAIGHTEN", "METERING", "FILTRATION", "DODGE & BURN", "LIGHT LEAK", "RETOUCH"])
+        self.assertEqual(headers, ["ANALYSIS", "CROP", "STRAIGHTEN", "METERING", "FILTRATION", "DODGE & BURN", "LIGHT LEAK", "RETOUCH"])
 
     def test_tools_is_on_the_stock_row_and_collapses(self):
         from negpy.desktop.view.canvas.toolbar import _COLLAPSE_ORDER
@@ -1188,6 +1188,24 @@ def test_the_average_peek_shows_its_row_and_right_click_turns_every_average_on(q
     assert not tb._average_toggles["use_color_average"].isChecked()
     QTest.mouseClick(tb._average_toggles["use_color_average"], Qt.MouseButton.RightButton)
     tb.controller.set_average_peek_axes.assert_called_with(use_luma_average=True, use_color_average=True)
+
+
+def test_the_average_row_says_what_the_frame_has_applied(qapp):
+    """The toggles show what Apply gives; the hint says what the frame prints with now."""
+    from dataclasses import replace
+
+    tb = _make_toolbar()
+    state = tb.session.state
+    state.average_peek = True
+    state.average_peek_axes = {"use_luma_average": True, "use_color_average": True, "use_cast_average": False}
+    state.config.process = WorkspaceConfig().process
+    tb.controller.average_scopes.return_value = {}
+    with patch("negpy.desktop.view.canvas.toolbar.rolls.frame_saved_baseline", return_value=None):
+        tb._sync_tool_row()
+        assert tb.average_hint.text() == "Applied: none"
+        state.config.process = replace(state.config.process, use_luma_average=True)
+        tb._sync_tool_row()
+    assert tb.average_hint.text() == "Applied: Luma"
 
 
 def _average_toolbar(baseline):

@@ -65,7 +65,7 @@ def test_the_hint_names_every_overridden_card():
 
     MetadataSidebar._sync_scope_buttons(panel)
 
-    panel.metadata_scope_hint.setText.assert_called_with("This frame overrides: Analog Gear, Scanning")
+    panel.metadata_scope_hint.setText.assert_called_with("Keeps its own value on: Analog Gear, Scanning")
 
 
 def test_the_hint_is_blank_with_nothing_overridden():

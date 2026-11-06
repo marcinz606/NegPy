@@ -11,6 +11,8 @@ GPU needed), with an AppState standing in for session hydration.
 """
 
 import os
+
+import pytest
 from dataclasses import replace
 from types import MethodType, SimpleNamespace
 from unittest.mock import MagicMock
@@ -272,3 +274,17 @@ def test_an_infrared_exposure_rides_beside_the_triplet(tmp_path):
     controller.request_asset_discovery.assert_called_once_with(paths, restore_triplets={paths[0]: [paths[1], paths[2]]})
     assert controller._pending_scanned_file == paths[0]
     assert os.path.normcase(os.path.abspath(paths[0])) in controller._pending_capture_imports
+
+
+@pytest.mark.parametrize(
+    "req_kw,mode",
+    [({"blend_capture": True}, "blend"), ({"single_capture": True}, "single"), ({}, None)],
+)
+def test_a_blend_or_single_capture_records_its_mode_for_the_film_strip(monkeypatch, req_kw, mode):
+    import negpy.desktop.controller as controller_module
+
+    recorded = []
+    monkeypatch.setattr(controller_module, "record_capture_mode", lambda _repo, path, m: recorded.append((path, m)))
+    paths = ["frame.ARW"] if mode else ["r.ARW", "g.ARW", "b.ARW"]
+    _run(paths, rgb_mode=True, white_mode=False, **req_kw)
+    assert recorded == ([("frame.ARW", mode)] if mode else [])

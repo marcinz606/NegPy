@@ -17,6 +17,7 @@ from negpy.services.export.contact_sheet_roll import (
     FrameFacts,
     SheetFrame,
     creation_order,
+    frame_order,
     name_order,
     cropped_aspect,
     infer_format,
@@ -68,6 +69,15 @@ class TestOrder:
     def test_ties_break_by_name_then_half(self):
         frames = [_frame("x.tif", half=2, birth=5), _frame("x.tif", half=1, birth=5), _frame("a.tif", birth=5)]
         assert creation_order(frames) == [2, 1, 0]
+
+    def test_frame_order_is_roll_then_frame_number_then_name(self):
+        frames = [
+            _frame("a.tif", capture_roll="02", capture_frame=1),
+            _frame("b.tif", capture_roll="01", capture_frame=10),
+            _frame("c.tif", capture_roll="01", capture_frame=2),
+            _frame("e.tif", capture_roll="01", capture_frame=2),
+        ]
+        assert frame_order(frames) == [2, 3, 1, 0]
 
     def test_name_order_ignores_case_and_time(self):
         frames = [_frame("b.tif", birth=1), _frame("x.tif", half=2), _frame("A.tif", birth=9), _frame("x.tif", half=1)]

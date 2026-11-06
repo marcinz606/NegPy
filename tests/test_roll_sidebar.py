@@ -5,7 +5,7 @@ run that fills the tick in) -- the same action the Library's "Analyze Roll…" o
 (tested in test_library_tree.py), reachable here too, enabled only for the loaded roll."""
 
 from dataclasses import replace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.roll import STALE_ROLL_HINT, STALE_SCENE_TOOLTIP, RollAnalysisSidebar
@@ -86,7 +86,12 @@ def test_reanalyze_button_disabled_with_no_roll_loaded(qapp):
 
 def test_use_this_frame_writes_the_frames_bounds_as_the_baseline(qapp):
     controller, sidebar, ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
-    sidebar.from_frame_btn.click()
+    with patch("negpy.desktop.view.sidebar.roll.confirm_action", return_value=False):
+        sidebar.from_frame_btn.click()
+    controller.set_roll_baseline_from_frame.assert_not_called()
+
+    with patch("negpy.desktop.view.sidebar.roll.confirm_action", return_value=True):
+        sidebar.from_frame_btn.click()
     controller.set_roll_baseline_from_frame.assert_called_once_with(ids["Tri-X"])
 
 
@@ -111,10 +116,11 @@ def test_the_baseline_buttons_sit_on_the_rolls_header(qapp):
     assert widgets[0].text() == "ROLLS"
 
 
-def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):
+def test_the_baseline_actions_carry_a_short_label_and_their_full_name_in_the_tooltip(qapp):
     _, sidebar, ids = _sidebar(roll_names=["Portra 400"], active_name="Portra 400")
     sidebar._on_roll_picked(ids["Portra 400"])
-    assert sidebar.reanalyze_btn.text() == ""
+    assert sidebar.reanalyze_btn.text().strip() == "Reanalyze"
+    assert sidebar.from_frame_btn.text().strip() == "Use Frame"
     assert "Roll Analysis" in sidebar.reanalyze_btn.toolTip()
     assert "Use This Frame" in sidebar.from_frame_btn.toolTip()
 

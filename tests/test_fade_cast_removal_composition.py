@@ -1,12 +1,6 @@
-"""Fade Restoration and Cast Removal on a transparency: composition, not competition.
-
-Per PLAN_after_cast_removal.md §1: Cast Removal's neutral-axis meter reads the film
-*after* the fade matrix (features/transparency/processor.py), so it fits whatever per-channel
-residual the fade correction leaves rather than colliding with it. No conflict guard
-exists between the two -- this file pins that as a deliberate invariant, not an oversight,
-so nobody adds one later on the assumption they collide (mirrors fade_delta_conflict_reason,
-which *does* guard fade against Crosstalk, for the genuinely different reason that both
-describe the same physical side absorption).
+"""Fade Restoration and Cast Removal on a transparency compose: Cast Removal's neutral-axis
+meter reads the film after the fade matrix (features/transparency/processor.py), so it fits
+the residual the fade leaves. No conflict guard exists between the two.
 """
 
 import unittest

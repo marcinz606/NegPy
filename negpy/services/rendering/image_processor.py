@@ -811,6 +811,7 @@ class ImageProcessor:
         gain_slices: tuple = (),
         source_orientation: int = 1,
         film_base: Optional[tuple] = None,
+        wants_fade_grid: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
         """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
         fallbacks pass a buffer already flat-fielded and leak-baked. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
@@ -918,6 +919,7 @@ class ImageProcessor:
             camera_wb=camera_wb,
             cache_stages=cache_stages,
             readback_metrics=readback_metrics,
+            wants_fade_grid=wants_fade_grid,
         )
         if metrics:
             context.metrics.update(metrics)
@@ -1273,15 +1275,13 @@ class ImageProcessor:
         ir_full = metadata.get("ir")
 
         if is_triplet:
-
+            # Merged in float, as the preview merges: the align's cubic warp overshoots the
+            # sensor ceiling, and a cast of the merge back to uint16 wraps it to black.
             def _decode(path: str) -> np.ndarray:
-                if path == file_path:
-                    return rgb
-                return decoded[path]
+                return uint16_to_float32(rgb if path == file_path else decoded[path])
 
-            rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
-
-        if hdr_active(params.hdr):
+            f32_buffer = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
+        elif hdr_active(params.hdr):
             # Merged straight to float32: the recovered detail sits below the reference
             # exposure's quantization step, so a uint16 round-trip would discard it. This
             # runs before flat-field and the sensor unmix, both applied below. The decode

@@ -17,7 +17,8 @@ from negpy.infrastructure.loaders.helpers import (
     identify_color_space_from_icc,
     read_orientation,
 )
-from negpy.infrastructure.loaders.source_encoding import PROFILE, apply_decode, resolve_decode
+from negpy.features.process.capture_color import source_cam_xyz
+from negpy.infrastructure.loaders.source_encoding import PROFILE, decode_positive, resolve_decode
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane, normalize_ir_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -220,12 +221,14 @@ class TiffLoader(IImageLoader):
         color_space = None
         if positive_decode:
             ran, decode = resolve_decode(positive_decode, icc_bytes, img.dtype)
-            # Decoded to the working space, so Same as Source names it only for a profile.
+            # The engines take it to the working space, so Same as Source names it only for a profile.
             color_space = identify_color_space_from_icc(icc_bytes) if ran == PROFILE else None
             if decode.identity and img.dtype == np.uint16:
                 wrapper = NonStandardFileWrapper(source_u16=np.ascontiguousarray(img))
             else:
-                wrapper = NonStandardFileWrapper(apply_decode(img, decode))
+                linear, to_working = decode_positive(img, decode)
+                wrapper = NonStandardFileWrapper(linear)
+                wrapper.rgb_xyz_matrix = source_cam_xyz(to_working)
             metadata = {
                 "orientation": read_orientation(file_path),
                 "color_space": color_space,

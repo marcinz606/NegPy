@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QWidget
 
@@ -12,6 +17,43 @@ def _hud(width=1200):
     hud.resize(width, hud.minimumHeight())
     hud._keepalive = parent
     return hud
+
+
+_DUE_TIMER_AFTER_A_BACKGROUND_COLLECTION = """
+import gc, threading, time
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QWidget
+from negpy.desktop.view.canvas.hud import CanvasHud
+
+app = QApplication([])
+gc.disable()
+
+def strip():
+    parent = QWidget()
+    hud = CanvasHud(parent)
+    hud.showMessage("x", 20)
+    hud._keepalive = parent
+
+strip()
+thread = threading.Thread(target=gc.collect)
+thread.start()
+thread.join()
+time.sleep(0.05)
+QTest.qWait(30)
+"""
+
+
+def test_a_message_timer_survives_a_collection_on_another_thread():
+    # In a subprocess: the failure is a segfault, which would end the test run.
+    run = subprocess.run(
+        [sys.executable, "-c", _DUE_TIMER_AFTER_A_BACKGROUND_COLLECTION],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=Path(__file__).parent.parent,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+    )
+    assert run.returncode == 0, run.stderr
 
 
 def test_an_empty_strip_hides_so_the_canvas_keeps_its_height(qapp):
@@ -225,3 +267,16 @@ def test_a_bar_track_is_as_tall_as_a_bar_field():
     from negpy.desktop.view.styles.templates import BAR_BUTTON_HEIGHT, BAR_TRACK_BUTTON_HEIGHT, BAR_TRACK_PAD
 
     assert BAR_TRACK_BUTTON_HEIGHT + 2 * BAR_TRACK_PAD == BAR_BUTTON_HEIGHT
+
+
+def test_undo_is_offered_beside_a_batch_message_and_withdrawn_on_click(qapp):
+    hud = _hud()
+    fired = []
+    hud.undo_requested.connect(lambda: fired.append(True))
+
+    hud.offer_undo()
+    assert hud.undo_button.isVisibleTo(hud)
+
+    hud.undo_button.click()
+    assert fired == [True]
+    assert not hud.undo_button.isVisibleTo(hud)

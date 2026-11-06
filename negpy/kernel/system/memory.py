@@ -8,28 +8,55 @@ import sys
 from pathlib import Path
 
 
-def _windows_available_memory() -> int | None:
-    class MemoryStatusEx(ctypes.Structure):
-        _fields_ = [
-            ("dwLength", ctypes.c_ulong),
-            ("dwMemoryLoad", ctypes.c_ulong),
-            ("ullTotalPhys", ctypes.c_ulonglong),
-            ("ullAvailPhys", ctypes.c_ulonglong),
-            ("ullTotalPageFile", ctypes.c_ulonglong),
-            ("ullAvailPageFile", ctypes.c_ulonglong),
-            ("ullTotalVirtual", ctypes.c_ulonglong),
-            ("ullAvailVirtual", ctypes.c_ulonglong),
-            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-        ]
+class _MemoryStatusEx(ctypes.Structure):
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
 
+
+def _windows_memory_status() -> _MemoryStatusEx | None:
     try:
-        status = MemoryStatusEx()
+        status = _MemoryStatusEx()
         status.dwLength = ctypes.sizeof(status)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
-            return int(status.ullAvailPhys)
+            return status
     except Exception:
         pass
     return None
+
+
+def _windows_available_memory() -> int | None:
+    status = _windows_memory_status()
+    return None if status is None else int(status.ullAvailPhys)
+
+
+def _windows_total_memory() -> int | None:
+    status = _windows_memory_status()
+    return None if status is None else int(status.ullTotalPhys)
+
+
+def _posix_total_memory() -> int | None:
+    try:
+        pages = int(os.sysconf("SC_PHYS_PAGES"))
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    return pages * page_size if pages > 0 and page_size > 0 else None
+
+
+def total_system_memory_bytes() -> int | None:
+    """Physical memory installed, or None when the OS cannot report it."""
+    if sys.platform == "win32":
+        return _windows_total_memory()
+    return _posix_total_memory()
 
 
 def _linux_available_memory() -> int | None:

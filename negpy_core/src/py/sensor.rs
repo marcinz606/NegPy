@@ -12,7 +12,7 @@ fn data<'a>(a: &'a PyReadonlyArrayDyn<'_, f32>) -> PyResult<&'a [f32]> {
         .map_err(|_| PyValueError::new_err("needs contiguous arrays"))
 }
 
-fn matrix(m: &PyReadonlyArray2<'_, f32>) -> PyResult<Matrix> {
+pub(super) fn matrix(m: &PyReadonlyArray2<'_, f32>) -> PyResult<Matrix> {
     let m = m.as_array();
     if m.shape() != [3, 3] {
         return Err(PyValueError::new_err("needs a 3x3 matrix"));

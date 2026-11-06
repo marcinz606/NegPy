@@ -13,6 +13,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scanlight import _BUILTIN_PRESETS, ScanlightSidebar
+from negpy.infrastructure.capture.base import BulbRelease
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.presets import ScanlightPreset
 
@@ -2196,6 +2197,139 @@ def test_manual_preset_can_be_marked_single_capture(tmp_path, monkeypatch):
     assert saved["preset"].single_capture
 
 
+def test_a_trichrome_preset_scans_as_blend_through_the_picked_release(tmp_path, monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(iso="100", aperture="f/8"))
+    assert w.capture_btn.isEnabled() and not w.capture_btn.is_item_enabled(1)  # Single Exposure has its own calibration
+    assert w.bulb_release_rail.isHidden()
+
+    w.capture_btn.setCurrentIndex(2)
+    assert w._settings.blend_capture and not w._settings.single_capture
+    assert not w.bulb_release_rail.isHidden() and "Bulb" in w.preset_hint.text()
+    assert not w.inter_exposure_delay_slider.isEnabled()  # one exposure has no channel gap
+    w.bulb_release_btn.setCurrentIndex(w.bulb_release_btn.findData("cable"))
+    assert w._settings.bulb_release is BulbRelease.CABLE
+
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    req = w.controller.start_capture.call_args[0][0]
+    assert req.blend_capture and not req.single_capture and req.bulb_release is BulbRelease.CABLE
+    assert (req.levels, req.shutters[0], req.iso, req.aperture) == ((200, 100, 90), "1/5", "100", "f/8")
+
+
+def test_each_preset_brings_back_its_own_capture_mode(monkeypatch):
+    w = _sidebar()
+    _select_stored(w, monkeypatch, _rgb_preset(blend_capture=True))
+    assert w.capture_btn.currentIndex() == 2 and w._settings.blend_capture and w.capture_btn.isEnabled()
+    _select_stored(w, monkeypatch, _rgb_preset(single_capture=True))
+    assert w.capture_btn.currentIndex() == 1 and not w.capture_btn.isEnabled() and not w._settings.blend_capture
+    _select_stored(w, monkeypatch, _rgb_preset())
+    assert w.capture_btn.currentIndex() == 0 and not w._settings.blend_capture
+
+
+def test_blend_is_a_capture_mode_beside_trichrome_and_single_exposure():
+    w = _sidebar()
+    for combo in (w.capture_btn, w.calib_window.capture_btn):
+        assert [combo.itemText(i) for i in range(combo.count())] == ["Trichrome", "Single Exposure", "Blend"]
+
+
+def test_a_blend_calibration_solves_a_triplet_and_saves_a_blend_preset(monkeypatch):
+    w = _sidebar()
+    w._camera_verified = True
+    w._light_verified = True
+    w.calib_window.image._set_crosshair(0.5, 0.5)
+    monkeypatch.setattr(w, "_settings_json", lambda: {"shutter": {"options": [{"label": "1/250"}, {"label": "1/60"}]}})
+    w.calib_window.capture_btn.setCurrentIndex(2)
+    btn = w.calib_window.sensor_profile_btn
+    assert btn.isEnabled() and btn.isChecked()  # on by default, as for Single Exposure
+
+    w._on_calibrate_new_preset("Portra 400")
+    req = w.controller.start_calibration.call_args[0][0]
+    assert not req.single_capture and req.measure_sensor
+
+    saves = _profile_saves(monkeypatch)
+    preset = _calibrate(w, monkeypatch, sensor_matrix=_UNMIX)
+    assert preset.blend_capture and not preset.single_capture
+    assert saves == [("Portra 400", _UNMIX)] and preset.sensor_profile == "Portra 400"
+    assert w.capture_btn.currentIndex() == 2
+
+
+def _blend_profiles(w, monkeypatch, *names):
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    monkeypatch.setattr(sl.SensorProfiles, "list_profiles", staticmethod(lambda: ["None", *names]))
+    w._reload_blend_sensor_profiles()
+
+
+def test_blend_asks_for_a_sensor_profile_before_it_can_scan(tmp_path, monkeypatch):
+    w = _sidebar()
+    _blend_profiles(w, monkeypatch, "Rig A", "Rig B")
+    _select_stored(w, monkeypatch, _rgb_preset())
+    gate = "pick or make a sensor profile for Blend"
+    assert gate not in w._missing_requirements()  # a Trichrome scan needs no profile
+
+    w.capture_btn.setCurrentIndex(2)
+    assert gate in w._missing_requirements()
+    assert [w.blend_sensor_combo.itemData(i) for i in range(w.blend_sensor_combo.count())] == ["", "Rig A", "Rig B"]
+
+    w.blend_sensor_combo.setCurrentIndex(2)
+    w._on_blend_sensor_picked()
+    assert gate not in w._missing_requirements() and w._settings.blend_sensor_profile == "Rig B"
+
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == "Rig B"
+
+
+def test_a_deleted_blend_profile_asks_again(monkeypatch):
+    w = _sidebar()
+    w._settings = replace(w._settings, blend_sensor_profile="Gone")
+    _blend_profiles(w, monkeypatch, "Rig A")
+    _select_stored(w, monkeypatch, _rgb_preset(blend_capture=True))
+    assert w.blend_sensor_combo.currentIndex() == 0
+    assert "pick or make a sensor profile for Blend" in w._missing_requirements()
+
+
+def test_a_blend_preset_with_its_own_profile_scans_with_it_and_asks_for_nothing(tmp_path, monkeypatch):
+    w = _sidebar()
+    _blend_profiles(w, monkeypatch, "Portra 400", "Rig A")
+    _select_stored(w, monkeypatch, _rgb_preset(blend_capture=True, sensor_profile="Portra 400"))
+    assert "pick or make a sensor profile for Blend" not in w._missing_requirements()
+    assert not w.bulb_release_rail.isHidden() and w.blend_sensor_row.isHidden()
+
+    w.output.folder_edit.setText(str(tmp_path))
+    w.output.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].sensor_profile == "Portra 400"
+
+
+def test_a_blend_preset_without_a_profile_shows_the_picker():
+    w = _sidebar()
+    w._settings = replace(w._settings, blend_capture=True)
+    w._apply_gating()
+    assert not w.blend_sensor_row.isHidden()
+
+
+def test_sensor_profile_toggle_is_on_by_default_for_blend():
+    w = _sidebar()
+    w.calib_window.capture_btn.setCurrentIndex(2)
+    assert w.calib_window.sensor_profile_btn.isChecked() and w.calib_window.wants_sensor_profile()
+
+
+def test_a_profile_made_from_the_blend_row_is_selected(monkeypatch):
+    w = _sidebar()
+    _blend_profiles(w, monkeypatch, "Fresh")
+    w._on_blend_sensor_saved("Fresh")
+    assert w.blend_sensor_combo.currentData() == "Fresh" and w._settings.blend_sensor_profile == "Fresh"
+
+
+def test_settings_restore_the_bulb_release_and_fall_back_to_usb():
+    assert ScanlightSettings(bulb_release="cable").bulb_release is BulbRelease.CABLE
+    assert ScanlightSettings(bulb_release="laser").bulb_release is BulbRelease.USB
+
+
 _UNMIX = (1.0, -0.1, 0.0, -0.1, 1.0, -0.3, 0.0, -0.3, 1.0)
 
 
@@ -2485,8 +2619,8 @@ def test_adopted_presets_persist_and_an_older_settings_dict_loads_clean(monkeypa
     assert w._settings.adopted_presets == ("Trichrome, Color Negative", "A built-in this build no longer has")  # a tuple again
     assert _rows(w) == ["Select preset", "Trichrome, Color Negative"]  # an unknown name is not a row
 
-    ctrl.session.repo.get_global_setting.side_effect = (
-        lambda k, default=None: {"white_mode": True, "w_level": 255} if k == "scanlight_settings" else default
+    ctrl.session.repo.get_global_setting.side_effect = lambda k, default=None: (
+        {"white_mode": True, "w_level": 255} if k == "scanlight_settings" else default
     )
     w = ScanlightSidebar(ctrl)  # a user from before the list existed
     assert w._settings.adopted_presets == () and _rows(w) == ["Click + to add a preset"]
@@ -3013,3 +3147,17 @@ def test_the_docks_scan_button_works_as_scan(monkeypatch):
     w._scanning = True
     w._on_light_scan_button()
     w.controller.cancel_capture.assert_called_once()
+
+
+def test_a_user_preset_row_names_its_capture_mode(monkeypatch):
+    w = _sidebar(adopt=False)
+    presets = {
+        "Portra 400": _rgb_preset(),
+        "Gold 200": _rgb_preset(single_capture=True),
+        "Ektar 100": _rgb_preset(blend_capture=True),
+    }
+    monkeypatch.setattr(w._presets, "names", lambda: sorted(presets))
+    monkeypatch.setattr(w._presets, "get", presets.get)
+    w._reload_presets(select="Ektar 100")
+    assert _rows(w) == ["Select preset", "Ektar 100 · Blend", "Gold 200 · Single Exposure", "Portra 400 · Trichrome"]
+    assert w.preset_combo.currentData() == "Ektar 100"

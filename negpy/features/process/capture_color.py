@@ -19,7 +19,7 @@ cam->sRGB on a saturated sunset it doubled both R/G and B/G, which renders as a
 magenta cast that reads like wildly excessive saturation.
 """
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 import negpy_core
 import numpy as np
@@ -34,6 +34,40 @@ _XYZ_TO_WORKING = np.array(
     dtype=np.float64,
 )
 _WORKING_TO_XYZ = np.linalg.inv(_XYZ_TO_WORKING)
+
+
+def _primaries(cam_xyz: Optional[Sequence[Sequence[float]]]) -> Optional[np.ndarray]:
+    """The float64 working-from-camera primaries mix without the white-balance fold, or None."""
+    if cam_xyz is None:
+        return None
+    m = np.asarray(cam_xyz, dtype=np.float64)
+    if m.ndim != 2 or m.shape[1] != 3 or m.shape[0] < 3:
+        return None
+    m = m[:3, :]
+    if not np.all(np.isfinite(m)) or abs(float(np.linalg.det(m))) < 1e-9:
+        return None
+
+    # Normalize the forward (working to cam) rows, then invert, which is dcraw's order. The
+    # other way round distorts every non-neutral color; see the module docstring.
+    forward = m @ _WORKING_TO_XYZ
+    sums = forward.sum(axis=1, keepdims=True)
+    if not np.all(np.isfinite(sums)) or np.any(np.abs(sums) < 1e-9):
+        return None
+    out = np.linalg.pinv(forward / sums)
+    if not np.all(np.isfinite(out)):
+        return None
+    return out
+
+
+def _wb_gains(camera_wb: Optional[Sequence[float]]) -> Optional[np.ndarray]:
+    """The as-shot multipliers normalized to green, or None when they are missing or invalid.
+    Green is libraw's own scaling reference, so only the channel ratios apply and exposure stays."""
+    if camera_wb is None:
+        return None
+    wb = np.asarray(camera_wb, dtype=np.float64).reshape(-1)[:3]
+    if wb.shape[0] == 3 and np.all(np.isfinite(wb)) and float(wb.min()) > 0.0 and float(wb[1]) > 0.0:
+        return wb / wb[1]
+    return None
 
 
 def camera_to_working_matrix(
@@ -56,33 +90,30 @@ def camera_to_working_matrix(
     singular/degenerate — the caller then treats the buffer as already in the
     working space, which is the correct reading for a profiled source.
     """
-    if cam_xyz is None:
+    out = _primaries(cam_xyz)
+    if out is None:
         return None
-    m = np.asarray(cam_xyz, dtype=np.float64)
-    if m.ndim != 2 or m.shape[1] != 3 or m.shape[0] < 3:
-        return None
-    m = m[:3, :]
-    if not np.all(np.isfinite(m)) or abs(float(np.linalg.det(m))) < 1e-9:
-        return None
-
-    # Normalize the forward (working to cam) rows, then invert, which is dcraw's order. The
-    # other way round distorts every non-neutral color; see the module docstring.
-    forward = m @ _WORKING_TO_XYZ
-    sums = forward.sum(axis=1, keepdims=True)
-    if not np.all(np.isfinite(sums)) or np.any(np.abs(sums) < 1e-9):
-        return None
-    out = np.linalg.pinv(forward / sums)
-    if not np.all(np.isfinite(out)):
-        return None
-
-    if camera_wb is not None:
-        wb = np.asarray(camera_wb, dtype=np.float64).reshape(-1)[:3]
-        if wb.shape[0] == 3 and np.all(np.isfinite(wb)) and float(wb.min()) > 0.0 and float(wb[1]) > 0.0:
-            # Normalized to green, matching libraw's own scaling reference, so only the channel
-            # ratios are applied and overall exposure is untouched.
-            out = out @ np.diag(wb / wb[1])
-
+    gains = _wb_gains(camera_wb)
+    if gains is not None:
+        out = out @ np.diag(gains)
     return np.ascontiguousarray(out, dtype=np.float32)
+
+
+def camera_matrix_parts(
+    cam_xyz: Optional[Sequence[Sequence[float]]],
+    camera_wb: Optional[Sequence[float]] = None,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """(gains, primaries): `camera_to_working_matrix` split at the white-balance fold, so that
+    matrix is `primaries @ gains`. `gains` is the diagonal fold, None without one; `primaries`
+    mixes the channels and keeps a neutral neutral. Both None when there is no matrix."""
+    out = _primaries(cam_xyz)
+    if out is None:
+        return None, None
+    gains = _wb_gains(camera_wb)
+    return (
+        None if gains is None else np.ascontiguousarray(np.diag(gains), dtype=np.float32),
+        np.ascontiguousarray(out, dtype=np.float32),
+    )
 
 
 def wb_only_cam_xyz(cam_xyz: Optional[Sequence[Sequence[float]]]) -> Optional[list]:
@@ -96,6 +127,26 @@ def wb_only_cam_xyz(cam_xyz: Optional[Sequence[Sequence[float]]]) -> Optional[li
     if cam_xyz is None:
         return None
     return _XYZ_TO_WORKING.tolist()
+
+
+# The 4th row of a source profile's `cam_xyz`. A camera's reaches the pipeline as 3 rows
+# (helpers.camera_xyz_matrix), and `camera_to_working_matrix` reads only the first 3.
+_SOURCE_PROFILE_ROW = (-1.0, -1.0, -1.0)
+
+
+def source_cam_xyz(to_working: Optional[np.ndarray]) -> Optional[list]:
+    """The `cam_xyz` of a Positive source decoded in its own primaries: the one that
+    `camera_to_working_matrix` turns into *to_working*, the profile's source-to-working 3x3. The
+    engines apply it like a camera's, so the density stage can act on the source channels first."""
+    if to_working is None:
+        return None
+    rows = (np.linalg.inv(np.asarray(to_working, dtype=np.float64)) @ _XYZ_TO_WORKING).tolist()
+    return rows + [list(_SOURCE_PROFILE_ROW)]
+
+
+def is_source_profile(cam_xyz: Optional[Sequence[Sequence[float]]]) -> bool:
+    """True when *cam_xyz* came from a source profile (`source_cam_xyz`), not from a camera."""
+    return cam_xyz is not None and len(cam_xyz) > 3 and tuple(float(v) for v in cam_xyz[3]) == _SOURCE_PROFILE_ROW
 
 
 def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.ndarray:

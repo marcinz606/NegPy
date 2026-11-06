@@ -8,7 +8,7 @@ import pytest
 
 from negpy.features.rgbscan.logic import classify_channel, group_triplets, probe_frame
 from negpy.infrastructure.capture import gphoto
-from negpy.infrastructure.capture.base import CaptureSettings
+from negpy.infrastructure.capture.base import BulbRelease, CaptureSettings
 from negpy.infrastructure.capture.gphoto import GphotoCamera
 from negpy.infrastructure.capture.raw_demosaic import linear_demosaic
 from negpy.infrastructure.capture.scanlight import Scanlight
@@ -208,3 +208,42 @@ def test_flag_registers_the_simulated_backend_as_default(monkeypatch):
         monkeypatch.delenv("NEGPY_SIMULATE_HARDWARE")
         importlib.reload(registry)
     assert "sim" not in registry.BACKENDS
+
+
+def test_light_dose_adds_up_level_seconds_per_channel():
+    t = time.monotonic()
+    scanlight._history[:] = [(t, (0, 0, 0, 0, 0)), (t + 1.0, (200, 0, 0, 0, 0)), (t + 1.5, (0, 100, 0, 0, 0)), (t + 2.5, (0, 0, 0, 0, 0))]
+    try:
+        assert scanlight.light_dose(t + 0.5, t + 3.0) == pytest.approx((100.0, 100.0, 0.0, 0.0, 0.0))
+    finally:
+        scanlight._history[:] = [(0.0, (0, 0, 0, 0, 0))]
+
+
+@pytest.mark.parametrize("release", [BulbRelease.USB, BulbRelease.CABLE])
+def test_a_blend_exposure_matches_the_three_leds_lit_together_for_the_same_time(camera, tmp_path, sim_env, release):
+    light = Scanlight()
+    try:
+        light.set_color(200, 100, 50)
+        together = camera.capture(str(tmp_path / "together.raw"), shutter="1/5")
+        service = CaptureService(light, camera)
+        settings = CaptureSettings(roll_name="t", frame_number=1, output_folder=str(tmp_path), levels=(200, 100, 50))
+        blend = service.capture_blend(settings, seconds=0.2, release=release)
+    finally:
+        light.close()
+
+    assert blend.endswith("t_Frame001.DNG")
+    # The simulated light is linear, so each LED alone for 0.2 s adds up to all three for 0.2 s.
+    assert _base_signal(blend) == pytest.approx(_base_signal(together), rel=0.1)
+
+
+def test_a_blend_calibration_measures_the_sensor_leak_on_the_simulated_rig(camera, tmp_path, sim_env):
+    light = Scanlight()
+    try:
+        service = CalibrationService(light, camera, lambda p: linear_demosaic(p, half_size=True), settle_s=0.0)
+        result = service.calibrate(_REBATE, str(tmp_path / "cal"), measure_sensor=True)
+    finally:
+        light.close()
+    assert not result.single_capture
+    mixing = np.linalg.inv(np.array(result.sensor_matrix).reshape(3, 3))
+    leaks = mixing[~np.eye(3, dtype=bool)]
+    assert np.diag(mixing) == pytest.approx([1.0] * 3) and np.all((leaks > 0) & (leaks < 0.2))

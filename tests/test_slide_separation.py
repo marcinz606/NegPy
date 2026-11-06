@@ -59,6 +59,13 @@ def test_the_negative_package_never_imports_the_slide_package():
             assert not any(n.startswith("negpy.features.transparency") for n in names), path.name
 
 
+def test_the_negative_package_holds_no_fade_restoration():
+    root = pathlib.Path(__file__).resolve().parent.parent / "negpy" / "features" / "exposure"
+    for path in root.rglob("*"):
+        if path.suffix in (".py", ".wgsl"):
+            assert "fade_" not in path.read_text(encoding="utf-8"), path.name
+
+
 def _moved(field: str, value):
     if isinstance(value, bool):
         return not value

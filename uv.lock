@@ -411,12 +411,12 @@ requires-dist = [
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "negpy-core", editable = "negpy_core" },
-    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.17" },
+    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.18" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "onnxruntime", specifier = "==1.23.2" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.8" },
+    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.9" },
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
@@ -438,9 +438,9 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-nkscan = [{ name = "nkscan", specifier = ">=0.17" }]
+nkscan = [{ name = "nkscan", specifier = ">=0.18" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
-plustek = [{ name = "pyopticfilm", specifier = ">=1.3.8" }]
+plustek = [{ name = "pyopticfilm", specifier = ">=1.3.9" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -456,14 +456,14 @@ requires-dist = [{ name = "numpy" }]
 
 [[package]]
 name = "nkscan"
-version = "0.17.0"
+version = "0.18.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b0/8a/e52db251188da36297d84e45cccf138bc9fccebb75fa333d7510fc8499db/nkscan-0.17.0.tar.gz", hash = "sha256:0fe096436fc992039cd12f09e6394f932acf0115c6660130fc2c2b79b0766fd2", size = 2863041, upload-time = "2026-10-26T20:01:54.925Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/cd/c13d8aa91746adb042c474521370e3d2fb42d5ae459777212c46c2539c90/nkscan-0.18.0.tar.gz", hash = "sha256:414b1523be3de10af9f8284e155a2d53b5c6f55e5c0453535dc85c066e6d84ee", size = 2867875, upload-time = "2026-11-03T20:17:13.709Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/76/c8a3eb9a0851bcb96047b0f3f9e1cf6c4ba2927a52fba7ba62e254976272/nkscan-0.17.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:1d095f69f40a157809ac9aec702861cd50f27a1ab80c1cdfa911ca289e73c0a8", size = 3877444, upload-time = "2026-10-26T20:01:48.014Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/a6/9ad20e3b6596b66744d28fbf5df8f87b7cc5a6fcdbfcb97839d34b41efc8/nkscan-0.17.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:f1f8377695c33f22c71290f27852537fc70ef1e305b95a43d3c2622655e960d0", size = 3872238, upload-time = "2026-10-26T20:01:50.098Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/d8/d71fbd942af8aa9d5582ca9a315429ed9b7c53eb40b3d0248fa8d9aba896/nkscan-0.17.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3f0bd06ab19249ff63fe7ef4c9a2957eff86ec01f50766efd01d3ec3727b855e", size = 4017707, upload-time = "2026-10-26T20:01:51.954Z" },
-    { url = "https://files.pythonhosted.org/packages/4d/e1/9056997156a866195c2d5794596e1470f53c1825f08b7de97fac64aa3343/nkscan-0.17.0-cp313-abi3-win_amd64.whl", hash = "sha256:ac03965137931efa4dd8849912952697a9c1e50f9ab52785c6517ec5e709c631", size = 3725459, upload-time = "2026-10-26T20:01:53.348Z" },
+    { url = "https://files.pythonhosted.org/packages/65/18/ec35316b4c47e8170500e5e3c74e48a2a97ae4da72daae83dcda02232304/nkscan-0.18.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f78d8e23f5c808c84ed67de0e56a70753c59743a7f881e2551e3dfc8adf04bd2", size = 3891175, upload-time = "2026-11-03T20:17:04.872Z" },
+    { url = "https://files.pythonhosted.org/packages/52/ca/487bd6a224489290448ef6097a1b4db566da1db664aeac9632d8cfd44225/nkscan-0.18.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:f6314aa562d6c3d98fb6e392b868f8a21dc5f5fe6b4750f2a64bf652972c4338", size = 3885373, upload-time = "2026-11-03T20:17:06.98Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/aa/0e20f568154eb924eeed2aa58af765984203ade4e4f473b609518f593690/nkscan-0.18.0-cp313-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:d4fdc756d33956a594aeee0a088c44d0ba757b538fb6810986a039993c22c67b", size = 4028963, upload-time = "2026-11-03T20:17:08.91Z" },
+    { url = "https://files.pythonhosted.org/packages/07/dc/c777ed987bd205fb7df0ca6f0ff1b16a6ec649eb30781c5449c2c8ae5b20/nkscan-0.18.0-cp313-abi3-win_amd64.whl", hash = "sha256:d8343d6b293de257a83a4da07c091a2bedf414782360fe6a13a5fad5abe6e3b8", size = 3744576, upload-time = "2026-11-03T20:17:11.508Z" },
 ]
 
 [[package]]
@@ -740,16 +740,16 @@ wheels = [
 
 [[package]]
 name = "pyopticfilm"
-version = "1.3.8"
+version = "1.3.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package", marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/c9/17cc52f0ad2250062e033aa30242f10c49a7d3915295b24e327c363a62d6/pyopticfilm-1.3.8.tar.gz", hash = "sha256:2de66668ef8f34e5b4aefcd8c27f5c2eef0efdda7fbcc3143b470851e238e56e", size = 400629, upload-time = "2026-10-26T15:55:06.287Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/11/37dde2e3f74794ebc25afab31ee13b2a048220112c48bb136e07d00af4b7/pyopticfilm-1.3.9.tar.gz", hash = "sha256:ec3e5c72028999949e6eb897daf1849d68dc8f431a86d503315be1165e6861b8", size = 435998, upload-time = "2026-11-03T19:38:21.972Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/bb/8fbc31d957bdd79270711308168443bb2d7e1f007cb7bbd7cc331d44ac7d/pyopticfilm-1.3.8-py3-none-any.whl", hash = "sha256:1fbbafb5243346714a1e81fea8e241ee20147340ef6290142d7564636f0dab26", size = 445339, upload-time = "2026-10-26T15:55:04.657Z" },
+    { url = "https://files.pythonhosted.org/packages/30/e6/472606efef6742d8a36043a4b450692df8e2ec62c4c7c953e7387be16ce8/pyopticfilm-1.3.9-py3-none-any.whl", hash = "sha256:d464d3c29182472207dedf75bc679bd021d9d1f2ce7df5707071b7ae02f51f79", size = 480841, upload-time = "2026-11-03T19:38:20.283Z" },
 ]
 
 [[package]]

@@ -41,6 +41,9 @@ class PipelineContext:
     # Whether the caller reads the Analysis metrics back. A render that does not (a splash, a
     # thumbnail, a test strip) skips measurements that only the Analysis panel shows.
     readback_metrics: bool = True
+    # Whether the render stores the slide meter grid in the density channels (`transfer_grid`).
+    # Only Fade Estimate reads it, and it can cost a second pass over the frame.
+    wants_fade_grid: bool = False
 
 
 class IImageSource(Protocol):

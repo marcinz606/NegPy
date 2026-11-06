@@ -106,7 +106,7 @@ class PickBetterWindow(QDialog):
         self._move_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._move_timer = QTimer(self)
         self._move_timer.setSingleShot(True)
-        self._move_timer.timeout.connect(lambda: self._move_label.setText(""))
+        self._move_timer.timeout.connect(self._move_label.clear)
 
         # The photos inset from the panel's top by the reserved band — the move summary, the in-flight
         # name and the A/Skip/B captions — so a caption that hugs a photo's top edge sits clear of

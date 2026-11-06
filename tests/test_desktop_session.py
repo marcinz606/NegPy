@@ -671,6 +671,83 @@ class TestDesktopSessionSync(unittest.TestCase):
         ff = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False).flatfield
         self.assertEqual((ff.profile_id, ff.apply), ("", False))
 
+    def _fresh_config(self, path, setup=None, roll_defaults=None):
+        """A first open of *path* with a camera rig's flat field and distortion carried."""
+        settings = {
+            "flatfield_active_profile": "ff-35",
+            "sticky_config": {"distortion_k1": 0.05, "highlight_reconstruction": 2},
+            "scan_setup": setup,
+            "rolls_by_id": {"r1": {"kind": "virtual", "name": "Portra", "defaults": roll_defaults}} if roll_defaults else {},
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        self.session.state.active_roll_id = "r1" if roll_defaults else None
+        with (
+            patch("negpy.desktop.session.load_or_promote", return_value=None),
+            patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=SimpleNamespace(id="ff-35", k1=0.0)),
+            patch(
+                "negpy.desktop.session.load_sticky_rows",
+                return_value=[r for r in all_rows() if {"distortion_k1", "highlight_reconstruction"} & set(r.fields)],
+            ),
+            patch("negpy.desktop.session.is_scanned_positive_source", side_effect=lambda p: not p.endswith(".cr3")),
+        ):
+            return self.session.config_for_asset({"name": path, "path": path, "hash": "h"})
+
+    def test_a_new_camera_frame_takes_the_carried_optics(self):
+        config = self._fresh_config("/roll/a.cr3")
+        self.assertEqual((config.flatfield.profile_id, config.flatfield.apply), ("ff-35", True))
+        self.assertEqual(config.geometry.distortion_k1, 0.05)
+        self.assertEqual(config.process.highlight_reconstruction, 2)
+
+    def test_a_new_film_scanner_frame_takes_no_carried_camera_settings(self):
+        for path, setup in (("/roll/a.tif", None), ("/roll/a.tif", {"capture": "camera"}), ("/roll/a.cr3", {"capture": "scanner"})):
+            with self.subTest(path=path, setup=setup):
+                config = self._fresh_config(path, setup)
+                self.assertEqual(config.flatfield, WorkspaceConfig().flatfield)
+                self.assertEqual(config.geometry.distortion_k1, 0.0)
+                self.assertEqual(config.process.highlight_reconstruction, 0)
+
+    def _reopened_tiff(self, path="/roll/a.tif"):
+        """A saved frame with no profile, reopened while a legacy profile with a k1 is the last chosen."""
+        settings = {"flatfield_active_profile": "ff-35"}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: settings.get(key, default)
+        self.session.state.active_roll_id = None
+        with (
+            patch("negpy.desktop.session.load_or_promote", return_value=WorkspaceConfig()),
+            patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=SimpleNamespace(id="ff-35", k1=-0.05)),
+            patch("negpy.desktop.session.is_scanned_positive_source", side_effect=lambda p: not p.endswith(".cr3")),
+        ):
+            return self.session.config_for_asset({"name": path, "path": path, "hash": "h"})
+
+    def test_a_saved_film_scanner_frame_takes_no_last_chosen_profile(self):
+        config = self._reopened_tiff()
+        self.assertEqual(config.flatfield.profile_id, "")
+        self.assertEqual(config.geometry.distortion_k1, 0.0)
+
+    def test_a_saved_camera_frame_takes_the_last_chosen_profile(self):
+        self.assertEqual(self._reopened_tiff("/roll/a.cr3").flatfield.profile_id, "ff-35")
+
+    def test_the_file_is_not_read_when_no_camera_setting_carries(self):
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: default
+        with (
+            patch("negpy.desktop.session.is_scanned_positive_source") as scanned,
+            patch("negpy.desktop.session.load_sticky_rows", return_value=[]),
+        ):
+            self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False, path="/roll/a.nef")
+        scanned.assert_not_called()
+
+    def test_a_film_scanner_frame_takes_optics_its_roll_holds(self):
+        config = self._fresh_config("/roll/a.tif", roll_defaults={"profile_id": "ff-35", "apply": True})
+        self.assertEqual((config.flatfield.profile_id, config.flatfield.apply), ("ff-35", True))
+
+    def test_a_film_scanner_frame_leaves_the_carried_values_for_the_next_camera_frame(self):
+        stored = {"distortion_k1": 0.05, "apply": True, "profile_id": "ff-35", "highlight_reconstruction": 2}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: stored if key == "sticky_config" else default
+        self.session.state.current_file_path = "/roll/a.tif"
+        with patch("negpy.desktop.session.is_scanned_positive_source", return_value=True):
+            self.session._persist_sticky_settings(WorkspaceConfig())
+        snapshot = self.mock_repo.save_global_settings.call_args.args[0]["sticky_config"]
+        self.assertEqual({k: snapshot[k] for k in stored}, stored)
+
     def test_paper_black_carries_to_new_files(self):
         """Sticky must carry an explicit value over the file's base."""
         sticky = {"sticky_config": {"paper_black": False}}
@@ -1880,6 +1957,22 @@ class TestAssetListModelSceneSort(unittest.TestCase):
         self.assertEqual(self.model.scene_runs(), [])
 
 
+class TestFrameNumberSort(unittest.TestCase):
+    def test_frames_sort_by_roll_then_frame_number_then_name(self):
+        state = AppState()
+        state.uploaded_files = [{"name": n, "path": f"/r/{n}", "hash": n} for n in ("a.tif", "b.tif", "c.tif", "d.tif")]
+        facts = {
+            "a.tif": {"capture_roll": "02", "frame": 1},
+            "b.tif": {"capture_roll": "01", "frame": 10},
+            "c.tif": {"capture_roll": "01", "frame": 2},
+            "d.tif": {"capture_roll": "01", "frame": 2},
+        }
+        model = AssetListModel(state, facts_provider=lambda: facts)
+        model.set_sort_order("frame")
+        names = [state.uploaded_files[i]["name"] for i in model._sorted_indices]
+        self.assertEqual(names, ["c.tif", "d.tif", "b.tif", "a.tif"])
+
+
 class TestNavButtonBoundaries(unittest.TestCase):
     """Regression for #407: Next/Prev enable must be computed in display space
     (sorted/filtered order), matching session.next_file/prev_file — not raw
@@ -2547,6 +2640,23 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
         self.session.repo.save_file_settings("hash1", self.session.state.config, file_path=self.session.state.uploaded_files[0]["path"])
         self.assertFalse(self.session.config_for_asset(self.session.state.uploaded_files[0]).process.linear_raw)
+
+    def test_undo_to_the_rolls_value_unlocks_the_card_and_redo_locks_it(self):
+        from negpy.services.assets import rolls
+
+        roll_id = rolls.create_virtual_roll(self.repo, "Pakon", [f["path"] for f in self.session.state.uploaded_files])
+        self.session.state.active_roll_id = roll_id
+        start = self.session.state.config
+        rolls.set_roll_defaults(self.repo, roll_id, linear_raw=start.process.linear_raw)
+        self.session.update_config(replace(start, process=replace(start.process, linear_raw=not start.process.linear_raw)), persist=True)
+        self.session.relock_diverged_cards(start)
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+        self.session.undo()
+        self.assertNotIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.session.redo()
+
+        self.assertIn("demosaic", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
 
     def test_undo_leaves_a_card_pinned_at_the_rolls_value_pinned(self):
         from negpy.services.assets import rolls

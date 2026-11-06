@@ -328,7 +328,7 @@ def frame_turns(upright_aspect: Optional[float], geometry: FilmGeometry, rotatio
     return 3
 
 
-SHEET_ORDERS = ("name", "date", "scene")
+SHEET_ORDERS = ("name", "date", "scene", "frame")
 
 
 @dataclass(frozen=True)

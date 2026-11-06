@@ -5,7 +5,7 @@ from negpy.desktop.session import DesktopSessionManager
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
-@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임")])
+@pytest.mark.parametrize("locale,noun", [("zh_CN", "帧"), ("ja", "フレーム"), ("ko", "프레임"), ("vi", "khung hình")])
 @pytest.mark.parametrize("count", [1, 2])
 def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: str, count: int) -> None:
     from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
@@ -20,14 +20,14 @@ def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: s
         i18n.configure(previous)
 
 
-@pytest.mark.parametrize("count,noun", [(1, "Bild"), (2, "Bilder")])
-def test_sequential_preview_uses_german_count_forms(qapp, count: int, noun: str) -> None:
+@pytest.mark.parametrize("locale,count,noun", [("de", 1, "Bild"), ("de", 2, "Bilder"), ("nb", 1, "bilde"), ("nb", 2, "bilder")])
+def test_sequential_preview_uses_singular_and_plural_count_forms(qapp, locale: str, count: int, noun: str) -> None:
     from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
     from negpy.kernel.system import i18n
 
     previous = i18n.language()
     try:
-        i18n.configure("de")
+        i18n.configure(locale)
         dialog = SequentialFrameDialog(None, count, count, 10)
         assert dialog.preview.text().endswith(f"({count} {noun})")
     finally:
