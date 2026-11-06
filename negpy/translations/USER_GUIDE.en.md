@@ -531,6 +531,7 @@ Corrects color errors that come from your light, camera and film.
 Gives a faded slide its dye layers back.
 
 *   **Estimate**: sets Gray Mix and the Survivals.
+*   **Restore Range** (icon beside Estimate): on, sets Red Survival from the frame's range; Estimate keeps it.
 *   **Red Survival**: how much red dye is left. Lower it until contrast returns.
 *   **Green Survival** / **Blue Survival**: the same, measured against red.
 *   **Remove Stain**: whitens yellowed clear areas and estimates again. Try it when its icon is amber.

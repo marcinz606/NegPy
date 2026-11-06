@@ -373,11 +373,12 @@ def test_a_failed_estimate_on_a_camera_raw_stores_the_white_without_a_roll_lock(
     assert ctrl.set_fade_white.call_args.kwargs["fade_white_space"]
 
 
-def test_the_estimate_row_holds_remove_stain_and_folds_the_survivals():
+def test_the_estimate_row_holds_auto_red_and_remove_stain_and_folds_the_survivals():
     w, _ctrl = _fade_sidebar()
     row = w.fade_estimate_row
     widgets = [row.itemAt(i).widget() for i in range(row.count())]
-    assert widgets == [w.fade_survival_fold.button, w.estimate_fade_btn, w.fade_white_anchor_btn]
+    assert widgets == [w.fade_survival_fold.button, w.estimate_fade_btn, w.fade_auto_red_btn, w.fade_white_anchor_btn]
+    assert w.fade_auto_red_btn.isCheckable()
     assert not w.fade_survival_fold.is_open()
     rail = w.fade_survival_fold.content
     assert all(s.parent() is rail for s in (w.fade_ratio_r_slider, w.fade_ratio_g_slider, w.fade_ratio_b_slider))
@@ -663,8 +664,73 @@ def test_estimate_suggests_crossover_only_while_it_is_off():
         assert ("raise Crossover" in w.fade_estimate_hint.text()) is suggested
 
 
+def test_estimate_suggests_auto_red_in_amber_on_a_short_range_while_it_is_off():
+    from unittest.mock import patch
+
+    for auto, short, suggested in ((False, True, True), (False, False, False), (True, True, False)):
+        w, ctrl = _slide_sidebar(fade_auto_red=auto)
+        with (
+            patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+            patch.object(type(w), "_short_range", return_value=short),
+        ):
+            w._on_estimate_fade()
+        assert ("Restore Range" in w.fade_red_hint.text()) is suggested
+        assert bool(w.fade_auto_red_btn.property("suggested")) is suggested
+
+
 def _apply(ctrl):
     kwargs = ctrl.set_roll_default.call_args.kwargs
     fields = {k: v for k, v in kwargs.items() if k.startswith("fade_")}
     ctrl.state.config = replace(ctrl.state.config, process=replace(ctrl.state.config.process, **fields))
     return kwargs
+
+
+def test_auto_red_on_fits_red_and_estimate_keeps_it_and_off_puts_estimate_s_red_back():
+    from unittest.mock import patch
+
+    from negpy.features.process.fade import estimate_red
+
+    w, ctrl = _slide_sidebar()
+    fit = ({"fade_ratio_r": 0.6, "fade_density_shift": -0.2}, "")
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch.object(type(w), "_auto_red_changes", return_value=fit),
+    ):
+        w._on_estimate_fade()
+        estimated = _apply(ctrl)
+        w.fade_auto_red_btn.setChecked(True)
+        on = _apply(ctrl)
+        assert on["fade_auto_red"] is True and on["fade_ratio_r"] != estimated["fade_ratio_r"]
+        w._on_estimate_fade()
+        again = _apply(ctrl)
+        assert (again["fade_ratio_r"], again["fade_density_shift"]) == (0.6, -0.2)
+        assert again["fade_ratio_r"] != estimate_red(again["fade_ratio_g"], again["fade_ratio_b"])
+        assert "fade_crossover_table" in again
+        w.fade_auto_red_btn.setChecked(False)
+    off = _apply(ctrl)
+    assert off["fade_auto_red"] is False and off["fade_density_shift"] == 0.0
+    assert off["fade_ratio_r"] == estimate_red(again["fade_ratio_g"], again["fade_ratio_b"])
+
+
+def test_auto_red_with_nothing_to_read_stays_off():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar()
+    with patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=None):
+        w.fade_auto_red_btn.setChecked(True)
+    assert not w.fade_auto_red_btn.isChecked()
+    ctrl.set_roll_default.assert_not_called()
+    assert w.fade_red_hint.text()
+
+
+def test_sync_shows_the_frame_s_auto_red():
+    w, _ = _slide_sidebar(fade_auto_red=True)
+    assert w.fade_auto_red_btn.isChecked()
+
+
+def test_a_hand_red_turns_auto_red_off():
+    w, ctrl = _slide_sidebar(fade_auto_red=True)
+    w.fade_ratio_r_slider.valueCommitted.emit(0.7)
+    kwargs = ctrl.set_roll_default.call_args.kwargs
+    assert kwargs["fade_ratio_r"] == 0.7 and kwargs["fade_auto_red"] is False
+    assert kwargs["fade_density_shift"] == 0.0

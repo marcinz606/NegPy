@@ -79,6 +79,7 @@ _SENSOR_FIELDS = (
     "crosstalk_matrix",
     "crosstalk_process",
     "fade_ratio_r",
+    "fade_density_shift",
     "fade_ratio_g",
     "fade_ratio_b",
     "fade_white_anchor",
@@ -87,6 +88,7 @@ _SENSOR_FIELDS = (
     "fade_white_b",
     "fade_white_space",
     "fade_crossover",
+    "fade_auto_red",
     "fade_neutrals_mix",
     "hue_trim",
 )
@@ -813,6 +815,14 @@ class ControlsPanel(QWidget):
             tooltip_with_shortcut(
                 tr("Remove Stain: makes the clear areas white again, for a faded slide whose highlights turned yellow."),
                 "fade_white_anchor_toggle",
+            )
+        )
+        self.sensor_sidebar.fade_auto_red_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr(
+                    "Restore Range: sets Red Survival from the frame's range and keeps it through each Estimate; off gives Estimate's Red back."
+                ),
+                "fade_auto_red",
             )
         )
         proc.analysis_buffer_slider.setToolTip(

@@ -337,7 +337,7 @@ Für eine Kamera mit Schmalbandlicht, die von jedem Bild drei Aufnahmen macht: R
 
 Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bild anpassen…** und **Teilung auf Rollenstandard zurücksetzen**. Wenn du Halbformat ausschaltest, bleiben bearbeitete Hälften als **Diptychon** nebeneinander. Schalte es wieder ein, um sie zu bearbeiten.
 
-<!-- panel:sensor src:4b48f074 -->
+<!-- panel:sensor src:3fd2d8aa -->
 ### 10.3 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
@@ -361,6 +361,7 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
 
 *   **Schätzen**: stellt Graumischung und die Erhalt-Regler ein.
+*   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
 *   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.

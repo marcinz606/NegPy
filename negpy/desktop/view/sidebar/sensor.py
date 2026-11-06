@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
     field_label,
     hint_label,
     labeled_action,
@@ -17,7 +18,7 @@ from negpy.desktop.view.sidebar.scan_setup import resolved_rig
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
-from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, FadeEstimate, stain_suggested
+from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, FadeEstimate, estimate_red, stain_suggested
 from negpy.features.process.models import (
     ProcessMode,
     SensorUnmix,
@@ -49,6 +50,10 @@ _CROSSTALK_FIELDS = ("crosstalk_profile", "crosstalk_matrix", "crosstalk_strengt
 
 
 _REMOVE_STAIN_ICON = "fa5s.tint-slash"
+_AUTO_RED_ICON = "mdi6.arrow-expand-vertical"
+#: Estimate suggests Restore Range only where its Red would be this share of Estimate's or less: the frame's
+#: span is well short of AUTO_RED_SPAN, so a frame near the target stays quiet.
+AUTO_RED_HINT_RATIO = 0.85
 
 
 def _estimate_hint(chosen: "FadeEstimate") -> str:
@@ -183,7 +188,11 @@ class SensorSidebar(BaseSidebar):
             tr("Estimate"),
             tr("Sets the Survival sliders from the grays in this frame. If it finds no result, set them by hand."),
         )
+        # Tooltip set with its shortcut in controls_panel.apply_shortcut_tooltips.
+        self.fade_auto_red_btn = self._small_toggle(_AUTO_RED_ICON, "", conf.fade_auto_red, "")
+        self.fade_auto_red_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.fade_estimate_row.addWidget(self.estimate_fade_btn, 1)
+        self.fade_estimate_row.addWidget(self.fade_auto_red_btn)
         self.fade_estimate_row.addWidget(self.fade_white_anchor_btn)
 
         # The estimate, or which fail-closed condition fired.
@@ -192,6 +201,9 @@ class SensorSidebar(BaseSidebar):
         # Estimate's suggestion to turn on Remove Stain, which also paints the toggle's icon amber.
         self.fade_stain_hint = hint_label("", kind="warning")
         self.fade_stain_hint.setVisible(False)
+        # The suggestion to turn on Restore Range on a frame with a short range, or why Restore Range found nothing to set.
+        self.fade_red_hint = hint_label("", kind="warning")
+        self.fade_red_hint.setVisible(False)
         self._fade_hint_hash: Optional[str] = None
         # (grid, key, gray readings) of the last Estimate, which a Gray Mix drag blends again.
         self._gray_memo: Optional[tuple] = None
@@ -221,6 +233,7 @@ class SensorSidebar(BaseSidebar):
             self.fade_survival_fold,
             self.fade_estimate_hint,
             self.fade_stain_hint,
+            self.fade_red_hint,
             self.fade_neutrals_mix_slider,
             self.fade_crossover_slider,
             self.fade_crossover_hint,
@@ -351,6 +364,7 @@ class SensorSidebar(BaseSidebar):
         )
         self.fade_white_anchor_btn.toggled.connect(self._on_fade_white_anchor_toggled)
         self.estimate_fade_btn.clicked.connect(self._on_estimate_fade)
+        self.fade_auto_red_btn.toggled.connect(self._on_auto_red_toggled)
         self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
         self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
 
@@ -508,7 +522,10 @@ class SensorSidebar(BaseSidebar):
         self.sync_ui()
 
     def _on_fade_ratio_r_changed(self, val: float, persist: bool = True) -> None:
-        self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_ratio_r=val)
+        # A hand Red ends Restore Range, so the toggle never shows on over a value it did not set.
+        # The shift belongs to Restore Range's fit, so it goes with it, as when the toggle turns off.
+        changes = {"fade_ratio_r": val, "fade_auto_red": False, "fade_density_shift": 0.0}
+        self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **changes)
 
     def _on_fade_ratio_changed(self, ratio_g: float, ratio_b: float, persist: bool = True) -> None:
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_ratio_g=ratio_g, fade_ratio_b=ratio_b)
@@ -518,6 +535,61 @@ class SensorSidebar(BaseSidebar):
         if not self._neutrals_open(self.state.config.process):
             return
         self._run_estimate(self.state.config.process.fade_white_anchor, mix=val / 100.0, live=not persist, keep_table=True)
+
+    def _on_auto_red_toggled(self, checked: bool) -> None:
+        """On: Red Survival and the density shift from the frame's range. Off: Estimate's Red for the
+        frame's green and blue, and no shift."""
+        from negpy.desktop.workers.chart_fit import fade_estimate_grid
+
+        conf = self.state.config.process
+        if not checked:
+            changes = {
+                "fade_auto_red": False,
+                "fade_ratio_r": estimate_red(conf.fade_ratio_g, conf.fade_ratio_b),
+                "fade_density_shift": 0.0,
+            }
+            self._show_red_hint("")
+            self.controller.set_roll_default("fade", **changes)
+            return
+        source = self.controller.chart_fit_source()
+        grid = None if source is None else fade_estimate_grid(source)
+        changes, reason = None, tr("No image loaded to estimate from.")
+        if grid is not None:
+            base = replace(conf, fade_ratio_r=estimate_red(conf.fade_ratio_g, conf.fade_ratio_b), fade_density_shift=0.0)
+            changes, reason = self._auto_red_changes(base, source, grid)
+        self._show_red_hint(reason)
+        if changes is None:
+            self.fade_auto_red_btn.blockSignals(True)
+            self.fade_auto_red_btn.setChecked(False)
+            self.fade_auto_red_btn.blockSignals(False)
+            return
+        set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, False)
+        changes = {**changes, "fade_auto_red": True}
+        self.controller.set_roll_default("fade", **changes)
+
+    @staticmethod
+    def _auto_red_changes(conf, source, grid) -> tuple[Optional[dict], str]:
+        """`fade_auto_red.auto_red` for the survivals and shift in *conf*."""
+        from negpy.features.process.fade import render_white_space
+        from negpy.features.process.fade_auto_red import auto_red, survival_points
+
+        space = render_white_space(conf, conf.process_mode, source.cam_xyz, source.camera_wb)
+        g, b, shift = conf.fade_ratio_g, conf.fade_ratio_b, conf.fade_density_shift
+
+        def points_at(red: float):
+            return survival_points(grid, conf, (red, g, b), conf.fade_white_anchor, bool(space), space, shift)
+
+        return auto_red(points_at, conf.fade_ratio_r, shift)
+
+    def _show_red_hint(self, text: str) -> None:
+        self._fade_hint_hash = self.state.current_file_hash
+        self.fade_red_hint.setText(text)
+        self.fade_red_hint.setVisible(bool(text))
+
+    def _short_range(self, conf, source, grid) -> bool:
+        """Whether Restore Range would set Red Survival at AUTO_RED_HINT_RATIO of *conf*'s or less."""
+        changes, _ = self._auto_red_changes(conf, source, grid)
+        return changes is not None and changes["fade_ratio_r"] <= conf.fade_ratio_r * AUTO_RED_HINT_RATIO
 
     def _on_fade_crossover_changed(self, val: float, persist: bool = True) -> None:
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_crossover=val / 100.0)
@@ -535,6 +607,7 @@ class SensorSidebar(BaseSidebar):
         )
         self.fade_neutrals_mix_slider.setValue(conf.fade_neutrals_mix * 100.0)
         self.fade_neutrals_mix_slider.setEnabled(self._neutrals_open(conf))
+        self.fade_auto_red_btn.setChecked(conf.fade_auto_red)
 
     def _table_source(self, table) -> str:
         """Which table the frame uses, once its roll holds one, as a lead-in to the hint."""
@@ -611,7 +684,9 @@ class SensorSidebar(BaseSidebar):
         anchor = conf.fade_white_anchor
         reader = self._gray_reader(grid, anchor, space, mix)
         rgb = (new_conf.fade_ratio_r, new_conf.fade_ratio_g, new_conf.fade_ratio_b)
-        table = survival_crossover(grid, reader, rgb, white_anchor=anchor, camera_raw=bool(space), white_space=space)
+        table = survival_crossover(
+            grid, reader, rgb, white_anchor=anchor, camera_raw=bool(space), white_space=space, shift=new_conf.fade_density_shift
+        )
         if table is None:
             return {}
         tag = crossover_space(fade_density(new_conf, conf.process_mode, space), space, new_conf)
@@ -713,10 +788,29 @@ class SensorSidebar(BaseSidebar):
             slider.blockSignals(True)
             slider.setValue(value)
             slider.blockSignals(False)
-        survivals = dict(fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, **white, **mix_changes)
+        # Estimate's table is read with no shift, and a new red makes Restore Range's shift stale.
+        survivals = dict(
+            fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, fade_density_shift=0.0, **white, **mix_changes
+        )
+        # Restore Range keeps its Red: it runs again on the new grays, and the table is measured after it.
+        short = not live and not conf.fade_auto_red and self._short_range(replace(conf, **survivals), source, grid)
+        auto = None
+        if conf.fade_auto_red and live:
+            # A Gray Mix drag keeps the fit, and the release fits Red again.
+            survivals.update(fade_ratio_r=conf.fade_ratio_r, fade_density_shift=conf.fade_density_shift)
+            self.fade_ratio_r_slider.blockSignals(True)
+            self.fade_ratio_r_slider.setValue(conf.fade_ratio_r)
+            self.fade_ratio_r_slider.blockSignals(False)
+        elif conf.fade_auto_red:
+            auto, _ = self._auto_red_changes(replace(conf, **survivals), source, grid)
+        if auto is not None:
+            survivals.update(auto)
+            self.fade_ratio_r_slider.blockSignals(True)
+            self.fade_ratio_r_slider.setValue(auto["fade_ratio_r"])
+            self.fade_ratio_r_slider.blockSignals(False)
         # A press measures the table after these survivals; a drag keeps the last one until the release.
         crossover, measured = {}, {}
-        if not keep_table and tone_bands and chosen.crossover is None and not live:
+        if not keep_table and (auto is not None or (tone_bands and chosen.crossover is None)) and not live:
             measured = self._measured_crossover(replace(conf, **survivals), mix)
             survivals = {**survivals, **measured}
         if not keep_table and not measured and chosen.crossover is not None:
@@ -727,6 +821,9 @@ class SensorSidebar(BaseSidebar):
             table = crossover.get("fade_crossover_table", survivals.get("fade_crossover_table"))
             if conf.fade_crossover == 0.0 and isinstance(table, tuple) and crossover_amount(table) >= CROSSOVER_FLOOR:
                 self._show_fade_hint(hint + " " + tr("The colors shift from shadows to highlights: raise Crossover."), stain)
+            suggest_red = short and not conf.fade_auto_red
+            self._show_red_hint(tr("This frame has a short range: turn on Restore Range.") if suggest_red else "")
+            set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, suggest_red)
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **survivals, **crossover)
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
@@ -776,8 +873,11 @@ class SensorSidebar(BaseSidebar):
             self.fade_fold.content.setVisible(slide)
             if self._fade_hint_hash != self.state.current_file_hash:
                 self.fade_estimate_hint.setText("")
+                self.fade_red_hint.setText("")
+                set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, False)
                 self._show_stain_suggestion("")
             self.fade_estimate_hint.setVisible(slide and bool(self.fade_estimate_hint.text()))
+            self.fade_red_hint.setVisible(slide and bool(self.fade_red_hint.text()))
             self.fade_crossover_hint.setVisible(slide and bool(self.fade_crossover_hint.text()))
             self.fade_stain_hint.setVisible(slide and bool(self.fade_stain_hint.text()))
 
@@ -809,6 +909,7 @@ class SensorSidebar(BaseSidebar):
             self.fade_ratio_g_slider,
             self.fade_ratio_b_slider,
             self.fade_white_anchor_btn,
+            self.fade_auto_red_btn,
             self.fade_crossover_slider,
             self.fade_neutrals_mix_slider,
             self.hue_trim_slider,

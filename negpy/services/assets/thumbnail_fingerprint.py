@@ -38,6 +38,7 @@ _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
             "film_base",
             "manual_dmin_at",
             "manual_dmax_at",
+            "fade_auto_red",
             "fade_neutrals_mix",
         }
     ),

@@ -116,9 +116,24 @@ fn fade_white(
     }))
 }
 
+/// `range_points`' percentiles of an (..., 3) float32 density grid's cell means, or None.
+#[pyfunction]
+fn mean_percentiles(
+    py: Python<'_>,
+    grid: PyReadonlyArrayDyn<'_, f32>,
+    qs: Vec<f64>,
+    min_cells: usize,
+) -> PyResult<Option<Vec<f64>>> {
+    let data = cells(&grid, "mean_percentiles")?;
+    Ok(super::detach(py, data.len(), || {
+        fade::mean_percentiles(data, &qs, min_cells)
+    }))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neutral_bands, m)?)?;
     m.add_function(wrap_pyfunction!(slide_extremes, m)?)?;
     m.add_function(wrap_pyfunction!(fade_white, m)?)?;
+    m.add_function(wrap_pyfunction!(mean_percentiles, m)?)?;
     Ok(())
 }

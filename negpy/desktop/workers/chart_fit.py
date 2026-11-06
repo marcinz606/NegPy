@@ -127,6 +127,7 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
     process = replace(
         source.config.process,
         fade_ratio_r=1.0,
+        fade_density_shift=0.0,
         fade_ratio_g=1.0,
         fade_ratio_b=1.0,
         fade_white_anchor=False,

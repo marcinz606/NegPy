@@ -219,6 +219,8 @@ class ProcessConfig:
     # (`fade.unmix_with_fade`). The ratios describe one slide: green and
     # blue relative to red, and red's own survival. All three at 1.0 is the identity.
     fade_ratio_r: float = 1.0
+    # Density (D) added to every channel after the fade: Restore Range's even shift that keeps the median where it printed.
+    fade_density_shift: float = 0.0
     fade_ratio_g: float = 1.0
     fade_ratio_b: float = 1.0
     # Remove Stain (White Anchor): restore density above each channel's own white, (D - w) / a, for a slide whose
@@ -237,6 +239,9 @@ class ProcessConfig:
     fade_crossover: float = 0.0
     fade_crossover_table: Optional[tuple] = None
     fade_crossover_space: str = ""
+    # Restore Range: Red Survival and `fade_density_shift` come from `fade_auto_red.auto_red`, which each
+    # Estimate on this frame runs again instead of setting its own Red.
+    fade_auto_red: bool = False
     # Gray Mix: moves Estimate's grays from the gray finder at 0 to the tone bands at 1 (`fade.gray_refs`).
     fade_neutrals_mix: float = 0.0
 

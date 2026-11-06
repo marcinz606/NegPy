@@ -241,6 +241,7 @@ class DarkroomEngine:
             context.metrics.get("film_base"),  # the roll's picked base: the stage reads the densities above it
             settings.process.crosstalk_process,
             settings.process.fade_ratio_r,
+            settings.process.fade_density_shift,
             settings.process.fade_ratio_g,
             settings.process.fade_ratio_b,
             settings.process.fade_white_anchor,

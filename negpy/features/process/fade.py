@@ -117,7 +117,18 @@ def fade_density(process: ProcessConfig, process_mode: Optional[str], white_spac
     """The log-density matrix a render applies, `F @ U` (the fade after the crosstalk unmix), and
     the anchor it scales about. A stored white w, read after U, makes the matrix the affine
     `F (U L - w) + t` about `a = U^-1 w`. The anchor is a camera RAW's a, else None
-    (docs/PIPELINE.md, Fade restoration)."""
+    (docs/PIPELINE.md, Fade restoration). `fade_density_shift` adds density to every channel after it."""
+    density = _fade_density(process, process_mode, white_space)
+    shift = float(process.fade_density_shift)
+    if shift == 0.0 or render_path(process) is RenderPath.PRINT:
+        return density
+    m = np.eye(3) if density.matrix is None else np.asarray(density.matrix, dtype=np.float64)
+    affine = m.copy() if m.shape[1] == 4 else np.hstack([m, np.zeros((3, 1))])
+    affine[:, 3] -= shift
+    return FadeDensity(affine, density.anchor)
+
+
+def _fade_density(process: ProcessConfig, process_mode: Optional[str], white_space: str) -> FadeDensity:
     unmix = effective_crosstalk_matrix(process, process_mode)
     fade = fade_matrix(process)
     matrix = unmix if fade is None else (fade if unmix is None else fade @ unmix)
@@ -481,10 +492,11 @@ def _table_after(
     camera_raw: bool,
     white_space: str,
     survivals: tuple[float, float, float],
+    shift: float = 0.0,
 ) -> Optional[tuple[float, ...]]:
-    """The crossover table measured on the Estimate *grid* after *survivals*, zero at the
+    """The crossover table measured on the Estimate *grid* after *survivals* and *shift*, zero at the
     midtone of *refs* (read above the anchor when one acts) through the same fade."""
-    density = survival_density(*survivals, white, white_anchor, camera_raw, white_space)
+    density = survival_density(*survivals, white, white_anchor, camera_raw, white_space, shift)
     mid = np.asarray(refs[0], dtype=np.float32).reshape(1, 1, 3)
     if white is not None and (white_anchor or camera_raw):
         mid = mid + np.asarray(density_anchor(white, white_anchor), dtype=np.float32)
@@ -499,8 +511,9 @@ def survival_crossover(
     white_anchor: bool = False,
     camera_raw: bool = False,
     white_space: str = "",
+    shift: float = 0.0,
 ) -> Optional[tuple[float, ...]]:
-    """The table Estimate would store with *survivals* set by hand: the same grid, gray
+    """The table Estimate would store with *survivals* and *shift* set by hand: the same grid, gray
     reader and zero, so a survival change keeps the Gray Mix the table was read with."""
     white = measure_white(grid)
     if white_anchor and white is None:
@@ -508,7 +521,7 @@ def survival_crossover(
     camera_raw = camera_raw or bool(white_space)
     anchored = white is not None and (white_anchor or camera_raw)
     refs, _ = reader(white_anchored_grid(grid, density_anchor(white, white_anchor)) if anchored else grid)
-    return None if refs is None else _table_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals)
+    return None if refs is None else _table_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift)
 
 
 # Crossover table: the per-density lean of the neutrals that the survivals leave. Ported from
@@ -859,8 +872,9 @@ def survival_density(
     white_anchor: bool,
     camera_raw: bool,
     white_space: str = "",
+    shift: float = 0.0,
 ) -> FadeDensity:
-    """The fade a render with these survivals applies after the crosstalk unmix, on the Estimate grid."""
+    """The fade a render with these survivals and *shift* applies after the crosstalk unmix, on the Estimate grid."""
     from negpy.features.process.models import ProcessMode
 
     space = white_space or ("estimate" if camera_raw else "")
@@ -876,6 +890,7 @@ def survival_density(
         fade_white_g=w[1],
         fade_white_b=w[2],
         fade_white_space=space,
+        fade_density_shift=shift,
     )
     return fade_density(process, ProcessMode.E6, space)
 

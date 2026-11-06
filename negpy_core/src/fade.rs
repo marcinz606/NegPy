@@ -204,6 +204,35 @@ pub fn white(grid: &[[f32; 3]], clipped_log: f64, q: f64) -> Option<[f32; 3]> {
     Some(channel_percentiles(&cells, &[q])?[0])
 }
 
+/// `range_points`' percentiles: each q's percentile of the float64 mean of the finite cells.
+/// None with fewer than `min_cells` of them.
+pub fn mean_percentiles(grid: &[[f32; 3]], qs: &[f64], min_cells: usize) -> Option<Vec<f64>> {
+    let mut mean: Vec<f64> = grid
+        .par_iter()
+        .filter(|c| c.iter().all(|v| v.is_finite()))
+        .map(|c| (f64::from(c[0]) + f64::from(c[1]) + f64::from(c[2])) / 3.0)
+        .collect();
+    if mean.len() < min_cells.max(1) {
+        return None;
+    }
+    mean.par_sort_unstable_by(f64::total_cmp);
+    let n = mean.len();
+    Some(
+        qs.iter()
+            .map(|&q| {
+                let at = (n - 1) as f64 * (q / 100.0);
+                let lo = (at.floor().max(0.0) as usize).min(n - 1);
+                let (a, b, t) = (mean[lo], mean[(lo + 1).min(n - 1)], at - lo as f64);
+                if t >= 0.5 {
+                    b - (b - a) * (1.0 - t)
+                } else {
+                    a + (b - a) * t
+                }
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,5 +321,18 @@ mod tests {
             slide_extremes(&zeros, -5.0, &[50.0]).unwrap(),
             vec![[-9.0, -1.0, -2.0]]
         );
+    }
+
+    #[test]
+    fn mean_percentiles_interpolate_between_ranks() {
+        let cells: Vec<[f32; 3]> = (0..5)
+            .map(|i| [i as f32; 3])
+            .chain([[f32::NAN; 3]])
+            .collect();
+        assert_eq!(
+            mean_percentiles(&cells, &[0.0, 50.0, 62.5, 100.0], 1).unwrap(),
+            vec![0.0, 2.0, 2.5, 4.0]
+        );
+        assert!(mean_percentiles(&cells, &[50.0], 64).is_none());
     }
 }

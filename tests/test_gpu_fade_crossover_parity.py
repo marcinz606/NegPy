@@ -52,6 +52,16 @@ class TestGpuFadeCrossoverParity(unittest.TestCase):
         self.assertLess(float(np.abs(cpu - gpu).max()), 0.01)
         self.assertLess(float(np.abs(cpu - gpu).mean()), 0.002)
 
+    def test_a_density_shift_renders_alike(self):
+        changes = dict(survival_changes(self.est, 1.0), fade_density_shift=-0.3)
+        settings = _settings(changes)
+        cpu, _ = self._render(settings, False)
+        gpu, _ = self._render(settings, True)
+        plain, _ = self._render(_settings(survival_changes(self.est, 1.0)), False)
+        self.assertGreater(float(np.abs(cpu - plain).max()), 0.05, "the shift must move the render")
+        self.assertLess(float(np.abs(cpu - gpu).max()), 0.01)
+        self.assertLess(float(np.abs(cpu - gpu).mean()), 0.002)
+
     def test_half_strength_renders_alike(self):
         settings = _settings(survival_changes(self.est, 0.5))
         cpu, _ = self._render(settings, False)

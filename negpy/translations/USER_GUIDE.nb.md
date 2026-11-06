@@ -342,7 +342,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 
 Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
-<!-- panel:sensor src:4b48f074 -->
+<!-- panel:sensor src:3fd2d8aa -->
 ### 10.4 Kalibrering: farger fra skanneoppsettet ditt
 
 Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
@@ -366,6 +366,7 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 Gir et falmet dias fargelagene tilbake.
 
 *   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
+*   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
 *   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake.
 *   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
 *   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Prøv det når ikonet blir gult.
