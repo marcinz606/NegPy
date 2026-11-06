@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Callable, NamedTuple, Optional, Sequence
 
+import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
@@ -248,17 +249,9 @@ def _measured_slide_bounds(grid: ImageBuffer, extreme_pct: float = COLOR_EXTREME
     analyzer does not fit, since its dense end is chroma-gated for an orange mask."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-    cells = grid.reshape(-1, 3)
-    unclipped = cells[(cells > CLIPPED_LOG).all(axis=1)]
-    if len(unclipped):
-        cells = unclipped
-
-    def _pct(p: float) -> list:
-        return [float(np.percentile(cells[:, ch], p)) for ch in range(3)]
-
     base = float(EXPOSURE_CONSTANTS["base_luma_clip"])
-    luma_f, luma_c = _pct(100.0 - base), _pct(base)
-    color_f, color_c = _pct(100.0 - extreme_pct), _pct(extreme_pct)
+    qs = [100.0 - base, base, 100.0 - extreme_pct, extreme_pct]
+    luma_f, luma_c, color_f, color_c = ([float(v) for v in p] for p in negpy_core.slide_extremes(_cells(grid), CLIPPED_LOG, qs))
     mean_f, mean_c = sum(luma_f) / 3.0, sum(luma_c) / 3.0
     mid_f, mid_c = sorted(color_f)[1], sorted(color_c)[1]
     floors = tuple(mean_f + (color_f[ch] - mid_f) for ch in range(3))
@@ -272,12 +265,16 @@ def measure_white(grid: ImageBuffer) -> Optional[tuple[float, float, float]]:
     a leak or a blown specular), and a decoded zero is no reading, so neither counts. A camera RAW's
     white-balance gains lift a channel past full scale where another channel clipped, so a channel
     stops at full scale, as the decode with Highlight Recovery does."""
-    cells = np.minimum(grid.reshape(-1, 3), 0.0)
-    cells = cells[(cells > CLIPPED_LOG).all(axis=1) & (cells < 0.0).any(axis=1)]
-    if not len(cells):
+    white = negpy_core.fade_white(_cells(grid), CLIPPED_LOG, WHITE_PCT)
+    if white is None:
         return None
-    r, g, b = (float(v) for v in np.percentile(cells, WHITE_PCT, axis=0))
+    r, g, b = (float(v) for v in white)
     return r, g, b
+
+
+def _cells(grid: ImageBuffer) -> np.ndarray:
+    """*grid* as the contiguous float32 (..., 3) array the fade kernels read."""
+    return np.ascontiguousarray(grid, dtype=np.float32)
 
 
 def white_anchored_grid(grid: ImageBuffer, white: tuple[float, float, float]) -> np.ndarray:

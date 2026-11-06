@@ -25,6 +25,10 @@ _LIN = np.linspace(0.0, 1.0, 65536, dtype=np.float32)
 _RAMP = np.ascontiguousarray(np.tile(_LIN * (np.float32(2.0) - _LIN), (3, 1)))
 
 
+# Near-neutral log cells from _IMG3, tiled past the one-thread size, for the fade measurements.
+_FADE_GRID = np.ascontiguousarray(np.tile(_IMG3[..., :1] * np.float32(-2.8) + (_IMG3 - np.float32(0.5)) * np.float32(0.2), (3, 2, 1)))
+
+
 def _filled(fill):
     out = np.empty_like(_IMG3)
     fill(out)
@@ -64,6 +68,8 @@ _CASES = {
         [-0.4, -0.7, -0.55],
         [0.12, -0.3, 0.05],
     ),
+    "slide_extremes": lambda: np.array(negpy_core.slide_extremes(_FADE_GRID, -5.0, [99.0, 1.0, 99.99999, 0.00001]), np.float32),
+    "fade_white": lambda: np.array(negpy_core.fade_white(_FADE_GRID - np.float32(0.15), -5.0, 99.9), np.float32),
     "relog_matrix": lambda: negpy_core.relog_matrix(
         np.ascontiguousarray(_IMG3 * np.float32(-3.0)),
         np.array([[0.7152, 0.2848, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0411, 0.9589]], np.float32),
@@ -170,6 +176,8 @@ _HASHES = {
     "to_log_density": "cc4d2086edf051826619f024a4f5d28c80d28528291d9df4610c1d3854144038",
     "unmix_log": "73edc03deb7e068718e77264608858efaec4b64776f64645da9f4aef54ec23b4",
     "unmix_log_anchored": "0d1d92c5fdf62796f89d844d8c03bd2c8fc9cd8da35f11f44b9fa9cbeb1507f4",
+    "slide_extremes": "6af3d7b670e81cbfe86b9b2efec6d2a10205ec35ed29dfa86dbb176f849ea90a",
+    "fade_white": "ff6f7ea8e12ee6fd7e82827b5a887775f4c394961074de37aa099a147139e42f",
     "relog_matrix": "e79e7bbb62aa68e9248c9b92d9875cbb5779b640a93b8f8e45a648b5009547be",
     "oetf_encode": "44508d28673c678fc0ec7b5262a06d0053ea6b4bed4bead7bc49556bc60eb070",
     "rgb_to_lab": "02c583bf1f5fe9723e2cb0a3e1f34759d6b0778d3644e8e2cff2251e756b68f2",
