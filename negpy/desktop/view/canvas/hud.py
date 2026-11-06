@@ -123,7 +123,9 @@ class CanvasHud(QWidget):
 
         self._message_timer = QTimer(self)
         self._message_timer.setSingleShot(True)
-        self._message_timer.timeout.connect(lambda: self.showMessage(""))
+        # A bound method, not a lambda: a collection on another thread clears a closure and defers the
+        # widget's delete, so a due timer would call a function with no closure.
+        self._message_timer.timeout.connect(self._expire_message)
         self._progress_timer = QTimer(self)
         self._progress_timer.setSingleShot(True)
         self._progress_timer.timeout.connect(self.hide_progress)
@@ -159,6 +161,9 @@ class CanvasHud(QWidget):
         if timeout >= 0:
             self._message_timer.start(timeout or _DEFAULT_MESSAGE_MS)
         self._sync()
+
+    def _expire_message(self) -> None:
+        self.showMessage("")
 
     def clear_message(self, text: str) -> None:
         """Clears the message only if it is still `text`, so a later message survives."""
