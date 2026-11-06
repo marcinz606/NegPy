@@ -698,6 +698,10 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             "fade_white_g",
             "fade_white_b",
             "fade_white_space",
+            "fade_crossover",
+            "fade_neutrals_mix",
+            "fade_crossover_table",
+            "fade_crossover_space",
         ),
     ),
     # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
@@ -771,9 +775,22 @@ def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in fields.items() if k not in DECODE_WHITE_FIELDS}
 
 
+# Fade card fields newer than some rolls' Fade defaults, at their ProcessConfig defaults. A roll that
+# holds Fade defaults without them means these values, or every frame would read as diverged.
+LATE_FADE_DEFAULTS = {
+    "fade_crossover": 0.0,
+    "fade_neutrals_mix": 0.0,
+    "fade_crossover_table": None,
+    "fade_crossover_space": "",
+}
+
+
 def frame_roll_defaults(defaults: Dict[str, Any], process: Any) -> Dict[str, Any]:
     """*defaults* as they apply to a frame with *process*: a camera RAW frame that has measured
-    its own white keeps it over a roll's scanner white."""
+    its own white keeps it over a roll's scanner white, and a roll's Fade defaults include
+    LATE_FADE_DEFAULTS."""
+    if any(name in defaults for name in ROLL_DEFAULT_FIELDS["fade"][1] if name not in LATE_FADE_DEFAULTS):
+        defaults = {**LATE_FADE_DEFAULTS, **defaults}
     if not getattr(process, "fade_white_space", ""):
         return defaults
     return {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}

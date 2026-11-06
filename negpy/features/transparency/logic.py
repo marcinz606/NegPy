@@ -555,22 +555,41 @@ def density_stage(
     return DensityStage(channels.pre, _with_log_offset(unmix, offset), channels.post, anchor)
 
 
-def density_stage_grid(
+def faded_stage_grid(
     stage: DensityStage,
     linear: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]],
     analysis_buffer: float,
     log_grid: Optional[Callable[[], ImageBuffer]] = None,
 ) -> ImageBuffer:
-    """The working-space meter grid of *linear* through *stage*. *log_grid* gives the prefiltered grid of *linear* when the caller has it, reused when there is no `pre`."""
-    from negpy.features.exposure.normalization import prefilter_log_grid, relog_matrix_image, unmix_log_image
+    """The meter grid of *linear* after *stage*'s density matrix, before its primaries: the space the
+    crossover table is measured and applied in. *log_grid* gives the prefiltered grid of *linear* when
+    the caller has it, reused when there is no `pre`."""
+    from negpy.features.exposure.normalization import prefilter_log_grid, unmix_log_image
     from negpy.features.process.capture_color import apply_camera_matrix
 
     if stage.pre is None and log_grid is not None:
         grid = log_grid()
     else:
         grid = prefilter_log_grid(linear if stage.pre is None else apply_camera_matrix(linear, stage.pre), roi, analysis_buffer)
-    return relog_matrix_image(unmix_log_image(grid, stage.unmix, stage.anchor), stage.post)
+    return unmix_log_image(grid, stage.unmix, stage.anchor)
+
+
+def density_stage_grid(
+    stage: DensityStage,
+    linear: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]] = None,
+    crossover=None,
+) -> ImageBuffer:
+    """The working-space meter grid of *linear* through *stage*, with the *crossover* offsets
+    (`fade.crossover_offsets`) after the density matrix."""
+    from negpy.features.exposure.normalization import relog_matrix_image
+    from negpy.features.process.fade import apply_crossover
+
+    faded = faded_stage_grid(stage, linear, roi, analysis_buffer, log_grid)
+    return relog_matrix_image(apply_crossover(faded, crossover), stage.post)
 
 
 def fade_white_grid(

@@ -13,7 +13,6 @@ from negpy.features.process.fade import (
     FADE_WHITE_HEADROOM,
     STAIN_BLUE_MIN,
     STAIN_FULL_SCALE_TOLERANCE,
-    EstimateMethod,
     estimate_fade,
     fade_white_target,
     measure_white,
@@ -220,7 +219,7 @@ def test_no_white_without_a_film_cell():
 
 
 def test_an_anchored_estimate_with_no_film_cell_says_so():
-    est = estimate_fade(np.zeros((32, 32, 3), np.float32), white_anchor=True)[EstimateMethod.MIDTONE]
+    est = estimate_fade(np.zeros((32, 32, 3), np.float32), white_anchor=True)
     assert est.white is None and est.reason
     assert (est.green, est.blue) == (1.0, 1.0)
 
@@ -242,14 +241,14 @@ def test_the_transfer_stage_knows_where_the_white_is_anchored(process, target):
 
 def test_estimate_measures_the_stain_as_the_white():
     _clean, faded = _stained_slide()
-    est = estimate_fade(_grid(faded))[EstimateMethod.MIDTONE]
+    est = estimate_fade(_grid(faded))
     np.testing.assert_allclose(est.white, _STAIN, atol=0.02)
 
 
 def test_the_anchored_estimate_reads_the_true_survivals_through_a_stain():
     _clean, faded = _stained_slide()
-    plain = estimate_fade(_grid(faded))[EstimateMethod.MIDTONE]
-    anchored = estimate_fade(_grid(faded), white_anchor=True)[EstimateMethod.MIDTONE]
+    plain = estimate_fade(_grid(faded))
+    anchored = estimate_fade(_grid(faded), white_anchor=True)
     assert anchored.reason == ""
     assert anchored.green == pytest.approx(_RATIO_G, abs=0.03)
     assert anchored.blue == pytest.approx(_RATIO_B, abs=0.03)

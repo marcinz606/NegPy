@@ -29,6 +29,10 @@ struct NormUniforms {
     // The density anchor, on when w is 1.0: each channel is capped at it before the unmix,
     // and the amount the pixel is above it in every channel is added after, as a neutral.
     anchor: vec4<f32>,
+    // Fade Restoration's crossover table (`fade.crossover_uniform`): (lo, hi, on, 0), then one log
+    // offset row per bin of the mean log between lo and hi. Added after the density matrix.
+    crossover: vec4<f32>,
+    crossover_rows: array<vec4<f32>, 64>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -78,6 +82,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         dot(params.unmix1.xyz, log_color) + excess + params.unmix1.w,
         dot(params.unmix2.xyz, log_color) + excess + params.unmix2.w,
     );
+    if (params.crossover.z > 0.5) {
+        // Float32 in `fade.apply_crossover`'s order, so the engines agree.
+        let m = (log_color.x + log_color.y + log_color.z) * (1.0 / 3.0);
+        let span = params.crossover.y - params.crossover.x;
+        var pos = 0.0;
+        if (span > 0.0) {
+            pos = clamp((m - params.crossover.x) / span, 0.0, 1.0) * 63.0;
+        }
+        let i0 = min(u32(pos), 63u);
+        let i1 = min(i0 + 1u, 63u);
+        let f = pos - f32(i0);
+        log_color = log_color + params.crossover_rows[i0].xyz * (1.0 - f) + params.crossover_rows[i1].xyz * f;
+    }
     if (params.post0.w > 0.5) {
         let unmixed = pow(vec3<f32>(10.0), log_color);
         log_color = log10_vec(max(vec3<f32>(

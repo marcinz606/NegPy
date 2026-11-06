@@ -342,7 +342,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 
 Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
-<!-- panel:sensor src:3a992073 -->
+<!-- panel:sensor src:4b48f074 -->
 ### 10.4 Kalibrering: farger fra skanneoppsettet ditt
 
 Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
@@ -350,25 +350,27 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 **Sensorkrysstaleprofil** (én eksponering under smalbåndslys, lineær RAW): fjerner fargen som lekker mellom sensorens kanaler. Kjør **Rullanalyse** på nytt etter en endring.
 
 *   **Profil**: sensorkrysstaleprofilen. Dine egne `.toml`-profiler legges i `<Documents>/NegPy/sensor/`.
-*   **Metode**: **To skalaer** (standard) fjerner lekkasjen og hindrer at svært sterke farger blir prikkete. **Lineær** er nøyaktig, men sterke farger kan bli prikkete. **Tetthet** gir ingen prikker, men sterke farger blir litt mattere.
-*   **Kalibrer**: lager en profil fra tre bilder av det bare lyset (rødt, grønt og blått), fra filer eller et tilkoblet kamera (se CAMERA_SCANNING.md).
+*   **Metode**: **To skalaer** (standard) fjerner lekkasjen uten prikker. **Lineær** er nøyaktig, men sterke farger kan bli prikkete. **Tetthet** gir ingen prikker, men gjør sterke farger litt mattere.
+*   **Kalibrer**: lager en profil fra tre bilder av det bare lyset (rødt, grønt, blått), fra filer eller et tilkoblet kamera (se CAMERA_SCANNING.md).
 
 **Krysstale** (fargefilm): fargestoffene i filmen, lyset ditt og sensoren din blander fargene litt, og en matrise skiller dem igjen. Kjør **Rullanalyse** på nytt etter en endring.
 
-*   **Matrise**: matrisene for denne filmtypen. De som er merket *(omtrentlig)*, kommer fra datablader for film og er et utgangspunkt. Dine egne `.toml`-filer legges i `<Documents>/NegPy/crosstalk/` (se CROSSTALK.md). Glidebryterknappen åpner redigeringsverktøyet; **+** lager en ny matrise. NegPy har ingen medfølgende matrise for dias.
+*   **Matrise**: matrisene for denne filmtypen. En *(omtrentlig)* matrise kommer fra et datablad. Dine egne `.toml`-filer legges i `<Documents>/NegPy/crosstalk/` (se CROSSTALK.md). Glidebryterknappen åpner redigeringsverktøyet; **+** lager en ny matrise. NegPy har ingen medfølgende matrise for dias.
 *   **Styrke**: hvor mye av matrisen som brukes.
 *   Fargeprøveknappen åpner **Mål fra kart** (fargenegativer): den måler en matrise fra et ColorChecker 24 eller SpyderCheckr 24 fotografert på filmen. Dra de fire prikkene til hjørnefeltene.
 
-**Justering av fargetone** (kamera med smalbåndslys): dreier alle farger rundt fargehjulet, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. Den virker også på dias, der sensorkrysstaleprofilen ikke gjør det.
+**Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
 #### 10.4.1 Fargegjenoppretting: falmede dias
 
 Gir et falmet dias fargelagene tilbake.
 
+*   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
 *   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake.
-*   **Grønn overlevelse** / **Blå overlevelse**: det samme for grønt og blått, mot rødt.
-*   **Fjern flekk**: gjør gulnede klare områder hvite, og kjører Beregn. Prøv det når Beregn gjør ikonet sitt gult.
-*   **Beregn**: angir glidebryterne ut fra de grå tonene i dette bildet. **Mellomtone** passer et sterkt falmet dias. **Gråområde** passer en mild falming med dype skygger.
+*   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
+*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Prøv det når ikonet blir gult.
+*   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
+*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og send kortet til rullen. Bare Beregn måler en ny tabell.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.5 Lysmåling: negativ → positiv
