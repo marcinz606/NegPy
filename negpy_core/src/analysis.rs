@@ -1198,6 +1198,12 @@ pub fn roi_from_measured_border(
 // Smallest fraction of a film-box side the tier refinement may keep. A rebate never takes half
 // a side, so anything below this is a broken occupancy run, not a frame.
 const TIER_MIN_KEEP: f64 = 0.5;
+// A run ends at the picture edge only when clear rebate lies past it: some line within this
+// fraction of the side holds at most this occupancy. The clearest line, not the mean, because a
+// tilted edge spreads across lines and a narrow frame gap leads into the next picture. A dip in
+// a high-key picture keeps more occupancy than this on every line.
+const TIER_EDGE_REACH: f64 = 0.03;
+const TIER_EDGE_MAX_OCCUPANCY: f64 = 0.25;
 
 /// `_smooth_signal(signal, window)`: `np.convolve(signal, ones(window) / window, "same")` in
 /// NumPy's float32 arithmetic. A full-overlap output of a window up to 11 goes through NumPy's
@@ -1320,6 +1326,19 @@ fn longest_run_above(profile: &[f64], threshold: f64) -> Option<(i64, i64)> {
     Some((best.0, best.1 + 1))
 }
 
+/// Whether a line just past each end of the half-open run reads as clear rebate. An end at the
+/// edge of the box has no lines past it and passes.
+fn run_ends_at_rebate(profile: &[f64], (start, end): (i64, i64)) -> bool {
+    let reach = py_round(TIER_EDGE_REACH * profile.len() as f64).max(3);
+    let clear = |band: &[f64]| {
+        band.is_empty()
+            || band.iter().copied().fold(f64::INFINITY, f64::min) <= TIER_EDGE_MAX_OCCUPANCY
+    };
+    let before = (start - reach).max(0) as usize..start as usize;
+    let after = end as usize..((end + reach) as usize).min(profile.len());
+    clear(&profile[before]) && clear(&profile[after])
+}
+
 /// `_estimate_tier_levels(lum, film_roi)`: (bed, rebate, image, ring spread), or None.
 fn estimate_tier_levels(
     lum: &[f32],
@@ -1387,6 +1406,8 @@ pub fn refine_film_roi_by_tiers(
     let (hl, hr) = longest_run_above(&col_occ, 0.55)?;
     if ((vb - vt) as f64) < TIER_MIN_KEEP * bh as f64
         || ((hr - hl) as f64) < TIER_MIN_KEEP * bw as f64
+        || !run_ends_at_rebate(&row_occ, (vt, vb))
+        || !run_ends_at_rebate(&col_occ, (hl, hr))
     {
         return None;
     }
