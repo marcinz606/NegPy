@@ -22,6 +22,9 @@ AUTO_RED_SPAN = 1.6
 #: Restore Range: the lowest density its shift leaves the frame's 0.5 % point at. The points are grid-cell means,
 #: so the brightest pixels sit above them.
 AUTO_RED_LIGHT = 0.2
+#: Estimate suggests Restore Range only where its Red would be this share of Estimate's or less: the frame's
+#: span is well short of AUTO_RED_SPAN, so a frame near the target stays quiet.
+AUTO_RED_HINT_RATIO = 0.85
 
 
 def range_points(density: ImageBuffer) -> Optional[tuple[float, ...]]:
