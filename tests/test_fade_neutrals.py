@@ -3,11 +3,10 @@
 import numpy as np
 import pytest
 
-from fade_crossover_scene import CROSSOVER, build_scene, estimate_grid, scan_image
+from fade_crossover_scene import estimate_fade, CROSSOVER, build_scene, estimate_grid, scan_image
 from negpy.features.process.fade import (
     FadeEstimate,
     blend_gray_readings,
-    estimate_fade,
     estimate_fade_with,
     gray_readings,
     gray_refs,

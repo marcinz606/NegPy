@@ -219,7 +219,7 @@ class ProcessConfig:
     crosstalk_process: str = ProcessMode.C41
 
     # Fade restoration of faded transparencies, composed with the crosstalk unmix
-    # (`fade.unmix_with_fade`). The ratios describe one slide: green and
+    # (`fade.fade_density`). The ratios describe one slide: green and
     # blue relative to red, and red's own survival. All three at 1.0 is the identity.
     fade_ratio_r: float = 1.0
     # Density (D) added to every channel after the fade: Restore Range's even shift that keeps the median where it printed.

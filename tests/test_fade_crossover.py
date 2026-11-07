@@ -277,7 +277,8 @@ def test_a_survival_set_by_hand_keeps_the_estimates_grays():
     where a render's measurement would take NegPy's."""
     from fade_crossover_scene import estimate_grid
 
-    from negpy.features.process.fade import estimate_fade, gray_refs, survival_crossover
+    from fade_crossover_scene import estimate_fade
+    from negpy.features.process.fade import gray_refs, survival_crossover
 
     _, image, _ = _case("crossover")
     grid = estimate_grid(image)

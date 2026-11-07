@@ -11,7 +11,7 @@ from negpy.desktop.session import camera_raw_preview
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.exposure.normalization import relog_matrix_image, unmix_log_image
 from negpy.features.process.capture_color import camera_to_working_matrix, is_source_profile, source_cam_xyz
-from negpy.features.process.fade import unmix_with_fade
+from negpy.features.process.fade import fade_density
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
@@ -80,8 +80,8 @@ def test_a_positive_fade_acts_on_the_source_channels_then_converts():
     img = _img()
     _, ctx = _render(config, img)
     p = camera_to_working_matrix(_SOURCE)
-    expected = relog_matrix_image(unmix_log_image(np.log10(img), unmix_with_fade(config, ProcessMode.E6)), p)
-    converted_first = unmix_log_image(np.log10(img @ p.T), unmix_with_fade(config, ProcessMode.E6))
+    expected = relog_matrix_image(unmix_log_image(np.log10(img), fade_density(config, ProcessMode.E6).matrix), p)
+    converted_first = unmix_log_image(np.log10(img @ p.T), fade_density(config, ProcessMode.E6).matrix)
     restored = _restored_log(ctx)
     np.testing.assert_allclose(restored, expected, atol=1e-4)
     assert float(np.abs(restored - converted_first).max()) > 0.05

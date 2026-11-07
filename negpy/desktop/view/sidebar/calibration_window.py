@@ -28,7 +28,7 @@ from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 # The Capture mode index. Blend solves as Trichrome does, then shoots the three LEDs in one Bulb exposure.
-SINGLE_MODE, BLEND_MODE = 1, 2
+TRICHROME_MODE, SINGLE_MODE, BLEND_MODE = 0, 1, 2
 CAPTURE_MODES = (tr("Trichrome"), tr("Single Exposure"), tr("Blend"))
 CAPTURE_MODE_TOOLTIP = tr(
     "Trichrome takes one exposure per LED, Single Exposure lights all three together, and Blend lights each LED in turn in one Bulb exposure."

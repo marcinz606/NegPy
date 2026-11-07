@@ -1213,16 +1213,3 @@ def test_a_baseline_follows_its_lock_through_a_replacement_a_copy_and_a_removal(
 
     remove_members(repo, source, ["/scans/1-merged.tif"], ["h1", "h2"])
     assert roll_for_id(repo, source)["frame_baselines"] == {}
-
-
-def test_a_roll_with_older_fade_defaults_reads_the_new_fade_fields_at_their_defaults():
-    from negpy.features.process.models import ProcessConfig
-    from negpy.services.assets.rolls import LATE_FADE_DEFAULTS, frame_roll_defaults
-
-    process = ProcessConfig()
-    for name, value in LATE_FADE_DEFAULTS.items():
-        assert getattr(process, name) == value, name
-    older = {"fade_ratio_g": 0.8}
-    assert frame_roll_defaults(older, process) == {**LATE_FADE_DEFAULTS, **older}
-    assert frame_roll_defaults({"hue_trim": 2.0}, process) == {"hue_trim": 2.0}
-    assert frame_roll_defaults({"fade_ratio_g": 0.8, "fade_crossover": 0.5}, process)["fade_crossover"] == 0.5

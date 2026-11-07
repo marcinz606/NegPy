@@ -3771,7 +3771,7 @@ class AppController(QObject):
         unmix, so the roll keeps a raw base that every render unmixes like the rebate reader's.
         One click: the tool disarms, and leaving it re-renders the roll's frame above the base."""
         from negpy.features.exposure.normalization import log_from_val
-        from negpy.features.process.fade import render_white_space, unmix_with_fade
+        from negpy.features.process.fade import render_white_space, fade_density
 
         bounds = self.state.last_metrics.get("final_bounds") or self.state.last_metrics.get("log_bounds")
         patch = self._sample_normalized_patch(nx, ny, radius=4)
@@ -3784,11 +3784,11 @@ class AppController(QObject):
             self.set_status(tr("Film Base: that spot is not flat film; click the clear rebate"), 4000, "warning")
             return
         base = logs.mean(axis=0)
-        unmix = unmix_with_fade(
+        unmix = fade_density(
             self.state.config.process,
             self.state.config.process.process_mode,
             render_white_space(self.state.config.process, self.state.config.process.process_mode, *self._effective_cam_xyz()),
-        )
+        ).matrix
         if unmix is not None:
             unmix = np.asarray(unmix, dtype=np.float64)
             if unmix.shape[1] == 4:
@@ -5802,9 +5802,6 @@ class AppController(QObject):
         task = NormalizationTask(
             frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in frames],
             workspace_color_space=self.state.workspace_color_space,
-            override_analysis_buffer=None,
-            override_luma_range_clip=None,
-            override_color_range_clip=None,
             detect=detect,
         )
         self.normalization_requested.emit(task)
@@ -6176,9 +6173,6 @@ class AppController(QObject):
             NormalizationTask(
                 frames=[NormalizationInput(file_info=f, config=configs[f["hash"]]) for f in frames],
                 workspace_color_space=self.state.workspace_color_space,
-                override_analysis_buffer=None,
-                override_luma_range_clip=None,
-                override_color_range_clip=None,
                 background=True,
             )
         )
@@ -6600,7 +6594,7 @@ class AppController(QObject):
         wanted = {}
         for card_key, (_section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             if any(name in values for name in names):
-                wanted.update({n: v for n, v in self._card_values(config, card_key).items() if n not in defaults})
+                wanted.update(self._roll_baseline(config, card_key, defaults))
         wanted.update(values)
         if not all(n in defaults and rolls.same_value(v, defaults[n]) for n, v in wanted.items()):
             rolls.set_roll_defaults(repo, roll_id, **wanted)

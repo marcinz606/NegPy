@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 _DONE_FLAG = "roll_field_locks_migrated_v1"
 _BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
 _CAST_REMOVAL_FLAG = "cast_removal_to_frames_v1"
-_PAPER_SPLIT_FLAG = "paper_card_split_v1"
+_SECTION_PUSHES_FLAG = "section_pushes_dropped_v1"
 _AUTO_CROP_FLAG = "auto_crop_roll_card_v1"
 _RAW_DECODE_SPLIT_FLAG = "raw_decode_linear_raw_v1"
 _CROP_TO_FRAMES_FLAG = "crop_to_frames_v1"
@@ -31,25 +31,6 @@ _FILM_ENCODING_FLAG = "film_card_source_encoding_v1"
 
 # The Crop card's settings, which were the roll's "autocrop" card; Auto Crop was its "auto_crop" card.
 _CROP_SHAPE_FIELDS = ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio", "autocrop_square")
-
-# The Paper Response card's fields, which left the Tone card (settings_catalog.PAPER_FIELDS).
-_PAPER_FIELDS = (
-    "paper_profile",
-    "paper_black",
-    "paper_dmin",
-    "midtone_gamma",
-    "toe",
-    "toe_width",
-    "shoulder",
-    "shoulder_width",
-    "dye_separation",
-    "separation_damping",
-    *(
-        f"{base}_trim_{ch}"
-        for base in ("midtone_gamma", "toe", "toe_width", "shoulder", "shoulder_width", "dye_separation")
-        for ch in ("red", "green", "blue")
-    ),
-)
 
 NEW_ROLL_FIELDS = {
     "process": (
@@ -182,17 +163,15 @@ def migrate_linear_raw_card_split(repo) -> None:
     repo.save_global_setting(_RAW_DECODE_SPLIT_FLAG, True)
 
 
-def migrate_paper_card_split(repo) -> None:
-    """The paper curve controls left the Tone card for their own ``paper`` card. A
-    whole-roll Tone apply recorded before the split moves its paper fields to ``paper``, so
-    each card reads Roll and resets to the roll against its own fields alone."""
-    if repo.get_global_setting(_PAPER_SPLIT_FLAG):
+def migrate_drop_section_pushes(repo) -> None:
+    """Removes every roll's whole-roll apply record, which the roll cards replace."""
+    if repo.get_global_setting(_SECTION_PUSHES_FLAG):
         return
     try:
-        rolls.move_section_push_fields(repo, "tone", "paper", _PAPER_FIELDS)
+        rolls.drop_section_pushes(repo)
     except Exception:
-        logger.exception("Paper Response card split migration failed; continuing without it")
-    repo.save_global_setting(_PAPER_SPLIT_FLAG, True)
+        logger.exception("section_pushes cleanup failed; continuing without it")
+    repo.save_global_setting(_SECTION_PUSHES_FLAG, True)
 
 
 def migrate_auto_crop_roll_locks(repo) -> None:
@@ -253,7 +232,6 @@ def migrate_crop_to_frames(repo) -> None:
                         conn.execute(
                             "UPDATE file_settings SET settings_json = ? WHERE file_hash = ?", (json.dumps(data, default=str), file_hash)
                         )
-        rolls.move_section_push_fields(repo, "geometry", "autocrop", ("crop_rect", "crop_from_auto", "crop_detect_key"))
         for roll_id, entry in saved.items():
             for file_hash, cards in entry.get("frame_overrides", {}).items():
                 for card in ("autocrop", "auto_crop"):

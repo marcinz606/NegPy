@@ -150,11 +150,6 @@ def _unmixed_point(unmix: np.ndarray, point: np.ndarray) -> np.ndarray:
         return point
 
 
-def unmix_with_fade(process: ProcessConfig, process_mode: Optional[str], white_space: str = "") -> Optional[np.ndarray]:
-    """`fade_density`'s matrix."""
-    return fade_density(process, process_mode, white_space).matrix
-
-
 def _white_terms(process: ProcessConfig, white_space: str, fade_acts: bool) -> Optional[tuple[np.ndarray, np.ndarray]]:
     """(white, target) of the stored white's affine, both after the crosstalk unmix, or None when no
     white acts. *fade_acts*: Fade Restoration applies. Crosstalk alone keeps a neutral neutral, so a
@@ -232,13 +227,6 @@ def with_fade_white(process: ProcessConfig, white: Optional[MeasuredWhite]) -> P
 NeutralAxisRefs = tuple[tuple[float, float, float], tuple[float, float, float], object, float]
 
 
-def measure_neutral_axis_ratios(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
-    """(refs, reason) from the transparency meter's grid, metered against this frame's own
-    bounds: the fixed transfer window finds no grays in a faded slide. `refs` is None, with a
-    reason, when no trustworthy neutral axis exists."""
-    return neutral_axis_from_grid(grid)
-
-
 def tone_band_refs(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
     """The tone bands' grays as neutral-axis refs: the share-weighted neutral centre of the shadow
     bands (1 and 2), the midtone bands (3 and 4) and the highlight bands (5 and 6) of `neutral_bands`."""
@@ -260,7 +248,9 @@ def tone_band_refs(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
 
 
 def neutral_axis_from_grid(grid: ImageBuffer) -> tuple[Optional[NeutralAxisRefs], str]:
-    """`measure_neutral_axis_ratios` on a prefiltered log grid."""
+    """(refs, reason) from the transparency meter's prefiltered log grid, metered against this
+    frame's own bounds: the fixed transfer window finds no grays in a faded slide. `refs` is None,
+    with a reason, when no trustworthy neutral axis exists."""
     refs = measure_neutral_axis_from_log(grid, _measured_slide_bounds(grid, COLOR_EXTREME_PCT), None, 0.0)
     if refs is not None and refs[3] >= MIN_CONFIDENCE:
         return refs, ""
@@ -338,7 +328,7 @@ class FadeEstimate:
 
 def fade_ratios_from_neutral_axis(refs: Optional[NeutralAxisRefs]) -> tuple[float, float, str]:
     """(ratio_g, ratio_b, reason) from the midtone grays' own densities in neutral references made by
-    `measure_neutral_axis_ratios`. Ratios are relative to red, the fade matrix's reference channel.
+    `neutral_axis_from_grid`. Ratios are relative to red, the fade matrix's reference channel.
     `reason` is "" for a real estimate, else the fail-closed condition that fired, with 1.0 for both."""
     if refs is None:
         return 1.0, 1.0, tr("No grays to measure.")
@@ -438,23 +428,6 @@ def toward_no_change(estimate: FadeEstimate, mix: float) -> FadeEstimate:
     return replace(estimate, red=estimate_red(g, b), green=g, blue=b, crossover=None)
 
 
-def estimate_fade(
-    grid: ImageBuffer,
-    white_anchor: bool = False,
-    camera_raw: bool = False,
-    white_space: str = "",
-    mix: float = 0.0,
-) -> FadeEstimate:
-    """The estimate from the midtone grays. `grid` is the transparency meter's grid with the
-    crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`). It sets Red Survival
-    so the best-kept layer lands at 1.0; a ratio above 1 says red faded most. With `white_anchor`, or on a `camera_raw` whose render scales density above its
-    white (`unmix_with_fade`), the grays are read as density above the point the render scales about
-    (`density_anchor`). *mix* sets the
-    grays (`gray_refs`). It carries the crossover table measured after its survivals, zero at its
-    midtone."""
-    return estimate_fade_with(grid, lambda g: gray_refs(g, mix), white_anchor, camera_raw, white_space)
-
-
 def estimate_fade_with(
     grid: ImageBuffer,
     reader: Callable[[ImageBuffer], tuple[Optional[NeutralAxisRefs], str]],
@@ -463,8 +436,12 @@ def estimate_fade_with(
     white_space: str = "",
     crossover: bool = True,
 ) -> FadeEstimate:
-    """`estimate_fade` with the gray reader *reader*, which takes the grid the grays are read on.
-    *crossover* False leaves out the crossover tables, the slowest step, for a live slider."""
+    """The estimate from the grays *reader* finds on `grid`, the transparency meter's grid with the
+    crosstalk unmix, no fade and no Remove Stain (`TransparencyBaseProcessor`). Red Survival puts
+    the best-kept layer at 1.0; a ratio above 1 says red faded most. With `white_anchor`, or on a
+    `camera_raw` whose render scales density above its white, the grays are read above that point
+    (`density_anchor`). It carries the crossover table measured after its survivals, zero at its
+    midtone; *crossover* False leaves the table out, the slowest step, for a live slider."""
     white = measure_white(grid)
     if white_anchor and white is None:
         return FadeEstimate(None, 1.0, 1.0, tr("No clear area to measure the stain on this frame."))
@@ -704,19 +681,17 @@ def crossover_casts(table: Optional[Sequence[float]]) -> tuple[Optional[np.ndarr
 
 #: Hue names in `castName`'s order around the hue circle.
 _HUE_NAMES = (mark("red"), mark("yellow"), mark("green"), mark("cyan"), mark("blue"), mark("magenta"))
-#: Below this channel spread (D) a shadow or highlight lean has no hue to name.
-CAST_NAME_FLOOR = CROSSOVER_FLOOR
 
 
 def cast_name(lean: Optional[np.ndarray]) -> Optional[str]:
     """The hue a lean in log transmittance tilts toward, translated, as NegativeConverter's `castName`
-    names an RGB offset; None under CAST_NAME_FLOOR. More light in a channel is more of its color."""
+    names an RGB offset; None under CROSSOVER_FLOOR. More light in a channel is more of its color."""
     if lean is None:
         return None
     r, g, b = (float(v) for v in lean)
     hi, lo = max(r, g, b), min(r, g, b)
     chroma = hi - lo
-    if chroma < CAST_NAME_FLOOR:
+    if chroma < CROSSOVER_FLOOR:
         return None
     if hi == r:
         hue = ((g - b) / chroma) % 6
@@ -731,8 +706,9 @@ def crossover_description(table: Sequence[float]) -> str:
     """One line on what a table found: the crossover amount, then the hue the shadows and the
     highlights lean toward beyond the midtone."""
     shadow, highlight = crossover_casts(table)
-    amount = tr("Crossover {amount} D.", amount=f"{crossover_amount(table):.2f}")
-    if crossover_amount(table) < CROSSOVER_FLOOR:
+    size = crossover_amount(table)
+    amount = tr("Crossover {amount} D.", amount=f"{size:.2f}")
+    if size < CROSSOVER_FLOOR:
         return amount + " " + tr("Too small to correct.")
     parts = []
     shadow_name, highlight_name = cast_name(shadow), cast_name(highlight)

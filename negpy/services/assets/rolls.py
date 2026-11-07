@@ -777,24 +777,9 @@ def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in fields.items() if k not in DECODE_WHITE_FIELDS}
 
 
-# Fade card fields newer than some rolls' Fade defaults, at their ProcessConfig defaults. A roll that
-# holds Fade defaults without them means these values, or every frame would read as diverged.
-LATE_FADE_DEFAULTS = {
-    "fade_density_shift": 0.0,
-    "fade_crossover": 0.0,
-    "fade_auto_red": False,
-    "fade_neutrals_mix": 0.0,
-    "fade_crossover_table": None,
-    "fade_crossover_space": "",
-}
-
-
 def frame_roll_defaults(defaults: Dict[str, Any], process: Any) -> Dict[str, Any]:
     """*defaults* as they apply to a frame with *process*: a camera RAW frame that has measured
-    its own white keeps it over a roll's scanner white, and a roll's Fade defaults include
-    LATE_FADE_DEFAULTS."""
-    if any(name in defaults for name in ROLL_DEFAULT_FIELDS["fade"][1] if name not in LATE_FADE_DEFAULTS):
-        defaults = {**LATE_FADE_DEFAULTS, **defaults}
+    its own white keeps it over a roll's scanner white."""
     if not getattr(process, "fade_white_space", ""):
         return defaults
     return {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
@@ -1001,25 +986,11 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     return config
 
 
-def move_section_push_fields(repo: Any, section_key: str, to_key: str, fields: Collection[str]) -> None:
-    """Moves *fields* out of every roll's *section_key* push into its *to_key* push, for a
-    card that splits in two. A push left empty is dropped."""
+def drop_section_pushes(repo: Any) -> None:
+    """Removes the ``section_pushes`` record, which nothing reads, from every roll."""
     store = _read(repo)
-    wanted = set(fields)
-    for entry in store.values():
-        pushes = dict(entry.get("section_pushes", {}))
-        source = pushes.get(section_key, {})
-        moved = {f: v for f, v in source.items() if f in wanted}
-        if not moved:
-            continue
-        kept = {f: v for f, v in source.items() if f not in wanted}
-        if kept:
-            pushes[section_key] = kept
-        else:
-            pushes.pop(section_key)
-        pushes[to_key] = {**pushes.get(to_key, {}), **moved}
-        entry["section_pushes"] = pushes
-    _write(repo, store)
+    if any(entry.pop("section_pushes", None) is not None for entry in list(store.values())):
+        _write(repo, store)
 
 
 def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Any]]:

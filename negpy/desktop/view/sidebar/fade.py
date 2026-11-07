@@ -98,7 +98,7 @@ class FadeSidebar(BaseSidebar):
         )
         # Estimate sets the Survival sliders, so they fold under its row.
         self.fade_survival_fold = rail_fold(
-            "sensor_fade_survival", self.fade_estimate_row, self.fade_ratio_r_slider, self.fade_ratio_g_slider, self.fade_ratio_b_slider
+            "fade_survival", self.fade_estimate_row, self.fade_ratio_r_slider, self.fade_ratio_g_slider, self.fade_ratio_b_slider
         )
         for item in (
             self.fade_estimate_row,

@@ -5,7 +5,7 @@ on the slide render, rather than run as its own stage.
 import numpy as np
 
 from negpy.features.exposure.normalization import effective_crosstalk_matrix, resolve_crosstalk_matrix
-from negpy.features.process.fade import fade_matrix, resolve_fade_matrix, unmix_with_fade
+from negpy.features.process.fade import fade_matrix, resolve_fade_matrix, fade_density
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 _SLIDE = {"process_mode": ProcessMode.E6}
@@ -49,16 +49,16 @@ def test_fade_matrix_is_diagonal_and_not_row_normalized():
 
 def test_fade_off_leaves_crosstalk_matrix_unchanged():
     """An unfaded slide must not perturb the crosstalk result, including when the matrix is off."""
-    assert unmix_with_fade(ProcessConfig(**_SLIDE), ProcessMode.E6) is None
+    assert fade_density(ProcessConfig(**_SLIDE), ProcessMode.E6).matrix is None
 
     process = ProcessConfig(crosstalk_strength=0.6, crosstalk_matrix=_CROSSTALK, crosstalk_process=ProcessMode.C41)
     unmix_alone = resolve_crosstalk_matrix(0.6, _CROSSTALK)
-    np.testing.assert_array_equal(unmix_with_fade(process, ProcessMode.C41), unmix_alone)
+    np.testing.assert_array_equal(fade_density(process, ProcessMode.C41).matrix, unmix_alone)
 
 
 def test_unit_survivals_compose_to_the_crosstalk_matrix_exactly():
     process = ProcessConfig(crosstalk_strength=0.6, crosstalk_matrix=_CROSSTALK, crosstalk_process=ProcessMode.E6, **_SLIDE)
-    np.testing.assert_array_equal(unmix_with_fade(process, ProcessMode.E6), resolve_crosstalk_matrix(0.6, _CROSSTALK))
+    np.testing.assert_array_equal(fade_density(process, ProcessMode.E6).matrix, resolve_crosstalk_matrix(0.6, _CROSSTALK))
 
 
 def test_a_faded_slide_composes_the_fade_after_the_unmix():
@@ -71,13 +71,13 @@ def test_a_faded_slide_composes_the_fade_after_the_unmix():
         **_SLIDE,
     )
     expected = resolve_fade_matrix(1.0, _RATIO_G, _RATIO_B) @ resolve_crosstalk_matrix(0.6, _CROSSTALK)
-    np.testing.assert_allclose(unmix_with_fade(process, ProcessMode.E6), expected, atol=1e-12)
+    np.testing.assert_allclose(fade_density(process, ProcessMode.E6).matrix, expected, atol=1e-12)
     np.testing.assert_array_equal(effective_crosstalk_matrix(process, ProcessMode.E6), resolve_crosstalk_matrix(0.6, _CROSSTALK))
 
 
 def test_a_faded_slide_without_crosstalk_gets_the_fade_alone():
     process = ProcessConfig(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, **_SLIDE)
-    np.testing.assert_allclose(unmix_with_fade(process, ProcessMode.E6), resolve_fade_matrix(1.0, _RATIO_G, _RATIO_B), atol=1e-12)
+    np.testing.assert_allclose(fade_density(process, ProcessMode.E6).matrix, resolve_fade_matrix(1.0, _RATIO_G, _RATIO_B), atol=1e-12)
 
 
 def test_fade_applies_to_slides_only():
@@ -89,8 +89,8 @@ def test_fade_applies_to_slides_only():
         fade_ratio_g=_RATIO_G,
         fade_ratio_b=_RATIO_B,
     )
-    np.testing.assert_array_equal(unmix_with_fade(process, ProcessMode.C41), resolve_crosstalk_matrix(0.6, _CROSSTALK))
-    assert unmix_with_fade(ProcessConfig(fade_ratio_g=_RATIO_G), ProcessMode.C41) is None
+    np.testing.assert_array_equal(fade_density(process, ProcessMode.C41).matrix, resolve_crosstalk_matrix(0.6, _CROSSTALK))
+    assert fade_density(ProcessConfig(fade_ratio_g=_RATIO_G), ProcessMode.C41).matrix is None
     positive = ProcessConfig(fade_ratio_g=_RATIO_G, positive_source=True, **_SLIDE)
     assert fade_matrix(positive) is not None
     assert fade_matrix(ProcessConfig(fade_ratio_g=_RATIO_G, **_SLIDE)) is not None

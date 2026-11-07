@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from fade_crossover_scene import estimate_fade
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import LogNegativeBounds, prefilter_log_grid, unmix_log_image
@@ -13,11 +14,10 @@ from negpy.features.process.fade import (
     FADE_WHITE_HEADROOM,
     STAIN_BLUE_MIN,
     STAIN_FULL_SCALE_TOLERANCE,
-    estimate_fade,
     fade_white_target,
     measure_white,
     stain_suggested,
-    unmix_with_fade,
+    fade_density,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import STAIN_PIVOT_MIN_ARM, transfer_bounds, transfer_cast_affine
@@ -75,8 +75,8 @@ def _grid(image: np.ndarray) -> np.ndarray:
 def test_off_keeps_the_square_matrix_whatever_white_is_stored():
     stored = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, **_WHITE)
     bare = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B)
-    np.testing.assert_array_equal(unmix_with_fade(stored, ProcessMode.E6), unmix_with_fade(bare, ProcessMode.E6))
-    assert unmix_with_fade(_slide(**_WHITE), ProcessMode.E6) is None
+    np.testing.assert_array_equal(fade_density(stored, ProcessMode.E6).matrix, fade_density(bare, ProcessMode.E6).matrix)
+    assert fade_density(_slide(**_WHITE), ProcessMode.E6).matrix is None
 
 
 def test_off_renders_bit_identical_with_a_stored_white():
@@ -88,7 +88,7 @@ def test_off_renders_bit_identical_with_a_stored_white():
 
 def test_on_maps_a_bright_white_just_under_full_scale_before_the_fade():
     process = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **_WHITE)
-    matrix = unmix_with_fade(process, ProcessMode.E6)
+    matrix = fade_density(process, ProcessMode.E6).matrix
     assert matrix.shape == (3, 4)
     white = np.array([[[_WHITE["fade_white_r"], _WHITE["fade_white_g"], _WHITE["fade_white_b"]]]], dtype=np.float32)
     np.testing.assert_allclose(unmix_log_image(white, matrix), -FADE_WHITE_HEADROOM, atol=1e-6)
@@ -101,7 +101,7 @@ def test_on_keeps_a_dim_white_at_its_cleanest_channel():
     dim = {"fade_white_r": -0.8, "fade_white_g": -1.0, "fade_white_b": -1.1}
     process = _slide(fade_ratio_g=_RATIO_G, fade_ratio_b=_RATIO_B, fade_white_anchor=True, **dim)
     white = np.array([[list(dim.values())]], dtype=np.float32)
-    np.testing.assert_allclose(unmix_log_image(white, unmix_with_fade(process, ProcessMode.E6)), -0.8, atol=1e-6)
+    np.testing.assert_allclose(unmix_log_image(white, fade_density(process, ProcessMode.E6).matrix), -0.8, atol=1e-6)
 
 
 def test_white_headroom_is_the_documented_one():
@@ -111,20 +111,20 @@ def test_white_headroom_is_the_documented_one():
 def test_on_with_no_white_measured_changes_nothing():
     process = _slide(fade_ratio_g=_RATIO_G, fade_white_anchor=True)
     np.testing.assert_array_equal(
-        unmix_with_fade(process, ProcessMode.E6),
-        unmix_with_fade(_slide(fade_ratio_g=_RATIO_G), ProcessMode.E6),
+        fade_density(process, ProcessMode.E6).matrix,
+        fade_density(_slide(fade_ratio_g=_RATIO_G), ProcessMode.E6).matrix,
     )
 
 
 def test_remove_stain_applies_to_a_positive_frame():
     process = _slide(positive_source=True, fade_white_anchor=True, **_WHITE)
-    assert unmix_with_fade(process, ProcessMode.E6) is not None
+    assert fade_density(process, ProcessMode.E6).matrix is not None
     assert fade_white_target(process) == fade_white_target(_slide(fade_white_anchor=True, **_WHITE))
 
 
 def test_white_anchor_applies_to_slides_only():
     process = _slide(fade_white_anchor=True, **_WHITE)
-    assert unmix_with_fade(replace(process, process_mode=ProcessMode.C41), ProcessMode.C41) is None
+    assert fade_density(replace(process, process_mode=ProcessMode.C41), ProcessMode.C41).matrix is None
 
 
 def test_a_stained_slide_restores_closer_to_the_clean_one_with_the_anchor_on():
@@ -150,7 +150,7 @@ def test_cast_removal_meters_the_anchored_film():
         fade_white_g=white[1],
         fade_white_b=white[2],
     )
-    grid = unmix_log_image(prefilter_log_grid(faded, None, 0.0), unmix_with_fade(process, ProcessMode.E6))
+    grid = unmix_log_image(prefilter_log_grid(faded, None, 0.0), fade_density(process, ProcessMode.E6).matrix)
     top = np.percentile(grid.reshape(-1, 3), 99.9, axis=0)
     np.testing.assert_allclose(top, -FADE_WHITE_HEADROOM, atol=0.02)
 

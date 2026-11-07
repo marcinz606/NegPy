@@ -38,6 +38,7 @@ from negpy.desktop.view.sidebar.calibration_window import (
     CAPTURE_MODE_TOOLTIP,
     CAPTURE_MODES,
     SINGLE_MODE,
+    TRICHROME_MODE,
     CalibrationWindow,
 )
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
@@ -204,7 +205,7 @@ def _preset_label(name: str, preset: Optional[ScanlightPreset]) -> str:
     elif preset.single_capture or preset.w_level:
         mode = CAPTURE_MODES[SINGLE_MODE]
     else:
-        mode = CAPTURE_MODES[0]
+        mode = CAPTURE_MODES[TRICHROME_MODE]
     return f"{name} · {mode}"
 
 

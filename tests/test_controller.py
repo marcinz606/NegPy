@@ -4112,7 +4112,6 @@ class TestPresetExportSelected(unittest.TestCase):
 
         (task,) = tasks
         self.assertTrue(task.background)
-        self.assertIsNone(task.override_luma_range_clip)
         self.assertEqual([f.file_info["hash"] for f in task.frames], ["h1", "h2"])
         self.assertIsNone(self.controller._active_batch)
         self.assertTrue(self.controller.measuring_baseline())

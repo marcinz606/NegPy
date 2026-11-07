@@ -7,20 +7,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from fade_crossover_scene import estimate_fade
 from negpy.desktop.controller import AppController
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
 from negpy.features.process.capture_color import source_cam_xyz, wb_only_cam_xyz
 from negpy.features.process.fade import (
-    estimate_fade,
-    fade_density,
     fade_white_space,
     fade_white_stale,
     fade_white_target,
     render_white_space,
     resolve_fade_matrix,
-    unmix_with_fade,
+    fade_density,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.processor import TransparencyBaseProcessor
@@ -59,7 +58,7 @@ def test_an_input_icc_keeps_the_space():
 def test_a_camera_raw_scales_density_above_a_neutral_level_at_its_white():
     """Without Remove Stain the anchor is the white's cleanest channel on all three, so the white keeps its color."""
     process = _slide(**_FADE, **_white())
-    matrix = unmix_with_fade(process, ProcessMode.E6, _SPACE)
+    matrix = fade_density(process, ProcessMode.E6, _SPACE).matrix
     level = max(_RAW_WHITE)
     density = np.array([-0.3, -0.24, -0.18])
     pixel = (level + density)[None, None, :].astype(np.float32)
@@ -85,7 +84,7 @@ def test_estimate_then_render_keeps_grays_neutral_with_a_colored_white():
         est = estimate_fade(whole, white_anchor=remove_stain, camera_raw=True)
         stored = _white(est.white)
         process = _slide(fade_ratio_r=est.red, fade_ratio_g=est.green, fade_ratio_b=est.blue, fade_white_anchor=remove_stain, **stored)
-        out = unmix_log_image(grid, unmix_with_fade(process, ProcessMode.E6, _SPACE))[20:80, 5:175].reshape(-1, 3)
+        out = unmix_log_image(grid, fade_density(process, ProcessMode.E6, _SPACE).matrix)[20:80, 5:175].reshape(-1, 3)
         cast = out - out[:, 1:2]
         assert np.all(np.abs(cast.mean(axis=0)) < 0.03), (remove_stain, cast.mean(axis=0))
 
@@ -95,29 +94,29 @@ def test_the_render_is_the_same_at_any_exposure():
     process = _slide(**_FADE, **_white())
     shifted = _slide(**_FADE, **_white(tuple(w + 0.3 for w in _RAW_WHITE)))
     pixel = np.array([[[-0.9, -0.8, -0.75]]], dtype=np.float32)
-    out = unmix_log_image(pixel, unmix_with_fade(process, ProcessMode.E6, _SPACE))
-    brighter = unmix_log_image(pixel + 0.3, unmix_with_fade(shifted, ProcessMode.E6, _SPACE))
+    out = unmix_log_image(pixel, fade_density(process, ProcessMode.E6, _SPACE).matrix)
+    brighter = unmix_log_image(pixel + 0.3, fade_density(shifted, ProcessMode.E6, _SPACE).matrix)
     np.testing.assert_allclose(brighter - out, 0.3, atol=1e-6)
 
 
 def test_remove_stain_still_maps_the_white_to_neutral():
     process = _slide(**_FADE, fade_white_anchor=True, **_white())
     white = np.asarray(_RAW_WHITE, dtype=np.float32)[None, None, :]
-    np.testing.assert_allclose(unmix_log_image(white, unmix_with_fade(process, ProcessMode.E6, _SPACE))[0, 0], -0.55, atol=1e-6)
+    np.testing.assert_allclose(unmix_log_image(white, fade_density(process, ProcessMode.E6, _SPACE).matrix)[0, 0], -0.55, atol=1e-6)
     assert fade_white_target(process, _SPACE) == pytest.approx(-0.55)
 
 
 @pytest.mark.parametrize("stored, render", [("", _SPACE), (_SPACE, ""), (_SPACE, fade_white_space(_CAMERA, None))])
 def test_a_white_from_another_space_does_not_apply(stored, render):
     anchored = _slide(**_FADE, fade_white_anchor=True, **_white(space=stored))
-    np.testing.assert_array_equal(unmix_with_fade(anchored, ProcessMode.E6, render), resolve_fade_matrix(1.0, 0.8, 0.6))
+    np.testing.assert_array_equal(fade_density(anchored, ProcessMode.E6, render).matrix, resolve_fade_matrix(1.0, 0.8, 0.6))
     assert fade_white_target(anchored, render) is None
 
 
 def test_a_file_without_a_camera_matrix_keeps_the_full_scale_zero():
     """A JPEG or scanner TIFF has its white at full scale, so only Remove Stain moves the zero."""
     process = _slide(**_FADE, **_white(space=""))
-    np.testing.assert_array_equal(unmix_with_fade(process, ProcessMode.E6, ""), resolve_fade_matrix(1.0, 0.8, 0.6))
+    np.testing.assert_array_equal(fade_density(process, ProcessMode.E6, "").matrix, resolve_fade_matrix(1.0, 0.8, 0.6))
 
 
 def test_remove_stain_on_a_scanner_file_restores_its_highlights_too():
@@ -130,7 +129,7 @@ def test_remove_stain_on_a_scanner_file_restores_its_highlights_too():
     TransparencyBaseProcessor(config).process(img, ctx)
     b = ctx.metrics["log_bounds"]
     restored = ctx.metrics["normalized_log"] * (np.asarray(b.ceils) - np.asarray(b.floors)) + np.asarray(b.floors)
-    expected = unmix_log_image(np.log10(img), unmix_with_fade(config, ProcessMode.E6, ""))
+    expected = unmix_log_image(np.log10(img), fade_density(config, ProcessMode.E6, "").matrix)
     np.testing.assert_allclose(restored, expected, atol=1e-4)
 
 
