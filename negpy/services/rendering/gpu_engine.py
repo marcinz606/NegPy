@@ -797,8 +797,8 @@ class GPUEngine:
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        def _white_grid() -> np.ndarray:
-            source, buffer = _build_analysis_source(
+        def _analysis_grid_source() -> Tuple[np.ndarray, float]:
+            return _build_analysis_source(
                 img,
                 settings.geometry,
                 roi,
@@ -808,6 +808,9 @@ class GPUEngine:
                 APP_CONFIG.preview_render_size,
                 meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
             )
+
+        def _white_grid() -> np.ndarray:
+            source, buffer = _analysis_grid_source()
             return fade_white_grid(settings.process, settings.process.process_mode, cam_xyz, camera_wb, source, None, buffer)
 
         # Before every key and matrix below, which read the white. A tile takes its export's white.
@@ -890,16 +893,7 @@ class GPUEngine:
             crossover_key = None if white_key is None else white_key + (space, proc.fade_crossover_space)
 
             def _faded_grid() -> np.ndarray:
-                source, buffer = _build_analysis_source(
-                    img,
-                    settings.geometry,
-                    roi,
-                    settings.process.analysis_buffer,
-                    settings.process.analysis_rect,
-                    tiling_mode,
-                    APP_CONFIG.preview_render_size,
-                    meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
-                )
+                source, buffer = _analysis_grid_source()
                 return faded_stage_grid(slide_stage, source, None, buffer)
 
             cached = self._crossover_cache

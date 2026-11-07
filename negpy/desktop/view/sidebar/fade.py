@@ -2,6 +2,7 @@ from dataclasses import replace
 from typing import Optional
 
 from negpy.kernel.system.i18n import tr
+from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -176,9 +177,8 @@ class FadeSidebar(BaseSidebar):
             changes, reason = self._auto_red_changes(base, source, grid)
         self._show_red_hint(reason)
         if changes is None:
-            self.fade_auto_red_btn.blockSignals(True)
-            self.fade_auto_red_btn.setChecked(False)
-            self.fade_auto_red_btn.blockSignals(False)
+            with QSignalBlocker(self.fade_auto_red_btn):
+                self.fade_auto_red_btn.setChecked(False)
             return
         set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, False)
         changes = {**changes, "fade_auto_red": True}
@@ -360,16 +360,14 @@ class FadeSidebar(BaseSidebar):
             else:
                 picked, chosen = found
                 mix, mix_changes = picked, {"fade_neutrals_mix": picked}
-                self.fade_neutrals_mix_slider.blockSignals(True)
-                self.fade_neutrals_mix_slider.setValue(picked * 100.0)
-                self.fade_neutrals_mix_slider.blockSignals(False)
+                with QSignalBlocker(self.fade_neutrals_mix_slider):
+                    self.fade_neutrals_mix_slider.setValue(picked * 100.0)
         if tone_bands:
             self._tone_bands_hash = self.state.current_file_hash
             if not mix_changes:
                 mix, mix_changes = 1.0, {"fade_neutrals_mix": 1.0}
-                self.fade_neutrals_mix_slider.blockSignals(True)
-                self.fade_neutrals_mix_slider.setValue(100.0)
-                self.fade_neutrals_mix_slider.blockSignals(False)
+                with QSignalBlocker(self.fade_neutrals_mix_slider):
+                    self.fade_neutrals_mix_slider.setValue(100.0)
             chosen = toward_no_change(chosen, mix)
         failed = bool(chosen.reason) and chosen.green == 1.0 and chosen.blue == 1.0
         # The white is stored with the survivals; a render measures one only for a stale camera RAW
@@ -402,9 +400,8 @@ class FadeSidebar(BaseSidebar):
             (self.fade_ratio_g_slider, chosen.green),
             (self.fade_ratio_b_slider, chosen.blue),
         ):
-            slider.blockSignals(True)
-            slider.setValue(value)
-            slider.blockSignals(False)
+            with QSignalBlocker(slider):
+                slider.setValue(value)
         # Estimate's table is read with no shift, and a new red makes Restore Range's shift stale.
         survivals = dict(
             fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, fade_density_shift=0.0, **white, **mix_changes
@@ -415,16 +412,14 @@ class FadeSidebar(BaseSidebar):
         if conf.fade_auto_red and live:
             # A Gray Mix drag keeps the fit, and the release fits Red again.
             survivals.update(fade_ratio_r=conf.fade_ratio_r, fade_density_shift=conf.fade_density_shift)
-            self.fade_ratio_r_slider.blockSignals(True)
-            self.fade_ratio_r_slider.setValue(conf.fade_ratio_r)
-            self.fade_ratio_r_slider.blockSignals(False)
+            with QSignalBlocker(self.fade_ratio_r_slider):
+                self.fade_ratio_r_slider.setValue(conf.fade_ratio_r)
         elif conf.fade_auto_red:
             auto, _ = self._auto_red_changes(replace(conf, **survivals), source, grid)
         if auto is not None:
             survivals.update(auto)
-            self.fade_ratio_r_slider.blockSignals(True)
-            self.fade_ratio_r_slider.setValue(auto["fade_ratio_r"])
-            self.fade_ratio_r_slider.blockSignals(False)
+            with QSignalBlocker(self.fade_ratio_r_slider):
+                self.fade_ratio_r_slider.setValue(auto["fade_ratio_r"])
         # A press measures the table after these survivals; a drag keeps the last one until the release.
         crossover, measured = {}, {}
         if not keep_table and (auto is not None or (tone_bands and chosen.crossover is None)) and not live:

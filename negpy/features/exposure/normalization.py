@@ -196,7 +196,6 @@ def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: 
         offset = [float(v) for v in m[:, 3]] if m.shape[1] == 4 else [0.0, 0.0, 0.0]
         return negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor], offset)
     out = negpy_core.unmix_log(img, lin)
-    # A (3, 4) matrix is an affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
 
 

@@ -446,9 +446,7 @@ def estimate_fade_with(
     if white_anchor and white is None:
         return FadeEstimate(None, 1.0, 1.0, tr("No clear area to measure the stain on this frame."))
     camera_raw = camera_raw or bool(white_space)
-    anchored = white is not None and (white_anchor or camera_raw)
-    gray_grid = white_anchored_grid(grid, density_anchor(white, white_anchor)) if anchored else grid
-    refs, reason = reader(gray_grid)
+    refs, reason = reader(_gray_grid(grid, white, white_anchor, camera_raw))
     if refs is None:
         return FadeEstimate(None, 1.0, 1.0, reason, white)
     g, b, why = fade_ratios_from_neutral_axis(refs)
@@ -481,6 +479,13 @@ def _table_after(
     return measure_crossover(through_density(grid, density), zero)
 
 
+def _gray_grid(grid: ImageBuffer, white: Optional[tuple[float, float, float]], white_anchor: bool, camera_raw: bool) -> ImageBuffer:
+    """*grid* as the grays are read: above the render's anchor when one acts."""
+    if white is not None and (white_anchor or camera_raw):
+        return white_anchored_grid(grid, density_anchor(white, white_anchor))
+    return grid
+
+
 def survival_crossover(
     grid: ImageBuffer,
     reader: Callable[[ImageBuffer], tuple[Optional[NeutralAxisRefs], str]],
@@ -496,8 +501,7 @@ def survival_crossover(
     if white_anchor and white is None:
         return None
     camera_raw = camera_raw or bool(white_space)
-    anchored = white is not None and (white_anchor or camera_raw)
-    refs, _ = reader(white_anchored_grid(grid, density_anchor(white, white_anchor)) if anchored else grid)
+    refs, _ = reader(_gray_grid(grid, white, white_anchor, camera_raw))
     return None if refs is None else _table_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift)
 
 
@@ -526,6 +530,8 @@ CROSSOVER_MIN_SPAN = 0.05
 CROSSOVER_MEAN_SHIFT_STEPS = 3
 #: Bins of the per-pixel offset table between the outer band anchors.
 CROSSOVER_BINS = 64
+#: Fewest readings `neutral_bands` measures on.
+CROSSOVER_MIN_CELLS = 64
 #: Values per band in a stored table: mean log, share, then the lean of each channel.
 CROSSOVER_BAND_SIZE = 5
 
@@ -546,7 +552,7 @@ _BAND_CONSTS = (
     CROSSOVER_MEAN_SHIFT_STEPS,
     CROSSOVER_MIN_WEIGHT,
     CLIPPED_LOG,
-    64,
+    CROSSOVER_MIN_CELLS,
 )
 
 

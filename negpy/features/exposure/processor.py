@@ -66,11 +66,7 @@ class NormalizationProcessor:
 
     def _unmix_key(self) -> tuple:
         c = self.config
-        return (
-            c.crosstalk_strength,
-            c.crosstalk_matrix,
-            c.crosstalk_process,
-        )
+        return (c.crosstalk_strength, c.crosstalk_matrix, c.crosstalk_process)
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
