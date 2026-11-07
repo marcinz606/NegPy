@@ -6615,6 +6615,17 @@ class AppController(QObject):
     def roll_card_locked(self, card_key: str) -> bool:
         return card_key in self.locked_roll_cards()
 
+    def roll_crossover_table(self) -> Optional[tuple]:
+        """The crossover table the active frame's roll holds, None with no roll or no table."""
+        if not self.state.current_file_hash:
+            return None
+        idx = self.state.selected_file_idx
+        files = self.state.uploaded_files
+        asset = files[idx] if 0 <= idx < len(files) else {}
+        roll_id = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
+        table = None if roll_id is None else rolls.roll_defaults(self.session.repo, roll_id).get("fade_crossover_table")
+        return None if table is None else tuple(table)
+
     def diverged_roll_cards(self) -> List[str]:
         """Every Roll-tab card locked away from the roll on the active frame -- what
         Apply to Whole Roll / Apply to Selected Frames act on."""
@@ -10039,6 +10050,20 @@ class AppController(QObject):
             return {}
         return dict(zip(("fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space"), measured))
 
+    def _measured_fade_crossover(self, metrics: Dict[str, Any], process: ProcessConfig) -> Dict[str, Any]:
+        """The crossover table a render measured for a missing one (`resolve_crossover`), when it was
+        measured in this config's space. It fills a frame the roll gave no table, so it locks no card."""
+        from negpy.features.process.fade import crossover_space, fade_density, render_white_space
+
+        measured = metrics.get("fade_crossover")
+        if measured is None or process.fade_crossover == 0.0 or measured[1] == process.fade_crossover_space:
+            return {}
+        cam_xyz, camera_wb = self._effective_cam_xyz()
+        white_space = render_white_space(process, process.process_mode, cam_xyz, camera_wb)
+        if measured[1] != crossover_space(fade_density(process, process.process_mode, white_space), white_space, process):
+            return {}
+        return {"fade_crossover_table": measured[0], "fade_crossover_space": measured[1]}
+
     def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
         """Store the crop this render detected, so nothing detects it a second time.
 
@@ -10159,6 +10184,7 @@ class AppController(QObject):
         proc = self.state.config.process
         bounds = metrics.get("log_bounds_base") or metrics.get("log_bounds")
         changes = self._measured_fade_white(metrics)
+        changes.update(self._measured_fade_crossover(metrics, replace(proc, **changes)))
         if bounds and not (proc.use_luma_average and proc.use_color_average):
             if not proc.lock_bounds and (bounds.floors != proc.local_floors or bounds.ceils != proc.local_ceils):
                 changes["local_floors"] = bounds.floors

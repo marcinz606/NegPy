@@ -10,6 +10,7 @@ pub mod convert;
 pub mod detect;
 pub mod display;
 pub mod distance;
+pub mod fade;
 pub mod filter;
 pub mod finish;
 pub mod flatfield;
@@ -102,5 +103,6 @@ fn negpy_core(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> 
     py::autocrop::register(m)?;
     py::zones::register(m)?;
     py::pool::register(m)?;
+    py::fade::register(m)?;
     py::jpeg::register(m)
 }

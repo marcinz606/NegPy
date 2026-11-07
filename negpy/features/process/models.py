@@ -222,6 +222,8 @@ class ProcessConfig:
     # (`fade.unmix_with_fade`). The ratios describe one slide: green and
     # blue relative to red, and red's own survival. All three at 1.0 is the identity.
     fade_ratio_r: float = 1.0
+    # Density (D) added to every channel after the fade: Restore Range's even shift that keeps the median where it printed.
+    fade_density_shift: float = 0.0
     fade_ratio_g: float = 1.0
     fade_ratio_b: float = 1.0
     # Remove Stain (White Anchor): restore density above each channel's own white, (D - w) / a, for a slide whose
@@ -234,6 +236,17 @@ class ProcessConfig:
     # `fade.fade_white_space` of the decode the whites were measured on, "" for a source with no
     # camera matrix. A render in another space ignores them.
     fade_white_space: str = ""
+    # Crossover: the share of the per-density lean of the neutrals left after the fade
+    # matrix that the render removes (`fade.crossover_offsets`). 0 is off. The table is a roll field,
+    # tagged with `fade.crossover_space`; a render applies it under any tag and measures one only when it is None.
+    fade_crossover: float = 0.0
+    fade_crossover_table: Optional[tuple] = None
+    fade_crossover_space: str = ""
+    # Restore Range: Red Survival and `fade_density_shift` come from `fade_auto_red.auto_red`, which each
+    # Estimate on this frame runs again instead of setting its own Red.
+    fade_auto_red: bool = False
+    # Gray Mix: moves Estimate's grays from the gray finder at 0 to the tone bands at 1 (`fade.gray_refs`).
+    fade_neutrals_mix: float = 0.0
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
     # per-setup property calibrated from three bare-light R/G/B exposures
@@ -281,6 +294,8 @@ class ProcessConfig:
             object.__setattr__(self, "crosstalk_matrix", tuple(self.crosstalk_matrix))
         if self.sensor_matrix is not None:
             object.__setattr__(self, "sensor_matrix", tuple(self.sensor_matrix))
+        if self.fade_crossover_table is not None:
+            object.__setattr__(self, "fade_crossover_table", tuple(float(v) for v in self.fade_crossover_table))
         if self.analysis_rect is not None:
             object.__setattr__(self, "analysis_rect", tuple(self.analysis_rect))
         if self.meter_rect is not None:

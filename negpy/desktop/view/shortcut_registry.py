@@ -178,6 +178,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "assign_sequential_frame": ShortcutEntry("", tr("Assign sequential frame numbers"), tr("Actions")),
     "measure_chart": ShortcutEntry("", tr("Measure a crosstalk matrix from a color chart"), tr("Process")),
     "estimate_fade": ShortcutEntry("", tr("Estimate Fade Restoration from the grays in this frame"), tr("Process")),
+    "fade_auto_red": ShortcutEntry("", tr("Toggle Restore Range (Fade Restoration)"), tr("Process")),
     "scan_prescan": ShortcutEntry("", tr("Prescan and set crop (Plustek)"), tr("Process")),
     "scan_meter_frame": ShortcutEntry("", tr("Meter a frame and lock the scan exposure (Coolscan)"), tr("Process")),
     "scan_as_roll": ShortcutEntry("", tr("Toggle Scan as Roll"), tr("Process")),

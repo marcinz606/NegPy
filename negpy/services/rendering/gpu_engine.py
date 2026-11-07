@@ -83,6 +83,7 @@ from negpy.features.transparency.logic import (
     slide_mono_weights,
     density_stage,
     density_stage_grid,
+    faded_stage_grid,
     fade_white_grid,
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
@@ -99,11 +100,17 @@ from negpy.features.transparency.logic import (
     zone_geometry,
 )
 from negpy.features.process.fade import (
+    FadeDensity,
+    crossover_offsets,
+    crossover_space,
+    crossover_uniform,
     fade_density,
     fade_white_stale,
     fade_white_target,
     render_white_space,
+    resolve_crossover,
     resolve_fade_white,
+    with_fade_crossover,
     with_fade_white,
 )
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
@@ -277,6 +284,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.use_cast_average,
         p.locked_neutral_axis,
         p.fade_ratio_r,
+        p.fade_density_shift,
         p.fade_ratio_g,
         p.fade_ratio_b,
         p.fade_white_anchor,
@@ -284,6 +292,9 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.fade_white_g,
         p.fade_white_b,
         p.fade_white_space,
+        p.fade_crossover,
+        p.fade_crossover_table,
+        p.fade_crossover_space,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -408,7 +419,7 @@ class GPUEngine:
         # alignment (exposure) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
-            "normalization": 224,
+            "normalization": 1264,
             "exposure": 480,
             "transfer": 240,
             "clahe_u": 32,
@@ -434,6 +445,7 @@ class GPUEngine:
         self._prefilter_cache: Optional[tuple] = None
         # (key, white) of the last fade white measured for a stale one, so drag ticks reuse it.
         self._fade_white_cache: Optional[Tuple[Any, Any]] = None
+        self._crossover_cache: Optional[Tuple[Any, Any]] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
@@ -881,6 +893,34 @@ class GPUEngine:
         # The transparency curve reads working space, so its meter must too: the same
         # camera matrices TransparencyBaseProcessor applies, on the grid.
         slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m) if transfer else None
+        # The crossover table, measured on the CPU grid when the frame has none. A tile takes its export's.
+        measured_crossover = None
+        crossover = None
+        if slide_stage is not None:
+            space = crossover_space(FadeDensity(unmix_m, fade_anchor_m), white_space, settings.process)
+            crossover_key = None if white_key is None else white_key + (space, proc.fade_crossover_space)
+
+            def _faded_grid() -> np.ndarray:
+                source, buffer = _build_analysis_source(
+                    img,
+                    settings.geometry,
+                    roi,
+                    settings.process.analysis_buffer,
+                    settings.process.analysis_rect,
+                    tiling_mode,
+                    APP_CONFIG.preview_render_size,
+                    meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
+                )
+                return faded_stage_grid(slide_stage, source, None, buffer)
+
+            cached = self._crossover_cache
+            if crossover_key is not None and cached is not None and cached[0] == crossover_key and proc.fade_crossover > 0.0:
+                table, measured_crossover = cached[1]
+            else:
+                table, measured_crossover = resolve_crossover(settings.process, space, _faded_grid, measure=not tiling_mode)
+                if crossover_key is not None and measured_crossover is not None:
+                    self._crossover_cache = (crossover_key, (table, measured_crossover))
+            crossover = crossover_offsets(table, settings.process.fade_crossover)
         # A drag renders without metrics and caches no densities; the release that reads them
         # back re-runs the grid once so the cache fills.
         # A source with no base is known as such, so it never re-enters the grid for it.
@@ -911,6 +951,7 @@ class GPUEngine:
                     p.crosstalk_matrix,
                     p.crosstalk_process,
                     p.fade_ratio_r,
+                    p.fade_density_shift,
                     p.fade_ratio_g,
                     p.fade_ratio_b,
                     p.fade_white_anchor,
@@ -918,6 +959,7 @@ class GPUEngine:
                     p.fade_white_g,
                     p.fade_white_b,
                     p.fade_white_space,
+                    None if crossover is None else (crossover.lo, crossover.hi, crossover.bins.tobytes()),
                     p.process_mode,
                     p.positive_source,
                     None
@@ -949,7 +991,7 @@ class GPUEngine:
                 prefiltered = unmix_log_image(log_grid, unmix_m)
                 scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
                 if slide_stage is not None:
-                    cam_prefiltered = density_stage_grid(slide_stage, analysis_source, None, an_buffer, lambda: log_grid)
+                    cam_prefiltered = density_stage_grid(slide_stage, analysis_source, None, an_buffer, lambda: log_grid, crossover)
                 if prefilter_key is not None:
                     self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None, cam_prefiltered)
             if analysis_key is not None:
@@ -1188,6 +1230,7 @@ class GPUEngine:
             highlight_point=highlight_point,
             unmix=unmix_m,
             fade_anchor=fade_anchor_m,
+            crossover=crossover,
             white_space=white_space,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
@@ -1791,6 +1834,8 @@ class GPUEngine:
         }
         if measured_white is not None:
             metrics["fade_white"] = measured_white
+        if measured_crossover is not None:
+            metrics["fade_crossover"] = measured_crossover
         # A drag with no read leaves the base out, so the merged metrics keep the last frame's.
         if not transfer and film_base is None and source_base_log is NOT_READ:
             del metrics["film_base_density"]
@@ -1909,6 +1954,7 @@ class GPUEngine:
         highlight_point: Optional[float] = None,
         unmix: Optional[np.ndarray] = None,
         fade_anchor: Optional[Tuple[float, float, float]] = None,
+        crossover: Any = None,
         white_space: str = "",
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
@@ -1991,6 +2037,7 @@ class GPUEngine:
             + struct.pack("ffff", float(post[1, 0]), float(post[1, 1]), float(post[1, 2]), 0.0)
             + struct.pack("ffff", float(post[2, 0]), float(post[2, 1]), float(post[2, 2]), 0.0)
             + struct.pack("ffff", *((0.0, 0.0, 0.0, 0.0) if anchor is None else (*anchor, 1.0)))
+            + crossover_uniform(crossover)
         )
 
         from negpy.features.exposure.logic import (
@@ -2963,6 +3010,7 @@ class GPUEngine:
         global_cdfs = self._readback_clahe_cdf()
         # Every tile and global meter below takes the white the reference pass measured.
         settings = replace(settings, process=with_fade_white(settings.process, metrics_ref.get("fade_white")))
+        settings = replace(settings, process=with_fade_crossover(settings.process, metrics_ref.get("fade_crossover")))
 
         if transient_tiles:
             normalized_log = metrics_ref.get("normalized_log")
@@ -3016,10 +3064,11 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
         # auto refs, anchor or textural range need it.
-        unmix_m, fade_anchor_m = fade_density(
-            settings.process,
-            settings.process.process_mode,
-            render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb),
+        tile_white_space = render_white_space(settings.process, settings.process.process_mode, cam_xyz, camera_wb)
+        unmix_m, fade_anchor_m = fade_density(settings.process, settings.process.process_mode, tile_white_space)
+        tile_space = crossover_space(FadeDensity(unmix_m, fade_anchor_m), tile_white_space, settings.process)
+        tile_crossover = crossover_offsets(
+            resolve_crossover(settings.process, tile_space, lambda: np.empty(0), measure=False)[0], settings.process.fade_crossover
         )
         log_grid_cache: Optional[np.ndarray] = None
         prefiltered_cache: Optional[np.ndarray] = None
@@ -3070,7 +3119,7 @@ class GPUEngine:
                 return _prefiltered()
             if transfer_grid is None:
                 slide_stage = density_stage(settings.process, cam_xyz, camera_wb, unmix_m, fade_anchor_m)
-                transfer_grid = density_stage_grid(slide_stage, _analysis_img(), meter_roi, meter_buffer, _log_grid)
+                transfer_grid = density_stage_grid(slide_stage, _analysis_img(), meter_roi, meter_buffer, _log_grid, tile_crossover)
             return transfer_grid
 
         meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else global_anchor_bounds

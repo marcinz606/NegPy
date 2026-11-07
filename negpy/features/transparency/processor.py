@@ -27,7 +27,16 @@ from negpy.features.exposure.normalization import (
     resolve_analysis_region,
     unmix_log_image,
 )
-from negpy.features.process.fade import fade_density, render_white_space, resolve_fade_white, with_fade_white
+from negpy.features.process.fade import (
+    apply_crossover,
+    crossover_offsets,
+    crossover_space,
+    fade_density,
+    render_white_space,
+    resolve_crossover,
+    resolve_fade_white,
+    with_fade_white,
+)
 from negpy.features.process.capture_color import apply_camera_matrix
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.path import RenderPath, render_path
@@ -94,11 +103,18 @@ class TransparencyBaseProcessor:
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
-        unmix, anchor = fade_density(with_fade_white(self.config, measured), context.process_mode, white_space)
-        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, unmix, anchor)
+        density = fade_density(with_fade_white(self.config, measured), context.process_mode, white_space)
+        stage = density_stage(self.config, context.cam_xyz, context.camera_wb, density.matrix, density.anchor)
         linear = image if stage.pre is None else apply_camera_matrix(negpy_core.nan_to_num(image, epsilon, 1.0, epsilon), stage.pre)
         img_log = negpy_core.log_density_open(np.ascontiguousarray(linear, dtype=np.float32))
-        img_log = relog_matrix_image(unmix_log_image(img_log, stage.unmix, stage.anchor), stage.post)
+        log_grid = image_log_grid() if stage.pre is None else prefilter_log_grid(linear, an_roi, an_buffer)
+        faded_grid = unmix_log_image(log_grid, stage.unmix, stage.anchor)
+        # The crossover table acts in the dye channels after the fade, before the primaries mix them.
+        table, measured_table = resolve_crossover(self.config, crossover_space(density, white_space, self.config), lambda: faded_grid)
+        if measured_table is not None:
+            context.metrics["fade_crossover"] = measured_table
+        offsets = crossover_offsets(table, self.config.fade_crossover)
+        img_log = relog_matrix_image(apply_crossover(unmix_log_image(img_log, stage.unmix, stage.anchor), offsets), stage.post)
         floors, ceils = transfer_bounds()
         pre_trim_bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         # White/Black Point manually deviate the fixed window, same technique as the measured
@@ -114,8 +130,7 @@ class TransparencyBaseProcessor:
         # Shared prefilter for the neutral axis and Auto Density/Grade's four meters --
         # working-space (post camera matrix) and post-unmix, since that is what this curve
         # itself consumes.
-        log_grid = image_log_grid() if stage.pre is None else prefilter_log_grid(linear, an_roi, an_buffer)
-        prefiltered = relog_matrix_image(unmix_log_image(log_grid, stage.unmix, stage.anchor), stage.post)
+        prefiltered = relog_matrix_image(apply_crossover(faded_grid, offsets), stage.post)
         if context.wants_fade_grid:
             context.metrics["transfer_grid"] = white_grid()
 
