@@ -9,15 +9,14 @@ from negpy.features.exposure.normalization import prefilter_log_grid
 from negpy.features.process.fade import (
     RATIO_BOUNDS,
     SPREAD_FLOOR,
-    EstimateMethod,
     estimate_fade,
     fade_ratios_from_neutral_axis,
 )
 
 
 def _ratios(image: np.ndarray) -> tuple[float, float, str]:
-    """Gray Range's (green, blue, reason) on the meter grid of a linear capture."""
-    est = estimate_fade(prefilter_log_grid(image, None, 0.0))[EstimateMethod.SPREAD]
+    """Estimate's (green, blue, reason) on the meter grid of a linear capture."""
+    est = estimate_fade(prefilter_log_grid(image, None, 0.0))
     return est.green, est.blue, est.reason
 
 
@@ -123,25 +122,20 @@ def test_no_neutral_axis_found_fails_closed():
     assert reason
 
 
-def test_both_methods_recover_a_pure_fade_and_set_red():
-    """On a pure fade both methods read the same ratios and put the best-kept layer at 1.0."""
+def test_estimate_recovers_a_pure_fade_and_sets_red():
+    """On a pure fade Estimate reads the ratios and puts the best-kept layer at 1.0."""
     image = _synthetic_neutral_slide(1.4, 1.2, ratio_r=0.7)
-    estimates = estimate_fade(prefilter_log_grid(image, None, 0.0))
-    midtone, spread = estimates[EstimateMethod.MIDTONE], estimates[EstimateMethod.SPREAD]
-    for est in (midtone, spread):
-        assert est.reason == ""
-        assert abs(est.green - 1.4) < 2e-2 and abs(est.blue - 1.2) < 2e-2
-    for est in (midtone, spread):
-        assert abs(est.red - 1.0 / est.green) < 1e-9
+    est = estimate_fade(prefilter_log_grid(image, None, 0.0))
+    assert est.reason == ""
+    assert abs(est.green - 1.4) < 2e-2 and abs(est.blue - 1.2) < 2e-2
+    assert abs(est.red - 1.0 / est.green) < 1e-9
 
 
-def test_midtone_ignores_a_lifted_shadow_that_misleads_spread():
-    """A flat, lifted shadow in one channel compresses its spread; the midtone density does not move."""
+def test_estimate_ignores_a_lifted_shadow():
+    """A flat, lifted shadow in one channel does not move the midtone densities Estimate reads."""
     refs = ((-1.0, -1.2, -1.1), (-1.3, -1.5, -1.25), None, 0.9)
-    g_mid, b_mid, _ = fade_ratios_from_neutral_axis(refs, EstimateMethod.MIDTONE)
-    g_spread, b_spread, _ = fade_ratios_from_neutral_axis(refs, EstimateMethod.SPREAD)
-    assert abs(g_mid - 1.2) < 1e-9 and abs(b_mid - 1.1) < 1e-9
-    assert abs(b_spread - 0.5) < 1e-9 and g_spread == 1.0
+    g, b, _ = fade_ratios_from_neutral_axis(refs)
+    assert abs(g - 1.2) < 1e-9 and abs(b - 1.1) < 1e-9
 
 
 def test_estimate_meters_the_render_grid_before_the_fade():
@@ -202,9 +196,70 @@ def test_estimate_reads_the_drawn_region_on_an_uncropped_slide():
     for rect, (ratio_g, ratio_b) in (((0.0, 0.0, 0.5, 1.0), (0.7, 0.85)), ((0.5, 0.0, 1.0, 1.0), (0.95, 0.5))):
         process = replace(cfg.process, process_mode=ProcessMode.E6, analysis_rect=rect)
         grid = fade_estimate_grid(ChartSource(image, replace(cfg, process=process), "fade-region", None, None, (), 1))
-        est = estimate_fade(grid)[EstimateMethod.MIDTONE]
+        est = estimate_fade(grid)
         assert est.reason == ""
         assert abs(est.green - ratio_g) < 0.03 and abs(est.blue - ratio_b) < 0.03
+
+
+def test_the_estimate_grid_renders_again_only_when_more_than_the_mix_changes(monkeypatch):
+    """A Mix drag estimates on every tick; the grid it reads is one render."""
+    from dataclasses import replace
+
+    from negpy.desktop.workers import chart_fit
+    from negpy.features.process.models import ProcessMode
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+    from tests.test_fade_fixtures import clean_slide
+
+    renders = []
+    monkeypatch.setattr(chart_fit, "_grid_memo", None)
+    monkeypatch.setattr(chart_fit, "_render_estimate_grid", lambda source, config: renders.append(config) or np.zeros((4, 4, 3)))
+    image = np.ascontiguousarray(clean_slide(64, 3), dtype=np.float32)
+    cfg = replace(DEFAULT_WORKSPACE_CONFIG, process=replace(DEFAULT_WORKSPACE_CONFIG.process, process_mode=ProcessMode.E6))
+
+    def grid(**process):
+        return chart_fit.fade_estimate_grid(
+            chart_fit.ChartSource(image, replace(cfg, process=replace(cfg.process, **process)), "h", None, None, (), 1)
+        )
+
+    grid(fade_neutrals_mix=0.1)
+    grid(fade_neutrals_mix=0.6, fade_ratio_b=0.8, fade_white_r=-0.1, fade_white_space="w", fade_crossover_table=(0.0,) * 24)
+    assert len(renders) == 1
+    grid(fade_neutrals_mix=0.6, crosstalk_strength=0.5)
+    assert len(renders) == 2
+
+
+def test_what_estimate_stores_leaves_the_estimate_grid_alone(monkeypatch):
+    """The grid cache ignores the stored white, table and Mix, so they must not change the grid."""
+    from dataclasses import replace
+
+    from negpy.desktop.workers import chart_fit
+    from negpy.features.process.models import ProcessMode
+    from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+    from tests.test_fade_fixtures import clean_slide
+
+    image = np.ascontiguousarray(clean_slide(64, 3), dtype=np.float32)
+    cfg = replace(DEFAULT_WORKSPACE_CONFIG, process=replace(DEFAULT_WORKSPACE_CONFIG.process, process_mode=ProcessMode.E6))
+    stored = replace(
+        cfg,
+        process=replace(
+            cfg.process,
+            fade_ratio_g=0.8,
+            fade_white_anchor=True,
+            fade_white_r=-0.2,
+            fade_white_g=-0.1,
+            fade_white_b=-0.3,
+            fade_crossover=0.5,
+            fade_crossover_table=(0.02,) * 24,
+            fade_neutrals_mix=0.7,
+            local_floors=(-1.9, -1.7, -1.5),
+            local_ceils=(-0.1, -0.2, -0.3),
+        ),
+    )
+    grids = []
+    for c in (cfg, stored):
+        monkeypatch.setattr(chart_fit, "_grid_memo", None)
+        grids.append(chart_fit.fade_estimate_grid(chart_fit.ChartSource(image, c, "h", None, None, (), 1)))
+    np.testing.assert_array_equal(grids[0], grids[1])
 
 
 def _record_axis(monkeypatch, confidences):
@@ -214,7 +269,7 @@ def _record_axis(monkeypatch, confidences):
     calls = []
     axis = ((-1.7, -2.0, -1.0), (-2.5, -2.9, -1.4), None)
 
-    def fake_axis(grid, bounds, roi, buffer, exclude_subjects=True):
+    def fake_axis(grid, bounds, roi, buffer, exclude_subjects=True, sky_sector=True):
         calls.append(((bounds.floors, bounds.ceils), exclude_subjects))
         conf = confidences[len(calls) - 1]
         return None if conf is None else (*axis, conf)

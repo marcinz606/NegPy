@@ -467,6 +467,44 @@ fn unmix_log<'py>(
     Ok(out)
 }
 
+/// `apply_crossover(img_log, offsets)` of an HxWx3 float32 log image, with the offsets' (N, 3) rows.
+#[pyfunction]
+fn apply_crossover<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    bins: numpy::PyReadonlyArray2<'py, f32>,
+    lo: f32,
+    span: f32,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let shape = img.shape().to_vec();
+    if shape.len() != 3 || shape[2] != 3 {
+        return Err(PyValueError::new_err(
+            "apply_crossover needs an HxWx3 array",
+        ));
+    }
+    if bins.shape()[1] != 3 || bins.shape()[0] == 0 {
+        return Err(PyValueError::new_err("apply_crossover needs (N, 3) bins"));
+    }
+    let rows: Vec<[f32; 3]> = bins
+        .as_slice()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
+        .as_chunks::<3>()
+        .0
+        .to_vec();
+    let data = slice(&img)?;
+    let out = empty::<f32>(py, &shape, "float32")?;
+    {
+        let mut rw = out.readwrite();
+        let dst = rw
+            .as_slice_mut()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        super::detach(py, dst.len(), || {
+            analysis::apply_crossover(data, &rows, lo, span, dst)
+        });
+    }
+    Ok(out)
+}
+
 /// `unmix_log_image(img_log, matrix, anchor)` of an HxWx3 float32 log image, with the affine's offset.
 #[pyfunction]
 fn unmix_log_anchored<'py>(
@@ -891,5 +929,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(luma_median, m)?)?;
     m.add_function(wrap_pyfunction!(contrast_mask_tail, m)?)?;
     m.add_function(wrap_pyfunction!(contrast_mask_stops, m)?)?;
-    m.add_function(wrap_pyfunction!(diffusion_tail, m)?)
+    m.add_function(wrap_pyfunction!(diffusion_tail, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_crossover, m)?)
 }

@@ -13,7 +13,6 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
 from negpy.features.process.capture_color import source_cam_xyz, wb_only_cam_xyz
 from negpy.features.process.fade import (
-    EstimateMethod,
     estimate_fade,
     fade_density,
     fade_white_space,
@@ -83,7 +82,7 @@ def test_estimate_then_render_keeps_grays_neutral_with_a_colored_white():
     grid = faded[30:].astype(np.float32)
     whole = faded.astype(np.float32)
     for remove_stain in (False, True):
-        est = estimate_fade(whole, white_anchor=remove_stain, camera_raw=True)[EstimateMethod.MIDTONE]
+        est = estimate_fade(whole, white_anchor=remove_stain, camera_raw=True)
         stored = _white(est.white)
         process = _slide(fade_ratio_r=est.red, fade_ratio_g=est.green, fade_ratio_b=est.blue, fade_white_anchor=remove_stain, **stored)
         out = unmix_log_image(grid, unmix_with_fade(process, ProcessMode.E6, _SPACE))[20:80, 5:175].reshape(-1, 3)
@@ -148,10 +147,9 @@ def test_the_white_goes_stale_only_where_it_acts():
 def test_a_camera_raw_estimate_ignores_the_exposure():
     grid = prefilter_log_grid(_synthetic_neutral_slide(0.8, 0.6), None, 0.0)
     under = grid - np.float32(0.3)
-    for method in EstimateMethod:
-        a = estimate_fade(grid, camera_raw=True)[method]
-        b = estimate_fade(under, camera_raw=True)[method]
-        assert (a.green, a.blue) == pytest.approx((b.green, b.blue), abs=1e-3)
+    a = estimate_fade(grid, camera_raw=True)
+    b = estimate_fade(under, camera_raw=True)
+    assert (a.green, a.blue) == pytest.approx((b.green, b.blue), abs=1e-3)
 
 
 def _restored(process, img):

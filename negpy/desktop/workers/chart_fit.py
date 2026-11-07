@@ -1,3 +1,4 @@
+import json
 import threading
 from dataclasses import dataclass, replace
 from typing import Optional
@@ -115,14 +116,55 @@ class ChartFitWorker(QThread):
             self.failed.emit(str(exc))
 
 
+# (source buffer, key, grid) of the last `fade_estimate_grid`, so a live Gray Mix drag renders the grid once.
+_grid_memo: Optional[tuple[np.ndarray, str, Optional[np.ndarray]]] = None
+
+
 def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
     """The transparency meter's grid for the open frame, rendered on the CPU with the fade at
     identity and Remove Stain off, so Estimate never reads its own correction. None on a negative."""
-    process = replace(source.config.process, fade_ratio_r=1.0, fade_ratio_g=1.0, fade_ratio_b=1.0, fade_white_anchor=False)
+    global _grid_memo
+    process = replace(
+        source.config.process,
+        fade_ratio_r=1.0,
+        fade_density_shift=0.0,
+        fade_ratio_g=1.0,
+        fade_ratio_b=1.0,
+        fade_white_anchor=False,
+        fade_crossover=0.0,
+    )
+    config = replace(source.config, process=process)
+    # What Estimate and its render write does not reach this grid: Gray Mix acts on the readings after it, at
+    # identity survivals, Remove Stain off and Crossover 0 the white and table apply nowhere, and a slide's
+    # grid takes the fixed transfer bounds, never the frame's measured ones.
+    keyed = replace(
+        config,
+        process=replace(
+            process,
+            fade_neutrals_mix=0.0,
+            fade_white_r=0.0,
+            fade_white_g=0.0,
+            fade_white_b=0.0,
+            fade_white_space="",
+            fade_crossover_table=None,
+            fade_crossover_space="",
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+        ),
+    )
+    key = json.dumps([source.source_hash, source.gain_slices, source.orientation, keyed.to_dict()], default=str, sort_keys=True)
+    if _grid_memo is not None and _grid_memo[0] is source.buffer and _grid_memo[1] == key:
+        return _grid_memo[2]
+    grid = _render_estimate_grid(source, config)
+    _grid_memo = (source.buffer, key, grid)
+    return grid
+
+
+def _render_estimate_grid(source: ChartSource, config: WorkspaceConfig) -> Optional[np.ndarray]:
     buf = np.asarray(source.buffer, dtype=np.float32)
     _, metrics = ImageProcessor(use_gpu=False).run_pipeline(
         buf,
-        replace(source.config, process=process),
+        config,
         source.source_hash,
         render_size_ref=float(max(buf.shape[:2])),
         prefer_gpu=False,

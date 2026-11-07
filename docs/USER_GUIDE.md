@@ -516,25 +516,28 @@ Corrects color errors that come from your light, camera and film.
 **Sensor Crosstalk Profile** (a Single Exposure under narrowband light, Linear RAW): removes the color that leaks between the sensor's channels. Run **Roll Analysis** again after a change.
 
 *   **Profile**: the sensor crosstalk profile. Your own `.toml` profiles go in `<Documents>/NegPy/sensor/`.
-*   **Method**: **Two-Scale** (default) removes the leak and keeps very strong colors from speckling. **Linear** is exact, but strong colors can speckle. **Density** has no speckle, but strong colors are a little duller.
-*   **Calibrate**: makes a profile from three shots of the bare light (red, green and blue), from files or a tethered camera (see CAMERA_SCANNING.md).
+*   **Method**: **Two-Scale** (default) removes the leak with no speckle. **Linear** is exact, but strong colors can speckle. **Density** has no speckle, but dulls strong colors a little.
+*   **Calibrate**: makes a profile from three shots of the bare light (red, green, blue), from files or a tethered camera (see CAMERA_SCANNING.md).
 
-**Crosstalk** (color film): film dyes, your light and your sensor mix the colors a little, and a matrix separates them again. Run **Roll Analysis** again after a change.
+**Crosstalk** (color film): film dyes, light and sensor mix the colors a little, and a matrix separates them. Run **Roll Analysis** again after a change.
 
-*   **Matrix**: the matrices for this film type. Those marked *(approx)* come from film data sheets and are a starting point. Your own `.toml` files go in `<Documents>/NegPy/crosstalk/` (see CROSSTALK.md). The slider button opens the editor; **+** makes a new matrix. No slide matrix comes with NegPy.
-*   **Strength**: how much of the matrix to apply.
+*   **Matrix**: the matrices for this film type. An *(approx)* matrix comes from a data sheet. Your own `.toml` files go in `<Documents>/NegPy/crosstalk/` (see CROSSTALK.md). The slider button opens the editor; **+** makes a new matrix. No slide matrix comes with NegPy.
+*   **Strength**: how strongly the matrix applies.
 *   The swatch button opens **Measure from Chart** (color negatives): it measures a matrix from a ColorChecker 24 or SpyderCheckr 24 shot on the film. Drag the four dots onto the corner patches.
 
-**Hue Trim** (camera with narrowband light): turns all colors around the color wheel, for a light that makes yellows orange or greens olive. Keep 0 for white light. It also works on slides, where the sensor crosstalk profile does not.
+**Hue Trim** (camera with narrowband light): turns all hues, for a light that makes yellows orange or greens olive. Keep 0 for white light. Unlike the sensor profile, it also works on slides.
 
 #### 10.4.1 Fade Restoration: faded slides
 
 Gives a faded slide its dye layers back.
 
-*   **Red Survival**: how much red dye is left. Lower it until the contrast comes back.
-*   **Green Survival** / **Blue Survival**: the same for green and blue, against red.
-*   **Remove Stain**: makes yellowed clear areas white, and runs Estimate. Try it when Estimate turns its icon amber.
-*   **Estimate**: sets the sliders from the grays in this frame. **Midtone** suits a badly faded slide. **Gray Range** suits a mild fade with deep shadows.
+*   **Estimate**: sets Gray Mix and the Survivals.
+*   **Restore Range** (icon beside Estimate): on, sets Red Survival from the frame's range; Estimate keeps it.
+*   **Red Survival**: how much red dye is left. Lower it until contrast returns.
+*   **Green Survival** / **Blue Survival**: the same, measured against red.
+*   **Remove Stain**: whitens yellowed clear areas and estimates again. Try it when its icon is amber.
+*   **Gray Mix**: changes which grays Estimate trusts. Drag it if colors look off.
+*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then push the card. Only Estimate measures a table.
 
 <!-- panel:process -->
 ### 10.5 Metering: negative → positive

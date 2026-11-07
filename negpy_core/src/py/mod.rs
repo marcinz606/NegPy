@@ -8,6 +8,7 @@ pub mod components;
 pub mod contours;
 pub mod convert;
 pub mod display;
+pub mod fade;
 pub mod filter;
 pub mod finish;
 pub mod flatfield;

@@ -154,6 +154,31 @@ pub fn unmix_log(img: &[f32], m: [[f32; 3]; 3], dst: &mut [f32]) {
     );
 }
 
+/// `apply_crossover`: each pixel of an HxWx3 log image plus the row of `bins` its own mean log
+/// selects, linear between rows. `pos` runs over `lo..lo + span` in float32 in the order of
+/// `normalization.wgsl`, with no `mul_add`, so the engines agree.
+pub fn apply_crossover(img: &[f32], bins: &[[f32; 3]], lo: f32, span: f32, dst: &mut [f32]) {
+    let last = bins.len().saturating_sub(1);
+    let top = last as f32;
+    crate::par_zip(
+        dst.as_chunks_mut::<3>().0,
+        img.as_chunks::<3>().0,
+        move |d, p| {
+            let m = (p[0] + p[1] + p[2]) * (1.0f32 / 3.0f32);
+            let pos = if span > 0.0 {
+                ((m - lo) / span).clamp(0.0, 1.0) * top
+            } else {
+                0.0
+            };
+            let i0 = (pos as usize).min(last);
+            let i1 = (i0 + 1).min(last);
+            let f = pos - i0 as f32;
+            let (a, b) = (bins[i0], bins[i1]);
+            *d = [0, 1, 2].map(|c| p[c] + (a[c] * (1.0 - f) + b[c] * f));
+        },
+    );
+}
+
 /// `unmix_log_image` with an anchor: each channel is capped at its anchor before the 3x3, and the
 /// amount the pixel is above the anchor in every channel, if any, is added to each channel after.
 /// Light past the film carries no dye, so it passes through the density matrix as a neutral. Each
