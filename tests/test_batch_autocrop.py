@@ -285,6 +285,47 @@ def test_a_fallback_box_is_ignored_when_the_roll_has_a_real_template() -> None:
     assert "weak" not in resolved
 
 
+def _one_trusted_roll(count: int) -> list[CropEvidence]:
+    """One trusted frame with a small box, and frames with no film box whose threshold box is the whole frame."""
+    trusted = _evidence("small-box", roi=(300, 700, 100, 700), fallback_roi=(0, 1000, 0, 1000))
+    weak = [
+        _evidence(
+            f"weak-{index}",
+            roi=None,
+            fallback_roi=(0, 1000, 0, 1000),
+            confidence=0.0,
+            supported_sides=frozenset(),
+            geometry_score=0.0,
+            vertical_edge_profile=np.zeros(101, dtype=np.float32),
+            reason="no_consensus",
+        )
+        for index in range(count - 1)
+    ]
+    return [trusted, *weak]
+
+
+def test_one_trusted_frame_does_not_make_the_roll_template() -> None:
+    roll = _one_trusted_roll(6)
+
+    template = build_roll_template(roll)
+    resolved = _resolved_by_key(roll)
+
+    assert template is not None and template.from_fallback is True
+    assert resolved["weak-0"].crop_rect == pytest.approx((0.0, 0.0, 1.0, 1.0), abs=2e-3)
+
+
+def test_two_trusted_frames_make_the_roll_template() -> None:
+    roll = [*_one_trusted_roll(6), _evidence("second", roi=(300, 700, 100, 700))]
+
+    assert build_roll_template(roll).from_fallback is False
+
+
+def test_a_group_of_two_frames_keeps_its_one_trusted_frame() -> None:
+    template = build_roll_template(_one_trusted_roll(2))
+
+    assert template is not None and template.from_fallback is False
+
+
 def test_post_deskew_abstention_does_not_inherit_initial_confidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
