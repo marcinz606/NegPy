@@ -7,10 +7,10 @@
 - New: **Pick Dmin and Dmax by hand** — for difficult frames that auto metering reads wrong; Film Base moves to the Analysis Readouts header.
 - New: **Roll Average stays current** — new frames follow it, a crop or Metering change measures again in the background, and one Undo covers a change to several frames.
 - New: **Frame No. sort** for the Film Strip and the contact sheet order. @red-prs
-- New: **Norwegian Bokmål and Vietnamese translations**. @jboneng @dinhkarate
+- New: **Norwegian and Vietnamese translations**. @jboneng @dinhkarate
 - New: **More edge prints** — Fujicolor 100, Superia Premium 400, Superpan 200, Fujifilm 400 and Lomography CN 400. @red-prs
 - New: **Memory limits sized to the machine** — Preferences recommends cache sizes from RAM. @jondestoppeleire
-- New: **Multisampling on the Nikon LS-50** — nkscan 0.18 adds it.
+- New: **Multisampling on the Nikon LS-50** — thanks to nkscan 0.18.0 @activexray.
 - Change: **Film Strip** — the frame tooltip names each mark.
 - Change: **Plustek** — resolutions from a fixed list, pyopticfilm 1.3.9. @jboneng
 - Fix: **Roll cards** — a card edited or undone back to the roll's value unlocks, and the scanning setup moves the roll's Raw Decode.
