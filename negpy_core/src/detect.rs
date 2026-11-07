@@ -22,8 +22,8 @@ const MIN_FILM_BOX_COVERAGE: f64 = 0.25;
 // leave an unsupported side. Film that runs off the scan shows two edges and reaches the frame at
 // the other two, so a side further in is where a threshold mask ran out on picture content.
 const MAX_UNSUPPORTED_INSET: f64 = 0.05;
-// How closely, as a fraction of the frame, two parts of one picture match at a shared side; the
-// clustering tolerance. A part's edge past a short side lies at least this far out.
+// How closely, as a fraction of the frame, two parts of one picture match at a shared side. A
+// part's edge past a short side lies at least this far out.
 const PART_EDGE_TOLERANCE: f64 = 0.035;
 // The darkest surround that reads as opaque (a holder mask, a slide mount or a slide's film base),
 // and the median a picture inside it needs.
@@ -878,15 +878,14 @@ impl Scored<'_> {
     }
 
     /// Whether two boxes are parts of one picture: they match at every side but where one stops
-    /// short, and there the other has an edge further out that is supported or reaches the frame. A mask that ran out on a
-    /// bright sky over darker ground finds the sky, and another finds the ground.
+    /// short, and there the other has an edge further out that is supported or reaches the frame.
+    /// A mask that ran out on a bright sky over dark ground finds the sky, another the ground.
     fn completes(&self, other: &Scored, h: usize, w: usize) -> bool {
         let scales = edge_scales(h, w);
         let mut short = false;
-        // An edge that is supported or reaches the frame, further out than a short one.
+        // Called where `outer` does not stop short, so its edge is supported or reaches the frame.
         let covers = |outer: &Scored, inner: &Scored, i: usize| {
-            (outer.supported[i] || outer.insets[i] <= MAX_UNSUPPORTED_INSET)
-                && outer.insets[i] < inner.insets[i] - PART_EDGE_TOLERANCE
+            outer.insets[i] < inner.insets[i] - PART_EDGE_TOLERANCE
         };
         for (i, &e) in SIDE_EDGE.iter().enumerate() {
             let (a, b) = (self.stops_short(i), other.stops_short(i));
