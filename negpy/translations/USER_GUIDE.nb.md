@@ -362,7 +362,7 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
-<!-- panel:fade src:621170c6 -->
+<!-- panel:fade src:fbd4f136 -->
 ### 10.5 Fargegjenoppretting: falmede dias
 
 Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
@@ -371,9 +371,9 @@ Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
 *   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
 *   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake.
 *   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
-*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Prøv det når ikonet blir gult.
+*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Slå det på når Beregn foreslår det.
 *   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
-*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og send kortet til rullen. Bare Beregn måler en ny tabell.
+*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og klikk så **Rull** på kortet.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Lysmåling: negativ → positiv

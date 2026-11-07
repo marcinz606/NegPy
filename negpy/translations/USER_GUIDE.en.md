@@ -536,9 +536,9 @@ Gives a faded slide its dye layers back. The card shows only for slides.
 *   **Restore Range** (icon beside Estimate): on, sets Red Survival from the frame's range; Estimate keeps it.
 *   **Red Survival**: how much red dye is left. Lower it until contrast returns.
 *   **Green Survival** / **Blue Survival**: the same, measured against red.
-*   **Remove Stain**: whitens yellowed clear areas and estimates again. Try it when its icon is amber.
+*   **Remove Stain**: whitens yellowed clear areas and estimates again. Turn it on when Estimate suggests it.
 *   **Gray Mix**: changes which grays Estimate trusts. Drag it if colors look off.
-*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then push the card. Only Estimate measures a table.
+*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then click **Roll** on the card.
 
 <!-- panel:process -->
 ### 10.6 Metering: negative → positive

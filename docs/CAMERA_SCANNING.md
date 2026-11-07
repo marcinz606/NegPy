@@ -187,16 +187,12 @@ the channels, so a channel shorter than 0.2 s is dimmed and lit longer, with the
 light. All three levels change by one factor, so the channels keep their balance. A level
 never goes below 40, the calibration's floor. With Cable, a long exposure is brightened to
 fit the pulse; if it still does not fit, the scan stops and asks you to open the aperture
-or raise the ISO and calibrate again. The LEDs are not fully linear, so a dimmed or
-brightened Blend can expose a little differently from the Trichrome scan of the same
-preset. After the exposure, the body goes back to its shutter step. A whole-strip scan keeps the
+or raise the ISO and calibrate again. After the exposure, the body goes back to its shutter step. A whole-strip scan keeps the
 camera in Bulb from frame to frame, and puts the shutter back before the Flat Field shots. A built-in
 **Trichrome** preset uses the camera's shutter step as the time, so meter first.
 
-The light stays dark for 0.35 s after the Bulb press, because a camera opens its shutter
-some time after the press. A body that opens later loses the start of the red light. To
-measure your body's lag, close NegPy, leave a frame in the light and run
-`uv run python scripts/bulb_lead_probe.py`. It prints the shortest safe lead.
+The light stays dark for a short lead after the Bulb press, because a camera opens its shutter
+some time after the press.
 
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files go
 to an auto-numbered per-roll subfolder and are imported and merged automatically. A Single Exposure or Blend scan writes one file per frame. **Retake** shoots the current frame again
@@ -252,21 +248,15 @@ described above.
   on their own. With **Next Frame** or **Whole Strip**, Scan feeds a strip that still waits at
   the entrance (`INSERT`), such as one that was in the dock when NegPy opened its port, because
   opening the port resets the dock.
-- While NegPy uses the dock, the dock's S button works as Scan: it starts a scan, or stops one.
-  S acts only while a frame is in the window: with no strip aligned, the dock looks for the next
-  frame instead. The scan starts at the press. The dock also makes a short exposure of its own,
-  and the film moves only after it ends. An arrow button nudges the film on a tap and moves it while you hold it. NegPy
-  leaves the dock's button mode (`BTNMODE`) as you set it.
-- While NegPy uses the dock, a tap of the dock's S button works as Scan: it starts a scan, or
-  stops one. NegPy reads the button (`BTN?`) and acts when you let go. The dock also acts on S
-  itself: with a frame in the window it makes a short exposure of its own, and the film moves
-  only after that ends. With a strip at the entrance, a tap lines the strip up first. A hold of
-  S is left to the dock, which ejects the strip on firmware 1.0.238.
-- While NegPy uses the dock, an arrow button nudges the film on a tap and moves it while you
-  hold it (`BTNMODE JOG`), because Next Frame and Whole Strip move whole frames. NegPy puts the
-  dock's own button mode back when it releases the dock.
-- While NegPy uses the dock, the dock's auto-sleep is off (`SLEEP 0`), because a sleeping dock
-  answers nothing. If the dock goes silent anyway, NegPy opens its port again on the next use.
+- While NegPy uses the dock:
+  - A tap of S works as Scan: it starts a scan, or stops one. NegPy reads the button (`BTN?`)
+    and acts when you let go. With a frame in the window, the dock also makes a short exposure
+    of its own, and the film moves only after it ends. With a strip at the entrance, a tap lines
+    the strip up first. A hold of S is left to the dock, which ejects the strip on firmware 1.0.238.
+  - An arrow button nudges the film on a tap and moves it while you hold it (`BTNMODE JOG`),
+    because Next Frame and Whole Strip move whole frames.
+  - The dock's auto-sleep is off (`SLEEP 0`), because a sleeping dock answers nothing. If the
+    dock goes silent anyway, NegPy opens its port again on the next use.
 - When NegPy releases the dock, it puts back the dock's saved light mode, control mode, button
   mode and sleep timeout.
 
@@ -423,6 +413,8 @@ LED at a time). Its remaining color error is film-dye crosstalk, which the densi
 | Capture says the camera returned JPEG instead of RAW | The image-quality setting is JPEG, or RAW+JPEG selected the processed file. | Set image quality to **RAW only**, then retry. |
 | A Blend scan says the camera did not go to Bulb | The drive mode is continuous (a Sony body refuses Bulb in any burst mode), or the mode dial is not on M. | Set the drive mode to single shooting and the mode dial to M, then scan again. |
 | A Blend scan says the camera sent no RAW file | The body is not in Bulb, it is set to JPEG, or the release cable does not reach it. | Set Bulb and RAW only. With **Cable**, check that the cable is in the Scanlight's 3.5mm jack and that the shutter fires from the light. |
+| A Blend scan exposes a little differently from the Trichrome scan of the same preset | NegPy dimmed or brightened the LEDs to time the channels, and the LEDs are not fully linear. | Set a shutter time of 0.2 s or more per channel. With **Cable**, keep the three channels inside the 2.55 s pulse. |
+| A Blend scan loses the start of the red light | The body opens its shutter more than 0.35 s after the Bulb press. | Close NegPy, leave a frame in the light and run `uv run python scripts/bulb_lead_probe.py`. It prints the shortest safe lead for your body. |
 | The aperture stepper is grayed out | The lens has no electronic diaphragm. | Set the aperture on the lens. |
 | A setting snaps back to its old value | Property writes are asynchronous. | NegPy polls until the value lands and logs a warning if it never does. Then the setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | Only one of the two ports carries data; the other is power only. Use the data port. |
