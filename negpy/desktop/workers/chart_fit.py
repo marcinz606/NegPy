@@ -134,9 +134,8 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         fade_crossover=0.0,
     )
     config = replace(source.config, process=process)
-    # What Estimate and its render write does not reach this grid: Gray Mix acts on the readings after it, at
-    # identity survivals, Remove Stain off and Crossover 0 the white and table apply nowhere, and a slide's
-    # grid takes the fixed transfer bounds, never the frame's measured ones.
+    # The key leaves out what Estimate writes but this grid never reads: Gray Mix, the white, the table
+    # and the frame's own bounds.
     keyed = replace(
         config,
         process=replace(

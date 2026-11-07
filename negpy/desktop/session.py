@@ -12,7 +12,7 @@ from typing import Any, Callable, Collection, Dict, Iterable, Iterator, List, Op
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
-from negpy.desktop.settings_catalog import GLOBAL_TIER_SECTIONS, apply_selected_fields
+from negpy.desktop.settings_catalog import GLOBAL_TIER_SECTIONS, ROLL_CARD_LABELS, apply_selected_fields
 from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
 from negpy.services.capture.presets import PresetStore
 from negpy.desktop.sticky import (
@@ -794,9 +794,7 @@ class AssetListModel(QAbstractListModel):
                     else tr("Prints on the roll average.")
                 )
             if file_info.get("own_cards"):
-                from negpy.desktop.controller import AppController
-
-                names = dict.fromkeys(AppController._ROLL_CARD_LABELS.get(k, k) for k in file_info["own_cards"])
+                names = dict.fromkeys(ROLL_CARD_LABELS.get(k, k) for k in file_info["own_cards"])
                 lines.append(tr("Keeps its own value on: {value}", value=", ".join(names)))
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
                 lines.append(tr("Thumbnail predates a settings change; open the frame or use Update Thumbnails to refresh it."))
@@ -970,6 +968,18 @@ def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfi
     return replace(params, stitch=StitchConfig())
 
 
+@dataclass
+class FrameBatch:
+    """What a change to several frames overwrote: each frame's config before it, the open frame's,
+    and the roll's values a push replaced (`roll_undo` puts them back)."""
+
+    label: str
+    active_hash: Optional[str]
+    active_before: WorkspaceConfig
+    frames: Dict[str, WorkspaceConfig] = field(default_factory=dict)
+    roll_undo: Optional[Callable[[], None]] = None
+
+
 def _records_batch(label: str):
     """A session method that changes several frames, recorded as one batch for undo_last_batch."""
 
@@ -1021,8 +1031,8 @@ class DesktopSessionManager(QObject):
         self.repo = repo
         self.state = AppState()
         self._preview_history: Optional[Tuple[str, WorkspaceConfig]] = None
-        self._batch: Optional[Dict[str, Any]] = None
-        self.last_batch: Optional[Dict[str, Any]] = None
+        self._batch: Optional[FrameBatch] = None
+        self.last_batch: Optional[FrameBatch] = None
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
         self.asset_model = AssetListModel(self.state, self.search_facts)
         # Both signals already fire from every mutation that can change a frame's
@@ -2196,21 +2206,22 @@ class DesktopSessionManager(QObject):
         self.update_config(config, persist=True, render=False)
 
     @contextmanager
-    def recording_batch(self, label: str) -> Iterator[Dict[str, Any]]:
+    def recording_batch(self, label: str) -> Iterator[FrameBatch]:
         """Records what a change to several frames overwrites, so undo_last_batch takes it all
         back from any frame. A batch inside a batch joins the outer one."""
         if self._batch is not None:
             yield self._batch
             return
-        batch: Dict[str, Any] = {"label": label, "frames": {}, "active": (self.state.current_file_hash, self.state.config), "roll": None}
+        batch = FrameBatch(label, self.state.current_file_hash, self.state.config)
         self._batch = batch
         try:
             yield batch
         finally:
             self._batch = None
-            active_hash, active_before = batch["active"]
-            moved = bool(active_hash) and active_hash == self.state.current_file_hash and self.state.config != active_before
-            if batch["frames"] or moved or batch["roll"]:
+            moved = (
+                bool(batch.active_hash) and batch.active_hash == self.state.current_file_hash and self.state.config != batch.active_before
+            )
+            if batch.frames or moved or batch.roll_undo:
                 self.last_batch = batch
                 self.batch_recorded.emit()
 
@@ -2220,11 +2231,11 @@ class DesktopSessionManager(QObject):
         batch, self.last_batch = self.last_batch, None
         if batch is None:
             return 0
-        if batch["roll"] is not None:
-            batch["roll"]()
+        if batch.roll_undo is not None:
+            batch.roll_undo()
         paths = {f["hash"]: f.get("path", "") for f in self.state.uploaded_files}
-        active_hash, active_before = batch["active"]
-        frames = dict(batch["frames"])
+        active_hash, active_before = batch.active_hash, batch.active_before
+        frames = dict(batch.frames)
         if active_hash and active_hash != self.state.current_file_hash:
             frames.setdefault(active_hash, active_before)
         changed = []
@@ -2253,7 +2264,7 @@ class DesktopSessionManager(QObject):
         step with the live config when undo_index == max — a single appended step
         would be clobbered by the first Ctrl+Z."""
         if self._batch is not None:
-            self._batch["frames"].setdefault(file_hash, old_config)
+            self._batch.frames.setdefault(file_hash, old_config)
         base = self.repo.get_max_history_index(file_hash)
         if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
             first = 0

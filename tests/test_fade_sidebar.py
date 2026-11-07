@@ -285,7 +285,7 @@ def test_estimate_reads_the_mix():
     w, _ = _slide_sidebar(fade_neutrals_mix=0.4)
     with (
         patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=np.zeros((8, 8, 3), np.float32)),
-        patch.object(fade, "blend_gray_readings", wraps=fade.blend_gray_readings) as blend,
+        patch("negpy.features.process.fade_estimate.blend_gray_readings", wraps=fade.blend_gray_readings) as blend,
     ):
         w._run_estimate(False)
     assert blend.call_args.args[1] == 0.4
@@ -305,7 +305,7 @@ def test_a_mix_drag_estimates_live_and_reads_the_grays_once():
     w, ctrl = _slide_sidebar(fade_crossover_table=_TABLE)
     with (
         patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
-        patch.object(fade, "gray_readings", wraps=fade.gray_readings) as readings,
+        patch("negpy.features.process.fade_estimate.gray_readings", wraps=fade.gray_readings) as readings,
     ):
         for v in (20.0, 40.0, 60.0):
             w.fade_neutrals_mix_slider.valueChanged.emit(v)
@@ -432,7 +432,7 @@ def test_estimate_suggests_auto_red_in_amber_on_a_short_range_while_it_is_off():
         w, ctrl = _slide_sidebar(fade_auto_red=auto)
         with (
             patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
-            patch.object(type(w), "_short_range", return_value=short),
+            patch("negpy.features.process.fade_estimate.short_range", return_value=short),
         ):
             w._on_estimate_fade()
         assert ("Restore Range" in w.fade_red_hint.text()) is suggested
@@ -455,7 +455,8 @@ def test_auto_red_on_fits_red_and_estimate_keeps_it_and_off_puts_estimate_s_red_
     fit = ({"fade_ratio_r": 0.6, "fade_density_shift": -0.2}, "")
     with (
         patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
-        patch.object(type(w), "_auto_red_changes", return_value=fit),
+        patch("negpy.features.process.fade_estimate.auto_red_changes", return_value=fit),
+        patch("negpy.desktop.view.sidebar.fade.auto_red_changes", return_value=fit),
     ):
         w._on_estimate_fade()
         estimated = _apply(ctrl)

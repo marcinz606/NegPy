@@ -215,10 +215,17 @@ def estimate_grid(image: np.ndarray, **process) -> np.ndarray:
     return ctx.metrics["transfer_grid"]
 
 
+def estimate_fade(grid, white_anchor: bool = False, camera_raw: bool = False, white_space: str = "", mix: float = 0.0):
+    """`estimate_fade_with` reading the grays with Gray Mix *mix*, as the panel does."""
+    from negpy.features.process.fade import estimate_fade_with, gray_refs
+
+    return estimate_fade_with(grid, lambda g: gray_refs(g, mix), white_anchor, camera_raw, white_space)
+
+
 def estimate(image: np.ndarray, **process):
     """Fade Estimate (the Midtone method, the panel's default) on *image*'s analysis grid, with the
     render's white space as the panel passes it."""
-    from negpy.features.process.fade import estimate_fade, render_white_space
+    from negpy.features.process.fade import render_white_space
     from negpy.features.process.models import ProcessConfig, ProcessMode
 
     space = render_white_space(replace(ProcessConfig(), process_mode=ProcessMode.E6, **process), ProcessMode.E6, None, None)

@@ -587,14 +587,25 @@ def faded_stage_grid(
     """The meter grid of *linear* after *stage*'s density matrix, before its primaries: the space the
     crossover table is measured and applied in. *log_grid* gives the prefiltered grid of *linear* when
     the caller has it, reused when there is no `pre`."""
-    from negpy.features.exposure.normalization import prefilter_log_grid, unmix_log_image
+    from negpy.features.exposure.normalization import unmix_log_image
+
+    return unmix_log_image(_pre_log_grid(stage.pre, linear, roi, analysis_buffer, log_grid), stage.unmix, stage.anchor)
+
+
+def _pre_log_grid(
+    pre: Optional[np.ndarray],
+    linear: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]],
+) -> ImageBuffer:
+    """The prefiltered log grid of *linear* through the camera matrix *pre*; *log_grid*'s when there is none."""
+    from negpy.features.exposure.normalization import prefilter_log_grid
     from negpy.features.process.capture_color import apply_camera_matrix
 
-    if stage.pre is None and log_grid is not None:
-        grid = log_grid()
-    else:
-        grid = prefilter_log_grid(linear if stage.pre is None else apply_camera_matrix(linear, stage.pre), roi, analysis_buffer)
-    return unmix_log_image(grid, stage.unmix, stage.anchor)
+    if pre is None and log_grid is not None:
+        return log_grid()
+    return prefilter_log_grid(linear if pre is None else apply_camera_matrix(linear, pre), roi, analysis_buffer)
 
 
 def density_stage_grid(
@@ -627,16 +638,11 @@ def fade_white_grid(
     """The grid Fade Estimate meters and the render reads its white on: *image*'s white-balanced
     camera channels (a Positive source's own) after the crosstalk unmix, with no fade or white.
     *log_grid* gives the prefiltered grid of *image* when the caller has it."""
-    from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
-    from negpy.features.process.capture_color import apply_camera_matrix
+    from negpy.features.exposure.normalization import effective_crosstalk_matrix, unmix_log_image
 
     crosstalk = effective_crosstalk_matrix(process, process_mode)
     channels = density_channels(process, cam_xyz, camera_wb) if crosstalk is None else density_stage(process, cam_xyz, camera_wb, crosstalk)
-    if channels.pre is None and log_grid is not None:
-        grid = log_grid()
-    else:
-        grid = prefilter_log_grid(image if channels.pre is None else apply_camera_matrix(image, channels.pre), roi, analysis_buffer)
-    return unmix_log_image(grid, channels.unmix)
+    return unmix_log_image(_pre_log_grid(channels.pre, image, roi, analysis_buffer, log_grid), channels.unmix)
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

@@ -20,7 +20,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
-from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.process.models import FADE_METER_FIELDS, auto_meter_for_mode, cast_removal_for_mode
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
@@ -82,20 +82,7 @@ _SENSOR_FIELDS = (
     "crosstalk_process",
     "hue_trim",
 )
-_FADE_FIELDS = (
-    "fade_ratio_r",
-    "fade_density_shift",
-    "fade_ratio_g",
-    "fade_ratio_b",
-    "fade_white_anchor",
-    "fade_white_r",
-    "fade_white_g",
-    "fade_white_b",
-    "fade_white_space",
-    "fade_crossover",
-    "fade_auto_red",
-    "fade_neutrals_mix",
-)
+_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_neutrals_mix")
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
 # Linear RAW and the two demosaic choices are in none: they come from the scanning

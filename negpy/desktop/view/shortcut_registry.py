@@ -328,7 +328,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "reset_tab": ShortcutEntry("", tr("Reset this tab to defaults"), tr("Actions")),
     "reset_tab_to_roll": ShortcutEntry("", tr("Reset this tab to the roll's settings"), tr("Actions")),
     "reset_to_roll": ShortcutEntry("", tr("Reset this frame to the roll's settings"), tr("Actions")),
-    # A stored id: it undoes every change to several frames now, not only a Roll push.
+    # A stored id: saved key bindings name it.
     "undo_roll_push": ShortcutEntry("", tr("Undo the last change to several frames"), tr("Actions")),
     "load_sidecar": ShortcutEntry("", tr("Load this frame's edit from a sidecar…"), tr("Actions")),
     "show_in_folder": ShortcutEntry("", tr("Show the frame's file in its folder"), tr("Actions")),

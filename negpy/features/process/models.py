@@ -129,6 +129,27 @@ SOURCE_ENCODING_LABELS = {
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
 
+#: Fade Restoration's fields that reach the pixels, in the engines' cache-key order.
+FADE_RENDER_FIELDS = (
+    "fade_ratio_r",
+    "fade_density_shift",
+    "fade_ratio_g",
+    "fade_ratio_b",
+    "fade_white_anchor",
+    "fade_white_r",
+    "fade_white_g",
+    "fade_white_b",
+    "fade_white_space",
+    "fade_crossover",
+    "fade_crossover_table",
+    "fade_crossover_space",
+)
+#: The fade fields a frame's bounds measurement reads: the crossover table is set from them.
+FADE_METER_FIELDS = tuple(f for f in FADE_RENDER_FIELDS if f not in ("fade_crossover_table", "fade_crossover_space"))
+#: Every field of the Fade Restoration card.
+FADE_CARD_FIELDS = FADE_RENDER_FIELDS + ("fade_auto_red", "fade_neutrals_mix")
+
+
 @dataclass(frozen=True)
 class ProcessConfig:
     """
@@ -218,34 +239,27 @@ class ProcessConfig:
     # E-6, so a mismatch resolves to identity instead of mixing in the wrong matrix.
     crosstalk_process: str = ProcessMode.C41
 
-    # Fade restoration of faded transparencies, composed with the crosstalk unmix
-    # (`fade.unmix_with_fade`). The ratios describe one slide: green and
-    # blue relative to red, and red's own survival. All three at 1.0 is the identity.
+    # Fade Restoration (`fade.fade_density`; docs/PIPELINE.md has the math). Survivals: red's own,
+    # green and blue relative to red; all 1.0 is the identity. The shift is Restore Range's.
     fade_ratio_r: float = 1.0
-    # Density (D) added to every channel after the fade: Restore Range's even shift that keeps the median where it printed.
     fade_density_shift: float = 0.0
     fade_ratio_g: float = 1.0
     fade_ratio_b: float = 1.0
-    # Remove Stain (White Anchor): restore density above each channel's own white, (D - w) / a, for a slide whose
-    # clear areas carry a per-channel stain. The whites are log transmittance (<= 0) of the
-    # brightest cells, measured by the Estimate and never per render.
+    # Remove Stain: the whites are log transmittance (<= 0) that Estimate measures.
     fade_white_anchor: bool = False
     fade_white_r: float = 0.0
     fade_white_g: float = 0.0
     fade_white_b: float = 0.0
-    # `fade.fade_white_space` of the decode the whites were measured on, "" for a source with no
-    # camera matrix. A render in another space ignores them.
+    # The decode space the whites were measured in (`fade.fade_white_space`); another space ignores them.
     fade_white_space: str = ""
-    # Crossover: the share of the per-density lean of the neutrals left after the fade
-    # matrix that the render removes (`fade.crossover_offsets`). 0 is off. The table is a roll field,
-    # tagged with `fade.crossover_space`; a render applies it under any tag and measures one only when it is None.
+    # Crossover share (0 is off) and its table, tagged with `fade.crossover_space`; a render measures
+    # a table only when it is None.
     fade_crossover: float = 0.0
     fade_crossover_table: Optional[tuple] = None
     fade_crossover_space: str = ""
-    # Restore Range: Red Survival and `fade_density_shift` come from `fade_auto_red.auto_red`, which each
-    # Estimate on this frame runs again instead of setting its own Red.
+    # Restore Range: Red Survival and the shift come from `fade_auto_red.auto_red`.
     fade_auto_red: bool = False
-    # Gray Mix: moves Estimate's grays from the gray finder at 0 to the tone bands at 1 (`fade.gray_refs`).
+    # Gray Mix: Estimate's grays from the gray finder (0) to the tone bands (1) (`fade.gray_refs`).
     fade_neutrals_mix: float = 0.0
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A

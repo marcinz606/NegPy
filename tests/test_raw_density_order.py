@@ -14,7 +14,7 @@ from negpy.features.process.capture_color import (
     camera_to_working_matrix,
     wb_only_cam_xyz,
 )
-from negpy.features.process.fade import fade_white_space, measure_white, unmix_with_fade
+from negpy.features.process.fade import fade_white_space, measure_white, fade_density
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
@@ -127,7 +127,7 @@ def test_remove_stain_leaves_a_white_border_neutral_and_converts_after(positive)
     _, ctx = _render(config, img)
     restored = _restored_log(ctx)
     np.testing.assert_allclose(restored[:5].reshape(-1, 3), -0.1, atol=1e-4)
-    unmix = unmix_with_fade(config, ProcessMode.E6, space)
+    unmix = fade_density(config, ProcessMode.E6, space).matrix
     expected = relog_matrix_image(unmix_log_image(np.log10(balanced), unmix), camera_matrix_parts(_CAMERA, _WB)[1])
     np.testing.assert_allclose(restored, expected, atol=1e-4)
     converted_first = unmix_log_image(np.log10(img @ camera_to_working_matrix(_CAMERA, _WB).T), unmix)
@@ -138,7 +138,7 @@ def test_remove_stain_leaves_a_white_border_neutral_and_converts_after(positive)
 def test_a_faded_gray_ramp_restores_to_neutral(positive):
     # A white measured as none: the fade scales about L = 0, as the ramp was faded.
     config = _slide(positive, fade_white_space=fade_white_space(_CAMERA, _WB), **_FADE)
-    restore = unmix_with_fade(config, ProcessMode.E6)
+    restore = fade_density(config, ProcessMode.E6).matrix
     gray = np.repeat(np.linspace(-1.5, -0.05, 60, dtype=np.float64)[None, :, None], 3, axis=2)
     faded_log = gray @ np.linalg.inv(restore).T
     img = _unbalanced(np.repeat(10.0**faded_log, 4, axis=0).astype(np.float32))

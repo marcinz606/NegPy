@@ -362,7 +362,7 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 
-<!-- panel:fade src:621170c6 -->
+<!-- panel:fade src:fbd4f136 -->
 ### 10.5 Ausbleichrestaurierung: ausgeblichene Dias
 
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
@@ -371,9 +371,9 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte ersche
 *   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
 *   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
-*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
+*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
 *   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
-*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Stelle ihn an einem Bild mit klaren Grautönen ein und übertrage die Karte dann auf die Rolle. Nur Schätzen misst eine neue Tabelle.
+*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Stelle ihn an einem Bild mit klaren Grautönen ein und klicke dann auf der Karte auf **Rolle**.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Messung: Negativ → Positiv

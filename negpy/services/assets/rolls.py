@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optiona
 
 from negpy.features.exposure.normalization import BOUNDS_VERSION
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
-from negpy.features.process.models import neutral_axis_tuple, with_film_fields
+from negpy.features.process.models import FADE_CARD_FIELDS, neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts, folder_image_paths
 
 if TYPE_CHECKING:
@@ -687,25 +687,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # A roll's slides usually faded alike, so one Estimate or hand-tuned survival serves them
     # all; its own card, so a per-frame Estimate never locks the crosstalk. A camera RAW's white
     # stays per frame (`_without_decode_white`).
-    "fade": (
-        "process",
-        (
-            "fade_ratio_r",
-            "fade_density_shift",
-            "fade_ratio_g",
-            "fade_ratio_b",
-            "fade_white_anchor",
-            "fade_white_r",
-            "fade_white_g",
-            "fade_white_b",
-            "fade_white_space",
-            "fade_crossover",
-            "fade_auto_red",
-            "fade_neutrals_mix",
-            "fade_crossover_table",
-            "fade_crossover_space",
-        ),
-    ),
+    "fade": ("process", FADE_CARD_FIELDS),
     # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
     "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
     "process": (
@@ -777,24 +759,9 @@ def _without_decode_white(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in fields.items() if k not in DECODE_WHITE_FIELDS}
 
 
-# Fade card fields newer than some rolls' Fade defaults, at their ProcessConfig defaults. A roll that
-# holds Fade defaults without them means these values, or every frame would read as diverged.
-LATE_FADE_DEFAULTS = {
-    "fade_density_shift": 0.0,
-    "fade_crossover": 0.0,
-    "fade_auto_red": False,
-    "fade_neutrals_mix": 0.0,
-    "fade_crossover_table": None,
-    "fade_crossover_space": "",
-}
-
-
 def frame_roll_defaults(defaults: Dict[str, Any], process: Any) -> Dict[str, Any]:
     """*defaults* as they apply to a frame with *process*: a camera RAW frame that has measured
-    its own white keeps it over a roll's scanner white, and a roll's Fade defaults include
-    LATE_FADE_DEFAULTS."""
-    if any(name in defaults for name in ROLL_DEFAULT_FIELDS["fade"][1] if name not in LATE_FADE_DEFAULTS):
-        defaults = {**LATE_FADE_DEFAULTS, **defaults}
+    its own white keeps it over a roll's scanner white."""
     if not getattr(process, "fade_white_space", ""):
         return defaults
     return {k: v for k, v in defaults.items() if k not in DECODE_WHITE_FIELDS}
@@ -845,9 +812,9 @@ def restore_roll_fields(repo: Any, roll_id: str, snapshot: Dict[str, Any]) -> No
 
 
 def copy_roll_settings(repo: Any, from_id: str, to_id: str, file_hashes: Collection[str]) -> None:
-    """Give roll *to_id* the roll-level settings of *from_id* (its defaults and frame seed) and the card locks of *file_hashes* (unforked), in one write. A lock is
-    what keeps a frame's own value against the copied defaults. Scenes, forks and the
-    baseline stay behind. No-op for an unknown id."""
+    """Give roll *to_id* the roll-level settings of *from_id* (its defaults and frame seed) and the
+    card locks of *file_hashes* (unforked), in one write. A lock keeps a frame's own value against
+    the copied defaults. Scenes, forks and the baseline stay behind. No-op for an unknown id."""
     store = _read(repo)
     source, target = store.get(from_id), store.get(to_id)
     if source is None or target is None:
@@ -1001,25 +968,11 @@ def resolve_roll_config(repo: Any, roll_id: Optional[str], file_hash: str, confi
     return config
 
 
-def move_section_push_fields(repo: Any, section_key: str, to_key: str, fields: Collection[str]) -> None:
-    """Moves *fields* out of every roll's *section_key* push into its *to_key* push, for a
-    card that splits in two. A push left empty is dropped."""
+def drop_section_pushes(repo: Any) -> None:
+    """Removes the ``section_pushes`` record, which nothing reads, from every roll."""
     store = _read(repo)
-    wanted = set(fields)
-    for entry in store.values():
-        pushes = dict(entry.get("section_pushes", {}))
-        source = pushes.get(section_key, {})
-        moved = {f: v for f, v in source.items() if f in wanted}
-        if not moved:
-            continue
-        kept = {f: v for f, v in source.items() if f not in wanted}
-        if kept:
-            pushes[section_key] = kept
-        else:
-            pushes.pop(section_key)
-        pushes[to_key] = {**pushes.get(to_key, {}), **moved}
-        entry["section_pushes"] = pushes
-    _write(repo, store)
+    if any(entry.pop("section_pushes", None) is not None for entry in list(store.values())):
+        _write(repo, store)
 
 
 def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Any]]:

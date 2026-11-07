@@ -54,9 +54,6 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
     task = NormalizationTask(
         frames=_frames(settings),
         workspace_color_space="sRGB",
-        override_analysis_buffer=base.process.analysis_buffer,
-        override_luma_range_clip=base.process.luma_range_clip,
-        override_color_range_clip=base.process.color_range_clip,
     )
 
     captured: list[tuple] = []
@@ -74,9 +71,8 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
     assert len(floors) == 3 and len(ceils) == 3
 
 
-def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatch):
-    """The current image's analysis_buffer / luma_range_clip override every file's own
-    saved value, so the whole roll is analyzed with one setting before averaging."""
+def test_batch_analysis_meters_each_frame_with_its_own_buffer_and_luma_range(qapp, monkeypatch):
+    """Each file is analyzed with its own saved analysis_buffer / luma_range_clip."""
     import negpy.features.exposure.normalization as norm_mod
 
     captured_kwargs: list[dict] = []
@@ -92,7 +88,6 @@ def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatc
     monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
 
     base = WorkspaceConfig()
-    # Files carry DIFFERENT saved buffer/luma bounds — must be ignored in favor of override.
     settings = {
         "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, luma_range_clip=5.0)),
         "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, luma_range_clip=-2.0)),
@@ -102,17 +97,11 @@ def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatc
     task = NormalizationTask(
         frames=_frames(settings),
         workspace_color_space="sRGB",
-        override_analysis_buffer=0.12,
-        override_luma_range_clip=3.5,
-        override_color_range_clip=0.0,
     )
 
     worker.process(task)
 
-    assert len(captured_kwargs) == 2
-    for kw in captured_kwargs:
-        assert kw["analysis_buffer"] == 0.12
-        assert kw["percentile_clip"] == 3.5
+    assert sorted((kw["analysis_buffer"], kw["percentile_clip"]) for kw in captured_kwargs) == [(0.01, -2.0), (0.20, 5.0)]
 
 
 def test_batch_analysis_meters_each_frames_own_region(qapp, monkeypatch):
@@ -133,6 +122,7 @@ def test_batch_analysis_meters_each_frames_own_region(qapp, monkeypatch):
     monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
 
     base = WorkspaceConfig()
+    base = replace(base, process=replace(base.process, analysis_buffer=0.12))
     settings = {
         "h_region": replace(base, process=replace(base.process, analysis_rect=(0.25, 0.25, 0.75, 0.75))),
         "h_plain": base,
@@ -140,9 +130,6 @@ def test_batch_analysis_meters_each_frames_own_region(qapp, monkeypatch):
     task = NormalizationTask(
         frames=_frames(settings),
         workspace_color_space="sRGB",
-        override_analysis_buffer=0.12,
-        override_luma_range_clip=0.0,
-        override_color_range_clip=0.0,
     )
 
     NormalizationWorker(_FakePreviewService()).process(task)
@@ -179,9 +166,6 @@ def test_batch_analysis_meters_the_meter_rect_of_a_frame_with_no_crop(qapp, monk
     task = NormalizationTask(
         frames=_frames(settings),
         workspace_color_space="sRGB",
-        override_analysis_buffer=0.12,
-        override_luma_range_clip=0.0,
-        override_color_range_clip=0.0,
     )
 
     NormalizationWorker(_FakePreviewService()).process(task)
@@ -248,9 +232,6 @@ def test_batch_analysis_flags_a_frame_whose_color_is_far_from_the_pool(qapp, mon
     task = NormalizationTask(
         frames=_frames(settings),
         workspace_color_space="sRGB",
-        override_analysis_buffer=base.process.analysis_buffer,
-        override_luma_range_clip=base.process.luma_range_clip,
-        override_color_range_clip=base.process.color_range_clip,
     )
 
     captured: list[tuple] = []
@@ -276,9 +257,6 @@ def test_batch_analysis_reports_no_outliers_when_the_roll_is_uniform(qapp, monke
     task = NormalizationTask(
         frames=_frames({h: base for h in fills}),
         workspace_color_space="sRGB",
-        override_analysis_buffer=base.process.analysis_buffer,
-        override_luma_range_clip=base.process.luma_range_clip,
-        override_color_range_clip=base.process.color_range_clip,
     )
 
     captured: list[tuple] = []
@@ -310,9 +288,6 @@ def test_batch_analysis_measures_each_frame_with_its_own_crosstalk(qapp, monkeyp
         NormalizationTask(
             frames=_frames(settings),
             workspace_color_space="sRGB",
-            override_analysis_buffer=base.process.analysis_buffer,
-            override_luma_range_clip=base.process.luma_range_clip,
-            override_color_range_clip=base.process.color_range_clip,
         )
     )
 
@@ -345,9 +320,6 @@ def test_batch_analysis_decodes_a_triplet_as_a_composite(qapp):
         NormalizationTask(
             frames=[NormalizationInput(file_info={"path": "/r.dng", "hash": "h_r", "name": "r"}, config=triplet)],
             workspace_color_space="sRGB",
-            override_analysis_buffer=base.process.analysis_buffer,
-            override_luma_range_clip=base.process.luma_range_clip,
-            override_color_range_clip=base.process.color_range_clip,
         )
     )
 
@@ -376,9 +348,6 @@ def test_batch_analysis_meters_the_flat_fielded_frame(qapp, monkeypatch):
         task = NormalizationTask(
             frames=_frames({"h1": cfg}),
             workspace_color_space="sRGB",
-            override_analysis_buffer=0.0,
-            override_luma_range_clip=0.0,
-            override_color_range_clip=0.0,
         )
         NormalizationWorker(_FakePreviewService()).process(task)
     finally:

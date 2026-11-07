@@ -5,7 +5,7 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import negpy_core
 import numpy as np
@@ -209,6 +209,7 @@ from negpy.features.process.models import (
 )
 from negpy.infrastructure.loaders.source_kind import with_scanner_positive_default
 from negpy.desktop.settings_catalog import (
+    ROLL_CARD_LABELS,
     BOUNDS_INPUT_FIELDS,
     changed_settings,
     meter_inputs_key,
@@ -257,6 +258,16 @@ _BUSY_TOAST_MS = 30000
 # Batch owners that share norm_thread (and its CPU) with the background thumbnail
 # refresh — the only ones a running refresh actually needs to get out of the way of.
 _NORM_THREAD_BATCH_OWNERS = frozenset({"autocrop", "normalization"})
+
+
+class BackgroundBaseline(NamedTuple):
+    """A background Roll Average run: where it saves, which frames it pools and their meter inputs."""
+
+    roll_id: str
+    scene_id: Optional[str]
+    hashes: Tuple[str, ...]
+    inputs: Dict[str, str]
+    remeasured: bool
 
 
 # A keep_preview reload (same file, e.g. a mode switch) skips the spinner so a fast
@@ -754,7 +765,7 @@ class AppController(QObject):
         self._scene_queue: List[str] = []
         # (roll id, scene id, frame hashes, their meter inputs, whether a baseline existed) of the
         # running background Roll Analysis.
-        self._background_baseline: Optional[Tuple[str, Optional[str], Tuple[str, ...], Dict[str, str], bool]] = None
+        self._background_baseline: Optional[BackgroundBaseline] = None
         self._background_baseline_timer = QTimer(self)
         self._background_baseline_timer.setSingleShot(True)
         self._background_baseline_timer.setInterval(2000)
@@ -3771,7 +3782,7 @@ class AppController(QObject):
         unmix, so the roll keeps a raw base that every render unmixes like the rebate reader's.
         One click: the tool disarms, and leaving it re-renders the roll's frame above the base."""
         from negpy.features.exposure.normalization import log_from_val
-        from negpy.features.process.fade import render_white_space, unmix_with_fade
+        from negpy.features.process.fade import render_white_space, fade_density
 
         bounds = self.state.last_metrics.get("final_bounds") or self.state.last_metrics.get("log_bounds")
         patch = self._sample_normalized_patch(nx, ny, radius=4)
@@ -3784,11 +3795,11 @@ class AppController(QObject):
             self.set_status(tr("Film Base: that spot is not flat film; click the clear rebate"), 4000, "warning")
             return
         base = logs.mean(axis=0)
-        unmix = unmix_with_fade(
+        unmix = fade_density(
             self.state.config.process,
             self.state.config.process.process_mode,
             render_white_space(self.state.config.process, self.state.config.process.process_mode, *self._effective_cam_xyz()),
-        )
+        ).matrix
         if unmix is not None:
             unmix = np.asarray(unmix, dtype=np.float64)
             if unmix.shape[1] == 4:
@@ -5802,9 +5813,6 @@ class AppController(QObject):
         task = NormalizationTask(
             frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in frames],
             workspace_color_space=self.state.workspace_color_space,
-            override_analysis_buffer=None,
-            override_luma_range_clip=None,
-            override_color_range_clip=None,
             detect=detect,
         )
         self.normalization_requested.emit(task)
@@ -6169,16 +6177,13 @@ class AppController(QObject):
                 break
         else:
             return
-        self._background_baseline = (roll_id, scene_id, hashes, inputs, saved is not None)
+        self._background_baseline = BackgroundBaseline(roll_id, scene_id, hashes, inputs, saved is not None)
         self._on_background_baseline_progress(0, len(frames))
         self.bg_norm_worker.arm()
         self.background_normalization_requested.emit(
             NormalizationTask(
                 frames=[NormalizationInput(file_info=f, config=configs[f["hash"]]) for f in frames],
                 workspace_color_space=self.state.workspace_color_space,
-                override_analysis_buffer=None,
-                override_luma_range_clip=None,
-                override_color_range_clip=None,
                 background=True,
             )
         )
@@ -6232,7 +6237,7 @@ class AppController(QObject):
     def _on_background_baseline_progress(self, done: int, total: int, *_args) -> None:
         if self._background_baseline is None:
             return
-        if self._background_baseline[1]:
+        if self._background_baseline.scene_id:
             text = tr("Scene average {index}/{total}", index=done, total=total)
         else:
             text = tr("Roll average {index}/{total}", index=done, total=total)
@@ -6557,21 +6562,7 @@ class AppController(QObject):
         "metadata_scanning",
         "metadata_exposure",
     )
-    _ROLL_CARD_LABELS = {
-        "film": tr("Film Mode"),
-        "sensor": tr("Calibration"),
-        "fade": tr("Fade Restoration"),
-        "demosaic": tr("Raw Decode"),
-        "baseline": tr("Roll Analysis"),
-        "process": tr("Metering"),
-        "lens": tr("Optics"),
-        "flatfield": tr("Optics"),
-        "metadata_gear": tr("Analog Gear"),
-        "metadata_capture": tr("Capture"),
-        "metadata_process": tr("Process"),
-        "metadata_scanning": tr("Scanning"),
-        "metadata_exposure": tr("Exposure"),
-    }
+    _ROLL_CARD_LABELS = ROLL_CARD_LABELS
     METADATA_CARDS = ("metadata_gear", "metadata_capture", "metadata_process", "metadata_scanning", "metadata_exposure")
 
     @staticmethod
@@ -6600,7 +6591,7 @@ class AppController(QObject):
         wanted = {}
         for card_key, (_section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             if any(name in values for name in names):
-                wanted.update({n: v for n, v in self._card_values(config, card_key).items() if n not in defaults})
+                wanted.update(self._roll_baseline(config, card_key, defaults))
         wanted.update(values)
         if not all(n in defaults and rolls.same_value(v, defaults[n]) for n, v in wanted.items()):
             rolls.set_roll_defaults(repo, roll_id, **wanted)
@@ -6767,7 +6758,7 @@ class AppController(QObject):
             for card_key in pushed:
                 rolls.set_roll_defaults(repo, roll_id, **self._card_values(self.state.config, card_key))
                 rolls.set_frame_override(repo, roll_id, frame_hash, card_key, False)
-            batch["roll"] = lambda: self._restore_roll_push(roll_id, frame_hash, baselines, snapshot)
+            batch.roll_undo = lambda: self._restore_roll_push(roll_id, frame_hash, baselines, snapshot)
         self._roll_defaults_changed(roll_id, set(pushed))
         message = tr("Applied to the roll: {value}", value=self._roll_card_names(pushed))
         own = self._frames_keeping_own(roll_id, set(pushed))
@@ -6807,7 +6798,7 @@ class AppController(QObject):
             return
         moved = self.session.undo_last_batch()
         self.request_render()
-        self.set_status(tr("Undid {label}: {value}", label=batch["label"], value=count_of(moved, "frame")), 3000)
+        self.set_status(tr("Undid {label}: {value}", label=batch.label, value=count_of(moved, "frame")), 3000)
 
     def _roll_card_names(self, cards) -> str:
         return ", ".join(dict.fromkeys(self._ROLL_CARD_LABELS[k] for k in self._ROLL_CARDS if k in cards))

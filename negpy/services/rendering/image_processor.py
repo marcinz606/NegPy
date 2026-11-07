@@ -23,7 +23,7 @@ from negpy.domain.models import (
     ProofIntent,
 )
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.process.capture_color import wb_only_cam_xyz
+from negpy.features.process.capture_color import is_source_profile, wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode, invalidate_local_bounds
 from negpy.features.process.path import RenderPath, is_mono, positive_decode, render_path
 from negpy.features.process.logic import (
@@ -285,7 +285,8 @@ def _camera_token(cam_xyz: Optional[list], camera_wb: Optional[list]) -> str:
     """The camera matrix and as-shot WB a slide's transfer reads; an Input ICC swaps them."""
     if cam_xyz is None and camera_wb is None:
         return ""
-    return "|cam" + hashlib.md5(repr((np.asarray(cam_xyz).tolist() if cam_xyz is not None else None, camera_wb)).encode()).hexdigest()[:12]
+    rows = np.asarray(cam_xyz).tolist() if cam_xyz is not None else None
+    return "|cam" + hashlib.md5(repr((rows, is_source_profile(cam_xyz), camera_wb)).encode()).hexdigest()[:12]
 
 
 def _use_half_size_decode(raw: Any) -> bool:

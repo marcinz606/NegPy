@@ -2,31 +2,19 @@ from dataclasses import replace
 from typing import Optional
 
 from negpy.kernel.system.i18n import tr
+from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_action, set_toggle_suggested
 from negpy.desktop.view.widgets.fold import rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, FadeEstimate, estimate_red, stain_suggested
+from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, estimate_red
+from negpy.features.process.fade_estimate import GrayMemo, auto_red_changes, run_estimate
 from negpy.features.process.path import RenderPath, render_path
 
 _REMOVE_STAIN_ICON = "fa5s.tint-slash"
 _AUTO_RED_ICON = "mdi6.arrow-expand-vertical"
-#: Estimate suggests Restore Range only where its Red would be this share of Estimate's or less: the frame's
-#: span is well short of AUTO_RED_SPAN, so a frame near the target stays quiet.
-AUTO_RED_HINT_RATIO = 0.85
-
-
-def _estimate_hint(chosen: "FadeEstimate") -> str:
-    """The result, or why there is none."""
-    if chosen.reason and chosen.green == 1.0 and chosen.blue == 1.0:
-        return chosen.reason
-    red = chosen.red if chosen.red is not None else 1.0
-    text = tr("Estimated: red {r}, green {g}, blue {b}.", r=f"{red:.2f}", g=f"{chosen.green:.2f}", b=f"{chosen.blue:.2f}")
-    if chosen.reason:
-        text = chosen.reason + " " + text
-    return text
 
 
 def _estimated(conf) -> bool:
@@ -80,7 +68,7 @@ class FadeSidebar(BaseSidebar):
         self.fade_red_hint.setVisible(False)
         self._fade_hint_hash: Optional[str] = None
         # (grid, key, gray readings) of the last Estimate, which a Gray Mix drag blends again.
-        self._gray_memo: Optional[tuple] = None
+        self._gray_memo = GrayMemo()
         # The frame where only the tone-band reader found grays: Gray Mix stays open there at every value.
         self._tone_bands_hash: Optional[str] = None
 
@@ -98,7 +86,7 @@ class FadeSidebar(BaseSidebar):
         )
         # Estimate sets the Survival sliders, so they fold under its row.
         self.fade_survival_fold = rail_fold(
-            "sensor_fade_survival", self.fade_estimate_row, self.fade_ratio_r_slider, self.fade_ratio_g_slider, self.fade_ratio_b_slider
+            "fade_survival", self.fade_estimate_row, self.fade_ratio_r_slider, self.fade_ratio_g_slider, self.fade_ratio_b_slider
         )
         for item in (
             self.fade_estimate_row,
@@ -173,40 +161,20 @@ class FadeSidebar(BaseSidebar):
         changes, reason = None, tr("No image loaded to estimate from.")
         if grid is not None:
             base = replace(conf, fade_ratio_r=estimate_red(conf.fade_ratio_g, conf.fade_ratio_b), fade_density_shift=0.0)
-            changes, reason = self._auto_red_changes(base, source, grid)
+            changes, reason = auto_red_changes(base, source.cam_xyz, source.camera_wb, grid)
         self._show_red_hint(reason)
         if changes is None:
-            self.fade_auto_red_btn.blockSignals(True)
-            self.fade_auto_red_btn.setChecked(False)
-            self.fade_auto_red_btn.blockSignals(False)
+            with QSignalBlocker(self.fade_auto_red_btn):
+                self.fade_auto_red_btn.setChecked(False)
             return
         set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, False)
         changes = {**changes, "fade_auto_red": True}
         self.controller.set_roll_default("fade", **changes)
 
-    @staticmethod
-    def _auto_red_changes(conf, source, grid) -> tuple[Optional[dict], str]:
-        """`fade_auto_red.auto_red` for the survivals and shift in *conf*."""
-        from negpy.features.process.fade import render_white_space
-        from negpy.features.process.fade_auto_red import auto_red, survival_points
-
-        space = render_white_space(conf, conf.process_mode, source.cam_xyz, source.camera_wb)
-        g, b, shift = conf.fade_ratio_g, conf.fade_ratio_b, conf.fade_density_shift
-
-        def points_at(red: float):
-            return survival_points(grid, conf, (red, g, b), conf.fade_white_anchor, bool(space), space, shift)
-
-        return auto_red(points_at, conf.fade_ratio_r, shift)
-
     def _show_red_hint(self, text: str) -> None:
         self._fade_hint_hash = self.state.current_file_hash
         self.fade_red_hint.setText(text)
         self.fade_red_hint.setVisible(bool(text))
-
-    def _short_range(self, conf, source, grid) -> bool:
-        """Whether Restore Range would set Red Survival at AUTO_RED_HINT_RATIO of *conf*'s or less."""
-        changes, _ = self._auto_red_changes(conf, source, grid)
-        return changes is not None and changes["fade_ratio_r"] <= conf.fade_ratio_r * AUTO_RED_HINT_RATIO
 
     def _on_fade_crossover_changed(self, val: float, persist: bool = True) -> None:
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_crossover=val / 100.0)
@@ -262,74 +230,14 @@ class FadeSidebar(BaseSidebar):
         """Gray Mix runs Estimate again, so it waits for one on this frame."""
         return _estimated(conf) or (self._tone_bands_hash is not None and self._tone_bands_hash == self.state.current_file_hash)
 
-    def _tone_bands_only(self, grid) -> bool:
-        """Whether the last gray reading on *grid* found grays only in the tone bands."""
-        from negpy.features.process.fade import tone_bands_only
-
-        memo = self._gray_memo
-        return memo is not None and memo[0] is grid and tone_bands_only(memo[2])
-
-    def _gray_reader(self, grid, anchor: bool, space: str, mix: float):
-        """Estimate's gray reader on *grid* at Gray Mix *mix*. The readings depend on the grid and the
-        anchor, never on the mix, so they are kept for the next call."""
-        from negpy.features.process.fade import blend_gray_readings, gray_readings
-
-        memo_key = (anchor, space)
-
-        def reader(gray_grid):
-            memo = self._gray_memo
-            if memo is None or memo[0] is not grid or memo[1] != memo_key:
-                memo = self._gray_memo = (grid, memo_key, gray_readings(gray_grid))
-            return blend_gray_readings(memo[2], mix)
-
-        return reader
-
-    def _measured_crossover(self, new_conf, mix: Optional[float] = None) -> dict:
-        """The crossover table and its tag measured after *new_conf*'s survivals, {} with none."""
-        from negpy.desktop.workers.chart_fit import fade_estimate_grid
-        from negpy.features.process.fade import crossover_space, fade_density, render_white_space, survival_crossover
-
-        conf = self.state.config.process
-        mix = conf.fade_neutrals_mix if mix is None else mix
-        if render_path(conf) is RenderPath.PRINT:
-            return {}
-        source = self.controller.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
-        if grid is None:
-            return {}
-        space = render_white_space(new_conf, conf.process_mode, source.cam_xyz, source.camera_wb)
-        anchor = conf.fade_white_anchor
-        reader = self._gray_reader(grid, anchor, space, mix)
-        rgb = (new_conf.fade_ratio_r, new_conf.fade_ratio_g, new_conf.fade_ratio_b)
-        table = survival_crossover(
-            grid, reader, rgb, white_anchor=anchor, camera_raw=bool(space), white_space=space, shift=new_conf.fade_density_shift
-        )
-        if table is None:
-            return {}
-        tag = crossover_space(fade_density(new_conf, conf.process_mode, space), space, new_conf)
-        return {"fade_crossover_table": table, "fade_crossover_space": tag}
-
     def _on_estimate_fade(self) -> None:
         self._run_estimate(self.state.config.process.fade_white_anchor)
 
     def _run_estimate(self, white_anchor: bool, mix: Optional[float] = None, live: bool = False, keep_table: bool = False) -> None:
-        """Estimate with *mix* (the stored Gray Mix when None). *live* is a Gray Mix drag: no crossover table,
-        no undo step. *keep_table* (Gray Mix) writes no crossover table: only a press of Estimate measures one."""
+        """Estimate with *mix* (the stored Gray Mix when None); see `fade_estimate.run_estimate`."""
         from negpy.desktop.workers.chart_fit import fade_estimate_grid
-        from negpy.features.process.fade import (
-            CROSSOVER_FLOOR,
-            crossover_amount,
-            crossover_space,
-            estimate_fade_with,
-            fade_density,
-            pick_neutrals,
-            render_white_space,
-            toward_no_change,
-        )
 
         conf = self.state.config.process
-        mix_changes = {} if mix is None else {"fade_neutrals_mix": mix}
-        mix = conf.fade_neutrals_mix if mix is None else mix
         persist = not live
         if render_path(conf) is RenderPath.PRINT:
             return
@@ -337,111 +245,37 @@ class FadeSidebar(BaseSidebar):
         grid = None if source is None else fade_estimate_grid(source)
         if grid is None:
             self._show_fade_hint(tr("No image loaded to estimate from."))
-            if mix_changes:
-                self.controller.set_roll_default("fade", persist=persist, readback_metrics=False, **mix_changes)
+            if mix is not None:
+                self.controller.set_roll_default("fade", persist=persist, readback_metrics=False, fade_neutrals_mix=mix)
             return
-        anchor = white_anchor
-        space = render_white_space(conf, conf.process_mode, source.cam_xyz, source.camera_wb)
-        reader = self._gray_reader(grid, anchor, space, mix)
-        # A press of Estimate picks Gray Mix and measures the tables then; a drag measures none.
-        pick = not live and not mix_changes
-        chosen = estimate_fade_with(
-            grid, reader, white_anchor=anchor, camera_raw=bool(space), white_space=space, crossover=not live and not pick and not keep_table
+        out = run_estimate(
+            conf,
+            grid,
+            source.cam_xyz,
+            source.camera_wb,
+            self._gray_memo,
+            white_anchor=white_anchor,
+            mix=mix,
+            live=live,
+            keep_table=keep_table,
         )
-        # Where NegPy's gray finder finds no grays, Estimate reads the tone bands' at full Gray Mix, and
-        # Gray Mix moves from no change to that estimate.
-        tone_bands = self._tone_bands_only(grid)
-        picked = None
-        if pick and chosen.red is not None:
-            memo = self._gray_memo
-            found = None if tone_bands or memo is None else pick_neutrals(grid, memo[2], anchor, bool(space), space)
-            if found is None:
-                chosen = estimate_fade_with(grid, reader, white_anchor=anchor, camera_raw=bool(space), white_space=space)
-            else:
-                picked, chosen = found
-                mix, mix_changes = picked, {"fade_neutrals_mix": picked}
-                self.fade_neutrals_mix_slider.blockSignals(True)
-                self.fade_neutrals_mix_slider.setValue(picked * 100.0)
-                self.fade_neutrals_mix_slider.blockSignals(False)
-        if tone_bands:
+        if out.tone_bands:
             self._tone_bands_hash = self.state.current_file_hash
-            if not mix_changes:
-                mix, mix_changes = 1.0, {"fade_neutrals_mix": 1.0}
-                self.fade_neutrals_mix_slider.blockSignals(True)
-                self.fade_neutrals_mix_slider.setValue(100.0)
-                self.fade_neutrals_mix_slider.blockSignals(False)
-            chosen = toward_no_change(chosen, mix)
-        failed = bool(chosen.reason) and chosen.green == 1.0 and chosen.blue == 1.0
-        # The white is stored with the survivals; a render measures one only for a stale camera RAW
-        # white. A failed reading stores it only where it is plainly a stain on clear film. A camera
-        # RAW's render scales density above its white, so it stores the white with Remove Stain off too.
-        white = {}
-        if (anchor or space) and chosen.white is not None and (not failed or space or stain_suggested(chosen.white)):
-            white = dict(zip(("fade_white_r", "fade_white_g", "fade_white_b"), chosen.white), fade_white_space=space)
-        stain = ""
-        if not anchor and chosen.white is not None and stain_suggested(chosen.white):
-            stain = tr("The clear areas have a yellow stain: turn on Remove Stain.")
-        hint = _estimate_hint(chosen)
-        if picked is not None:
-            hint = tr("Gray Mix set to {n} %.", n=f"{picked * 100:.0f}") + " " + hint
-        if tone_bands:
-            hint = tr("This frame has few clear grays. Drag Gray Mix to set how much Estimate changes.") + " " + hint
-        if anchor and not white and (conf.fade_white_r, conf.fade_white_g, conf.fade_white_b) == (0.0, 0.0, 0.0):
-            hint += " " + tr("No stain found to remove.")
-        self._show_fade_hint(hint, stain)
-        if failed:
-            if space and white and persist:
-                self.controller.set_fade_white(**white)
-            rest = {**({} if space else white), **mix_changes}
-            if rest:
-                self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **rest)
-            return
-        red = chosen.red if chosen.red is not None else conf.fade_ratio_r
-        for slider, value in (
-            (self.fade_ratio_r_slider, red),
-            (self.fade_ratio_g_slider, chosen.green),
-            (self.fade_ratio_b_slider, chosen.blue),
-        ):
-            slider.blockSignals(True)
-            slider.setValue(value)
-            slider.blockSignals(False)
-        # Estimate's table is read with no shift, and a new red makes Restore Range's shift stale.
-        survivals = dict(
-            fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, fade_density_shift=0.0, **white, **mix_changes
-        )
-        # Restore Range keeps its Red: it runs again on the new grays, and the table is measured after it.
-        short = not live and not conf.fade_auto_red and self._short_range(replace(conf, **survivals), source, grid)
-        auto = None
-        if conf.fade_auto_red and live:
-            # A Gray Mix drag keeps the fit, and the release fits Red again.
-            survivals.update(fade_ratio_r=conf.fade_ratio_r, fade_density_shift=conf.fade_density_shift)
-            self.fade_ratio_r_slider.blockSignals(True)
-            self.fade_ratio_r_slider.setValue(conf.fade_ratio_r)
-            self.fade_ratio_r_slider.blockSignals(False)
-        elif conf.fade_auto_red:
-            auto, _ = self._auto_red_changes(replace(conf, **survivals), source, grid)
-        if auto is not None:
-            survivals.update(auto)
-            self.fade_ratio_r_slider.blockSignals(True)
-            self.fade_ratio_r_slider.setValue(auto["fade_ratio_r"])
-            self.fade_ratio_r_slider.blockSignals(False)
-        # A press measures the table after these survivals; a drag keeps the last one until the release.
-        crossover, measured = {}, {}
-        if not keep_table and (auto is not None or (tone_bands and chosen.crossover is None)) and not live:
-            measured = self._measured_crossover(replace(conf, **survivals), mix)
-            survivals = {**survivals, **measured}
-        if not keep_table and not measured and chosen.crossover is not None:
-            new_conf = replace(conf, **survivals)
-            tag = crossover_space(fade_density(new_conf, conf.process_mode, space), space, new_conf)
-            crossover = dict(fade_crossover_table=chosen.crossover, fade_crossover_space=tag)
-        if not live:
-            table = crossover.get("fade_crossover_table", survivals.get("fade_crossover_table"))
-            if conf.fade_crossover == 0.0 and isinstance(table, tuple) and crossover_amount(table) >= CROSSOVER_FLOOR:
-                self._show_fade_hint(hint + " " + tr("The colors shift from shadows to highlights: raise Crossover."), stain)
-            suggest_red = short and not conf.fade_auto_red
-            self._show_red_hint(tr("This frame has a short range: turn on Restore Range.") if suggest_red else "")
-            set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, suggest_red)
-        self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **survivals, **crossover)
+        if out.mix is not None:
+            with QSignalBlocker(self.fade_neutrals_mix_slider):
+                self.fade_neutrals_mix_slider.setValue(out.mix * 100.0)
+        if out.survivals is not None:
+            for slider, value in zip((self.fade_ratio_r_slider, self.fade_ratio_g_slider, self.fade_ratio_b_slider), out.survivals):
+                with QSignalBlocker(slider):
+                    slider.setValue(value)
+        self._show_fade_hint(out.hint, out.stain)
+        if out.red_hint is not None:
+            self._show_red_hint(out.red_hint)
+            set_toggle_suggested(self.fade_auto_red_btn, _AUTO_RED_ICON, out.suggest_red)
+        if out.fade_white:
+            self.controller.set_fade_white(**out.fade_white)
+        if out.changes:
+            self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **out.changes)
 
     def sync_ui(self) -> None:
         conf = self.state.config.process
