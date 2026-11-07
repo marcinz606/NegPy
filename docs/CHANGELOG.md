@@ -11,9 +11,7 @@
 - New: **More edge prints** — Fujicolor 100, Superia Premium 400, Superpan 200, Fujifilm 400 and Lomography CN 400. @red-prs
 - New: **Memory limits sized to the machine** — Preferences recommends cache sizes from RAM. @jondestoppeleire
 - New: **Multisampling on the Nikon LS-50** — thanks to nkscan 0.18.0 @activexray.
-- Change: **Film Strip** — the frame tooltip names each mark.
 - Change: **Plustek** — resolutions from a fixed list, pyopticfilm 1.3.9. @jboneng
-- Fix: **Roll cards** — a card edited or undone back to the roll's value unlocks, and the scanning setup moves the roll's Raw Decode.
 - Fix: **Slides and Positive files** — camera RAW slide color, Draw Region, slides out of the Roll Average, Positive JPEG ICC profiles. @thetalkingdrum
 - Fix: **Auto Crop** — keeps the whole picture on high-key frames and on slides. @kurtwindisch @thetalkingdrum
 - Fix: **Film scanners** — camera Optics and Recovery stay off scanner frames, SANE film scanners are detected by device type, and Avision color depth is set. @kurtwindisch @packetscrub
