@@ -132,7 +132,7 @@ Korrigerer fargen i kopien, slik fargefiltrene i et forstørrelsesapparat i mør
 *   **Fjerning av fargestikk**: fjerner et fargestikk som er ulikt i de mørke og lyse delene av bildet. Den starter på 0,5 (halvparten) for fargenegativer og på 0 for dias. Blader, himmel og vann regnes ikke som grått, så de beholder fargen.
 *   **Filter**: et farget filter, som på kameraobjektivet for svart-hvitt-film. Det vises bare for et fargenegativ eller fargedias i S/H, og erstatter kontrollene ovenfor. Hvert filter gjør fargene motsatt av sin egen mørkere. Gul #8, Dyp gul #15, Oransje #21 og Rød #25 gjør en blå himmel mørkere, trinn for trinn. Rød gjør også blader mørke og hud blek. Gulgrønn #11 og Grønn #58 gjør blader lysere og hud mørkere. Ingen gir utseendet til en vanlig svart-hvitt-film.
 
-<!-- panel:tone src:c1700dd9 -->
+<!-- panel:tone src:773012ec -->
 ### 5.2 Tone: lyshet og kontrast
 
 Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
@@ -152,7 +152,7 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
     *   **Kontrastmaske**: åpner store mørke områder og holder tilbake store lyse, og beholder fine detaljer. I mørkerommet får en kopist dette med en myk, uskarp maske lagt på negativet. I digital kopiering får Fujifilm Frontier-skannere en lignende virkning med HyperTone. Områder langt fra mellomgrå endres mest, så et bilde med lav kontrast endres lite.
 *   **Global / R / G / B**: R, G eller B bruker graderingene på bare én farge, for et fargestikk som er ulikt i skygger og høylys.
 
-**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.5](#105-metering-negative--positive)).
+**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
 
 <!-- panel:paper src:00cfca5d -->
 ### 5.3 Papirrespons: papiret
@@ -343,7 +343,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 
 Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
-<!-- panel:sensor src:3fd2d8aa -->
+<!-- panel:sensor src:f2d1b580 -->
 ### 10.4 Kalibrering: farger fra skanneoppsettet ditt
 
 Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
@@ -362,9 +362,10 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
-#### 10.4.1 Fargegjenoppretting: falmede dias
+<!-- panel:fade src:621170c6 -->
+### 10.5 Fargegjenoppretting: falmede dias
 
-Gir et falmet dias fargelagene tilbake.
+Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
 
 *   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
 *   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
@@ -375,7 +376,7 @@ Gir et falmet dias fargelagene tilbake.
 *   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og send kortet til rullen. Bare Beregn måler en ny tabell.
 
 <!-- panel:process src:2c179de9 -->
-### 10.5 Lysmåling: negativ → positiv
+### 10.6 Lysmåling: negativ → positiv
 
 For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste delene (svart- og hvitpunktet) og fargen på filmen. Disse kontrollene angir hva den måler.
 
@@ -392,7 +393,7 @@ For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste 
 Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. På et dias angir Tegn område området som Beregn, Fjern flekk, Fjerning av fargestikk, Autotetthet og Autogradering måler. Tegn det før du klikker Beregn. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
 
 <!-- panel:baseline src:7fc2c469 -->
-### 10.6 Rullanalyse
+### 10.7 Rullanalyse
 
 Måler hele rullen én gang og deler resultatet, så bildene fra én film kopieres likt. NegPy måler rullen og hver scene etter hvert som bildene kommer inn, og på nytt etter en endring av beskjæring eller lysmåling. Ingen bilder bruker et grunnlag før du slår på et gjennomsnitt. Når ingen rull er åpen, er kortet nedtonet: åpne eller lagre en rull først.
 
@@ -405,7 +406,7 @@ Måler hele rullen én gang og deler resultatet, så bildene fra én film kopier
 *   **Oppdag scener**: finner gruppene av bilder under et annet lys enn rullen, i hvilken som helst bilderekkefølge, og viser dem på lysbordet. Hver gruppe venter under **Funnet**. For å endre en gruppe drar du bilder til en annen gruppe, eller til et bilde uten scene for å utelate dem; høyreklikk › **Scene** gjør det samme. Gi gruppen et navn, og **Godta** den som en scene med eget grunnlag, eller **Forkast** den.
 
 <!-- panel:assembly src:96b2e550 -->
-### 10.7 Bildesammensetning
+### 10.8 Bildesammensetning
 
 Hvordan filer blir til bilder. Hver rull beholder sine egne innstillinger her.
 

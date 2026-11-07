@@ -53,6 +53,7 @@ _ROLL_SECTION_ATTRS = frozenset(
     {
         "assembly_section",
         "sensor_section",
+        "fade_section",
         "demosaic_section",
         "baseline_section",
         "process_section",
@@ -408,6 +409,7 @@ class RightPanel(QWidget):
                 cp.demosaic_section,
                 cp.optics_section,
                 cp.sensor_section,
+                cp.fade_section,
                 cp.process_section,
                 cp.baseline_section,
             )
@@ -423,6 +425,7 @@ class RightPanel(QWidget):
             cp.demosaic_section,
             cp.optics_section,
             cp.sensor_section,
+            cp.fade_section,
             cp.process_section,
             cp.baseline_section,
             cp.assembly_section,

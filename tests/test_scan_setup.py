@@ -211,6 +211,13 @@ class TestRigCards(unittest.TestCase):
         panel = self._panel({"capture": "scanner", "light": "white"}, config=config)
         self.assertTrue(panel.sensor_section.isHidden())
 
+    def test_fade_restoration_shows_only_on_a_slide(self):
+        for mode, positive, shown in ((ProcessMode.E6, False, True), (ProcessMode.E6, True, True), (ProcessMode.C41, False, False)):
+            base = with_process_mode(WorkspaceConfig(), mode)
+            config = replace(base, process=replace(base.process, positive_source=positive))
+            panel = self._panel({"capture": "scanner", "light": "white"}, config=config)
+            self.assertIs(panel.fade_section.isHidden(), not shown, (mode, positive))
+
 
 class TestApplyScanSetup(unittest.TestCase):
     def setUp(self):
