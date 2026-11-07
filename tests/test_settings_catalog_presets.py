@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from negpy.desktop.settings_catalog import (
+    CATALOG,
     all_rows,
     apply_selected_fields,
     preset_config,
@@ -52,11 +53,19 @@ def test_positive_source_row_is_catalogued():
     assert data == {"positive_source": True}
 
 
-@pytest.mark.parametrize("card", ["film", "sensor", "demosaic", "process", "baseline", "lens", "flatfield"])
+@pytest.mark.parametrize("card", ["film", "sensor", "fade", "demosaic", "process", "baseline", "lens", "flatfield"])
 def test_every_roll_card_field_has_a_row(card):
     """Copy Card Settings, Paste and the Roll tab's Apply offer only catalog rows."""
     listed = {f for r in roll_card_rows(card) for f in r.fields}
     assert set(card_fields(card)) <= listed
+
+
+def test_calibration_and_fade_restoration_copy_apart():
+    """Each card's Copy Card Settings and its picker group hold only its own rows."""
+    fade = {f for r in roll_card_rows("fade") for f in r.fields}
+    sensor = {f for r in roll_card_rows("sensor") for f in r.fields}
+    assert not fade & sensor
+    assert {title for title, rows in CATALOG if any(f in fade for r in rows for f in r.fields)} == {"Fade Restoration"}
 
 
 def test_pasting_highlight_recovery_remeters():

@@ -43,7 +43,7 @@ rigs.
 
 Two related controls in the same panel do a different job. The **sensor** matrix corrects
 the camera in the linear capture. **Hue Trim** rotates hue for an odd light spectrum. See
-[USER_GUIDE.md](USER_GUIDE.md) §10.3.
+[USER_GUIDE.md](USER_GUIDE.md) §10.4.
 
 > ### What the bundled matrices actually are
 >

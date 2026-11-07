@@ -21,6 +21,7 @@ from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -47,6 +48,7 @@ from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
 from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
+from negpy.desktop.view.sidebar.fade import FadeSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.paper import PaperSidebar
@@ -78,6 +80,9 @@ _SENSOR_FIELDS = (
     "crosstalk_strength",
     "crosstalk_matrix",
     "crosstalk_process",
+    "hue_trim",
+)
+_FADE_FIELDS = (
     "fade_ratio_r",
     "fade_density_shift",
     "fade_ratio_g",
@@ -90,7 +95,6 @@ _SENSOR_FIELDS = (
     "fade_crossover",
     "fade_auto_red",
     "fade_neutrals_mix",
-    "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
@@ -145,7 +149,6 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 # Roll-tab sections that drive more than one roll card, keyed by section key.
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {
     "optics": ("lens", "flatfield"),
-    "sensor": ("sensor", "fade"),
 }
 
 
@@ -301,6 +304,14 @@ class ControlsPanel(QWidget):
             "sensor",
             self.sensor_sidebar,
             icon_name="fa5s.vials",
+        )
+
+        self.fade_sidebar = FadeSidebar(self.controller)
+        self.fade_section = self._make_section(
+            tr("Fade Restoration"),
+            "fade",
+            self.fade_sidebar,
+            icon_name="mdi6.image-filter-vintage",
         )
 
         self.demosaic_sidebar = DemosaicSidebar(self.controller)
@@ -571,7 +582,8 @@ class ControlsPanel(QWidget):
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.film_section.reset_requested.connect(self._reset_film_fields)
-        self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
+        self.sensor_section.reset_requested.connect(lambda: self._reset_process_fields(_SENSOR_FIELDS, ("sensor",)))
+        self.fade_section.reset_requested.connect(lambda: self._reset_process_fields(_FADE_FIELDS, ("fade",)))
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS, ("demosaic",)))
 
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
@@ -818,13 +830,13 @@ class ControlsPanel(QWidget):
                 "cast_average_toggle",
             )
         )
-        self.sensor_sidebar.fade_white_anchor_btn.setToolTip(
+        self.fade_sidebar.fade_white_anchor_btn.setToolTip(
             tooltip_with_shortcut(
                 tr("Remove Stain: makes the clear areas white again, for a faded slide whose highlights turned yellow."),
                 "fade_white_anchor_toggle",
             )
         )
-        self.sensor_sidebar.fade_auto_red_btn.setToolTip(
+        self.fade_sidebar.fade_auto_red_btn.setToolTip(
             tooltip_with_shortcut(
                 tr(
                     "Restore Range: sets Red Survival from the frame's range and keeps it through each Estimate; off gives Estimate's Red back."
@@ -1068,6 +1080,7 @@ class ControlsPanel(QWidget):
         self.trichrome_sidebar.sync_ui()
         self.half_frame_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
+        self.fade_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()
         self.scan_setup_sidebar.sync_ui()
         self._sync_scan_setup()
@@ -1090,6 +1103,7 @@ class ControlsPanel(QWidget):
             (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
+        self.fade_section.setVisible(render_path(cfg.process) is not RenderPath.PRINT)
         raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
         locked_cards = self.controller.locked_roll_cards()
         optics_edited = (
@@ -1114,6 +1128,7 @@ class ControlsPanel(QWidget):
             ("demosaic", self.demosaic_section),
             ("optics", self.optics_section),
             ("sensor", self.sensor_section),
+            ("fade", self.fade_section),
             ("process", self.process_section),
             ("baseline", self.baseline_section),
         )
@@ -1190,9 +1205,6 @@ class ControlsPanel(QWidget):
         self.tone_histogram.update_data(buf)
         self.color_histogram.update_data(buf)
         self.metering_histogram.update_data(buf)
-
-    def _reset_sensor_fields(self) -> None:
-        self._reset_process_fields(_SENSOR_FIELDS, ("sensor", "fade"))
 
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not
@@ -1344,6 +1356,7 @@ class ControlsPanel(QWidget):
         process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS if not f.endswith("_at"))
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
+        fade_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FADE_FIELDS)
 
         ff = cfg.flatfield
         _ff = _DEFAULT_FLATFIELD
@@ -1396,6 +1409,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)
+        self.fade_section.set_modified(fade_count)
         self.demosaic_section.set_modified(demosaic_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
