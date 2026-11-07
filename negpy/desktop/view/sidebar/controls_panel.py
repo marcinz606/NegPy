@@ -64,7 +64,7 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-_DEMOSAIC_FIELDS = ("highlight_reconstruction",)
+_DEMOSAIC_FIELDS = ("highlight_reconstruction", "raw_shot")
 # GeometryConfig is split across three cards: Crop and Geometry are this frame's own,
 # and how the scanning lens bends is the roll's (Optics).
 _LENS_FIELDS = (
@@ -1104,7 +1104,10 @@ class ControlsPanel(QWidget):
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
         self.fade_section.setVisible(render_path(cfg.process) is not RenderPath.PRINT)
-        raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
+        raw_decode_edited = (
+            cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
+            or cfg.process.raw_shot != _DEFAULT_PROCESS.raw_shot
+        )
         locked_cards = self.controller.locked_roll_cards()
         optics_edited = (
             any(getattr(cfg.geometry, f) != getattr(_DEFAULT_GEOMETRY, f) for f in _LENS_FIELDS)
@@ -1116,8 +1119,12 @@ class ControlsPanel(QWidget):
             self._raw_decode_held_by = file_hash
         if optics_edited:
             self._optics_held_by = file_hash
+        # A multi-shot RAW offers its shots on any rig.
+        multi_shot = state.preview_raw_shots is not None and state.preview_raw_shots_path == state.current_file_path
         # A setting turned off stays in reach until another frame opens.
-        self.demosaic_section.setVisible(camera or raw_decode_edited or (bool(file_hash) and file_hash == self._raw_decode_held_by))
+        self.demosaic_section.setVisible(
+            camera or multi_shot or raw_decode_edited or (bool(file_hash) and file_hash == self._raw_decode_held_by)
+        )
         self.optics_section.setVisible(camera or optics_edited or (bool(file_hash) and file_hash == self._optics_held_by))
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS

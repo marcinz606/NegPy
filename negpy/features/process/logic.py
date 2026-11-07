@@ -60,6 +60,11 @@ def demosaic_token(mode: str) -> str:
     return f"|dm:{mode}"
 
 
+def raw_shot_token(raw_shot: int) -> str:
+    """Shot-choice identity for a cache key. One choice serves preview and export alike."""
+    return f"|rs:{raw_shot}"
+
+
 def should_fold_camera_wb(process: ProcessConfig) -> bool:
     """Whether `camera_to_working_matrix` should fold the as-shot multipliers back in.
 

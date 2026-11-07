@@ -314,11 +314,12 @@ Skannevalgene er én innstilling for hele appen. Listen under dem viser hvordan 
 
 Et kamera viser kortene RAW-dekoding og Optikk. Et kamera med smalbåndslys viser også Trichrome og Kalibrering. En endring oppdaterer hvert åpent bilde (Ctrl+Z angrer den per bilde), men et kopipapir du har valgt selv, blir stående. En kameraskanning angir dekodingen og kopipapiret for hvert bilde ut fra sitt eget lys.
 
-<!-- panel:demosaic src:577713a8 -->
+<!-- panel:demosaic src:d7cd47b0 -->
 ### 10.2 RAW-dekoding
 
 Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 
+*   **Opptak**: en RAW-fil med flere opptak, som en HDR fra kameraet, åpner ett av dem. For en Pentax Pixel Shift-fil slår **Pixel Shift** sammen de fire opptakene, slik at hver piksel har målt rødt, grønt og blått. Linjen under viser resultatet. En advarsel vises når opptakene ikke stemmer overens. Ta Pixel Shift-bilder med selvutløseren eller en fjernutløser, fordi utløserknappen beveger kameraet.
 *   **Kamera-WB / Lineær RAW**: Kamera-WB bruker kameraets hvitbalanse. Lineær RAW dekoder nøytralt, for smalbåndslys. Oppsett angir det for deg.
 *   **Forhåndsvisning** / **Eksport**: demosaikkmetoden, som fyller inn fargene hver sensorpiksel ikke kan se. **Auto** er raskt på skjermen og bruker **AHD** ved eksport. **VNG** er jevn og **PPG** rask. **DCB** og **DHT** beholder flere fine detaljer, men kan gjøre korn om til mønstre. **AAHD** mykner kanter. Bare metodene i din LibRaw-versjon vises.
 *   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av.

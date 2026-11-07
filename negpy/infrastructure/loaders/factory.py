@@ -71,7 +71,10 @@ class LoaderFactory:
         preview_max_edge: Optional[int] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
         load_ir: bool = True,
+        raw_shot: Optional[int] = None,
     ) -> Tuple[ContextManager[Any], dict]:
+        """`raw_shot` reaches the camera RAW loader only: the shot choice of a multi-shot RAW
+        (0 Auto, N shot N). None decodes the first shot, for callers with no edit to follow."""
         loader = self._select_loader(file_path)
 
         if loader is self._tiff:
@@ -79,7 +82,7 @@ class LoaderFactory:
         if loader is self._nef or loader is self._fff:
             return loader.load(file_path, linear_raw=linear_raw)
         if loader is self._rawpy:
-            return loader.load(file_path, preview_max_edge=preview_max_edge, should_cancel=should_cancel)
+            return loader.load(file_path, preview_max_edge=preview_max_edge, should_cancel=should_cancel, raw_shot=raw_shot)
         if loader is self._jpeg:
             return loader.load(file_path, positive_decode=positive_decode)
         return loader.load(file_path)

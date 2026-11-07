@@ -32,6 +32,7 @@ class PreviewCacheKey:
     workspace_color_space: str
     full_resolution: bool
     demosaic: str = "Auto"
+    raw_shot: int = 0
     half: int = 0
     split_x: float = 0.5
     crop_rect: tuple[float, float, float, float] | None = None
@@ -49,6 +50,7 @@ class PreviewCacheKey:
             self.workspace_color_space,
             self.full_resolution,
             self.demosaic,
+            self.raw_shot,
             self.half,
             round(self.split_x, 6),
             self.crop_rect,

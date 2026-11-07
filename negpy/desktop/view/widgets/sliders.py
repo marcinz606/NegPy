@@ -322,7 +322,8 @@ class BaseSlider(QWidget):
         if event.type() == QEvent.Type.MouseButtonDblClick:
             self.mouseDoubleClickEvent(event)
             return True
-        if obj is self.slider and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
+        # getattr: the cycle GC clears this wrapper before Qt deletes its children, which still send it events.
+        if obj is getattr(self, "slider", None) and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
             # A window regaining focus keeps the edge it had.
             if event.type() == QEvent.Type.FocusIn and event.reason() != Qt.FocusReason.ActiveWindowFocusReason:
                 self._tab_focus = event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason)
@@ -493,7 +494,7 @@ class CompactSlider(BaseSlider):
         self._edited_dot.setVisible(abs(self.spin.value() - self._default) > 1e-6)
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self.label:
+        if obj is getattr(self, "label", None):  # getattr: see BaseSlider.eventFilter
             et = event.type()
             if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 if not self.isEnabled():

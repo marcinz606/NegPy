@@ -706,8 +706,8 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             "fade_crossover_space",
         ),
     ),
-    # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
-    "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
+    # How the roll's camera RAWs decode: shot, white balance, demosaic and highlight recovery.
+    "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction", "raw_shot")),
     "process": (
         "process",
         (
