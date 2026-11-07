@@ -55,6 +55,6 @@ def test_a_batch_inside_a_batch_is_one_undo(tmp_path):
     with session.recording_batch("Outer"):
         session.sync_selected_settings(rows_for_fields(("density",)), scope="selection")
 
-    assert session.last_batch["label"] == "Outer"
+    assert session.last_batch.label == "Outer"
     session.undo_last_batch()
     assert repo.load_file_settings("h2").exposure.density == DEFAULT_WORKSPACE_CONFIG.exposure.density

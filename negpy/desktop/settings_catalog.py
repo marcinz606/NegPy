@@ -415,6 +415,24 @@ BOUNDS_INPUT_FIELDS = frozenset(
 )
 
 
+# The Roll-tab card names a frame's locks are listed by.
+ROLL_CARD_LABELS = {
+    "film": tr("Film Mode"),
+    "sensor": tr("Calibration"),
+    "fade": tr("Fade Restoration"),
+    "demosaic": tr("Raw Decode"),
+    "baseline": tr("Roll Analysis"),
+    "process": tr("Metering"),
+    "lens": tr("Optics"),
+    "flatfield": tr("Optics"),
+    "metadata_gear": tr("Analog Gear"),
+    "metadata_capture": tr("Capture"),
+    "metadata_process": tr("Process"),
+    "metadata_scanning": tr("Scanning"),
+    "metadata_exposure": tr("Exposure"),
+}
+
+
 # Fields a frame's own measurement reads: the average flags pick a measurement, they feed none.
 _METER_INPUTS = tuple(sorted(BOUNDS_INPUT_FIELDS - {"use_luma_average", "use_color_average"} | {"analysis_rect"}))
 

@@ -846,6 +846,11 @@ def with_fade_crossover(process: ProcessConfig, measured: Optional[MeasuredCross
     return replace(process, fade_crossover_table=measured[0], fade_crossover_space=measured[1])
 
 
+#: The white space a camera RAW's survival density takes when Estimate has none to name: any
+#: non-empty space makes `fade_density` anchor the matrix at the white, as a RAW render does.
+ESTIMATE_WHITE_SPACE = "estimate"
+
+
 def survival_density(
     red: float,
     green: float,
@@ -859,7 +864,7 @@ def survival_density(
     """The fade a render with these survivals and *shift* applies after the crosstalk unmix, on the Estimate grid."""
     from negpy.features.process.models import ProcessMode
 
-    space = white_space or ("estimate" if camera_raw else "")
+    space = white_space or (ESTIMATE_WHITE_SPACE if camera_raw else "")
     w = white or (0.0, 0.0, 0.0)
     process = replace(
         ProcessConfig(),
