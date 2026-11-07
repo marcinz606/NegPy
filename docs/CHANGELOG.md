@@ -1,5 +1,25 @@
 # Change Log
 
+## 0.68.0
+
+- New: **Fade Restoration** — restores the dyes of faded slides on its own Roll-tab card, with an optional Remove Stain. @thetalkingdrum
+- New: **B&W slides** — a Slide B&W toggle for B&W reversal film (Scala, Fomapan R, dr5), or a color slide through the B&W Filter.
+- New: **Pick Dmin and Dmax by hand** — for difficult frames that auto metering reads wrong; Film Base moves to the Analysis Readouts header.
+- New: **Roll Average stays current** — new frames follow it, a crop or Metering change measures again in the background, and one Undo covers a change to several frames.
+- New: **Frame No. sort** for the Film Strip and the contact sheet order. @red-prs
+- New: **Norwegian Bokmål and Vietnamese translations**. @jboneng @dinhkarate
+- New: **More edge prints** — Fujicolor 100, Superia Premium 400, Superpan 200, Fujifilm 400 and Lomography CN 400. @red-prs
+- New: **Memory limits sized to the machine** — Preferences recommends cache sizes from RAM. @jondestoppeleire
+- New: **Multisampling on the Nikon LS-50** — nkscan 0.18 adds it.
+- Change: **Film Strip** — the frame tooltip names each mark.
+- Change: **Plustek** — resolutions from a fixed list, pyopticfilm 1.3.9. @jboneng
+- Fix: **Roll cards** — a card edited or undone back to the roll's value unlocks, and the scanning setup moves the roll's Raw Decode.
+- Fix: **Slides and Positive files** — camera RAW slide color, Draw Region, slides out of the Roll Average, Positive JPEG ICC profiles. @thetalkingdrum
+- Fix: **Auto Crop** — keeps the whole picture on high-key frames and on slides. @kurtwindisch @thetalkingdrum
+- Fix: **Film scanners** — camera Optics and Recovery stay off scanner frames, SANE film scanners are detected by device type, and Avision color depth is set. @kurtwindisch @packetscrub
+- Fix: **Lento Dock** — the scan starts at the S press. @cimelab
+- Fix: **Export** — an 8-bit export converts color at 16 bits, and an RGB Scan triplet merges in float. @thetalkingdrum
+
 ## 0.67.0
 
 - New: **B&W from color negatives** — print through a Yellow, Orange, Red or Green contrast filters.
