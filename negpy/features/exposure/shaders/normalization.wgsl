@@ -7,7 +7,7 @@ struct NormUniforms {
     transfer_flag: u32,
     wp_offset: f32,
     bp_offset: f32,
-    // Log-density matrix rows, computed CPU-side (`unmix_with_fade`): the row-normalized
+    // Log-density matrix rows, computed CPU-side: the row-normalized
     // crosstalk unmix, times the fade restoration on a slide, which is not row-normalized.
     // Identity rows when neither applies. Applied before the stretch, as on the CPU.
     // The w lanes carry Remove Stain's log offset, added after the 3x3; 0.0 when it is off.

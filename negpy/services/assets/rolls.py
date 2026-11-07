@@ -812,9 +812,9 @@ def restore_roll_fields(repo: Any, roll_id: str, snapshot: Dict[str, Any]) -> No
 
 
 def copy_roll_settings(repo: Any, from_id: str, to_id: str, file_hashes: Collection[str]) -> None:
-    """Give roll *to_id* the roll-level settings of *from_id* (its defaults and frame seed) and the card locks of *file_hashes* (unforked), in one write. A lock is
-    what keeps a frame's own value against the copied defaults. Scenes, forks and the
-    baseline stay behind. No-op for an unknown id."""
+    """Give roll *to_id* the roll-level settings of *from_id* (its defaults and frame seed) and the
+    card locks of *file_hashes* (unforked), in one write. A lock keeps a frame's own value against
+    the copied defaults. Scenes, forks and the baseline stay behind. No-op for an unknown id."""
     store = _read(repo)
     source, target = store.get(from_id), store.get(to_id)
     if source is None or target is None:

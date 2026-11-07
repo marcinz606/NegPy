@@ -1977,11 +1977,8 @@ class GPUEngine:
             adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
             adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
 
-        # Capture-side dye-unmix rows, resolved once per frame by the caller and shared with
-        # NormalizationProcessor, and the source matrix around them (density_stage): the cam rows
-        # before the log, read only on the transfer path, and the post rows after. Identity when
-        # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on. The fade
-        # anchor rides its own row, its w lane on when one acts.
+        # The density stage the caller resolved once per frame (density_stage). The lane layout is
+        # documented on the shader's uniform struct.
         cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, fade_anchor)
         if unmix is None:
             unmix = np.eye(3)
