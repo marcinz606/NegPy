@@ -4142,6 +4142,40 @@ class TestPresetExportSelected(unittest.TestCase):
                 self.controller._run_background_baseline()
         self.assertEqual(tasks, [])
 
+    def _slides(self, *hashes: str) -> None:
+        """Frames *hashes* on the slide path, the rest negatives."""
+        slide = _slide_config(WorkspaceConfig())
+        self.mock_session_manager.state.current_file_hash = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: slide if f["hash"] in hashes else WorkspaceConfig()
+
+    def test_background_run_leaves_slide_frames_out(self):
+        tasks = self._capture_background_runs()
+        self._slides("h2")
+
+        with patch.object(rolls, "roll_normalization", return_value=None):
+            self.controller._run_background_baseline()
+
+        (task,) = tasks
+        self.assertEqual([f.file_info["hash"] for f in task.frames], ["h1", "h3"])
+
+    def test_a_slide_edit_starts_no_background_run(self):
+        tasks = self._capture_background_runs()
+        self._slides("h2")
+        negatives = [f for f in self.mock_session_manager.state.uploaded_files if f["hash"] in ("h1", "h3")]
+        saved = {"frames": ("h1", "h3"), "inputs": self.controller._meter_inputs(negatives)}
+
+        with patch.object(rolls, "roll_normalization", return_value=saved):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
+    def test_a_roll_of_slides_starts_no_background_run(self):
+        tasks = self._capture_background_runs()
+        self._slides("h1", "h2", "h3")
+
+        with patch.object(rolls, "roll_normalization", return_value=None):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
     def test_background_run_measures_again_when_a_frames_crop_or_metering_changed(self):
         tasks = self._capture_background_runs()
         frames = [f for f in self.mock_session_manager.state.uploaded_files]

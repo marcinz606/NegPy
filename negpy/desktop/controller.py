@@ -6150,18 +6150,21 @@ class AppController(QObject):
         """Measures the roll baseline, then each scene's, one per run, without a dialog or
         progress bar and without turning any frame's Use Average on. A scope runs while one of its
         frames is missing from its saved baseline; a baseline saved before frames were recorded
-        stays until Roll or Scene Analysis runs."""
+        stays until Roll or Scene Analysis runs. A slide never prints on an average, so the run
+        leaves slide frames out."""
         roll_id = self.state.active_roll_id
         if roll_id is None or self._active_batch is not None or self._background_baseline is not None:
             return
         repo = self.session.repo
         for scene_id in [None, *(sid for sid, _entry in rolls.roll_scenes(repo, roll_id))]:
-            frames = [f for f in self._normalization_targets(scene_id) if not self._waits_for_auto_crop(f)]
+            targets = [f for f in self._normalization_targets(scene_id) if not self._waits_for_auto_crop(f)]
+            configs = {f["hash"]: self._config_for_batch_asset(f) for f in targets}
+            frames = [f for f in targets if render_path(configs[f["hash"]].process) is RenderPath.PRINT]
             hashes = tuple(f["hash"] for f in frames)
             saved = rolls.scene_normalization(repo, roll_id, scene_id) if scene_id else rolls.roll_normalization(repo, roll_id)
             if len(frames) < 2 or (saved and saved["frames"] is None):
                 continue
-            inputs = self._meter_inputs(frames)
+            inputs = {h: meter_inputs_key(configs[h]) for h in hashes}
             if not saved or not set(hashes) <= set(saved["frames"]) or self._inputs_changed(saved, inputs):
                 break
         else:
@@ -6171,7 +6174,7 @@ class AppController(QObject):
         self.bg_norm_worker.arm()
         self.background_normalization_requested.emit(
             NormalizationTask(
-                frames=[NormalizationInput(file_info=f, config=self._config_for_batch_asset(f)) for f in frames],
+                frames=[NormalizationInput(file_info=f, config=configs[f["hash"]]) for f in frames],
                 workspace_color_space=self.state.workspace_color_space,
                 override_analysis_buffer=None,
                 override_luma_range_clip=None,
