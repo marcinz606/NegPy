@@ -187,7 +187,9 @@ def run_estimate(
 
     red = chosen.red if chosen.red is not None else conf.fade_ratio_r
     # Estimate's table is read with no shift, and a new red makes Restore Range's shift stale.
-    survivals: dict[str, Any] = dict(fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, fade_density_shift=0.0, **white, **mix_changes)
+    survivals: dict[str, Any] = dict(
+        fade_ratio_r=red, fade_ratio_g=chosen.green, fade_ratio_b=chosen.blue, fade_density_shift=0.0, **white, **mix_changes
+    )
     # Restore Range keeps its Red: it runs again on the new grays, and the table is measured after it.
     short = not live and not conf.fade_auto_red and short_range(replace(conf, **survivals), cam_xyz, camera_wb, grid)
     auto = None

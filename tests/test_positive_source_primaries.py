@@ -133,3 +133,21 @@ def test_a_positive_decode_is_not_a_camera_raw():
     assert camera_raw_preview(SimpleNamespace(preview_cam_xyz=_CAMERA))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=_SOURCE))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=None))
+
+
+def test_a_positive_jpeg_reaches_the_preview_as_a_source_profile(tmp_path):
+    import copy
+    import pickle
+
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    path = str(tmp_path / "srgb.jpg")
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(path, quality=100)
+    ctx, _ = JpegLoader().load(path, positive_decode="auto")
+    with ctx as raw:
+        assert is_source_profile(camera_xyz_matrix(raw))
+    *_, metadata = PreviewManager().load_linear_preview(path, positive_decode="auto")
+    cam_xyz = metadata["cam_xyz"]
+    assert is_source_profile(cam_xyz)
+    assert is_source_profile(copy.deepcopy(cam_xyz)) and is_source_profile(pickle.loads(pickle.dumps(cam_xyz)))
+    assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=cam_xyz))
