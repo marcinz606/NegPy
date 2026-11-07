@@ -1720,6 +1720,20 @@ def test_film_surround_must_be_near_clipping_to_read_as_bed():
     assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
 
 
+def test_a_dark_picture_in_an_opaque_surround_reads_as_held():
+    from negpy_core import film_surround_is_plausible as _film_surround_is_plausible
+
+    # A holder mask and a slide's film base read near black on a linear scan, so a dark dune scene
+    # inside them sits less than 0.15 above them and is still held.
+    lum = np.full((400, 600), 0.004, dtype=np.float32)
+    lum[12:388, 18:582] = 0.14
+
+    assert _film_surround_is_plausible(lum, (12, 388, 18, 582))
+
+    lum[lum < 0.1] = 0.05  # a dim surround, not an opaque one
+    assert not _film_surround_is_plausible(lum, (12, 388, 18, 582))
+
+
 def test_a_film_box_must_cover_a_quarter_of_the_frame():
     from negpy_core import film_box_covers_enough as _film_box_covers_enough
 
