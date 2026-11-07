@@ -129,6 +129,27 @@ SOURCE_ENCODING_LABELS = {
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
 
+#: Fade Restoration's fields that reach the pixels, in the engines' cache-key order.
+FADE_RENDER_FIELDS = (
+    "fade_ratio_r",
+    "fade_density_shift",
+    "fade_ratio_g",
+    "fade_ratio_b",
+    "fade_white_anchor",
+    "fade_white_r",
+    "fade_white_g",
+    "fade_white_b",
+    "fade_white_space",
+    "fade_crossover",
+    "fade_crossover_table",
+    "fade_crossover_space",
+)
+#: The fade fields a frame's bounds measurement reads: the crossover table is set from them.
+FADE_METER_FIELDS = tuple(f for f in FADE_RENDER_FIELDS if f not in ("fade_crossover_table", "fade_crossover_space"))
+#: Every field of the Fade Restoration card.
+FADE_CARD_FIELDS = FADE_RENDER_FIELDS + ("fade_auto_red", "fade_neutrals_mix")
+
+
 @dataclass(frozen=True)
 class ProcessConfig:
     """

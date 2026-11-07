@@ -114,7 +114,7 @@ from negpy.features.process.fade import (
     with_fade_white,
 )
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
-from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
+from negpy.features.process.models import FADE_METER_FIELDS, FADE_RENDER_FIELDS, ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, is_mono, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -283,18 +283,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.crosstalk_process,
         p.use_cast_average,
         p.locked_neutral_axis,
-        p.fade_ratio_r,
-        p.fade_density_shift,
-        p.fade_ratio_g,
-        p.fade_ratio_b,
-        p.fade_white_anchor,
-        p.fade_white_r,
-        p.fade_white_g,
-        p.fade_white_b,
-        p.fade_white_space,
-        p.fade_crossover,
-        p.fade_crossover_table,
-        p.fade_crossover_space,
+        *(getattr(p, f) for f in FADE_RENDER_FIELDS),
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -950,15 +939,7 @@ class GPUEngine:
                     p.crosstalk_strength,
                     p.crosstalk_matrix,
                     p.crosstalk_process,
-                    p.fade_ratio_r,
-                    p.fade_density_shift,
-                    p.fade_ratio_g,
-                    p.fade_ratio_b,
-                    p.fade_white_anchor,
-                    p.fade_white_r,
-                    p.fade_white_g,
-                    p.fade_white_b,
-                    p.fade_white_space,
+                    *(getattr(p, f) for f in FADE_METER_FIELDS if f != "fade_crossover"),
                     None if crossover is None else (crossover.lo, crossover.hi, crossover.bins.tobytes()),
                     p.process_mode,
                     p.positive_source,

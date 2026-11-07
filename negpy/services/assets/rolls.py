@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, List, Optiona
 
 from negpy.features.exposure.normalization import BOUNDS_VERSION
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
-from negpy.features.process.models import neutral_axis_tuple, with_film_fields
+from negpy.features.process.models import FADE_CARD_FIELDS, neutral_axis_tuple, with_film_fields
 from negpy.services.assets.library import folder_counts, folder_image_paths
 
 if TYPE_CHECKING:
@@ -687,25 +687,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # A roll's slides usually faded alike, so one Estimate or hand-tuned survival serves them
     # all; its own card, so a per-frame Estimate never locks the crosstalk. A camera RAW's white
     # stays per frame (`_without_decode_white`).
-    "fade": (
-        "process",
-        (
-            "fade_ratio_r",
-            "fade_density_shift",
-            "fade_ratio_g",
-            "fade_ratio_b",
-            "fade_white_anchor",
-            "fade_white_r",
-            "fade_white_g",
-            "fade_white_b",
-            "fade_white_space",
-            "fade_crossover",
-            "fade_auto_red",
-            "fade_neutrals_mix",
-            "fade_crossover_table",
-            "fade_crossover_space",
-        ),
-    ),
+    "fade": ("process", FADE_CARD_FIELDS),
     # How the roll's camera RAWs decode: white balance, demosaic and highlight recovery.
     "demosaic": ("process", ("linear_raw", "demosaic_preview", "demosaic_export", "highlight_reconstruction")),
     "process": (

@@ -100,3 +100,13 @@ def test_the_restoration_stays_well_conditioned_across_the_slider_range():
     for ratio_g in (0.2, 0.5, 1.0, 2.0, 5.0):
         for ratio_b in (0.2, 0.5, 1.0, 2.0, 5.0):
             assert np.linalg.cond(resolve_fade_matrix(1.0, ratio_g, ratio_b)) <= 25.0 + 1e-9
+
+
+def test_every_fade_field_is_on_the_fade_card_and_the_roll_card():
+    from dataclasses import fields
+
+    from negpy.features.process.models import FADE_CARD_FIELDS
+    from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
+
+    assert {f.name for f in fields(ProcessConfig) if f.name.startswith("fade_")} == set(FADE_CARD_FIELDS)
+    assert ROLL_DEFAULT_FIELDS["fade"] == ("process", FADE_CARD_FIELDS)
