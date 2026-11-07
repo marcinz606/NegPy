@@ -11,7 +11,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 from negpy.features.exposure.models import BwFilter
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import is_mono
 
 
 class ColorSidebar(BaseSidebar):
@@ -213,7 +213,7 @@ class ColorSidebar(BaseSidebar):
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
             self.filter_combo.setCurrentIndex(self.filter_combo.findData(conf.bw_filter))
-            bw = self.state.config.process.process_mode == ProcessMode.BW
+            bw = is_mono(self.state.config.process)
             self.filter_block.setVisible(bw)
             self.color_block.setVisible(not bw)
 

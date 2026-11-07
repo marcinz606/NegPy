@@ -261,6 +261,7 @@ class PaperSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             from negpy.features.process.models import ProcessMode
+            from negpy.features.process.path import is_mono
             from negpy.features.process.path import RenderPath, render_path
 
             mode = self.state.config.process.process_mode
@@ -277,7 +278,7 @@ class PaperSidebar(BaseSidebar):
             for w in (self.paper_dmin_btn, self.paper_black_btn, self.midtone_gamma_slider):
                 w.setVisible(not transfer)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
-            is_bw = mode == ProcessMode.BW
+            is_bw = is_mono(self.state.config.process)
             if is_bw:
                 self.ch_btn.setCurrentIndex(0)
             self.ch_btn.setVisible(not is_bw)
@@ -331,14 +332,14 @@ class PaperSidebar(BaseSidebar):
     def _sync_damping_rail(self) -> None:
         # It redistributes Dye Separation's push and does nothing on its own, so it is dead at 1.0
         # separation on every channel. A per-channel trim also arms it. No trim form, so global view only.
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.path import is_mono
 
         conf = self.state.config.exposure
         sep_k3 = per_channel_dye_separation(
             self.dye_separation_slider.value(),
             (conf.dye_separation_trim_red, conf.dye_separation_trim_green, conf.dye_separation_trim_blue),
         )
-        is_bw = self.state.config.process.process_mode == ProcessMode.BW
+        is_bw = is_mono(self.state.config.process)
         self.separation_damping_fold.content.setVisible(self._channel_index() == 0 and not is_bw)
         self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
 

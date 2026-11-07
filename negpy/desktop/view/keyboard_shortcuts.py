@@ -496,6 +496,7 @@ class ShortcutManager:
             "assign_sequential_frame": lambda: right.metadata_sidebar.frame_sequence_btn.click(),
             "measure_chart": lambda: controls.sensor_sidebar.measure_chart_btn.click(),
             "estimate_fade": lambda: controls.sensor_sidebar.estimate_fade_btn.click(),
+            "fade_auto_red": lambda: controls.sensor_sidebar.fade_auto_red_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
@@ -643,6 +644,7 @@ class ShortcutManager:
             "toggle_gear_catalog": lambda: right.gear_panel.items.show_catalog_btn.click(),
             "toggle_semantic_search": lambda: self.window.file_browser.semantic_action.trigger(),
             "toggle_positive_source": lambda: controls.process_sidebar.positive_source_btn.click(),
+            "toggle_slide_bw": lambda: controls.process_sidebar.slide_bw_btn.click(),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
             "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,

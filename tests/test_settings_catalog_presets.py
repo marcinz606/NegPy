@@ -180,3 +180,19 @@ def test_a_color_stock_on_a_bw_frame_is_no_edit_to_apply():
     color = replace(cfg, exposure=replace(cfg.exposure, paper_profile="frontier"))
     assert stock_edited(color)
     assert not stock_edited(replace(color, process=replace(color.process, process_mode=ProcessMode.BW)))
+
+
+def test_a_pasted_fade_carries_its_crossover_table():
+    """The table travels with the strength, as on a Roll push."""
+    import json
+
+    table = tuple(float(i) / 100 for i in range(16))
+    source = replace(
+        WorkspaceConfig(),
+        process=replace(_faded((0.0, 0.0, 0.0), "").process, fade_crossover=0.5, fade_crossover_table=table, fade_crossover_space="tag"),
+    )
+    out = apply_selected_fields(source, WorkspaceConfig(), [_row("Fade Restoration")]).process
+    assert (out.fade_crossover, out.fade_crossover_table, out.fade_crossover_space) == (0.5, table, "tag")
+    data = json.loads(json.dumps(selected_flat_dict(source, [_row("Fade Restoration")])))
+    out = apply_selected_fields(preset_config(data), WorkspaceConfig(), [_row("Fade Restoration")]).process
+    assert out.fade_crossover_table == table and isinstance(out.fade_crossover_table, tuple)

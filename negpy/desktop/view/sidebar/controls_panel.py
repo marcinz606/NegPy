@@ -81,6 +81,7 @@ _SENSOR_FIELDS = (
     "crosstalk_matrix",
     "crosstalk_process",
     "fade_ratio_r",
+    "fade_density_shift",
     "fade_ratio_g",
     "fade_ratio_b",
     "fade_white_anchor",
@@ -88,6 +89,9 @@ _SENSOR_FIELDS = (
     "fade_white_g",
     "fade_white_b",
     "fade_white_space",
+    "fade_crossover",
+    "fade_auto_red",
+    "fade_neutrals_mix",
     "hue_trim",
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
@@ -98,6 +102,7 @@ _SENSOR_FIELDS = (
 _FILM_FIELDS = (
     "process_mode",
     "positive_source",
+    "slide_bw",
 )
 _METERING_FIELDS = (
     "analysis_buffer",
@@ -815,6 +820,12 @@ class ControlsPanel(QWidget):
             )
         )
 
+        proc.slide_bw_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr("B&W, slides only: render the slide in black and white, for B&W reversal film or a color slide."),
+                "toggle_slide_bw",
+            )
+        )
         proc.lock_bounds_btn.setToolTip(
             tooltip_with_shortcut(
                 tr("Lock Bounds: keep this frame's measured black and white points, even when the crop or Roll Analysis changes."),
@@ -831,6 +842,14 @@ class ControlsPanel(QWidget):
             tooltip_with_shortcut(
                 tr("Remove Stain: makes the clear areas white again, for a faded slide whose highlights turned yellow."),
                 "fade_white_anchor_toggle",
+            )
+        )
+        self.sensor_sidebar.fade_auto_red_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr(
+                    "Restore Range: sets Red Survival from the frame's range and keeps it through each Estimate; off gives Estimate's Red back."
+                ),
+                "fade_auto_red",
             )
         )
         proc.analysis_buffer_slider.setToolTip(
@@ -1045,11 +1064,11 @@ class ControlsPanel(QWidget):
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.path import is_mono
 
         self._set_read_only(self.controller.active_diptych() is not None)
         process = self.controller.state.config.process
-        self.color_section.setVisible(process.process_mode != ProcessMode.BW or bool(process.source_color))
+        self.color_section.setVisible(not is_mono(process) or bool(process.source_color))
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
         self.color_sidebar.sync_ui()
@@ -1203,6 +1222,8 @@ class ControlsPanel(QWidget):
         proc = self.controller.state.config.process
         if proc.positive_source != _DEFAULT_PROCESS.positive_source:
             self.controller.set_positive_source(_DEFAULT_PROCESS.positive_source)
+        if proc.slide_bw != _DEFAULT_PROCESS.slide_bw:
+            self.controller.set_slide_bw(_DEFAULT_PROCESS.slide_bw)
         if proc.process_mode != _DEFAULT_PROCESS.process_mode:
             self.controller.set_process_mode(_DEFAULT_PROCESS.process_mode)
 
@@ -1266,7 +1287,7 @@ class ControlsPanel(QWidget):
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.path import is_mono
 
         cfg = self.controller.state.config
         _exp = _DEFAULT_EXPOSURE
@@ -1279,7 +1300,7 @@ class ControlsPanel(QWidget):
         exp = cfg.exposure
         mode = cfg.process.process_mode
         # The card shows only the Filter in B&W, and the Filter only there.
-        shown_color = ("bw_filter",) if mode == ProcessMode.BW else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
+        shown_color = ("bw_filter",) if is_mono(cfg.process) else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in shown_color)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
         paper_count = sum(

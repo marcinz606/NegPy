@@ -25,7 +25,7 @@ from negpy.domain.models import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode, invalidate_local_bounds
-from negpy.features.process.path import RenderPath, positive_decode, render_path
+from negpy.features.process.path import RenderPath, is_mono, positive_decode, render_path
 from negpy.features.process.logic import (
     demosaic_token,
     effective_highlight_reconstruction,
@@ -1021,9 +1021,12 @@ class ImageProcessor:
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
             # A Sabattier print is plain silver; lith and cyanotype carry their own color.
-            or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
+            or (
+                settings.process.process_mode == ProcessMode.BW
+                and settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
+            )
         )
-        is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
+        is_bw = is_mono(settings.process) and not is_toned
 
         if is_bw:
             img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=bit_depth)

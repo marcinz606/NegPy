@@ -484,8 +484,8 @@ class TestMergeIsOfferedOnlyForTransparencies:
 
     Color negative holds ~5-6 stops between base and Dmax and an ordinary black-and-white
     negative nearer 4, both inside one capture; a transparency runs to 10-12, which is what
-    the merge exists for. Hidden on C-41, disabled with a reason on B&W, because reversal
-    monochrome (Scala, dr5, Fomapan R) really is a transparency and is simply not wired up.
+    the merge exists for. Hidden on C-41, disabled with a reason on B&W, which points reversal
+    monochrome (Scala, dr5, Fomapan R) to Slide with B&W on.
     """
 
     def _menu_labels(self, mode):

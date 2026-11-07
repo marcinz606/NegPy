@@ -120,7 +120,7 @@ Drehe das Bild und richte es gerade aus.
 
 Schneide vor einer starken Neigung oder Schwenkung zu. Sonst kann der Filmrand ins Bild kommen und den Abzug abdunkeln. Objektivverzeichnung korrigierst du unter **Optik** ([§10.3](#103-optics)).
 
-<!-- panel:color src:2abd7418 -->
+<!-- panel:color src:23d03265 -->
 ### 5.1 Filterung: Farbabgleich
 
 Korrigiert die Farbe des Abzugs, wie die Farbfilter eines Vergrößerers in der Dunkelkammer. **Global / Schatten / Lichter** wendet die Farbregler auf das ganze Bild an oder vor allem auf seine dunklen oder hellen Teile.
@@ -130,7 +130,7 @@ Korrigiert die Farbe des Abzugs, wie die Farbfilter eines Vergrößerers in der 
 *   **Cyan / Magenta / Gelb**: verschieben die Farbe zwischen Cyan und Rot, Magenta und Grün oder Gelb und Blau.
 *   **Ring-around** (`Shift+F`): zeigt das Bild als Raster leicht unterschiedlicher Farben. Klicke auf die Version, die richtig aussieht. `Esc` schließt es.
 *   **Farbstichentfernung**: entfernt einen Farbstich, der in den dunklen und hellen Teilen des Bildes unterschiedlich ist. Der Start liegt bei 0,5 (halb) bei Farbnegativen und bei 0 bei Dias. Blätter, Himmel und Wasser gelten nicht als grau und behalten ihre Farbe.
-*   **Filter**: ein Farbfilter, wie er bei Schwarzweißfilm vor dem Kameraobjektiv sitzt. Er erscheint nur bei einem Farbnegativ, das in S/W abgezogen wird, und ersetzt die Regler darüber. Jeder Filter dunkelt die Farben ab, die seiner eigenen gegenüberliegen. Gelb #8, Tiefgelb #15, Orange #21 und Rot #25 machen einen blauen Himmel Schritt für Schritt dunkler. Rot macht außerdem Blätter dunkel und Haut blass. Gelbgrün #11 und Grün #58 machen Blätter heller und Haut dunkler. Keiner gibt den Look eines normalen Schwarzweißfilms.
+*   **Filter**: ein Farbfilter, wie er bei Schwarzweißfilm vor dem Kameraobjektiv sitzt. Er erscheint nur bei einem Farbnegativ oder Farbdia in S/W, und ersetzt die Regler darüber. Jeder Filter dunkelt die Farben ab, die seiner eigenen gegenüberliegen. Gelb #8, Tiefgelb #15, Orange #21 und Rot #25 machen einen blauen Himmel Schritt für Schritt dunkler. Rot macht außerdem Blätter dunkel und Haut blass. Gelbgrün #11 und Grün #58 machen Blätter heller und Haut dunkler. Keiner gibt den Look eines normalen Schwarzweißfilms.
 
 <!-- panel:tone src:c1700dd9 -->
 ### 5.2 Tonwerte: Helligkeit und Kontrast
@@ -232,12 +232,12 @@ Ein Lichtblitz während der Entwicklung. Die hellen Töne kehren sich zu Grau um
 *   **Zweitbelichtung**: wo die Umkehrung beginnt. Dunklere Töne bleiben, wie sie sind.
 *   **Bewegung**: weniger Bewegung gibt breitere Mackie-Linien.
 
-<!-- panel:toning src:8fc7301e -->
+<!-- panel:toning src:8aa1a282 -->
 ### 6.3 Tonung
 
 Toner sind chemische Bäder, die die Farbe eines S/W-Abzugs ändern. Die Splittonung gibt jedem Abzug Farbe.
 
-**Chemische Tonung** (S/W-Negative) wirkt in der gezeigten Reihenfolge:
+**Chemische Tonung** (S/W-Negative und S/W-Dias) wirkt in der gezeigten Reihenfolge:
 
 *   **Selen**: tiefere, kühlere Schwärzen.
 *   **Sepia**: warmes Braun, von den Lichtern abwärts.
@@ -315,14 +315,15 @@ Ein **Arbeitsabzug** ist eine Version dieses Bildes, die du unter einem Namen be
 
 Jede Änderung, die du gemacht hast, die neueste oben (die letzten 100). **Jetzt** markiert den aktuellen Stand. Nach einem Rückgängig erscheinen spätere Schritte als **Rückgängig gemacht**, bis zu deiner nächsten Bearbeitung. Klicke auf einen Schritt, um dorthin zurückzugehen. **⋮** oder Rechtsklick → **Diese Version exportieren…** exportiert einen früheren Stand. **Mit diesem Schritt vergleichen** öffnet **Vorher / Nachher** mit diesem Schritt links, auf deinem aktuellen Zuschnitt. Drücke `\`, um den Vergleich zu schließen.
 
-<!-- panel:film src:b72d2369 -->
+<!-- panel:film src:5487c3ab -->
 ### 10.1 Einrichtung
 
 Was der Film ist und wie du ihn gescannt hast. Diese Angaben bestimmen, welche Karten und Regler erscheinen.
 
-*   **Farbe / S/W / Dia**: Farbnegativ (C-41), ein Schwarzweißabzug oder Dia (E-6 und ähnlich). S/W druckt ein S/W-Negativ oder ein Farbnegativ in Schwarzweiß. Bei einem Farbnegativ bietet die Karte Filterung dann einen Kontrast-Filter.
-*   **Positiv** (nur Dia): für eine Datei, die schon ein Positiv ist, etwa ein gescannter Abzug oder der Export einer anderen App. NegPy überspringt dann Inversion und Messung. Ein Dia, das keine Kamera-RAW ist, etwa ein TIFF, JPEG, JXL oder ein Pakon-, Noritsu-, Coolscan- oder Flextight-Scan, startet als Positiv. Schalte es aus, um einem verblassten Scan die Dia-Tonkurve zu geben. Eine JXL-Datei lädt als linear.
-*   **Kodierung** (Positiv, TIFF): wie die Werte das Licht kodieren. **Auto** liest das ICC-Profil der Datei, sonst gilt linear über 8 Bit und sRGB bei 8 Bit. **Linear** ist die lineare Ausgabe eines Scanners, etwa Nikon Scan mit ausgeschaltetem Farbmanagement. **2.2** ist ein Gamma von 2,2 in Adobe-RGB-Primärfarben. Auto übergeht das eigene Kalibrierprofil eines Scanners und liest die Datei wie ohne Profil. Wähle Linear oder 2.2 passend zur Scansoftware.
+*   **Farbe / S/W / Dia**: Farbnegativ (C-41), ein Schwarzweißabzug oder Dia (E-6 und ähnlich). S/W druckt jedes Negativ in Schwarzweiß. Bei einem Farbnegativ bietet die Karte Filterung dann einen Kontrast-Filter.
+*   **Positiv** (nur Dia): für eine Datei, die schon ein Positiv ist, etwa ein gescannter Abzug oder der Export einer anderen App. NegPy überspringt dann Inversion und Messung. Ein Dia, das keine Kamera-RAW ist, etwa ein TIFF, JPEG, JXL oder ein Pakon-, Noritsu-, Coolscan- oder Flextight-Scan, startet als Positiv. Schalte es aus, um einem verblassten Scan die Dia-Tonkurve zu geben.
+*   **S/W** (nur Dia): zeigt das Dia in Schwarzweiß, für S/W-Umkehrfilm wie Scala. Ein Farbdia bekommt dann den Filter.
+*   **Kodierung** (Positiv, TIFF): wie die Werte das Licht kodieren. **Auto** liest das ICC-Profil der Datei, sonst gilt linear über 8 Bit und sRGB bei 8 Bit. **Linear** ist die lineare Ausgabe eines Scanners, etwa Nikon Scan mit ausgeschaltetem Farbmanagement. **2.2** ist ein Gamma von 2,2 in Adobe-RGB-Primärfarben. Wähle Linear oder 2.2 passend zur Scansoftware.
 *   **Kamera / Filmscanner**: womit du gescannt hast. NegPy liest das aus jeder Datei (eine Kamera-RAW-Datei ist eine Kamera), bis du eine Wahl triffst. Deine Wahl gilt für jedes Bild und legt den Scanner im Scan-Reiter fest.
 *   **Weißlicht / Schmalbandlicht** (nicht für ein S/W-Negativ): das Licht hinter dem Negativ. Weißlicht ist ein Leuchtkasten oder LED-Panel. Schmalband ist ein Licht mit reinem Rot, Grün und Blau, etwa ein Scanlight.
 
@@ -354,7 +355,7 @@ Für eine Kamera mit Schmalbandlicht, die von jedem Bild drei Aufnahmen macht: R
 
 Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bild anpassen…** und **Teilung auf Rollenstandard zurücksetzen**. Wenn du Halbformat ausschaltest, bleiben bearbeitete Hälften als **Diptychon** nebeneinander. Schalte es wieder ein, um sie zu bearbeiten.
 
-<!-- panel:sensor src:3a992073 -->
+<!-- panel:sensor src:3fd2d8aa -->
 ### 10.3 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
@@ -363,11 +364,11 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 *   **Profil**: das Sensor-Farbvermischungsprofil. Eigene `.toml`-Profile gehören in `<Documents>/NegPy/sensor/`.
 *   **Methode**: **Zweiskalig** (Standard) entfernt den Mischanteil und verhindert Sprenkel bei sehr starken Farben. **Linear** ist exakt, aber starke Farben können sprenkeln. **Dichte** sprenkelt nicht, starke Farben sind aber etwas matter.
-*   **Kalibrieren**: erstellt ein Profil aus drei Aufnahmen der freien Lichtquelle (Rot, Grün und Blau), aus Dateien oder von einer angeschlossenen Kamera (siehe CAMERA_SCANNING.md).
+*   **Kalibrieren**: erstellt ein Profil aus drei Aufnahmen der freien Lichtquelle (Rot, Grün, Blau), aus Dateien oder von einer angeschlossenen Kamera (siehe CAMERA_SCANNING.md).
 
 **Farbvermischung** (Farbfilm): Filmfarbstoffe, deine Lichtquelle und dein Sensor mischen die Farben leicht. Eine Matrix trennt sie wieder. Führe nach einer Änderung die **Rollenanalyse** erneut aus.
 
-*   **Matrix**: die Matrizen für diesen Filmtyp. Matrizen mit *(approx)* stammen aus Filmdatenblättern und sind ein Ausgangspunkt. Eigene `.toml`-Dateien gehören in `<Documents>/NegPy/crosstalk/` (siehe CROSSTALK.md). Die Regler-Schaltfläche öffnet den Editor. **+** erstellt eine neue Matrix. NegPy enthält keine Dia-Matrix.
+*   **Matrix**: die Matrizen für diesen Filmtyp. Eine Matrix mit *(approx)* stammt aus einem Datenblatt. Eigene `.toml`-Dateien gehören in `<Documents>/NegPy/crosstalk/` (siehe CROSSTALK.md). Die Regler-Schaltfläche öffnet den Editor. **+** erstellt eine neue Matrix. NegPy enthält keine Dia-Matrix.
 *   **Stärke**: wie stark die Matrix wirkt.
 *   Die Farbfeld-Schaltfläche öffnet **Aus Testtafel messen** (Farbnegative): Sie misst eine Matrix aus einer Aufnahme eines ColorChecker 24 oder SpyderCheckr 24 auf dem Film. Ziehe die vier Punkte auf die Eckfelder.
 
@@ -377,12 +378,15 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück.
 
+*   **Schätzen**: stellt Graumischung und die Erhalt-Regler ein.
+*   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
 *   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
-*   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe für Grün und Blau, im Vergleich zu Rot.
-*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
-*   **Schätzen**: stellt die Regler aus den Grautönen dieses Bildes ein. **Mitteltöne** passt zu einem stark ausgeblichenen Dia. **Grauumfang** passt zu einer leichten Ausbleichung mit tiefen Schatten.
+*   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
+*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Probiere es, wenn Schätzen sein Symbol gelb-orange färbt.
+*   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
+*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Stelle ihn an einem Bild mit klaren Grautönen ein und übertrage die Karte dann auf die Rolle. Nur Schätzen misst eine neue Tabelle.
 
-<!-- panel:process src:6572d2a7 -->
+<!-- panel:process src:2c179de9 -->
 ### 10.5 Messung: Negativ → Positiv
 
 Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
@@ -397,7 +401,7 @@ Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellst
 *   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt. Beide sind aus, solange das Bild auf dem Rollenmittelwert druckt.
 *   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
 
-Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
+Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. Auf einem Dia legt Bereich zeichnen die Fläche fest, die Schätzen, Schleier entfernen, Farbstichentfernung, Auto-Dichte und Auto-Gradation messen. Zeichne ihn, bevor du auf Schätzen klickst. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
 
 <!-- panel:baseline src:7fc2c469 -->
 ### 10.6 Rollenanalyse

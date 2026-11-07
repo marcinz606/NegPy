@@ -993,6 +993,54 @@ def test_tier_refinement_rejects_split_occupancy_sliver():
     assert refined is not None and refined[0][3] - refined[0][2] >= 0.80 * 520
 
 
+_HIGH_KEY_FILM_ROI = (20, 460, 20, 700)
+
+
+def _high_key_film(thin_rows: bool = True) -> np.ndarray:
+    """Clear rebate around a picture on a light bed. With `thin_rows`, half of each row of the
+    picture's lower part reads as bright as the rebate, so row occupancy dips under the run threshold."""
+    rng = np.random.default_rng(4)
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[20:460, 20:700] = 0.80
+    img[60:420, 70:650] = 0.30
+    if thin_rows:
+        img[280:420, 70:650] = np.where(rng.random((140, 580, 1)) < 0.5, 0.80, 0.30)
+    return img
+
+
+def test_tier_refinement_refuses_a_run_that_ends_inside_the_picture():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    lum = _detection_luma(_high_key_film())
+    y1, y2, x1, x2 = _HIGH_KEY_FILM_ROI
+    assert _refine_film_roi_by_tiers(lum, _HIGH_KEY_FILM_ROI) is None
+    flipped = np.ascontiguousarray(np.flipud(lum))
+    assert _refine_film_roi_by_tiers(flipped, (480 - y2, 480 - y1, x1, x2)) is None
+
+    # Control: with clear rebate past the run, the same picture refines to its own edge.
+    refined = _refine_film_roi_by_tiers(_detection_luma(_high_key_film(thin_rows=False)), _HIGH_KEY_FILM_ROI)
+    assert refined is not None and abs(refined[0][1] - 420) <= 6
+
+
+def test_tier_refinement_keeps_a_tilted_picture():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers, apply_fine_rotation
+
+    # A tilted edge spreads across rows, so the mean of the rows past the run stays high.
+    tilted = apply_fine_rotation(_high_key_film(thin_rows=False), 2.0)
+    refined = _refine_film_roi_by_tiers(_detection_luma(tilted), _HIGH_KEY_FILM_ROI)
+    assert refined is not None and refined[0][1] - refined[0][0] <= 400
+
+
+def test_tier_refinement_keeps_a_picture_beside_a_narrow_frame_gap():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    # The next frame starts 8 px past the picture, inside the reach of the rebate check.
+    img = _high_key_film(thin_rows=False)
+    img[60:420, 20:62] = 0.30
+    refined = _refine_film_roi_by_tiers(_detection_luma(img), _HIGH_KEY_FILM_ROI)
+    assert refined is not None and abs(refined[0][2] - 70) <= 8
+
+
 def test_autocrop_image_mode_single_bright_side_not_rebate():
     # High-key full-bleed frame with a uniform bright strip on ONE side only (a
     # sunlit window edge) plus a dark subject. The bright strip must NOT be taken
@@ -1670,6 +1718,20 @@ def test_film_surround_must_be_near_clipping_to_read_as_bed():
 
     lum[:, :] = np.where(lum > 0.5, 1.0, lum)  # the same box, now sitting on real bed
     assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+
+def test_a_dark_picture_in_an_opaque_surround_reads_as_held():
+    from negpy_core import film_surround_is_plausible as _film_surround_is_plausible
+
+    # A holder mask and a slide's film base read near black on a linear scan, so a dark dune scene
+    # inside them sits less than 0.15 above them and is still held.
+    lum = np.full((400, 600), 0.004, dtype=np.float32)
+    lum[12:388, 18:582] = 0.14
+
+    assert _film_surround_is_plausible(lum, (12, 388, 18, 582))
+
+    lum[lum < 0.1] = 0.05  # a dim surround, not an opaque one
+    assert not _film_surround_is_plausible(lum, (12, 388, 18, 582))
 
 
 def test_a_film_box_must_cover_a_quarter_of_the_frame():

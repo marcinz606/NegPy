@@ -26,3 +26,8 @@ def positive_decode(process: ProcessConfig) -> str:
     """The Source Encoding a Positive frame's TIFF decodes by, "" off Positive. Every load
     asks this, so a Positive decode and any other one never share a cached buffer."""
     return str(process.source_encoding) if render_path(process) is RenderPath.POSITIVE else ""
+
+
+def is_mono(process: ProcessConfig) -> bool:
+    """The frame renders in black and white: a B&W negative, or a Slide with B&W on."""
+    return process.process_mode == ProcessMode.BW or (process.process_mode == ProcessMode.E6 and process.slide_bw)

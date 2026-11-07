@@ -13,6 +13,7 @@ from negpy.features.finish.logic import apply_carrier, apply_vignette, carrier_t
 from negpy.features.finish.models import FinishConfig
 from negpy.features.lab.logic import apply_saturation
 from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import is_mono
 from negpy.features.toning.processor import ToningProcessor
 
 if TYPE_CHECKING:
@@ -54,7 +55,7 @@ def rebate_tone(settings: "WorkspaceConfig", metrics: Any) -> np.ndarray:
     printed = PhotometricProcessor(exposure, bw_weights=weights).process(strip[None].astype(np.float32), ctx)
     if settings.lab.saturation != 1.0 or settings.lab.skin_protection > 0:
         printed = apply_saturation(printed, settings.lab.saturation, settings.lab.skin_protection)
-    printed = np.asarray(ToningProcessor(settings.toning, settings.altproc.alt_process).process(printed, ctx))[0]
+    printed = np.asarray(ToningProcessor(settings.toning, settings.altproc.alt_process, is_mono(settings.process)).process(printed, ctx))[0]
     return np.ascontiguousarray(printed / np.maximum(printed[:1], 1e-6), dtype=np.float32)
 
 

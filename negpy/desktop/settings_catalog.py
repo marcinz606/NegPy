@@ -22,7 +22,8 @@ from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
-from negpy.features.process.models import SOURCE_ENCODING_LABELS, ProcessMode, SourceEncoding, invalidate_local_bounds, with_film_fields
+from negpy.features.process.path import is_mono
+from negpy.features.process.models import SOURCE_ENCODING_LABELS, SourceEncoding, invalidate_local_bounds, with_film_fields
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
 from negpy.services.assets.rolls import DECODE_WHITE_FIELDS, card_fields
@@ -151,6 +152,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     (mark("Setup"), (
         _row(mark("Film Mode"), "process", "process_mode", sticky=True),
         _row(mark("Positive"), "process", "positive_source", sticky=True),
+        _row(mark("B&W Slide"), "process", "slide_bw", sticky=True),
         _row(mark("Encoding"), "process", "source_encoding", sticky=True, fmt=_fmt_source_encoding),
     )),
     (mark("Metering"), (
@@ -172,7 +174,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength, profile, the baked matrix and the process it was baked for copy atomically:
         # strength alone would leave the target on a stale or None matrix.
         _row(mark("Crosstalk"), "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", "crosstalk_process", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        _row(mark("Fade Restoration"), "process", "fade_ratio_r", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space", fmt=lambda v: _fmt_scalar(v[0])),
+        # The crossover table and its tag travel with the strength, as on a Roll push.
+        _row(mark("Fade Restoration"), "process", "fade_ratio_r", "fade_density_shift", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space", "fade_crossover", "fade_crossover_table", "fade_crossover_space", "fade_auto_red", "fade_neutrals_mix", fmt=lambda v: _fmt_scalar(v[0])),
         _row(mark("Sensor Crosstalk Profile"), "process", "sensor_profile", "sensor_matrix", "sensor_unmix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row(mark("Hue Trim"), "process", "hue_trim", sticky=True),
@@ -392,6 +395,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "crosstalk_profile",
         "crosstalk_matrix",
         "fade_ratio_r",
+        "fade_density_shift",
         "fade_ratio_g",
         "fade_ratio_b",
         "fade_white_anchor",
@@ -399,6 +403,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "fade_white_g",
         "fade_white_b",
         "fade_white_space",
+        "fade_crossover",
         "sensor_profile",
         "sensor_matrix",
         "sensor_unmix",
@@ -643,7 +648,7 @@ def unused_in_mode(section: str, field: str, cfg: WorkspaceConfig) -> bool:
     mode = cfg.process.process_mode
     if section == "exposure" and field == "paper_profile":
         return effective_paper_profile(cfg.exposure.paper_profile, mode).kind == "default"
-    return section == "lab" and field in _BW_UNUSED_LAB_FIELDS and mode == ProcessMode.BW
+    return section == "lab" and field in _BW_UNUSED_LAB_FIELDS and is_mono(cfg.process)
 
 
 def _row_edited(row: SettingRow, cfg: WorkspaceConfig) -> bool:

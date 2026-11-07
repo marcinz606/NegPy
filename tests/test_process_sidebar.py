@@ -59,6 +59,19 @@ def test_lock_bounds_sits_in_the_analysis_row_and_hides_on_the_transparency_tran
     assert sidebar.lock_bounds_btn.isHidden()
 
 
+def test_draw_region_and_its_clear_stay_on_the_transparency_transfer(qapp):
+    """The slide meters, Estimate and Remove Stain read a drawn region, so a slide keeps the tool."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    process = replace(cfg.process, process_mode=ProcessMode.E6, analysis_rect=(0.1, 0.1, 0.9, 0.9))
+    controller.state.config = replace(cfg, process=process)
+    sidebar.sync_ui()
+    assert not sidebar.analysis_region_btn.isHidden()
+    assert sidebar.clear_analysis_region_btn.isVisibleTo(sidebar.analysis_region_btn)
+    assert sidebar.reanalyze_frame_btn.isHidden()
+    assert sidebar.analysis_buffer_slider.isHidden()
+
+
 def test_positive_is_slide_only(qapp):
     """Positive is a Slide-only fact, so it is hidden in the negative modes and always
     live on Slide."""
