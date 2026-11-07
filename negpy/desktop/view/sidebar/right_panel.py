@@ -38,7 +38,7 @@ from negpy.desktop.view.widgets.collapsible import CollapsibleSection, fit_pane,
 from negpy.desktop.view.widgets.fold import Fold, group_fold
 from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.desktop.view.widgets.tab_header import TabHeader
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import is_mono
 from negpy.desktop.view.widgets.stats import NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.widgets.panel_tab import PanelTab
@@ -650,7 +650,7 @@ class RightPanel(QWidget):
         self.parade_widget.set_overlay(standard and self.parade_overlay_btn.isChecked())
 
     def _scope_scale_key(self) -> str:
-        bw = self.controller.state.config.process.process_mode == ProcessMode.BW
+        bw = is_mono(self.controller.state.config.process)
         return "vectorscope_log_bw" if bw else "vectorscope_log_color"
 
     def _scope_log(self) -> bool:

@@ -8,6 +8,8 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.bw_filter import collapse_matrix
+from negpy.kernel.image.logic import get_luminance
 from negpy.features.exposure.analysis import density_histogram, density_parade, scan_full_scale_columns
 from negpy.features.exposure.logic import filtration_offsets
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -153,10 +155,17 @@ class TransparencyBaseProcessor:
 class TransferProcessor:
     """Normalized log density -> scene-linear positive through the transfer curve."""
 
-    def __init__(self, config: ExposureConfig, positive_source: bool = False, white_target: Optional[float] = None):
+    def __init__(
+        self,
+        config: ExposureConfig,
+        positive_source: bool = False,
+        white_target: Optional[float] = None,
+        mono_weights: Optional[tuple[float, float, float]] = None,
+    ):
         self.config = config
         self.positive_source = positive_source
         self.white_target = white_target
+        self.mono_weights = mono_weights
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
@@ -205,7 +214,10 @@ class TransferProcessor:
         cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
 
         tw3, sw3 = transfer_widths(self.config)
-        return apply_transfer_curve(
+        if self.mono_weights is not None:
+            # B&W: one density before the curve, and luma after it so per-channel trims cannot tint.
+            image = negpy_core.matmul_3x3(np.ascontiguousarray(image, dtype=np.float32), collapse_matrix(self.mono_weights))
+        out = apply_transfer_curve(
             image,
             exposure_offset,
             contrast,
@@ -229,3 +241,6 @@ class TransferProcessor:
             ),
             damping=self.config.separation_damping,
         )
+        if self.mono_weights is not None:
+            return negpy_core.gray_to_rgb(get_luminance(out))
+        return out

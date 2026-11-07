@@ -4,7 +4,7 @@ from negpy.desktop.view.styles.templates import hint_label, section_subheader
 from negpy.desktop.view.widgets.fold import show_while
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider, SliderGroup
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import is_mono
 
 
 class ToningSidebar(BaseSidebar):
@@ -128,7 +128,7 @@ class ToningSidebar(BaseSidebar):
 
     def sync_ui(self) -> None:
         conf = self.state.config.toning
-        is_bw = self.state.config.process.process_mode == ProcessMode.BW
+        is_bw = is_mono(self.state.config.process)
 
         self.block_signals(True)
         try:

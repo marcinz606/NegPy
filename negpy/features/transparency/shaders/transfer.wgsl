@@ -34,6 +34,8 @@ struct TransferUniforms {
     // Dye Separation: xyz = per-channel k (global + trim; no paper matrix to compose
     // the trims into instead). w = Separation Damping (0 = off).
     separation: vec4<f32>,
+    // B&W slide: xyz = collapse weights, w = on. Mirrors TransferProcessor's mono_weights.
+    mono: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -173,7 +175,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
-    let norm = textureLoad(input_tex, coords, 0).rgb;
+    var norm = textureLoad(input_tex, coords, 0).rgb;
+    // B&W: one weighted density before the curve, in matmul_3x3's fma order.
+    if (params.mono.w != 0.0) {
+        let v = fma(norm.b, params.mono.z, fma(norm.g, params.mono.y, norm.r * params.mono.x));
+        norm = vec3<f32>(v, v, v);
+    }
 
     var res: vec3<f32>;
     var dens: vec3<f32>;
@@ -223,6 +230,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         } else {
             lin[ch] = display_rendering(scene);
         }
+    }
+
+    // B&W: luma after the curve, so per-channel trims cannot tint. Mirrors TransferProcessor.
+    if (params.mono.w != 0.0) {
+        let l = dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722));
+        lin = vec3<f32>(l, l, l);
     }
 
     // Hue Trim before the encode, as the CPU rotates this buffer (features/process/hue.py).

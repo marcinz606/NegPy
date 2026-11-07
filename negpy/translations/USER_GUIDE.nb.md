@@ -120,7 +120,7 @@ Drei bildet og sett det i vater.
 
 Beskjær før en stor Tilt eller Sving, ellers kan filmkanten komme til syne og gjøre kopien mørkere. Objektivforvrengning rettes i **Optikk** ([§10.3](#103-optics)).
 
-<!-- panel:color src:2abd7418 -->
+<!-- panel:color src:23d03265 -->
 ### 5.1 Filtrering: fargebalanse
 
 Korrigerer fargen i kopien, slik fargefiltrene i et forstørrelsesapparat i mørkerommet gjør. **Global / Skygger / Høylys** bruker fargekontrollene på hele bildet, eller mest på de mørke eller lyse delene.
@@ -130,7 +130,7 @@ Korrigerer fargen i kopien, slik fargefiltrene i et forstørrelsesapparat i mør
 *   **Cyan / Magenta / Gul**: forskyver fargen mellom cyan og rødt, magenta og grønt, eller gult og blått.
 *   **Fargering** (`Shift+F`): viser bildet som et rutenett av litt ulike farger. Klikk den som ser riktig ut. `Esc` lukker den.
 *   **Fjerning av fargestikk**: fjerner et fargestikk som er ulikt i de mørke og lyse delene av bildet. Den starter på 0,5 (halvparten) for fargenegativer og på 0 for dias. Blader, himmel og vann regnes ikke som grått, så de beholder fargen.
-*   **Filter**: et farget filter, som på kameraobjektivet for svart-hvitt-film. Det vises bare for et fargenegativ som kopieres i S/H, og erstatter kontrollene ovenfor. Hvert filter gjør fargene motsatt av sin egen mørkere. Gul #8, Dyp gul #15, Oransje #21 og Rød #25 gjør en blå himmel mørkere, trinn for trinn. Rød gjør også blader mørke og hud blek. Gulgrønn #11 og Grønn #58 gjør blader lysere og hud mørkere. Ingen gir utseendet til en vanlig svart-hvitt-film.
+*   **Filter**: et farget filter, som på kameraobjektivet for svart-hvitt-film. Det vises bare for et fargenegativ eller fargedias i S/H, og erstatter kontrollene ovenfor. Hvert filter gjør fargene motsatt av sin egen mørkere. Gul #8, Dyp gul #15, Oransje #21 og Rød #25 gjør en blå himmel mørkere, trinn for trinn. Rød gjør også blader mørke og hud blek. Gulgrønn #11 og Grønn #58 gjør blader lysere og hud mørkere. Ingen gir utseendet til en vanlig svart-hvitt-film.
 
 <!-- panel:tone src:c1700dd9 -->
 ### 5.2 Tone: lyshet og kontrast
@@ -232,12 +232,12 @@ Et lysglimt under fremkallingen. De lyse tonene snus mot grått, og tynne lyse l
 *   **Ny eksponering**: hvor reverseringen starter. Mørkere toner blir som de er.
 *   **Agitasjon**: mindre agitasjon gir bredere Mackie-linjer.
 
-<!-- panel:toning src:8fc7301e -->
+<!-- panel:toning src:8aa1a282 -->
 ### 6.3 Toning
 
 Tonere er kjemiske bad som endrer fargen på en S/H-kopi. Delt toning legger farge til enhver kopi.
 
-**Kjemisk toning** (S/H-negativer) virker i rekkefølgen som vises:
+**Kjemisk toning** (S/H-negativer og S/H-dias) virker i rekkefølgen som vises:
 
 *   **Selen**: dypere, kaldere svarttoner.
 *   **Sepia**: varm brun, fra høylysene og nedover.
@@ -298,14 +298,15 @@ En **arbeidskopi** er en versjon av dette bildet som du beholder under et navn, 
 
 Hver endring du har gjort, den nyeste øverst (de siste 100). **Nå** markerer den gjeldende tilstanden; etter en angring vises senere trinn som **Angret** til neste redigering. Klikk et trinn for å gå tilbake til det. **⋮** eller høyreklikk → **Eksporter denne versjonen…** eksporterer en tidligere tilstand. **Sammenlign med dette trinnet** åpner **Før / etter** med det trinnet til venstre, på den gjeldende beskjæringen din. Trykk `\` for å lukke den.
 
-<!-- panel:film src:b72d2369 -->
+<!-- panel:film src:5487c3ab -->
 ### 10.1 Oppsett
 
 Hva filmen er, og hvordan du skannet den. Disse valgene bestemmer hvilke kort og kontroller som vises.
 
-*   **Farge / S/H / Dias**: fargenegativ (C-41), en svart-hvitt-kopi, eller dias (E-6 og lignende). S/H kopierer et S/H-negativ eller et fargenegativ i svart-hvitt. For et fargenegativ gir kortet Filtrering da et kontrastfilter.
-*   **Positiv** (bare Dias): for en fil som allerede er et positiv, for eksempel en skannet kopi eller en eksport fra en annen app. NegPy hopper da over invertering og lysmåling. Et dias som ikke er en kamera-RAW, for eksempel en TIFF, JPEG, JXL eller en skanning fra Pakon, Noritsu, Coolscan eller Flextight, starter som Positiv. Slå det av for å gi en falmet skanning diasets tonekurve. En JXL lastes inn som lineær.
-*   **Koding** (positiv TIFF): hvordan verdiene koder lys. **Auto** leser filens ICC-profil, og ellers lineær over 8 bit og sRGB ved 8 bit. **Lineær** er lineære utdata fra en skanner, for eksempel Nikon Scan med fargestyring av. **2.2** er gamma 2,2 i Adobe RGB-primærfarger. Auto hopper over skannerens egen kalibreringsprofil og leser filen som umerket. Velg Lineær eller 2.2 for å passe skannerprogramvaren.
+*   **Farge / S/H / Dias**: fargenegativ (C-41), en svart-hvitt-kopi, eller dias (E-6 og lignende). S/H kopierer ethvert negativ i svart-hvitt. For et fargenegativ gir kortet Filtrering da et kontrastfilter.
+*   **Positiv** (bare Dias): for en fil som allerede er et positiv, for eksempel en skannet kopi eller en eksport fra en annen app. NegPy hopper da over invertering og lysmåling. Et dias som ikke er en kamera-RAW, for eksempel en TIFF, JPEG, JXL eller en skanning fra Pakon, Noritsu, Coolscan eller Flextight, starter som Positiv. Slå det av for å gi en falmet skanning diasets tonekurve.
+*   **S/H** (bare Dias): viser diaset i svart-hvitt, for svart-hvitt reversalfilm som Scala. Et fargedias får da filteret.
+*   **Koding** (positiv TIFF): hvordan verdiene koder lys. **Auto** leser filens ICC-profil, og ellers lineær over 8 bit og sRGB ved 8 bit. **Lineær** er lineære utdata fra en skanner, for eksempel Nikon Scan med fargestyring av. **2.2** er gamma 2,2 i Adobe RGB-primærfarger. Velg Lineær eller 2.2 for å passe skannerprogramvaren.
 *   **Kamera / Filmskanner**: hva du skannet med. NegPy leser det fra hver fil (en kamera-RAW er et kamera) til du velger noe. Valget ditt gjelder for hvert bilde og angir skanneren i fanen Skann.
 *   **Hvitt lys / Smalbåndslys** (ikke for et S/H-negativ): lyset bak negativet. Hvitt lys er en lysboks eller LED-plate. Smalbånd er et lys med rent rødt, grønt og blått, for eksempel en Scanlight.
 

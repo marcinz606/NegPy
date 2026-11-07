@@ -143,7 +143,13 @@ class ProcessSidebar(BaseSidebar):
             conf.positive_source,
             (tr("Positive, slides only: the file is already a positive, such as a scanned print or another app's export.")),
         )
-        mode_col.addWidget(self.positive_source_btn)
+        # "&&": QPushButton reads a single "&" as a mnemonic and hides it.
+        self.slide_bw_btn = self._labeled_toggle("fa5s.adjust", tr("B&W").replace("&", "&&"), conf.slide_bw, "")
+        slide_row = QHBoxLayout()
+        slide_row.setSpacing(THEME.space_sm)
+        slide_row.addWidget(self.positive_source_btn, 1)
+        slide_row.addWidget(self.slide_bw_btn, 1)
+        mode_col.addLayout(slide_row)
 
         self.source_encoding_btn = StepCombo.of(
             [tr(SOURCE_ENCODING_LABELS[enc]) for enc in SourceEncoding],
@@ -320,6 +326,7 @@ class ProcessSidebar(BaseSidebar):
         self.color_range_clip_slider.valueCommitted.connect(lambda v: self._on_color_range_clip_changed(v, persist=True))
 
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
+        self.slide_bw_btn.toggled.connect(self.controller.set_slide_bw)
         self.source_encoding_btn.currentIndexChanged.connect(self._on_source_encoding_changed)
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
         self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
@@ -501,6 +508,8 @@ class ProcessSidebar(BaseSidebar):
 
             self.positive_source_btn.setVisible(is_e6)
             self.positive_source_btn.setChecked(conf.positive_source)
+            self.slide_bw_btn.setVisible(is_e6)
+            self.slide_bw_btn.setChecked(conf.slide_bw)
             path = self.state.current_file_path or ""
             encodes = os.path.splitext(path)[1].lower() in _ENCODED_EXTENSIONS
             self.source_encoding_row.setVisible(is_e6 and conf.positive_source and encodes)
@@ -607,6 +616,7 @@ class ProcessSidebar(BaseSidebar):
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
             self.positive_source_btn,
+            self.slide_bw_btn,
             self.source_encoding_btn,
             self.ch_btn,
             self.white_point_slider,
