@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "필름 베이스 지우기: 이 프레임이 쓰는 필름 베이스를 지웁니다.",
   "Clear Library": "라이브러리 지우기",
   "Clear Library…": "라이브러리 지우기…",
-  "Clear Region: measure with the Analysis Buffer again.": "영역 지우기: 다시 분석 버퍼로 측정합니다.",
+  "Clear Region: let NegPy pick the area to measure.": "영역 지우기: 측정할 영역을 NegPy가 다시 고릅니다.",
   "Clear Saved Edits": "저장된 수정사항 지우기",
   "Clear Saved Edits…": "저장된 수정사항 지우기…",
   "Clear Thumbnails": "썸네일 지우기",

@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "Filmbasis löschen: Vergisst die Filmbasis, die dieses Bild nutzt.",
   "Clear Library": "Bibliothek leeren",
   "Clear Library…": "Bibliothek leeren…",
-  "Clear Region: measure with the Analysis Buffer again.": "Bereich leeren: wieder mit dem Analysepuffer messen.",
+  "Clear Region: let NegPy pick the area to measure.": "Bereich leeren: NegPy wählt die Messfläche wieder selbst.",
   "Clear Saved Edits": "Gespeicherte Bearbeitungen löschen",
   "Clear Saved Edits…": "Gespeicherte Bearbeitungen löschen…",
   "Clear Thumbnails": "Vorschaubilder löschen",

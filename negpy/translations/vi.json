@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "Xóa nền phim: quên nền phim mà khung hình này dùng.",
   "Clear Library": "Xóa thư viện",
   "Clear Library…": "Xóa thư viện…",
-  "Clear Region: measure with the Analysis Buffer again.": "Xóa vùng: đo lại bằng Vùng đệm phân tích.",
+  "Clear Region: let NegPy pick the area to measure.": "Xóa vùng: để NegPy tự chọn vùng đo.",
   "Clear Saved Edits": "Xóa chỉnh sửa đã lưu",
   "Clear Saved Edits…": "Xóa chỉnh sửa đã lưu…",
   "Clear Thumbnails": "Xóa ảnh thu nhỏ",

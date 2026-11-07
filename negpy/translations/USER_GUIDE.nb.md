@@ -370,7 +370,7 @@ Gir et falmet dias fargelagene tilbake.
 *   **Fjern flekk**: gjør gulnede klare områder hvite, og kjører Beregn. Prøv det når Beregn gjør ikonet sitt gult.
 *   **Beregn**: angir glidebryterne ut fra de grå tonene i dette bildet. **Mellomtone** passer et sterkt falmet dias. **Gråområde** passer en mild falming med dype skygger.
 
-<!-- panel:process src:6572d2a7 -->
+<!-- panel:process src:2c179de9 -->
 ### 10.5 Lysmåling: negativ → positiv
 
 For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste delene (svart- og hvitpunktet) og fargen på filmen. Disse kontrollene angir hva den måler.
@@ -385,7 +385,7 @@ For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste 
 *   **Dmin** / **Dmax** (folden Velg selv): for et bilde som NegPy måler dårlig. Klikk **Dmin**, og så filmbasen eller den dypeste skyggen, for å angi svartpunktet. Klikk **Dmax**, og så det lyseste høylyset, for å angi hvitpunktet. Hver **×** fjerner sitt eget punkt. Begge er av mens bildet kopieres etter rullens gjennomsnitt.
 *   **Hvitpunkt** / **Svartpunkt** (fold): flytter det målte hvit- og svartpunktet. Et positivt hvitpunkt gjør kopien lysere; et positivt svartpunkt løfter svarttonene. **R / G / B** flytter bare én farge.
 
-Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
+Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. På et dias angir Tegn område området som Beregn, Fjern flekk, Fjerning av fargestikk, Autotetthet og Autogradering måler. Tegn det før du klikker Beregn. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
 
 <!-- panel:baseline src:7fc2c469 -->
 ### 10.6 Rullanalyse

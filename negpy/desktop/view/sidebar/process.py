@@ -191,7 +191,7 @@ class ProcessSidebar(BaseSidebar):
             "fa5s.vector-square",
             tr("Draw Region"),
             tr("Draw a region on the picture for NegPy to measure, then double-click inside it to confirm."),
-            tr("Clear Region: measure with the Analysis Buffer again."),
+            tr("Clear Region: let NegPy pick the area to measure."),
         )
         self.clear_analysis_region_btn = self.analysis_region_btn.clear_btn
         tools_row = QHBoxLayout()
@@ -540,9 +540,9 @@ class ProcessSidebar(BaseSidebar):
             if rides:
                 self.dmin_hint.setText(tr("Off while this frame prints on the roll average: turn off Luma and Color to pick by hand."))
 
+            # Draw Region stays: the slide meters, Estimate and Remove Stain read it too.
             for w in (
                 self.analysis_buffer_slider,
-                self.analysis_region_btn,
                 self.pick_fold.content,
                 self.avg_header,
                 self.use_luma_avg_btn,

@@ -472,7 +472,7 @@
   "Clear Film Base: forget the film base this frame uses.": "清除片基：忘记此帧使用的片基。",
   "Clear Library": "清空图库",
   "Clear Library…": "清空图库…",
-  "Clear Region: measure with the Analysis Buffer again.": "清除区域：重新使用分析缓冲区测量。",
+  "Clear Region: let NegPy pick the area to measure.": "清除区域：由 NegPy 重新选择测量区域。",
   "Clear Saved Edits": "清除已保存编辑",
   "Clear Saved Edits…": "清除已保存编辑…",
   "Clear Thumbnails": "清除缩略图",

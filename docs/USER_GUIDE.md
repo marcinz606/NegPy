@@ -550,7 +550,7 @@ To turn a negative into a positive, NegPy measures its darkest and brightest par
 *   **Dmin** / **Dmax** (Pick by Hand fold): for a frame that NegPy measures badly. Click **Dmin**, then the film base or the deepest shadow, to set the black point. Click **Dmax**, then the brightest highlight, to set the white point. Each **×** clears its own point. Both are off while the frame prints on the roll average.
 *   **White Point** / **Black Point** (fold): move the measured white and black points. A positive white point brightens the print; a positive black point lifts the blacks. **R / G / B** moves one color only.
 
-A **slide** needs no inversion: the tone controls shape the picture directly. Auto Density and Auto Grade start off; turn them on for a faded slide. In Lightroom terms, Exposure is Print Density (lower is brighter), Contrast is ISO-R Grade, and Shadows and Highlights are Shadows and Highlights Density.
+A **slide** needs no inversion: the tone controls shape the picture directly. Auto Density and Auto Grade start off; turn them on for a faded slide. On a slide, Draw Region sets the area that Estimate, Remove Stain, Cast Removal, Auto Density and Auto Grade measure. Draw it before you click Estimate. In Lightroom terms, Exposure is Print Density (lower is brighter), Contrast is ISO-R Grade, and Shadows and Highlights are Shadows and Highlights Density.
 
 <!-- panel:baseline -->
 ### 10.6 Roll Analysis
