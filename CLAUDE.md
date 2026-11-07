@@ -72,7 +72,7 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 
 - **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`): base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`. Base and exposure route on `process.path.render_path`: `PRINT` runs `features/exposure/`; `TRANSFER` and `POSITIVE` run `features/transparency/`. `features/exposure/` holds no slide branch and never imports `features/transparency/` (`tests/test_slide_separation.py`).
 - **GPU**: `GPUEngine` (`gpu_engine.py`) runs the same stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection. `ImageProcessor` tries GPU first and falls back to CPU. Export runs full-res with CPU stage caching off.
-- **Source bakes** (flat-field, sensor unmix, every defect repair) run on the linear source before either engine, so a bake needs no shader and has parity for free. Each bake folds a token into `source_hash` to invalidate the engine cache.
+- **Source bakes** (flat-field, sensor unmix, light leak reduction, every defect repair) run on the linear source before either engine, so a bake needs no shader and has parity for free. Each bake folds a token into `source_hash` to invalidate the engine cache.
 - **Working space**: scene-linear internally; the Adobe RGB 1998 TRC (a pure 563/256 power) is the final engine step. Lab/toning compute CIELAB directly from linear, D65. Adobe RGB, not a wide gamut, because ProPhoto's imaginary primaries inflate chroma in saturation and toning.
 
 `docs/PIPELINE.md` describes each stage's behavior and controls in depth.
@@ -86,7 +86,7 @@ Every feature lives in `negpy/features/<name>/`:
 - `processor.py`: thin wrapper with `process(img, context) -> ImageBuffer`
 - `shaders/<name>.wgsl`: optional GPU compute shader
 
-`features/transparency/` has no `models.py`: its controls are Exposure and Process fields, and `tests/test_slide_separation.py` classifies every new `ExposureConfig` field. `features/altprocess/` holds only the shared `AltProcessConfig` of the mutually exclusive lith, cyanotype and Sabattier stages.
+`features/transparency/` has no `models.py`: its controls are Exposure and Process fields, and `tests/test_slide_separation.py` classifies every new `ExposureConfig` field. `features/altprocess/` holds only the shared `AltProcessConfig` of the mutually exclusive lith, cyanotype and Sabattier stages. `features/leak/` has no `processor.py`: light leak reduction is a source bake (`bake.py`).
 
 ### Desktop (MVC)
 
