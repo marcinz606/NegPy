@@ -554,7 +554,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 
 **Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:e1bbad94 -->
+<!-- panel:scan_quality src:0e35bd9a -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.
@@ -565,7 +565,6 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
 *   **Autofokus**, **Autoeksponering** og **Eksponering**: fokus og eksponering på skanneren, før skanningen.
-*   **Analog forsterkning** (Coolscan): mer eller mindre skannereksponering enn den målte, i blendertrinn. Pilen åpner **Rød**, **Grønn** og **Blå**, én per kanal. På Kodachrome gir du mer rødt for å fjerne cyanstikket.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Innramming
@@ -590,7 +589,7 @@ Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-mod
 *   **Film** (med en Lento Dock): hva holderen gjør når du klikker Skann. **Neste bilde** flytter filmen ett bilde etter hver skanning. **Hele stripen** skanner hvert bilde og mater så ut stripen; Stopp avslutter det. Ta på nytt flytter aldri filmen. **Mat ut** flytter stripen ut. S-knappen på holderen virker som Skann.
 *   **Ta flatfelt**: når en hel stripe er matet ut, fotograferes den tomme holderen og lagres som rullens flatfeltprofil.
 
-<!-- panel:scan_light src:e58660c1 -->
+<!-- panel:scan_light src:417cc437 -->
 ### Forhåndsinnstilling
 
 Vises mens en Scanlight er tilkoblet. En forhåndsinnstilling inneholder lysnivåene og kameraeksponeringen for én type film.
@@ -600,8 +599,10 @@ Vises mens en Scanlight er tilkoblet. En forhåndsinnstilling inneholder lysniv�
     *   **Kalibrer på filmbasen…**: plasser rektangelet på klar film og kjør den. NegPy finner lysnivåene og lukkertiden.
     *   **Angi selv**: angi glidebryterne selv, og lagre dem så som en forhåndsinnstilling. Uten tilkoblet kamera lagrer den ingen eksponering, og en skanning bruker kameraets egen.
 *   **Rød**, **Grønn**, **Blå**, **Hvit**: lysnivåene (0 til 255). **Lys på** slår på lyset for å ramme inn filmen, eller av.
-*   **Opptaksmodus**: **Trichrome** tar én eksponering per farge og slår dem sammen; **Én eksponering** tar én eksponering med alle tre fargene på.
-*   **Lag sensorkrysstaleprofil** (Én eksponering): lagrer også en sensorkrysstaleprofil for denne forhåndsinnstillingen (se Kalibrering, §10.4).
+*   **Opptaksmodus**: **Trichrome** tar én eksponering per farge og slår dem sammen; **Én eksponering** tar én eksponering med alle tre fargene på. **Blanding** holder kameraet åpent i Bulb og tenner rødt, grønt og blått etter tur, for én fil. En Trichrome- eller Blanding-forhåndsinnstilling kan bytte mellom de to.
+*   **Utløser** (Blanding): hva som holder lukkeren åpen. **USB** bruker kameraets egen bulb-styring. **Kabel** bruker en utløserkabel i Scanlights 3,5 mm-kontakt, for eksponeringer opptil 2,55 s.
+*   **Sensorprofil** (Blanding-forhåndsinnstilling uten egen profil): sensorkrysstaleprofilen for skanningene. Skanningen venter på en. Knappen med glassene lager en.
+*   **Lag sensorkrysstaleprofil** (Én eksponering eller Blanding): lagrer også en sensorkrysstaleprofil som skanningene med denne forhåndsinnstillingen bruker (se Kalibrering, §10.4).
 *   **ISO**, **Lukker**, **Blender**: eksponeringen for forhåndsinnstillingen. En endring gjelder til du velger forhåndsinnstillingen igjen. Måleknappen måler.
 *   **IR-lukker** og **Infrarød** (lys med infrarøde LED-er): legger til en infrarød eksponering i hver skanning for støvfjerning, lagret som en `_IR`-fil. Det krever et kamera som ser infrarødt (fullspekter eller konvertert) og manuell fokus. Bare fargefilm.
 *   **Kanalforsinkelse**: en pause mellom den røde, grønne og blå eksponeringen, for kameraer som trenger det.

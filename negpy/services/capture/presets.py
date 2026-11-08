@@ -54,6 +54,7 @@ class ScanlightPreset:
     iso: str = ""  # camera ISO label baked at calibration (e.g. "100"); "" = not captured
     aperture: str = ""  # aperture label (e.g. "f/8"); "" for a manual lens (no electronic aperture)
     single_capture: bool = False  # one exposure with R, G and B lit together, not a triplet
+    blend_capture: bool = False  # a triplet's levels and shutter, shot as one Bulb exposure with the LEDs in turn
     sensor_profile: str = ""  # sensor profile measured with a single-capture preset; "" = none
 
 

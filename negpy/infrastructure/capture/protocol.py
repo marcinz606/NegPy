@@ -2,8 +2,8 @@
 
 Vendored from jackw01's Scanlight automation firmware protocol via rohanpandula's
 TriRGB `scanlightctl` (MIT). This is the subset NegPy speaks, byte-for-byte faithful
-to the firmware; the device offers more (a 3.5mm shutter trigger, NVM defaults, bus
-telemetry) that nothing here needs. The whole Scanlight family (v2, v4, Big Scanlight)
+to the firmware; the device offers more (NVM defaults, bus telemetry, the focus line)
+that nothing here needs. The whole Scanlight family (v2, v4, Big Scanlight)
 shares this exact wire protocol — same 0xFE framing, same packet headers, same
 SET_COLOR layout — and all enumerate as the stock Pico CDC device, so this one codec
 drives any of them. They differ only in the reported hardware ID (see
@@ -23,12 +23,19 @@ byte, and drop headers this codec does not decode — never assume read order.
 
 from __future__ import annotations
 
+import math
+
 START_BYTE = 0xFE
 
-# Host-to-device headers. The firmware also defines 1 = GET_DEFAULT_RGB and
-# 3 = SHUTTER_PULSE, which NegPy never sends.
+# Host-to-device headers. The firmware also defines 1 = GET_DEFAULT_RGB, which NegPy never sends.
 H2D_SET_COLOR = 0
 H2D_GET_FW_VERSION = 2
+H2D_SHUTTER_PULSE = 3
+
+# The pulse length byte counts 10 ms units, so the firmware holds the 3.5mm jack's shutter line
+# closed for at most 2.55 s.
+SHUTTER_PULSE_UNIT_S = 0.01
+MAX_SHUTTER_PULSE_S = 255 * SHUTTER_PULSE_UNIT_S
 
 # Device-to-host headers (2 = VBUS and 4 = DEFAULT_RGB arrive but are dropped)
 D2H_LED_TEMP = 1
@@ -60,6 +67,15 @@ def encode_set_color(r: int, g: int, b: int, w: int = 0, ir: int = 0, save: bool
             raise ProtocolError(f"{name} channel out of range 0-255: {value}")
     payload = bytes([r, g, b, w, ir, 1 if save else 0])
     return encode_packet(H2D_SET_COLOR, payload)
+
+
+def encode_shutter_pulse(seconds: float) -> bytes:
+    """Build a PKT_H2D_SHUTTER_PULSE packet that holds the shutter line for `seconds`, rounded up
+    to the firmware's 10 ms unit. A camera in Bulb keeps its shutter open for the pulse."""
+    units = math.ceil(round(seconds / SHUTTER_PULSE_UNIT_S, 6))
+    if not 1 <= units <= 255:
+        raise ProtocolError(f"shutter pulse out of range 0.01-{MAX_SHUTTER_PULSE_S:.2f} s: {seconds}")
+    return encode_packet(H2D_SHUTTER_PULSE, bytes([units]))
 
 
 def decode_led_temp(data: bytes) -> float:
