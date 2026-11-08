@@ -3349,9 +3349,5 @@
   "Analog Gain": "Độ lợi tương tự",
   "More or less scanner exposure for the blue channel.": "Phơi sáng của máy quét nhiều hơn hoặc ít hơn cho kênh lam.",
   "More or less scanner exposure for the green channel.": "Phơi sáng của máy quét nhiều hơn hoặc ít hơn cho kênh lục.",
-  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "Phơi sáng của máy quét nhiều hơn hoặc ít hơn cho kênh đỏ, ví dụ thêm đỏ cho Kodachrome.",
-  "More or less scanner exposure than the frame meters at, for all channels.": "Phơi sáng của máy quét nhiều hơn hoặc ít hơn mức đo của khung, cho mọi kênh.",
-  "Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.": "Chỉ Phơi sáng đơn: bộ ba Trichrome đọc riêng từng LED và không có trộn lẫn cảm biến cần tách.",
-  "Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.": "Chỉ Phơi sáng đơn: lưu thêm hồ sơ nhiễu chéo cảm biến cho thiết lập sẵn này, từ cùng các lần phơi sáng.",
-  "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together.": "Trichrome gộp một lần phơi sáng cho mỗi LED, còn Phơi sáng đơn chụp một lần với đỏ, lục và lam cùng bật."
+  "More or less scanner exposure for the red channel.": "Phơi sáng của máy quét nhiều hơn hoặc ít hơn cho kênh đỏ.",
 }
