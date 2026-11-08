@@ -1237,10 +1237,7 @@ class ScanSidebar(QWidget):
 
     def _set_analog_gain_visible(self, visible: bool) -> None:
         self.analog_gain_slider.setVisible(visible)
-        if visible:
-            self.channel_gain_fold.set_open(self.channel_gain_fold.is_open())
-        else:
-            self.channel_gain_fold.setVisible(False)
+        self.channel_gain_fold.setVisible(visible and self.channel_gain_fold.is_open())
 
     def _analog_gain(self) -> tuple[float, tuple[float, float, float]]:
         """(all channels, (red, green, blue)) in stops; the saved values while the device has no Analog Gain."""

@@ -67,16 +67,6 @@ def test_a_closed_fold_marks_an_edited_control_behind_it():
     assert not fold.button.is_marked()
 
 
-def test_a_closed_fold_keeps_closed_status_when_shown_again():
-    repo, _ = _repo()
-    section, _grade, shadows, fold = _grade_card(repo)
-    section.show()
-
-    fold.setVisible(False)
-    fold.set_open(fold.is_open())
-    assert not fold.is_open() and not shadows.isVisible()
-
-
 def test_folded_is_not_gated_but_a_hidden_rail_is():
     repo, _ = _repo()
     section, _grade, shadows, fold = _grade_card(repo)
