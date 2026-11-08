@@ -3349,9 +3349,6 @@
   "Analog Gain": "Analog forsterkning",
   "More or less scanner exposure for the blue channel.": "Mer eller mindre skannereksponering for den blå kanalen.",
   "More or less scanner exposure for the green channel.": "Mer eller mindre skannereksponering for den grønne kanalen.",
-  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "Mer eller mindre skannereksponering for den røde kanalen, for eksempel mer rødt for Kodachrome.",
-  "More or less scanner exposure than the frame meters at, for all channels.": "Mer eller mindre skannereksponering enn bildet måles til, for alle kanaler.",
-  "Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.": "Bare én eksponering: en Trichrome-triplett leser hver LED for seg og har ingen sensorblanding å skille.",
-  "Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.": "Bare én eksponering: lagre også en sensorkrysstaleprofil for denne forhåndsinnstillingen, fra de samme eksponeringene.",
-  "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together.": "Trichrome slår sammen én eksponering per LED, og Én eksponering tar én eksponering med rødt, grønt og blått tent samtidig."
+  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "Mer eller mindre skannereksponering for den røde kanalen.",
+  "More or less scanner exposure than the frame meters at, for all channels.": "Mer eller mindre skannereksponering enn bildet måles til, for alle kanaler."
 }
