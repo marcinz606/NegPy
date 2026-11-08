@@ -3349,9 +3349,6 @@
   "Analog Gain": "Analoge Verstärkung",
   "More or less scanner exposure for the blue channel.": "Mehr oder weniger Scanner-Belichtung für den Blaukanal.",
   "More or less scanner exposure for the green channel.": "Mehr oder weniger Scanner-Belichtung für den Grünkanal.",
-  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "Mehr oder weniger Scanner-Belichtung für den Rotkanal, zum Beispiel mehr Rot für Kodachrome.",
+  "More or less scanner exposure for the red channel.": "Mehr oder weniger Scanner-Belichtung für den Rotkanal.",
   "More or less scanner exposure than the frame meters at, for all channels.": "Mehr oder weniger Scanner-Belichtung als die Messung des Bildes, für alle Kanäle.",
-  "Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.": "Nur Einzelbelichtung: Ein Trichrome-Triplett liest jede LED einzeln und hat keine Sensormischung, die zu entmischen wäre.",
-  "Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.": "Nur Einzelbelichtung: Speichert aus denselben Belichtungen auch ein Sensor-Farbvermischungsprofil für diese Vorgabe.",
-  "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together.": "Trichrome fügt eine Belichtung pro LED zusammen. Einzelbelichtung nimmt eine Belichtung mit gemeinsam leuchtendem Rot, Grün und Blau auf."
 }
