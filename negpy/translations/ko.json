@@ -3349,9 +3349,6 @@
   "Analog Gain": "아날로그 게인",
   "More or less scanner exposure for the blue channel.": "파랑 채널의 스캐너 노출을 늘리거나 줄입니다.",
   "More or less scanner exposure for the green channel.": "초록 채널의 스캐너 노출을 늘리거나 줄입니다.",
-  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "빨강 채널의 스캐너 노출을 늘리거나 줄입니다. 예를 들어 코다크롬에는 빨강을 늘립니다.",
-  "More or less scanner exposure than the frame meters at, for all channels.": "프레임 측광값보다 많거나 적은 스캐너 노출로, 모든 채널에 적용합니다.",
-  "Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.": "단일 노출 전용: 삼색 트리플릿은 각 LED를 따로 읽으므로 분리할 센서 혼합이 없습니다.",
-  "Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.": "단일 노출 전용: 같은 노출로 이 사전 설정용 센서 누화 프로필도 저장합니다.",
-  "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together.": "삼색은 LED마다 한 번씩 찍은 노출을 합치고, 단일 노출은 빨강, 초록, 파랑을 함께 켜고 한 번 노출합니다."
+  "More or less scanner exposure for the red channel.": "빨강 채널의 스캐너 노출을 늘리거나 줄입니다. 예를 들어 코다크롬에는 빨강을 늘립니다.",
+  "More or less scanner exposure than the frame meters at, for all channels.": "프레임 측광값보다 많거나 적은 스캐너 노출로, 모든 채널에 적용합니다."
 }
