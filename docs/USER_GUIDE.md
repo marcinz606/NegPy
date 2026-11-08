@@ -768,7 +768,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.
 *   **Autofocus**, **Auto-exposure** and **Exposure**: focus and exposure on the scanner, before the scan.
-*   **Analog Gain** (Coolscan): more or less scanner exposure than the metered one, in stops. The chevron opens **Red**, **Green** and **Blue**, one per channel. On Kodachrome, add red to remove the cyan cast.
+*   **Analog Gain** (Coolscan): more or less scanner exposure than the metered one, in stops. The chevron opens **Red**, **Green** and **Blue**, one per channel.
 
 <!-- panel:scan_framing -->
 ### Framing
