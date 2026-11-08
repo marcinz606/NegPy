@@ -61,6 +61,9 @@ _MIN_FALLBACK_COVERAGE = 0.9
 # Confidence for a frame the roll never saw, resolved from its own crop alone. It carries a
 # single frame's evidence, so it cannot claim what a pooled frame does.
 _OWN_CROP_CONFIDENCE = 0.5
+# Trusted frames a roll template needs. One wrong box would otherwise place every frame that
+# has no box of its own. A group this small or smaller has no second frame to ask.
+_MIN_TRUSTED_FRAMES = 2
 
 
 @dataclass(frozen=True)
@@ -443,6 +446,8 @@ def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | 
         and item.geometry_score >= 0.35
         and (len(item.supported_sides) >= 2 or len(item.supported_corners) >= 1)
     ]
+    if len(trusted) < _MIN_TRUSTED_FRAMES < len(evidence):
+        trusted = []
     border, border_samples = _roll_border(evidence)
     from_fallback = False
     if not trusted:
