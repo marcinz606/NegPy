@@ -74,10 +74,12 @@ jobs:
 
       - name: Install System Dependencies (Linux)
         if: matrix.os == 'ubuntu-24.04'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 patchelf libsane-dev
-          wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          gh release download continuous --repo AppImage/appimagetool --pattern appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
 
       - name: Install System Dependencies (macOS)
