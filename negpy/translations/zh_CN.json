@@ -3349,9 +3349,6 @@
   "Analog Gain": "模拟增益",
   "More or less scanner exposure for the blue channel.": "增加或减少蓝色通道的扫描仪曝光。",
   "More or less scanner exposure for the green channel.": "增加或减少绿色通道的扫描仪曝光。",
-  "More or less scanner exposure for the red channel, such as more red for Kodachrome.": "增加或减少红色通道的扫描仪曝光，例如为柯达克罗姆增加红色。",
-  "More or less scanner exposure than the frame meters at, for all channels.": "比画幅测光值更多或更少的扫描仪曝光，作用于所有通道。",
-  "Single Exposure only: a Trichrome triplet reads each LED alone and has no sensor mixing to unmix.": "仅限单次曝光：三色扫描的三色组逐个读取每个 LED，没有需要解混的传感器串扰。",
-  "Single Exposure only: also save a sensor crosstalk profile for this preset, from the same exposures.": "仅限单次曝光：同时用相同的曝光为此预设保存传感器串扰配置。",
-  "Trichrome merges one exposure per LED, and Single Exposure takes one exposure with red, green and blue lit together.": "三色扫描逐个 LED 曝光后合并，单次曝光同时点亮红绿蓝并曝光一次。"
+  "More or less scanner exposure for the red channel.": "增加或减少红色通道的扫描仪曝光，例如为柯达克罗姆增加红色。",
+  "More or less scanner exposure than the frame meters at, for all channels.": "比画幅测光值更多或更少的扫描仪曝光，作用于所有通道。"
 }
