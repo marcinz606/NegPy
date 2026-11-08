@@ -140,8 +140,6 @@ class Fold(QWidget):
         return self._open
 
     def set_open(self, open_: bool) -> None:
-        if open_ == self._open:
-            return
         self._open = open_
         for button in self.buttons:
             button.setChecked(open_)

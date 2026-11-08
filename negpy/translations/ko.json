@@ -149,6 +149,7 @@
   "Always Load Without Asking": "묻지 않고 항상 로드",
   "Always Overwrite Without Asking": "묻지 않고 항상 덮어쓰기",
   "Amount applied per shortcut press": "단축키를 누를 때마다 적용되는 양",
+  "Analog Gain": "아날로그 게인",
   "Analog Gear": "아날로그 장비",
   "Analysis": "분석",
   "Analysis Buffer": "분석 버퍼",
@@ -1609,6 +1610,10 @@
   "More": "더보기",
   "More actions": "추가 작업",
   "More actions for the selected frames": "선택한 프레임에 대한 추가 작업",
+  "More or less scanner exposure for the blue channel.": "파랑 채널의 스캐너 노출을 늘리거나 줄입니다.",
+  "More or less scanner exposure for the green channel.": "초록 채널의 스캐너 노출을 늘리거나 줄입니다.",
+  "More or less scanner exposure for the red channel.": "빨강 채널의 스캐너 노출을 늘리거나 줄입니다.",
+  "More or less scanner exposure than the frame meters at, for all channels.": "프레임 측광값보다 많거나 적은 스캐너 노출로, 모든 채널에 적용합니다.",
   "Move Source Files to the Trash": "소스 파일을 휴지통으로 이동",
   "Move down": "아래로 이동",
   "Move each merged frame's source files to the Trash, or keep the frame in the Film Strip beside its TIFF": "병합한 각 프레임의 소스 파일을 휴지통으로 옮기거나, 프레임을 필름 스트립의 TIFF 옆에 남깁니다",
@@ -3345,10 +3350,5 @@
   "→ lands {achieved}": "→ 결과 {achieved}",
   "● {value}": "● {value}",
   "✓ Captured": "✓ 캡처됨",
-  "✓ Frame {frame} captured": "✓ 프레임 {frame} 캡처됨",
-  "Analog Gain": "아날로그 게인",
-  "More or less scanner exposure for the blue channel.": "파랑 채널의 스캐너 노출을 늘리거나 줄입니다.",
-  "More or less scanner exposure for the green channel.": "초록 채널의 스캐너 노출을 늘리거나 줄입니다.",
-  "More or less scanner exposure for the red channel.": "빨강 채널의 스캐너 노출을 늘리거나 줄입니다. 예를 들어 코다크롬에는 빨강을 늘립니다.",
-  "More or less scanner exposure than the frame meters at, for all channels.": "프레임 측광값보다 많거나 적은 스캐너 노출로, 모든 채널에 적용합니다."
+  "✓ Frame {frame} captured": "✓ 프레임 {frame} 캡처됨"
 }

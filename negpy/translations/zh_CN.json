@@ -149,6 +149,7 @@
   "Always Load Without Asking": "始终加载，不再询问",
   "Always Overwrite Without Asking": "始终覆盖，不再询问",
   "Amount applied per shortcut press": "每次按快捷键调整的数值",
+  "Analog Gain": "模拟增益",
   "Analog Gear": "胶片器材",
   "Analysis": "分析",
   "Analysis Buffer": "分析缓冲区",
@@ -1609,6 +1610,10 @@
   "More": "更多",
   "More actions": "更多操作",
   "More actions for the selected frames": "所选画面的更多操作",
+  "More or less scanner exposure for the blue channel.": "增加或减少蓝色通道的扫描仪曝光。",
+  "More or less scanner exposure for the green channel.": "增加或减少绿色通道的扫描仪曝光。",
+  "More or less scanner exposure for the red channel.": "增加或减少红色通道的扫描仪曝光。",
+  "More or less scanner exposure than the frame meters at, for all channels.": "比画幅测光值更多或更少的扫描仪曝光，作用于所有通道。",
   "Move Source Files to the Trash": "将源文件移到废纸篓",
   "Move down": "下移",
   "Move each merged frame's source files to the Trash, or keep the frame in the Film Strip beside its TIFF": "将各合并画面的源文件移到废纸篓，或将画面保留在胶片条中 TIFF 旁边",
@@ -3345,10 +3350,5 @@
   "→ lands {achieved}": "→ 得到 {achieved}",
   "● {value}": "● {value}",
   "✓ Captured": "✓ 已拍摄",
-  "✓ Frame {frame} captured": "✓ 第 {frame} 帧已拍摄",
-  "Analog Gain": "模拟增益",
-  "More or less scanner exposure for the blue channel.": "增加或减少蓝色通道的扫描仪曝光。",
-  "More or less scanner exposure for the green channel.": "增加或减少绿色通道的扫描仪曝光。",
-  "More or less scanner exposure for the red channel.": "增加或减少红色通道的扫描仪曝光，例如为柯达克罗姆增加红色。",
-  "More or less scanner exposure than the frame meters at, for all channels.": "比画幅测光值更多或更少的扫描仪曝光，作用于所有通道。"
+  "✓ Frame {frame} captured": "✓ 第 {frame} 帧已拍摄"
 }

@@ -398,7 +398,7 @@ class ScanSidebar(QWidget):
         )
         self.analog_gain_slider.setToolTip(tr("More or less scanner exposure than the frame meters at, for all channels."))
         channels = (
-            (tr("Red"), THEME.channel_red_text, tr("More or less scanner exposure for the red channel, such as more red for Kodachrome.")),
+            (tr("Red"), THEME.channel_red_text, tr("More or less scanner exposure for the red channel.")),
             (tr("Green"), THEME.channel_green_text, tr("More or less scanner exposure for the green channel.")),
             (tr("Blue"), THEME.channel_blue_text, tr("More or less scanner exposure for the blue channel.")),
         )
@@ -1237,7 +1237,10 @@ class ScanSidebar(QWidget):
 
     def _set_analog_gain_visible(self, visible: bool) -> None:
         self.analog_gain_slider.setVisible(visible)
-        self.channel_gain_fold.setVisible(visible)
+        if visible:
+            self.channel_gain_fold.set_open(self.channel_gain_fold.is_open())
+        else:
+            self.channel_gain_fold.setVisible(False)
 
     def _analog_gain(self) -> tuple[float, tuple[float, float, float]]:
         """(all channels, (red, green, blue)) in stops; the saved values while the device has no Analog Gain."""
