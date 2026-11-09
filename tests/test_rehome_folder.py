@@ -130,3 +130,15 @@ def test_every_relink_reason_has_a_dialog_message():
 
     assert set(_RELINK_MESSAGES) == {RELINK_FOLDER_TAKEN, RELINK_NOT_A_FOLDER, RELINK_NOT_A_FOLDER_ROLL}
     assert all(_RELINK_MESSAGES.values())
+
+
+def test_edited_file_names_follow_the_platforms_case_rule(tmp_path, monkeypatch):
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    stored = os.path.join(str(tmp_path), "Roll", "a.tif")
+    repo.save_file_settings("ha", WorkspaceConfig(), file_path=stored)
+    asked = os.path.join(str(tmp_path), "roll")
+
+    assert repo.edited_file_names_under(asked) == set()
+    monkeypatch.setattr(os.path, "normcase", str.lower)
+    assert repo.edited_file_names_under(asked) == {"a.tif"}
