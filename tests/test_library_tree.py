@@ -5,7 +5,7 @@ from PyQt6.QtCore import QPoint, Qt, QThreadPool
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
-from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, LibraryTree
+from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, _PATH_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.rolls import create_virtual_roll, delete_roll, recognize_folder, roll_for_id, saved_rolls
@@ -840,6 +840,85 @@ def test_a_folder_renamed_while_running_is_marked_missing_in_place(widget, tree_
 
     assert not item.data(0, _MISSING_ROLE) and _count(item) == "2 photos"
     assert "Folder roll" in item.toolTip(0) and not item.toolTip(1)
+
+
+class _StubCheck:
+    """Stands in for _DiskCheck: the test delivers the result by hand."""
+
+    def __init__(self, paths):
+        self.paths = paths
+        self.signals = MagicMock()
+
+
+def _start_stub_check(widget, monkeypatch) -> _StubCheck:
+    stubs = []
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree._DiskCheck", lambda paths: stubs.append(_StubCheck(paths)) or stubs[-1])
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.QThreadPool.globalInstance", lambda: MagicMock())
+    widget.check_folders()
+    return stubs[-1]
+
+
+def test_a_late_result_for_an_old_path_is_ignored(widget, tree_dirs, monkeypatch):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    stub = _start_stub_check(widget, monkeypatch)
+    roll_id, old_path = next(iter(stub.paths.items()))
+    item = widget.tree.topLevelItem(0)
+    item.setData(0, _PATH_ROLE, str(tree_dirs / "roll_b"))
+
+    widget._apply_folder_check({roll_id: (old_path, True)})
+
+    assert not item.data(0, _MISSING_ROLE)
+
+
+def test_a_result_resets_the_check_flag_and_keeps_the_runnable(widget, tree_dirs, monkeypatch):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    stub = _start_stub_check(widget, monkeypatch)
+    assert widget._checking
+
+    widget._apply_folder_check({})
+
+    assert not widget._checking and widget._disk_check is stub
+
+
+def test_reload_during_a_check_is_harmless(widget, tree_dirs, monkeypatch):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    stub = _start_stub_check(widget, monkeypatch)
+    roll_id, path = next(iter(stub.paths.items()))
+    (tree_dirs / "roll_a").rename(tree_dirs / "moved")
+    widget.reload()
+
+    widget._apply_folder_check({roll_id: (path, True)})
+
+    assert widget.tree.topLevelItem(0).data(0, _MISSING_ROLE)
+
+
+def test_a_result_for_a_deleted_roll_is_ignored(widget, tree_dirs, monkeypatch):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    stub = _start_stub_check(widget, monkeypatch)
+    roll_id, path = next(iter(stub.paths.items()))
+    delete_roll(widget.repo, roll_id)
+    widget.reload()
+
+    widget._apply_folder_check({roll_id: (path, True)})
+
+    assert widget.tree.topLevelItemCount() == 0
+
+
+def test_a_changed_row_follows_the_filter(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    widget.filter_input.setText("folder missing")
+    item = widget.tree.topLevelItem(0)
+    assert item.isHidden()
+
+    (tree_dirs / "roll_a").rename(tree_dirs / "moved")
+    _check_folders(widget)
+
+    assert not item.isHidden()
 
 
 def test_activating_the_app_checks_folders(widget, tree_dirs, monkeypatch):

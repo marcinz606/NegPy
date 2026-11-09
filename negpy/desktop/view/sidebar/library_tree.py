@@ -110,7 +110,7 @@ class _DiskCheck(QRunnable):
         self.signals = _DiskCheckSignals()
 
     def run(self) -> None:
-        self.signals.done.emit({roll_id: not os.path.isdir(path) for roll_id, path in self.paths.items()})
+        self.signals.done.emit({roll_id: (path, not os.path.isdir(path)) for roll_id, path in self.paths.items()})
 
 
 def _short_date(timestamp: float) -> str:
@@ -490,12 +490,16 @@ class LibraryTree(QWidget):
         QThreadPool.globalInstance().start(check)
 
     def _apply_folder_check(self, result: dict) -> None:
+        # _disk_check stays set: QThreadPool may still hold the runnable. The next check replaces it.
         self._checking = False
-        self._disk_check = None
+        changed = False
         for item in self._roll_items():
             roll_id = item.data(0, _ROLL_ID_ROLE)
-            missing = result.get(roll_id)
-            if missing is None or missing == bool(item.data(0, _MISSING_ROLE)):
+            checked = result.get(roll_id)
+            if checked is None or checked[0] != item.data(0, _PATH_ROLE):
+                continue
+            missing = checked[1]
+            if missing == bool(item.data(0, _MISSING_ROLE)):
                 continue
             entry = rolls.roll_for_id(self.repo, roll_id)
             if entry is None:
@@ -503,6 +507,9 @@ class LibraryTree(QWidget):
             item.setData(0, _MISSING_ROLE, missing)
             self._set_detail(item, roll_id, entry)
             self._set_tooltips(item, entry, missing)
+            changed = True
+        if changed:
+            self._apply_filter()
         self.tree.viewport().update()
 
     def refresh(self) -> None:
