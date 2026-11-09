@@ -2934,6 +2934,7 @@
   "Tone Zone": "色调区域",
   "Toners act in the order shown, and a later toner does not change what an earlier one toned.": "调色按显示的顺序进行，后面的调色不会改变前面已调色的部分。",
   "Toning": "调色",
+  "Too few frames with clear grays to estimate the roll.": "有清晰灰色的画面太少，无法估算整卷。",
   "Too small to correct.": "太小，无需校正。",
   "Tools": "工具",
   "Tools: crop, straighten, the pickers, masks and retouching, each with its own row here": "工具：裁切、拉直、吸管、蒙版与修复，各自在此有专用操作行",

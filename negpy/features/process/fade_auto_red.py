@@ -82,8 +82,13 @@ def auto_red(
         return None, tr("No range to read on this frame.")
     span = float(points[-1] - points[0])
     new = round(min(max(float(red) * span / AUTO_RED_SPAN, AUTO_RED_MIN, RED_SURVIVAL_BOUNDS[0]), RED_SURVIVAL_BOUNDS[1]), 2)
-    after = points_at(new)
+    return {"fade_ratio_r": new, "fade_density_shift": range_shift(points, points_at(new), shift)}, ""
+
+
+def range_shift(points: Sequence[float], after: Optional[Sequence[float]], shift: float = 0.0) -> float:
+    """The density shift that keeps the median of *points* where it printed once a new red gives *after*,
+    cut so the 0.5 % point prints no lighter than AUTO_RED_LIGHT or than before; *shift* with no *after*."""
     gain = 0.0
     if after is not None:
         gain = min(float(np.median(after)) - float(np.median(points)), float(after[0]) - min(AUTO_RED_LIGHT, float(points[0])))
-    return {"fade_ratio_r": new, "fade_density_shift": round(float(shift) - gain, 4)}, ""
+    return round(float(shift) - gain, 4)

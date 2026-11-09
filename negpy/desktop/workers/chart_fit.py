@@ -152,8 +152,10 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         ),
     )
     key = json.dumps([source.source_hash, source.gain_slices, source.orientation, keyed.to_dict()], default=str, sort_keys=True)
-    if _grid_memo is not None and _grid_memo[0] is source.buffer and _grid_memo[1] == key:
-        return _grid_memo[2]
+    # One read: the roll worker replaces the memo from its own thread.
+    memo = _grid_memo
+    if memo is not None and memo[0] is source.buffer and memo[1] == key:
+        return memo[2]
     grid = _render_estimate_grid(source, config)
     _grid_memo = (source.buffer, key, grid)
     return grid

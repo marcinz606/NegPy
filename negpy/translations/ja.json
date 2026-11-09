@@ -2934,6 +2934,7 @@
   "Tone Zone": "トーンゾーン",
   "Toners act in the order shown, and a later toner does not change what an earlier one toned.": "調色は表示順に作用し、後の調色は前の調色で変わった部分を変えません。",
   "Toning": "調色",
+  "Too few frames with clear grays to estimate the roll.": "はっきりしたグレーのあるコマが少なすぎて、ロールを推定できません。",
   "Too small to correct.": "補正するには小さすぎます。",
   "Tools": "ツール",
   "Tools: crop, straighten, the pickers, masks and retouching, each with its own row here": "ツール: トリミング、まっすぐにする、スポイト、マスク、レタッチ。それぞれここに専用の行があります",
