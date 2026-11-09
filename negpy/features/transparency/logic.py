@@ -701,3 +701,10 @@ def measure_transfer_neutral_axis(grid: np.ndarray, positive: bool) -> Optional[
     if window is None:
         return None
     return measure_neutral_axis_from_log(grid, LogNegativeBounds(*window), None, 0.0, exclude_subjects=False)
+
+
+def contrast_free_cmy(cmy_offsets: Tuple[float, float, float], contrast: float) -> Tuple[float, float, float]:
+    """Global filtration divided by the curve's contrast, which scales every density offset
+    made before it. The filtration then prints the same gain at every Grade."""
+    k = max(float(contrast), 1e-6)
+    return (cmy_offsets[0] / k, cmy_offsets[1] / k, cmy_offsets[2] / k)
