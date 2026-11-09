@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
 
-from negpy.desktop.auto_sliders import shown_values, stored_value
+from negpy.desktop.auto_sliders import grade_softest_reached, shown_values, stored_value
 from negpy.desktop.view.confirm import warn_targets_affect_unbaked
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
@@ -146,6 +146,12 @@ class ToneSidebar(BaseSidebar):
         grade_row = QVBoxLayout()
         grade_row.addWidget(self.grade_slider)
         grade_row.addWidget(self.grade_trim_slider)
+        self.grade_softest_hint = hint_label(tr("Flat negative: this is the softest Grade it can print."), kind="warning")
+        self.grade_softest_hint.setToolTip(
+            wrap_tooltip(tr("This negative has so little contrast that a softer Grade prints the same as this one."))
+        )
+        self.grade_softest_hint.setVisible(False)
+        grade_row.addWidget(self.grade_softest_hint)
         self.layout.addLayout(grade_row)
 
         self.shadow_grade_slider = CompactSlider(tr("Shadows Grade"), -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True, unit=" R")
@@ -356,6 +362,7 @@ class ToneSidebar(BaseSidebar):
             slider.set_default(default)
             slider.setValue(shown.get(field, getattr(config.exposure, field)))
             slider.blockSignals(False)
+        self.grade_softest_hint.setVisible(self._channel_index() == 0 and grade_softest_reached(config, meters))
 
     def _set_driven(self, field: str, value: float, persist: bool) -> None:
         # A value at the slider's default is a reset: back to the neutral offset exactly.
