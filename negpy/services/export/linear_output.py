@@ -20,6 +20,7 @@ from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
 from negpy.features.metadata.fsdate import sync_export_filesystem_dates
+from negpy.kernel.system.paths import replace_file, safe_unlink
 from negpy.services.export.encoders import encode_tiff
 from negpy.features.geometry.logic import apply_radial_distortion
 from negpy.features.geometry.models import GeometryConfig
@@ -997,10 +998,9 @@ def _write_bytes(dest, data: bytes) -> None:
     try:
         with open(part, "wb") as fh:
             fh.write(data)
-        os.replace(part, dest)
+        replace_file(part, dest)
     except BaseException:
-        if os.path.exists(part):
-            os.unlink(part)
+        safe_unlink(part)
         raise
 
 
@@ -1131,10 +1131,9 @@ def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
     try:
         with open(part, "wb") as fh:
             fh.write(data)
-        os.replace(part, dest)
+        replace_file(part, dest)
     except BaseException:
-        if os.path.exists(part):
-            os.unlink(part)
+        safe_unlink(part)
         raise
 
 
@@ -1247,10 +1246,9 @@ def _write_jxl(
     try:
         with open(part, "wb") as fh:
             fh.write(data)
-        os.replace(part, dest)
+        replace_file(part, dest)
     except BaseException:
-        if os.path.exists(part):
-            os.unlink(part)
+        safe_unlink(part)
         raise
 
 

@@ -7,7 +7,7 @@ import tifffile
 
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
-from negpy.kernel.system.paths import apply_umask_mode
+from negpy.kernel.system.paths import apply_umask_mode, replace_file, safe_unlink
 
 logger = get_logger(__name__)
 
@@ -70,10 +70,9 @@ def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> st
             **tags,
         )
         apply_umask_mode(tmp_path)
-        os.replace(tmp_path, path)
+        replace_file(tmp_path, path)
     except Exception:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        safe_unlink(tmp_path)
         raise
 
     if result.ir is not None:
@@ -85,10 +84,9 @@ def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> st
         try:
             tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="zlib", predictor=True, **tags)
             apply_umask_mode(tmp_ir)
-            os.replace(tmp_ir, ir_path)
+            replace_file(tmp_ir, ir_path)
         except Exception:
-            if os.path.exists(tmp_ir):
-                os.unlink(tmp_ir)
+            safe_unlink(tmp_ir)
             raise
 
     # Mask marking which IR pixels the scanner actually sampled. The loader fails closed on a
@@ -102,10 +100,9 @@ def write_tiff_16bit(result: ScanResult, path: str, *, mono: bool = False) -> st
         try:
             tifffile.imwrite(tmp_v, valid_data, photometric="minisblack", compression="zlib", predictor=True)
             apply_umask_mode(tmp_v)
-            os.replace(tmp_v, valid_path)
+            replace_file(tmp_v, valid_path)
         except Exception:
-            if os.path.exists(tmp_v):
-                os.unlink(tmp_v)
+            safe_unlink(tmp_v)
             raise
 
     return path
