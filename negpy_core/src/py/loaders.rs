@@ -7,12 +7,12 @@ use pyo3::prelude::*;
 
 use crate::loaders;
 
-/// `normalize_linear` of a float64 image whose last axis holds the channels.
+/// `normalize_linear` of a float32 image whose last axis holds the channels.
 #[pyfunction]
 fn normalize_linear<'py>(
     py: Python<'py>,
-    lin: PyReadonlyArrayDyn<'py, f64>,
-) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
+    lin: PyReadonlyArrayDyn<'py, f32>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
     let shape = lin.shape().to_vec();
     let c = match shape.last() {
         Some(&c) if c > 0 && shape.len() >= 2 => c,
@@ -25,16 +25,10 @@ fn normalize_linear<'py>(
     let data = lin
         .as_slice()
         .map_err(|_| PyValueError::new_err("needs a contiguous array"))?;
-    let out = py
-        .import("numpy")?
-        .getattr("empty")?
-        .call1((shape, "float64"))?
-        .cast_into::<PyArrayDyn<f64>>()?;
+    let out = PyArrayDyn::<f32>::zeros(py, shape, false);
     {
         let mut rw = out.readwrite();
-        let dst = rw
-            .as_slice_mut()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let dst = rw.as_slice_mut()?;
         super::detach(py, dst.len(), || loaders::normalize_linear(data, c, dst));
     }
     Ok(out)
@@ -261,21 +255,29 @@ fn decode_sgilog32<'py>(
     Ok(out)
 }
 
-/// LogLuv uint32 pixels (any shape) to XYZ float64 (..., 3) through per-code tables; see
-/// `loaders::logluv_to_xyz`.
+/// LogLuv uint32 pixels (any shape) to linear RGB float32 (..., 3) through per-code tables and
+/// a 3x3 matrix; see `loaders::logluv_to_rgb`.
 #[pyfunction]
-fn logluv_to_xyz<'py>(
+fn logluv_to_rgb<'py>(
     py: Python<'py>,
     packed: PyReadonlyArrayDyn<'py, u32>,
     y: PyReadonlyArray1<'py, f64>,
     shift: u32,
     x: PyReadonlyArray1<'py, f64>,
     z: PyReadonlyArray1<'py, f64>,
-) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
-    let (Ok(src), Ok(y), Ok(x), Ok(z)) =
-        (packed.as_slice(), y.as_slice(), x.as_slice(), z.as_slice())
-    else {
+    m: PyReadonlyArray2<'py, f64>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let (Ok(src), Ok(y), Ok(x), Ok(z), Ok(m)) = (
+        packed.as_slice(),
+        y.as_slice(),
+        x.as_slice(),
+        z.as_slice(),
+        m.as_slice(),
+    ) else {
         return Err(PyValueError::new_err("needs contiguous arrays"));
+    };
+    let Ok(m) = <[f64; 9]>::try_from(m) else {
+        return Err(PyValueError::new_err("needs a 3x3 matrix"));
     };
     if !y.len().is_power_of_two() || !x.len().is_power_of_two() || x.len() != z.len() || shift > 31
     {
@@ -285,12 +287,12 @@ fn logluv_to_xyz<'py>(
     }
     let mut shape = packed.shape().to_vec();
     shape.push(3);
-    let out = PyArrayDyn::<f64>::zeros(py, shape, false);
+    let out = PyArrayDyn::<f32>::zeros(py, shape, false);
     {
         let mut rw = out.readwrite();
         let dst = rw.as_slice_mut()?;
         super::detach(py, dst.len(), || {
-            loaders::logluv_to_xyz(src, y, shift, x, z, dst)
+            loaders::logluv_to_rgb(src, y, shift, x, z, m, dst)
         });
     }
     Ok(out)
@@ -302,6 +304,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_curves, m)?)?;
     m.add_function(wrap_pyfunction!(into_gamut, m)?)?;
     m.add_function(wrap_pyfunction!(decode_sgilog32, m)?)?;
-    m.add_function(wrap_pyfunction!(logluv_to_xyz, m)?)?;
+    m.add_function(wrap_pyfunction!(logluv_to_rgb, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_linear, m)?)
 }

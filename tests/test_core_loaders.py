@@ -13,10 +13,10 @@ from negpy.infrastructure.loaders.logluv import normalize_linear
 @pytest.mark.parametrize(
     "shape,want",
     [
-        ((1, 1, 3), "9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0"),
-        ((7, 5, 3), "870392426c6e48c2e6541e4c8d193a73064648b8dc6a1917d960c95f5b3abe40"),
-        ((311, 517, 3), "2f96ccdae2c08d83000ff4193cf5a35830034a0c86e392b5a75cac7475a6ac77"),
-        ((40, 30, 4), "cffa44f70d09ca0e66f4af8afbadbd8d75625f705b471f9434f84d7d8e29ccb8"),
+        ((1, 1, 3), "15ec7bf0b50732b49f8228e07d24365338f9e3ab994b00af08e5a3bffe55fd8b"),
+        ((7, 5, 3), "e9ff200adcd5ebfd989d585dc1cca4f8d35848885735c3c85ece26d35b02614b"),
+        ((311, 517, 3), "02cf88a7e81ad743da433efb6c48f858804649373e9eaf907940100a794dd3ef"),
+        ((40, 30, 4), "add94282c919d6f91ace74af4b7388fb4c2d07de1e22cf2e0803a297340f8295"),
     ],
 )
 @linux_pin

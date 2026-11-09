@@ -4,10 +4,10 @@ import numpy as np
 
 from negpy.infrastructure.loaders.logluv import (
     decode_strip_logluv32,
-    logluv24_to_xyz,
-    logluv32_to_xyz,
+    _XYZ_TO_LRGB,
+    logluv24_to_rgb,
+    logluv32_to_rgb,
     normalize_linear,
-    xyz_to_linear_rgb,
 )
 
 
@@ -36,24 +36,18 @@ class TestLogLuv32:
     def test_roundtrip_luminance(self):
         Y_in = np.array([0.001, 0.01, 0.1, 0.5, 1.0, 5.0])
         packed = _pack_logluv32(Y_in)
-        xyz = logluv32_to_xyz(packed)
+        xyz = logluv32_to_rgb(packed) @ np.linalg.inv(_XYZ_TO_LRGB).T
         Y_out = xyz[..., 1]
         np.testing.assert_allclose(Y_out, Y_in, rtol=0.02)
 
     def test_black_pixel(self):
         packed = np.array([0], dtype=np.uint32)
-        xyz = logluv32_to_xyz(packed)
-        assert np.all(xyz == 0.0)
+        assert np.all(logluv32_to_rgb(packed) == 0.0)
 
-    def test_xyz_to_linear_rgb_d65_white(self):
-        xyz = np.array([[[0.9505, 1.0, 1.089]]], dtype=np.float64)
-        rgb = xyz_to_linear_rgb(xyz)
-        np.testing.assert_allclose(rgb, 1.0, atol=0.2)
-
-    def test_xyz_to_linear_rgb_shape(self):
-        xyz = np.ones((10, 20, 3), dtype=np.float64)
-        rgb = xyz_to_linear_rgb(xyz)
+    def test_rgb_shape(self):
+        rgb = logluv32_to_rgb(np.zeros((10, 20), dtype=np.uint32))
         assert rgb.shape == (10, 20, 3)
+        assert rgb.dtype == np.float32
 
     def test_decode_strip_roundtrip(self):
         packed = _pack_logluv32(np.array([0.5, 1.0, 0.1, 2.0]))
@@ -84,15 +78,13 @@ class TestLogLuv32:
 class TestLogLuv24:
     def test_zero_luminance(self):
         packed = np.array([0], dtype=np.uint32)
-        xyz = logluv24_to_xyz(packed)
-        assert np.all(xyz == 0.0)
+        assert np.all(logluv24_to_rgb(packed) == 0.0)
 
     def test_nonzero_produces_xyz(self):
         le10 = 500
         ce = 8000
         packed = np.array([(le10 << 14) | ce], dtype=np.uint32)
-        xyz = logluv24_to_xyz(packed)
-        assert xyz[0, 1] > 0.0
+        assert logluv24_to_rgb(packed)[0].sum() > 0.0
 
 
 class TestNormalizeLinear:
@@ -125,10 +117,8 @@ class TestNormalizeLinear:
         assert np.all(np.isfinite(normed))
 
 
-class TestXyzToLinearRgb:
-    def test_pure_luminance_maps_neutral(self):
-        xyz = np.array([[[0.9505, 1.0, 1.089]]], dtype=np.float64)
-        rgb = xyz_to_linear_rgb(xyz)
-        assert np.all(rgb > 0.8)
-        spread = rgb.max() - rgb.min()
-        assert spread < 0.3
+class TestLogLuvToRgb:
+    def test_d65_white_maps_neutral(self):
+        rgb = logluv32_to_rgb(_pack_logluv32(np.array([1.0]), 0.1978, 0.4683))
+        np.testing.assert_allclose(rgb, 1.0, atol=0.2)
+        assert rgb.max() - rgb.min() < 0.3

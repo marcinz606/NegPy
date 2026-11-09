@@ -22,6 +22,12 @@ _V_NEU = 0.473684211
 COMPRESSION_SGILOG = 34676
 COMPRESSION_SGILOG24 = 34677
 
+# XYZ to linear sRGB (Rec.709/sRGB primaries, D65): libtiff's XYZtoRGB24 matrix
+_XYZ_TO_LRGB = np.array(
+    [[2.690, -1.276, -0.414], [-1.022, 1.978, 0.044], [0.061, -0.224, 1.163]],
+    dtype=np.float64,
+)
+
 
 def _logl16_to_y(ptop: np.ndarray) -> np.ndarray:
     """LogL16 top-16 bits → luminance Y. Matches libtiff LogL16toY."""
@@ -51,9 +57,9 @@ def _logluv32_tables() -> tuple:
     return _logl16_to_y(code), 16, *_chroma(u / _UVSCALE, v / _UVSCALE)
 
 
-def logluv32_to_xyz(packed: np.ndarray) -> np.ndarray:
-    """LogLuv32 uint32 → XYZ float64 (..., 3)."""
-    return negpy_core.logluv_to_xyz(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv32_tables())
+def logluv32_to_rgb(packed: np.ndarray) -> np.ndarray:
+    """LogLuv32 uint32 → linear sRGB float32 (..., 3), unbounded."""
+    return negpy_core.logluv_to_rgb(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv32_tables(), _XYZ_TO_LRGB)
 
 
 def decode_strip_logluv32(compressed: bytes, npixels: int, width: int | None = None) -> np.ndarray:
@@ -264,16 +270,9 @@ def _logluv24_tables() -> tuple:
     return _logl10_to_y(np.arange(1 << 10)), 14, *_chroma(*_uv_decode_index(np.arange(1 << 14)))
 
 
-def logluv24_to_xyz(packed: np.ndarray) -> np.ndarray:
-    """LogLuv24 uint32 (24-bit in low bits) → XYZ float64 (..., 3)."""
-    return negpy_core.logluv_to_xyz(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv24_tables())
-
-
-# XYZ to linear sRGB (Rec.709/sRGB primaries, D65): libtiff's XYZtoRGB24 matrix
-_XYZ_TO_LRGB = np.array(
-    [[2.690, -1.276, -0.414], [-1.022, 1.978, 0.044], [0.061, -0.224, 1.163]],
-    dtype=np.float64,
-)
+def logluv24_to_rgb(packed: np.ndarray) -> np.ndarray:
+    """LogLuv24 uint32 (24-bit in low bits) → linear sRGB float32 (..., 3), unbounded."""
+    return negpy_core.logluv_to_rgb(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv24_tables(), _XYZ_TO_LRGB)
 
 
 def normalize_linear(lin: np.ndarray) -> np.ndarray:
@@ -283,15 +282,7 @@ def normalize_linear(lin: np.ndarray) -> np.ndarray:
     per channel, correcting the per-channel black/gain offset inherent in
     Flextight CCD data (worst on red — weak CCD response, shallow C-41 cyan).
     """
-    return negpy_core.normalize_linear(np.ascontiguousarray(lin, dtype=np.float64))
-
-
-def xyz_to_linear_rgb(xyz: np.ndarray) -> np.ndarray:
-    """CIE XYZ (..., 3) → linear sRGB float64 (..., 3), unbounded."""
-    xyz = np.asarray(xyz, dtype=np.float64)
-    v = np.moveaxis(xyz, -1, 0).reshape(3, -1)
-    rgb = _XYZ_TO_LRGB @ v
-    return np.moveaxis(rgb.reshape(3, *xyz.shape[:-1]), 0, -1)
+    return negpy_core.normalize_linear(np.ascontiguousarray(lin, dtype=np.float32))
 
 
 def decode_logluv_strips(
@@ -320,11 +311,11 @@ def decode_logluv_strips(
     comp_val = int(tags["Compression"].value)
 
     if comp_val == COMPRESSION_SGILOG:
-        px_to_xyz = logluv32_to_xyz
+        px_to_rgb = logluv32_to_rgb
         bpp = 4
         use_rle = True
     elif comp_val == COMPRESSION_SGILOG24:
-        px_to_xyz = logluv24_to_xyz
+        px_to_rgb = logluv24_to_rgb
         bpp = 3
         use_rle = False
     else:
@@ -358,11 +349,9 @@ def decode_logluv_strips(
             packed[filled : filled + npix] = (p[:, 0] << 16) | (p[:, 1] << 8) | p[:, 2]
         filled += npix
 
-    packed = packed[:npixels_total].reshape(height, width)
-    xyz = px_to_xyz(packed)
-    lin = xyz_to_linear_rgb(xyz)
-    normed = normalize_linear(lin)
-    return normed.astype(np.float32)
+    lin = px_to_rgb(packed.reshape(height, width))
+    del packed
+    return normalize_linear(lin)
 
 
 def _tag_to_list(tag) -> list:

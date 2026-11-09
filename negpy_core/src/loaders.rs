@@ -2,17 +2,19 @@
 
 use rayon::prelude::*;
 
-use crate::stats::quantile_f64;
+use crate::stats::np_percentiles_f64;
 
-/// `normalize_linear`: each channel of a float64 image with `c` channels stretched from its
-/// 0.2nd to its 99.8th percentile onto 0..1 and clipped. A flat channel divides by 1.
-pub fn normalize_linear(lin: &[f64], c: usize, dst: &mut [f64]) {
+/// `normalize_linear`: each channel of a float32 image with `c` channels stretched from its
+/// 0.2nd to its 99.8th percentile (float64 bounds) onto 0..1 in float64, clipped and rounded to
+/// float32 once. A flat channel divides by 1.
+pub fn normalize_linear(lin: &[f32], c: usize, dst: &mut [f32]) {
     let bounds: Vec<(f64, f64)> = (0..c)
         .into_par_iter()
         .map(|ch| {
-            let mut v: Vec<f64> = lin.iter().skip(ch).step_by(c).copied().collect();
-            let lo = quantile_f64(&mut v, 0.2 / 100.0).unwrap_or(f64::NAN);
-            let hi = quantile_f64(&mut v, 99.8 / 100.0).unwrap_or(f64::NAN);
+            let v: Vec<f32> = lin.iter().skip(ch).step_by(c).copied().collect();
+            let [lo, hi] = np_percentiles_f64(&v, &[0.2, 99.8])[..] else {
+                unreachable!()
+            };
             let denom = hi - lo;
             (lo, if denom > 0.0 { denom } else { 1.0 })
         })
@@ -23,7 +25,7 @@ pub fn normalize_linear(lin: &[f64], c: usize, dst: &mut [f64]) {
             for (d, s) in d.chunks_mut(c).zip(s.chunks(c)) {
                 for ch in 0..c {
                     let (lo, denom) = bounds[ch];
-                    d[ch] = ((s[ch] - lo) / denom).clamp(0.0, 1.0);
+                    d[ch] = ((s[ch] as f64 - lo) / denom).clamp(0.0, 1.0) as f32;
                 }
             }
         });
@@ -256,16 +258,28 @@ pub fn decode_sgilog32(src: &[u8], width: usize, dst: &mut [u32]) {
         });
 }
 
-/// LogLuv pixels to CIE XYZ through per-code tables: luminance `y[(p >> shift) & (len - 1)]`,
-/// then X and Z as that luminance times `x[k]` and `z[k]` for `k = p & (len - 1)`. A pixel
+/// LogLuv pixels to linear RGB through per-code tables: luminance `y[(p >> shift) & (len - 1)]`,
+/// X and Z as that luminance times `x[k]` and `z[k]` for `k = p & (len - 1)`, then the row-major
+/// 3x3 `m` times XYZ in float64, summed left to right and rounded to float32 once. A pixel
 /// whose luminance is not above 0 is black. Both table lengths are powers of two.
-pub fn logluv_to_xyz(src: &[u32], y: &[f64], shift: u32, x: &[f64], z: &[f64], dst: &mut [f64]) {
+pub fn logluv_to_rgb(
+    src: &[u32],
+    y: &[f64],
+    shift: u32,
+    x: &[f64],
+    z: &[f64],
+    m: [f64; 9],
+    dst: &mut [f32],
+) {
     let (ly, lc) = (y.len() - 1, x.len() - 1);
     crate::par_zip(dst.as_chunks_mut::<3>().0, src, move |d, &p| {
         let l = y[(p >> shift) as usize & ly];
         let k = p as usize & lc;
         *d = if l > 0.0 {
-            [x[k] * l, l, z[k] * l]
+            let xyz = [x[k] * l, l, z[k] * l];
+            std::array::from_fn(|r| {
+                (m[3 * r] * xyz[0] + m[3 * r + 1] * xyz[1] + m[3 * r + 2] * xyz[2]) as f32
+            })
         } else {
             [0.0; 3]
         };
@@ -278,10 +292,10 @@ mod tests {
 
     #[test]
     fn flat_channel_maps_to_zero() {
-        let lin: Vec<f64> = (0..3000)
-            .map(|i| if i % 3 == 1 { 5.0 } else { (i / 3) as f64 })
+        let lin: Vec<f32> = (0..3000)
+            .map(|i| if i % 3 == 1 { 5.0 } else { (i / 3) as f32 })
             .collect();
-        let mut out = vec![0f64; lin.len()];
+        let mut out = vec![0f32; lin.len()];
         normalize_linear(&lin, 3, &mut out);
         assert!(out.iter().skip(1).step_by(3).all(|&v| v == 0.0));
         assert_eq!(out[0], 0.0);

@@ -106,14 +106,37 @@ def _codes32(rng):
     return p
 
 
-def test_logluv32_xyz_matches_numpy():
+def _rgb_numpy(xyz):
+    """The matrix product in float64, summed left to right, rounded to float32 once."""
+    m, (x, y, z) = ll._XYZ_TO_LRGB, np.moveaxis(xyz, -1, 0)
+    return np.stack([m[r, 0] * x + m[r, 1] * y + m[r, 2] * z for r in range(3)], axis=-1).astype(np.float32)
+
+
+def test_logluv32_rgb_matches_numpy():
     p = _codes32(np.random.default_rng(1))
-    np.testing.assert_array_equal(ll.logluv32_to_xyz(p), _logluv32_numpy(p))
+    np.testing.assert_array_equal(ll.logluv32_to_rgb(p), _rgb_numpy(_logluv32_numpy(p)))
 
 
-def test_logluv24_xyz_matches_numpy_for_every_code():
+def test_logluv24_rgb_matches_numpy_for_every_code():
     p = np.arange(1 << 24, dtype=np.uint32).reshape(4096, 4096)
-    np.testing.assert_array_equal(ll.logluv24_to_xyz(p), _logluv24_numpy(p))
+    np.testing.assert_array_equal(ll.logluv24_to_rgb(p), _rgb_numpy(_logluv24_numpy(p)))
+
+
+def _normalize_numpy(lin):
+    out = np.empty(lin.shape, dtype=np.float32)
+    for ch in range(lin.shape[-1]):
+        v = lin[..., ch].astype(np.float64)
+        lo, hi = np.percentile(v, (0.2, 99.8))
+        out[..., ch] = np.clip((v - lo) / (hi - lo if hi > lo else 1.0), 0.0, 1.0)
+    return out
+
+
+@pytest.mark.parametrize("shape", [(1, 1, 3), (7, 5, 3), (311, 517, 3), (40, 30, 4)])
+def test_normalize_linear_matches_numpy(shape):
+    rng = np.random.default_rng(sum(shape))
+    lin = (rng.lognormal(0.0, 1.5, shape) - 0.5).astype(np.float32)
+    lin[..., -1] = 0.25 if shape[0] == 7 else lin[..., -1]
+    np.testing.assert_array_equal(ll.normalize_linear(lin), _normalize_numpy(lin))
 
 
 class _Tag:
@@ -155,14 +178,23 @@ def _decode_strips_numpy(page, width, height, data):
             parts.append((b[:, 0] << 16) | (b[:, 1] << 8) | b[:, 2])
     packed = np.concatenate(parts).reshape(height, width)
     to_xyz = _logluv32_numpy if page.tags["Compression"].value == ll.COMPRESSION_SGILOG else _logluv24_numpy
-    return ll.normalize_linear(ll.xyz_to_linear_rgb(to_xyz(packed))).astype(np.float32)
+    return to_xyz(packed)
+
+
+def _normalize_f64(lin):
+    lo, hi = np.percentile(lin, (0.2, 99.8), axis=(0, 1))
+    return np.clip((lin - lo) / np.where(hi > lo, hi - lo, 1.0), 0.0, 1.0)
 
 
 @pytest.mark.parametrize("compression", [ll.COMPRESSION_SGILOG, ll.COMPRESSION_SGILOG24])
 def test_decode_logluv_strips_matches_numpy(compression):
     page, data = _strips(compression, 23, 41, 5, compression)
     got = ll.decode_logluv_strips([page], 41, 23, data, "<")
-    np.testing.assert_array_equal(got, _decode_strips_numpy(page, 41, 23, data))
+    xyz = _decode_strips_numpy(page, 41, 23, data)
+    np.testing.assert_array_equal(got, _normalize_numpy(_rgb_numpy(xyz)))
+    # Float32 RGB moves the percentile bounds, so the result stays within float32 steps of 1.
+    exact = _normalize_f64(xyz @ ll._XYZ_TO_LRGB.T)
+    np.testing.assert_allclose(got, exact, rtol=0, atol=2**-22)
 
 
 def test_rle_pin():
@@ -177,4 +209,4 @@ def test_logluv_decode_pin():
         ll.decode_logluv_strips([page], 41, 23, data, "<")
         for page, data in (_strips(c, 23, 41, 5, 3) for c in (ll.COMPRESSION_SGILOG, ll.COMPRESSION_SGILOG24))
     ]
-    assert digest(got) == "ffecfa3abf64675b5b5697b7335af788b9feca8a6e3aa01f074c1edfd4a918a4"
+    assert digest(got) == "693905c8de55fd7a3cf091cb42b06b6f426b8f30c31d6374d5b46e53b03bac3f"
