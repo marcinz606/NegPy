@@ -300,6 +300,14 @@ def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = Fal
     return btn
 
 
+def name_labeled_button(btn: QPushButton, text: str, sheet: str, named: bool) -> None:
+    """A labeled button with its text and look, or with its icon alone where the bar has no room."""
+    btn.setText(text if named else "")
+    btn.setStyleSheet(sheet if named else tool_toggle_qss(icon_only=True))
+    # A narrow bar lays out at minimum widths, which would cut a name down to the icon.
+    btn.setMinimumWidth(btn.sizeHint().width())
+
+
 def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
     """Icon-only button, sized to sit flush beside toggles and text buttons.
 
