@@ -563,7 +563,7 @@ NegPy는 필름 스캔을 포지티브 이미지로 만드는 가상 암실입�
 
 **Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1, 7600i v2를 지원합니다. 다른 기종은 SANE을 써 보세요. Windows에서는 먼저 USB 드라이버를 설정하세요([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: SANE이 필요 없습니다. Linux의 USB에는 공급업체 `04b0`용 udev 규칙이 필요합니다.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ## 필름 및 품질
 
 - **필름**: 컬러 네거티브, 흑백 네거티브, 슬라이드, 코다크롬. 프레임 감지, 측광, 적외선 사용 여부를 정합니다.

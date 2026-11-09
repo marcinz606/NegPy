@@ -559,7 +559,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 
 **Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.

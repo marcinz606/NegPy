@@ -87,6 +87,8 @@ class ScannerCapabilities:
     superfine: bool = False  # one line per pass, slower, owes the host no registration
     #: One metered exposure can be reused for every later scan (`ScanParams.exposures`).
     exposure_lock: bool = False
+    #: The metered exposure can be scaled per channel before the pass (`ScanParams.analog_gain_ev`).
+    analog_gain: bool = False
 
     def multi_exposure_at(self, dpi: int) -> bool:
         return self.multi_exposure and (not self.multi_exposure_dpi or int(dpi) in self.multi_exposure_dpi)

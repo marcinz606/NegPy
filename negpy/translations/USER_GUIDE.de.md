@@ -559,7 +559,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 
 **Plustek**: Der OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 und 7600i v2 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ### Film & Qualität
 
 *   **Film**: Farbnegativ, S/W-Negativ, Dia oder Kodachrome. Er bestimmt die Bilderkennung, die Messung und ob Infrarot angeboten wird.

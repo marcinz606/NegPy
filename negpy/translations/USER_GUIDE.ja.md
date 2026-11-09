@@ -563,7 +563,7 @@ NegPy は、フィルムスキャンをポジ画像に仕上げる仮想暗室�
 
 **Plustek**：OpticFilm 8200i SE、8100 V2、8300i SE、7600i v1、7600i v2 が使えます。他の機種は SANE を試してください。Windows では先に USB ドライバーを設定します（[PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)）。**Coolscan**：SANE は不要です。Linux の USB ではベンダー `04b0` の udev ルールが必要です。
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ## フィルムと品質
 
 - **フィルム**：カラーネガ、白黒ネガ、スライド、コダクローム。フレームの検出、測光、赤外線を使えるかどうかが決まります。

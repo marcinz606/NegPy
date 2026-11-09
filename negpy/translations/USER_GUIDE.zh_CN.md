@@ -563,7 +563,7 @@ NegPy 通过虚拟暗房将胶片扫描制作为正像。源图像保持原样�
 
 **Plustek**：支持 OpticFilm 8200i SE、8100 V2、8300i SE、7600i v1 和 7600i v2；其他型号可试用 SANE。在 Windows 上请先设置 USB 驱动（[PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)）。**Coolscan**：不需要 SANE。在 Linux 上 USB 需要为厂商 `04b0` 添加 udev 规则。
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ## 胶片与质量
 
 - **胶片**：彩色负片、黑白负片、反转片或柯达克罗姆。它决定画幅检测、测光以及是否提供红外。
