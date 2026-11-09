@@ -39,7 +39,7 @@ from negpy.services.export.contact_sheet_layout import MM_PER_INCH, ContactSheet
 from negpy.services.film_edge.geometry import SheetFormat, film_geometry
 from negpy.services.export.contact_sheet_roll import SheetFrame, SheetLook, tile_params, turns_for
 from negpy.services.export.encoders import encode_jpeg
-from negpy.kernel.system.paths import apply_umask_mode
+from negpy.kernel.system.paths import apply_umask_mode, replace_file, safe_unlink
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 
@@ -489,14 +489,13 @@ class ExportWorker(QObject):
                 tmp_path = tmp.name
                 tmp.write(bits)
             apply_umask_mode(tmp_path)
-            os.replace(tmp_path, path)
+            replace_file(tmp_path, path)
             # The write above stamps the filesystem dates with the export time; the EXIF
             # dates are already right. Tools that sort by file date read the former.
             sync_export_filesystem_dates(path, task.file_info["path"])
             timing.lap("write")
         except Exception as write_err:
-            if tmp_path is not None and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            safe_unlink(tmp_path)
             return str(write_err)
         return None
 
@@ -620,7 +619,7 @@ class ExportWorker(QObject):
 
             for part, path in zip(parts, paths):
                 apply_umask_mode(part)
-                os.replace(part, path)
+                replace_file(part, path)
             parts.clear()
             self.contact_sheet_written.emit(job.out_dir)
             self.finished.emit()
@@ -629,9 +628,6 @@ class ExportWorker(QObject):
             self.finished.emit()
         finally:
             for part in parts:
-                try:
-                    os.unlink(part)
-                except OSError:
-                    pass
+                safe_unlink(part)
             # Release GPU resources once per batch, not per tile (avoids pool rebuild each frame).
             self._processor.cleanup()
