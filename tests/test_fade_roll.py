@@ -94,6 +94,30 @@ def test_pick_crossover_needs_two_frames_with_a_table():
     assert pick_crossover([("a", grid, zero, None), ("b", grid, zero, None)]) is None
 
 
+def test_the_roll_remembers_which_frame_its_table_came_from():
+    from negpy.services.assets import rolls
+
+    class Repo:
+        def __init__(self):
+            self.store = {}
+
+        def get_global_setting(self, key, default=None):
+            return self.store.get(key, default)
+
+        read_global_setting = get_global_setting
+
+        def save_global_setting(self, key, value):
+            self.store[key] = value
+
+    repo = Repo()
+    rolls._write(repo, {"r1": {"defaults": {}}})
+    table = _table(-0.6, [(-0.5, 0.05, 0.0, 0.0, 0.0), (-0.7, 0.05, 0.0, 0.0, 0.0)])
+    rolls.set_roll_crossover_source(repo, "r1", "Image (7).tif", table)
+    assert rolls.roll_crossover_source(repo, "r1", table) == "Image (7).tif"
+    assert rolls.roll_crossover_source(repo, "r1", tuple(v + 0.1 for v in table)) == ""
+    assert rolls.roll_crossover_source(repo, "unknown", table) == ""
+
+
 def _roll_worker(grids):
     """A worker whose frames read as *grids* (name -> Estimate grid, None for an unreadable frame)."""
     from negpy.desktop.workers.fade_roll import FadeRollTask, FadeRollWorker

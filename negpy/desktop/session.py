@@ -2265,6 +2265,21 @@ class DesktopSessionManager(QObject):
             self.frames_edited_offscreen.emit(changed)
         return moved
 
+    def write_frame_fields(self, assets: list, section: str, changes: dict) -> list[str]:
+        """Writes *changes* into each of *assets*' own edits and settles its roll locks; every other field
+        stays. A frame that follows the roll already shows them and is skipped. Returns the written hashes."""
+        written = []
+        for asset in assets:
+            before = self.config_for_asset(asset)
+            after = replace(before, **{section: replace(getattr(before, section), **changes)})
+            if after == before:
+                continue
+            self.push_external_history(asset["hash"], before, after)
+            self.repo.save_file_settings(asset["hash"], after, file_path=asset["path"])
+            self._lock_diverged_cards(asset, after, before)
+            written.append(asset["hash"])
+        return written
+
     def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
         """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
         history so plain Ctrl+Z recovers it after switching to that frame. Two steps

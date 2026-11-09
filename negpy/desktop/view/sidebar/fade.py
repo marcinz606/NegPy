@@ -6,7 +6,7 @@ from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_action, set_toggle_suggested
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_action, section_subheader, set_toggle_suggested
 from negpy.desktop.view.widgets.fold import rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.fade import RATIO_BOUNDS, RED_SURVIVAL_BOUNDS, estimate_red
@@ -57,6 +57,25 @@ class FadeSidebar(BaseSidebar):
         self.fade_estimate_row.addWidget(self.fade_auto_red_btn)
         self.fade_estimate_row.addWidget(self.fade_white_anchor_btn)
 
+        self.fade_roll_header = section_subheader(tr("ROLL"))
+        self.fade_roll_row = QHBoxLayout()
+        self.estimate_roll_btn = labeled_action(
+            "fa5s.layer-group",
+            tr("Estimate Roll"),
+            tr("Reads every slide on the roll, or the selected ones, and gives every frame one set of fade values."),
+        )
+        self.share_crossover_btn = labeled_action(
+            "fa5s.retweet",
+            tr("Share Crossover"),
+            tr("Gives the crossover of this frame to every frame on the roll: use a frame with clear grays in light and dark areas."),
+        )
+        self.fade_roll_row.addWidget(self.estimate_roll_btn, 1)
+        self.fade_roll_row.addWidget(self.share_crossover_btn, 1)
+        self.fade_roll_result_hint = hint_label("")
+        self.fade_roll_result_hint.setVisible(False)
+        # The last roll result, shown on every frame of that roll: (roll id, text, crossover suggestion, tooltip).
+        self._roll_hint: tuple[Optional[str], str, str, str] = (None, "", "", "")
+
         # The estimate, or which fail-closed condition fired.
         self.fade_estimate_hint = hint_label("")
         self.fade_estimate_hint.setVisible(False)
@@ -97,6 +116,9 @@ class FadeSidebar(BaseSidebar):
             self.fade_neutrals_mix_slider,
             self.fade_crossover_slider,
             self.fade_crossover_hint,
+            self.fade_roll_header,
+            self.fade_roll_row,
+            self.fade_roll_result_hint,
         ):
             if isinstance(item, QHBoxLayout):
                 self.layout.addLayout(item)
@@ -125,6 +147,9 @@ class FadeSidebar(BaseSidebar):
         self.fade_white_anchor_btn.toggled.connect(self._on_fade_white_anchor_toggled)
         self.estimate_fade_btn.clicked.connect(self._on_estimate_fade)
         self.fade_auto_red_btn.toggled.connect(self._on_auto_red_toggled)
+        self.estimate_roll_btn.clicked.connect(self.controller.estimate_fade_roll)
+        self.share_crossover_btn.clicked.connect(self._on_share_crossover)
+        self.controller.fade_roll_hint.connect(self._show_roll_hint)
 
     def _on_fade_ratio_r_changed(self, val: float, persist: bool = True) -> None:
         # A hand Red ends Restore Range, so the toggle never shows on over a value it did not set.
@@ -180,19 +205,50 @@ class FadeSidebar(BaseSidebar):
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_crossover=val / 100.0)
 
     def _sync_crossover(self, conf) -> None:
-        """Crossover acts on a frame with a table; the hint names what the table found, or why the
-        slider is grayed out."""
-        from negpy.features.process.fade import crossover_description
+        """Crossover acts once the survivals do: a frame without a table measures one in the render as
+        Crossover rises. The hint names what the table found, or that Crossover waits on an Estimate."""
+        from negpy.features.process.fade import crossover_description, fade_matrix
 
         self.fade_crossover_slider.setValue(conf.fade_crossover * 100.0)
         table = conf.fade_crossover_table
-        self.fade_crossover_slider.setEnabled(table is not None)
-        self.fade_crossover_hint.setText(
-            tr("Click Estimate to measure the crossover.") if table is None else self._table_source(table) + crossover_description(table)
-        )
+        acts = fade_matrix(conf) is not None
+        self.fade_crossover_slider.setEnabled(table is not None or acts)
+        self.share_crossover_btn.setEnabled(acts and self.state.active_roll_id is not None)
+        if table is not None:
+            text = self._table_source(table) + crossover_description(table)
+        else:
+            text = "" if acts else tr("Click Estimate to measure the crossover.")
+        self.fade_crossover_hint.setText(text)
         self.fade_neutrals_mix_slider.setValue(conf.fade_neutrals_mix * 100.0)
         self.fade_neutrals_mix_slider.setEnabled(self._neutrals_open(conf))
         self.fade_auto_red_btn.setChecked(conf.fade_auto_red)
+
+    def _on_share_crossover(self) -> None:
+        """Measures this frame's own table, whatever table it holds now, at the roll's survivals (its own
+        where the roll has none): every frame that takes the table renders it after those."""
+        from negpy.desktop.workers.chart_fit import fade_estimate_grid
+        from negpy.features.process.fade_estimate import measured_crossover
+
+        conf = self.state.config.process
+        source = self.controller.chart_fit_source()
+        grid = None if source is None else fade_estimate_grid(source)
+        measured = (
+            {}
+            if grid is None
+            else measured_crossover(
+                conf,
+                replace(conf, **self.controller.roll_survivals()),
+                source.cam_xyz,
+                source.camera_wb,
+                grid,
+                self._gray_memo,
+                conf.fade_neutrals_mix,
+            )
+        )
+        if not measured:
+            self._show_fade_hint(tr("No clear grays on this frame to measure the crossover."))
+            return
+        self.controller.share_crossover(measured["fade_crossover_table"], measured["fade_crossover_space"])
 
     def _table_source(self, table) -> str:
         """Which table the frame uses, once its roll holds one, as a lead-in to the hint."""
@@ -201,7 +257,25 @@ class FadeSidebar(BaseSidebar):
         roll_table = self.controller.roll_crossover_table()
         if roll_table is None:
             return ""
-        return (tr("Table from the roll.") if same_value(table, roll_table) else tr("Table from this frame.")) + " "
+        if not same_value(table, roll_table):
+            return tr("Table from this frame.") + " "
+        source = self.controller.roll_crossover_source()
+        return (tr("Table from the roll, measured on {name}.", name=source) if source else tr("Table from the roll.")) + " "
+
+    def _show_roll_hint(self, text: str, suggestion: str, details: str) -> None:
+        self._roll_hint = (self.state.active_roll_id, text, suggestion, details)
+        self._sync_roll_hint()
+
+    def _sync_roll_hint(self) -> None:
+        """The crossover suggestion goes once the roll holds a shared crossover."""
+        roll_id, text, suggestion, details = self._roll_hint
+        here = roll_id is not None and roll_id == self.state.active_roll_id
+        if suggestion and not self.controller.roll_crossover_source():
+            text = f"{text} {suggestion}"
+        shown = text if here else ""
+        self.fade_roll_result_hint.setText(shown)
+        self.fade_roll_result_hint.setToolTip(details if here else "")
+        self.fade_roll_result_hint.setVisible(bool(shown))
 
     def _show_fade_hint(self, text: str, stain: str = "") -> None:
         """The hints belong to the frame they were written on; sync_ui clears them on another frame.
@@ -286,6 +360,7 @@ class FadeSidebar(BaseSidebar):
             self.fade_ratio_b_slider.setValue(conf.fade_ratio_b)
             self.fade_white_anchor_btn.setChecked(conf.fade_white_anchor)
             self._sync_crossover(conf)
+            self._sync_roll_hint()
             if self._fade_hint_hash != self.state.current_file_hash:
                 self.fade_estimate_hint.setText("")
                 self.fade_red_hint.setText("")

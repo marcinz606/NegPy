@@ -124,3 +124,123 @@ def test_an_undone_reset_frames_gives_a_frame_its_card_lock_back(tmp_path, reset
 
     assert "metadata_process" in rolls.frame_override_cards(repo, roll_id, "h2")
     assert session.config_for_asset(session.state.uploaded_files[1]).metadata.developer == "Rodinal"
+
+
+def test_written_frame_fields_leave_the_rest_and_undo_in_one_step(tmp_path):
+    session, repo = _session(tmp_path)
+    own = replace(DEFAULT_WORKSPACE_CONFIG.process, fade_crossover=0.4, fade_crossover_table=(0.1,) * 24)
+    repo.save_file_settings("h2", replace(DEFAULT_WORKSPACE_CONFIG, process=own), file_path="/r/h2.tif")
+    with session.recording_batch("Estimate Roll"):
+        written = session.write_frame_fields(session.state.uploaded_files[1:], "process", {"fade_ratio_g": 0.8})
+
+    assert written == ["h2", "h3"]
+    h2 = repo.load_file_settings("h2").process
+    assert h2.fade_ratio_g == 0.8 and h2.fade_crossover == 0.4 and h2.fade_crossover_table == (0.1,) * 24
+    session.undo_last_batch()
+    assert repo.load_file_settings("h2").process.fade_ratio_g == DEFAULT_WORKSPACE_CONFIG.process.fade_ratio_g
+
+
+def _fade_roll(tmp_path, locked: str):
+    """A controller over a real session: a roll that holds every Fade field at Green 0.9, slides h1
+    (open), h2 and h3, a negative, and *locked* with its own Green 0.7."""
+    from unittest.mock import patch
+
+    from negpy.desktop.controller import AppController
+    from negpy.features.process.models import ProcessMode
+    from negpy.services.assets import rolls
+
+    session, repo = _session(tmp_path)
+    state = session.state
+    state.uploaded_files.append({"name": "neg.tif", "path": "/r/neg.tif", "hash": "neg"})
+    slide = replace(DEFAULT_WORKSPACE_CONFIG, process=replace(DEFAULT_WORKSPACE_CONFIG.process, process_mode=ProcessMode.E6))
+    roll_id = rolls.create_virtual_roll(repo, "Slides", [f["path"] for f in state.uploaded_files])
+    state.active_roll_id = roll_id
+    rolls.set_roll_defaults(repo, roll_id, **{n: getattr(replace(slide.process, fade_ratio_g=0.9), n) for n in rolls.card_fields("fade")})
+    own = replace(slide, process=replace(slide.process, fade_ratio_g=0.7))
+    for f in state.uploaded_files:
+        config = DEFAULT_WORKSPACE_CONFIG if f["hash"] == "neg" else own if f["hash"] == locked else slide
+        repo.save_file_settings(f["hash"], config, file_path=f["path"])
+    rolls.set_frame_override(repo, roll_id, locked, "fade", True)
+    state.selected_indices = [0]
+    state.config = session.config_for_asset(state.uploaded_files[0])
+    with patch("negpy.desktop.controller.RenderWorker"), patch("negpy.desktop.controller.PreviewManager"):
+        controller = AppController(session)
+    return controller, session, repo, roll_id
+
+
+def _stop(controller) -> None:
+    import gc
+
+    for name in ("render", "export", "thumb", "norm", "discovery", "preview_load", "prefetch_load", "scan"):
+        thread = getattr(controller, f"{name}_thread")
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait()
+    del controller
+    gc.collect()
+
+
+_ROLL_ESTIMATE = dict(
+    fade_ratio_r=1.0, fade_ratio_g=0.8, fade_ratio_b=1.0, fade_density_shift=0.0, fade_auto_red=False, fade_white_anchor=False
+)
+
+
+def test_undoing_estimate_roll_gives_a_frame_its_own_fade_and_lock_back(tmp_path):
+    from negpy.services.assets import rolls
+
+    controller, session, repo, roll_id = _fade_roll(tmp_path, locked="h2")
+    try:
+        h2, h3 = session.state.uploaded_files[1:3]
+        hints = []
+        controller.fade_roll_hint.connect(lambda *args: hints.append(args[0]))
+
+        controller._apply_fade_roll(dict(_ROLL_ESTIMATE), "Estimated from 3 of 3 slides.")
+        assert session.config_for_asset(h2).process.fade_ratio_g == 0.8
+        assert session.config_for_asset(h3).process.fade_ratio_g == 0.8
+        assert repo.load_file_settings("neg") == DEFAULT_WORKSPACE_CONFIG
+
+        controller.undo_last_batch()
+
+        assert rolls.frame_override_cards(repo, roll_id, "h2") == {"fade"}
+        assert session.config_for_asset(h2).process.fade_ratio_g == 0.7
+        assert session.config_for_asset(h3).process.fade_ratio_g == 0.9
+        assert session.state.config.process.fade_ratio_g == 0.9
+        assert hints == ["Estimated from 3 of 3 slides.", ""]
+    finally:
+        _stop(controller)
+
+
+def test_undoing_estimate_roll_gives_the_open_frame_its_own_fade_and_lock_back(tmp_path):
+    from negpy.services.assets import rolls
+
+    controller, session, repo, roll_id = _fade_roll(tmp_path, locked="h1")
+    try:
+        controller._apply_fade_roll(dict(_ROLL_ESTIMATE), "")
+        assert session.state.config.process.fade_ratio_g == 0.8
+
+        controller.undo_last_batch()
+
+        assert rolls.frame_override_cards(repo, roll_id, "h1") == {"fade"}
+        assert session.state.config.process.fade_ratio_g == 0.7
+        assert session.config_for_asset(session.state.uploaded_files[0]).process.fade_ratio_g == 0.7
+    finally:
+        _stop(controller)
+
+
+def test_undoing_share_crossover_gives_the_open_frame_its_lock_back(tmp_path):
+    from negpy.services.assets import rolls
+
+    controller, session, repo, roll_id = _fade_roll(tmp_path, locked="h1")
+    try:
+        rolls.set_roll_defaults(repo, roll_id, fade_ratio_g=0.7)
+        table = tuple(0.01 * i for i in range(16))
+        controller.share_crossover(table, "space")
+        assert tuple(rolls.roll_defaults(repo, roll_id)["fade_crossover_table"]) == table
+        assert rolls.frame_override_cards(repo, roll_id, "h1") == set()
+
+        controller.undo_last_batch()
+
+        assert rolls.roll_defaults(repo, roll_id).get("fade_crossover_table") is None
+        assert rolls.frame_override_cards(repo, roll_id, "h1") == {"fade"}
+    finally:
+        _stop(controller)
