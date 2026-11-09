@@ -570,6 +570,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Infrarot**: **IR** scannt einen Infrarotkanal für die Staubentfernung auf der Karte Retusche. **ICE** (Coolscan) entfernt den Staub stattdessen im Scanner. Ein Scanner ohne ICE zeigt nur einen **IR**-Schalter. Nicht für S/W oder Kodachrome.
 *   **Superfine** (Coolscan): scannt eine Zeile pro Durchgang. Langsamer.
 *   **Autofokus**, **Auto-Belichtung** und **Belichtung**: Fokus und Belichtung am Scanner, vor dem Scan.
+*   **Analoge Verstärkung** (Coolscan): mehr oder weniger Scanner-Belichtung als die gemessene, in Blenden. Der Pfeil öffnet **Rot**, **Grün** und **Blau**, einen Regler pro Kanal.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Bildausschnitt

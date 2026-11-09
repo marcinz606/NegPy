@@ -570,6 +570,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
 *   **Autofokus**, **Autoeksponering** og **Eksponering**: fokus og eksponering på skanneren, før skanningen.
+*   **Analog forsterkning** (Coolscan): mer eller mindre skannereksponering enn den målte, i blendertrinn. Pilen åpner **Rød**, **Grønn** og **Blå**, én per kanal.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Innramming
