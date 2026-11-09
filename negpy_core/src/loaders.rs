@@ -204,6 +204,74 @@ pub fn into_gamut(src: &[f32], y: &[f32], dst: &mut [f32]) {
         });
 }
 
+/// One scanline of an SGI LogLuv32 RLE strip from `pos`: four byte planes, high byte first,
+/// each in packets (`c >= 128`: a run of `c - 126` copies of the next byte; else `c` literal
+/// bytes). Truncated data leaves the rest of the scanline 0. Returns where the next one starts.
+/// Without `row` it only walks the packets of a scanline of `n` pixels.
+fn sgilog_scanline(src: &[u8], mut pos: usize, n: usize, mut row: Option<&mut [u32]>) -> usize {
+    for shift in [24, 16, 8, 0] {
+        let mut i = 0;
+        while i < n && pos < src.len() {
+            let cnt = src[pos] as usize;
+            if cnt >= 128 {
+                let Some(&b) = src.get(pos + 1) else { break };
+                let seg = (cnt - 126).min(n - i);
+                if let Some(r) = row.as_deref_mut() {
+                    let v = (b as u32) << shift;
+                    r[i..i + seg].iter_mut().for_each(|p| *p |= v);
+                }
+                pos += 2;
+                i += seg;
+            } else {
+                pos += 1;
+                let seg = cnt.min(n - i).min(src.len() - pos);
+                if let Some(r) = row.as_deref_mut() {
+                    for (p, &b) in r[i..i + seg].iter_mut().zip(&src[pos..pos + seg]) {
+                        *p |= (b as u32) << shift;
+                    }
+                }
+                pos += seg;
+                i += seg;
+            }
+        }
+    }
+    pos
+}
+
+/// An SGI LogLuv32 RLE strip into `dst`, one scanline of `width` pixels after another (the
+/// last one may be shorter). `width` is not 0. A first pass finds where each scanline starts,
+/// so the scanlines decode in parallel.
+pub fn decode_sgilog32(src: &[u8], width: usize, dst: &mut [u32]) {
+    let mut starts = Vec::with_capacity(dst.len().div_ceil(width));
+    let mut pos = 0;
+    for row in dst.chunks(width) {
+        starts.push(pos);
+        pos = sgilog_scanline(src, pos, row.len(), None);
+    }
+    dst.par_chunks_mut(width)
+        .zip(starts)
+        .for_each(move |(row, pos)| {
+            row.fill(0);
+            sgilog_scanline(src, pos, row.len(), Some(row));
+        });
+}
+
+/// LogLuv pixels to CIE XYZ through per-code tables: luminance `y[(p >> shift) & (len - 1)]`,
+/// then X and Z as that luminance times `x[k]` and `z[k]` for `k = p & (len - 1)`. A pixel
+/// whose luminance is not above 0 is black. Both table lengths are powers of two.
+pub fn logluv_to_xyz(src: &[u32], y: &[f64], shift: u32, x: &[f64], z: &[f64], dst: &mut [f64]) {
+    let (ly, lc) = (y.len() - 1, x.len() - 1);
+    crate::par_zip(dst.as_chunks_mut::<3>().0, src, move |d, &p| {
+        let l = y[(p >> shift) as usize & ly];
+        let k = p as usize & lc;
+        *d = if l > 0.0 {
+            [x[k] * l, l, z[k] * l]
+        } else {
+            [0.0; 3]
+        };
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

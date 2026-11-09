@@ -1,5 +1,5 @@
 use numpy::{
-    PyArray2, PyArray3, PyArrayDyn, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
+    PyArray1, PyArray2, PyArray3, PyArrayDyn, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
     PyReadonlyArrayDyn, PyUntypedArrayMethods,
 };
 use pyo3::exceptions::PyValueError;
@@ -241,10 +241,67 @@ fn into_gamut<'py>(
     Ok(out)
 }
 
+/// An SGI LogLuv32 RLE strip of `npixels` pixels in scanlines of `width` as uint32 pixels.
+#[pyfunction]
+fn decode_sgilog32<'py>(
+    py: Python<'py>,
+    strip: &[u8],
+    npixels: usize,
+    width: usize,
+) -> PyResult<Bound<'py, PyArray1<u32>>> {
+    if width == 0 {
+        return Err(PyValueError::new_err("needs a scanline width above 0"));
+    }
+    let out = PyArray1::<u32>::zeros(py, npixels, false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, npixels, || loaders::decode_sgilog32(strip, width, dst));
+    }
+    Ok(out)
+}
+
+/// LogLuv uint32 pixels (any shape) to XYZ float64 (..., 3) through per-code tables; see
+/// `loaders::logluv_to_xyz`.
+#[pyfunction]
+fn logluv_to_xyz<'py>(
+    py: Python<'py>,
+    packed: PyReadonlyArrayDyn<'py, u32>,
+    y: PyReadonlyArray1<'py, f64>,
+    shift: u32,
+    x: PyReadonlyArray1<'py, f64>,
+    z: PyReadonlyArray1<'py, f64>,
+) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
+    let (Ok(src), Ok(y), Ok(x), Ok(z)) =
+        (packed.as_slice(), y.as_slice(), x.as_slice(), z.as_slice())
+    else {
+        return Err(PyValueError::new_err("needs contiguous arrays"));
+    };
+    if !y.len().is_power_of_two() || !x.len().is_power_of_two() || x.len() != z.len() || shift > 31
+    {
+        return Err(PyValueError::new_err(
+            "needs power-of-two tables and a shift below 32",
+        ));
+    }
+    let mut shape = packed.shape().to_vec();
+    shape.push(3);
+    let out = PyArrayDyn::<f64>::zeros(py, shape, false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, dst.len(), || {
+            loaders::logluv_to_xyz(src, y, shift, x, z, dst)
+        });
+    }
+    Ok(out)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_rgb_ir, m)?)?;
     m.add_function(wrap_pyfunction!(levels_to_unit, m)?)?;
     m.add_function(wrap_pyfunction!(decode_curves, m)?)?;
     m.add_function(wrap_pyfunction!(into_gamut, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_sgilog32, m)?)?;
+    m.add_function(wrap_pyfunction!(logluv_to_xyz, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_linear, m)?)
 }

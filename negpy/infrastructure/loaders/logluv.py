@@ -8,6 +8,7 @@
 # (UVSCALE, U_NEU, V_NEU, uv_row table) are from the published LogLuv spec and libtiff's
 # uvcode.h (Greg Ward, v1.0).
 
+import functools
 from typing import Tuple
 
 import negpy_core
@@ -33,64 +34,32 @@ def _logl16_to_y(ptop: np.ndarray) -> np.ndarray:
     return y
 
 
-def logluv32_to_xyz(packed: np.ndarray) -> np.ndarray:
-    """LogLuv32 uint32 → XYZ float64 (..., 3)."""
-    p = np.asarray(packed, dtype=np.uint32)
-    out = np.empty(p.shape + (3,), dtype=np.float64)
-    top = p.view(np.int32) >> 16
-    L = _logl16_to_y(top)
-    u = ((p >> 8) & 0xFF).astype(np.float64) + 0.5
-    v = (p & 0xFF).astype(np.float64) + 0.5
-    u = u / _UVSCALE
-    v = v / _UVSCALE
+def _chroma(u: np.ndarray, v: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """(u', v') → the X/Y and Z/Y ratios."""
     s = 1.0 / (6.0 * u - 16.0 * v + 12.0)
     x = 9.0 * u * s
     yv = 4.0 * v * s
-    out[..., 0] = x / yv * L
-    out[..., 1] = L
-    out[..., 2] = (1.0 - x - yv) / yv * L
-    ok = L > 0.0
-    out[~ok] = 0.0
-    return out
+    return x / yv, (1.0 - x - yv) / yv
+
+
+# Per-code tables built with NumPy give each pixel the bits of NumPy's exp on that CPU.
+@functools.cache
+def _logluv32_tables() -> tuple:
+    code = np.arange(1 << 16)
+    u = ((code >> 8) & 0xFF).astype(np.float64) + 0.5
+    v = (code & 0xFF).astype(np.float64) + 0.5
+    return _logl16_to_y(code), 16, *_chroma(u / _UVSCALE, v / _UVSCALE)
+
+
+def logluv32_to_xyz(packed: np.ndarray) -> np.ndarray:
+    """LogLuv32 uint32 → XYZ float64 (..., 3)."""
+    return negpy_core.logluv_to_xyz(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv32_tables())
 
 
 def decode_strip_logluv32(compressed: bytes, npixels: int, width: int | None = None) -> np.ndarray:
-    """Decode a LogLuv32 RLE strip → npixels uint32 values. libtiff codes each scanline on its own: four byte-planes
-    (shifts 24,16,8,0), each run-length coded (runs ≥128 count+value, else literals). *width* is the scanline length;
-    None reads the strip as one scanline."""
-    buf = np.frombuffer(compressed, dtype=np.uint8)
-    width = npixels if not width else width
-    pixels = np.zeros(npixels, dtype=np.uint32)
-    pos = 0
-    for start in range(0, npixels, width):
-        pos = _decode_scanline(buf, pos, pixels[start : start + width])
-    return pixels
-
-
-def _decode_scanline(buf: np.ndarray, pos: int, pixels: np.ndarray) -> int:
-    """Fill *pixels* from the scanline at *pos*; returns where the next one starts."""
-    n = buf.shape[0]
-    npixels = pixels.shape[0]
-    for shft in (24, 16, 8, 0):
-        i = 0
-        while i < npixels and pos < n:
-            cnt = buf[pos]
-            if cnt >= 128:
-                if pos + 1 >= n:
-                    break
-                rc = int(cnt) - 126
-                val = np.uint32(buf[pos + 1]) << shft
-                pos += 2
-                seg = min(rc, npixels - i)
-                pixels[i : i + seg] |= val
-                i += seg
-            else:
-                pos += 1
-                seg = min(int(cnt), npixels - i, n - pos)
-                pixels[i : i + seg] |= buf[pos : pos + seg].astype(np.uint32) << shft
-                pos += seg
-                i += seg
-    return pos
+    """Decode a LogLuv32 RLE strip → npixels uint32 values. libtiff codes each scanline on its own;
+    *width* is the scanline length; None reads the strip as one scanline."""
+    return negpy_core.decode_sgilog32(compressed, npixels, width or npixels or 1)
 
 
 # LogLuv24: 10-bit log luminance + 14-bit uv index (libtiff uvcode.h table)
@@ -290,23 +259,14 @@ def _uv_decode_index(ce: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return u, v
 
 
+@functools.cache
+def _logluv24_tables() -> tuple:
+    return _logl10_to_y(np.arange(1 << 10)), 14, *_chroma(*_uv_decode_index(np.arange(1 << 14)))
+
+
 def logluv24_to_xyz(packed: np.ndarray) -> np.ndarray:
     """LogLuv24 uint32 (24-bit in low bits) → XYZ float64 (..., 3)."""
-    p = np.asarray(packed, dtype=np.uint32)
-    le10 = (p >> 14) & 0x3FF
-    ce = p & 0x3FFF
-    L = _logl10_to_y(le10)
-    u, v = _uv_decode_index(ce)
-    s = 1.0 / (6.0 * u - 16.0 * v + 12.0)
-    x = 9.0 * u * s
-    yv = 4.0 * v * s
-    out = np.empty(p.shape + (3,), dtype=np.float64)
-    out[..., 0] = x / yv * L
-    out[..., 1] = L
-    out[..., 2] = (1.0 - x - yv) / yv * L
-    ok = L > 0.0
-    out[~ok] = 0.0
-    return out
+    return negpy_core.logluv_to_xyz(np.ascontiguousarray(packed, dtype=np.uint32), *_logluv24_tables())
 
 
 # XYZ to linear sRGB (Rec.709/sRGB primaries, D65): libtiff's XYZtoRGB24 matrix
