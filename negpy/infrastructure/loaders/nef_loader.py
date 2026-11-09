@@ -14,7 +14,7 @@ from negpy.infrastructure.loaders.helpers import (
     fit_bounded_preview,
     read_orientation,
 )
-from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
+from negpy.kernel.image.logic import uint8_to_float32
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -104,16 +104,15 @@ class NefLoader(IImageLoader):
         elif arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=-1)
 
-        if arr.dtype == np.uint8:
-            f32 = uint8_to_float32(np.ascontiguousarray(arr))
-        elif arr.dtype == np.uint16:
-            f32 = uint16_to_float32(np.ascontiguousarray(arr))
-        else:
-            f32 = np.clip(arr.astype(np.float32), 0, 1)
-
         metadata = {
             "orientation": read_orientation(file_path),
         }
+        if arr.dtype == np.uint16:
+            return NonStandardFileWrapper(source_u16=np.ascontiguousarray(arr)), metadata
+        if arr.dtype == np.uint8:
+            f32 = uint8_to_float32(np.ascontiguousarray(arr))
+        else:
+            f32 = np.clip(arr.astype(np.float32), 0, 1)
         return NonStandardFileWrapper(f32), metadata
 
     def load_bounded_preview(
