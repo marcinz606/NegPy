@@ -4,6 +4,7 @@ The stored value is an offset on the meter; the slider shows meter + offset, and
 converts back. A toggle flips only the flag.
 """
 
+from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from negpy.features.exposure.logic import (
@@ -72,18 +73,19 @@ def print_shown_values(exposure: ExposureConfig, process_mode: Optional[str], me
 def print_stored_value(
     exposure: ExposureConfig, process_mode: Optional[str], metrics: Mapping[str, Any], field: str, shown: float
 ) -> float:
-    """Inverse of print_shown_values for one field. Where Shadow Reach floors the slope,
-    a softer grade is stored but does not print."""
+    """Inverse of print_shown_values for one field."""
     if field == "density":
         shift = _density_shift(exposure, process_mode, metrics)
         return shown if shift is None else shown + shift
     if field == "grade":
-        if _auto_slope(exposure, process_mode, metrics) is None:
+        at_neutral = _auto_slope(replace(exposure, grade=NEUTRAL["grade"]), process_mode, metrics)
+        if at_neutral is None:
             return shown
         lum_range = metrics["norm_density_range"]
         r_eff = effective_grade_range(True, lum_range, metrics["textural_range"])
         gain = slope_gain(_paper(exposure, process_mode)[0])
-        return slope_to_grade(grade_to_slope(shown, lum_range, gain), r_eff, gain)
+        scale = grade_to_slope(NEUTRAL["grade"], r_eff, gain) / at_neutral
+        return slope_to_grade(grade_to_slope(shown, lum_range, gain) * scale, r_eff, gain)
     if field == "highlight_density" and exposure.auto_normalize_contrast and metrics.get("highlight_point") is not None:
         return shown - auto_highlight_from_metrics(exposure, process_mode, metrics)
     if field == "shadow_density" and exposure.auto_normalize_contrast and metrics.get("shadow_point") is not None:

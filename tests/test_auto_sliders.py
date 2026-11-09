@@ -93,6 +93,16 @@ def test_stored_value_inverts_shown(field):
     assert print_stored_value(exposure, MODE, metrics, field, shown) == pytest.approx(getattr(exposure, field), abs=1e-6)
 
 
+def test_grade_softens_past_the_shadow_reach_floor():
+    # A flat negative: Shadow Reach floors the neutral grade near the hard end of the slider.
+    metrics = _metrics(metered_anchor=0.467, textural_range=0.2, norm_density_range=0.544, shadow_point=0.84, highlight_point=0.156)
+    exposure = ExposureConfig()
+    neutral = print_shown_values(exposure, MODE, metrics)["grade"]
+    target = neutral + 10.0
+    stored = print_stored_value(exposure, MODE, metrics, "grade", target)
+    assert print_shown_values(replace(exposure, grade=stored), MODE, metrics)["grade"] == pytest.approx(target, abs=1e-6)
+
+
 def test_off_or_unmetered_autos_show_nothing():
     exposure = ExposureConfig(auto_exposure=False, auto_normalize_contrast=False)
     assert print_shown_values(exposure, MODE, _metrics()) == {}
