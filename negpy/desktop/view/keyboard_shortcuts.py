@@ -541,6 +541,8 @@ class ShortcutManager:
             "measure_chart": lambda: controls.sensor_sidebar.measure_chart_btn.click(),
             "estimate_fade": lambda: controls.fade_sidebar.estimate_fade_btn.click(),
             "fade_auto_red": lambda: controls.fade_sidebar.fade_auto_red_btn.click(),
+            "estimate_fade_roll": lambda: controls.fade_sidebar.estimate_roll_btn.click(),
+            "share_crossover": lambda: controls.fade_sidebar.share_crossover_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
