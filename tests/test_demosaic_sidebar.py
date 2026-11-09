@@ -36,6 +36,7 @@ def _sidebar(preview, export):
         state=SimpleNamespace(config=config, active_roll_id=None, preview_cam_xyz=None, current_file_hash=None),
         session=SimpleNamespace(repo=repo, update_config=lambda *a, **k: None),
         apply_config=lambda cfg, **k: applied.append(cfg),
+        metrics_available=SimpleNamespace(connect=lambda *a: None),
     )
     controller.set_roll_default = lambda card_key, persist=True, readback_metrics=True, **changes: controller.apply_config(
         replace(controller.state.config, process=replace(controller.state.config.process, **changes)),
@@ -173,3 +174,18 @@ def test_the_capture_choice_reaches_the_controller():
     w.linear_raw_btn.setCurrentIndex(w.linear_raw_btn.findData(False))
     _args, kwargs = w.controller.set_roll_default.call_args
     assert kwargs["linear_raw"] is False
+
+
+def test_clip_hint_shows_for_a_clipped_slide_with_recovery_off(monkeypatch) -> None:
+    sidebar, _ = _sidebar("Auto", "Auto")
+    monkeypatch.setattr("negpy.desktop.view.sidebar.demosaic.camera_raw_preview", lambda _state: True)
+    sidebar.state.current_file_hash = "h"
+    sidebar.state.config = replace(
+        sidebar.state.config, process=replace(sidebar.state.config.process, process_mode=ProcessMode.E6, highlight_reconstruction=0)
+    )
+    sidebar.sync_ui()
+    sidebar._on_metrics({"scan_clip_fractions": (0.0, 0.05, 0.0)})
+    assert not sidebar.highlight_clip_hint.isHidden()
+    sidebar.state.config = replace(sidebar.state.config, process=replace(sidebar.state.config.process, highlight_reconstruction=2))
+    sidebar.sync_ui()
+    assert sidebar.highlight_clip_hint.isHidden()

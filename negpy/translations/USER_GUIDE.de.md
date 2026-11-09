@@ -314,14 +314,14 @@ Die Scan-Angaben sind eine Einstellung für die ganze App. Die Liste darunter ze
 
 Eine Kamera zeigt die Karten Raw-Dekodierung und Optik. Eine Kamera mit Schmalbandlicht zeigt auch Trichrom und Kalibrierung. Eine Änderung aktualisiert jedes geöffnete Bild (Ctrl+Z macht sie pro Bild rückgängig), aber ein Papier, das du selbst gewählt hast, bleibt. Ein Kamera-Scan legt Dekodierung und Papier für jedes Bild aus seinem eigenen Licht fest.
 
-<!-- panel:demosaic src:577713a8 -->
+<!-- panel:demosaic src:5627a0ef -->
 ### 10.2 Raw-Dekodierung
 
 Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angezeigt.
 
 *   **Kamera-WB / Lineares RAW**: Kamera-WB nutzt den Weißabgleich der Kamera. Lineares RAW dekodiert neutral, für schmalbandiges Licht. Die Einrichtung stellt es für dich ein.
 *   **Vorschau** / **Export**: die Demosaicing-Methode, die die Farben ergänzt, die ein Sensorpixel nicht sieht. **Auto** ist am Bildschirm schnell und nutzt für den Export **AHD**. **VNG** ist glatt und **PPG** schnell. **DCB** und **DHT** erhalten mehr feine Details, können aber Korn in Muster verwandeln. **AAHD** macht Kanten weicher. Es werden nur die Methoden deines LibRaw-Builds aufgeführt.
-*   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen. Ein neues Bild vom Filmscanner beginnt mit ausgeschalteter Wiederherstellung.
+*   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen. Ein neues Bild vom Filmscanner beginnt mit ausgeschalteter Wiederherstellung. Unter Wiederherstellung erscheint eine Warnung, wenn das Bild ausgefressene Lichter hat, die rosa werden können.
 
 <!-- panel:optics src:33b2d330 -->
 ### 10.3 Optik
