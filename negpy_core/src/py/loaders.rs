@@ -1,5 +1,6 @@
 use numpy::{
-    PyArray2, PyArray3, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArrayMethods,
+    PyArray2, PyArray3, PyArrayDyn, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
+    PyReadonlyArrayDyn, PyUntypedArrayMethods,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -131,8 +132,119 @@ fn levels_to_unit<'py>(
     )
 }
 
+fn curve_rows<'a>(curves: &'a PyReadonlyArray2<'_, f32>) -> PyResult<(&'a [f32], usize)> {
+    let [3, n] = curves.shape()[..] else {
+        return Err(PyValueError::new_err("needs 3 x N curves"));
+    };
+    let rows = curves
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs contiguous curves"))?;
+    Ok((rows, n))
+}
+
+fn decode_int<'py, T: numpy::Element + Copy + Into<usize> + Sync>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, T>,
+    curves: &PyReadonlyArray2<'py, f32>,
+    top: usize,
+) -> PyResult<Bound<'py, PyArray3<f32>>> {
+    let (rows, n) = curve_rows(curves)?;
+    let [h, w, c] = img.shape()[..] else {
+        return Err(PyValueError::new_err("decode_curves needs an HxWxC array"));
+    };
+    if c < 3 || n <= top {
+        return Err(PyValueError::new_err(
+            "needs 3 channels and a curve entry per sample value",
+        ));
+    }
+    let src = img
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs a contiguous array"))?;
+    let out = PyArray3::<f32>::zeros(py, [h, w, 3], false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, dst.len(), || {
+            loaders::decode_curves_int(src, c, rows, n, dst)
+        });
+    }
+    Ok(out)
+}
+
+/// The first three channels of an HxWxC image through three tone curves (3 x N float32):
+/// a lookup for uint8 or uint16 samples, `np.interp` over `grid` for float32 ones.
+#[pyfunction]
+#[pyo3(signature = (img, curves, grid=None))]
+fn decode_curves<'py>(
+    py: Python<'py>,
+    img: &Bound<'py, PyAny>,
+    curves: PyReadonlyArray2<'py, f32>,
+    grid: Option<PyReadonlyArray1<'py, f32>>,
+) -> PyResult<Bound<'py, PyArray3<f32>>> {
+    if let Ok(a) = img.extract::<PyReadonlyArrayDyn<u16>>() {
+        return decode_int(py, a, &curves, u16::MAX as usize);
+    }
+    if let Ok(a) = img.extract::<PyReadonlyArrayDyn<u8>>() {
+        return decode_int(py, a, &curves, u8::MAX as usize);
+    }
+    let img = img.extract::<PyReadonlyArrayDyn<f32>>()?;
+    let (rows, n) = curve_rows(&curves)?;
+    let grid = grid.ok_or_else(|| PyValueError::new_err("float samples need a grid"))?;
+    let grid = grid
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs a contiguous grid"))?;
+    let [h, w, c] = img.shape()[..] else {
+        return Err(PyValueError::new_err("decode_curves needs an HxWxC array"));
+    };
+    if c < 3 || n < 2 || grid.len() != n {
+        return Err(PyValueError::new_err(
+            "needs 3 channels and a grid of the curves' length",
+        ));
+    }
+    let src = img
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs a contiguous array"))?;
+    let out = PyArray3::<f32>::zeros(py, [h, w, 3], false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, dst.len(), || {
+            loaders::decode_curves_f32(src, c, grid, rows, dst)
+        });
+    }
+    Ok(out)
+}
+
+/// `_into_gamut` of an (..., 3) float32 image that is not all in 0..1, given its luminance
+/// `y = rgb @ w` (one float32 per pixel).
+#[pyfunction]
+fn into_gamut<'py>(
+    py: Python<'py>,
+    rgb: PyReadonlyArrayDyn<'py, f32>,
+    y: PyReadonlyArrayDyn<'py, f32>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let (src, y) = match (rgb.as_slice(), y.as_slice()) {
+        (Ok(s), Ok(y)) => (s, y),
+        _ => return Err(PyValueError::new_err("needs contiguous arrays")),
+    };
+    if rgb.shape().last() != Some(&3) || y.len() * 3 != src.len() {
+        return Err(PyValueError::new_err(
+            "needs an (..., 3) image and a luminance per pixel",
+        ));
+    }
+    let out = PyArrayDyn::<f32>::zeros(py, rgb.shape(), false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, dst.len(), || loaders::into_gamut(src, y, dst));
+    }
+    Ok(out)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_rgb_ir, m)?)?;
     m.add_function(wrap_pyfunction!(levels_to_unit, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_curves, m)?)?;
+    m.add_function(wrap_pyfunction!(into_gamut, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_linear, m)?)
 }
