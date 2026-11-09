@@ -707,7 +707,8 @@ class NonStandardFileWrapper:
         if linear16:
             # Float32 in [0, 1], LibRaw's u16 ceiling, so float sources keep their precision. Always a new array.
             gains = [self.wb_gains[0], 1.0, self.wb_gains[2]] if camera_wb and self.wb_gains is not None else None
-            data = np.ascontiguousarray(data)
+            # A clamp keeps NaN, and NaN in the source poisons the bounds percentiles.
+            data = negpy_core.nan_to_num(np.ascontiguousarray(data), 0.0, 1.0, 0.0)
             return negpy_core.scale_clip_unit(data, gains) if gains is not None else negpy_core.clip01(data)
 
         if kwargs.get("use_camera_wb") and self.wb_gains is not None:

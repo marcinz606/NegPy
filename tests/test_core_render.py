@@ -71,6 +71,8 @@ def test_wrapper_linear16_postprocess_is_the_clipped_float():
         for half in (False, True):
             src = data[::2, ::2] if half else data
             got = wrapper.postprocess(gamma=(1, 1), output_bps=16, use_camera_wb=wb, half_size=half)
-            want = np.clip(src * np.array(gains, np.float32) if wb else src, 0, 1)
+            finite = np.nan_to_num(src, nan=0.0, posinf=1.0, neginf=0.0)
+            want = np.clip(finite * np.array(gains, np.float32) if wb else finite, 0, 1)
+            assert np.isfinite(got).all()
             assert got.dtype == np.float32 and not np.shares_memory(got, data)
             np.testing.assert_array_equal(got, want)
