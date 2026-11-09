@@ -217,6 +217,40 @@ pub fn scale_clip_unit(src: &[f32], gains: &[f32], dst: &mut [f32]) {
         });
 }
 
+/// `(src * 65535.0).astype(np.uint16)` into `dst`, after `np.clip(src * gains, 0, 1)` when
+/// `gains` holds one gain per channel. The cast follows x86 `cvttss2si`, as NumPy does there:
+/// the integer part wraps to 16 bits, and NaN or a value past the int32 range becomes 0.
+pub fn truncate_to_uint16(src: &[f32], gains: Option<&[f32]>, dst: &mut [u16]) {
+    let cn = gains.map_or(1, <[f32]>::len);
+    dst.par_chunks_mut(cn * BLOCK)
+        .zip(src.par_chunks(cn * BLOCK))
+        .for_each(move |(d, s)| match gains {
+            Some(g) => {
+                for (d, s) in d.chunks_exact_mut(cn).zip(s.chunks_exact(cn)) {
+                    for ((d, &v), &g) in d.iter_mut().zip(s).zip(g) {
+                        *d = wrap_u16((v * g).clamp(0.0, 1.0) * 65535.0);
+                    }
+                }
+            }
+            None => {
+                for (d, &v) in d.iter_mut().zip(s) {
+                    *d = wrap_u16(v * 65535.0);
+                }
+            }
+        });
+}
+
+/// The low 16 bits of the integer part of `v`; adding 1.5 * 2^52 puts it, two's complement, in
+/// the low mantissa bits.
+fn wrap_u16(v: f32) -> u16 {
+    let v = v as f64;
+    if v.abs() < 2147483648.0 {
+        (v.trunc() + 6755399441055744.0).to_bits() as u16
+    } else {
+        0
+    }
+}
+
 /// `np.nan_to_num(src, nan=nan, posinf=posinf, neginf=neginf)` into `dst`.
 pub fn nan_to_num(src: &[f32], dst: &mut [f32], (nan, posinf, neginf): (f32, f32, f32)) {
     crate::par_zip(dst, src, move |d, &v| {
@@ -255,6 +289,22 @@ mod tests {
         to_uint(&src, &mut wide);
         assert_eq!(wide[1], 65535);
         assert_eq!(wide[6], 0);
+    }
+
+    #[test]
+    fn wrap_u16_is_the_x86_cast() {
+        for (v, want) in [
+            (-32767.5, 32769),
+            (-0.0, 0),
+            (0.9, 0),
+            (65535.0, 65535),
+            (98302.5, 32766),
+        ] {
+            assert_eq!(wrap_u16(v), want, "{v}");
+        }
+        for v in [f32::NAN, f32::INFINITY, -3.0e9, 3.0e9] {
+            assert_eq!(wrap_u16(v), 0, "{v}");
+        }
     }
 
     #[test]

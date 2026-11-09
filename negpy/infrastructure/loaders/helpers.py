@@ -698,11 +698,15 @@ class NonStandardFileWrapper:
         half_size = kwargs.get("half_size", False)
         gamma = kwargs.get("gamma")
         camera_wb = kwargs.get("use_camera_wb") and self.wb_gains is not None
-        if self._source_u16 is not None and bps == 16 and gamma is not None and tuple(gamma) == (1, 1) and not camera_wb:
+        linear16 = bps == 16 and gamma is not None and tuple(gamma) == (1, 1)
+        if self._source_u16 is not None and linear16 and not camera_wb:
             return np.ascontiguousarray(self._source_u16[::2, ::2] if half_size else self._source_u16)
         data = self.data
         if half_size:
             data = data[::2, ::2]
+        if linear16:
+            gains = [self.wb_gains[0], 1.0, self.wb_gains[2]] if camera_wb and self.wb_gains is not None else None
+            return negpy_core.truncate_to_uint16(np.ascontiguousarray(data), gains)
 
         if kwargs.get("use_camera_wb") and self.wb_gains is not None:
             r, g, b = self.wb_gains

@@ -58,3 +58,43 @@ def test_expand_mask_plane_output_is_pinned():
 
 def test_expand_mask_plane_of_an_empty_roi_is_none():
     assert expand_mask_plane(_img(6, (61, 87)), (300, 400), (100, 100, 0, 10)) is None
+
+
+def _old_postprocess16(data, gains):
+    if gains is not None:
+        data = data.astype(np.float32, copy=True)
+        data[..., 0] *= gains[0]
+        data[..., 2] *= gains[2]
+        data = np.clip(data, 0.0, 1.0)
+    with np.errstate(invalid="ignore"):
+        return (data * 65535.0).astype(np.uint16)
+
+
+def test_truncate_to_uint16_matches_numpy():
+    unit = np.random.default_rng(6).uniform(0.0, 1.0, (97, 131, 3)).astype(np.float32)
+    unit[0, 0] = [0.0, 1.0, np.nextafter(np.float32(1), np.float32(0))]
+    gains = [1.3, 1.0, 0.8]
+    np.testing.assert_array_equal(negpy_core.truncate_to_uint16(unit), _old_postprocess16(unit, None))
+    wide = _img(7)
+    wide[1, 2] = [np.nan, np.inf, -np.inf]
+    np.testing.assert_array_equal(negpy_core.truncate_to_uint16(wide, gains), _old_postprocess16(wide, gains))
+
+
+@linux_pin
+def test_truncate_to_uint16_wraps_out_of_range_like_numpy_on_x86():
+    wide = _img(8)
+    wide[1, 2] = [np.nan, np.inf, -np.inf]
+    wide[3, 4] = [-0.0, 40000.0, -40000.0]
+    np.testing.assert_array_equal(negpy_core.truncate_to_uint16(wide), _old_postprocess16(wide, None))
+
+
+def test_wrapper_linear16_postprocess_matches_numpy():
+    from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+
+    data = np.random.default_rng(9).uniform(0.0, 1.0, (97, 131, 3)).astype(np.float32)
+    wrapper = NonStandardFileWrapper(data, wb_gains=(1.3, 1.0, 0.8))
+    for wb in (False, True):
+        for half in (False, True):
+            src = data[::2, ::2] if half else data
+            got = wrapper.postprocess(gamma=(1, 1), output_bps=16, use_camera_wb=wb, half_size=half)
+            np.testing.assert_array_equal(got, _old_postprocess16(src, wrapper.wb_gains if wb else None))
