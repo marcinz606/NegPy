@@ -533,7 +533,7 @@ def _decode_pakon(file_path: str, expansion: Optional[float] = None) -> tuple[np
         f32 = wrapper.data
     factor = expansion if expansion is not None else _default_pakon_expansion(file_path)
     if factor > 1.0:
-        f32 = np.clip(f32 * factor, 0.0, 1.0)
+        f32 = _expand(f32, factor)
     f32 = apply_exif_orientation(f32, metadata.get("orientation", 0))
     return f32, None
 
@@ -601,7 +601,7 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
     if peeked_4ch is not None:
         rgb, ir = peeked_4ch
         if expansion is not None and expansion > 1.0:
-            rgb = np.clip(rgb * expansion, 0.0, 1.0)
+            rgb = _expand(rgb, expansion)
         orientation = read_orientation(file_path)
         return apply_exif_orientation(rgb, orientation), apply_exif_orientation(ir, orientation)
 
@@ -618,7 +618,7 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
         raise ValueError(f"No LinearRaw IFD found in {file_path}")
     rgb, _wb_gains = peeked_3ch
     if expansion is not None and expansion > 1.0:
-        rgb = np.clip(rgb * expansion, 0.0, 1.0)
+        rgb = _expand(rgb, expansion)
 
     ir = _peek_hdri_ir_page(file_path)
     if ir is not None and ir.shape[:2] != rgb.shape[:2]:

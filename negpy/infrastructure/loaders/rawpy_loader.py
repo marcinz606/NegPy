@@ -358,18 +358,14 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
         if 0 <= oy < h and 0 <= ox < w and cw > 0 and ch > 0 and (cw, ch) != (w, h):
             arr = arr[oy : oy + ch, ox : ox + cw]
 
-    data = np.empty(arr.shape, dtype=np.float32)
-    # Keep float64 arithmetic, but bound temporary storage to one row block.
-    rows = max(1, (8 * 1024 * 1024) // (arr.shape[1] * 3 * 8))
-    for start in range(0, arr.shape[0], rows):
-        block = arr[start : start + rows].astype(np.float64)
-        if lin_table is not None:
-            np.clip(block, 0, len(lin_table) - 1, out=block)
-            block = lin_table[block.astype(np.int64)]
-        np.subtract(block, black3, out=block)
-        np.divide(block, denominator, out=block)
-        np.clip(block, 0.0, 1.0, out=block)
-        data[start : start + rows] = block
+    if arr.dtype not in (np.uint8, np.uint16, np.float32, np.float64):
+        arr = arr.astype(np.float64)
+    data = negpy_core.levels_to_unit(
+        np.ascontiguousarray(arr),
+        black3.tolist(),
+        denominator.tolist(),
+        lut=lin_table.tolist() if lin_table is not None else None,
+    )
 
     wb_gains: Optional[Tuple[float, float, float]] = None
     if len(neutral) >= 3 and all(n > 0 for n in neutral[:3]):
@@ -400,16 +396,9 @@ def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray
     if arr.ndim != 3 or arr.shape[2] != 4:
         return None
 
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    else:
-        scale = 1.0
-    full = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
-    rgb = np.ascontiguousarray(full[:, :, :3])
-    ir = np.ascontiguousarray(full[:, :, 3])
-    return rgb, ir
+    if arr.dtype not in (np.uint8, np.uint16):
+        arr = arr.astype(np.float32)
+    return negpy_core.split_rgb_ir(np.ascontiguousarray(arr))
 
 
 def _peek_hdri_ir_page(file_path: str) -> Optional[np.ndarray]:

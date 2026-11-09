@@ -74,3 +74,61 @@ def test_streamed_linearraw_preview_pin(tmp_path, samples, preserve_ir, want):
         page = tf.pages[0]
         got = rawpy_loader._stream_linearraw_preview(page, page, 100, normalize_tags=False, min_preserve_ir=preserve_ir)
     assert digest(got) == want
+
+
+def _split_rgb_ir_numpy(arr, scale):
+    full = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
+    return np.ascontiguousarray(full[:, :, :3]), np.ascontiguousarray(full[:, :, 3])
+
+
+def _levels_numpy(arr, black, denom, lut):
+    block = arr.astype(np.float64)
+    if lut is not None:
+        np.clip(block, 0, len(lut) - 1, out=block)
+        block = lut[block.astype(np.int64)]
+    return np.clip((block - black) / denom, 0.0, 1.0).astype(np.float32)
+
+
+@pytest.mark.parametrize(
+    "dtype,scale",
+    [(np.uint16, 1.0 / 65535.0), (np.uint8, 1.0 / 255.0), (np.float32, 1.0)],
+)
+def test_split_rgb_ir_matches_numpy(dtype, scale):
+    rng = np.random.default_rng(4)
+    if dtype == np.float32:
+        arr = rng.uniform(-0.5, 1.5, (37, 53, 4)).astype(np.float32)
+    else:
+        arr = rng.integers(0, np.iinfo(dtype).max, (37, 53, 4), endpoint=True, dtype=dtype)
+    rgb, ir = negpy_core.split_rgb_ir(arr)
+    want_rgb, want_ir = _split_rgb_ir_numpy(arr, scale)
+    np.testing.assert_array_equal(rgb, want_rgb)
+    np.testing.assert_array_equal(ir, want_ir)
+
+
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8, np.float32, np.float64])
+@pytest.mark.parametrize("with_lut", [False, True])
+def test_levels_to_unit_matches_numpy(dtype, with_lut):
+    rng = np.random.default_rng(5)
+    if np.issubdtype(dtype, np.integer):
+        arr = rng.integers(0, np.iinfo(dtype).max, (41, 29, 3), endpoint=True, dtype=dtype)
+    else:
+        arr = rng.uniform(-50.0, 70000.0, (41, 29, 3)).astype(dtype)
+    black = np.array([256.0, 300.5, 1.0])
+    denom = np.maximum(np.array([60000.0, 255.0, 1e-9]) - black, 1e-6)
+    lut = np.sqrt(np.arange(4096, dtype=np.float64)) * 977.0 if with_lut else None
+    got = negpy_core.levels_to_unit(arr, black.tolist(), denom.tolist(), lut=None if lut is None else lut.tolist())
+    np.testing.assert_array_equal(got, _levels_numpy(arr, black, denom, lut))
+
+
+@linux_pin
+def test_dng_peek_kernels_pin():
+    rng = np.random.default_rng(6)
+    four = rng.integers(0, 65535, (23, 31, 4), endpoint=True, dtype=np.uint16)
+    three = rng.integers(0, 65535, (23, 31, 3), endpoint=True, dtype=np.uint16)
+    lut = (np.arange(65536, dtype=np.float64) ** 0.8).tolist()
+    got = (
+        negpy_core.split_rgb_ir(four),
+        negpy_core.levels_to_unit(three, [512.0, 600.0, 700.0], [60000.0, 59000.0, 58000.0]),
+        negpy_core.levels_to_unit(three, [512.0, 600.0, 700.0], [7000.0, 6900.0, 6800.0], lut=lut),
+    )
+    assert digest(got) == "fd11d821816f58136a027a1aade4a9213fc589640cc3a64993671f2327d2a8d5"
