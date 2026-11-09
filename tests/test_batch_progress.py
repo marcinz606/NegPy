@@ -94,9 +94,6 @@ def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
             )
         ],
         workspace_color_space="sRGB",
-        override_analysis_buffer=0.0,
-        override_luma_range_clip=0.0,
-        override_color_range_clip=0.0,
     )
     worker.process(task)
 
@@ -134,9 +131,6 @@ def test_normalization_stop_before_the_run_writes_no_baseline() -> None:
         NormalizationTask(
             frames=[NormalizationInput(file_info={"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "a"}, config=WorkspaceConfig())],
             workspace_color_space="sRGB",
-            override_analysis_buffer=0.0,
-            override_luma_range_clip=0.0,
-            override_color_range_clip=0.0,
         )
     )
 

@@ -129,6 +129,27 @@ SOURCE_ENCODING_LABELS = {
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
 
+#: Fade Restoration's fields that reach the pixels, in the engines' cache-key order.
+FADE_RENDER_FIELDS = (
+    "fade_ratio_r",
+    "fade_density_shift",
+    "fade_ratio_g",
+    "fade_ratio_b",
+    "fade_white_anchor",
+    "fade_white_r",
+    "fade_white_g",
+    "fade_white_b",
+    "fade_white_space",
+    "fade_crossover",
+    "fade_crossover_table",
+    "fade_crossover_space",
+)
+#: The fade fields a frame's bounds measurement reads: the crossover table is set from them.
+FADE_METER_FIELDS = tuple(f for f in FADE_RENDER_FIELDS if f not in ("fade_crossover_table", "fade_crossover_space"))
+#: Every field of the Fade Restoration card.
+FADE_CARD_FIELDS = FADE_RENDER_FIELDS + ("fade_auto_red", "fade_neutrals_mix")
+
+
 @dataclass(frozen=True)
 class ProcessConfig:
     """
@@ -146,6 +167,9 @@ class ProcessConfig:
     # baseline lift and the filmic curve. See path.render_path and path.positive_decode.
     positive_source: bool = False
     source_encoding: SourceEncoding = SourceEncoding.AUTO
+    # Render the slide in black and white: B&W reversal film, or a color slide through the
+    # B&W Filter. Slide only, held in __post_init__. See path.is_mono.
+    slide_bw: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
     demosaic_export: DemosaicMode = DemosaicMode.AUTO
@@ -215,22 +239,28 @@ class ProcessConfig:
     # E-6, so a mismatch resolves to identity instead of mixing in the wrong matrix.
     crosstalk_process: str = ProcessMode.C41
 
-    # Fade restoration of faded transparencies, composed with the crosstalk unmix
-    # (`fade.unmix_with_fade`). The ratios describe one slide: green and
-    # blue relative to red, and red's own survival. All three at 1.0 is the identity.
+    # Fade Restoration (`fade.fade_density`; docs/PIPELINE.md has the math). Survivals: red's own,
+    # green and blue relative to red; all 1.0 is the identity. The shift is Restore Range's.
     fade_ratio_r: float = 1.0
+    fade_density_shift: float = 0.0
     fade_ratio_g: float = 1.0
     fade_ratio_b: float = 1.0
-    # Remove Stain (White Anchor): restore density above each channel's own white, (D - w) / a, for a slide whose
-    # clear areas carry a per-channel stain. The whites are log transmittance (<= 0) of the
-    # brightest cells, measured by the Estimate and never per render.
+    # Remove Stain: the whites are log transmittance (<= 0) that Estimate measures.
     fade_white_anchor: bool = False
     fade_white_r: float = 0.0
     fade_white_g: float = 0.0
     fade_white_b: float = 0.0
-    # `fade.fade_white_space` of the decode the whites were measured on, "" for a source with no
-    # camera matrix. A render in another space ignores them.
+    # The decode space the whites were measured in (`fade.fade_white_space`); another space ignores them.
     fade_white_space: str = ""
+    # Crossover share (0 is off) and its table, tagged with `fade.crossover_space`; a render measures
+    # a table only when it is None.
+    fade_crossover: float = 0.0
+    fade_crossover_table: Optional[tuple] = None
+    fade_crossover_space: str = ""
+    # Restore Range: Red Survival and the shift come from `fade_auto_red.auto_red`.
+    fade_auto_red: bool = False
+    # Gray Mix: Estimate's grays from the gray finder (0) to the tone bands (1) (`fade.gray_refs`).
+    fade_neutrals_mix: float = 0.0
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
     # per-setup property calibrated from three bare-light R/G/B exposures
@@ -266,6 +296,8 @@ class ProcessConfig:
         # default, asset dict -- has to land where the panel does.
         if self.positive_source and self.process_mode != ProcessMode.E6:
             object.__setattr__(self, "positive_source", False)
+        if self.slide_bw and self.process_mode != ProcessMode.E6:
+            object.__setattr__(self, "slide_bw", False)
         object.__setattr__(self, "locked_floors", tuple(self.locked_floors))
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))
         object.__setattr__(self, "local_floors", tuple(self.local_floors))
@@ -276,6 +308,8 @@ class ProcessConfig:
             object.__setattr__(self, "crosstalk_matrix", tuple(self.crosstalk_matrix))
         if self.sensor_matrix is not None:
             object.__setattr__(self, "sensor_matrix", tuple(self.sensor_matrix))
+        if self.fade_crossover_table is not None:
+            object.__setattr__(self, "fade_crossover_table", tuple(float(v) for v in self.fade_crossover_table))
         if self.analysis_rect is not None:
             object.__setattr__(self, "analysis_rect", tuple(self.analysis_rect))
         if self.meter_rect is not None:
@@ -333,8 +367,13 @@ def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig"
         auto_exposure=auto_meter_for_mode(mode, exp.auto_exposure),
         auto_normalize_contrast=auto_meter_for_mode(mode, exp.auto_normalize_contrast),
     )
+    slide = mode == ProcessMode.E6
     proc = replace(
-        proc, process_mode=mode, positive_source=proc.positive_source and mode == ProcessMode.E6, **invalidate_local_bounds(proc)
+        proc,
+        process_mode=mode,
+        positive_source=proc.positive_source and slide,
+        slide_bw=proc.slide_bw and slide,
+        **invalidate_local_bounds(proc),
     )
     return replace(config, process=proc, exposure=exp)
 
@@ -347,14 +386,24 @@ def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "Workspace
     return replace(config, process=replace(proc, positive_source=checked, **invalidate_local_bounds(proc)))
 
 
+def with_slide_bw(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig":
+    """*config* with the Slide's B&W set to *checked*. Unchanged outside Slide."""
+    proc = config.process
+    if proc.process_mode != ProcessMode.E6 or proc.slide_bw == checked:
+        return config
+    return replace(config, process=replace(proc, slide_bw=checked))
+
+
 def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
     """*config* with the Film card's fields in *fields* applied through with_process_mode,
-    with_positive_source and with_source_encoding, popping them from *fields* so the caller
+    with_positive_source, with_slide_bw and with_source_encoding, popping them from *fields* so the caller
     overlays only the rest."""
     if "process_mode" in fields:
         config = with_process_mode(config, fields.pop("process_mode"))
     if "positive_source" in fields:
         config = with_positive_source(config, fields.pop("positive_source"))
+    if "slide_bw" in fields:
+        config = with_slide_bw(config, fields.pop("slide_bw"))
     if "source_encoding" in fields:
         config = with_source_encoding(config, fields.pop("source_encoding"))
     return config

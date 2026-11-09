@@ -8,7 +8,7 @@ from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, 
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.lab.logic import NEUTRAL_MASKING
 from negpy.features.lab.models import SharpenMethod
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.path import is_mono
 
 
 class LabSidebar(BaseSidebar):
@@ -171,7 +171,7 @@ class LabSidebar(BaseSidebar):
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab
-        is_bw = self.state.config.process.process_mode == ProcessMode.BW
+        is_bw = is_mono(self.state.config.process)
 
         self.block_signals(True)
         try:

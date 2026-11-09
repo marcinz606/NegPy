@@ -18,6 +18,17 @@ const ADAPTIVE_THRESHOLD_COUNT: f64 = 7.0;
 // Film fills most of a scan under every known holder; on a positive whose bed clips to white, a
 // dark subject can pass every other check on its own geometry.
 const MIN_FILM_BOX_COVERAGE: f64 = 0.25;
+// How far inside the frame, as a fraction of it, a box with fewer than three supported sides may
+// leave an unsupported side. Film that runs off the scan shows two edges and reaches the frame at
+// the other two, so a side further in is where a threshold mask ran out on picture content.
+const MAX_UNSUPPORTED_INSET: f64 = 0.05;
+// How closely, as a fraction of the frame, two parts of one picture match at a shared side. A
+// part's edge past a short side lies at least this far out.
+const PART_EDGE_TOLERANCE: f64 = 0.035;
+// The darkest surround that reads as opaque (a holder mask, a slide mount or a slide's film base),
+// and the median a picture inside it needs.
+const OPAQUE_HOLDER_LUMA: f64 = 0.02;
+const DARK_PICTURE_LUMA: f64 = 0.10;
 pub const SIDE_NAMES: [&str; 4] = ["top", "right", "bottom", "left"];
 pub const CORNER_SIDES: [(&str, [usize; 2]); 4] = [
     ("top_left", [0, 3]),
@@ -742,146 +753,316 @@ pub struct Consensus {
     pub geometry_score: f64,
 }
 
+/// The roi tuple index of each side, in SIDE_NAMES order.
+const SIDE_EDGE: [usize; 4] = [0, 3, 1, 2];
+
+fn roi_edge(roi: &Roi, e: usize) -> f64 {
+    [roi.0, roi.1, roi.2, roi.3][e] as f64
+}
+
+/// Each side's distance from the frame edge as a fraction of the frame, in SIDE_NAMES order.
+fn side_insets(roi: &Roi, h: usize, w: usize) -> [f64; 4] {
+    let (fh, fw) = (h as f64, w as f64);
+    [
+        roi.0 as f64 / fh,
+        (fw - roi.3 as f64) / fw,
+        (fh - roi.1 as f64) / fh,
+        roi.2 as f64 / fw,
+    ]
+}
+
+fn edge_scales(h: usize, w: usize) -> [f64; 4] {
+    [
+        h.max(1) as f64,
+        h.max(1) as f64,
+        w.max(1) as f64,
+        w.max(1) as f64,
+    ]
+}
+
+/// A cluster's members, one per trial: the best candidate per trial, in first-seen trial order.
+fn dedupe_cluster<'a>(cands: &'a [Candidate], raw: &[usize]) -> Vec<&'a Candidate> {
+    let mut keys: Vec<(&str, Option<usize>, &str)> = Vec::new();
+    let mut cluster: Vec<&Candidate> = Vec::new();
+    for &i in raw {
+        let c = &cands[i];
+        let key = (c.source, c.threshold_index, c.polarity);
+        match keys.iter().position(|k| *k == key) {
+            Some(k) => {
+                if (c.boundary_score, c.geometry_score)
+                    > (cluster[k].boundary_score, cluster[k].geometry_score)
+                {
+                    cluster[k] = c;
+                }
+            }
+            None => {
+                keys.push(key);
+                cluster.push(c);
+            }
+        }
+    }
+    cluster
+}
+
+/// The adaptive (polarity, threshold) trials and the structural sources among `members`.
+fn votes(members: &[&Candidate]) -> (Vec<(&'static str, usize)>, Vec<&'static str>) {
+    let mut adaptive: Vec<(&'static str, usize)> = Vec::new();
+    let mut structural: Vec<&'static str> = Vec::new();
+    for c in members {
+        if c.source.starts_with("adaptive-") {
+            if let Some(t) = c.threshold_index
+                && !adaptive.contains(&(c.polarity, t))
+            {
+                adaptive.push((c.polarity, t));
+            }
+        } else if !structural.contains(&c.source) {
+            structural.push(c.source);
+        }
+    }
+    (adaptive, structural)
+}
+
+/// Per roi edge, the edge values and weights of the members that speak for its side.
+type EdgeVotes = [(Vec<f64>, Vec<f64>); 4];
+
+fn edge_votes(members: &[&Candidate], speaks: &[[bool; 4]]) -> EdgeVotes {
+    let weights: Vec<f64> = members
+        .iter()
+        .map(|c| 0.05f64.max(c.boundary_score * c.geometry_score))
+        .collect();
+    std::array::from_fn(|e| {
+        let side = SIDE_EDGE.iter().position(|&x| x == e).unwrap_or(0);
+        let picked: Vec<usize> = (0..members.len()).filter(|&k| speaks[k][side]).collect();
+        (
+            picked
+                .iter()
+                .map(|&k| roi_edge(&members[k].roi, e))
+                .collect(),
+            picked.iter().map(|&k| weights[k]).collect(),
+        )
+    })
+}
+
+/// The weighted-median box of the speaking members, and the sides most of them support.
+fn median_box(members: &[&Candidate], speaks: &[[bool; 4]]) -> Option<(Roi, [bool; 4], EdgeVotes)> {
+    let ev = edge_votes(members, speaks);
+    if ev.iter().any(|(v, _)| v.is_empty()) {
+        return None;
+    }
+    let r: [i64; 4] = std::array::from_fn(|e| py_round(weighted_median(&ev[e].0, &ev[e].1)));
+    // _supported_by_majority: values present in at least half the members that speak.
+    let supported: [bool; 4] = std::array::from_fn(|i| {
+        let speakers: Vec<&&Candidate> = members
+            .iter()
+            .zip(speaks)
+            .filter(|(_, s)| s[i])
+            .map(|(c, _)| c)
+            .collect();
+        let needed = ((0.5 * speakers.len() as f64).ceil() as usize).max(1);
+        speakers.iter().filter(|c| c.sides[i]).count() >= needed
+    });
+    Some(((r[0], r[1], r[2], r[3]), supported, ev))
+}
+
+/// One cluster before any gate.
+struct Scored<'a> {
+    members: Vec<&'a Candidate>,
+    roi: Roi,
+    supported: [bool; 4],
+    insets: [f64; 4],
+}
+
+impl Scored<'_> {
+    fn stops_short(&self, i: usize) -> bool {
+        !self.supported[i] && self.insets[i] > MAX_UNSUPPORTED_INSET
+    }
+
+    /// Whether two boxes are parts of one picture: they match at every side but where one stops
+    /// short, and there the other has an edge further out that is supported or reaches the frame.
+    /// A mask that ran out on a bright sky over dark ground finds the sky, another the ground.
+    fn completes(&self, other: &Scored, h: usize, w: usize) -> bool {
+        let scales = edge_scales(h, w);
+        let mut short = false;
+        // Called where `outer` does not stop short, so its edge is supported or reaches the frame.
+        let covers = |outer: &Scored, inner: &Scored, i: usize| {
+            outer.insets[i] < inner.insets[i] - PART_EDGE_TOLERANCE
+        };
+        for (i, &e) in SIDE_EDGE.iter().enumerate() {
+            let (a, b) = (self.stops_short(i), other.stops_short(i));
+            let ok = match (a, b) {
+                (true, true) => false,
+                (true, false) => covers(other, self, i),
+                (false, true) => covers(self, other, i),
+                (false, false) => {
+                    (roi_edge(&self.roi, e) - roi_edge(&other.roi, e)).abs() / scales[e]
+                        <= PART_EDGE_TOLERANCE
+                }
+            };
+            if !ok {
+                return false;
+            }
+            short |= a || b;
+        }
+        short
+    }
+}
+
+/// The consensus of `members` when it passes every gate. `speaks[k][side]` says whether member k
+/// sets that side's edge.
+fn evaluate(members: &[&Candidate], speaks: &[[bool; 4]], h: usize, w: usize) -> Option<Consensus> {
+    let (adaptive, structural) = votes(members);
+    if adaptive.len() < 3 && !(adaptive.len() >= 2 && structural.len() >= 2) {
+        return None;
+    }
+    let (roi, supported, ev) = median_box(members, speaks)?;
+    if roi.1 <= roi.0 || roi.3 <= roi.2 {
+        return None;
+    }
+    let weights: Vec<f64> = members
+        .iter()
+        .map(|c| 0.05f64.max(c.boundary_score * c.geometry_score))
+        .collect();
+    let scales = edge_scales(h, w);
+    let mads: Vec<f64> = (0..4)
+        .map(|e| {
+            let (values, wts) = &ev[e];
+            let center = weighted_median(values, wts);
+            let dev: Vec<f64> = values
+                .iter()
+                .map(|v| (v - center).abs() / scales[e])
+                .collect();
+            weighted_median(&dev, wts)
+        })
+        .collect();
+    let dispersion = mads.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let stability = clip(1.0 - dispersion / 0.03, 0.0, 1.0);
+    let angles: Vec<f64> = members.iter().map(|c| c.correction_angle).collect();
+    let correction_angle = weighted_median(&angles, &weights);
+    let angle_dev: Vec<f64> = angles
+        .iter()
+        .map(|a| (a - correction_angle).abs())
+        .collect();
+    let angle_stability = clip(1.0 - weighted_median(&angle_dev, &weights) / 3.0, 0.0, 1.0);
+    let geo: Vec<f64> = members.iter().map(|c| c.geometry_score).collect();
+    let geometry_score = clip(
+        0.55 * weighted_median(&geo, &weights) + 0.25 * stability + 0.20 * angle_stability,
+        0.0,
+        1.0,
+    );
+    let bnd: Vec<f64> = members.iter().map(|c| c.boundary_score).collect();
+    let boundary = weighted_median(&bnd, &weights);
+    let support = 1.0f64.min(adaptive.len() as f64 / ADAPTIVE_THRESHOLD_COUNT);
+    let corroboration = 1.0f64.min(structural.len() as f64 / 3.0);
+    let confidence = clip(
+        0.40 * support
+            + 0.25 * stability
+            + 0.20 * boundary
+            + 0.10 * geometry_score
+            + 0.05 * corroboration,
+        0.0,
+        1.0,
+    );
+    if confidence < 0.55 {
+        return None;
+    }
+    let insets = side_insets(&roi, h, w);
+    let stops_short = |i: usize| !supported[i] && insets[i] > MAX_UNSUPPORTED_INSET;
+    if supported.iter().filter(|&&s| s).count() < 3 && (0..4).any(stops_short) {
+        return None;
+    }
+    let needed = ((0.5 * members.len() as f64).ceil() as usize).max(1);
+    let sides: Vec<&'static str> = (0..4)
+        .filter(|&i| supported[i])
+        .map(|i| SIDE_NAMES[i])
+        .collect();
+    let corners: Vec<&'static str> = (0..4)
+        .filter(|&i| members.iter().filter(|c| c.corners[i]).count() >= needed)
+        .map(|i| CORNER_SIDES[i].0)
+        .collect();
+    let mut sources: Vec<&'static str> = EVIDENCE_SOURCE_ORDER
+        .iter()
+        .copied()
+        .filter(|src| members.iter().any(|c| c.source == *src))
+        .collect();
+    let mut rest: Vec<&'static str> = members
+        .iter()
+        .map(|c| c.source)
+        .filter(|src| !sources.contains(src))
+        .collect();
+    rest.sort();
+    rest.dedup();
+    sources.extend(rest);
+    Some(Consensus {
+        roi,
+        correction_angle,
+        confidence,
+        sides,
+        corners,
+        sources,
+        geometry_score,
+    })
+}
+
 /// `_select_consensus_cluster`.
 pub fn select_consensus(cands: &[Candidate], h: usize, w: usize) -> Option<Consensus> {
-    let mut accepted: Vec<Consensus> = Vec::new();
-    for raw in cluster_candidates(cands, h, w) {
-        // _dedupe_cluster: the best candidate per trial, in first-seen trial order.
-        let mut keys: Vec<(&str, Option<usize>, &str)> = Vec::new();
-        let mut cluster: Vec<&Candidate> = Vec::new();
-        for &i in &raw {
-            let c = &cands[i];
-            let key = (c.source, c.threshold_index, c.polarity);
-            match keys.iter().position(|k| *k == key) {
-                Some(k) => {
-                    if (c.boundary_score, c.geometry_score)
-                        > (cluster[k].boundary_score, cluster[k].geometry_score)
-                    {
-                        cluster[k] = c;
-                    }
-                }
-                None => {
-                    keys.push(key);
-                    cluster.push(c);
-                }
-            }
-        }
-        let mut adaptive: Vec<(&str, usize)> = Vec::new();
-        let mut structural: Vec<&str> = Vec::new();
-        for c in &cluster {
-            if c.source.starts_with("adaptive-") {
-                if let Some(t) = c.threshold_index
-                    && !adaptive.contains(&(c.polarity, t))
-                {
-                    adaptive.push((c.polarity, t));
-                }
-            } else if !structural.contains(&c.source) {
-                structural.push(c.source);
-            }
-        }
-        if adaptive.len() < 3 && !(adaptive.len() >= 2 && structural.len() >= 2) {
-            continue;
-        }
-        let weights: Vec<f64> = cluster
-            .iter()
-            .map(|c| 0.05f64.max(c.boundary_score * c.geometry_score))
-            .collect();
-        let edge = |e: usize, c: &Candidate| [c.roi.0, c.roi.1, c.roi.2, c.roi.3][e] as f64;
-        let roi_values: Vec<Vec<f64>> = (0..4)
-            .map(|e| cluster.iter().map(|c| edge(e, c)).collect())
-            .collect();
-        let r: Vec<i64> = roi_values
-            .iter()
-            .map(|v| py_round(weighted_median(v, &weights)))
-            .collect();
-        let roi = (r[0], r[1], r[2], r[3]);
-        if roi.1 <= roi.0 || roi.3 <= roi.2 {
-            continue;
-        }
-        let scales = [
-            h.max(1) as f64,
-            h.max(1) as f64,
-            w.max(1) as f64,
-            w.max(1) as f64,
-        ];
-        let mads: Vec<f64> = (0..4)
-            .map(|e| {
-                let center = weighted_median(&roi_values[e], &weights);
-                let dev: Vec<f64> = roi_values[e]
-                    .iter()
-                    .map(|v| (v - center).abs() / scales[e])
-                    .collect();
-                weighted_median(&dev, &weights)
+    let scored: Vec<Scored> = cluster_candidates(cands, h, w)
+        .iter()
+        .filter_map(|raw| {
+            let members = dedupe_cluster(cands, raw);
+            let (roi, supported, _) = median_box(&members, &vec![[true; 4]; members.len()])?;
+            let insets = side_insets(&roi, h, w);
+            Some(Scored {
+                members,
+                roi,
+                supported,
+                insets,
             })
-            .collect();
-        let dispersion = mads.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let stability = clip(1.0 - dispersion / 0.03, 0.0, 1.0);
-        let angles: Vec<f64> = cluster.iter().map(|c| c.correction_angle).collect();
-        let correction_angle = weighted_median(&angles, &weights);
-        let angle_dev: Vec<f64> = angles
-            .iter()
-            .map(|a| (a - correction_angle).abs())
-            .collect();
-        let angle_stability = clip(1.0 - weighted_median(&angle_dev, &weights) / 3.0, 0.0, 1.0);
-        let geo: Vec<f64> = cluster.iter().map(|c| c.geometry_score).collect();
-        let geometry_score = clip(
-            0.55 * weighted_median(&geo, &weights) + 0.25 * stability + 0.20 * angle_stability,
-            0.0,
-            1.0,
-        );
-        let bnd: Vec<f64> = cluster.iter().map(|c| c.boundary_score).collect();
-        let boundary = weighted_median(&bnd, &weights);
-        let support = 1.0f64.min(adaptive.len() as f64 / ADAPTIVE_THRESHOLD_COUNT);
-        let corroboration = 1.0f64.min(structural.len() as f64 / 3.0);
-        let confidence = clip(
-            0.40 * support
-                + 0.25 * stability
-                + 0.20 * boundary
-                + 0.10 * geometry_score
-                + 0.05 * corroboration,
-            0.0,
-            1.0,
-        );
-        if confidence < 0.55 {
-            continue;
+        })
+        .collect();
+    let mut accepted: Vec<(Vec<usize>, Consensus)> = Vec::new();
+    for (t, s) in scored.iter().enumerate() {
+        if let Some(c) = evaluate(&s.members, &vec![[true; 4]; s.members.len()], h, w) {
+            accepted.push((vec![t], c));
         }
-        // _supported_by_majority: values present in at least half the cluster.
-        let needed = ((0.5 * cluster.len() as f64).ceil() as usize).max(1);
-        let sides: Vec<&'static str> = (0..4)
-            .filter(|&i| cluster.iter().filter(|c| c.sides[i]).count() >= needed)
-            .map(|i| SIDE_NAMES[i])
-            .collect();
-        let corners: Vec<&'static str> = (0..4)
-            .filter(|&i| cluster.iter().filter(|c| c.corners[i]).count() >= needed)
-            .map(|i| CORNER_SIDES[i].0)
-            .collect();
-        let mut sources: Vec<&'static str> = EVIDENCE_SOURCE_ORDER
-            .iter()
-            .copied()
-            .filter(|s| cluster.iter().any(|c| c.source == *s))
-            .collect();
-        let mut rest: Vec<&'static str> = cluster
-            .iter()
-            .map(|c| c.source)
-            .filter(|s| !sources.contains(s))
-            .collect();
-        rest.sort();
-        rest.dedup();
-        sources.extend(rest);
-        accepted.push(Consensus {
-            roi,
-            correction_angle,
-            confidence,
-            sides,
-            corners,
-            sources,
-            geometry_score,
-        });
     }
+    // Two parts of one picture merge. A member speaks for a side it supports or that reaches the
+    // frame, so the short side of one part takes its edge from the other.
+    for a in 0..scored.len() {
+        for b in a + 1..scored.len() {
+            if !scored[a].completes(&scored[b], h, w) {
+                continue;
+            }
+            let members: Vec<&Candidate> = scored[a]
+                .members
+                .iter()
+                .chain(&scored[b].members)
+                .copied()
+                .collect();
+            let speaks: Vec<[bool; 4]> = members
+                .iter()
+                .map(|c| {
+                    let insets = side_insets(&c.roi, h, w);
+                    std::array::from_fn(|i| c.sides[i] || insets[i] <= MAX_UNSUPPORTED_INSET)
+                })
+                .collect();
+            if let Some(c) = evaluate(&members, &speaks, h, w) {
+                accepted.push((vec![a, b], c));
+            }
+        }
+    }
+    let merged: Vec<usize> = accepted
+        .iter()
+        .filter(|(parts, _)| parts.len() > 1)
+        .flat_map(|(parts, _)| parts.iter().copied())
+        .collect();
     // Confidence first; area breaks a tie between inner and outer clusters toward the film.
     let area = |c: &Consensus| (c.roi.1 - c.roi.0) * (c.roi.3 - c.roi.2);
     let mut best: Option<Consensus> = None;
-    for c in accepted {
+    for (parts, c) in accepted {
+        // A part of an accepted merge is a fragment of that picture.
+        if parts.len() == 1 && merged.contains(&parts[0]) {
+            continue;
+        }
         let better = match &best {
             None => true,
             Some(b) => (c.confidence, area(&c)) > (b.confidence, area(b)),
@@ -922,7 +1103,10 @@ pub fn film_surround_is_plausible(lum: &[f32], h: usize, w: usize, roi: &Roi) ->
     // Near-clipping, not only bright: a thin negative's picture clears 0.85, but the bed is the
     // light source at the top of the histogram, where detection_luma anchors it.
     let bed_like = out_med >= 0.85 && out_high >= 0.98;
-    let holder_like = out_med <= 0.30 && out_med <= box_med - 0.15;
+    // A holder mask, a slide mount and a slide's film base read near black on a linear scan, so a
+    // dark picture inside them is held by a smaller gap than the 0.15 a mid-tone surround needs.
+    let holder_like = (out_med <= 0.30 && out_med <= box_med - 0.15)
+        || (out_med <= OPAQUE_HOLDER_LUMA && box_med >= DARK_PICTURE_LUMA);
     bed_like || holder_like
 }
 

@@ -14,7 +14,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.controller import AppController
+from negpy.desktop.controller import AppController, BackgroundBaseline
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.services.rendering.image_processor import ArmedCrop, MeterBox
@@ -1693,7 +1693,12 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+            self.controller.session.repo,
+            roll_id,
+            process_mode=ProcessMode.C41,
+            positive_source=False,
+            slide_bw=False,
+            source_encoding="auto",
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h1", "film", locked=True)
         state = self.mock_session_manager.state
@@ -1701,7 +1706,9 @@ class TestAppController(unittest.TestCase):
         state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
         state.current_file_hash = "h1"
 
-        self.controller.set_roll_default("film", process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto")
+        self.controller.set_roll_default(
+            "film", process_mode=ProcessMode.C41, positive_source=False, slide_bw=False, source_encoding="auto"
+        )
 
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), set())
 
@@ -1727,7 +1734,12 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.C41, positive_source=False, source_encoding="auto"
+            self.controller.session.repo,
+            roll_id,
+            process_mode=ProcessMode.C41,
+            positive_source=False,
+            slide_bw=False,
+            source_encoding="auto",
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state
@@ -1745,7 +1757,7 @@ class TestAppController(unittest.TestCase):
         self._wire_repo_store()
         roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
         rolls.set_roll_defaults(
-            self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True, source_encoding="auto"
+            self.controller.session.repo, roll_id, process_mode=ProcessMode.E6, positive_source=True, slide_bw=False, source_encoding="auto"
         )
         rolls.set_frame_override(self.controller.session.repo, roll_id, "h2", "film", locked=True)
         state = self.mock_session_manager.state
@@ -1815,10 +1827,10 @@ class TestAppController(unittest.TestCase):
         self._record_batches()
         self.controller.apply_roll_card("sensor")
         batch = self.mock_session_manager.last_batch
-        self.assertEqual(batch["label"], "Apply to Roll")
+        self.assertEqual(batch.label, "Apply to Roll")
         state.stale_thumbnails.clear()
         rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)  # another card, written after the push
-        batch["roll"]()
+        batch.roll_undo()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {**before, "analysis_buffer": 0.2})
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"sensor"})
@@ -1838,7 +1850,7 @@ class TestAppController(unittest.TestCase):
 
         self._record_batches()
         self.controller.apply_roll_card("lens")
-        self.mock_session_manager.last_batch["roll"]()
+        self.mock_session_manager.last_batch.roll_undo()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {})
 
@@ -4100,7 +4112,6 @@ class TestPresetExportSelected(unittest.TestCase):
 
         (task,) = tasks
         self.assertTrue(task.background)
-        self.assertIsNone(task.override_luma_range_clip)
         self.assertEqual([f.file_info["hash"] for f in task.frames], ["h1", "h2"])
         self.assertIsNone(self.controller._active_batch)
         self.assertTrue(self.controller.measuring_baseline())
@@ -4130,6 +4141,40 @@ class TestPresetExportSelected(unittest.TestCase):
                 self.controller._run_background_baseline()
         self.assertEqual(tasks, [])
 
+    def _slides(self, *hashes: str) -> None:
+        """Frames *hashes* on the slide path, the rest negatives."""
+        slide = _slide_config(WorkspaceConfig())
+        self.mock_session_manager.state.current_file_hash = None
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: slide if f["hash"] in hashes else WorkspaceConfig()
+
+    def test_background_run_leaves_slide_frames_out(self):
+        tasks = self._capture_background_runs()
+        self._slides("h2")
+
+        with patch.object(rolls, "roll_normalization", return_value=None):
+            self.controller._run_background_baseline()
+
+        (task,) = tasks
+        self.assertEqual([f.file_info["hash"] for f in task.frames], ["h1", "h3"])
+
+    def test_a_slide_edit_starts_no_background_run(self):
+        tasks = self._capture_background_runs()
+        self._slides("h2")
+        negatives = [f for f in self.mock_session_manager.state.uploaded_files if f["hash"] in ("h1", "h3")]
+        saved = {"frames": ("h1", "h3"), "inputs": self.controller._meter_inputs(negatives)}
+
+        with patch.object(rolls, "roll_normalization", return_value=saved):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
+    def test_a_roll_of_slides_starts_no_background_run(self):
+        tasks = self._capture_background_runs()
+        self._slides("h1", "h2", "h3")
+
+        with patch.object(rolls, "roll_normalization", return_value=None):
+            self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
     def test_background_run_measures_again_when_a_frames_crop_or_metering_changed(self):
         tasks = self._capture_background_runs()
         frames = [f for f in self.mock_session_manager.state.uploaded_files]
@@ -4144,7 +4189,7 @@ class TestPresetExportSelected(unittest.TestCase):
         with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": stale}):
             self.controller._run_background_baseline()
         self.assertEqual(len(tasks), 1)
-        self.assertTrue(self.controller._background_baseline[4])
+        self.assertTrue(self.controller._background_baseline.remeasured)
 
     def test_a_background_run_that_moves_the_average_says_so(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
@@ -4154,7 +4199,7 @@ class TestPresetExportSelected(unittest.TestCase):
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller._background_baseline = BackgroundBaseline("roll-1", None, ("h1", "h2", "h3"), {}, True)
         self.controller.set_status = MagicMock()
 
         with patch.object(rolls, "set_roll_normalization"):
@@ -4229,7 +4274,7 @@ class TestPresetExportSelected(unittest.TestCase):
             process=replace(base, use_luma_average=True, locked_floors=(0.1,) * 3, locked_ceils=(0.9,) * 3, baseline_source="roll:roll-1")
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller._background_baseline = BackgroundBaseline("roll-1", None, ("h1", "h2", "h3"), {}, True)
 
         with patch.object(rolls, "set_roll_normalization"):
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)

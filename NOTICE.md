@@ -4,6 +4,15 @@ original-floor writer rule, interior-radius routing with feathered compositing)
 from digital-fauxice, Copyright (c) 2026 Rohan Pandula, MIT License.
 https://github.com/rohanpandula/digital-fauxice
 
+The crossover table of Fade Restoration (`measure_crossover`, `crossover_offsets`,
+`_shape_cubic` and `tone_band_refs` in negpy/features/process/fade.py, `neutral_bands`
+in negpy_core/src/fade.rs) ports the per-band neutral lean, the mean-shift cluster,
+the cast/crossover split and the Fritsch-Carlson table from NegativeConverter's
+expired-film rescue (negative2positive/src/pipeline/expiredRescue.js), Copyright (c)
+2025 lex, MIT License. Modified by NegPy: it measures and applies the table in log
+density after the fade matrix, not on the display-encoded positive.
+https://github.com/lexluthor0304/NegativeConverter
+
 The Plustek USB driver lives in the separate [pyopticfilm](https://github.com/jboneng/pyopticfilm) package. NegPy integrates it via `negpy/infrastructure/scanners/plustek_backend.py`. That driver includes
 material derived from or informed by the SANE Project genesys backend
 (Scanner Access Now Easy), GNU GPL:

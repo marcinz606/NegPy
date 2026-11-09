@@ -23,9 +23,9 @@ from negpy.domain.models import (
     ProofIntent,
 )
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.process.capture_color import wb_only_cam_xyz
+from negpy.features.process.capture_color import is_source_profile, wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode, invalidate_local_bounds
-from negpy.features.process.path import RenderPath, positive_decode, render_path
+from negpy.features.process.path import RenderPath, is_mono, positive_decode, render_path
 from negpy.features.process.logic import (
     demosaic_token,
     effective_highlight_reconstruction,
@@ -285,7 +285,8 @@ def _camera_token(cam_xyz: Optional[list], camera_wb: Optional[list]) -> str:
     """The camera matrix and as-shot WB a slide's transfer reads; an Input ICC swaps them."""
     if cam_xyz is None and camera_wb is None:
         return ""
-    return "|cam" + hashlib.md5(repr((np.asarray(cam_xyz).tolist() if cam_xyz is not None else None, camera_wb)).encode()).hexdigest()[:12]
+    rows = np.asarray(cam_xyz).tolist() if cam_xyz is not None else None
+    return "|cam" + hashlib.md5(repr((rows, is_source_profile(cam_xyz), camera_wb)).encode()).hexdigest()[:12]
 
 
 def _use_half_size_decode(raw: Any) -> bool:
@@ -994,9 +995,12 @@ class ImageProcessor:
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
             # A Sabattier print is plain silver; lith and cyanotype carry their own color.
-            or settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
+            or (
+                settings.process.process_mode == ProcessMode.BW
+                and settings.altproc.alt_process not in (AltProcess.NONE, AltProcess.SABATTIER)
+            )
         )
-        is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
+        is_bw = is_mono(settings.process) and not is_toned
 
         if is_bw:
             img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=bit_depth)

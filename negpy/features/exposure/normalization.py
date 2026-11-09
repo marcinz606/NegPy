@@ -163,14 +163,6 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     return None
 
 
-def crosstalk_unmix_active(process: "ProcessConfig", process_mode: Optional[str]) -> bool:
-    """A crosstalk unmix for this film process applies."""
-    profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
-    return (process_mode is None or profile_mode == str(process_mode)) and (
-        resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix) is not None
-    )
-
-
 def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Optional[np.ndarray]:
     """
     Effective spectral-crosstalk (dye-unmix) matrix — identity↔calibration blend
@@ -204,7 +196,6 @@ def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray], anchor: 
         offset = [float(v) for v in m[:, 3]] if m.shape[1] == 4 else [0.0, 0.0, 0.0]
         return negpy_core.unmix_log_anchored(img, lin, [float(v) for v in anchor], offset)
     out = negpy_core.unmix_log(img, lin)
-    # A (3, 4) matrix is an affine: the last column is a log offset added after the 3x3.
     return out + m[:, 3] if m.shape[1] == 4 else out
 
 

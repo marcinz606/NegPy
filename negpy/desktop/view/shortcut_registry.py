@@ -178,6 +178,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "assign_sequential_frame": ShortcutEntry("", tr("Assign sequential frame numbers"), tr("Actions")),
     "measure_chart": ShortcutEntry("", tr("Measure a crosstalk matrix from a color chart"), tr("Process")),
     "estimate_fade": ShortcutEntry("", tr("Estimate Fade Restoration from the grays in this frame"), tr("Process")),
+    "fade_auto_red": ShortcutEntry("", tr("Toggle Restore Range (Fade Restoration)"), tr("Process")),
     "scan_prescan": ShortcutEntry("", tr("Prescan and set crop (Plustek)"), tr("Process")),
     "scan_meter_frame": ShortcutEntry("", tr("Meter a frame and lock the scan exposure (Coolscan)"), tr("Process")),
     "scan_as_roll": ShortcutEntry("", tr("Toggle Scan as Roll"), tr("Process")),
@@ -197,6 +198,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "analysis_buffer_dec": ShortcutEntry("Alt+Shift+B", tr("Analysis buffer down"), tr("Process")),
     "analysis_buffer_inc": ShortcutEntry("Alt+B", tr("Analysis buffer up"), tr("Process")),
     "toggle_positive_source": ShortcutEntry("", tr("Toggle Positive (source is already a finished positive)"), tr("Process")),
+    "toggle_slide_bw": ShortcutEntry("", tr("Toggle B&W Slide"), tr("Process")),
     "luma_range_clip_dec": ShortcutEntry("Alt+Shift+N", tr("Luma range clip down"), tr("Process")),
     "luma_range_clip_inc": ShortcutEntry("Alt+N", tr("Luma range clip up"), tr("Process")),
     "color_range_clip_dec": ShortcutEntry("Alt+Shift+E", tr("Color range clip down"), tr("Process")),
@@ -326,7 +328,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "reset_tab": ShortcutEntry("", tr("Reset this tab to defaults"), tr("Actions")),
     "reset_tab_to_roll": ShortcutEntry("", tr("Reset this tab to the roll's settings"), tr("Actions")),
     "reset_to_roll": ShortcutEntry("", tr("Reset this frame to the roll's settings"), tr("Actions")),
-    # A stored id: it undoes every change to several frames now, not only a Roll push.
+    # A stored id: saved key bindings name it.
     "undo_roll_push": ShortcutEntry("", tr("Undo the last change to several frames"), tr("Actions")),
     "load_sidecar": ShortcutEntry("", tr("Load this frame's edit from a sidecar…"), tr("Actions")),
     "show_in_folder": ShortcutEntry("", tr("Show the frame's file in its folder"), tr("Actions")),

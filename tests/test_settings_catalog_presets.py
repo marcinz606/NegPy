@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from negpy.desktop.settings_catalog import (
+    CATALOG,
     all_rows,
     apply_selected_fields,
     preset_config,
@@ -52,11 +53,19 @@ def test_positive_source_row_is_catalogued():
     assert data == {"positive_source": True}
 
 
-@pytest.mark.parametrize("card", ["film", "sensor", "demosaic", "process", "baseline", "lens", "flatfield"])
+@pytest.mark.parametrize("card", ["film", "sensor", "fade", "demosaic", "process", "baseline", "lens", "flatfield"])
 def test_every_roll_card_field_has_a_row(card):
     """Copy Card Settings, Paste and the Roll tab's Apply offer only catalog rows."""
     listed = {f for r in roll_card_rows(card) for f in r.fields}
     assert set(card_fields(card)) <= listed
+
+
+def test_calibration_and_fade_restoration_copy_apart():
+    """Each card's Copy Card Settings and its picker group hold only its own rows."""
+    fade = {f for r in roll_card_rows("fade") for f in r.fields}
+    sensor = {f for r in roll_card_rows("sensor") for f in r.fields}
+    assert not fade & sensor
+    assert {title for title, rows in CATALOG if any(f in fade for r in rows for f in r.fields)} == {"Fade Restoration"}
 
 
 def test_pasting_highlight_recovery_remeters():
@@ -180,3 +189,19 @@ def test_a_color_stock_on_a_bw_frame_is_no_edit_to_apply():
     color = replace(cfg, exposure=replace(cfg.exposure, paper_profile="frontier"))
     assert stock_edited(color)
     assert not stock_edited(replace(color, process=replace(color.process, process_mode=ProcessMode.BW)))
+
+
+def test_a_pasted_fade_carries_its_crossover_table():
+    """The table travels with the strength, as on a Roll push."""
+    import json
+
+    table = tuple(float(i) / 100 for i in range(16))
+    source = replace(
+        WorkspaceConfig(),
+        process=replace(_faded((0.0, 0.0, 0.0), "").process, fade_crossover=0.5, fade_crossover_table=table, fade_crossover_space="tag"),
+    )
+    out = apply_selected_fields(source, WorkspaceConfig(), [_row("Fade Restoration")]).process
+    assert (out.fade_crossover, out.fade_crossover_table, out.fade_crossover_space) == (0.5, table, "tag")
+    data = json.loads(json.dumps(selected_flat_dict(source, [_row("Fade Restoration")])))
+    out = apply_selected_fields(preset_config(data), WorkspaceConfig(), [_row("Fade Restoration")]).process
+    assert out.fade_crossover_table == table and isinstance(out.fade_crossover_table, tuple)

@@ -20,7 +20,8 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
-from negpy.features.process.models import auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.process.models import FADE_METER_FIELDS, auto_meter_for_mode, cast_removal_for_mode
+from negpy.features.process.path import RenderPath, render_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -47,6 +48,7 @@ from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
 from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.desktop.view.sidebar.scan_setup import ScanSetupSidebar, resolved_rig
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
+from negpy.desktop.view.sidebar.fade import FadeSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.paper import PaperSidebar
@@ -78,16 +80,9 @@ _SENSOR_FIELDS = (
     "crosstalk_strength",
     "crosstalk_matrix",
     "crosstalk_process",
-    "fade_ratio_r",
-    "fade_ratio_g",
-    "fade_ratio_b",
-    "fade_white_anchor",
-    "fade_white_r",
-    "fade_white_g",
-    "fade_white_b",
-    "fade_white_space",
     "hue_trim",
 )
+_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_neutrals_mix")
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
 # Linear RAW and the two demosaic choices are in none: they come from the scanning
@@ -96,6 +91,7 @@ _SENSOR_FIELDS = (
 _FILM_FIELDS = (
     "process_mode",
     "positive_source",
+    "slide_bw",
 )
 _METERING_FIELDS = (
     "analysis_buffer",
@@ -140,7 +136,6 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 # Roll-tab sections that drive more than one roll card, keyed by section key.
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {
     "optics": ("lens", "flatfield"),
-    "sensor": ("sensor", "fade"),
 }
 
 
@@ -296,6 +291,14 @@ class ControlsPanel(QWidget):
             "sensor",
             self.sensor_sidebar,
             icon_name="fa5s.vials",
+        )
+
+        self.fade_sidebar = FadeSidebar(self.controller)
+        self.fade_section = self._make_section(
+            tr("Fade Restoration"),
+            "fade",
+            self.fade_sidebar,
+            icon_name="mdi6.image-filter-vintage",
         )
 
         self.demosaic_sidebar = DemosaicSidebar(self.controller)
@@ -566,7 +569,8 @@ class ControlsPanel(QWidget):
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.film_section.reset_requested.connect(self._reset_film_fields)
-        self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
+        self.sensor_section.reset_requested.connect(lambda: self._reset_process_fields(_SENSOR_FIELDS, ("sensor",)))
+        self.fade_section.reset_requested.connect(lambda: self._reset_process_fields(_FADE_FIELDS, ("fade",)))
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS, ("demosaic",)))
 
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
@@ -795,6 +799,12 @@ class ControlsPanel(QWidget):
             )
         )
 
+        proc.slide_bw_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr("B&W, slides only: render the slide in black and white, for B&W reversal film or a color slide."),
+                "toggle_slide_bw",
+            )
+        )
         proc.lock_bounds_btn.setToolTip(
             tooltip_with_shortcut(
                 tr("Lock Bounds: keep this frame's measured black and white points, even when the crop or Roll Analysis changes."),
@@ -807,10 +817,18 @@ class ControlsPanel(QWidget):
                 "cast_average_toggle",
             )
         )
-        self.sensor_sidebar.fade_white_anchor_btn.setToolTip(
+        self.fade_sidebar.fade_white_anchor_btn.setToolTip(
             tooltip_with_shortcut(
                 tr("Remove Stain: makes the clear areas white again, for a faded slide whose highlights turned yellow."),
                 "fade_white_anchor_toggle",
+            )
+        )
+        self.fade_sidebar.fade_auto_red_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr(
+                    "Restore Range: sets Red Survival from the frame's range and keeps it through each Estimate; off gives Estimate's Red back."
+                ),
+                "fade_auto_red",
             )
         )
         proc.analysis_buffer_slider.setToolTip(
@@ -1025,11 +1043,11 @@ class ControlsPanel(QWidget):
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.path import is_mono
 
         self._set_read_only(self.controller.active_diptych() is not None)
         process = self.controller.state.config.process
-        self.color_section.setVisible(process.process_mode != ProcessMode.BW or bool(process.source_color))
+        self.color_section.setVisible(not is_mono(process) or bool(process.source_color))
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
         self.color_sidebar.sync_ui()
@@ -1049,6 +1067,7 @@ class ControlsPanel(QWidget):
         self.trichrome_sidebar.sync_ui()
         self.half_frame_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
+        self.fade_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()
         self.scan_setup_sidebar.sync_ui()
         self._sync_scan_setup()
@@ -1071,6 +1090,7 @@ class ControlsPanel(QWidget):
             (camera and light == "narrowband") or bool(self.controller.rgb_scan_mode_for_roll(state.active_roll_id))
         )
         self.sensor_section.setVisible(self.sensor_sidebar.has_controls())
+        self.fade_section.setVisible(render_path(cfg.process) is not RenderPath.PRINT)
         raw_decode_edited = cfg.process.highlight_reconstruction != _DEFAULT_PROCESS.highlight_reconstruction
         locked_cards = self.controller.locked_roll_cards()
         optics_edited = (
@@ -1095,6 +1115,7 @@ class ControlsPanel(QWidget):
             ("demosaic", self.demosaic_section),
             ("optics", self.optics_section),
             ("sensor", self.sensor_section),
+            ("fade", self.fade_section),
             ("process", self.process_section),
             ("baseline", self.baseline_section),
         )
@@ -1172,9 +1193,6 @@ class ControlsPanel(QWidget):
         self.color_histogram.update_data(buf)
         self.metering_histogram.update_data(buf)
 
-    def _reset_sensor_fields(self) -> None:
-        self._reset_process_fields(_SENSOR_FIELDS, ("sensor", "fade"))
-
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not
         describe (a decode, the auto-meter defaults, the card's roll lock), so the reset
@@ -1182,6 +1200,8 @@ class ControlsPanel(QWidget):
         proc = self.controller.state.config.process
         if proc.positive_source != _DEFAULT_PROCESS.positive_source:
             self.controller.set_positive_source(_DEFAULT_PROCESS.positive_source)
+        if proc.slide_bw != _DEFAULT_PROCESS.slide_bw:
+            self.controller.set_slide_bw(_DEFAULT_PROCESS.slide_bw)
         if proc.process_mode != _DEFAULT_PROCESS.process_mode:
             self.controller.set_process_mode(_DEFAULT_PROCESS.process_mode)
 
@@ -1245,7 +1265,7 @@ class ControlsPanel(QWidget):
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""
-        from negpy.features.process.models import ProcessMode
+        from negpy.features.process.path import is_mono
 
         cfg = self.controller.state.config
         _exp = _DEFAULT_EXPOSURE
@@ -1258,7 +1278,7 @@ class ControlsPanel(QWidget):
         exp = cfg.exposure
         mode = cfg.process.process_mode
         # The card shows only the Filter in B&W, and the Filter only there.
-        shown_color = ("bw_filter",) if mode == ProcessMode.BW else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
+        shown_color = ("bw_filter",) if is_mono(cfg.process) else tuple(f for f in COLOR_FIELDS if f != "bw_filter")
         color_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in shown_color)
         tone_count = sum(getattr(exp, f) != _default_exposure_field(f, mode) for f in TONE_FIELDS)
         paper_count = sum(
@@ -1323,6 +1343,7 @@ class ControlsPanel(QWidget):
         process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS if not f.endswith("_at"))
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
+        fade_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FADE_FIELDS)
 
         ff = cfg.flatfield
         _ff = _DEFAULT_FLATFIELD
@@ -1375,6 +1396,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)
+        self.fade_section.set_modified(fade_count)
         self.demosaic_section.set_modified(demosaic_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)

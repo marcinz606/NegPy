@@ -33,6 +33,7 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
                     (see logic.separation_damping_gain)
 """
 
+from dataclasses import replace
 from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional, Tuple
 
 import negpy_core
@@ -53,6 +54,7 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import LogNegativeBounds, measure_neutral_axis_from_log
+from negpy.features.exposure.bw_filter import collapse_weights
 from negpy.features.process.models import ProcessConfig, per_channel_point_offsets
 from negpy.kernel.image.validation import ensure_image
 
@@ -369,6 +371,26 @@ def transfer_stored_value(exposure: ExposureConfig, metrics: Mapping[str, Any], 
     return shown - hl_auto
 
 
+_SLIDE_BW_NEUTRAL = {
+    **{f"{zone}_{dye}": 0.0 for zone in ("wb", "shadow", "highlight") for dye in ("cyan", "magenta", "yellow")},
+    **{f"dye_separation_trim_{ch}": 0.0 for ch in ("red", "green", "blue")},
+    "cast_removal_strength": 0.0,
+    "dye_separation": 1.0,
+    "separation_damping": 0.0,
+}
+
+
+def slide_exposure(process: ProcessConfig, exposure: ExposureConfig) -> ExposureConfig:
+    """The exposure a slide's transfer renders. A B&W slide drops the color terms, which the
+    UI hides there. Both engines read the transfer through this."""
+    return replace(exposure, **_SLIDE_BW_NEUTRAL) if process.slide_bw else exposure
+
+
+def slide_mono_weights(process: ProcessConfig, exposure: ExposureConfig) -> Optional[Tuple[float, float, float]]:
+    """The weights a B&W slide collapses to one density with, or None for a color slide."""
+    return collapse_weights(process, exposure) if process.slide_bw else None
+
+
 def apply_transfer_curve(
     img_norm: ImageBuffer,
     exposure_offset: float,
@@ -555,22 +577,52 @@ def density_stage(
     return DensityStage(channels.pre, _with_log_offset(unmix, offset), channels.post, anchor)
 
 
-def density_stage_grid(
+def faded_stage_grid(
     stage: DensityStage,
     linear: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]],
     analysis_buffer: float,
     log_grid: Optional[Callable[[], ImageBuffer]] = None,
 ) -> ImageBuffer:
-    """The working-space meter grid of *linear* through *stage*. *log_grid* gives the prefiltered grid of *linear* when the caller has it, reused when there is no `pre`."""
-    from negpy.features.exposure.normalization import prefilter_log_grid, relog_matrix_image, unmix_log_image
+    """The meter grid of *linear* after *stage*'s density matrix, before its primaries: the space the
+    crossover table is measured and applied in. *log_grid* gives the prefiltered grid of *linear* when
+    the caller has it, reused when there is no `pre`."""
+    from negpy.features.exposure.normalization import unmix_log_image
+
+    return unmix_log_image(_pre_log_grid(stage.pre, linear, roi, analysis_buffer, log_grid), stage.unmix, stage.anchor)
+
+
+def _pre_log_grid(
+    pre: Optional[np.ndarray],
+    linear: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]],
+) -> ImageBuffer:
+    """The prefiltered log grid of *linear* through the camera matrix *pre*; *log_grid*'s when there is none."""
+    from negpy.features.exposure.normalization import prefilter_log_grid
     from negpy.features.process.capture_color import apply_camera_matrix
 
-    if stage.pre is None and log_grid is not None:
-        grid = log_grid()
-    else:
-        grid = prefilter_log_grid(linear if stage.pre is None else apply_camera_matrix(linear, stage.pre), roi, analysis_buffer)
-    return relog_matrix_image(unmix_log_image(grid, stage.unmix, stage.anchor), stage.post)
+    if pre is None and log_grid is not None:
+        return log_grid()
+    return prefilter_log_grid(linear if pre is None else apply_camera_matrix(linear, pre), roi, analysis_buffer)
+
+
+def density_stage_grid(
+    stage: DensityStage,
+    linear: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    log_grid: Optional[Callable[[], ImageBuffer]] = None,
+    crossover=None,
+) -> ImageBuffer:
+    """The working-space meter grid of *linear* through *stage*, with the *crossover* offsets
+    (`fade.crossover_offsets`) after the density matrix."""
+    from negpy.features.exposure.normalization import relog_matrix_image
+    from negpy.features.process.fade import apply_crossover
+
+    faded = faded_stage_grid(stage, linear, roi, analysis_buffer, log_grid)
+    return relog_matrix_image(apply_crossover(faded, crossover), stage.post)
 
 
 def fade_white_grid(
@@ -586,16 +638,11 @@ def fade_white_grid(
     """The grid Fade Estimate meters and the render reads its white on: *image*'s white-balanced
     camera channels (a Positive source's own) after the crosstalk unmix, with no fade or white.
     *log_grid* gives the prefiltered grid of *image* when the caller has it."""
-    from negpy.features.exposure.normalization import effective_crosstalk_matrix, prefilter_log_grid, unmix_log_image
-    from negpy.features.process.capture_color import apply_camera_matrix
+    from negpy.features.exposure.normalization import effective_crosstalk_matrix, unmix_log_image
 
     crosstalk = effective_crosstalk_matrix(process, process_mode)
     channels = density_channels(process, cam_xyz, camera_wb) if crosstalk is None else density_stage(process, cam_xyz, camera_wb, crosstalk)
-    if channels.pre is None and log_grid is not None:
-        grid = log_grid()
-    else:
-        grid = prefilter_log_grid(image if channels.pre is None else apply_camera_matrix(image, channels.pre), roi, analysis_buffer)
-    return unmix_log_image(grid, channels.unmix)
+    return unmix_log_image(_pre_log_grid(channels.pre, image, roi, analysis_buffer, log_grid), channels.unmix)
 
 
 def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

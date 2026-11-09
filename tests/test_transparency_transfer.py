@@ -943,6 +943,18 @@ class TestGpuTransferParity(unittest.TestCase):
     def test_defaults_match(self):
         self._assert_parity(*self._both(_e6_config()))
 
+    def test_bw_slide_matches(self):
+        """B&W slide: the collapse before the curve and the luma after it, on both engines."""
+        from negpy.features.exposure.models import BwFilter
+
+        for source_color in (False, True):
+            with self.subTest(source_color=source_color):
+                cfg = _e6_config(bw_filter=BwFilter.RED_25, toe_trim_red=0.4)
+                cfg = replace(cfg, process=replace(cfg.process, slide_bw=True, source_color=source_color))
+                cpu, gpu = self._both(cfg)
+                self._assert_parity(cpu, gpu)
+                self.assertLess(float(np.abs(gpu[..., 0] - gpu[..., 2]).max()), 1e-3)
+
     def test_no_camera_matrix_matches(self):
         self._assert_parity(*self._both(_e6_config(), cam_xyz=None))
 

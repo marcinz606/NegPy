@@ -356,7 +356,7 @@ def film_color_type(frame: SheetFrame, library: Any = None) -> Optional[FilmColo
     if process.process_mode == ProcessMode.BW:
         return FilmColorType.BW_NEGATIVE
     if process.process_mode == ProcessMode.E6 and not process.positive_source:
-        return FilmColorType.COLOR_SLIDE
+        return FilmColorType.BW_SLIDE if process.slide_bw else FilmColorType.COLOR_SLIDE
     return None
 
 

@@ -2,7 +2,7 @@ import os
 import io
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
 import negpy_core
 import numpy as np
@@ -668,7 +668,7 @@ class NonStandardFileWrapper:
         self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
         # A Positive source decoded in its own primaries carries them here (source_cam_xyz), read
         # by camera_xyz_matrix like a camera's. None for every other source.
-        self.rgb_xyz_matrix: Optional[list] = None
+        self.rgb_xyz_matrix: Optional[Sequence] = None
 
     @property
     def data(self) -> np.ndarray:
@@ -781,7 +781,7 @@ def is_xtrans(raw: Any) -> bool:
         return False
 
 
-def camera_xyz_matrix(raw: Any) -> Optional[list]:
+def camera_xyz_matrix(raw: Any) -> Optional[Sequence]:
     """The decoder's XYZ->camera matrix as plain nested lists, or None if it carries none.
 
     Serialized out of the rawpy object deliberately: the metadata dict outlives the `with`
@@ -789,6 +789,8 @@ def camera_xyz_matrix(raw: Any) -> Optional[list]:
     memory once it closes.
     """
     try:
+        if is_source_profile(raw.rgb_xyz_matrix):
+            return raw.rgb_xyz_matrix
         m = np.asarray(raw.rgb_xyz_matrix, dtype=np.float64)
     except Exception:
         return None
@@ -797,8 +799,7 @@ def camera_xyz_matrix(raw: Any) -> Optional[list]:
     # All-zero is libraw's "no color data" sentinel, not a valid transform.
     if float(np.abs(m[:3]).max()) < 1e-12:
         return None
-    rows = [[float(v) for v in row] for row in m[:3]]
-    return rows + [[float(v) for v in m[3]]] if is_source_profile(raw.rgb_xyz_matrix) else rows
+    return [[float(v) for v in row] for row in m[:3]]
 
 
 def camera_wb_multipliers(raw: Any) -> Optional[list]:
