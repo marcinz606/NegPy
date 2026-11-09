@@ -47,7 +47,7 @@ from negpy.infrastructure.loaders.rawpy_loader import (
     _peek_linear_dng_rgb,
     _peek_linearraw_4ch,
 )
-from negpy.kernel.image.logic import _to_uint16_jit, apply_exif_orientation, ensure_rgb, uint16_to_float32
+from negpy.kernel.image.logic import _to_uint16_jit, apply_exif_orientation, apply_geometry_orientation, ensure_rgb, uint16_to_float32
 
 
 @dataclass(frozen=True)
@@ -221,13 +221,7 @@ def _is_linearraw_dng(file_path: str) -> bool:
 
 
 def _apply_user_geometry(f32: np.ndarray, geometry: GeometryConfig) -> np.ndarray:
-    if geometry.rotation != 0:
-        f32 = np.rot90(f32, k=geometry.rotation)
-    if geometry.flip_horizontal:
-        f32 = np.ascontiguousarray(np.fliplr(f32))
-    if geometry.flip_vertical:
-        f32 = np.ascontiguousarray(np.flipud(f32))
-    return f32
+    return apply_geometry_orientation(f32, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical)
 
 
 TIFF_GAMMA_OPTIONS: list[tuple[str, str]] = [

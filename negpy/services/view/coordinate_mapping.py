@@ -2,6 +2,8 @@ import negpy_core
 import numpy as np
 from typing import Tuple, Optional
 
+from negpy.kernel.image.logic import apply_geometry_orientation
+
 
 def _invert_affine(m: np.ndarray) -> np.ndarray:
     """cv2.invertAffineTransform in its operation order."""
@@ -40,18 +42,7 @@ class CoordinateMapping:
         )
         uv_grid = np.stack([u_raw, v_raw], axis=-1)
 
-        if rotation != 0:
-            # Must match GPUEngine rotation direction (CCW)
-            uv_grid = np.rot90(uv_grid, k=rotation)
-
-        if flip_h:
-            uv_grid = np.fliplr(uv_grid)
-
-        if flip_v:
-            uv_grid = np.flipud(uv_grid)
-
-        # rot90/flips return views; consumers need one contiguous copy
-        uv_grid = np.ascontiguousarray(uv_grid)
+        uv_grid = apply_geometry_orientation(uv_grid, rotation, flip_h, flip_v)
 
         if fine_rot != 0.0:
             # The grid is affine in pixel position, so the rotated grid is solved exactly. A

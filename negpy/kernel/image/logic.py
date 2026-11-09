@@ -273,6 +273,19 @@ def apply_exif_orientation(arr: np.ndarray, orientation: Optional[int]) -> np.nd
     return out.view(src.dtype).reshape(out.shape[:2] + src.shape[2:])
 
 
+# EXIF code of rot90(k) -> fliplr -> flipud, indexed by k * 4 + flip_h * 2 + flip_v.
+_GEOMETRY_EXIF = (1, 4, 2, 3, 8, 5, 7, 6, 3, 2, 4, 1, 6, 7, 5, 8)
+
+
+def apply_geometry_orientation(arr: np.ndarray, rotation: int, flip_h: bool, flip_v: bool) -> np.ndarray:
+    """`np.rot90(arr, rotation)`, then `fliplr` and `flipud` when asked, as one contiguous copy."""
+    k = rotation % 4
+    if not (k or flip_h or flip_v):
+        return arr
+    code = _GEOMETRY_EXIF[k * 4 + bool(flip_h) * 2 + bool(flip_v)]
+    return apply_exif_orientation(arr, code) if code != 1 else arr.copy()
+
+
 def get_luminance(img: np.ndarray) -> np.ndarray:
     """
     Calculates relative luminance. Supports (H, W, 3) and (N, 3) arrays.
