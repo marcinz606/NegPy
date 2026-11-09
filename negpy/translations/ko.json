@@ -3225,6 +3225,7 @@
   "Tone Zone": "톤존",
   "Toners act in the order shown, and a later toner does not change what an earlier one toned.": "토닝은 표시된 순서대로 작용하며, 나중 토닝은 앞선 토닝이 바꾼 부분을 바꾸지 않습니다.",
   "Toning": "토닝",
+  "Too few frames with clear grays to estimate the roll.": "뚜렷한 회색이 있는 프레임이 너무 적어 롤을 추정할 수 없습니다.",
   "Too many DNG correction instructions.": "DNG 교정 명령이 너무 많습니다.",
   "Too small to correct.": "보정하기에는 너무 작습니다.",
   "Tools": "도구",
