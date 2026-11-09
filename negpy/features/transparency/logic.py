@@ -736,3 +736,22 @@ def contrast_free_cmy(cmy_offsets: Tuple[float, float, float], contrast: float) 
     made before it. The filtration then prints the same gain at every Grade."""
     k = max(float(contrast), 1e-6)
     return (cmy_offsets[0] / k, cmy_offsets[1] / k, cmy_offsets[2] / k)
+
+
+def transfer_total_contrast(exposure: ExposureConfig, metrics: Mapping[str, Any]) -> float:
+    """The contrast the slide curve prints with: Grade plus any metered auto term."""
+    return _transfer_totals(exposure, metrics)[2]
+
+
+def slide_pick_wb(sampled_norm_rgb: Any, channel_ranges: Tuple[float, float, float], contrast: float = 1.0) -> Tuple[float, float, float]:
+    """(cyan, magenta, yellow) that print a picked patch gray, unclipped: Cyan and Yellow along
+    the Temperature direction, Magenta as the Tint remainder. The sample is in normalized log
+    density, `channel_ranges` scale it to absolute density, and the curve's `contrast` scales it
+    the same way it scales the sample when printed."""
+    kc, ky = _SLIDE_K_CYAN, _SLIDE_K_YELLOW
+    cmy_max = float(EXPOSURE_CONSTANTS["cmy_max_density"])
+    k = max(float(contrast), 1e-6)
+    o = [-k * float(sampled_norm_rgb[ch]) * channel_ranges[ch] / cmy_max for ch in range(3)]
+    a = (o[2] - o[0]) / (kc + ky)
+    tint = o[1] - o[0] - kc * a
+    return -kc * a, tint, ky * a
