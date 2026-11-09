@@ -445,6 +445,13 @@ class StorageRepository(IRepository):
             out.append((int(idx), config))
         return out
 
+    def edited_file_names_under(self, folder: str) -> set[str]:
+        """Base names of the edited files saved directly under *folder*."""
+        under = folder.rstrip("/\\") + os.sep
+        with self._connect(self.edits_db_path) as conn:
+            rows = conn.execute("SELECT file_path FROM file_settings WHERE substr(file_path, 1, ?) = ?", (len(under), under)).fetchall()
+        return {os.path.basename(str(row[0])) for row in rows if os.sep not in str(row[0])[len(under) :]}
+
     def rehome_path_prefix(self, old_prefix: str, new_prefix: str) -> None:
         """Repoint every path-keyed row under the folder *old_prefix* to *new_prefix*."""
         under = old_prefix + os.sep
