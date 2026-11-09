@@ -51,9 +51,34 @@ fn decode_block(src: &[f32], dst: &mut [f32], y: f64) {
 /// `srgb_to_linear`: v / 12.92 up to 0.04045, else ((v + 0.055) / 1.055)^2.4, the power by
 /// `mathf::pow_f64` rounded to float32.
 pub fn srgb_to_linear(src: &[f32], dst: &mut [f32]) {
+    piecewise_to_linear(
+        src,
+        dst,
+        Piecewise {
+            cut: 0.04045,
+            slope: 12.92,
+            offset: 0.055,
+            scale: 1.055,
+            gamma: 2.4,
+        },
+    );
+}
+
+/// A transfer curve with a linear toe: v / slope up to `cut`, else ((v + offset) / scale)^gamma.
+#[derive(Clone, Copy)]
+pub struct Piecewise {
+    pub cut: f32,
+    pub slope: f32,
+    pub offset: f32,
+    pub scale: f32,
+    pub gamma: f64,
+}
+
+/// Decodes `src` through `curve`, the power by `mathf::pow_f64` rounded to float32.
+pub fn piecewise_to_linear(src: &[f32], dst: &mut [f32], curve: Piecewise) {
     dst.par_chunks_mut(BLOCK)
         .zip(src.par_chunks(BLOCK))
-        .for_each(|(d, s)| srgb_block(s, d));
+        .for_each(move |(d, s)| piecewise_block(s, d, curve));
 }
 
 #[multiversion(targets(
@@ -61,11 +86,11 @@ pub fn srgb_to_linear(src: &[f32], dst: &mut [f32]) {
     "x86_64+avx2+fma",
     "aarch64+neon"
 ))]
-fn srgb_block(src: &[f32], dst: &mut [f32]) {
+fn piecewise_block(src: &[f32], dst: &mut [f32], c: Piecewise) {
     for (d, &v) in dst.iter_mut().zip(src) {
-        let curve = pow_f64(((v + 0.055) / 1.055) as f64, 2.4) as f32;
-        // np.where picks the linear branch for v <= 0.04045, NaN included in neither.
-        *d = if v <= 0.04045 { v / 12.92 } else { curve };
+        let curve = pow_f64(((v + c.offset) / c.scale) as f64, c.gamma) as f32;
+        // np.where picks the linear branch for v <= cut, NaN included in neither.
+        *d = if v <= c.cut { v / c.slope } else { curve };
     }
 }
 

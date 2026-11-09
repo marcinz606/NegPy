@@ -55,6 +55,27 @@ fn srgb_to_linear<'py>(
     filled(py, &img, color::srgb_to_linear)
 }
 
+/// v / slope up to `cut`, else ((v + offset) / scale)^gamma, of a float32 array, any shape.
+#[pyfunction]
+fn piecewise_to_linear<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    cut: f32,
+    slope: f32,
+    offset: f32,
+    scale: f32,
+    gamma: f64,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let curve = color::Piecewise {
+        cut,
+        slope,
+        offset,
+        scale,
+        gamma,
+    };
+    filled(py, &img, |s, d| color::piecewise_to_linear(s, d, curve))
+}
+
 pub(crate) fn space(
     m: &PyReadonlyArray2<'_, f32>,
     white: &PyReadonlyArray1<'_, f32>,
@@ -203,5 +224,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(skin_weight, m)?)?;
     m.add_function(wrap_pyfunction!(matmul_3x3, m)?)?;
     m.add_function(wrap_pyfunction!(srgb_to_linear, m)?)?;
+    m.add_function(wrap_pyfunction!(piecewise_to_linear, m)?)?;
     m.add_function(wrap_pyfunction!(gamut_aware_chroma_scale, m)?)
 }

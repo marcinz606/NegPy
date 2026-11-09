@@ -29,6 +29,8 @@ def test_small_helpers_match_numpy():
     assert not negpy_core.channel_any(zeros, 1)
     zeros[4, 5, 1] = np.nan
     assert negpy_core.channel_any(zeros, 1) == bool(zeros[..., 1].any())
+    gains = np.array([1.7, 1.0, 0.6], np.float32)
+    np.testing.assert_array_equal(negpy_core.scale_clip_unit(img, list(gains)), np.clip(img * gains, 0, 1))
     nan = _img(3)
     nan[1, 2] = [np.nan, np.inf, -np.inf]
     np.testing.assert_array_equal(negpy_core.nan_to_num(nan, 1e-6, 1.0, 1e-6), np.nan_to_num(nan, nan=1e-6, posinf=1.0, neginf=1e-6))

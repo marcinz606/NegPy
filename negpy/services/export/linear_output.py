@@ -240,33 +240,25 @@ def _linearize(f32: np.ndarray, gamma_key: str) -> np.ndarray:
     """Reverse a gamma encoding to recover linear-light values."""
     if gamma_key == "linear":
         return f32
-    f32 = np.clip(f32, 0.0, 1.0)
+    f32 = negpy_core.clip01(np.ascontiguousarray(f32, dtype=np.float32))
     if gamma_key in ("1.8", "2.2", "2.4", "2.6"):
-        g = float(gamma_key)
-        return np.power(f32, g, dtype=np.float32)
+        return negpy_core.oetf_decode(f32, float(gamma_key))
     if gamma_key == "srgb":
-        lo = f32 / 12.92
-        hi = np.power((f32 + 0.055) / 1.055, 2.4, dtype=np.float32)
-        return np.where(f32 <= 0.04045, lo, hi).astype(np.float32)
+        return negpy_core.srgb_to_linear(f32)
     if gamma_key == "rec709":
-        lo = f32 / 4.5
-        hi = np.power((f32 + 0.099) / 1.099, 1.0 / 0.45, dtype=np.float32)
-        return np.where(f32 <= 0.081, lo, hi).astype(np.float32)
+        return negpy_core.piecewise_to_linear(f32, 0.081, 4.5, 0.099, 1.099, 1.0 / 0.45)
     if gamma_key == "lstar":
-        lo = f32 / 9.0329
-        hi = np.power((f32 + 0.16) / 1.16, 3.0, dtype=np.float32)
-        return np.where(f32 <= 0.08, lo, hi).astype(np.float32)
+        return negpy_core.piecewise_to_linear(f32, 0.08, 9.0329, 0.16, 1.16, 3.0)
     return f32
+
+
+def _expand(f32: np.ndarray, factor: float) -> np.ndarray:
+    return negpy_core.scale_clip_unit(f32, [factor] * f32.shape[-1])
 
 
 def _apply_white_balance(f32: np.ndarray, wb: _CameraWB) -> np.ndarray:
     """Multiply a linear RGB buffer by the as-shot white-balance gains."""
-    r, _g, b = _normalize_wb_rgb(wb.as_shot)
-    f32 = f32.copy()
-    f32[:, :, 0] *= r
-    f32[:, :, 2] *= b
-    np.clip(f32, 0.0, 1.0, out=f32)
-    return f32
+    return negpy_core.scale_clip_unit(np.ascontiguousarray(f32), list(_normalize_wb_rgb(wb.as_shot)))
 
 
 def wb_bake_block_reason(rgbscan: Optional[RgbScanConfig], process: Optional[ProcessConfig]) -> str:
@@ -497,15 +489,11 @@ def _decode_tiff(
     with _tifffile.TiffFile(file_path) as tif:
         page = tif.pages[0]
         arr = planar_to_chunky(page.asarray(), getattr(page, "planarconfig", 1))
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    elif arr.dtype == np.float32:
-        scale = 1.0
+    if arr.dtype in (np.uint8, np.uint16):
+        f32 = negpy_core.int_to_unit_float32(np.ascontiguousarray(arr))
     else:
         scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
-    f32 = arr.astype(np.float32) * scale
+        f32 = arr.astype(np.float32) * scale
 
     ir: Optional[np.ndarray] = None
     if f32.ndim == 3 and f32.shape[2] == 4:
@@ -524,11 +512,11 @@ def _decode_tiff(
         ir_result, _mask = _read_sidecar_ir(file_path)
         ir = ir_result
 
-    f32 = np.clip(f32, 0.0, 1.0)
+    f32 = negpy_core.clip01(np.ascontiguousarray(f32))
     if gamma_key != "linear":
         f32 = _linearize(f32, gamma_key)
     if expansion is not None and expansion > 1.0:
-        f32 = np.clip(f32 * expansion, 0.0, 1.0)
+        f32 = _expand(f32, expansion)
     orientation = read_orientation(file_path)
     f32 = apply_exif_orientation(f32, orientation)
     if ir is not None:
@@ -560,11 +548,11 @@ def _decode_via_loader(
     with ctx_mgr as wrapper:
         f32 = wrapper.data if isinstance(wrapper, NonStandardFileWrapper) else np.asarray(wrapper)
     ir = metadata.get("ir")
-    f32 = np.clip(f32, 0.0, 1.0)
+    f32 = negpy_core.clip01(np.ascontiguousarray(f32, dtype=np.float32))
     if gamma_key != "linear":
         f32 = _linearize(f32, gamma_key)
     if expansion is not None and expansion > 1.0:
-        f32 = np.clip(f32 * expansion, 0.0, 1.0)
+        f32 = _expand(f32, expansion)
     orientation = metadata.get("orientation", 0)
     f32 = apply_exif_orientation(f32, orientation)
     if ir is not None:
@@ -601,10 +589,10 @@ def _decode_noritsu(
     with open(file_path, "rb") as f:
         data = np.fromfile(f, dtype="<u2", count=w * h * 3)
     arr = data.reshape(h, w, 3)[:, :, ::-1]  # BGR → RGB
-    f32 = arr.astype(np.float32) / 65535.0
+    f32 = negpy_core.normalized(np.ascontiguousarray(arr), 65535.0)
     factor = expansion if expansion is not None else NORITSU_EXPANSION
     if factor > 1.0:
-        f32 = np.clip(f32 * factor, 0.0, 1.0)
+        f32 = _expand(f32, factor)
     return f32, None
 
 
