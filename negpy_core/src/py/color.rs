@@ -187,6 +187,29 @@ fn gamut_aware_chroma_scale<'py>(
     })
 }
 
+/// `_saturation_block(img, saturation, skin_protection)` of an (..., 3) float32 linear RGB
+/// array, then the working Lab constants.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn saturation<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    saturation: f32,
+    skin_protection: f32,
+    to_xyz: PyReadonlyArray2<'py, f32>,
+    to_rgb: PyReadonlyArray2<'py, f32>,
+    white: PyReadonlyArray1<'py, f32>,
+    eps: f32,
+    kappa: f32,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    triplets(&img)?;
+    let to_lab = space(&to_xyz, &white, eps, kappa)?;
+    let to_rgb = space(&to_rgb, &white, eps, kappa)?;
+    filled(py, &img, |src, d| {
+        color::saturation(src, d, (saturation, skin_protection), to_lab, to_rgb)
+    })
+}
+
 /// `apply_flat_curve(img, gain, lift, offsets, stock_matrix)` of an (..., 3) float32 array.
 #[pyfunction]
 #[pyo3(signature = (px, gain, lift, offsets, m=None))]
@@ -225,5 +248,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(matmul_3x3, m)?)?;
     m.add_function(wrap_pyfunction!(srgb_to_linear, m)?)?;
     m.add_function(wrap_pyfunction!(piecewise_to_linear, m)?)?;
+    m.add_function(wrap_pyfunction!(saturation, m)?)?;
     m.add_function(wrap_pyfunction!(gamut_aware_chroma_scale, m)?)
 }

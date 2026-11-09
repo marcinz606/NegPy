@@ -311,6 +311,38 @@ fn rein_block(src: &[f32], dst: &mut [f32], (start, span, inv_span): (f32, f32, 
     }
 }
 
+/// `_saturation_block` over N x 3 linear RGB: the Lab round trip with the chroma scale (skipped
+/// at 1.0) and the skin rein (skipped at 0), clipped to 0..1. `to_lab` and `to_rgb` share the white.
+pub fn saturation(
+    src: &[f32],
+    dst: &mut [f32],
+    (saturation, skin): (f32, f32),
+    to_lab: LabSpace,
+    to_rgb: LabSpace,
+) {
+    let ceiling = CEIL_AT_FULL / skin;
+    let span = ceiling * (1.0 - KNEE_START);
+    let rein = (ceiling * KNEE_START, span, 1.0f32 / span);
+    dst.par_chunks_mut(BLOCK * 3)
+        .zip(src.par_chunks(BLOCK * 3))
+        .for_each(move |(d, p)| {
+            let (mut lab, mut tmp) = (vec![0f32; p.len()], vec![0f32; p.len()]);
+            rgb_to_lab_block(p, &mut lab, to_lab);
+            if saturation != 1.0 {
+                gamut_block(&lab, &mut tmp, saturation, 10, &to_rgb);
+                std::mem::swap(&mut lab, &mut tmp);
+            }
+            if skin > 0.0 {
+                rein_block(&lab, &mut tmp, rein);
+                std::mem::swap(&mut lab, &mut tmp);
+            }
+            lab_to_rgb_block(&lab, d, to_rgb);
+            for v in d {
+                *v = v.clamp(0.0, 1.0);
+            }
+        });
+}
+
 /// `_skin_weight`: 0 below a chroma of 2, where the hue angle is noise.
 pub fn skin_weight_of(l: f32, a: f32, b: f32) -> f64 {
     let chroma = b.mul_add(b, a * a).sqrt();

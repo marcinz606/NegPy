@@ -1,12 +1,22 @@
 import numpy as np
 import pytest
 
-from negpy.features.lab.logic import (
-    apply_usm_sharpening,
-    apply_saturation,
-    _usm_sharpening_block,
-    _saturation_block,
-)
+from negpy.features.lab.logic import apply_saturation, apply_usm_sharpening, _usm_sharpening_block
+from negpy.kernel.image.logic import gamut_aware_chroma_scale, lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
+
+
+def _saturation_oracle(img, saturation, skin):
+    """The NumPy-era saturation stage: separate Lab kernels over 1 MP row blocks."""
+    rows = max(1, 1048576 // img.shape[1])
+    out = np.empty(img.shape, dtype=np.float32)
+    for start in range(0, img.shape[0], rows):
+        lab = rgb_to_lab_working(img[start : start + rows])
+        if saturation != 1.0:
+            lab = gamut_aware_chroma_scale(lab, saturation)
+        if skin > 0.0:
+            lab = skin_chroma_rein(lab, skin)
+        out[start : start + rows] = np.clip(lab_to_rgb_working(lab), 0.0, 1.0)
+    return out
 
 
 @pytest.mark.parametrize("radius,mask", [(0.1, 0.0), (1.0, 0.0), (3.0, 0.6)])
@@ -27,18 +37,18 @@ def test_saturation_short_tail_matches_full_frame(tail_rows, saturation, skin):
     image[1::11] = 1.0
     image = image[:, ::-1, :]
     original = image.copy()
-    full = _saturation_block(image, saturation, skin)
+    full = _saturation_oracle(image, saturation, skin)
     blocks = apply_saturation(image, saturation, skin)
     np.testing.assert_array_equal(blocks, full)
     assert blocks.tobytes() == full.tobytes()
     np.testing.assert_array_equal(image, original)
 
 
-@pytest.mark.parametrize("saturation,skin", [(1.0, 0.5), (0.7, 0.0), (1.3, 0.8)])
+@pytest.mark.parametrize("saturation,skin", [(1.0, 0.5), (0.7, 0.0), (1.3, 0.8), (1.8, 0.0), (0.0, 1.0)])
 def test_saturation_blocks_match_full_frame(saturation, skin):
     image = np.random.default_rng(4).uniform(0.01, 0.9, (1100, 1024, 3)).astype(np.float32)
     original = image.copy()
-    full = _saturation_block(image, saturation, skin)
+    full = _saturation_oracle(image, saturation, skin)
     blocks = apply_saturation(image, saturation, skin)
     np.testing.assert_array_equal(blocks, full)
     np.testing.assert_array_equal(image, original)
