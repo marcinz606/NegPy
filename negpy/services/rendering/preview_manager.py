@@ -412,7 +412,7 @@ class PreviewManager:
         full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
         if lens_corrections:
             full_linear = prepare_lens_source(full_linear, metadata, lens_flatfield, lens_corrections)
-        del rgb  # release the uint16 decode buffer before the resize/copy peak
+        del rgb  # release the decode buffer before the resize/copy peak
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview load cancelled")
         ir_full = metadata.get("ir")

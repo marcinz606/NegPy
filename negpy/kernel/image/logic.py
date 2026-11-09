@@ -47,8 +47,10 @@ def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None
 
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """
-    uint16 to float32 [0.0, 1.0].
+    uint16 to float32 [0.0, 1.0]. A float32 array passes through as it is.
     """
+    if img.dtype == np.float32:
+        return np.ascontiguousarray(img)
     return negpy_core.uint16_to_float32(np.ascontiguousarray(img, dtype=np.uint16))
 
 

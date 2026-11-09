@@ -62,7 +62,7 @@ def test_a_16_bit_source_matches_the_float32_wrapper_bit_for_bit(tmp_path, load)
         kwargs = {"output_bps": 16, "gamma": (1, 1), "half_size": half_size}
         new_out = wrapper.postprocess(**kwargs)
         assert new_out.dtype == np.uint16
-        np.testing.assert_array_equal(new_out, old.postprocess(**kwargs))
+        np.testing.assert_array_equal(uint16_to_float32(new_out), old.postprocess(**kwargs))
         np.testing.assert_array_equal(new_out, src[::2, ::2] if half_size else src)
     assert wrapper.data.dtype == np.float32
     np.testing.assert_array_equal(wrapper.data, old.data)

@@ -338,26 +338,6 @@ fn scale_clip_unit<'py>(
     })
 }
 
-/// `(img * 65535.0).astype(np.uint16)` of a float32 array, after `np.clip(img * gains, 0, 1)`
-/// when `gains` is given, one gain per entry of its last axis.
-#[pyfunction]
-#[pyo3(signature = (img, gains=None))]
-fn truncate_to_uint16<'py>(
-    py: Python<'py>,
-    img: PyReadonlyArrayDyn<'py, f32>,
-    gains: Option<Vec<f32>>,
-) -> PyResult<Bound<'py, PyArrayDyn<u16>>> {
-    if let Some(g) = &gains
-        && img.shape().last() != Some(&g.len())
-    {
-        return Err(PyValueError::new_err("needs one gain per channel"));
-    }
-    let src = contiguous(&img)?;
-    filled(py, img.shape(), "uint16", |d| {
-        convert::truncate_to_uint16(src, gains.as_deref(), d)
-    })
-}
-
 /// `np.nan_to_num(img, nan=nan, posinf=posinf, neginf=neginf)` of a float32 array.
 #[pyfunction]
 fn nan_to_num<'py>(
@@ -455,7 +435,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(channel_any, m)?)?;
     m.add_function(wrap_pyfunction!(clip01, m)?)?;
     m.add_function(wrap_pyfunction!(scale_clip_unit, m)?)?;
-    m.add_function(wrap_pyfunction!(truncate_to_uint16, m)?)?;
     m.add_function(wrap_pyfunction!(mean_channels, m)?)?;
     m.add_function(wrap_pyfunction!(pick_channels, m)?)?;
     m.add_function(wrap_pyfunction!(extract_channel, m)?)?;
