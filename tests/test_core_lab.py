@@ -30,7 +30,7 @@ def test_glow_and_halation_output_is_pinned():
         for glow, halation, bw in [(0.3, 0.0, False), (0.0, 0.5, False), (0.4, 0.2, True), (1.0, 1.0, False)]:
             img = rng.random((*shape, 3), dtype=np.float32)
             outs.append(apply_glow_and_halation(img, glow, halation, bw=bw))
-    assert digest(*outs) == "d6e678682cfb69cd9a8258a4b5b480bb7994cb845f66a435d2ce02ef18207095"
+    assert digest(*outs) == "2485e3b7a9fcde3982b0e9f6434896f0f13a094a838d36476b690ccfbafc4faa"
 
 
 def test_clahe_output_is_pinned():

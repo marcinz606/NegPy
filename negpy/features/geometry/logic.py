@@ -14,7 +14,7 @@ from negpy.features.geometry.models import (
     AutocropMode,
     GeometryConfig,
 )
-from negpy.kernel.image.logic import get_luminance
+from negpy.kernel.image.logic import apply_geometry_orientation, get_luminance
 from negpy.kernel.image.validation import ensure_image
 
 AUTOCROP_DETECT_RES = 1800
@@ -883,12 +883,7 @@ def resolve_autocrop_rect(
     rotation -> distortion -> keystone). Excludes Crop Offset, which get_manual_rect_coords adds per render; None when
     too small, or with `require_film_box` when no film box stands out from a holder or bed."""
     tmp, _ = _normalize_detection_input(img, AUTOCROP_DETECT_RES)
-    if geometry.rotation != 0:
-        tmp = np.rot90(tmp, k=geometry.rotation)
-    if geometry.flip_horizontal:
-        tmp = np.fliplr(tmp)
-    if geometry.flip_vertical:
-        tmp = np.flipud(tmp)
+    tmp = apply_geometry_orientation(tmp, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical)
     tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
     if geometry.fine_rotation != 0.0:
         tmp = apply_fine_rotation(tmp, geometry.fine_rotation)

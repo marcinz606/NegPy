@@ -203,6 +203,20 @@ pub fn clip_unit(src: &[f32], dst: &mut [f32]) {
     crate::par_zip(dst, src, |d, &v| *d = v.clamp(0.0, 1.0));
 }
 
+/// `np.clip(src * gains, 0, 1)` into `dst`, one gain per channel; NaN stays.
+pub fn scale_clip_unit(src: &[f32], gains: &[f32], dst: &mut [f32]) {
+    let cn = gains.len();
+    dst.par_chunks_mut(cn * BLOCK)
+        .zip(src.par_chunks(cn * BLOCK))
+        .for_each(move |(d, s)| {
+            for (d, s) in d.chunks_exact_mut(cn).zip(s.chunks_exact(cn)) {
+                for ((d, &v), &g) in d.iter_mut().zip(s).zip(gains) {
+                    *d = (v * g).clamp(0.0, 1.0);
+                }
+            }
+        });
+}
+
 /// `np.nan_to_num(src, nan=nan, posinf=posinf, neginf=neginf)` into `dst`.
 pub fn nan_to_num(src: &[f32], dst: &mut [f32], (nan, posinf, neginf): (f32, f32, f32)) {
     crate::par_zip(dst, src, move |d, &v| {

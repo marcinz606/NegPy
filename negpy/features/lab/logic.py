@@ -9,14 +9,9 @@ from negpy.features.lab.models import LabConfig, SharpenMethod
 from negpy.kernel.image.logic import (
     WORKING_INV_GAMMA,
     WORKING_LAB,
-    gamut_aware_chroma_scale,
-    lab_to_rgb_working,
-    rgb_to_lab_working,
-    skin_chroma_rein,
     working_oetf_decode,
     working_oetf_encode,
 )
-from negpy.kernel.image.validation import ensure_image
 
 
 def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
@@ -171,12 +166,6 @@ def apply_rl_sharpening(
 
 
 def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
-    if saturation == 1.0 and skin_protection <= 0.0:
-        return img
-    return _map_row_blocks(img, lambda block: _saturation_block(block, saturation, skin_protection))
-
-
-def _saturation_block(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
     """
     Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
     Preserves perceived lightness, unlike HSV S-scaling which darkens
@@ -196,15 +185,9 @@ def _saturation_block(img: ImageBuffer, saturation: float, skin_protection: floa
     """
     if saturation == 1.0 and skin_protection <= 0.0:
         return img
-
-    lab = rgb_to_lab_working(np.ascontiguousarray(img, dtype=np.float32))
-    if saturation != 1.0:
-        lab = gamut_aware_chroma_scale(lab, saturation)
-    if skin_protection > 0.0:
-        lab = skin_chroma_rein(lab, skin_protection)
-    res_rgb = np.ascontiguousarray(lab_to_rgb_working(lab), dtype=np.float32)
-    negpy_core.clip_unit(res_rgb)
-    return ensure_image(res_rgb)
+    return negpy_core.saturation(
+        np.ascontiguousarray(img, dtype=np.float32), np.float32(saturation), np.float32(skin_protection), *WORKING_LAB
+    )
 
 
 # Below this blur sigma (px) both engines skip the stage.

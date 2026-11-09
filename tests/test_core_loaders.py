@@ -13,10 +13,10 @@ from negpy.infrastructure.loaders.logluv import normalize_linear
 @pytest.mark.parametrize(
     "shape,want",
     [
-        ((1, 1, 3), "9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0"),
-        ((7, 5, 3), "870392426c6e48c2e6541e4c8d193a73064648b8dc6a1917d960c95f5b3abe40"),
-        ((311, 517, 3), "2f96ccdae2c08d83000ff4193cf5a35830034a0c86e392b5a75cac7475a6ac77"),
-        ((40, 30, 4), "cffa44f70d09ca0e66f4af8afbadbd8d75625f705b471f9434f84d7d8e29ccb8"),
+        ((1, 1, 3), "15ec7bf0b50732b49f8228e07d24365338f9e3ab994b00af08e5a3bffe55fd8b"),
+        ((7, 5, 3), "e9ff200adcd5ebfd989d585dc1cca4f8d35848885735c3c85ece26d35b02614b"),
+        ((311, 517, 3), "02cf88a7e81ad743da433efb6c48f858804649373e9eaf907940100a794dd3ef"),
+        ((40, 30, 4), "add94282c919d6f91ace74af4b7388fb4c2d07de1e22cf2e0803a297340f8295"),
     ],
 )
 @linux_pin
@@ -74,3 +74,61 @@ def test_streamed_linearraw_preview_pin(tmp_path, samples, preserve_ir, want):
         page = tf.pages[0]
         got = rawpy_loader._stream_linearraw_preview(page, page, 100, normalize_tags=False, min_preserve_ir=preserve_ir)
     assert digest(got) == want
+
+
+def _split_rgb_ir_numpy(arr, scale):
+    full = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
+    return np.ascontiguousarray(full[:, :, :3]), np.ascontiguousarray(full[:, :, 3])
+
+
+def _levels_numpy(arr, black, denom, lut):
+    block = arr.astype(np.float64)
+    if lut is not None:
+        np.clip(block, 0, len(lut) - 1, out=block)
+        block = lut[block.astype(np.int64)]
+    return np.clip((block - black) / denom, 0.0, 1.0).astype(np.float32)
+
+
+@pytest.mark.parametrize(
+    "dtype,scale",
+    [(np.uint16, 1.0 / 65535.0), (np.uint8, 1.0 / 255.0), (np.float32, 1.0)],
+)
+def test_split_rgb_ir_matches_numpy(dtype, scale):
+    rng = np.random.default_rng(4)
+    if dtype == np.float32:
+        arr = rng.uniform(-0.5, 1.5, (37, 53, 4)).astype(np.float32)
+    else:
+        arr = rng.integers(0, np.iinfo(dtype).max, (37, 53, 4), endpoint=True, dtype=dtype)
+    rgb, ir = negpy_core.split_rgb_ir(arr)
+    want_rgb, want_ir = _split_rgb_ir_numpy(arr, scale)
+    np.testing.assert_array_equal(rgb, want_rgb)
+    np.testing.assert_array_equal(ir, want_ir)
+
+
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8, np.float32, np.float64])
+@pytest.mark.parametrize("with_lut", [False, True])
+def test_levels_to_unit_matches_numpy(dtype, with_lut):
+    rng = np.random.default_rng(5)
+    if np.issubdtype(dtype, np.integer):
+        arr = rng.integers(0, np.iinfo(dtype).max, (41, 29, 3), endpoint=True, dtype=dtype)
+    else:
+        arr = rng.uniform(-50.0, 70000.0, (41, 29, 3)).astype(dtype)
+    black = np.array([256.0, 300.5, 1.0])
+    denom = np.maximum(np.array([60000.0, 255.0, 1e-9]) - black, 1e-6)
+    lut = np.sqrt(np.arange(4096, dtype=np.float64)) * 977.0 if with_lut else None
+    got = negpy_core.levels_to_unit(arr, black.tolist(), denom.tolist(), lut=None if lut is None else lut.tolist())
+    np.testing.assert_array_equal(got, _levels_numpy(arr, black, denom, lut))
+
+
+@linux_pin
+def test_dng_peek_kernels_pin():
+    rng = np.random.default_rng(6)
+    four = rng.integers(0, 65535, (23, 31, 4), endpoint=True, dtype=np.uint16)
+    three = rng.integers(0, 65535, (23, 31, 3), endpoint=True, dtype=np.uint16)
+    lut = (np.arange(65536, dtype=np.float64) ** 0.8).tolist()
+    got = (
+        negpy_core.split_rgb_ir(four),
+        negpy_core.levels_to_unit(three, [512.0, 600.0, 700.0], [60000.0, 59000.0, 58000.0]),
+        negpy_core.levels_to_unit(three, [512.0, 600.0, 700.0], [7000.0, 6900.0, 6800.0], lut=lut),
+    )
+    assert digest(got) == "fd11d821816f58136a027a1aade4a9213fc589640cc3a64993671f2327d2a8d5"

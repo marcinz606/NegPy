@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
-from negpy.kernel.image.logic import apply_exif_orientation, working_oetf_encode
+from negpy.kernel.image.logic import apply_exif_orientation, apply_geometry_orientation, working_oetf_encode
 from negpy.desktop.auto_sliders import record_meters, shown_values
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.file_manager import move_to_trash
@@ -5259,13 +5259,7 @@ class AppController(QObject):
             return
 
         geom = self.state.config.geometry
-        transformed = img
-        if geom.rotation != 0:
-            transformed = np.rot90(transformed, k=geom.rotation)
-        if geom.flip_horizontal:
-            transformed = np.ascontiguousarray(np.fliplr(transformed))
-        if geom.flip_vertical:
-            transformed = np.ascontiguousarray(np.flipud(transformed))
+        transformed = apply_geometry_orientation(img, geom.rotation, geom.flip_horizontal, geom.flip_vertical)
         if geom.fine_rotation != 0.0:
             transformed = apply_fine_rotation(transformed, geom.fine_rotation)
 
@@ -8869,12 +8863,7 @@ class AppController(QObject):
             view = apply_exif_orientation(view, self.state.preview_orientation)
         # GeometryProcessor's order.
         geometry = self.state.config.geometry
-        view = np.rot90(view, k=geometry.rotation)
-        if geometry.flip_horizontal:
-            view = np.fliplr(view)
-        if geometry.flip_vertical:
-            view = np.flipud(view)
-        view = np.ascontiguousarray(view)
+        view = np.ascontiguousarray(apply_geometry_orientation(view, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical))
         h, w = view.shape[:2]
         scale = APP_CONFIG.preview_render_size / max(h, w)
         view = negpy_core.resize_linear(np.ascontiguousarray(view, dtype=np.float32), (round(w * scale), round(h * scale)))

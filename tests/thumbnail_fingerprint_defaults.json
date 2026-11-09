@@ -154,6 +154,12 @@
    "crosstalk_strength": "0.0",
    "demosaic_export": "\"Auto\"",
    "demosaic_preview": "\"Auto\"",
+   "fade_auto_red": "false",
+   "fade_crossover": "0.0",
+   "fade_crossover_space": "\"\"",
+   "fade_crossover_table": "null",
+   "fade_density_shift": "0.0",
+   "fade_neutrals_mix": "0.0",
    "fade_ratio_b": "1.0",
    "fade_ratio_g": "1.0",
    "fade_ratio_r": "1.0",
@@ -173,6 +179,10 @@
    "locked_floors": "[0.0, 0.0, 0.0]",
    "locked_neutral_axis": "null",
    "luma_range_clip": "0.0",
+   "manual_dmax": "null",
+   "manual_dmax_at": "null",
+   "manual_dmin": "null",
+   "manual_dmin_at": "null",
    "meter_key": "\"\"",
    "meter_rect": "null",
    "positive_source": "false",
@@ -181,6 +191,7 @@
    "sensor_matrix": "null",
    "sensor_profile": "\"None\"",
    "sensor_unmix": "\"two_scale\"",
+   "slide_bw": "false",
    "source_color": "null",
    "source_encoding": "\"auto\"",
    "use_cast_average": "false",
@@ -219,5 +230,5 @@
    "vanadium_strength": "0.0"
   }
  },
- "render_version": 32
+ "render_version": 33
 }
