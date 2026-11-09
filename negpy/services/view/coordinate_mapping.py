@@ -52,10 +52,7 @@ class CoordinateMapping:
             o = uv_grid[0, 0].astype(np.float64)
             du = (uv_grid[0, -1] - o) / max(w_r - 1, 1)
             dv = (uv_grid[-1, 0] - o) / max(h_r - 1, 1)
-            ys, xs = np.mgrid[0:h_r, 0:w_r].astype(np.float64)
-            sx = m_inv[0, 0] * xs + m_inv[0, 1] * ys + m_inv[0, 2]
-            sy = m_inv[1, 0] * xs + m_inv[1, 1] * ys + m_inv[1, 2]
-            uv_grid = (o + sx[..., None] * du + sy[..., None] * dv).astype(np.float32)
+            uv_grid = negpy_core.affine_uv_grid(h_r, w_r, m_inv, tuple(o), tuple(du), tuple(dv))
 
         if distortion_k1 != 0.0:
             from negpy.features.geometry.logic import apply_radial_distortion
