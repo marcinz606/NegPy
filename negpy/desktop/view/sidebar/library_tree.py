@@ -2,10 +2,11 @@ from negpy.kernel.system.i18n import language, tr
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import QDateTime, QLocale, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QDateTime, QLocale, QObject, QPoint, QRect, QRunnable, QSize, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -78,6 +79,8 @@ _DOT_ROLE = Qt.ItemDataRole.UserRole + 5
 _FRAMES_ROLE = Qt.ItemDataRole.UserRole + 6
 # A folder row's roll-name prefix ("a/b"): the row's identity, since rolls from two disk trees can share it.
 _PREFIX_ROLE = Qt.ItemDataRole.UserRole + 7
+# A folder roll row's folder path, for the disk check.
+_PATH_ROLE = Qt.ItemDataRole.UserRole + 8
 
 # The roll-name prefixes of the folder rows the user collapsed, kept across sessions.
 _COLLAPSED_KEY = "library_collapsed_folders"
@@ -91,6 +94,23 @@ _MODES = {
     ProcessMode.BW: (tr("B&W"), THEME.mode_bw),
     ProcessMode.E6: (tr("Slide"), THEME.mode_e6),
 }
+
+
+class _DiskCheckSignals(QObject):
+    done = pyqtSignal(object)
+
+
+class _DiskCheck(QRunnable):
+    """Looks up which folders are gone off the UI thread: a dead network path can block for long."""
+
+    def __init__(self, paths: dict[str, str]) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.paths = paths
+        self.signals = _DiskCheckSignals()
+
+    def run(self) -> None:
+        self.signals.done.emit({roll_id: not os.path.isdir(path) for roll_id, path in self.paths.items()})
 
 
 def _short_date(timestamp: float) -> str:
@@ -224,6 +244,11 @@ class LibraryTree(QWidget):
         self._count_timer.setInterval(0)
         self._count_timer.timeout.connect(self.refresh_active_count)
         controller.session.files_changed.connect(self._count_timer.start)
+        self._checking = False
+        self._disk_check: _DiskCheck | None = None
+        app = QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_app_state_changed)
         self.reload()
 
     def _init_ui(self) -> None:
@@ -443,6 +468,43 @@ class LibraryTree(QWidget):
         if self.controller.state.active_roll_id != self._shown_open_roll:
             self._show_open_roll()
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self.check_folders()
+
+    def _on_app_state_changed(self, state) -> None:
+        if state == Qt.ApplicationState.ApplicationActive and self.isVisible():
+            self.check_folders()
+
+    def check_folders(self) -> None:
+        """Re-checks every folder roll's folder on a worker thread and updates the rows in place."""
+        if self._checking:
+            return
+        paths = {item.data(0, _ROLL_ID_ROLE): item.data(0, _PATH_ROLE) for item in self._roll_items() if item.data(0, _PATH_ROLE)}
+        if not paths:
+            return
+        self._checking = True
+        check = _DiskCheck(paths)
+        self._disk_check = check
+        check.signals.done.connect(self._apply_folder_check)
+        QThreadPool.globalInstance().start(check)
+
+    def _apply_folder_check(self, result: dict) -> None:
+        self._checking = False
+        self._disk_check = None
+        for item in self._roll_items():
+            roll_id = item.data(0, _ROLL_ID_ROLE)
+            missing = result.get(roll_id)
+            if missing is None or missing == bool(item.data(0, _MISSING_ROLE)):
+                continue
+            entry = rolls.roll_for_id(self.repo, roll_id)
+            if entry is None:
+                continue
+            item.setData(0, _MISSING_ROLE, missing)
+            self._set_detail(item, roll_id, entry)
+            self._set_tooltips(item, entry, missing)
+        self.tree.viewport().update()
+
     def refresh(self) -> None:
         """Refresh: rediscover rolls under the imported parents, then re-read every count."""
         found, dropped = self.controller.rediscover_rolls()
@@ -588,21 +650,29 @@ class LibraryTree(QWidget):
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
         item.setData(0, _MISSING_ROLE, missing)
+        if is_folder:
+            item.setData(0, _PATH_ROLE, folder_path)
         self._set_detail(item, roll_id, entry)
         # Roll kind reads off the icon's shape: a folder roll is a folder, a virtual one
         # the search it was built from.
         item.setIcon(0, qta.icon("mdi6.folder-outline" if is_folder else "mdi6.text-search", color=THEME.text_secondary))
+        self._set_tooltips(item, entry, missing)
+        return item
+
+    @staticmethod
+    def _set_tooltips(item: QTreeWidgetItem, entry: dict, missing: bool) -> None:
+        folder_path = entry.get("folder_path", "")
         if missing:
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
             item.setToolTip(1, tr("The folder is not on disk, so move it back or delete the roll."))
-        else:
-            item.setToolTip(
-                0,
-                tr("Folder roll: {path}", path=folder_path)
-                if is_folder
-                else tr("Virtual roll: a fixed list of frames that new files never join"),
-            )
-        return item
+            return
+        item.setToolTip(1, "")
+        item.setToolTip(
+            0,
+            tr("Folder roll: {path}", path=folder_path)
+            if entry.get("kind") == "folder"
+            else tr("Virtual roll: a fixed list of frames that new files never join"),
+        )
 
     def _set_detail(self, item: QTreeWidgetItem, roll_id: str, entry: dict) -> None:
         """The line under a roll's name: its photos, film mode, stock, scenes and import date."""

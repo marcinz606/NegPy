@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPoint
+from PyQt6.QtCore import QPoint, Qt, QThreadPool
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from negpy.desktop.view.sidebar.library_tree import _DETAIL_ROLE, _FOLDER_ROLE, _MISSING_ROLE, LibraryTree
 from negpy.desktop.view.styles.theme import THEME
@@ -814,6 +814,43 @@ def test_a_roll_whose_folder_is_gone_is_marked_missing(widget, tmp_path):
 
     item = widget.tree.topLevelItem(0)
     assert item.data(0, _DETAIL_ROLE) == "folder missing" and item.data(0, _MISSING_ROLE)
+
+
+def _check_folders(widget) -> None:
+    widget.check_folders()
+    QThreadPool.globalInstance().waitForDone()
+    QApplication.processEvents()
+
+
+def test_a_folder_renamed_while_running_is_marked_missing_in_place(widget, tree_dirs):
+    recognize_folder(widget.repo, str(tree_dirs / "roll_a"))
+    widget.reload()
+    item = widget.tree.topLevelItem(0)
+    assert not item.data(0, _MISSING_ROLE)
+
+    (tree_dirs / "roll_a").rename(tree_dirs / "roll_a_renamed")
+    _check_folders(widget)
+
+    assert widget.tree.topLevelItem(0) is item
+    assert item.data(0, _MISSING_ROLE) and item.data(0, _DETAIL_ROLE) == "folder missing"
+    assert "Folder not found" in item.toolTip(0)
+
+    (tree_dirs / "roll_a_renamed").rename(tree_dirs / "roll_a")
+    _check_folders(widget)
+
+    assert not item.data(0, _MISSING_ROLE) and _count(item) == "2 photos"
+    assert "Folder roll" in item.toolTip(0) and not item.toolTip(1)
+
+
+def test_activating_the_app_checks_folders(widget, tree_dirs, monkeypatch):
+    calls = []
+    monkeypatch.setattr(widget, "check_folders", lambda: calls.append(1))
+    widget.show()
+    assert len(calls) == 1
+    widget._on_app_state_changed(Qt.ApplicationState.ApplicationActive)
+    widget._on_app_state_changed(Qt.ApplicationState.ApplicationInactive)
+
+    assert len(calls) == 2
 
 
 def test_importing_a_folder_without_images_imports_its_subfolders(widget, tree_dirs, monkeypatch):
