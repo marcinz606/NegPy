@@ -89,6 +89,10 @@ from negpy.desktop.view.styles.templates import (
     BAR_ICON_SIZE,
     BAR_TRACK_BUTTON_HEIGHT,
     hint_label,
+    icon_text,
+    labeled_action,
+    labeled_toggle_qss,
+    name_labeled_button,
     with_alpha,
     wrap_tooltip,
 )
@@ -1441,9 +1445,9 @@ class _FilmStripView(_FilmGridView):
 
 
 # The Roll row: the widest its roll name and tally get, and the filter box's width below which
-# the save button moves to the ⋮ menu.
+# the save button shows its icon alone.
 _ROLL_TITLE_MAX_WIDTH = 280
-_FILTER_ROOM = 220
+_FILTER_ROOM = 140
 # Belongs to the saved session: only a restored session turns the Hot Folder back on.
 _HOT_FOLDER_KEY = "session_hot_folder"
 
@@ -1560,9 +1564,17 @@ class FileBrowser(QWidget):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        # 1 while the save button waits in the ⋮ menu for room in the row.
+        # 1 while the save button shows its icon alone, for want of room for its label.
         self._roll_fit = 0
+        self._save_label = ""
+        self._save_named_width = 0
         self._save_roll_wanted = False
+        # Naming the save button changes its width, which re-enters the row's layout when done
+        # from inside the filter box's resize.
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.setInterval(0)
+        self._fit_timer.timeout.connect(self._fit_roll_row)
         self._save_choice_cache: tuple = ((), ("hidden", ""))
         self._save_to_folder = False
 
@@ -1651,10 +1663,8 @@ class FileBrowser(QWidget):
         # A rename or a kind change in the Library renames the open roll in the title.
         self.library_tree.rolls_changed.connect(self._on_rolls_changed)
 
-        self.save_roll_btn = QToolButton()
-        self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_roll_btn = labeled_action("fa5s.save", tr("Save as Virtual Roll…"), "")
         self.save_roll_btn.clicked.connect(self._on_save_roll_button)
-        self._label_save_roll_button(False)
 
         self.hot_folder_action = QAction(tr("Hot Folder"), self)
         self.hot_folder_action.setCheckable(True)
@@ -1670,7 +1680,8 @@ class FileBrowser(QWidget):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.save_roll_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        # After the icon size, which the label's measured width includes.
+        self._label_save_roll_button(False)
         self.save_roll_btn.setVisible(False)
 
         self.roll_menu_btn = QToolButton()
@@ -1918,12 +1929,23 @@ class FileBrowser(QWidget):
     def _label_save_roll_button(self, to_folder: bool) -> None:
         self._save_to_folder = to_folder
         if to_folder:
-            self.save_roll_btn.setText(tr("Save to Folder Roll"))
+            self._save_label = tr("Save to Folder Roll")
             tip = tr("Save these frames as a folder roll, or use Save as Virtual Roll… in the ⋮ menu to keep exactly these frames")
         else:
-            self.save_roll_btn.setText(tr("Save as Virtual Roll…"))
+            self._save_label = tr("Save as Virtual Roll…")
             tip = tr("Save these frames as a virtual roll, a fixed list of frames that new files never join")
         self.save_roll_btn.setToolTip(wrap_tooltip(tip))
+        self._name_save_roll_button()
+
+    def _name_save_roll_button(self) -> None:
+        """The save button's label, or its icon alone while the row has no room for the label."""
+        btn = self.save_roll_btn
+        text, sheet = icon_text(self._save_label), labeled_toggle_qss()
+        # Measured named every time, so the room check holds the current label's width.
+        name_labeled_button(btn, text, sheet, True)
+        self._save_named_width = btn.sizeHint().width()
+        if self._roll_fit:
+            name_labeled_button(btn, text, sheet, False)
 
     def _on_save_roll_button(self) -> None:
         self._forget_save_choice()
@@ -2255,23 +2277,23 @@ class FileBrowser(QWidget):
                 self._label_save_roll_button(to_folder)
                 # The label's width decides whether the button fits beside the filter box.
                 self._fit_roll_row()
-        self.save_roll_btn.setVisible(wanted and self._roll_fit == 0)
+        self.save_roll_btn.setVisible(wanted)
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         # Events still reach the filter while the browser is torn down, after its attributes are gone.
         if event.type() == QEvent.Type.Resize and obj is getattr(self, "search_input", None):
-            self._fit_roll_row()
+            self._fit_timer.start()
         return False
 
     def _fit_roll_row(self) -> None:
-        """The save button moves to the ⋮ menu while the filter box would be narrower than _FILTER_ROOM with it."""
-        save = self.save_roll_btn.sizeHint().width() + THEME.space_sm if self._save_roll_wanted else 0
-        room = self.search_input.width() - (save if self._roll_fit else 0)
+        """The save button shows its icon alone while its label would leave the filter box narrower than _FILTER_ROOM."""
+        label = self._save_named_width - self.save_roll_btn.sizeHint().width() if self._roll_fit else 0
+        room = self.search_input.width() - label
         # A step back needs a margin: a width right at the edge must not flicker.
         fit = 0 if room >= _FILTER_ROOM + (THEME.space_2xl if self._roll_fit else 0) else 1
         if fit != self._roll_fit:
             self._roll_fit = fit
-            self._show_save_roll(self._save_roll_wanted)
+            self._name_save_roll_button()
 
     def _on_adjust_half_frame_split(self, path: str, base_hash: str) -> None:
         """Open the rectangle editor for one file, defaulting Apply to just that
