@@ -1,5 +1,6 @@
 """The Positive source decode kernels against the NumPy code they replaced, and a pin."""
 
+import negpy_core
 import numpy as np
 import pytest
 from core_pin import digest, linux_pin
@@ -99,9 +100,13 @@ def test_positive_decode_pin():
     u16 = rng.integers(0, 65535, (23, 31, 3), endpoint=True, dtype=np.uint16)
     u8 = rng.integers(0, 255, (23, 31, 3), endpoint=True, dtype=np.uint8)
     f32 = rng.uniform(-0.1, 1.1, (23, 31, 3)).astype(np.float32)
-    got = (
-        se.apply_decode(u16, se.ProfileDecode(_curves(65536), prophoto)),
-        se.apply_decode(u8, se.ProfileDecode(_curves(256), prophoto)),
-        se.apply_decode(f32, se.ProfileDecode(_curves(65536), prophoto)),
-    )
-    assert digest(got) == "f1f14744b0c8043ac0daa8a1f581120ea9f9e65402e6cba7fbdd4b21944cf126"
+    w = _W
+
+    def decode(img, curves):
+        # apply_decode without its BLAS luminance: BLAS sums in an order that depends on the CPU.
+        rgb = negpy_core.matmul_3x3(np.ascontiguousarray(se._apply_curves(img, curves)), np.ascontiguousarray(prophoto))
+        y = rgb[..., 0] * w[0] + rgb[..., 1] * w[1] + rgb[..., 2] * w[2]
+        return negpy_core.into_gamut(rgb, np.ascontiguousarray(y))
+
+    got = (decode(u16, _curves(65536)), decode(u8, _curves(256)), decode(f32, _curves(65536)))
+    assert digest(got) == "6a88e9528457a0eb6e69ceb195bb2d0725627f0d07ef5132d8f305e536e7d877"
