@@ -5,11 +5,11 @@ A measure step, a build step, and the fail-closed reasons in between.
 
 import numpy as np
 
+from fade_crossover_scene import estimate_fade
 from negpy.features.exposure.normalization import prefilter_log_grid
 from negpy.features.process.fade import (
     RATIO_BOUNDS,
     SPREAD_FLOOR,
-    estimate_fade,
     fade_ratios_from_neutral_axis,
 )
 
@@ -39,7 +39,7 @@ def _synthetic_neutral_slide(
 def test_recovers_known_ratios_through_the_real_detector():
     """End-to-end: a synthetic slide with known survival ratios and
     run through the actual production detector (measure_neutral_axis_from_log) via
-    measure_neutral_axis_ratios, recovers the true ratios via fade_ratios_from_neutral_axis."""
+    neutral_axis_from_grid, recovers the true ratios via fade_ratios_from_neutral_axis."""
     ratio_g_true, ratio_b_true = 0.6, 0.85
     image = _synthetic_neutral_slide(ratio_g_true, ratio_b_true)
 

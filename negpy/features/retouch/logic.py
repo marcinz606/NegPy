@@ -242,10 +242,6 @@ def split_hairs(mask: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     return negpy_core.split_hairs(np.ascontiguousarray(mask, dtype=np.uint8), (_HAIR_MIN_AREA, _HAIR_MIN_ELONG))
 
 
-def _u8(plane: np.ndarray) -> np.ndarray:
-    return (np.clip(plane, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-
-
 def _texture_win(shape: Tuple[int, ...], dust_size: int) -> int:
     return int(max(7, max(1.0, float(dust_size)) * film_scale(shape) * 4.0)) * 2 + 1
 

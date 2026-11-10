@@ -23,6 +23,7 @@ GUIDED_KEYS = (
     "film",
     "assembly",
     "sensor",
+    "fade",
     "demosaic",
     "baseline",
     "process",

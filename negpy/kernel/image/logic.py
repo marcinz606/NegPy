@@ -47,8 +47,10 @@ def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None
 
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """
-    uint16 to float32 [0.0, 1.0].
+    uint16 to float32 [0.0, 1.0]. A float32 array passes through as it is.
     """
+    if img.dtype == np.float32:
+        return np.ascontiguousarray(img)
     return negpy_core.uint16_to_float32(np.ascontiguousarray(img, dtype=np.uint16))
 
 
@@ -271,6 +273,19 @@ def apply_exif_orientation(arr: np.ndarray, orientation: Optional[int]) -> np.nd
     h, w = src.shape[:2]
     out = negpy_core.orient(src.view(np.uint8).reshape(h, w, -1), int(orientation))
     return out.view(src.dtype).reshape(out.shape[:2] + src.shape[2:])
+
+
+# EXIF code of rot90(k) -> fliplr -> flipud, indexed by k * 4 + flip_h * 2 + flip_v.
+_GEOMETRY_EXIF = (1, 4, 2, 3, 8, 5, 7, 6, 3, 2, 4, 1, 6, 7, 5, 8)
+
+
+def apply_geometry_orientation(arr: np.ndarray, rotation: int, flip_h: bool, flip_v: bool) -> np.ndarray:
+    """`np.rot90(arr, rotation)`, then `fliplr` and `flipud` when asked, as one contiguous copy."""
+    k = rotation % 4
+    if not (k or flip_h or flip_v):
+        return arr
+    code = _GEOMETRY_EXIF[k * 4 + bool(flip_h) * 2 + bool(flip_v)]
+    return apply_exif_orientation(arr, code) if code != 1 else arr.copy()
 
 
 def get_luminance(img: np.ndarray) -> np.ndarray:

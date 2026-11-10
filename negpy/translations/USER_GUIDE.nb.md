@@ -132,7 +132,7 @@ Korrigerer fargen i kopien, slik fargefiltrene i et forstørrelsesapparat i mør
 *   **Fjerning av fargestikk**: fjerner et fargestikk som er ulikt i de mørke og lyse delene av bildet. Den starter på 0,5 (halvparten) for fargenegativer og på 0 for dias. Blader, himmel og vann regnes ikke som grått, så de beholder fargen.
 *   **Filter**: et farget filter, som på kameraobjektivet for svart-hvitt-film. Det vises bare for et fargenegativ eller fargedias i S/H, og erstatter kontrollene ovenfor. Hvert filter gjør fargene motsatt av sin egen mørkere. Gul #8, Dyp gul #15, Oransje #21 og Rød #25 gjør en blå himmel mørkere, trinn for trinn. Rød gjør også blader mørke og hud blek. Gulgrønn #11 og Grønn #58 gjør blader lysere og hud mørkere. Ingen gir utseendet til en vanlig svart-hvitt-film.
 
-<!-- panel:tone src:c1700dd9 -->
+<!-- panel:tone src:773012ec -->
 ### 5.2 Tone: lyshet og kontrast
 
 Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
@@ -152,7 +152,7 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
     *   **Kontrastmaske**: åpner store mørke områder og holder tilbake store lyse, og beholder fine detaljer. I mørkerommet får en kopist dette med en myk, uskarp maske lagt på negativet. I digital kopiering får Fujifilm Frontier-skannere en lignende virkning med HyperTone. Områder langt fra mellomgrå endres mest, så et bilde med lav kontrast endres lite.
 *   **Global / R / G / B**: R, G eller B bruker graderingene på bare én farge, for et fargestikk som er ulikt i skygger og høylys.
 
-**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.5](#105-metering-negative--positive)).
+**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
 
 <!-- panel:paper src:00cfca5d -->
 ### 5.3 Papirrespons: papiret
@@ -331,14 +331,14 @@ Skannevalgene er én innstilling for hele appen. Listen under dem viser hvordan 
 
 Et kamera viser kortene RAW-dekoding og Optikk. Et kamera med smalbåndslys viser også Trichrome og Kalibrering. En endring oppdaterer hvert åpent bilde (Ctrl+Z angrer den per bilde), men et kopipapir du har valgt selv, blir stående. En kameraskanning angir dekodingen og kopipapiret for hvert bilde ut fra sitt eget lys.
 
-<!-- panel:demosaic src:577713a8 -->
+<!-- panel:demosaic src:5627a0ef -->
 ### 10.2 RAW-dekoding
 
 Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 
 *   **Kamera-WB / Lineær RAW**: Kamera-WB bruker kameraets hvitbalanse. Lineær RAW dekoder nøytralt, for smalbåndslys. Oppsett angir det for deg.
 *   **Forhåndsvisning** / **Eksport**: demosaikkmetoden, som fyller inn fargene hver sensorpiksel ikke kan se. **Auto** er raskt på skjermen og bruker **AHD** ved eksport. **VNG** er jevn og **PPG** rask. **DCB** og **DHT** beholder flere fine detaljer, men kan gjøre korn om til mønstre. **AAHD** mykner kanter. Bare metodene i din LibRaw-versjon vises.
-*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av.
+*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av. En advarsel vises under Gjenoppretting når bildet har klippede høylys, som kan bli rosa.
 
 <!-- panel:optics src:33b2d330 -->
 ### 10.3 Optikk
@@ -360,7 +360,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 
 Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
-<!-- panel:sensor src:3fd2d8aa -->
+<!-- panel:sensor src:f2d1b580 -->
 ### 10.4 Kalibrering: farger fra skanneoppsettet ditt
 
 Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
@@ -379,20 +379,21 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
-#### 10.4.1 Fargegjenoppretting: falmede dias
+<!-- panel:fade src:fbd4f136 -->
+### 10.5 Fargegjenoppretting: falmede dias
 
-Gir et falmet dias fargelagene tilbake.
+Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
 
 *   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
 *   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
 *   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake.
 *   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
-*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Prøv det når ikonet blir gult.
+*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Slå det på når Beregn foreslår det.
 *   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
-*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og send kortet til rullen. Bare Beregn måler en ny tabell.
+*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og klikk så **Rull** på kortet.
 
 <!-- panel:process src:2c179de9 -->
-### 10.5 Lysmåling: negativ → positiv
+### 10.6 Lysmåling: negativ → positiv
 
 For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste delene (svart- og hvitpunktet) og fargen på filmen. Disse kontrollene angir hva den måler.
 
@@ -409,7 +410,7 @@ For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste 
 Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. På et dias angir Tegn område området som Beregn, Fjern flekk, Fjerning av fargestikk, Autotetthet og Autogradering måler. Tegn det før du klikker Beregn. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
 
 <!-- panel:baseline src:7fc2c469 -->
-### 10.6 Rullanalyse
+### 10.7 Rullanalyse
 
 Måler hele rullen én gang og deler resultatet, så bildene fra én film kopieres likt. NegPy måler rullen og hver scene etter hvert som bildene kommer inn, og på nytt etter en endring av beskjæring eller lysmåling. Ingen bilder bruker et grunnlag før du slår på et gjennomsnitt. Når ingen rull er åpen, er kortet nedtonet: åpne eller lagre en rull først.
 
@@ -422,7 +423,7 @@ Måler hele rullen én gang og deler resultatet, så bildene fra én film kopier
 *   **Oppdag scener**: finner gruppene av bilder under et annet lys enn rullen, i hvilken som helst bilderekkefølge, og viser dem på lysbordet. Hver gruppe venter under **Funnet**. For å endre en gruppe drar du bilder til en annen gruppe, eller til et bilde uten scene for å utelate dem; høyreklikk › **Scene** gjør det samme. Gi gruppen et navn, og **Godta** den som en scene med eget grunnlag, eller **Forkast** den.
 
 <!-- panel:assembly src:96b2e550 -->
-### 10.7 Bildesammensetning
+### 10.8 Bildesammensetning
 
 Hvordan filer blir til bilder. Hver rull beholder sine egne innstillinger her.
 
@@ -575,7 +576,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 
 **Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.
@@ -586,6 +587,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
 *   **Autofokus**, **Autoeksponering** og **Eksponering**: fokus og eksponering på skanneren, før skanningen.
+*   **Analog forsterkning** (Coolscan): mer eller mindre skannereksponering enn den målte, i blendertrinn. Pilen åpner **Rød**, **Grønn** og **Blå**, én per kanal.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Innramming

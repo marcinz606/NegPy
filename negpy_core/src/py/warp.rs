@@ -167,6 +167,29 @@ fn rotation_matrix<'py>(
     PyArray2::from_vec2(py, &[m[..3].to_vec(), m[3..].to_vec()]).expect("two rows of three")
 }
 
+/// `create_uv_grid`'s fine-rotated (h, w, 2) float32 grid from the 2x3 inverse rotation `m`.
+#[pyfunction]
+fn affine_uv_grid<'py>(
+    py: Python<'py>,
+    h: usize,
+    w: usize,
+    m: PyReadonlyArray2<'py, f64>,
+    o: [f64; 2],
+    du: [f64; 2],
+    dv: [f64; 2],
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let m = matrix::<6>(&m, 2)?;
+    let out = PyArrayDyn::<f32>::zeros(py, vec![h, w, 2], false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw
+            .as_slice_mut()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        super::detach(py, dst.len(), || warp::affine_uv_grid(m, o, du, dv, w, dst));
+    }
+    Ok(out)
+}
+
 /// `cv2.getPerspectiveTransform(src, dst)` for two 4x2 float32 point arrays, as 3x3 float64.
 #[pyfunction]
 fn perspective_transform<'py>(
@@ -191,6 +214,7 @@ fn perspective_transform<'py>(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rotation_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(affine_uv_grid, m)?)?;
     m.add_function(wrap_pyfunction!(perspective_transform, m)?)?;
     m.add_function(wrap_pyfunction!(remap, m)?)?;
     m.add_function(wrap_pyfunction!(remap_radial, m)?)?;

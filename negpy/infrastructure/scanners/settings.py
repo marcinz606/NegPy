@@ -63,11 +63,16 @@ class ScannerSettings:
     exposure_lock_device: str = ""
     exposure_lock_frame: int = 0
     exposure_lock_at: str = ""  # ISO time of the metering run
+    # Analog Gain in stops: all channels, then red, green and blue on top.
+    analog_gain_ev: float = 0.0
+    channel_gain_ev: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         # JSON round-trips tuples as lists and dict keys as strings; coerce back.
         if isinstance(self.scan_window, list):
             object.__setattr__(self, "scan_window", tuple(self.scan_window))
+        if isinstance(self.channel_gain_ev, list):
+            object.__setattr__(self, "channel_gain_ev", tuple(float(v) for v in self.channel_gain_ev))
         if isinstance(self.frame_windows, dict):
             object.__setattr__(
                 self,
@@ -92,8 +97,8 @@ class ScannerSettings:
         """
         data = dict(data)
         # Pre-mode blobs only ever had one multi-exposure behavior (today's "adaptive"): a
-        # checked box meant exactly that, unchecked meant none. "fixed" is a real mode again
-        # (pyopticfilm 1.3.9); a device without it masks it in the Scan panel.
+        # checked box meant exactly that, unchecked meant none. A device without "fixed" masks it
+        # in the Scan panel.
         if "multi_exposure_mode" not in data and "multi_exposure" in data:
             data["multi_exposure_mode"] = MultiExposureMode.ADAPTIVE.value if data.pop("multi_exposure") else MultiExposureMode.OFF.value
         if data.get("multi_exposure_mode") not in set(MultiExposureMode):

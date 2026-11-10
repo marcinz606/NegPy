@@ -23,7 +23,14 @@ from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
 from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.path import is_mono
-from negpy.features.process.models import SOURCE_ENCODING_LABELS, SourceEncoding, invalidate_local_bounds, with_film_fields
+from negpy.features.process.models import (
+    FADE_CARD_FIELDS,
+    FADE_METER_FIELDS,
+    SOURCE_ENCODING_LABELS,
+    SourceEncoding,
+    invalidate_local_bounds,
+    with_film_fields,
+)
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.presets import preset_fields
 from negpy.services.assets.rolls import DECODE_WHITE_FIELDS, card_fields
@@ -174,11 +181,13 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength, profile, the baked matrix and the process it was baked for copy atomically:
         # strength alone would leave the target on a stale or None matrix.
         _row(mark("Crosstalk"), "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", "crosstalk_process", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        # The crossover table and its tag travel with the strength, as on a Roll push.
-        _row(mark("Fade Restoration"), "process", "fade_ratio_r", "fade_density_shift", "fade_ratio_g", "fade_ratio_b", "fade_white_anchor", "fade_white_r", "fade_white_g", "fade_white_b", "fade_white_space", "fade_crossover", "fade_crossover_table", "fade_crossover_space", "fade_auto_red", "fade_neutrals_mix", fmt=lambda v: _fmt_scalar(v[0])),
         _row(mark("Sensor Crosstalk Profile"), "process", "sensor_profile", "sensor_matrix", "sensor_unmix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row(mark("Hue Trim"), "process", "hue_trim", sticky=True),
+    )),
+    (mark("Fade Restoration"), (
+        # The crossover table and its tag travel with the strength, as on a Roll push.
+        _row(mark("Fade Restoration"), "process", *FADE_CARD_FIELDS, fmt=lambda v: _fmt_scalar(v[0])),
     )),
     (mark("Raw Decode"), (
         _row(mark("White Balance"), "process", "linear_raw", fmt=_fmt_white_balance),
@@ -394,16 +403,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "crosstalk_strength",
         "crosstalk_profile",
         "crosstalk_matrix",
-        "fade_ratio_r",
-        "fade_density_shift",
-        "fade_ratio_g",
-        "fade_ratio_b",
-        "fade_white_anchor",
-        "fade_white_r",
-        "fade_white_g",
-        "fade_white_b",
-        "fade_white_space",
-        "fade_crossover",
+        *FADE_METER_FIELDS,
         "sensor_profile",
         "sensor_matrix",
         "sensor_unmix",
@@ -420,6 +420,24 @@ BOUNDS_INPUT_FIELDS = frozenset(
         "crop_detect_key",
     }
 )
+
+
+# The Roll-tab card names a frame's locks are listed by.
+ROLL_CARD_LABELS = {
+    "film": tr("Film Mode"),
+    "sensor": tr("Calibration"),
+    "fade": tr("Fade Restoration"),
+    "demosaic": tr("Raw Decode"),
+    "baseline": tr("Roll Analysis"),
+    "process": tr("Metering"),
+    "lens": tr("Optics"),
+    "flatfield": tr("Optics"),
+    "metadata_gear": tr("Analog Gear"),
+    "metadata_capture": tr("Capture"),
+    "metadata_process": tr("Process"),
+    "metadata_scanning": tr("Scanning"),
+    "metadata_exposure": tr("Exposure"),
+}
 
 
 # Fields a frame's own measurement reads: the average flags pick a measurement, they feed none.

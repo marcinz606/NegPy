@@ -1,5 +1,7 @@
+import negpy_core
 import numpy as np
 import pytest
+from core_pin import digest, linux_pin
 
 from negpy.kernel.image.logic import (
     _WORKING_GAMMA,
@@ -58,3 +60,25 @@ def test_lab_keeps_the_shape():
     img = _RNG.random((7, 5, 3), dtype=np.float32)
     assert rgb_to_lab_working(img).shape == (7, 5, 3)
     assert lab_to_rgb_working(rgb_to_lab_working(img)).shape == (7, 5, 3)
+
+
+def test_piecewise_to_linear_is_the_float64_power_rounded_once():
+    x = np.linspace(0.0, 1.0, 100_001, dtype=np.float32)
+    got = negpy_core.piecewise_to_linear(x, 0.081, 4.5, 0.099, 1.099, 1.0 / 0.45)
+    want = np.where(
+        x <= np.float32(0.081),
+        x / np.float32(4.5),
+        (((x + np.float32(0.099)) / np.float32(1.099)).astype(np.float64) ** (1.0 / 0.45)).astype(np.float32),
+    )
+    assert np.max(_f32_ulps(got, want)) <= 1
+    srgb = negpy_core.piecewise_to_linear(x, 0.04045, 12.92, 0.055, 1.055, 2.4)
+    np.testing.assert_array_equal(srgb, negpy_core.srgb_to_linear(x))
+
+
+@linux_pin
+def test_piecewise_to_linear_pin():
+    x = np.linspace(-0.1, 1.1, 50_001, dtype=np.float32)
+    assert (
+        digest(negpy_core.piecewise_to_linear(x, 0.08, 9.0329, 0.16, 1.16, 3.0))
+        == "5bd7f8be84eaeb5e166ff1d685b7a213610e42c371239a5231fc2d2a0a2c529a"
+    )

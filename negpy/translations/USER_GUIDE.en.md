@@ -164,13 +164,13 @@ Right-click a frame, or use the shortcuts, to **Keep** it (a check) or **Reject*
 
 A film mark in the top-right corner means the frame prints on the roll average; it is amber when the frame's color is far from that average. A picture mark beside it means the frame keeps its own value on a Roll tab card, so a change to the roll does not reach it; hover it to see which cards. A mark in the bottom-left corner means the frame is built from several files (a stitch, HDR merge, Trichrome or half frame), or a Blend or Single Exposure capture shot it; hover it for the name. An exclamation mark means the file did not open (click to retry); a small amber dot means the thumbnail is out of date.
 
-The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.5](#105-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
+The right-click menu also copies, pastes and resets settings, applies them to other frames, reanalyzes frames ([§10.6](#106-metering-negative--positive)), puts the selection on the roll average or back on its own measurement, shows the file in its folder, and moves files to the Trash (the edit stays).
 
 ### Stitch and HDR
 
 *   **Stitch**: select overlapping shots of one large negative, then right-click → **Stitch Selected Frames**. **Unstitch** separates them again.
 *   **HDR** (slides): select a bracket of exposures one stop apart, then right-click → **Merge Exposures (HDR)**. Right-click the merged frame → **Render Exposure** to pick the exposure it shows, or use the **Render Exposure** slider on the Metering card. **Unmerge Exposures** separates them. Bracket both ways around your metered shot.
-*   **Merge Frame to TIFF Negative…** saves a stitch as one file ([§10.7](#107-frame-assembly)).
+*   **Merge Frame to TIFF Negative…** saves a stitch as one file ([§10.8](#108-frame-assembly)).
 
 ### Scenes
 
@@ -291,7 +291,7 @@ How light or dark the print is, and how much contrast it has.
     *   **Contrast Mask**: opens up large dark areas and holds back large bright ones, and keeps fine detail. In the darkroom, a printer gets this with a soft, blurred mask placed on the negative. In digital printing, Fujifilm Frontier scanners get a similar effect with HyperTone. Areas far from mid-gray change most, so a low-contrast frame changes little.
 *   **Global / R / G / B**: R, G or B applies the grades to one color only, for a cast that differs between shadows and highlights.
 
-**White Point** and **Black Point** are on the Roll tab's **Metering** card ([§10.5](#105-metering-negative--positive)).
+**White Point** and **Black Point** are on the Roll tab's **Metering** card ([§10.6](#106-metering-negative--positive)).
 
 <!-- panel:paper -->
 ### 5.3 Paper Response: the paper
@@ -503,7 +503,7 @@ How a camera RAW file is turned into pixels. Shown for a camera.
 
 *   **Camera WB / Linear RAW**: Camera WB uses the camera's white balance. Linear RAW decodes neutral, for narrowband light. Setup sets it for you.
 *   **Preview** / **Export**: the demosaic method, which fills in the colors each sensor pixel cannot see. **Auto** is fast on screen and uses **AHD** for export. **VNG** is smooth and **PPG** fast. **DCB** and **DHT** keep more fine detail but can turn grain into patterns. **AAHD** softens edges. Only the methods in your LibRaw build are listed.
-*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong. A new film scanner frame starts with Recovery off.
+*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong. A new film scanner frame starts with Recovery off. A warning shows under Recovery when the frame has clipped highlights, which can turn pink.
 
 <!-- panel:optics -->
 ### 10.3 Optics
@@ -544,20 +544,21 @@ Corrects color errors that come from your light, camera and film.
 
 **Hue Trim** (camera with narrowband light): turns all hues, for a light that makes yellows orange or greens olive. Keep 0 for white light. Unlike the sensor profile, it also works on slides.
 
-#### 10.4.1 Fade Restoration: faded slides
+<!-- panel:fade -->
+### 10.5 Fade Restoration: faded slides
 
-Gives a faded slide its dye layers back.
+Gives a faded slide its dye layers back. The card shows only for slides.
 
 *   **Estimate**: sets Gray Mix and the Survivals.
 *   **Restore Range** (icon beside Estimate): on, sets Red Survival from the frame's range; Estimate keeps it.
 *   **Red Survival**: how much red dye is left. Lower it until contrast returns.
 *   **Green Survival** / **Blue Survival**: the same, measured against red.
-*   **Remove Stain**: whitens yellowed clear areas and estimates again. Try it when its icon is amber.
+*   **Remove Stain**: whitens yellowed clear areas and estimates again. Turn it on when Estimate suggests it.
 *   **Gray Mix**: changes which grays Estimate trusts. Drag it if colors look off.
-*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then push the card. Only Estimate measures a table.
+*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then click **Roll** on the card.
 
 <!-- panel:process -->
-### 10.5 Metering: negative → positive
+### 10.6 Metering: negative → positive
 
 To turn a negative into a positive, NegPy measures its darkest and brightest parts (the black and white points) and the color of the film. These controls set what it measures.
 
@@ -574,7 +575,7 @@ To turn a negative into a positive, NegPy measures its darkest and brightest par
 A **slide** needs no inversion: the tone controls shape the picture directly. Auto Density and Auto Grade start off; turn them on for a faded slide. On a slide, Draw Region sets the area that Estimate, Remove Stain, Cast Removal, Auto Density and Auto Grade measure. Draw it before you click Estimate. In Lightroom terms, Exposure is Print Density (lower is brighter), Contrast is ISO-R Grade, and Shadows and Highlights are Shadows and Highlights Density.
 
 <!-- panel:baseline -->
-### 10.6 Roll Analysis
+### 10.7 Roll Analysis
 
 Measures the whole roll once and shares the result, so the frames of one film print alike. NegPy measures the roll and each scene as frames arrive, and again after a crop or Metering change. No frame uses a baseline until you turn on an average. With no roll open, the card is grayed out: open or save a roll first.
 
@@ -587,7 +588,7 @@ Measures the whole roll once and shares the result, so the frames of one film pr
 *   **Detect Scenes**: finds the groups of frames under another light than the roll, in any frame order, and shows them on the Light Table. Each group waits under **Found**. To change a group, drag frames onto another group, or onto a frame with no scene to leave them out; right-click › **Scene** does the same. Give it a name, then **Accept** it as a scene with its own baseline, or **Discard** it.
 
 <!-- panel:assembly -->
-### 10.7 Frame Assembly
+### 10.8 Frame Assembly
 
 How files become frames. Each roll keeps its own settings here.
 
@@ -789,6 +790,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.
 *   **Autofocus**, **Auto-exposure** and **Exposure**: focus and exposure on the scanner, before the scan.
+*   **Analog Gain** (Coolscan): more or less scanner exposure than the metered one, in stops. The chevron opens **Red**, **Green** and **Blue**, one per channel.
 
 <!-- panel:scan_framing -->
 ### Framing

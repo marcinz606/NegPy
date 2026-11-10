@@ -102,6 +102,7 @@ _CASES = {
     "gamut_aware_chroma_scale": lambda: negpy_core.gamut_aware_chroma_scale(
         _LAB, np.float32(1.8), _M.T.copy(), np.array([0.95047, 1.0, 1.08883], np.float32), np.float32(0.008856), np.float32(7.787), 10
     ),
+    "saturation": lambda: negpy_core.saturation(_IMG3, np.float32(1.6), np.float32(0.8), *WORKING_LAB),
     "print_curve": lambda: apply_characteristic_curve(
         _IMG3 * 0.8 - 0.1, (0.45, 2.1), (0.5, 2.0), (0.55, 1.9), toe=0.3, shoulder=0.2, midtone_gamma=0.2, shadow_density=-0.1, bpc=True
     ),
@@ -169,6 +170,9 @@ _CASES = {
         _IMG1, *np.meshgrid(np.arange(70, dtype=np.float32) * 0.9 - 2, np.arange(90, dtype=np.float32) * 0.95 - 1), "nearest", "constant"
     ),
     "remap_radial": lambda: negpy_core.remap_radial(_IMG3, (65.0, 48.0), 0.93, -0.05, 1.0 / 6600.0),
+    "uv_grid_fine_rotation": lambda: negpy_core.affine_uv_grid(
+        301, 457, np.array([[0.998, 0.047, -10.5], [-0.047, 0.998, 11.25]]), (0.0, 1.0), (0.0021, -0.0001), (0.0003, -0.0033)
+    ),
 }
 
 _HASHES = {
@@ -204,6 +208,7 @@ _HASHES = {
     "skin_chroma_rein": "6def89b9f456f16abf406c351745bbb791f15bc69e5b03f2e478ed7391839b01",
     "matmul_3x3": "d80c524d23c1bc6b7d9592b638a5fb84d4b51691efac9b71b40fbf529e67c019",
     "gamut_aware_chroma_scale": "ef1a9474817c0bca19e3c847a4667ba47ba75829722a1c7939a77e135d8b7da4",
+    "saturation": "1742fb3070e1a17ceaef0cef93ba6507f2f60fefa56c5bcffa7d20c5f44dac1c",
     "print_curve": "c06516de4316987b8cb37dcf977915373302d36b0bd6c1018e3e4bfba0929b09",
     "chemical_toning": "7ddd3949c04bd5af38177bfcd6576888092bf73ad173206c34b153d6cce5d648",
     "sensor_log_unmix": "f7eb8efe1bbcfe884fd2e849e99d0546fac2f4829d3fb558d54a0128e681e53b",
@@ -222,6 +227,7 @@ _HASHES = {
     "warp_perspective": "61e89302e793e24f1ad131b661e95186d7d9a82e8331a96164e338bec3ec1420",
     "warp_affine_cubic_constant": "a3d3d1a3d6c5e0e77686cfd37850199aa880943936e83edf8ada48307501cd69",
     "remap_nearest": "16ebb2a1c29640f25e4a490f6edd8817d8dc1f652b6aa001f72aa2ca34d33ac0",
+    "uv_grid_fine_rotation": "9a648b4385ec386b2d190169b4ee3619d9b9ac54f8bb7cf4903f7f94b99fa762",
     "remap_radial": "a23f3b21f15cb5d9db26cc532ec920dc8b194d73515a786d9febc93ae17370e0",
 }
 

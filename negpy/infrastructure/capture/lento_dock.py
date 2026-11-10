@@ -406,7 +406,7 @@ class LentoDock:
             raise ConnectionError(f"Lento Dock reader stopped: {self._reader_error}")
         if self._link_error is not None:
             raise ConnectionError(f"Lento Dock link lost: {self._link_error}")
-        first = re.compile(rf"(?:{expect})|^BUSY\b")
+        first = rf"(?:{expect})|^BUSY\b"
         with self._command_lock:
             self._in_command = True
             try:
@@ -418,7 +418,7 @@ class LentoDock:
                         except queue.Empty:
                             break
                     self._send(cmd)
-                    line = self._await(cmd, first.pattern, timeout)
+                    line = self._await(cmd, first, timeout)
                     if not line.startswith("BUSY"):
                         break
                     if time.monotonic() > busy_until:

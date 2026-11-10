@@ -19,7 +19,7 @@ from negpy.infrastructure.loaders.helpers import (
 from negpy.infrastructure.loaders.logluv import (
     decode_logluv_strips,
 )
-from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
+from negpy.kernel.image.logic import uint8_to_float32
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -174,6 +174,8 @@ class FffLoader(IImageLoader):
             page_tags = getattr(page, "tags", None)
             comp_tag = page_tags.get("Compression") if page_tags else None
             is_logluv = comp_tag is not None and int(comp_tag.value) in _SGILOG_COMPRESSIONS
+            source_u16 = None
+            f32 = None
 
             if is_logluv:
                 w_tag = page_tags.get("ImageWidth")
@@ -193,7 +195,7 @@ class FffLoader(IImageLoader):
                 if arr.dtype == np.uint8:
                     f32 = uint8_to_float32(np.ascontiguousarray(arr))
                 elif arr.dtype == np.uint16:
-                    f32 = uint16_to_float32(np.ascontiguousarray(arr))
+                    source_u16 = np.ascontiguousarray(arr)
                 else:
                     f32 = np.clip(arr.astype(np.float32), 0, 1)
 
@@ -211,7 +213,7 @@ class FffLoader(IImageLoader):
             "orientation": read_orientation(file_path),
             **fff_meta,
         }
-        return NonStandardFileWrapper(f32), metadata
+        return NonStandardFileWrapper(f32, source_u16=source_u16), metadata
 
     def load_bounded_preview(
         self,

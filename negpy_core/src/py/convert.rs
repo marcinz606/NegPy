@@ -322,6 +322,22 @@ fn clip01<'py>(
     filled(py, img.shape(), "float32", |d| convert::clip_unit(src, d))
 }
 
+/// `np.clip(img * gains, 0, 1)` of a float32 array, one gain per entry of its last axis.
+#[pyfunction]
+fn scale_clip_unit<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    gains: Vec<f32>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    if img.shape().last() != Some(&gains.len()) {
+        return Err(PyValueError::new_err("needs one gain per channel"));
+    }
+    let src = contiguous(&img)?;
+    filled(py, img.shape(), "float32", |d| {
+        convert::scale_clip_unit(src, &gains, d)
+    })
+}
+
 /// `np.nan_to_num(img, nan=nan, posinf=posinf, neginf=neginf)` of a float32 array.
 #[pyfunction]
 fn nan_to_num<'py>(
@@ -418,6 +434,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(channel_any, m)?)?;
     m.add_function(wrap_pyfunction!(clip01, m)?)?;
+    m.add_function(wrap_pyfunction!(scale_clip_unit, m)?)?;
     m.add_function(wrap_pyfunction!(mean_channels, m)?)?;
     m.add_function(wrap_pyfunction!(pick_channels, m)?)?;
     m.add_function(wrap_pyfunction!(extract_channel, m)?)?;

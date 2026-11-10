@@ -218,11 +218,6 @@ class NormalizationTask:
 
     frames: list[NormalizationInput]
     workspace_color_space: str
-    # Roll-wide overrides taken from the current image, applied to every file's analysis
-    # before averaging, so the whole roll shares one buffer and luma bounds. None reads each frame's own.
-    override_analysis_buffer: Optional[float]
-    override_luma_range_clip: Optional[float]
-    override_color_range_clip: Optional[float]
     # Detect Scenes: the same per-frame pass, grouped by light instead of pooled into a baseline.
     detect: bool = False
     # One frame at a time on the background core pool, so the live preview keeps the CPU.
@@ -2157,12 +2152,8 @@ class NormalizationWorker(QObject):
                     return None
                 try:
                     params = frame.config
-                    # Roll-wide buffer and luma bounds from the current image, applied to every
-                    # file, so one slider setting drives the whole batch baseline.
                     p = params.process
-                    analysis_buffer = p.analysis_buffer if task.override_analysis_buffer is None else task.override_analysis_buffer
-                    luma_range_clip = p.luma_range_clip if task.override_luma_range_clip is None else task.override_luma_range_clip
-                    color_range_clip = p.color_range_clip if task.override_color_range_clip is None else task.override_color_range_clip
+                    analysis_buffer, luma_range_clip, color_range_clip = p.analysis_buffer, p.luma_range_clip, p.color_range_clip
                     process_mode = params.process.process_mode
                     geometry = params.geometry
 

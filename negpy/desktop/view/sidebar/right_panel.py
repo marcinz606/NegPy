@@ -53,6 +53,7 @@ _ROLL_SECTION_ATTRS = frozenset(
     {
         "assembly_section",
         "sensor_section",
+        "fade_section",
         "demosaic_section",
         "baseline_section",
         "process_section",
@@ -408,6 +409,7 @@ class RightPanel(QWidget):
                 cp.demosaic_section,
                 cp.optics_section,
                 cp.sensor_section,
+                cp.fade_section,
                 cp.process_section,
                 cp.baseline_section,
             )
@@ -423,6 +425,7 @@ class RightPanel(QWidget):
             cp.demosaic_section,
             cp.optics_section,
             cp.sensor_section,
+            cp.fade_section,
             cp.process_section,
             cp.baseline_section,
             cp.assembly_section,
@@ -926,12 +929,12 @@ class RightPanel(QWidget):
         """The scan parade's per-channel stretch ends (0..1 up the panel) and its caption, which
         names the unmix when the parade reads unmixed density."""
         from negpy.features.exposure.analysis import scan_density_axis
-        from negpy.features.exposure.normalization import crosstalk_unmix_active
+        from negpy.features.exposure.normalization import effective_crosstalk_matrix
         from negpy.features.process.fade import fade_matrix
 
         config = self.controller.state.config
         mode = config.process.process_mode
-        unmixed = crosstalk_unmix_active(config.process, mode)
+        unmixed = effective_crosstalk_matrix(config.process, mode) is not None
         restored = not unmixed and fade_matrix(config.process) is not None
         caption = tr("Scan density")
         if self.scan_base_btn.isChecked():

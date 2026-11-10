@@ -7,7 +7,7 @@ from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
-from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
+from negpy.kernel.image.logic import uint8_to_float32
 
 
 class JxlLoader(IImageLoader):
@@ -22,16 +22,15 @@ class JxlLoader(IImageLoader):
         elif img.ndim == 3 and img.shape[2] == 4:
             img = img[:, :, :3]
 
+        metadata = {"orientation": 1, "color_space": None, "icc_profile": None, "ir": None}
+        if img.dtype == np.uint16:
+            return NonStandardFileWrapper(source_u16=np.ascontiguousarray(img)), metadata
         if img.dtype == np.uint8:
             f32 = uint8_to_float32(np.ascontiguousarray(img))
-        elif img.dtype == np.uint16:
-            f32 = uint16_to_float32(np.ascontiguousarray(img))
         elif img.dtype == np.float32:
             f32 = np.clip(img, 0.0, 1.0)
         else:
             f32 = np.clip(img.astype(np.float32), 0.0, 1.0)
-
-        metadata = {"orientation": 1, "color_space": None, "icc_profile": None, "ir": None}
         return NonStandardFileWrapper(f32), metadata
 
     def load_bounded_preview(

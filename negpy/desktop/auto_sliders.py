@@ -6,7 +6,7 @@ outlives a frame switch, and a memo paint shows a frame before its own render la
 from typing import Any, Dict, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.auto_sliders import print_shown_values, print_stored_value
+from negpy.features.exposure.auto_sliders import grade_at_softest, print_shown_values, print_stored_value
 from negpy.features.lab.logic import NEUTRAL_MASKING, effective_masking
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import transfer_shown_values, transfer_stored_value
@@ -37,6 +37,14 @@ def shown_values(config: WorkspaceConfig, meters: Mapping[str, Any]) -> Dict[str
     if render_path(config.process) is RenderPath.PRINT:
         return print_shown_values(config.exposure, config.process.process_mode, meters)
     return transfer_shown_values(config.exposure, meters)
+
+
+def grade_softest_reached(config: WorkspaceConfig, meters: Mapping[str, Any]) -> bool:
+    return (
+        bool(meters)
+        and render_path(config.process) is RenderPath.PRINT
+        and grade_at_softest(config.exposure, config.process.process_mode, meters)
+    )
 
 
 def auto_masking_share(config: WorkspaceConfig, meters: Mapping[str, Any]) -> Optional[float]:

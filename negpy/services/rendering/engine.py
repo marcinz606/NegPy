@@ -40,7 +40,7 @@ from negpy.features.lith.processor import LithProcessor
 from negpy.features.sabattier.processor import SabattierProcessor
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.altprocess.models import AltProcess
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import FADE_RENDER_FIELDS, ProcessMode
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
 from negpy.features.finish.processor import FinishProcessor, rebate_tone
@@ -245,18 +245,7 @@ class DarkroomEngine:
             settings.process.crosstalk_matrix,
             context.metrics.get("film_base"),  # the roll's picked base: the stage reads the densities above it
             settings.process.crosstalk_process,
-            settings.process.fade_ratio_r,
-            settings.process.fade_density_shift,
-            settings.process.fade_ratio_g,
-            settings.process.fade_ratio_b,
-            settings.process.fade_white_anchor,
-            settings.process.fade_white_r,
-            settings.process.fade_white_g,
-            settings.process.fade_white_b,
-            settings.process.fade_white_space,
-            settings.process.fade_crossover,
-            settings.process.fade_crossover_table,
-            settings.process.fade_crossover_space,
+            *(getattr(settings.process, f) for f in FADE_RENDER_FIELDS),
             settings.process.lock_bounds,
             settings.process.use_cast_average,
             settings.process.locked_neutral_axis,

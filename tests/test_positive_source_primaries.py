@@ -11,7 +11,7 @@ from negpy.desktop.session import camera_raw_preview
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.exposure.normalization import relog_matrix_image, unmix_log_image
 from negpy.features.process.capture_color import camera_to_working_matrix, is_source_profile, source_cam_xyz
-from negpy.features.process.fade import unmix_with_fade
+from negpy.features.process.fade import fade_density
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.transparency.logic import density_stage
 from negpy.features.transparency.processor import TransparencyBaseProcessor
@@ -80,8 +80,8 @@ def test_a_positive_fade_acts_on_the_source_channels_then_converts():
     img = _img()
     _, ctx = _render(config, img)
     p = camera_to_working_matrix(_SOURCE)
-    expected = relog_matrix_image(unmix_log_image(np.log10(img), unmix_with_fade(config, ProcessMode.E6)), p)
-    converted_first = unmix_log_image(np.log10(img @ p.T), unmix_with_fade(config, ProcessMode.E6))
+    expected = relog_matrix_image(unmix_log_image(np.log10(img), fade_density(config, ProcessMode.E6).matrix), p)
+    converted_first = unmix_log_image(np.log10(img @ p.T), fade_density(config, ProcessMode.E6).matrix)
     restored = _restored_log(ctx)
     np.testing.assert_allclose(restored, expected, atol=1e-4)
     assert float(np.abs(restored - converted_first).max()) > 0.05
@@ -133,3 +133,21 @@ def test_a_positive_decode_is_not_a_camera_raw():
     assert camera_raw_preview(SimpleNamespace(preview_cam_xyz=_CAMERA))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=_SOURCE))
     assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=None))
+
+
+def test_a_positive_jpeg_reaches_the_preview_as_a_source_profile(tmp_path):
+    import copy
+    import pickle
+
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    path = str(tmp_path / "srgb.jpg")
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(path, quality=100)
+    ctx, _ = JpegLoader().load(path, positive_decode="auto")
+    with ctx as raw:
+        assert is_source_profile(camera_xyz_matrix(raw))
+    *_, metadata = PreviewManager().load_linear_preview(path, positive_decode="auto")
+    cam_xyz = metadata["cam_xyz"]
+    assert is_source_profile(cam_xyz)
+    assert is_source_profile(copy.deepcopy(cam_xyz)) and is_source_profile(pickle.loads(pickle.dumps(cam_xyz)))
+    assert not camera_raw_preview(SimpleNamespace(preview_cam_xyz=cam_xyz))

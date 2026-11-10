@@ -232,6 +232,82 @@ pub fn chroma_denoise(
     Some(())
 }
 
+// A wide blur runs on a grid of f x f cells, f = floor(sigma / COARSE_SIGMA), so the coarse
+// sigma stays at least this many cells and the cost does not grow with sigma. Below 2 f, direct.
+const COARSE_SIGMA: f64 = 4.0;
+
+/// A Gaussian blur of `sigma` px: the f x f cell means, blurred, then bilinearly back. The coarse
+/// sigma takes out the variance of the box, f²/12, and of the tent, f²/6. The cells reach past
+/// each edge by the coarse kernel's radius into the border padding, so the edges match a direct blur.
+fn wide_gaussian_blur(
+    src: &[f32],
+    dst: &mut [f32],
+    (h, w): (usize, usize),
+    sigma: f64,
+    border: Border,
+) -> Option<()> {
+    let f = (sigma / COARSE_SIGMA) as usize;
+    if f < 2 {
+        return filter::gaussian_blur(src, dst, (h, w, 3), (0, 0), (sigma, 0.0), border);
+    }
+    let ff = (f * f) as f64;
+    let sc = (sigma * sigma - (ff - 1.0) / 12.0 - ff / 6.0).sqrt() / f as f64;
+    let m = filter::gaussian_ksize(sc) / 2 + 1;
+    let (hs, ws) = (h.div_ceil(f) + 2 * m, w.div_ceil(f) + 2 * m);
+    let pad =
+        |p: usize, n: usize| filter::border_interpolate(p as isize - (m * f) as isize, n, border);
+    let xs: Vec<Option<usize>> = (0..ws * f).map(|x| pad(x, w)).collect();
+    let mut coarse = vec![0f32; hs * ws * 3];
+    let norm = 1.0 / ff as f32;
+    coarse
+        .par_chunks_mut(ws * 3)
+        .enumerate()
+        .for_each(|(cy, out)| {
+            for y in cy * f..(cy + 1) * f {
+                let Some(sy) = pad(y, h) else { continue };
+                let row = src[sy * w * 3..][..w * 3].as_chunks::<3>().0;
+                for (o, cell) in out
+                    .as_chunks_mut::<3>()
+                    .0
+                    .iter_mut()
+                    .zip(xs.chunks_exact(f))
+                {
+                    for &sx in cell.iter().flatten() {
+                        o.iter_mut().zip(row[sx]).for_each(|(o, p)| *o += p);
+                    }
+                }
+            }
+            out.iter_mut().for_each(|v| *v *= norm);
+        });
+    let mut blurred = vec![0f32; coarse.len()];
+    filter::gaussian_blur(
+        &coarse,
+        &mut blurred,
+        (hs, ws, 3),
+        (0, 0),
+        (sc, 0.0),
+        border,
+    )?;
+    let tent = |p: usize| {
+        let v = (p + m * f) as f64 / f as f64 - (f - 1) as f64 / (2 * f) as f64;
+        (v as usize, (v - v.floor()) as f32)
+    };
+    let tx: Vec<_> = (0..w).map(tent).collect();
+    dst.par_chunks_mut(w * 3).enumerate().for_each(|(y, out)| {
+        let (y0, ty) = tent(y);
+        let row = |y: usize| blurred[y * ws * 3..][..ws * 3].as_chunks::<3>().0;
+        let (r0, r1) = (row(y0), row(y0 + 1));
+        for (o, &(x0, t)) in out.as_chunks_mut::<3>().0.iter_mut().zip(&tx) {
+            *o = std::array::from_fn(|c| {
+                let a = r0[x0][c] + (r0[x0 + 1][c] - r0[x0][c]) * t;
+                let b = r1[x0][c] + (r1[x0 + 1][c] - r1[x0][c]) * t;
+                a + (b - a) * ty
+            });
+        }
+    });
+    Some(())
+}
+
 /// A spread of `apply_glow_and_halation`: per-channel `amounts` of the light blurred by the
 /// `(weight, sigma)` Gaussians.
 pub struct Spread {
@@ -257,14 +333,7 @@ pub fn glow_and_halation(
     let mut mix = |light: &[f32], s: &Spread, dst: &mut [f32]| -> Option<()> {
         spread.fill(0.0);
         for &(weight, sigma) in &s.psf {
-            filter::gaussian_blur(
-                light,
-                &mut blur,
-                (h, w, 3),
-                (0, 0),
-                (sigma, 0.0),
-                Border::Reflect101,
-            )?;
+            wide_gaussian_blur(light, &mut blur, (h, w), sigma, Border::Reflect101)?;
             crate::par_zip(&mut spread, &blur, move |k, &b| *k += weight * b);
         }
         let a = s.amounts;
@@ -540,4 +609,43 @@ pub fn hue_trim(
             *v = if c.is_nan() || c < 1.0 { c } else { 1.0 };
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wide_gaussian_blur_matches_the_direct_blur_up_to_the_edges() {
+        let (h, w) = (157, 203);
+        let src: Vec<f32> = (0..h * w * 3)
+            .map(|i| {
+                let (p, c) = (i / 3, i % 3);
+                let (y, x) = (p / w, p % w);
+                // Bright specks and a block at the edge, where the border padding decides the blur.
+                let speck = ((x * 7 + y * 13 + c) % 97 == 0) as u8 as f32;
+                let block = (x < 12 && (40..90).contains(&y)) as u8 as f32;
+                speck + block * (c as f32 + 1.0) / 3.0
+            })
+            .collect();
+        for sigma in [7.9, 8.0, 13.5, 30.0] {
+            let (mut want, mut got) = (vec![0f32; src.len()], vec![0f32; src.len()]);
+            filter::gaussian_blur(
+                &src,
+                &mut want,
+                (h, w, 3),
+                (0, 0),
+                (sigma, 0.0),
+                Border::Reflect101,
+            )
+            .unwrap();
+            wide_gaussian_blur(&src, &mut got, (h, w), sigma, Border::Reflect101).unwrap();
+            let err = want
+                .iter()
+                .zip(&got)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            assert!(err < 5e-3, "sigma {sigma}: max error {err}");
+        }
+    }
 }

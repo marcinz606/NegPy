@@ -14,7 +14,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.controller import AppController
+from negpy.desktop.controller import AppController, BackgroundBaseline
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.services.rendering.image_processor import ArmedCrop, MeterBox
@@ -1828,10 +1828,10 @@ class TestAppController(unittest.TestCase):
         self._record_batches()
         self.controller.apply_roll_card("sensor")
         batch = self.mock_session_manager.last_batch
-        self.assertEqual(batch["label"], "Apply to Roll")
+        self.assertEqual(batch.label, "Apply to Roll")
         state.stale_thumbnails.clear()
         rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)  # another card, written after the push
-        batch["roll"]()
+        batch.roll_undo()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {**before, "analysis_buffer": 0.2})
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), {"sensor"})
@@ -1851,7 +1851,7 @@ class TestAppController(unittest.TestCase):
 
         self._record_batches()
         self.controller.apply_roll_card("lens")
-        self.mock_session_manager.last_batch["roll"]()
+        self.mock_session_manager.last_batch.roll_undo()
 
         self.assertEqual(rolls.roll_defaults(repo, roll_id), {})
 
@@ -4363,7 +4363,6 @@ class TestPresetExportSelected(unittest.TestCase):
 
         (task,) = tasks
         self.assertTrue(task.background)
-        self.assertIsNone(task.override_luma_range_clip)
         self.assertEqual([f.file_info["hash"] for f in task.frames], ["h1", "h2"])
         self.assertIsNone(self.controller._active_batch)
         self.assertTrue(self.controller.measuring_baseline())
@@ -4441,7 +4440,7 @@ class TestPresetExportSelected(unittest.TestCase):
         with patch.object(rolls, "roll_normalization", return_value={"frames": hashes, "inputs": stale}):
             self.controller._run_background_baseline()
         self.assertEqual(len(tasks), 1)
-        self.assertTrue(self.controller._background_baseline[4])
+        self.assertTrue(self.controller._background_baseline.remeasured)
 
     def test_a_background_run_that_moves_the_average_says_so(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
@@ -4451,7 +4450,7 @@ class TestPresetExportSelected(unittest.TestCase):
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller._background_baseline = BackgroundBaseline("roll-1", None, ("h1", "h2", "h3"), {}, True)
         self.controller.set_status = MagicMock()
 
         with patch.object(rolls, "set_roll_normalization"):
@@ -4526,7 +4525,7 @@ class TestPresetExportSelected(unittest.TestCase):
             process=replace(base, use_luma_average=True, locked_floors=(0.1,) * 3, locked_ceils=(0.9,) * 3, baseline_source="roll:roll-1")
         )
         self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: riding if h == "h1" else None
-        self.controller._background_baseline = ("roll-1", None, ("h1", "h2", "h3"), {}, True)
+        self.controller._background_baseline = BackgroundBaseline("roll-1", None, ("h1", "h2", "h3"), {}, True)
 
         with patch.object(rolls, "set_roll_normalization"):
             self.controller._on_background_baseline((0.1,) * 3, (0.9,) * 3, [], None)

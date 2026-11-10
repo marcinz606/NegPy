@@ -114,12 +114,12 @@ from negpy.features.process.fade import (
     with_fade_white,
 )
 from negpy.features.exposure.bw_filter import collapse_weights, plane_weights, printed_exposure
-from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
+from negpy.features.process.models import FADE_METER_FIELDS, FADE_RENDER_FIELDS, ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.features.process.path import RenderPath, is_mono, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
-from negpy.kernel.image.logic import rgba_to_rgb_into, working_oetf_decode
+from negpy.kernel.image.logic import apply_geometry_orientation, rgba_to_rgb_into, working_oetf_decode
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
@@ -201,13 +201,7 @@ def _build_analysis_source(
     """The shared meter grid's own buffer: oriented, downsampled (only a meter reads it), warped and sliced once for every
     meter reading it. The whole frame is warped before the ROI is cut, as on the CPU and in the print stage: a crop rotated
     about its own center is a different region."""
-    analysis_source = img
-    if geometry.rotation != 0:
-        analysis_source = np.rot90(analysis_source, k=geometry.rotation)
-    if geometry.flip_horizontal:
-        analysis_source = np.fliplr(analysis_source)
-    if geometry.flip_vertical:
-        analysis_source = np.flipud(analysis_source)
+    analysis_source = apply_geometry_orientation(img, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical)
     full_h, full_w = analysis_source.shape[:2]
     analysis_source = _downsample_for_analysis(np.ascontiguousarray(analysis_source), max_size)
     if geometry.fine_rotation != 0.0:
@@ -283,18 +277,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str, fi
         p.crosstalk_process,
         p.use_cast_average,
         p.locked_neutral_axis,
-        p.fade_ratio_r,
-        p.fade_density_shift,
-        p.fade_ratio_g,
-        p.fade_ratio_b,
-        p.fade_white_anchor,
-        p.fade_white_r,
-        p.fade_white_g,
-        p.fade_white_b,
-        p.fade_white_space,
-        p.fade_crossover,
-        p.fade_crossover_table,
-        p.fade_crossover_space,
+        *(getattr(p, f) for f in FADE_RENDER_FIELDS),
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -808,8 +791,8 @@ class GPUEngine:
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        def _white_grid() -> np.ndarray:
-            source, buffer = _build_analysis_source(
+        def _analysis_grid_source() -> Tuple[np.ndarray, float]:
+            return _build_analysis_source(
                 img,
                 settings.geometry,
                 roi,
@@ -819,6 +802,9 @@ class GPUEngine:
                 APP_CONFIG.preview_render_size,
                 meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
             )
+
+        def _white_grid() -> np.ndarray:
+            source, buffer = _analysis_grid_source()
             return fade_white_grid(settings.process, settings.process.process_mode, cam_xyz, camera_wb, source, None, buffer)
 
         # Before every key and matrix below, which read the white. A tile takes its export's white.
@@ -901,16 +887,7 @@ class GPUEngine:
             crossover_key = None if white_key is None else white_key + (space, proc.fade_crossover_space)
 
             def _faded_grid() -> np.ndarray:
-                source, buffer = _build_analysis_source(
-                    img,
-                    settings.geometry,
-                    roi,
-                    settings.process.analysis_buffer,
-                    settings.process.analysis_rect,
-                    tiling_mode,
-                    APP_CONFIG.preview_render_size,
-                    meter_rect=None if crops_frame(settings.geometry) else settings.process.meter_rect,
-                )
+                source, buffer = _analysis_grid_source()
                 return faded_stage_grid(slide_stage, source, None, buffer)
 
             cached = self._crossover_cache
@@ -950,15 +927,7 @@ class GPUEngine:
                     p.crosstalk_strength,
                     p.crosstalk_matrix,
                     p.crosstalk_process,
-                    p.fade_ratio_r,
-                    p.fade_density_shift,
-                    p.fade_ratio_g,
-                    p.fade_ratio_b,
-                    p.fade_white_anchor,
-                    p.fade_white_r,
-                    p.fade_white_g,
-                    p.fade_white_b,
-                    p.fade_white_space,
+                    *(getattr(p, f) for f in FADE_METER_FIELDS if f != "fade_crossover"),
                     None if crossover is None else (crossover.lo, crossover.hi, crossover.bins.tobytes()),
                     p.process_mode,
                     p.positive_source,
@@ -2002,11 +1971,8 @@ class GPUEngine:
             adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
             adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
 
-        # Capture-side dye-unmix rows, resolved once per frame by the caller and shared with
-        # NormalizationProcessor, and the source matrix around them (density_stage): the cam rows
-        # before the log, read only on the transfer path, and the post rows after. Identity when
-        # off; a (3, 4) affine packs its offset in w, and the w lane of post0 turns post on. The fade
-        # anchor rides its own row, its w lane on when one acts.
+        # The density stage the caller resolved once per frame (density_stage). The lane layout is
+        # documented on the shader's uniform struct.
         cam, unmix, post, anchor = density_stage(settings.process, cam_xyz, camera_wb, unmix, fade_anchor)
         if unmix is None:
             unmix = np.eye(3)
@@ -2951,13 +2917,9 @@ class GPUEngine:
         # Tiles apply geometry on the CPU (shader uniform zeroed), so distortion too.
         k1_eff = settings.geometry.distortion_k1
 
-        img_rot = img
-        if settings.geometry.rotation != 0:
-            img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
-        if settings.geometry.flip_horizontal:
-            img_rot = np.fliplr(img_rot)
-        if settings.geometry.flip_vertical:
-            img_rot = np.flipud(img_rot)
+        img_rot = apply_geometry_orientation(
+            img, settings.geometry.rotation, settings.geometry.flip_horizontal, settings.geometry.flip_vertical
+        )
         if settings.geometry.fine_rotation != 0.0:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
         if k1_eff != 0.0:

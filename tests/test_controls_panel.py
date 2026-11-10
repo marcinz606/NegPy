@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.settings_catalog import TONE_FIELDS
-from negpy.desktop.view.sidebar.controls_panel import _DEMOSAIC_FIELDS, _SENSOR_FIELDS, ControlsPanel
+from negpy.desktop.view.sidebar.controls_panel import _DEMOSAIC_FIELDS, _FADE_FIELDS, _SENSOR_FIELDS, ControlsPanel
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.process.models import DemosaicMode, ProcessConfig, ProcessMode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -22,6 +22,7 @@ def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
     panel._ROLL_CARD_LABELS = ControlsPanel._ROLL_CARD_LABELS
     panel.film_section = MagicMock()
     panel.sensor_section = MagicMock()
+    panel.fade_section = MagicMock()
     panel.demosaic_section = MagicMock()
     panel.baseline_section = MagicMock()
     panel.process_section = MagicMock()
@@ -309,13 +310,20 @@ def test_sync_modified_dots_leaves_the_scanning_setup_uncounted():
     panel.process_section.set_modified.assert_called_once_with(0)
 
 
-def test_resetting_calibration_restores_the_fade_survivals():
+def _faded_panel() -> MagicMock:
     panel = MagicMock()
     panel.controller.state = AppState()
     cfg = DEFAULT_WORKSPACE_CONFIG
-    panel.controller.state.config = replace(cfg, process=replace(cfg.process, fade_ratio_r=0.5, fade_ratio_g=0.6, fade_ratio_b=0.7))
+    panel.controller.state.config = replace(
+        cfg, process=replace(cfg.process, fade_ratio_r=0.5, fade_ratio_g=0.6, fade_ratio_b=0.7, hue_trim=3.0)
+    )
+    return panel
 
-    ControlsPanel._reset_process_fields(panel, _SENSOR_FIELDS)
+
+def test_resetting_fade_restoration_restores_the_survivals_and_keeps_hue_trim():
+    panel = _faded_panel()
+
+    ControlsPanel._reset_process_fields(panel, _FADE_FIELDS)
 
     process = panel.controller.apply_config.call_args[0][0].process
     defaults = DEFAULT_WORKSPACE_CONFIG.process
@@ -324,6 +332,35 @@ def test_resetting_calibration_restores_the_fade_survivals():
         defaults.fade_ratio_g,
         defaults.fade_ratio_b,
     )
+    assert process.hue_trim == 3.0
+
+
+def test_resetting_calibration_keeps_the_fade_survivals():
+    panel = _faded_panel()
+
+    ControlsPanel._reset_process_fields(panel, _SENSOR_FIELDS)
+
+    process = panel.controller.apply_config.call_args[0][0].process
+    assert (process.fade_ratio_r, process.fade_ratio_g, process.fade_ratio_b, process.hue_trim) == (0.5, 0.6, 0.7, 0.0)
+
+
+def test_fade_restoration_has_its_own_scope_pair():
+    panel = _panel_stub(locked_cards={"fade"})
+
+    ControlsPanel._sync_scope_buttons(panel)
+
+    assert _scope(panel.fade_section) == "frame"
+    assert _scope(panel.sensor_section) == "roll"
+    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Fade Restoration")
+
+
+def test_each_card_pushes_only_its_own_roll_card():
+    panel = _panel_stub()
+
+    ControlsPanel._on_scope_selected(panel, "fade", "roll")
+    ControlsPanel._on_scope_selected(panel, "sensor", "roll")
+
+    assert [c.args for c in panel.controller.set_card_scope.call_args_list] == [("fade", "roll"), ("sensor", "roll")]
 
 
 def test_a_card_reset_leaves_the_scanning_setup_alone():

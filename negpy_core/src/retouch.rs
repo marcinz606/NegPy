@@ -891,7 +891,7 @@ pub fn box_mean_std(
     Some(())
 }
 
-/// `_u8(plane * gain)`: clipped to 0..1, scaled to 8 bits and rounded half up, in float32.
+/// `plane * gain` clipped to 0..1, scaled to 8 bits and rounded half up, in float32.
 fn to_u8(plane: &[f32], gain: f32) -> Vec<u8> {
     plane
         .par_iter()

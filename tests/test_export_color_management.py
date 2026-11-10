@@ -240,20 +240,26 @@ class TestDisplayTransform(unittest.TestCase):
         np.testing.assert_array_equal(out, img)
         self.assertIsNone(get_display_lut(ColorSpace.SRGB.value))
 
-    def test_display_matches_simulate_on_srgb(self):
-        """The float display LUT must agree with PIL's simulate_on_srgb (Adobe→sRGB)."""
+    def test_display_matches_lcms(self):
+        """The float display LUT must agree with a direct lcms Adobe→sRGB transform."""
         from PIL import Image
 
         patch = np.array([[[0.80, 0.30, 0.20]]], dtype=np.float32)
         lut_out = apply_display_transform(patch, WORKING_COLOR_SPACE)[0, 0]
 
         u8 = (patch * 255.0 + 0.5).astype(np.uint8)
-        sim = ColorService.simulate_on_srgb(Image.fromarray(u8, mode="RGB"), WORKING_COLOR_SPACE)
+        sim = ImageCms.profileToProfile(
+            Image.fromarray(u8, mode="RGB"),
+            ColorService._get_profile(WORKING_COLOR_SPACE),
+            ImageCms.createProfile("sRGB"),
+            renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+            outputMode="RGB",
+        )
         sim_arr = np.asarray(sim, dtype=np.float32)[0, 0] / 255.0
 
         self.assertTrue(
             np.allclose(lut_out, sim_arr, atol=0.02),
-            msg=f"display LUT {lut_out} != simulate_on_srgb {sim_arr}",
+            msg=f"display LUT {lut_out} != lcms {sim_arr}",
         )
 
     def test_non_rgb_buffer_passthrough(self):

@@ -193,6 +193,14 @@ def _shutters_or_none(shutters: tuple[str, str, str]):
     return tuple(s.strip() or None for s in shutters)
 
 
+@dataclass
+class _EarlyAdvance:
+    """A film move started while the camera processes a Blend frame, and its `_advance_film` result."""
+
+    thread: Optional[threading.Thread] = None
+    moved: Optional[bool] = None
+
+
 class CaptureWorker(QObject):
     """Drives the Scanlight + camera off the UI thread."""
 
@@ -627,17 +635,17 @@ class CaptureWorker(QObject):
                     self.cancelled.emit()
                     return
                 one = replace(req, frame_number=frame_number, whole_strip=False, strip_flat=False, advance_film=False, keep_bulb=True)
-                early: dict = {}
+                early = _EarlyAdvance()
                 if req.blend_capture:
                     self._after_shutter = lambda: self._start_advance(req.port, early)
                 try:
                     captured = self.run_capture(one)
                 finally:
                     self._after_shutter = None
-                    if "thread" in early:
-                        early["thread"].join()
+                    if early.thread is not None:
+                        early.thread.join()
                 if not captured:
-                    if "thread" in early:
+                    if early.thread is not None:
                         self.status.emit(
                             tr(
                                 "Frame {frame} failed after the film moved on. Move the film back one frame, then click Retake.",
@@ -646,7 +654,7 @@ class CaptureWorker(QObject):
                         )
                     return
                 scanned += 1
-                moved = early["moved"] if "thread" in early else self._advance_film(req.port, eject=False)
+                moved = early.moved if early.thread is not None else self._advance_film(req.port, eject=False)
                 if moved is None:
                     break
                 if moved:
@@ -666,16 +674,15 @@ class CaptureWorker(QObject):
         if flat_error:
             self.status.emit(flat_error)
 
-    def _start_advance(self, port: str, result: dict) -> None:
+    def _start_advance(self, port: str, result: "_EarlyAdvance") -> None:
         """Move the film on a thread of its own once a Blend frame's shutter has closed, so the move
         overlaps the camera's processing of the shot. `result` gets the thread and the move's outcome."""
 
         def _run() -> None:
-            result["moved"] = self._advance_film(port, eject=False)
+            result.moved = self._advance_film(port, eject=False)
 
-        thread = threading.Thread(target=_run, name="film-advance", daemon=True)
-        result["thread"] = thread
-        thread.start()
+        result.thread = threading.Thread(target=_run, name="film-advance", daemon=True)
+        result.thread.start()
 
     def _release_bulb(self) -> None:
         """Put back the shutter step a Blend strip held at Bulb. A failure is logged, never raised:
