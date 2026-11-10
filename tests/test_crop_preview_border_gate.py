@@ -72,7 +72,7 @@ class TestBorderGateReadsTheBuffersFlag(unittest.TestCase):
             empty_state=MagicMock(),
             controller=MagicMock(display_transform_params=MagicMock(return_value=("sRGB", None, False))),
             canvas=MagicMock(),
-            _export_size_zoom_pending=False,
+            _export_size_shape=None,
         )
         MainWindow._on_image_updated(stub)
         self.display_params = stub.controller.display_transform_params
@@ -112,6 +112,51 @@ class TestThePeekFrameIsPainted(unittest.TestCase):
         self.assertIs(update.call_args[0][0], self.print_buffer)
         self.assertEqual(update.call_args.kwargs["content_rect"], (10, 10, 280, 180))
         self.display_params.assert_called_once_with(splash=False, proofed=True)
+
+
+class TestExportSizeOpensEachSizeAt100(unittest.TestCase):
+    def setUp(self):
+        from negpy.desktop.view.main_window import MainWindow
+
+        self.window = MainWindow
+        self.stub = SimpleNamespace(
+            state=AppState(uploaded_files=[{"hash": "h1"}], last_metrics={}, gpu_enabled=False, config=WorkspaceConfig()),
+            empty_state=MagicMock(),
+            controller=MagicMock(display_transform_params=MagicMock(return_value=("sRGB", None, False))),
+            canvas=MagicMock(),
+            _export_size_shape=None,
+        )
+
+    def _land(self, shape: tuple[int, int]) -> None:
+        buf = np.full((*shape, 3), 0.5, dtype=np.float32)
+        self.stub.state.peek_frame = {"base_positive": buf, "content_rect": None, "export_view": True, "proof": True}
+        self.window._on_image_updated(self.stub)
+
+    def test_the_first_export_frame_opens_at_100(self):
+        self._land((40, 60))
+        self.stub.canvas.zoom_to_percent.assert_called_once_with(100.0)
+
+    def test_an_edit_that_keeps_the_size_keeps_the_zoom(self):
+        self._land((40, 60))
+        self._land((40, 60))
+        self.stub.canvas.zoom_to_percent.assert_called_once_with(100.0)
+
+    def test_a_new_export_size_opens_at_100_again(self):
+        self._land((40, 60))
+        self._land((80, 120))
+        self.assertEqual(self.stub.canvas.zoom_to_percent.call_count, 2)
+
+    def test_turning_it_on_again_opens_at_100(self):
+        self._land((40, 60))
+        self.window._on_export_size_view_changed(self.stub, False)
+        self.window._on_export_size_view_changed(self.stub, True)
+        self._land((40, 60))
+        self.assertEqual(self.stub.canvas.zoom_to_percent.call_count, 2)
+
+    def test_a_plain_render_leaves_the_zoom_alone(self):
+        self.stub.state.last_metrics = {"base_positive": np.full((40, 60, 3), 0.5, dtype=np.float32)}
+        self.window._on_image_updated(self.stub)
+        self.stub.canvas.zoom_to_percent.assert_not_called()
 
 
 class TestTheToolSetIsSpelledOnce(unittest.TestCase):

@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.state = controller.state
-        self._export_size_zoom_pending = False
+        self._export_size_shape: Optional[tuple[int, ...]] = None
 
         self._restore_window_geometry()
         self.setAcceptDrops(True)
@@ -863,7 +863,7 @@ class MainWindow(QMainWindow):
         self._refresh_image_info()
 
     def _on_export_size_view_changed(self, on: bool) -> None:
-        self._export_size_zoom_pending = on
+        self._export_size_shape = None
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
@@ -916,9 +916,10 @@ class MainWindow(QMainWindow):
             splash=bool(shown("splash")), proofed=bool(shown("proof", True))
         )
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
-        # The first export frame opens at 100%: Export Size is for judging pixels.
-        if self._export_size_zoom_pending and shown("export_view"):
-            self._export_size_zoom_pending = False
+        # An export frame of a new size opens at 100%: Export Size is for judging pixels. An edit
+        # that keeps the size keeps the zoom and pan.
+        if shown("export_view") and buffer.shape[:2] != self._export_size_shape:
+            self._export_size_shape = buffer.shape[:2]
             self.canvas.zoom_to_percent(100.0)
 
     def _refresh_image_info(self) -> None:
