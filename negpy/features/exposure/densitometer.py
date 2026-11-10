@@ -59,7 +59,7 @@ class DensitometerReading:
     """One probed pixel, in darkroom units (relative to this scan's bounds)."""
 
     dd_rgb: Tuple[float, float, float]  # density above the window's thin end, per channel
-    val_luma: float  # Rec.709 luma of the val triplet (curve-dot x)
+    val_luma: float  # luma of the val triplet (curve-dot x)
     print_density: float  # reflection density of the displayed tone
     zone: float  # print zone 0..10 (analysis.zone_of_encoded ruler, V = 18% gray)
     val_rgb: Optional[Tuple[float, float, float]] = None  # normalized val per channel (scan parade marker)

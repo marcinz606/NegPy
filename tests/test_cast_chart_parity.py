@@ -31,7 +31,7 @@ def _curved_negative() -> np.ndarray:
     for ch in range(3):
         log[:, :, ch] = (-0.2 + mask[ch] - gamma[ch] * E - curv[ch] * E * E)[:, None]
     gx = slice(int(0.82 * _W), _W)
-    log[:, gx, 1], log[:, gx, 0], log[:, gx, 2] = -0.22, -0.50, -0.62
+    log[:, gx, 1], log[:, gx, 0], log[:, gx, 2] = -0.22, -0.42, -0.62
     return (10.0**log).astype(np.float32)
 
 

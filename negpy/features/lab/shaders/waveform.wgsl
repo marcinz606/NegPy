@@ -12,7 +12,7 @@
 const COLS = 256u;
 const BINS = 128.0;
 const COLOR_SCALE = 1023.0;
-const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+const LUMA_COEFFS = vec3<f32>(0.2974, 0.6273, 0.0753);
 
 // Working-space OETF (Adobe RGB: pure 563/256 gamma). Mirrors output_encode.wgsl.
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {

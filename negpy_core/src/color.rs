@@ -311,8 +311,109 @@ fn rein_block(src: &[f32], dst: &mut [f32], (start, span, inv_span): (f32, f32, 
     }
 }
 
-/// `_saturation_block` over N x 3 linear RGB: the Lab round trip with the chroma scale (skipped
-/// at 1.0) and the skin rein (skipped at 0), clipped to 0..1. `to_lab` and `to_rgb` share the white.
+// Adobe RGB (1998) linear to the Oklab cone response and back. Each row sums to 1, so a gray has
+// no chroma. Mirrored in lab.wgsl.
+const OK_LMS: [[f64; 3]; 3] = [
+    [0.576470467156, 0.369889566321, 0.053639966523],
+    [0.296350558460, 0.591667028946, 0.111982412594],
+    [0.123509263672, 0.219525142748, 0.656965593580],
+];
+const OK_RGB: [[f64; 3]; 3] = [
+    [2.553867783044, -1.621790027438, 0.067922244395],
+    [-1.268519416804, 2.609797725470, -0.341278308665],
+    [-0.056250165470, -0.567168402348, 1.623418567818],
+];
+const OK_LAB: [[f64; 3]; 3] = [
+    [0.2104542553, 0.7936177850, -0.0040720468],
+    [1.9779984951, -2.4285922050, 0.4505937099],
+    [0.0259040371, 0.7827717662, -0.8086757660],
+];
+const OK_LAB_INV: [[f64; 3]; 3] = [
+    [0.999999998451, 0.396337792174, 0.215803758061],
+    [1.000000008882, -0.105561342324, -0.063854174772],
+    [1.000000054672, -0.089484182095, -1.291485537864],
+];
+
+/// Linear RGB of an Oklab color with its chroma scaled by `k`.
+#[inline(always)]
+fn oklab_rgb([l, a, b]: [f64; 3], k: f64) -> [f64; 3] {
+    let (a, b) = (a * k, b * k);
+    let [x, y, z] = OK_LAB_INV.map(|m| {
+        let v = row(m, l, a, b);
+        v * v * v
+    });
+    OK_RGB.map(|m| row(m, x, y, z))
+}
+
+/// Linear RGB within 0..1, 1e-4 either side.
+#[inline(always)]
+fn in_gamut(rgb: [f64; 3]) -> bool {
+    rgb.iter()
+        .fold(true, |ok, v| ok & (-1e-4..=1.0 + 1e-4).contains(v))
+}
+
+/// The Oklab chroma scale over N x 3 linear RGB: the flat `saturation` where its full push
+/// stays in gamut, else a softplus knee toward the pixel's own headroom, found by bisection.
+#[multiversion(targets(
+    "x86_64+avx512f+avx512bw+avx512vl+avx512dq",
+    "x86_64+avx2+fma",
+    "aarch64+neon"
+))]
+fn oklab_chroma_block(src: &[f32], dst: &mut [f32], saturation: f32, iters: usize) {
+    // Three passes over short runs: the cube root vectorizes only as a flat loop.
+    const RUN: usize = 512;
+    let sat = saturation as f64;
+    let mut t = [0f64; 3 * RUN];
+    for (d, p) in dst.chunks_mut(3 * RUN).zip(src.chunks(3 * RUN)) {
+        let t = &mut t[..p.len()];
+        for (t, p) in t
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(p.as_chunks::<3>().0)
+        {
+            let [r, g, b] = p.map(|v| {
+                let v = v as f64;
+                if v < 0.0 { 0.0 } else { v }
+            });
+            *t = OK_LMS.map(|m| row(m, r, g, b));
+        }
+        for v in t.iter_mut() {
+            *v = pow_f64(*v, 1.0 / 3.0);
+        }
+        for (d, &[x, y, z]) in d
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(t.as_chunks::<3>().0)
+        {
+            let lab = OK_LAB.map(|m| row(m, x, y, z));
+            let full = oklab_rgb(lab, sat);
+            let rgb = if sat <= 1.0 || in_gamut(full) {
+                full
+            } else {
+                let fits = in_gamut(oklab_rgb(lab, 1.0));
+                let (mut lo, mut hi) = (1.0, sat);
+                for _ in 0..iters {
+                    let mid = (lo + hi) / 2.0;
+                    if fits && in_gamut(oklab_rgb(lab, mid)) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let knee = lo.max(1.0 + 1e-4) - 1.0;
+                let e = crate::mathf::exp_f64((1.0 - sat) / knee);
+                oklab_rgb(lab, (1.0 - e).mul_add(knee, 1.0))
+            };
+            *d = rgb.map(|v| v as f32);
+        }
+    }
+}
+
+/// `apply_saturation` over N x 3 linear RGB: the Oklab chroma scale (skipped at 1.0) with the
+/// pixel's own CIELAB L* put back, then the CIELAB skin rein (skipped at 0), clipped to 0..1.
+/// `to_lab` and `to_rgb` share the white.
 pub fn saturation(
     src: &[f32],
     dst: &mut [f32],
@@ -329,8 +430,16 @@ pub fn saturation(
             let (mut lab, mut tmp) = (vec![0f32; p.len()], vec![0f32; p.len()]);
             rgb_to_lab_block(p, &mut lab, to_lab);
             if saturation != 1.0 {
-                gamut_block(&lab, &mut tmp, saturation, 10, &to_rgb);
-                std::mem::swap(&mut lab, &mut tmp);
+                oklab_chroma_block(p, d, saturation, 10);
+                rgb_to_lab_block(d, &mut tmp, to_lab);
+                for (l, t) in lab
+                    .as_chunks_mut::<3>()
+                    .0
+                    .iter_mut()
+                    .zip(tmp.as_chunks::<3>().0)
+                {
+                    *l = [l[0], t[1], t[2]];
+                }
             }
             if skin > 0.0 {
                 rein_block(&lab, &mut tmp, rein);
@@ -434,91 +543,5 @@ fn flat_curve_block(
             None => [r, g, b],
         };
         *d = v.map(|x| (lift + gain * (1.0 - x)).clamp(0.0, 1.0));
-    }
-}
-
-/// `_in_gamut_lab`: (L, a, b) decodes to linear RGB within 0..1, 1e-4 either side; the bounds
-/// are float32 sums, compared in float64.
-#[inline(always)]
-fn in_gamut(l: f32, a: f32, b: f32, s: &LabSpace) -> bool {
-    let [xr, yr, zr] = lab_to_xyz(l, a, b, s);
-    let (lo, hi) = (-1e-4f32 as f64, (1.0f32 + 1e-4f32) as f64);
-    s.m.iter().fold(true, |ok, &m| {
-        let v = row(m, xr, yr, zr);
-        ok & (v >= lo) & (v <= hi)
-    })
-}
-
-/// `_gamut_aware_chroma_scale_kernel` over N x 3 Lab: the flat `saturation` where its full push
-/// stays in gamut, else a softplus knee toward the pixel's own headroom, found by bisection.
-pub fn gamut_aware_chroma_scale(
-    src: &[f32],
-    dst: &mut [f32],
-    saturation: f32,
-    iters: usize,
-    s: LabSpace,
-) {
-    dst.par_chunks_mut(BLOCK * 3)
-        .zip(src.par_chunks(BLOCK * 3))
-        .for_each(|(d, p)| gamut_block(p, d, saturation, iters, &s));
-}
-
-#[multiversion(targets(
-    "x86_64+avx512f+avx512bw+avx512vl+avx512dq",
-    "x86_64+avx2+fma",
-    "aarch64+neon"
-))]
-fn gamut_block(src: &[f32], dst: &mut [f32], saturation: f32, iters: usize, s: &LabSpace) {
-    if saturation <= 1.0 {
-        // L times 1 is exact; a flat pattern of 48 lanes vectorizes where triplets do not.
-        let pattern: [f32; 48] = std::array::from_fn(|i| if i % 3 == 0 { 1.0 } else { saturation });
-        for (d, p) in dst.chunks_mut(48).zip(src.chunks(48)) {
-            for ((d, &p), &k) in d.iter_mut().zip(p).zip(&pattern) {
-                *d = p * k;
-            }
-        }
-        return;
-    }
-    // Pixels whose full push clips are gathered per run and bisected in lockstep, so each step
-    // vectorizes across them.
-    const RUN: usize = 512;
-    let mut idx = [0usize; RUN];
-    let mut cand = [[0f32; 3]; RUN];
-    let mut ok = [false; RUN];
-    let mut full = [false; RUN];
-    let (mut lo, mut hi) = ([1f32; RUN], [saturation; RUN]);
-    for (d, sp) in dst.chunks_mut(3 * RUN).zip(src.chunks(3 * RUN)) {
-        let (px, src_px) = (d.as_chunks_mut::<3>().0, sp.as_chunks::<3>().0);
-        for (f, &[l, a, b]) in full.iter_mut().zip(src_px) {
-            *f = in_gamut(l, a * saturation, b * saturation, s);
-        }
-        let mut n = 0;
-        for (i, ((p, &q), &f)) in px.iter_mut().zip(src_px).zip(&full).enumerate() {
-            idx[n] = i;
-            cand[n] = q;
-            n += !f as usize;
-            *p = [q[0], q[1] * saturation, q[2] * saturation];
-        }
-        for (k, &[l, a, b]) in ok[..n].iter_mut().zip(&cand[..n]) {
-            *k = in_gamut(l, a, b, s);
-        }
-        lo[..n].fill(1.0);
-        hi[..n].fill(saturation);
-        for _ in 0..iters {
-            for j in 0..n {
-                let [l, a, b] = cand[j];
-                let mid = (lo[j] + hi[j]) / 2.0;
-                let fits = ok[j] & in_gamut(l, a * mid, b * mid, s);
-                lo[j] = if fits { mid } else { lo[j] };
-                hi[j] = if fits { hi[j] } else { mid };
-            }
-        }
-        for j in 0..n {
-            let [l, a, b] = cand[j];
-            let knee = lo[j].max(1.0f32 + 1e-4f32) - 1.0;
-            let e = crate::mathf::exp_f64(((1.0 - saturation) / knee) as f64) as f32;
-            let eff = (1.0 - e).mul_add(knee, 1.0);
-            px[idx[j]] = [l, a * eff, b * eff];
-        }
     }
 }

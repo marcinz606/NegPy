@@ -33,12 +33,12 @@ fn exp10f(x: f32) -> f32 {
 /// Pixels per pass: each step runs as a flat loop over a run, so it vectorizes.
 const RUN: usize = 256;
 
-/// The print density of each pixel of a run: `-log10` of the clipped Rec. 709 luma.
+/// The print density of each pixel of a run: `-log10` of the clipped luma.
 #[inline(always)]
 fn density_run(px: &[[f32; 3]], out: &mut [f32]) {
     for (o, p) in out.iter_mut().zip(px) {
         let c = |v: f32| clip(v, 1e-6, 1.0);
-        let luma = c(p[0]) * 0.2126 + c(p[1]) * 0.7152 + c(p[2]) * 0.0722;
+        let luma = c(p[0]) * 0.2974 + c(p[1]) * 0.6273 + c(p[2]) * 0.0753;
         *o = -log10f(clip(luma, 1e-6, 1.0));
     }
 }

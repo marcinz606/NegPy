@@ -295,7 +295,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (n_key > 0) {
             // The unburned tone: no mask can move the pixels it selects. Mirrors the CPU
             // kernel; the grade sums in ISO-R space, then clamps once to the ladder.
-            let lum = dot(color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+            let lum = dot(color.rgb, vec3<f32>(0.2974, 0.6273, 0.0753));
             let alphas = textureLoad(key_tex, coords, 0);
             for (var k = 0; k < n_key; k++) {
                 let e = params.keyed[k];
@@ -414,7 +414,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // B&W: re-collapse after the curve — per-channel trims must not tint a
     // B&W print. Mirrors the CPU post-curve collapse in exposure/processor.py.
     if (params.mode == 1u) {
-        let l = dot(transmittance, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let l = dot(transmittance, vec3<f32>(0.2974, 0.6273, 0.0753));
         transmittance = vec3<f32>(l, l, l);
     }
 

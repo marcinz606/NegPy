@@ -1,8 +1,7 @@
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> histogram: array<atomic<u32>, 1024>; // 256 * 4 (R, G, B, Luma)
 
-// Rec. 709 coefficients
-const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+const LUMA_COEFFS = vec3<f32>(0.2974, 0.6273, 0.0753);
 
 // Working-space OETF (Adobe RGB: pure 563/256 gamma) — mirrors output_encode.wgsl.
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {

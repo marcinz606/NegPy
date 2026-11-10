@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import grade_to_slope
@@ -74,8 +75,8 @@ class TestDensityRangeMetric(unittest.TestCase):
         ctx = self._context()
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         NormalizationProcessor(process).process(img, ctx)
-        # Luminance-weighted (Rec.709) over per-channel ranges 1.9, 1.2, 0.5.
-        expected = 0.2126 * 1.9 + 0.7152 * 1.2 + 0.0722 * 0.5
+        # Luminance-weighted over per-channel ranges 1.9, 1.2, 0.5.
+        expected = LUMA_R * 1.9 + LUMA_G * 1.2 + LUMA_B * 0.5
         self.assertAlmostEqual(ctx.metrics["norm_density_range"], expected, places=5)
 
     def test_metric_set_on_locked_bounds(self):

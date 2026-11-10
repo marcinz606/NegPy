@@ -167,21 +167,10 @@ def apply_rl_sharpening(
 
 def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
     """
-    Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
-    Preserves perceived lightness, unlike HSV S-scaling which darkens
-    already-saturated colors when S clips to 1.0.
-
-    Gamut-aware above 1.0 (see gamut_aware_chroma_scale): a flat a*/b* scale
-    preserves hue mathematically, but pixels that overshoot the display gamut
-    get hard-clamped per channel afterward, which shifts the *actual* hue
-    since clamping only the overshooting channel(s) changes the R:G:B ratio.
-    A soft per-pixel knee toward each pixel's real in-gamut headroom avoids
-    that instead of clamping after the fact.
-
-    Skin protection (see skin_chroma_rein) then reins skin-hued chroma in
-    against a ceiling. It shares this one Lab round trip but is independent of
-    the scale: it runs at saturation 1.0 too, since skin can arrive
-    over-chromatic from the print curve without Chroma pushing it there.
+    Scales chroma in Oklab, which holds hue where CIELAB turns blue toward purple, and keeps the
+    pixel's CIELAB L*, so the tone tools and the sharpen state read the same lightness. Above 1.0
+    a pixel whose full push leaves the gamut takes a soft knee toward its own headroom, because
+    an RGB clamp shifts hue. Skin Protection then reins skin chroma in CIELAB; it runs at 1.0 too.
     """
     if saturation == 1.0 and skin_protection <= 0.0:
         return img
