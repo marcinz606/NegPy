@@ -90,6 +90,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_embedded_peek": ShortcutEntry("P", tr("Peek the camera's embedded preview; hold to peek only while down"), tr("Tools")),
     "toggle_zones": ShortcutEntry("Shift+Z", tr("Adams zone overlay"), tr("Tools")),
     "toggle_clipping_overlay": ShortcutEntry("", tr("Clipping Overlay: paper black and paper white on the frame"), tr("Tools")),
+    "toggle_analysis_overlay": ShortcutEntry("", tr("Analysis Overlay: the Analysis chart in a corner of the picture"), tr("Tools")),
     "toggle_zone_hover_highlight": ShortcutEntry(
         "", tr("Zone Highlight: show the zone strip's hovered zone alone on the frame"), tr("Tools")
     ),
@@ -332,6 +333,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     # A stored id: saved key bindings name it, so it keeps its name.
     "close_roll": ShortcutEntry("", tr("Unload every frame from the Film Strip"), tr("Actions")),
     "remove_from_roll": ShortcutEntry("", tr("Remove the selected frames from the roll…"), tr("Actions")),
+    "locate_roll_folder": ShortcutEntry("", tr("Locate the open roll's folder after it was renamed or moved…"), tr("Actions")),
     "restore_removed_frames": ShortcutEntry("", tr("Restore the frames removed from the roll…"), tr("Actions")),
     "reset_tab": ShortcutEntry("", tr("Reset this tab to defaults"), tr("Actions")),
     "reset_tab_to_roll": ShortcutEntry("", tr("Reset this tab to the roll's settings"), tr("Actions")),

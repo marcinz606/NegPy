@@ -445,6 +445,22 @@ class StorageRepository(IRepository):
             out.append((int(idx), config))
         return out
 
+    def edited_file_names_under(self, folder: str) -> set[str]:
+        """Base names of the edited files saved directly under *folder*. Paths compare in the
+        platform's case rule (`os.path.normcase`)."""
+        under = folder.rstrip("/\\") + os.sep
+        with self._connect(self.edits_db_path) as conn:
+            rows = conn.execute(
+                "SELECT file_path FROM file_settings WHERE lower(substr(file_path, 1, ?)) = lower(?)", (len(under), under)
+            ).fetchall()
+        key = os.path.normcase(under)
+        names = set()
+        for (file_path,) in rows:
+            path = str(file_path)
+            if os.path.normcase(path[: len(under)]) == key and os.sep not in path[len(under) :]:
+                names.add(os.path.basename(path))
+        return names
+
     def rehome_path_prefix(self, old_prefix: str, new_prefix: str) -> None:
         """Repoint every path-keyed row under the folder *old_prefix* to *new_prefix*."""
         under = old_prefix + os.sep

@@ -151,19 +151,77 @@ def test_update_thumbnails_reflects_the_running_state(panel):
     assert browser.update_thumbnails_action.text() == idle
 
 
-def test_a_narrow_row_moves_save_as_roll_to_the_menu(panel, qapp):
+def test_a_narrow_row_shows_the_save_button_as_its_icon_alone(panel, qapp):
+    browser = panel.file_browser
+    btn = browser.save_roll_btn
+    row = browser.roll_row
+    browser._show_save_roll(True)
+    row.resize(1400, 40)
+    row.show()
+    qapp.processEvents()
+    assert btn.isVisible() and btn.text()
+
+    row.resize(400, 40)
+    qapp.processEvents()
+    assert btn.isVisible() and not btn.text()
+    assert btn.toolTip()
+
+    row.resize(1400, 40)
+    qapp.processEvents()
+    assert btn.isVisible() and btn.text()
+
+
+def test_the_save_button_keeps_its_label_while_the_filter_box_keeps_a_usable_width(panel, qapp):
     browser = panel.file_browser
     row = browser.roll_row
     browser._show_save_roll(True)
     row.resize(1400, 40)
     row.show()
     qapp.processEvents()
-    assert not browser.save_roll_btn.isHidden()
+    wide = browser.search_input.width()
 
-    row.resize(400, 40)
+    row.resize(1400 - (wide - 180), 40)
     qapp.processEvents()
-    assert browser.save_roll_btn.isHidden()
+    assert browser.search_input.width() == 180
+    assert browser.save_roll_btn.text()
+
+
+def test_frames_loaded_into_a_narrow_row_show_the_save_button(panel, qapp):
+    """The button is shown and reaches its icon-only width outside the filter box's resize, so
+    the row never ends with the button hidden or still at its label's width."""
+    browser = panel.file_browser
+    btn = browser.save_roll_btn
+    row = browser.roll_row
+    row.resize(400, 40)
+    row.show()
+    qapp.processEvents()
+
+    browser._show_save_roll(True)
+    qapp.processEvents()
+    assert btn.isVisible() and not btn.text()
 
     row.resize(1400, 40)
     qapp.processEvents()
-    assert not browser.save_roll_btn.isHidden()
+    assert btn.isVisible() and btn.text()
+
+
+def test_a_label_change_while_icon_only_measures_the_new_label(panel, qapp):
+    """The room check uses the width of the label the button would show, not an earlier one."""
+    browser = panel.file_browser
+    row = browser.roll_row
+    browser._show_save_roll(True)
+    row.resize(1400, 40)
+    row.show()
+    qapp.processEvents()
+    widths = {}
+    for to_folder in (False, True):
+        browser._label_save_roll_button(to_folder)
+        widths[to_folder] = browser.save_roll_btn.sizeHint().width()
+    assert widths[False] != widths[True]
+
+    row.resize(400, 40)
+    qapp.processEvents()
+    for to_folder in (False, True, False):
+        browser._label_save_roll_button(to_folder)
+        assert not browser.save_roll_btn.text()
+        assert browser._save_named_width == widths[to_folder]

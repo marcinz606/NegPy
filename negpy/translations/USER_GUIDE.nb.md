@@ -2,17 +2,17 @@
 
 NegPy gjør skanninger av filmnegativer og dias til ferdige bilder. Originalfilene dine endres aldri. NegPy lagrer redigeringene dine i en lokal database. Velg språk under Innstillinger → Grensesnitt → Språk, og start NegPy på nytt. Systemstandard følger systemspråket og bruker engelsk når NegPy ikke har det språket. Når et panel mangler oversettelse, viser NegPy den engelske teksten.
 
-<!-- panel:library src:35989d38 -->
+<!-- panel:library src:9a5d5d3a -->
 ### Bibliotek
 
 Fanen **Bibliotek** (`Ctrl+L`) viser **rullene** dine. En rull er en navngitt gruppe bilder, vanligvis én film: en **mapperull** eller en **virtuell rull**. Importen husker mappen. NegPy flytter, gir nytt navn til eller sletter aldri filene dine.
 
 *   **+**: **Importer mappe som rull…** gjør en mappe til én rull og åpner den. **Importer undermapper som ruller…** gjør hver undermappe med bilder til en rull.
 *   **Dobbeltklikk** en rull (eller trykk Enter) for å åpne den i filmstripen.
-*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bildene som Fjern fra rull tok ut av en mapperull. Linjen under navnet på rullen teller dem. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
+*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Finn mappe…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bildene som Fjern fra rull tok ut av en mapperull. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
 *   **Filtrer ruller…** og **Sorter** hjelper deg å finne en rull. **⋮ → Oppdater** finner nye undermapper og teller bildene på nytt. **⋮ → Søkefiltre…** viser mappenavn som hoppes over (først `export`).
 
-En rull der mappen er borte, viser **mappen mangler**. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
+En rull der mappen er borte, viser **mappen mangler**. **Finn mappe…** peker den mot den nye mappen. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
 
 En mapperull inneholder bare filene i sin egen mappe. En fil du legger til fra en annen mappe, blir værende bare i denne økten.
 
@@ -51,14 +51,12 @@ Et vanlig ord samsvarer med filnavnet. `field:value`-uttrykk samsvarer med bilde
 
 Uttrykk kan kombineres: `film:portra iso:>=400 -rejected:`. Metadatauttrykk samsvarer bare med bilder der du har fylt ut metadataene. **Søk etter betydning** (slå det på i Innstillinger → Ytelse) finner bilder etter en beskrivelse, for eksempel "en hund på en strand".
 
-<!-- panel:analysis src:cf165609 -->
+<!-- panel:analysis src:7afa1351 -->
 ## 3. Analyseavlesning
 
 Denne avlesningen beskriver det gjeldende bildet mens du redigerer.
 
 #### Diagram
-
-Velg en diagramvisning:
 
 *   **Kurve**: papirets kurve, fra negativet (bortover) til kopien (oppover). Brattere betyr mer kontrast. Det grå histogrammet er negativet, det fargede er kopien.
 *   **Bølgeform**: lysheten i kopien over bildet.
@@ -66,6 +64,8 @@ Velg en diagramvisning:
 *   **Vektorskop**: fargene i kopien rundt et midtpunkt. En klynge utenfor midten er et fargestikk.
 
 **Log** viser små områder, som klipping.
+
+**Analyseoverlegg**: diagrammet på bildet mens kortet er lukket.
 
 #### Klipping
 
@@ -83,7 +83,7 @@ Folden **Avlesninger** inneholder tall om skanningen. En gul verdi er en advarse
 
 **Filmbase** (trådkorset): klikk den klare filmen mellom bildene for å angi basen avlesningene måler fra.
 
-*   **Negativ**: tetthetsomfanget til negativet (Δ). Hold pekeren over for flatt, normalt eller kontrastrikt.
+*   **Negativ**: tetthetsomfanget til negativet (Δ).
 *   **Eksponering**: lyst (positiv) eller mørkt (negativ) bilde, i blendertrinn.
 *   **Klipping**: andel av kopien som er helt svart, og så helt hvit.
 *   **Skanneklipping**: andel av hver kanal ved skannerens maksimum. Ingen redigering retter det; eksponer skanningen lavere.

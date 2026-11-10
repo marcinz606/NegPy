@@ -44,7 +44,7 @@ from negpy.desktop.view.styles.templates import (
     section_subheader,
     set_hint_kind,
     tool_toggle,
-    tool_toggle_qss,
+    name_labeled_button,
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
@@ -1263,10 +1263,7 @@ class ActionToolbar(QWidget):
 
     def _name_light_table_buttons(self, named: bool) -> None:
         for btn, text, sheet in self._lt_labeled:
-            btn.setText(text if named else "")
-            btn.setStyleSheet(sheet if named else tool_toggle_qss(icon_only=True))
-            # A narrow bar lays out at minimum widths, which would cut a name down to the icon.
-            btn.setMinimumWidth(btn.sizeHint().width())
+            name_labeled_button(btn, text, sheet, named)
 
     def set_light_table(self, on: bool) -> None:
         self._light_table = on

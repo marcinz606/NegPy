@@ -818,6 +818,7 @@ class TestAppController(unittest.TestCase):
         self.assertNotIn("half_frame_mode", store)
         self.assertNotIn("half_frame_mode_by_roll", store)
 
+    @patch("negpy.desktop.controller.os.path.isdir", new=lambda _path: True)
     def test_open_roll_emits_that_rolls_own_half_frame_state(self):
         store = self._fake_settings_store()
         store["half_frame_mode_by_roll"] = {"r1": True}
@@ -867,6 +868,7 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(self.controller._rgb_scan_mode_for_discovery(None))
         self.assertNotIn("rgbscan_mode_by_roll", store)
 
+    @patch("negpy.desktop.controller.os.path.isdir", new=lambda _path: True)
     def test_open_roll_emits_that_rolls_own_trichrome_mode(self):
         store = self._fake_settings_store()
         store["rgbscan_mode"] = True
@@ -8005,6 +8007,59 @@ class TestLibrarySearch(unittest.TestCase):
 
         self.assertEqual(saved_rolls(self.controller.session.repo), {})
 
+    def test_open_roll_with_a_missing_folder_asks_to_locate_it(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import recognize_folder
+
+        roll_id = recognize_folder(self.controller.session.repo, "/photos/renamed_away")
+        missing = []
+        self.controller.roll_folder_missing.connect(missing.append)
+
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller.open_roll(roll_id)
+
+        self.assertEqual(missing, [roll_id])
+        discovery.assert_not_called()
+
+    def test_relinking_the_open_roll_repoints_its_frames_without_reopening(self):
+        self._dict_repo()
+        import os
+        import tempfile
+
+        from negpy.services.assets.rolls import recognize_folder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.controller.session.repo
+            roll_id = recognize_folder(repo, os.path.join(tmp, "gone"))
+            self.controller.state.active_roll_id = roll_id
+            self.controller.state.uploaded_files = [{"path": os.path.join(tmp, "gone", "a.tif")}]
+            with (
+                patch.object(self.controller, "open_roll") as reopen,
+                patch.object(self.controller.session, "rehome_folder_paths") as rehome,
+                patch("negpy.desktop.controller.relink_folder_roll", return_value=(os.path.join(tmp, "gone"), "")),
+            ):
+                self.assertEqual(self.controller.relink_roll(roll_id, tmp), "")
+
+        rehome.assert_called_once()
+        reopen.assert_not_called()
+
+    def test_relinking_a_closed_roll_opens_it_and_a_failure_returns_its_reason(self):
+        self._dict_repo()
+        with (
+            patch.object(self.controller, "open_roll") as reopen,
+            patch("negpy.desktop.controller.relink_folder_roll", return_value=("/old", "")),
+        ):
+            self.assertEqual(self.controller.relink_roll("r1", "/new"), "")
+        reopen.assert_called_once_with("r1")
+
+        with (
+            patch.object(self.controller, "open_roll") as reopen,
+            patch("negpy.desktop.controller.relink_folder_roll", return_value=(None, "folder_taken")),
+        ):
+            self.assertEqual(self.controller.relink_roll("r1", "/new"), "folder_taken")
+        reopen.assert_not_called()
+
+    @patch("negpy.desktop.controller.os.path.isdir", new=lambda _path: True)
     def test_open_roll_walks_only_a_folder_rolls_folder(self):
         """extra_paths from an older version are ignored."""
         self._dict_repo()
@@ -8022,6 +8077,7 @@ class TestLibrarySearch(unittest.TestCase):
         discovery.assert_called_once_with(["/photos/roll_a"], auto_open=True, replace_existing=True)
         self.assertEqual(self.controller.state.active_roll_id, roll_id)
 
+    @patch("negpy.desktop.controller.os.path.isdir", new=lambda _path: True)
     def test_a_folder_roll_that_held_files_from_other_folders_says_so_once(self):
         self._dict_repo()
         from negpy.services.assets.rolls import ROLLS_KEY, recognize_folder

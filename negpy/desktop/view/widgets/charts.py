@@ -32,6 +32,15 @@ def _draw_plated_text(painter: QPainter, rect: QRect, flags: Qt.AlignmentFlag, t
     painter.drawText(rect, flags, text)
 
 
+ON_PLATE = "on_plate"
+
+
+def _fill_ground(painter: QPainter, chart: QWidget) -> None:
+    """A chart on the canvas plate leaves its ground to the plate, which is translucent."""
+    if not chart.property(ON_PLATE):
+        painter.fillRect(chart.rect(), QColor(THEME.bg_input))
+
+
 def _guide_pen() -> QPen:
     """Every chart's grid and guide lines."""
     return QPen(with_alpha(THEME.border_hover, 150), 1)
@@ -396,7 +405,7 @@ class PhotometricCurveWidget(QWidget):
         w = self.width()
         h = self.height()
 
-        painter.fillRect(self.rect(), QColor(THEME.bg_input))
+        _fill_ground(painter, self)
 
         # Grid at 0.25 intervals, including 0 and 1, so the axis padding reads as margin and a
         # curve flat at zero visibly lands on the baseline.
@@ -932,7 +941,7 @@ class WaveformWidget(QWidget):
 
         painter = QPainter(self)
         w, h = self.width(), self.height()
-        painter.fillRect(self.rect(), QColor(THEME.bg_input))
+        _fill_ground(painter, self)
 
         images = self._trace_images()
         counts = self._counts
@@ -1122,7 +1131,7 @@ class VectorscopeWidget(QWidget):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(THEME.bg_input))
+        _fill_ground(painter, self)
         side = max(8.0, min(self.width(), self.height()) - float(self._LABEL_ROOM))
         rim = side / 2.0
         center = QPointF(self.width() / 2.0, self.height() / 2.0)
@@ -1443,6 +1452,12 @@ class ChartWell(QWidget):
 
     def shown(self) -> list[QWidget]:
         return [chart for chart in self._charts if not chart.isHidden()]
+
+    def take_back(self) -> None:
+        """Puts the first chart in its place again, after another parent held it."""
+        self.layout().insertWidget(0, self._charts[0], 1)
+        self._charts[0].show()
+        self._edge.raise_()
 
     def resizeEvent(self, event) -> None:
         self._edge.setGeometry(self.rect())
