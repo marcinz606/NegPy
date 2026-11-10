@@ -25,7 +25,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     let rgb = clamp(textureLoad(input_tex, coords, 0).rgb, vec3<f32>(1e-6), vec3<f32>(1.0));
-    let luma = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let luma = dot(rgb, vec3<f32>(0.2974, 0.6273, 0.0753));
     let dens = -log(clamp(luma, 1e-6, 1.0)) / log(10.0);
 
     var bromide = 0.0;

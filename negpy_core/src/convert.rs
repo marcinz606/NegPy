@@ -4,9 +4,9 @@
 use multiversion::multiversion;
 use rayon::prelude::*;
 
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
+const LUMA_R: f64 = 0.2974;
+const LUMA_G: f64 = 0.6273;
+const LUMA_B: f64 = 0.0753;
 const BLOCK: usize = 1 << 14;
 
 /// `v * scale + 0.5` clipped to 0..scale, NaN to 0, then truncated: the rounding of

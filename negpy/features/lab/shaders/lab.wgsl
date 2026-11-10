@@ -213,56 +213,63 @@ fn lab_to_rgb(lab: vec3<f32>) -> vec3<f32> {
     return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
-// Whether (L,a,b) decodes to linear working RGB within [0,1] on all channels
-// -- unclamped, unlike lab_to_rgb (which clamps negatives internally and would
-// hide a would-be-negative channel from this check). Mirrors _in_gamut_lab in
-// kernel/image/logic.py exactly; same matrices as lab_to_rgb above.
-fn in_gamut_lab(lab: vec3<f32>) -> bool {
-    var y = (lab.x + 16.0) / 116.0;
-    var x = lab.y / 500.0 + y;
-    var z = y - lab.z / 200.0;
-    if (pow(x, 3.0) > 0.008856) { x = pow(x, 3.0); } else { x = (x - 16.0 / 116.0) / 7.787; }
-    if (pow(y, 3.0) > 0.008856) { y = pow(y, 3.0); } else { y = (y - 16.0 / 116.0) / 7.787; }
-    if (pow(z, 3.0) > 0.008856) { z = pow(z, 3.0); } else { z = (z - 16.0 / 116.0) / 7.787; }
-    x = x * 0.95047;
-    y = y * 1.00000;
-    z = z * 1.08883;
-    let r = x * 2.0413690 + y * -0.5649464 + z * -0.3446944;
-    let g = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
-    let b = x * 0.0134474 + y * -0.1183897 + z * 1.0154096;
-    let tol = 1e-4;
-    return r >= -tol && r <= 1.0 + tol && g >= -tol && g <= 1.0 + tol && b >= -tol && b <= 1.0 + tol;
+// Adobe RGB (1998) linear to the Oklab cone response and back; each row of OK_LMS sums to 1, so a
+// gray has no chroma. Mirrors OK_LMS, OK_RGB, OK_LAB and OK_LAB_INV in negpy_core/src/color.rs.
+fn rgb_to_oklab(rgb: vec3<f32>) -> vec3<f32> {
+    let c = max(rgb, vec3<f32>(0.0));
+    let lms = pow(vec3<f32>(
+        dot(vec3<f32>(0.576470467, 0.369889566, 0.053639967), c),
+        dot(vec3<f32>(0.296350558, 0.591667029, 0.111982413), c),
+        dot(vec3<f32>(0.123509264, 0.219525143, 0.656965594), c),
+    ), vec3<f32>(1.0 / 3.0));
+    return vec3<f32>(
+        dot(vec3<f32>(0.2104542553, 0.7936177850, -0.0040720468), lms),
+        dot(vec3<f32>(1.9779984951, -2.4285922050, 0.4505937099), lms),
+        dot(vec3<f32>(0.0259040371, 0.7827717662, -0.8086757660), lms),
+    );
 }
 
-// Gamut-aware chroma scale for saturation > 1.0: pixels comfortably inside the
-// display gamut get the full flat scale; pixels whose full-strength push would
-// clip get a smooth softplus-style knee toward their own in-gamut headroom
-// instead of an abrupt per-channel RGB clamp, which shifts hue (clamping only
-// the overshooting channel(s) changes the R:G:B ratio even though the a*/b*
-// scale itself preserves hue exactly). Mirrors gamut_aware_chroma_scale in
-// kernel/image/logic.py -- 10 bisection iterations, same as the CPU path.
-fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
-    // Desaturation never overshoots the gamut.
-    if (saturation <= 1.0) { return saturation; }
-    // Full push already lands in gamut -- use it directly. Without this, bisecting
-    // only within [1, saturation] always converges lo toward saturation itself (an
-    // artifact of that being the search's own upper bound, not a real constraint),
-    // and the knee below then throttles pixels that were never going to clip.
-    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * saturation, lab.z * saturation))) { return saturation; }
+// Linear RGB of an Oklab color with its chroma scaled by k, unclamped.
+fn oklab_to_rgb(lab: vec3<f32>, k: f32) -> vec3<f32> {
+    let v = vec3<f32>(lab.x, lab.y * k, lab.z * k);
+    let r = vec3<f32>(
+        dot(vec3<f32>(0.999999998, 0.396337792, 0.215803758), v),
+        dot(vec3<f32>(1.000000009, -0.105561342, -0.063854175), v),
+        dot(vec3<f32>(1.000000055, -0.089484182, -1.291485538), v),
+    );
+    let lms = r * r * r;
+    return vec3<f32>(
+        dot(vec3<f32>(2.553867783, -1.621790027, 0.067922244), lms),
+        dot(vec3<f32>(-1.268519417, 2.609797725, -0.341278309), lms),
+        dot(vec3<f32>(-0.056250165, -0.567168402, 1.623418568), lms),
+    );
+}
+
+fn in_gamut(rgb: vec3<f32>) -> bool {
+    let tol = 1e-4;
+    return all(rgb >= vec3<f32>(-tol)) && all(rgb <= vec3<f32>(1.0 + tol));
+}
+
+// Saturation: an Oklab chroma scale. A pixel whose full push leaves the gamut takes a soft knee
+// toward its own headroom, found by 10 bisection steps, because an RGB clamp shifts hue.
+// Mirrors oklab_chroma_block in negpy_core/src/color.rs.
+fn oklab_saturate(rgb: vec3<f32>, saturation: f32) -> vec3<f32> {
+    let lab = rgb_to_oklab(rgb);
+    let full = oklab_to_rgb(lab, saturation);
+    if (saturation <= 1.0 || in_gamut(full)) { return full; }
     var lo = 1.0;
     var hi = saturation;
-    let still_ok = in_gamut_lab(lab);
+    let still_ok = in_gamut(oklab_to_rgb(lab, 1.0));
     for (var i = 0; i < 10; i++) {
         let mid = (lo + hi) / 2.0;
-        if (still_ok && in_gamut_lab(vec3<f32>(lab.x, lab.y * mid, lab.z * mid))) {
+        if (still_ok && in_gamut(oklab_to_rgb(lab, mid))) {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    let s_max = max(lo, 1.0 + 1e-4);
-    let knee = s_max - 1.0;
-    return 1.0 + knee * (1.0 - exp(-(saturation - 1.0) / knee));
+    let knee = max(lo, 1.0 + 1e-4) - 1.0;
+    return oklab_to_rgb(lab, 1.0 + knee * (1.0 - exp(-(saturation - 1.0) / knee)));
 }
 
 // Skin-tone mask and chroma rein -- mirror _skin_weight / _skin_chroma_rein_kernel
@@ -361,15 +368,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(vec3<f32>(current_lab.x, ab.x, ab.y));
     }
 
-    // 2. Global Saturation (CIELAB chroma scaling — preserves L*; gamut-aware
-    // above 1.0, see gamut_aware_chroma_eff) and the skin chroma rein, which is
-    // independent of it and runs at saturation 1.0 too.
+    // 2. Saturation: the Oklab chroma scale, with the pixel's own L* put back, so the sharpen
+    // state below stays valid. Then the skin chroma rein, which runs at saturation 1.0 too.
     if (params.saturation != 1.0 || params.skin_protection > 0.0) {
         var lab = rgb_to_lab(color);
         if (params.saturation != 1.0) {
-            let eff = gamut_aware_chroma_eff(lab, params.saturation);
-            lab.y = lab.y * eff;
-            lab.z = lab.z * eff;
+            lab = vec3<f32>(lab.x, rgb_to_lab(oklab_saturate(color, params.saturation)).yz);
         }
         if (params.skin_protection > 0.0) {
             lab = skin_chroma_rein(lab, params.skin_protection);

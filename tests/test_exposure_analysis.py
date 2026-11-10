@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
 from negpy.features.exposure.analysis import DENSITY_HIST_BINS, DENSITY_HIST_RANGE, density_histogram
 from negpy.infrastructure.gpu.device import GPUDevice
 
@@ -42,7 +43,7 @@ class TestDensityHistogram(unittest.TestCase):
         img = np.zeros((1, 1, 3), dtype=np.float32)
         img[..., 1] = 1.0
         hist = density_histogram(img)
-        self.assertEqual(int(np.argmax(hist[3])), _bin_of(0.7152))
+        self.assertEqual(int(np.argmax(hist[3])), _bin_of(LUMA_G))
 
     def test_channels_bin_independently(self):
         # A red-dominant pixel: the R row sits on its own density, G/B stay off at theirs.
@@ -52,7 +53,7 @@ class TestDensityHistogram(unittest.TestCase):
         self.assertEqual(int(np.argmax(hist[0])), _bin_of(0.905))
         self.assertEqual(int(np.argmax(hist[1])), _bin_of(0.005))
         self.assertEqual(int(np.argmax(hist[2])), _bin_of(0.005))
-        luma = 0.2126 * 0.905 + (0.7152 + 0.0722) * 0.005
+        luma = LUMA_R * 0.905 + (LUMA_G + LUMA_B) * 0.005
         self.assertEqual(int(np.argmax(hist[3])), _bin_of(luma))
 
 

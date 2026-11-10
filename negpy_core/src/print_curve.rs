@@ -12,9 +12,9 @@ use rayon::prelude::*;
 
 use crate::mathf::{exp_f64, exp10_f64, log1p_f64, log10_f64, pow_f64, tanh_f64};
 
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
+const LUMA_R: f64 = 0.2974;
+const LUMA_G: f64 = 0.6273;
+const LUMA_B: f64 = 0.0753;
 
 /// An HxW (or HxWxK) float32 plane.
 #[derive(Clone, Copy)]

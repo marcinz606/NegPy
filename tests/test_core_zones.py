@@ -17,14 +17,14 @@ def _frame(seed, shape=(900, 1300)):
 
 @linux_pin
 def test_zone_field_pin():
-    assert digest([A.zone_field(_frame(seed)) for seed in range(3)]) == "383621ac92b130bb446522b06f8c2ca420de4b2e50bd4affe5bde408a5436cc6"
+    assert digest([A.zone_field(_frame(seed)) for seed in range(3)]) == "ad92e90b9f197912803295a64d58136880f0d394c9791b8033e61fdebfcf5bfb"
 
 
 @linux_pin
 def test_zone_anchors_pin():
     assert (
         digest([A.zone_anchors(A.zone_field(_frame(seed))) for seed in range(4)])
-        == "d2913ae7ab3b380a24f10a0dc769c116855d8f89ea280dd068dc342b260f4e6e"
+        == "c26690ccbb47db04f255e6cf418153dc217e8a27b806aa069023830ce94778cd"
     )
 
 
@@ -32,7 +32,7 @@ def test_zone_anchors_pin():
 def test_loupe_and_labels_pin():
     loupe = [A.loupe_acutance(_frame(seed, (60, 90))) for seed in range(3)]
     labels = [A.zone_region_labels(A.zone_grid(_frame(seed))) for seed in range(3)]
-    assert digest(loupe, labels) == "14d7d03839dc859fdcd4659ce8eb39ebf56adfc338bee6075ff54ddaa4f1d6c7"
+    assert digest(loupe, labels) == "037a61b8a165fb39992944ad37f76016a04ab775873f5bbfbadde5ff8ddbaf25"
 
 
 @linux_pin
