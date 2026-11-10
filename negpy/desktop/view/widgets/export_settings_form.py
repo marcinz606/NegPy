@@ -1,3 +1,4 @@
+from negpy.services.export.launch_recipe import GROUP_COLOR, GROUP_DESTINATION, GROUP_FORMAT, GROUP_SIZE
 from negpy.desktop.view.styles.templates import add_choice_items, choice_label
 from negpy.kernel.system.i18n import tr
 import os
@@ -85,6 +86,7 @@ class ExportSettingsForm(QWidget):
         self._loading = False
         self._flat_mode = False
         self._linear_mode = False
+        self._hidden_groups: frozenset[str] = frozenset()
         # Retained while an ICC profile is selected, so switching back to a space restores
         # the last one rather than a default.
         self._export_space = ColorSpace.SRGB.value
@@ -249,7 +251,8 @@ class ExportSettingsForm(QWidget):
             tr("Keep the scan's size, set a print size and DPI, or set the long edge in pixels."),
         )
         self.mode_btn.currentChanged.connect(self._on_mode_toggled)
-        root.addLayout(field_row(tr("Resolution"), self.mode_btn))
+        self._mode_row_widget = self._row_widget(field_row(tr("Resolution"), self.mode_btn))
+        root.addWidget(self._mode_row_widget)
 
         self._print_container = QWidget()
         print_inner = QVBoxLayout(self._print_container)
@@ -333,7 +336,8 @@ class ExportSettingsForm(QWidget):
         constrain_combo(self.export_profile_combo)
         self.export_profile_combo.setToolTip(tr("The color space of the exported file, or an imported profile for a printer or paper."))
         self.export_profile_combo.currentIndexChanged.connect(self._on_export_profile_changed)
-        root.addLayout(field_row(tr("Export profile"), self.export_profile_combo))
+        self._export_profile_row = self._row_widget(field_row(tr("Export profile"), self.export_profile_combo))
+        root.addWidget(self._export_profile_row)
 
         self._color_extra = QVBoxLayout()
         self._color_extra.setContentsMargins(0, 0, 0, 0)
@@ -427,7 +431,12 @@ class ExportSettingsForm(QWidget):
 
     # --- DESTINATION ---------------------------------------------------------
 
-    def _build_destination(self, root: QVBoxLayout) -> None:
+    def _build_destination(self, parent: QVBoxLayout) -> None:
+        self._destination_section = QWidget()
+        root = QVBoxLayout(self._destination_section)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+        parent.addWidget(self._destination_section)
         root.addWidget(section_subheader(tr("DESTINATION")))
 
         self.output_mode_combo = StepCombo()
@@ -570,16 +579,27 @@ class ExportSettingsForm(QWidget):
     def _update_mode_visibility(self, mode_value: str) -> None:
         self._print_container.setVisible(mode_value == ExportResolutionMode.PRINT.value)
         self._target_px_container.setVisible(mode_value == ExportResolutionMode.TARGET_PX.value)
-        self._size_rail.setVisible(mode_value != ExportResolutionMode.ORIGINAL.value)
+        self._size_rail.setVisible(mode_value != ExportResolutionMode.ORIGINAL.value and GROUP_SIZE not in self._hidden_groups)
 
     def _update_ratio_visibility(self, mode_value: str | None = None) -> None:
         """Paper ratio applies to print-style sizing; flat + Original hides it."""
         if mode_value is None:
             mode_value = self._current_mode_value()
-        if self._flat_mode and mode_value == ExportResolutionMode.ORIGINAL.value:
+        if GROUP_SIZE in self._hidden_groups or (self._flat_mode and mode_value == ExportResolutionMode.ORIGINAL.value):
             self._ratio_row_widget.setVisible(False)
         else:
             self._ratio_row_widget.setVisible(True)
+
+    def set_hidden_groups(self, groups: frozenset[str]) -> None:
+        """Hide the rows a command-line recipe sets: ``format``, ``size``, ``color`` and ``destination``.
+        Size keeps its header and Preview Export Size, which follows the recipe's size."""
+        self._hidden_groups = frozenset(groups)
+        self._format_section.setVisible(not self._linear_mode and GROUP_FORMAT not in self._hidden_groups)
+        self._mode_row_widget.setVisible(GROUP_SIZE not in self._hidden_groups)
+        self._update_mode_visibility(self._current_mode_value())
+        self._update_ratio_visibility()
+        self._export_profile_row.setVisible(GROUP_COLOR not in self._hidden_groups)
+        self._destination_section.setVisible(GROUP_DESTINATION not in self._hidden_groups)
 
     def set_flat_mode(self, enabled: bool) -> None:
         """Toggle flat-master export UI: constrain FORMAT to TIFF/JXL (a flat master
@@ -591,7 +611,7 @@ class ExportSettingsForm(QWidget):
             return
         self._flat_mode = enabled
 
-        self._format_section.setVisible(not self._linear_mode)
+        self._format_section.setVisible(not self._linear_mode and GROUP_FORMAT not in self._hidden_groups)
         current = self.fmt_combo.currentData()
         self.fmt_combo.blockSignals(True)
         self.fmt_combo.clear()
@@ -625,7 +645,7 @@ class ExportSettingsForm(QWidget):
         if enabled == self._linear_mode:
             return
         self._linear_mode = enabled
-        self._format_section.setVisible(not enabled)
+        self._format_section.setVisible(not enabled and GROUP_FORMAT not in self._hidden_groups)
         self._size_section.setVisible(not enabled)
         self._color_section.setVisible(not enabled)
         if not enabled:

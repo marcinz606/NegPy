@@ -40,7 +40,16 @@ from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, 
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
-from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
+from negpy.domain.models import (
+    PROOF_INTENT_LABELS,
+    ColorSpace,
+    ExportFormat,
+    ExportResolutionMode,
+    ProofIntent,
+    export_blocked,
+    preset_display_name,
+)
+from negpy.services.export.launch_recipe import GROUP_INTENT, recipe_groups, recipe_intent
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 # The built-in baseline in the proof-preset combo. Empty rather than None so a saved preset
@@ -106,7 +115,7 @@ class ExportSidebar(BaseSidebar):
         self._sync_flat_enabled()
 
         self._rebuild_preset_rows()
-        self._refresh_export_enabled()
+        self._sync_launch_recipe()
         align_slider_columns(body)
 
     def _connect_signals(self) -> None:
@@ -141,6 +150,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_bake_btn.clicked.connect(self.controller.request_batch_normalization)
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
         self.controller.linear_output_changed.connect(self._on_linear_output_changed)
+        self.controller.launch_recipe_changed.connect(self._sync_launch_recipe)
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
         self.export_size_btn.toggled.connect(self._on_export_size_clicked)
         self.controller.export_size_view_changed.connect(self._on_export_size_view_changed)
@@ -209,6 +219,9 @@ class ExportSidebar(BaseSidebar):
         content_layout.addLayout(preset_btn_row)
         self.presets_linear_hint = hint_label(tr("Presets are off while the output intent is Linear."))
         content_layout.addWidget(self.presets_linear_hint)
+        self.presets_recipe_hint = hint_label(tr("Presets are off for a frame opened from the command line."))
+        self.presets_recipe_hint.setVisible(False)
+        content_layout.addWidget(self.presets_recipe_hint)
 
         self._presets_section = make_section(
             self.controller.session.repo, tr("Presets"), "export_presets", content, "fa5s.layer-group", collapsible=False
@@ -321,7 +334,11 @@ class ExportSidebar(BaseSidebar):
 
     def _add_flat_master_section(self) -> None:
         """Output-intent override: Print (default) or Flat digital intermediate."""
-        self._body.addWidget(section_subheader(tr("OUTPUT INTENT")))
+        self.recipe_hint = hint_label("")
+        self.recipe_hint.setVisible(False)
+        self._body.addWidget(self.recipe_hint)
+        self._intent_header = section_subheader(tr("OUTPUT INTENT"))
+        self._body.addWidget(self._intent_header)
 
         # What Flat and Linear turn on rides a rail under the choice; Print has none.
         rail_body = QWidget()
@@ -517,15 +534,68 @@ class ExportSidebar(BaseSidebar):
             self.linear_ice_btn.setVisible(False)
             self.linear_corrections_hint.setVisible(False)
         if hasattr(self, "_presets_section"):
-            for widget in (self.manage_presets_btn, self.export_presets_group, *self._preset_toggles):
-                widget.setEnabled(not linear_on)
-            self.presets_linear_hint.setVisible(linear_on)
+            self._sync_presets_enabled()
         if hasattr(self, "alongside_section"):
             for widget in self._not_linear:
                 widget.setVisible(not linear_on)
         self._sync_flat_roll_warning()
         if hasattr(self, "form"):
             self._refresh_export_enabled()
+
+    def _sync_presets_enabled(self) -> None:
+        """Presets are off in Linear and for a frame a command-line launch opened."""
+        linear_on = self.intent_btn.currentIndex() == 2
+        recipe_on = self.controller.current_launch_recipe() is not None
+        for widget in (self.manage_presets_btn, self.export_presets_group, *self._preset_toggles):
+            widget.setEnabled(not linear_on and not recipe_on)
+        self.presets_linear_hint.setVisible(linear_on and not recipe_on)
+        self.presets_recipe_hint.setVisible(recipe_on)
+
+    def _sync_launch_recipe(self) -> None:
+        """Hide what the open frame's command-line recipe sets, and say what it sets."""
+        found = self.controller.current_launch_recipe()
+        groups = recipe_groups(*found) if found else frozenset()
+        self.form.set_hidden_groups(groups - {GROUP_INTENT})
+        self._intent_header.setVisible(GROUP_INTENT not in groups)
+        self.intent_btn.setVisible(GROUP_INTENT not in groups)
+        summary = self._recipe_summary(found, groups) if found else ""
+        self.recipe_hint.setText(summary)
+        self.recipe_hint.setVisible(bool(summary))
+        self._sync_presets_enabled()
+        self._refresh_export_enabled()
+
+    def _recipe_summary(self, found, groups) -> str:
+        """One line per value the recipe sets, under a line that names where it comes from."""
+        recipe, preset = found
+        conf = self.controller.recipe_export_config()
+        lines = []
+        if preset is not None:
+            lines.append(tr("Preset: {name}", name=preset_display_name(preset)))
+        if GROUP_INTENT in groups:
+            lines.append({"print": tr("Print"), "flat": tr("Flat"), "linear": tr("Linear")}[recipe_intent(recipe, preset) or "print"])
+        if "format" in groups:
+            fmt = ExportFormat(conf.export_fmt)
+            detail = {
+                ExportFormat.JPEG: tr("quality {value}", value=conf.jpeg_quality),
+                ExportFormat.WEBP: tr("quality {value}", value=conf.webp_quality),
+            }.get(fmt, f"{conf.export_bit_depth}-bit")
+            lines.append(f"{fmt.value}, {detail}")
+        if "size" in groups:
+            mode = conf.export_resolution_mode
+            if mode == ExportResolutionMode.TARGET_PX.value:
+                lines.append(f"{conf.export_target_long_edge_px} px")
+            elif mode == ExportResolutionMode.PRINT.value:
+                lines.append(f"{conf.export_print_size:g} cm, {conf.export_dpi} DPI")
+            else:
+                lines.append(tr("Original"))
+            if str(conf.paper_aspect_ratio) != "Original":
+                lines.append(str(conf.paper_aspect_ratio))
+        if "color" in groups:
+            lines.append(os.path.basename(conf.icc_output_path) if conf.icc_output_path else str(conf.export_color_space))
+        if "destination" in groups:
+            lines.append(conf.export_path)
+            lines.append(conf.filename_pattern)
+        return "\n".join([tr("Set by the command that opened this frame:"), *lines])
 
     def _sync_flat_roll_warning(self) -> None:
         """Show the roll-baseline nudge only when flat output is on and the roll
@@ -1326,6 +1396,9 @@ class ExportSidebar(BaseSidebar):
                 self._refresh_linear_expansion_combo()
         else:
             blocked = self.form.is_export_blocked()
+            if self.controller.current_launch_recipe() is not None:
+                conf = self.controller.recipe_export_config()
+                blocked = not self.state.flat_output and export_blocked(conf.export_fmt, conf.export_color_space)
             self.export_main_btn.setEnabled(not blocked)
             self.export_menu_btn.setEnabled(not blocked)
 
